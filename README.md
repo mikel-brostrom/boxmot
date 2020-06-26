@@ -28,7 +28,7 @@ All dependencies are included in the associated docker images. Docker requiremen
 
 ## Before you run the tracker
 
-Github block pushes of files larger than 100 MB (https://help.github.com/en/github/managing-large-files/conditions-for-large-files). Hence the yolo weights needs to be stored somewhere else. When you run tracker.py you will get an exceptions telling you that the yolov5 weight are missing and a link to download them from (https://drive.google.com/drive/folders/1Drs_Aiu7xx6S-ix95f9kNsA6ueKRpN2J). Place the downlaoded `.pt` file under `yolov3/weights/`. The weights for deep sort are already in this repo. They can be found under `deep_sort/deep/checkpoint/`.
+Github block pushes of files larger than 100 MB (https://help.github.com/en/github/managing-large-files/conditions-for-large-files). Hence the yolo weights needs to be stored somewhere else. When you run tracker.py you will get an exceptions telling you that the yolov5 weight are missing and a link to download them from (https://drive.google.com/drive/folders/1Drs_Aiu7xx6S-ix95f9kNsA6ueKRpN2J). Place the downlaoded `.pt` file under `yolov5/weights/`. The weights for deep sort are already in this repo. They can be found under `deep_sort/deep/checkpoint/`.
 
 ## Tracking
 
