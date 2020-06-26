@@ -50,4 +50,3 @@ python3 track.py --source ...
 
 For more detailed information about the algorithms and their corresponding lisences used in this project access their official github implementations.
 
-# Yolov5_DeepSort_Pytorch
