@@ -12,8 +12,8 @@ The implementation is based on two papers:
 
 - Simple Online and Realtime Tracking with a Deep Association Metric
 https://arxiv.org/abs/1703.07402
-- YOLOv3: An Incremental Improvement
-https://arxiv.org/abs/1804.02767
+- YOLOv4: Optimal Speed and Accuracy of Object Detection
+https://arxiv.org/pdf/2004.10934.pdf
 
 ## Requirements
 
