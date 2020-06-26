@@ -17,10 +17,9 @@ https://arxiv.org/pdf/2004.10934.pdf
 
 ## Requirements
 
-Python 3.7 or later with all of the `pip install -U -r requirements.txt` packages including:
-- `torch >= 1.3`
-- `opencv-python`
-- `Pillow`
+Python 3.7 or later with all requirements.txt dependencies installed, including torch >= 1.5. To install run:
+
+`pip install -U -r requirements.txt`
 
 All dependencies are included in the associated docker images. Docker requirements are: 
 - `nvidia-docker`
