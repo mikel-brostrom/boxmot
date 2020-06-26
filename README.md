@@ -1,10 +1,10 @@
-# Yolov3 + Deep Sort with PyTorch
+# Yolov5 + Deep Sort with PyTorch
 
-![](yolov3/Town.gif)
+![](yolov5/Town.gif)
 
 ## Introduction
 
-This repository contains a moded version of PyTorch YOLOv3 (https://github.com/ultralytics/yolov3). It filters out every detection that is not a person. The detections of persons are then passed to a Deep Sort algorithm (https://github.com/ZQPei/deep_sort_pytorch) which tracks the persons. The reason behind the fact that it just tracks persons is that the deep association metric is trained on a person ONLY datatset.
+This repository contains a moded version of PyTorch YOLOv5 (https://github.com/ultralytics/yolov5). It filters out every detection that is not a person. The detections of persons are then passed to a Deep Sort algorithm (https://github.com/ZQPei/deep_sort_pytorch) which tracks the persons. The reason behind the fact that it just tracks persons is that the deep association metric is trained on a person ONLY datatset.
 
 ## Description
 
@@ -28,7 +28,7 @@ All dependencies are included in the associated docker images. Docker requiremen
 
 ## Before you run the tracker
 
-Github block pushes of files larger than 100 MB (https://help.github.com/en/github/managing-large-files/conditions-for-large-files). Hence the yolo weights needs to be stored somewhere else. When you run tracker.py you will get an exceptions telling you that the yolov3 weight are missing and a link to download them from. Place the downlaoded `.pt` file under `yolov3/weights/`. The weights for deep sort are already in this repo. They can be found under `deep_sort/deep/checkpoint/`.
+Github block pushes of files larger than 100 MB (https://help.github.com/en/github/managing-large-files/conditions-for-large-files). Hence the yolo weights needs to be stored somewhere else. When you run tracker.py you will get an exceptions telling you that the yolov5 weight are missing and a link to download them from (https://drive.google.com/drive/folders/1Drs_Aiu7xx6S-ix95f9kNsA6ueKRpN2J). Place the downlaoded `.pt` file under `yolov3/weights/`. The weights for deep sort are already in this repo. They can be found under `deep_sort/deep/checkpoint/`.
 
 ## Tracking
 
