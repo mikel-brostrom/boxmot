@@ -1,0 +1,5 @@
+train  = coco_train.txt
+valid  = coco_test.txt
+names = data/coco.names
+backup = backup
+gpus  = 0,1,2,3
