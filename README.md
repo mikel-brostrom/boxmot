@@ -46,12 +46,6 @@ python3 track.py --source ...
 - RTSP stream:  `--source rtsp://170.93.143.139/rtplive/470011e600ef003a004ee33696235daa`
 - HTTP stream:  `--source http://wmccpinetop.axiscam.net/mjpg/video.mjpg`
 
-The video used for the .gif can be downloaded by:
-
-```bash
-wget http://www.robots.ox.ac.uk/ActiveVision/Research/Projects/2009bbenfold_headpose/Datasets/TownCentreXVID.avi
-```
-
 ## Other information
 
 For more detailed information about the algorithms and their corresponding lisences used in this project access their official github implementations.
