@@ -1,6 +1,6 @@
 # Yolov5 + Deep Sort with PyTorch
 
-![](yolov5/Town.gif)
+![](Town.gif)
 
 ## Introduction
 
