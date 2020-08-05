@@ -20,7 +20,7 @@ https://arxiv.org/pdf/2004.10934.pdf
 
 ## Requirements
 
-Python 3.7 or later with all requirements.txt dependencies installed, including torch >= 1.5. To install run:
+Python 3.8 or later with all requirements.txt dependencies installed, including torch>=1.6. To install run:
 
 `pip install -U -r requirements.txt`
 
@@ -37,7 +37,7 @@ Github block pushes of files larger than 100 MB (https://help.github.com/en/gith
 
 ## Tracking
 
-`track.py` runs tracking on any video source:
+Tracking can be run on most video formats. Results are saved to ./inference/output.
 
 ```bash
 python3 track.py --source ...
