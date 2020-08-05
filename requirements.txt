@@ -1,16 +1,14 @@
-cycler==0.10.0
-easydict==1.9
-future==0.18.2
-kiwisolver==1.2.0
-matplotlib==3.2.2
-numpy==1.19.0
-opencv-python==4.2.0.34
-Pillow==7.1.2
-pyparsing==2.4.7
-python-dateutil==2.8.1
-PyYAML==5.3.1
-scipy==1.5.0
-six==1.15.0
-torch==1.5.1
-torchvision==0.6.1
-tqdm==4.46.1
+# pip install -U -r requirements.txt
+Cython
+matplotlib>=3.2.2
+numpy>=1.18.5
+opencv-python>=4.1.2
+pillow
+easydict
+# pycocotools>=2.0
+PyYAML>=5.3
+scipy>=1.4.1
+tensorboard>=2.2
+torch>=1.6.0
+torchvision>=0.7.0
+tqdm>=4.41.0
