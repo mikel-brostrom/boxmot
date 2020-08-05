@@ -1,18 +1,28 @@
 import argparse
+import os
+import platform
+import shutil
+import time
+from pathlib import Path
+
+import cv2
+import torch
+import torch.backends.cudnn as cudnn
+from numpy import random
 
 # https://github.com/pytorch/pytorch/issues/3678
 import sys
 sys.path.insert(0, './yolov5')
 
-import torch.backends.cudnn as cudnn
-
-from yolov5.utils import google_utils
-from yolov5.utils.datasets import *
-from yolov5.utils.utils import *
+from yolov5.models.experimental import attempt_load
+from yolov5.utils.datasets import LoadStreams, LoadImages
+from yolov5.utils.general import (
+    check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, plot_one_box, strip_optimizer)
+from yolov5.utils.torch_utils import select_device, load_classifier, time_synchronized
 
 from deep_sort.utils.parser import get_config
 from deep_sort.deep_sort import DeepSort
-#from deep_sort.utils.draw import draw_boxes
+
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
@@ -70,7 +80,7 @@ def detect(opt, save_img=False):
                         max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET, use_cuda=True)
 
     # Initialize
-    device = torch_utils.select_device(opt.device)
+    device = select_device(opt.device)
     if os.path.exists(out):
         shutil.rmtree(out)  # delete output folder
     os.makedirs(out)  # make new output folder
@@ -118,12 +128,12 @@ def detect(opt, save_img=False):
             img = img.unsqueeze(0)
 
         # Inference
-        t1 = torch_utils.time_synchronized()
+        t1 = time_synchronized()
         pred = model(img, augment=opt.augment)[0]
 
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
-        t2 = torch_utils.time_synchronized()
+        t2 = time_synchronized()
 
         # Apply Classifier
         if classify:
