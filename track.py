@@ -166,7 +166,7 @@ def detect(opt, save_img=True):
 
                 # Adapt detections to deep sort input format
                 for *xyxy, conf, cls in det:
-                    img_h, img_w, _ = im0.shape  # get image shape
+                    img_h, img_w, _ = im0.shape
                     x_c, y_c, bbox_w, bbox_h = bbox_rel(img_w, img_h, *xyxy)
                     obj = [x_c, y_c, bbox_w, bbox_h]
                     bbox_xywh.append(obj)
