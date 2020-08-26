@@ -56,7 +56,7 @@ def draw_boxes(img, bbox, identities=None, offset=(0,0)):
     return img
 
 
-def detect(opt, save_img=False):
+def detect(opt, save_img=True):
     out, source, weights, view_img, save_txt, imgsz = \
         opt.output, opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size
     webcam = source == '0' or source.startswith('rtsp') or source.startswith('http') or source.endswith('.txt')
@@ -99,6 +99,7 @@ def detect(opt, save_img=False):
         cudnn.benchmark = True  # set True to speed up constant image size inference
         dataset = LoadStreams(source, img_size=imgsz)
     else:
+        view_img = True
         save_img = True
         dataset = LoadImages(source, img_size=imgsz)
 
@@ -153,31 +154,26 @@ def detect(opt, save_img=False):
                 bbox_xywh = []
                 confs = []
 
-                # Write results
+                # Adapt detections to deep sort input format
                 for *xyxy, conf, cls in det:
-                    
                     img_h, img_w, _ = im0.shape  # get image shape
-                    
                     x_c, y_c, bbox_w, bbox_h = bbox_rel(img_w, img_h, *xyxy)
                     obj = [x_c, y_c, bbox_w, bbox_h]
                     bbox_xywh.append(obj)
                     confs.append([conf.item()])
-                    label = '%s %.2f' % (names[int(cls)], conf)
-                    outputs = deepsort.update((torch.Tensor(bbox_xywh)), (torch.Tensor(confs)) , im0)
+                
+                xywhs = torch.Tensor(bbox_xywh)
+                confss = torch.Tensor(confs)
 
-                    if save_txt:  # Write to file
-                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                        with open(txt_path + '.txt', 'a') as f:
-                            f.write(('%g ' * 5 + '\n') % (cls, *xywh))  # label format
-                        
-                    if save_img or view_img:  # Add bbox to image
-                        label = '%s %.2f' % (names[int(cls)], conf)
-                        #plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
+                # Pass detections to deepsort
+                outputs = deepsort.update(xywhs, confss , im0)
 
-                    if len(outputs) > 0:
-                        bbox_xyxy = outputs[:, :4]
-                        identities = outputs[:, -1]
-                        draw_boxes(im0, bbox_xyxy, identities)
+                # draw boxes for visualization
+                if len(outputs) > 0:
+                    bbox_tlwh = []
+                    bbox_xyxy = outputs[:, :4]
+                    identities = outputs[:, -1]
+                    ori_im = draw_boxes(im0, bbox_xyxy, identities)
 
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
@@ -214,7 +210,7 @@ def detect(opt, save_img=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='yolov5/weights/yolov5s.pt', help='model.pt path')
+    parser.add_argument('--weights', type=str, default='yolov5/weights/yolov5x.pt', help='model.pt path')
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
