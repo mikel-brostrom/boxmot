@@ -37,7 +37,7 @@ Github block pushes of files larger than 100 MB (https://help.github.com/en/gith
 
 ## Tracking
 
-Tracking can be run on most video formats. Results are saved to ./inference/output.
+Tracking can be run on most video formats
 
 ```bash
 python3 track.py --source ...
@@ -47,6 +47,12 @@ python3 track.py --source ...
 - Webcam:  `--source 0`
 - RTSP stream:  `--source rtsp://170.93.143.139/rtplive/470011e600ef003a004ee33696235daa`
 - HTTP stream:  `--source http://wmccpinetop.axiscam.net/mjpg/video.mjpg`
+
+MOT compliant results can be saved to `inference/output` by 
+
+```bash
+python3 track.py --source ... --save-txt
+```
 
 ## Other information
 
