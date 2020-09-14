@@ -95,13 +95,6 @@ def detect(opt, save_img=False):
     if half:
         model.half()  # to FP16
 
-    # Second-stage classifier
-    classify = False
-    if classify:
-        modelc = torch_utils.load_classifier(name='resnet101', n=2)  # initialize
-        modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device)['model'])  # load weights
-        modelc.to(device).eval()
-
     # Set Dataloader
     vid_path, vid_writer = None, None
     if webcam:
@@ -121,7 +114,7 @@ def detect(opt, save_img=False):
     t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
-    for path, img, im0s, vid_cap in dataset:
+    for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -135,11 +128,6 @@ def detect(opt, save_img=False):
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
         t2 = time_synchronized()
-
-        # Apply Classifier
-        if classify:
-            pred = apply_classifier(pred, modelc, img, im0s)
-
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
@@ -185,6 +173,19 @@ def detect(opt, save_img=False):
                     identities = outputs[:, -1]
                     ori_im = draw_boxes(im0, bbox_xyxy, identities)
 
+                # Write MOT compliant results to file
+                if save_txt and len(outputs) != 0:  
+                    for j, output in enumerate(outputs):
+                        bbox_left = output[0]
+                        bbox_top = output[1]
+                        bbox_w = output[2]
+                        bbox_h = output[3]
+                        identities = output[-1]
+                        print(txt_path + '.txt')
+                        with open(txt_path + '.txt', 'a') as f:
+                            f.write(('%g ' * 10 + '\n') % (frame_idx, identities, bbox_left, \
+                                bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
 
@@ -210,6 +211,9 @@ def detect(opt, save_img=False):
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), fps, (w, h))
                     vid_writer.write(im0)
 
+
+            
+
     if save_txt or save_img:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
         if platform == 'darwin':  # MacOS
@@ -220,7 +224,7 @@ def detect(opt, save_img=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='yolov5/weights/yolov5m.pt', help='model.pt path')
+    parser.add_argument('--weights', type=str, default='yolov5/weights/yolov5x.pt', help='model.pt path')
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
