@@ -1,27 +1,21 @@
+from yolov5.utils.datasets import LoadImages, LoadStreams
+from yolov5.utils.general import (
+    check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, plot_one_box, strip_optimizer)
+from yolov5.utils.torch_utils import select_device, load_classifier, time_synchronized
+from deep_sort.utils.parser import get_config
+from deep_sort.deep_sort import DeepSort
 import argparse
 import os
 import platform
 import shutil
 import time
 from pathlib import Path
-
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
-from numpy import random
-
 # https://github.com/pytorch/pytorch/issues/3678
 import sys
 sys.path.insert(0, './yolov5')
-
-from yolov5.models.experimental import attempt_load
-from yolov5.utils.datasets import LoadStreams, LoadImages
-from yolov5.utils.general import (
-    check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, plot_one_box, strip_optimizer)
-from yolov5.utils.torch_utils import select_device, load_classifier, time_synchronized
-
-from deep_sort.utils.parser import get_config
-from deep_sort.deep_sort import DeepSort
 
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
@@ -108,7 +102,6 @@ def detect(opt, save_img=False):
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
-    colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(len(names))]
 
     # Run inference
     t0 = time.time()
@@ -140,9 +133,7 @@ def detect(opt, save_img=False):
             else:
                 p, s, im0 = path, '', im0s
 
-            
             s += '%gx%g ' % img.shape[2:]  # print string
-            gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  #  normalization gain whwh
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
@@ -162,19 +153,18 @@ def detect(opt, save_img=False):
                     obj = [x_c, y_c, bbox_w, bbox_h]
                     bbox_xywh.append(obj)
                     confs.append([conf.item()])
-                
+
                 xywhs = torch.Tensor(bbox_xywh)
                 confss = torch.Tensor(confs)
 
                 # Pass detections to deepsort
-                outputs = deepsort.update(xywhs, confss , im0)
+                outputs = deepsort.update(xywhs, confss, im0)
 
                 # draw boxes for visualization
                 if len(outputs) > 0:
-                    bbox_tlwh = []
                     bbox_xyxy = outputs[:, :4]
                     identities = outputs[:, -1]
-                    ori_im = draw_boxes(im0, bbox_xyxy, identities)
+                    draw_boxes(im0, bbox_xyxy, identities)
 
                 # Write MOT compliant results to file
                 if save_txt and len(outputs) != 0:  
@@ -183,10 +173,10 @@ def detect(opt, save_img=False):
                         bbox_top = output[1]
                         bbox_w = output[2]
                         bbox_h = output[3]
-                        identities = output[-1]
+                        identity = output[-1]
                         with open(txt_path, 'a') as f:
-                            f.write(('%g ' * 10 + '\n') % (frame_idx, identities, bbox_left, \
-                                bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                            f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_left,
+                                    bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
 
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
@@ -213,9 +203,6 @@ def detect(opt, save_img=False):
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), fps, (w, h))
                     vid_writer.write(im0)
 
-
-            
-
     if save_txt or save_img:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
         if platform == 'darwin':  # MacOS
@@ -226,7 +213,7 @@ def detect(opt, save_img=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='yolov5/weights/yolov5m.pt', help='model.pt path')
+    parser.add_argument('--weights', type=str, default='yolov5/weights/yolov5x.pt', help='model.pt path')
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
