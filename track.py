@@ -114,6 +114,10 @@ def detect(opt, save_img=False):
     t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
+
+    save_path = str(Path(out))
+    txt_path = str(Path(out)) + '/results.txt'
+
     for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -136,8 +140,7 @@ def detect(opt, save_img=False):
             else:
                 p, s, im0 = path, '', im0s
 
-            save_path = str(Path(out) / Path(p).name)
-            txt_path = str(Path(out) / Path(p).stem) + ('_%g' % dataset.frame if dataset.mode == 'video' else '')
+            
             s += '%gx%g ' % img.shape[2:]  # print string
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  #  normalization gain whwh
             if det is not None and len(det):
@@ -181,8 +184,7 @@ def detect(opt, save_img=False):
                         bbox_w = output[2]
                         bbox_h = output[3]
                         identities = output[-1]
-                        print(txt_path + '.txt')
-                        with open(txt_path + '.txt', 'a') as f:
+                        with open(txt_path, 'a') as f:
                             f.write(('%g ' * 10 + '\n') % (frame_idx, identities, bbox_left, \
                                 bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
 
@@ -224,7 +226,7 @@ def detect(opt, save_img=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='yolov5/weights/yolov5x.pt', help='model.pt path')
+    parser.add_argument('--weights', type=str, default='yolov5/weights/yolov5m.pt', help='model.pt path')
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
