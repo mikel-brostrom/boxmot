@@ -1,21 +1,26 @@
-from yolov5.utils.datasets import LoadImages, LoadStreams
-from yolov5.utils.general import (
-    check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, plot_one_box, strip_optimizer)
-from yolov5.utils.torch_utils import select_device, load_classifier, time_synchronized
-from deep_sort.utils.parser import get_config
-from deep_sort.deep_sort import DeepSort
 import argparse
 import os
 import platform
 import shutil
+# https://github.com/pytorch/pytorch/issues/3678
+import sys
 import time
 from pathlib import Path
+from pprint import pprint
+
+sys.path.insert(0, os.path.abspath('./deep_sort'))
+sys.path.insert(0, os.path.abspath('./yolov5'))
+
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
-# https://github.com/pytorch/pytorch/issues/3678
-import sys
-sys.path.insert(0, './yolov5')
+
+from deep_sort.deep_sort import DeepSort
+from deep_sort.utils.parser import get_config
+from yolov5.utils.datasets import LoadImages, LoadStreams
+from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords
+from yolov5.utils.torch_utils import select_device, time_synchronized
+
 
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
@@ -50,7 +55,7 @@ def draw_boxes(img, bbox, identities=None, offset=(0,0)):
         y1 += offset[1]
         y2 += offset[1]
         # box text and bar
-        id = int(identities[i]) if identities is not None else 0   
+        id = int(identities[i]) if identities is not None else 0
         color = compute_color_for_labels(id)
         label = '{}{:d}'.format("", id)
         t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 2, 2)[0]
