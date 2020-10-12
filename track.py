@@ -50,11 +50,11 @@ def draw_boxes(img, bbox, identities=None, offset=(0,0)):
         y1 += offset[1]
         y2 += offset[1]
         # box text and bar
-        id = int(identities[i]) if identities is not None else 0    
+        id = int(identities[i]) if identities is not None else 0   
         color = compute_color_for_labels(id)
         label = '{}{:d}'.format("", id)
-        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 2 , 2)[0]
-        cv2.rectangle(img, (x1, y1),(x2,y2), color, 3)
+        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 2, 2)[0]
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
         cv2.rectangle(img, (x1, y1), (x1 + t_size[0] + 3, y1 + t_size[1] + 4), color, -1)
         cv2.putText(img, label, (x1, y1 + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 2, [255, 255, 255], 2)
     return img
@@ -68,10 +68,11 @@ def detect(opt, save_img=False):
     # initialize deepsort
     cfg = get_config()
     cfg.merge_from_file(opt.config_deepsort)
-    deepsort = DeepSort(cfg.DEEPSORT.REID_CKPT, 
-                        max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE, 
-                        nms_max_overlap=cfg.DEEPSORT.NMS_MAX_OVERLAP, max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE, 
-                        max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET, use_cuda=True)
+    deepsort = DeepSort(cfg.DEEPSORT.REID_CKPT,
+                        max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
+                        nms_max_overlap=cfg.DEEPSORT.NMS_MAX_OVERLAP, max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
+                        max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
+                        use_cuda=True)
 
     # Initialize
     device = select_device(opt.device)
@@ -81,10 +82,7 @@ def detect(opt, save_img=False):
     half = device.type != 'cpu'  # half precision only supported on CUDA
 
     # Load model
-    #google_utils.attempt_download(weights)
     model = torch.load(weights, map_location=device)['model'].float()  # load to FP32
-    #model = torch.save(torch.load(weights, map_location=device), weights)  # update model if SourceChangeWarning
-    # model.fuse()
     model.to(device).eval()
     if half:
         model.half()  # to FP16
@@ -134,6 +132,8 @@ def detect(opt, save_img=False):
                 p, s, im0 = path, '', im0s
 
             s += '%gx%g ' % img.shape[2:]  # print string
+            save_path = str(Path(out) / Path(p).name)
+
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
@@ -189,9 +189,11 @@ def detect(opt, save_img=False):
 
             # Save results (image with detections)
             if save_img:
+                print('saving img!')
                 if dataset.mode == 'images':
                     cv2.imwrite(save_path, im0)
                 else:
+                    print('saving video!')
                     if vid_path != save_path:  # new video
                         vid_path = save_path
                         if isinstance(vid_writer, cv2.VideoWriter):
