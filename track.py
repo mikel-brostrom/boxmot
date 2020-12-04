@@ -1,7 +1,9 @@
+import sys
+sys.path.insert(0, './yolov5')
+
 from yolov5.utils.datasets import LoadImages, LoadStreams
-from yolov5.utils.general import (
-    check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, plot_one_box, strip_optimizer)
-from yolov5.utils.torch_utils import select_device, load_classifier, time_synchronized
+from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords
+from yolov5.utils.torch_utils import select_device, time_synchronized
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
 import argparse
@@ -13,15 +15,13 @@ from pathlib import Path
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
-# https://github.com/pytorch/pytorch/issues/3678
-import sys
-sys.path.insert(0, './yolov5')
+
 
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
 
-def bbox_rel(image_width, image_height,  *xyxy):
+def bbox_rel(*xyxy):
     """" Calculates the relative bounding box from absolute pixel values. """
     bbox_left = min([xyxy[0].item(), xyxy[2].item()])
     bbox_top = min([xyxy[1].item(), xyxy[3].item()])
@@ -159,8 +159,7 @@ def detect(opt, save_img=False):
 
                 # Adapt detections to deep sort input format
                 for *xyxy, conf, cls in det:
-                    img_h, img_w, _ = im0.shape
-                    x_c, y_c, bbox_w, bbox_h = bbox_rel(img_w, img_h, *xyxy)
+                    x_c, y_c, bbox_w, bbox_h = bbox_rel(*xyxy)
                     obj = [x_c, y_c, bbox_w, bbox_h]
                     bbox_xywh.append(obj)
                     confs.append([conf.item()])
