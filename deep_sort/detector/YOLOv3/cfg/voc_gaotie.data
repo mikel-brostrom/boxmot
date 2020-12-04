@@ -1,5 +1,0 @@
-train  = data/gaotie_trainval.txt
-valid  = data/gaotie_test.txt
-names = data/voc.names
-backup = backup
-gpus  = 3
