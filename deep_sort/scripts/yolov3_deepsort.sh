@@ -1,1 +1,0 @@
-python yolov3_deepsort.py [VIDEO_PATH] --config_detection
