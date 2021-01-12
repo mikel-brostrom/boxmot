@@ -152,6 +152,7 @@ def detect(opt, save_img=False):
 
                 bbox_xywh = []
                 confs = []
+                classes = det[:, -1]
 
                 # Adapt detections to deep sort input format
                 for *xyxy, conf, cls in det:
@@ -164,7 +165,7 @@ def detect(opt, save_img=False):
                 confss = torch.Tensor(confs)
 
                 # Pass detections to deepsort
-                outputs = deepsort.update(xywhs, confss, im0)
+                outputs = deepsort.update(xywhs, confss, classes, im0)
 
                 # draw boxes for visualization
                 if len(outputs) > 0:
@@ -179,10 +180,11 @@ def detect(opt, save_img=False):
                         bbox_top = output[1]
                         bbox_w = output[2]
                         bbox_h = output[3]
-                        identity = output[-1]
+                        identity = output[4]
+                        class_id = output[5]
                         with open(txt_path, 'a') as f:
                             f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_left,
-                                                           bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                                                           bbox_top, bbox_w, bbox_h, class_id, -1, -1, -1, -1))  # label format
 
             else:
                 deepsort.increment_ages()
