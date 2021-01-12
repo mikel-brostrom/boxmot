@@ -20,7 +20,7 @@ https://arxiv.org/pdf/2004.10934.pdf
 
 ## Requirements
 
-Python 3.8 or later with all requirements.txt dependencies installed, including torch>=1.6. To install run:
+Python 3.8 or later with all requirements.txt dependencies installed, including torch>=1.7. To install run:
 
 `pip install -U -r requirements.txt`
 
