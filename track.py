@@ -3,7 +3,8 @@ sys.path.insert(0, './yolov5')
 
 from yolov5.models.experimental import attempt_load
 from yolov5.utils.datasets import LoadImages, LoadStreams
-from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords
+from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, \
+    check_imshow
 from yolov5.utils.torch_utils import select_device, time_synchronized
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
@@ -96,9 +97,10 @@ def detect(opt, save_img=False):
     # Set Dataloader
     vid_path, vid_writer = None, None
     if webcam:
-        view_img = True
+        # Check if environment supports image displays
+        view_img = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz)
+        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
     else:
         view_img = True
         save_img = True
@@ -108,10 +110,9 @@ def detect(opt, save_img=False):
     names = model.module.names if hasattr(model, 'module') else model.names
 
     # Run inference
+    if device.type != 'cpu':
+        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
     t0 = time.time()
-    img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
-    # run once
-    _ = model(img.half() if half else img) if device.type != 'cpu' else None
 
     save_path = str(Path(out))
     txt_path = str(Path(out)) + '/results.txt'
