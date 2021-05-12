@@ -11,7 +11,7 @@ class Extractor(object):
     def __init__(self, model_path, use_cuda=True):
         self.net = Net(reid=True)
         self.device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
-        state_dict = torch.load(model_path, map_location=torch.device(self.device))[
+        state_dict = torch.load(model_path, map_location=lambda storage, loc: storage)[
             'net_dict']
         self.net.load_state_dict(state_dict)
         logger = logging.getLogger("root.tracker")
