@@ -10,3 +10,5 @@ torch>=1.7.0
 torchvision>=0.8.1
 tqdm>=4.41.0
 easydict
+pandas>=1.2.4
+seaborn>=0.11.1
