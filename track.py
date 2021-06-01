@@ -23,7 +23,7 @@ import torch.backends.cudnn as cudnn
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
 
-def bbox_rel(*xyxy):
+def xyxy_to_xywh(*xyxy):
     """" Calculates the relative bounding box from absolute pixel values. """
     bbox_left = min([xyxy[0].item(), xyxy[2].item()])
     bbox_top = min([xyxy[1].item(), xyxy[3].item()])
@@ -34,6 +34,18 @@ def bbox_rel(*xyxy):
     w = bbox_w
     h = bbox_h
     return x_c, y_c, w, h
+
+def xyxy_to_tlwh(bbox_xyxy):
+    tlwh_bboxs = []
+    for i, box in enumerate(bbox_xyxy):
+        x1, y1, x2, y2 = [int(i) for i in box]
+        top = x1
+        left = y1
+        w = int(x2 - x1)
+        h = int(y2 - y1)
+        tlwh_obj = [top, left, w, h]
+        tlwh_bboxs.append(tlwh_obj)
+    return tlwh_bboxs
 
 
 def compute_color_for_labels(label):
@@ -153,20 +165,21 @@ def detect(opt):
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
 
-                bbox_xywh = []
+                xywh_bboxs = []
                 confs = []
 
                 # Adapt detections to deep sort input format
                 for *xyxy, conf, cls in det:
-                    x_c, y_c, bbox_w, bbox_h = bbox_rel(*xyxy)
-                    obj = [x_c, y_c, bbox_w, bbox_h]
-                    bbox_xywh.append(obj)
+                    # to deep sort format
+                    x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
+                    xywh_obj = [x_c, y_c, bbox_w, bbox_h]
+                    xywh_bboxs.append(xywh_obj)
                     confs.append([conf.item()])
 
-                xywhs = torch.Tensor(bbox_xywh)
+                xywhs = torch.Tensor(xywh_bboxs)
                 confss = torch.Tensor(confs)
 
-                # Pass detections to deepsort
+                # pass detections to deepsort
                 outputs = deepsort.update(xywhs, confss, im0)
 
                 # draw boxes for visualization
@@ -174,18 +187,20 @@ def detect(opt):
                     bbox_xyxy = outputs[:, :4]
                     identities = outputs[:, -1]
                     draw_boxes(im0, bbox_xyxy, identities)
+                    # to MOT format
+                    tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
 
-                # Write MOT compliant results to file
-                if save_txt and len(outputs) != 0:
-                    for j, output in enumerate(outputs):
-                        bbox_left = output[0]
-                        bbox_top = output[1]
-                        bbox_w = output[2]
-                        bbox_h = output[3]
-                        identity = output[-1]
-                        with open(txt_path, 'a') as f:
-                            f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_left,
-                                                           bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                    # Write MOT compliant results to file
+                    if save_txt:
+                        for j, (tlwh_bbox, output) in enumerate(zip(tlwh_bboxs, outputs)):
+                            bbox_top = tlwh_bbox[0]
+                            bbox_left = tlwh_bbox[1]
+                            bbox_w = tlwh_bbox[2]
+                            bbox_h = tlwh_bbox[3]
+                            identity = output[-1]
+                            with open(txt_path, 'a') as f:
+                                f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_left,
+                                                            bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
 
             else:
                 deepsort.increment_ages()
