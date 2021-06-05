@@ -199,8 +199,8 @@ def detect(opt):
                             bbox_h = tlwh_bbox[3]
                             identity = output[-1]
                             with open(txt_path, 'a') as f:
-                                f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_left,
-                                                            bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                                f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_top,
+                                                            bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
 
             else:
                 deepsort.increment_ages()
@@ -242,7 +242,7 @@ def detect(opt):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str,
-                        default='yolov5/weights/yolov5s.pt', help='model.pt path')
+                        default='yolov5/weights/crowdhuman_yolov5m.pt', help='model.pt path')
     # file/folder, 0 for webcam
     parser.add_argument('--source', type=str,
                         default='inference/images', help='source')
@@ -265,8 +265,7 @@ if __name__ == '__main__':
     parser.add_argument('--save-txt', action='store_true',
                         help='save results to *.txt')
     # class 0 is person
-    parser.add_argument('--classes', nargs='+', type=int,
-                        default=[0], help='filter by class')
+    parser.add_argument('--classes', nargs='+', default=[0], type=int, help='filter by class')
     parser.add_argument('--agnostic-nms', action='store_true',
                         help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true',
