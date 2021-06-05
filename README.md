@@ -15,6 +15,14 @@ https://arxiv.org/abs/1703.07402
 - YOLOv4: Optimal Speed and Accuracy of Object Detection
 https://arxiv.org/pdf/2004.10934.pdf
 
+## Tutorials (links to external repositories)
+
+* [Yolov5 training on Custom Data](https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data)&nbsp;
+* [Deep Sort deep descriptor training](https://github.com/ZQPei/deep_sort_pytorch#training-the-re-id-model)&nbsp;
+* [Yolov5 deep_sort pytorch evaluation](https://github.com/mikel-brostrom/Yolov5_DeepSort_Pytorch/wiki)&nbsp;
+
+
+
 ## Requirements
 
 Python 3.8 or later with all requirements.txt dependencies installed, including torch>=1.7. To install run:
