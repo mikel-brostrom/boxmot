@@ -1,7 +1,7 @@
 # Yolov5 + Deep Sort with PyTorch
 
 
-<img src="track_pedestrians.gif" width="450"/> <img src="track_all.gif" width="450"/> 
+<img src="track_pedestrians.gif" width="400"/> <img src="track_all.gif" width="400"/> 
 
 ## Introduction
 
