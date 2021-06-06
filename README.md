@@ -1,6 +1,7 @@
 # Yolov5 + Deep Sort with PyTorch
 
-![](Town.gif)
+
+<img src="track_pedestrians.gif" width="425"/> <img src="track_all.gif" width="425"/> 
 
 ## Introduction
 
