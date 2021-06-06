@@ -46,7 +46,7 @@ If you already cloned and forgot to use `--recurse-submodules` you can run `git 
 - download the yolov5 weight from the latest realease https://github.com/ultralytics/yolov5/releases. Place the downlaoded `.pt` file under `yolov5/weights/`
 - download the deep sort weights from https://drive.google.com/drive/folders/1xhG0kRH1EX5B9_Iz8gQJb7UNnn_riXi6. Place ckpt.t7 file under`deep_sort/deep/checkpoint/`
 
-## Tracking
+## Tracking sources
 
 Tracking can be run on most video formats
 
@@ -59,7 +59,30 @@ python3 track.py --source ...
 - RTSP stream:  `--source rtsp://170.93.143.139/rtplive/470011e600ef003a004ee33696235daa`
 - HTTP stream:  `--source http://wmccpinetop.axiscam.net/mjpg/video.mjpg`
 
-MOT compliant results can be saved to `inference/output` by 
+
+## Filter tracked classes
+
+By default the tracker tracks class 0, this is, persons. In this case I recommend you to get [these weights](https://drive.google.com/file/d/1gglIwqxaH2iTvy6lZlXuAcMpd_U0GCUb/view?usp=sharing)
+
+```python
+parser.add_argument('--classes', nargs='+', default=[0], type=int, help='filter by class') # tracks persons only
+```
+
+If you want to track all 80 MS COCO classes just delete the default value
+
+```python
+parser.add_argument('--classes', nargs='+', type=int, help='filter by class') # tracks all MS COCO classes
+```
+
+If you want to select only a few classes to track add their associated integer to default
+
+```python
+parser.add_argument('--classes', nargs='+', default=[16, 17], type=int, help='filter by class') # tracks cats and dogs, only
+```
+
+## MOT compliant results
+
+Can be saved to `inference/output` by 
 
 ```bash
 python3 track.py --source ... --save-txt
