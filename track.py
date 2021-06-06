@@ -77,8 +77,8 @@ def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
 
 
 def detect(opt):
-    out, source, weights, view_vid, save_vid, save_txt, imgsz = \
-        opt.output, opt.source, opt.weights, opt.view_vid, opt.save_vid, opt.save_txt, opt.img_size
+    out, source, weights, show_vid, save_vid, save_txt, imgsz = \
+        opt.output, opt.source, opt.weights, opt.show_vid, opt.save_vid, opt.save_txt, opt.img_size
     webcam = source == '0' or source.startswith(
         'rtsp') or source.startswith('http') or source.endswith('.txt')
 
@@ -109,8 +109,8 @@ def detect(opt):
     # Set Dataloader
     vid_path, vid_writer = None, None
     # Check if environment supports image displays
-    if view_vid:
-        view_vid = check_imshow()
+    if show_vid:
+        show_vid = check_imshow()
 
     if webcam:
         cudnn.benchmark = True  # set True to speed up constant image size inference
@@ -209,7 +209,7 @@ def detect(opt):
             print('%sDone. (%.3fs)' % (s, t2 - t1))
 
             # Stream results
-            if view_vid:
+            if show_vid:
                 cv2.imshow(p, im0)
                 if cv2.waitKey(1) == ord('q'):  # q to quit
                     raise StopIteration
