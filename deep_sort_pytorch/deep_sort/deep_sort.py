@@ -3,7 +3,6 @@ import torch
 
 from .deep.feature_extractor import Extractor
 from .sort.nn_matching import NearestNeighborDistanceMetric
-from .sort.preprocessing import non_max_suppression
 from .sort.detection import Detection
 from .sort.tracker import Tracker
 
@@ -19,7 +18,6 @@ class DeepSort(object):
         self.extractor = Extractor(model_path, use_cuda=use_cuda)
 
         max_cosine_distance = max_dist
-        nn_budget = 100
         metric = NearestNeighborDistanceMetric(
             "cosine", max_cosine_distance, nn_budget)
         self.tracker = Tracker(
@@ -36,8 +34,6 @@ class DeepSort(object):
         # run on non-maximum supression
         boxes = np.array([d.tlwh for d in detections])
         scores = np.array([d.confidence for d in detections])
-        indices = non_max_suppression(boxes, self.nms_max_overlap, scores)
-        detections = [detections[i] for i in indices]
 
         # update tracker
         self.tracker.predict()
