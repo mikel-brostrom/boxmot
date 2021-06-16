@@ -59,5 +59,6 @@ jobs:
         run: |
           # inference
           pwd
+          sudo chmod 777 /home/runner/work/Yolov5_DeepSort_Pytorch/Yolov5_DeepSort_Pytorch
           python track.py --source MOT16_04_raw.avi
         shell: bash
