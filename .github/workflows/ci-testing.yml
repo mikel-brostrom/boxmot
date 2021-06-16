@@ -21,7 +21,10 @@ jobs:
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v2
+      - name: Set up Repository
+        uses: actions/checkout@v2
+      - name: Checkout submodules
+        uses: textbook/git-checkout-submodule-action@master
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
         with:
@@ -41,6 +44,7 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.python-version }}-pip-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.python-version }}-pip-
+          submodules: recursive   
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
