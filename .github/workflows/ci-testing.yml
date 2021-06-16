@@ -57,5 +57,5 @@ jobs:
       - name: Tests workflow
         run: |
           # inference
-          python track.py --source 0
+          python track.py --source MOT16_04_raw.avi
         shell: bash
