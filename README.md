@@ -29,12 +29,6 @@ If you already cloned and forgot to use `--recurse-submodules` you can run `git 
 
 `pip install -r requirements.txt`
 
-3. Github [block pushes of files larger than 100 MB](https://help.github.com/en/github/managing-large-files/conditions-for-large-files). Hence you need to download two different weights: the ones for yolo and the ones for deep sort
-
-- [download the yolov5 weight from the latest realease, under assets](https://github.com/ultralytics/yolov5/releases). Place the downlaoded `.pt` file under `yolov5/weights/`
-- [download the deep sort weights](https://drive.google.com/drive/folders/1xhG0kRH1EX5B9_Iz8gQJb7UNnn_riXi6). Place ckpt.t7 file under`deep_sort/deep/checkpoint/`
-
-
 
 ## Tracking sources
 
