@@ -58,7 +58,6 @@ jobs:
       - name: Tests workflow
         run: |
           # inference
-          pwd
           sudo chmod -R 777 /home/
-          python track.py --source MOT16_04_raw.avi
+          python track.py --source yolov5/data/images
         shell: bash
