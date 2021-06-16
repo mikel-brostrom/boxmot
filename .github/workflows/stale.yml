@@ -13,7 +13,6 @@ jobs:
           stale-issue-message: |
             👋 Hello, this issue has been automatically marked as stale because it has not had recent activity. Please note it will be closed if no further activity occurs.
             Feel free to inform us of any other **issues** you discover or **feature requests** that come to mind in the future. Pull Requests (PRs) are also always welcomed!
-            Thank you for your contributions to YOLOv5 🚀 and Vision AI ⭐!
           stale-pr-message: 'This issue has been automatically marked as stale because it has not had recent activity. It will be closed if no further activity occurs.'
           days-before-stale: 30
           days-before-close: 5
