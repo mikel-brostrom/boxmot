@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 50
     steps:
       - name: Set up Repository
-        uses: actions/checkout
+        uses: actions/checkout@v2
       - name: Checkout submodules
         uses: textbook/git-checkout-submodule-action@master
       - name: Set up Python ${{ matrix.python-version }}
