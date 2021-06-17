@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]  # macos-latest, windows-latest
+        os: [ubuntu-latest]  # Error: Container action is only supported on Linux
         python-version: [3.8]
         model: ['yolov5s']  # models to test
 
