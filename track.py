@@ -78,8 +78,9 @@ def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
 
 
 def detect(opt):
-    out, source, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz = \
-        opt.output, opt.source, opt.yolo_weights, opt.deep_sort_weights, opt.show_vid, opt.save_vid, opt.save_txt, opt.img_size
+    out, source, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz, evaluate = \
+        opt.output, opt.source, opt.yolo_weights, opt.deep_sort_weights, opt.show_vid, opt.save_vid, \
+            opt.save_txt, opt.img_size, opt.evaluate
     webcam = source == '0' or source.startswith(
         'rtsp') or source.startswith('http') or source.endswith('.txt')
 
@@ -95,9 +96,14 @@ def detect(opt):
 
     # Initialize
     device = select_device(opt.device)
-    if os.path.exists(out):
-        shutil.rmtree(out)  # delete output folder
-    os.makedirs(out)  # make new output folder
+
+    # The MOT16 evaluation runs multiple inference streams in parallel, each one writing to
+    # its own .txt file. Hence, in that case, the output folder is not restored
+    if not evaluate:
+        if os.path.exists(out):
+            pass
+            shutil.rmtree(out)  # delete output folder
+        os.makedirs(out)  # make new output folder
     half = device.type != 'cpu'  # half precision only supported on CUDA
 
     # Load model
@@ -129,7 +135,9 @@ def detect(opt):
     t0 = time.time()
 
     save_path = str(Path(out))
-    txt_path = str(Path(out)) + '/results.txt'
+    # extract what is in between the last '/' and last '.'
+    txt_file_name = source.split('/')[-1].split('.')[0]
+    txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
 
     for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
         img = torch.from_numpy(img).to(device)
@@ -260,6 +268,7 @@ if __name__ == '__main__':
     parser.add_argument('--classes', nargs='+', default=[0], type=int, help='filter by class')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
+    parser.add_argument('--evaluate', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
     args = parser.parse_args()
     args.img_size = check_img_size(args.img_size)
