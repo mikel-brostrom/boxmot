@@ -1,7 +1,10 @@
 # Yolov5 + Deep Sort with PyTorch
 
 
-<img src="track_pedestrians.gif" width="400"/> <img src="track_all.gif" width="400"/> 
+<img src="MOT16_Eval/track_pedestrians.gif" width="400"/> <img src="MOT16_Eval/track_all.gif" width="400"/> 
+
+<a href="https://github.com/mikel-brostrom/Yolov5_DeepSort_Pytorch/actions"><img src="https://github.com/mikel-brostrom/Yolov5_DeepSort_Pytorch/workflows/CI%20CPU%20testing/badge.svg" alt="CI CPU testing"></a>
+
 
 <a href="https://github.com/mikel-brostrom/Yolov5_DeepSort_Pytorch/actions"><img src="https://github.com/mikel-brostrom/Yolov5_DeepSort_Pytorch/workflows/CI%20CPU%20testing/badge.svg" alt="CI CPU testing"></a>
 
