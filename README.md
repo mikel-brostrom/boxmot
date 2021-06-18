@@ -78,6 +78,21 @@ Can be saved to `inference/output` by
 python3 track.py --source ... --save-txt
 ```
 
+
+## Cite
+
+If you find this project useful in your research, please consider cite:
+
+```latex
+@misc{yolov5deepsort2020,
+    title={Real-time multi-object tracker using YOLOv5 and deep sort},
+    author={Mikel Broström},
+    howpublished = {\url{https://github.com/mikel-brostrom/Yolov5_DeepSort_Pytorch}},
+    year={2020}
+}
+```
+
+
 ## Other information
 
 For more detailed information about the algorithms and their corresponding lisences used in this project access their official github implementations.
