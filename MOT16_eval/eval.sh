@@ -27,22 +27,17 @@ fi
 # clone evaluation repo if it does not exist
 if [ ! -d ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval ]
 then
-
 	git clone https://github.com/JonathonLuiten/TrackEval ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval
-
 	# download quick start data folder if it does not exist
 	if [ ! -d ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/data ]
 	then
-
 		# download data
 		wget -nc https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip -O ~/Yolov5_DeepSort_Pytorch/data.zip
 		# unzip
-		unzip -q data.zip -d ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/
+		unzip -q ~/Yolov5_DeepSort_Pytorch/data.zip -d ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/
 		# delete zip
 		#rm data.zip
-
 	fi
-
 fi
 
 
@@ -87,21 +82,20 @@ do
 	    mv ~/Yolov5_DeepSort_Pytorch/inference/output/$i.txt \
 	    ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/data/trackers/mot_challenge/MOT16-train/ch_yolov5m_deep_sort/data/$i.txt
 	) &
-
 	# https://unix.stackexchange.com/questions/103920/parallelize-a-bash-for-loop
 	# allow to execute up to $N jobs in parallel
-    if [[ $(jobs -r -p | wc -l) -ge $N ]]; then
+    if [[ $(jobs -r -p | wc -l) -ge $N ]]
+	then
         # now there are $N jobs already running, so wait here for any job
         # to be finished so there is a place to start next one.
         wait -n
     fi
-
 done
 
 # no more jobs to be started but wait for pending jobs
 # (all need to be finished)
 wait
-echo "inference on all MOT16 sequences finished"
+echo "Inference on all MOT16 sequences DONE"
 
 # run the evaluation
 python ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/scripts/run_mot_challenge.py --BENCHMARK MOT16 \
