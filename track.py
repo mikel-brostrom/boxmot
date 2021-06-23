@@ -1,4 +1,6 @@
 import sys
+from collections import UserDict
+
 sys.path.insert(0, './yolov5')
 
 from yolov5.utils.google_utils import attempt_download
@@ -19,10 +21,7 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 
-
-
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
-
 
 def xyxy_to_xywh(*xyxy):
     """" Calculates the relative bounding box from absolute pixel values. """
@@ -52,12 +51,14 @@ def xyxy_to_tlwh(bbox_xyxy):
 def compute_color_for_labels(label):
     """
     Simple function that adds fixed color depending on the class
+    object class에 따라 box color를 설정하는 함수
     """
     color = [int((p * (label ** 2 - label + 1)) % 255) for p in palette]
     return tuple(color)
 
 
 def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
+    """ load된 img 데이터에 id label을 붙이고 box를 그리는 함수 """
     for i, box in enumerate(bbox):
         x1, y1, x2, y2 = [int(i) for i in box]
         x1 += offset[0]
@@ -74,6 +75,7 @@ def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
             img, (x1, y1), (x1 + t_size[0] + 3, y1 + t_size[1] + 4), color, -1)
         cv2.putText(img, label, (x1, y1 +
                                  t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 2, [255, 255, 255], 2)
+    
     return img
 
 
@@ -81,8 +83,9 @@ def detect(opt):
     out, source, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz, evaluate = \
         opt.output, opt.source, opt.yolo_weights, opt.deep_sort_weights, opt.show_vid, opt.save_vid, \
             opt.save_txt, opt.img_size, opt.evaluate
-    webcam = source == '0' or source.startswith(
-        'rtsp') or source.startswith('http') or source.endswith('.txt')
+    # webcam = source == '0' or source.startswith('rtsp') or source.startswith('http') or source.endswith('.txt')
+
+    webcamNum = int(source) # webcam 개수
 
     # initialize deepsort
     cfg = get_config()
@@ -120,11 +123,11 @@ def detect(opt):
     if show_vid:
         show_vid = check_imshow()
 
-    if webcam:
-        cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
-    else:
-        dataset = LoadImages(source, img_size=imgsz)
+    """삭제 part"""
+
+    dataset = list()
+    for i in range(webcamNum + 1):
+        dataset.append(LoadStreams(str(i), img_size=imgsz, stride=stride))
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
@@ -139,107 +142,124 @@ def detect(opt):
     txt_file_name = source.split('/')[-1].split('.')[0]
     txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
 
-    for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
-        img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()  # uint8 to fp16/32
-        img /= 255.0  # 0 - 255 to 0.0 - 1.0
-        if img.ndimension() == 3:
-            img = img.unsqueeze(0)
+    # MultiCamera detection
+    while True:
+        # path, img, im0s, vid_cap = 0, 0, 0, 0
+        # 각각의 카메라에 대한 detection 실행
+        for UsedCamNum in range(webcamNum + 1):
+            print("Camera: ", UsedCamNum ,end=" "); # 카메라는 0번부터 존재
+            for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset[UsedCamNum]):
+                img = torch.from_numpy(img).to(device)
+                img = img.half() if half else img.float()  # uint8 to fp16/32
+                img /= 255.0  # 0 - 255 to 0.0 - 1.0 Normalize
+                if img.ndimension() == 3:
+                    img = img.unsqueeze(0)
 
-        # Inference
-        t1 = time_synchronized()
-        pred = model(img, augment=opt.augment)[0]
+                # Inference
+                t1 = time_synchronized()
+                pred = model(img, augment=opt.augment)[0]
 
-        # Apply NMS
-        pred = non_max_suppression(
-            pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
-        t2 = time_synchronized()
+                # Apply NMS
+                pred = non_max_suppression(
+                    pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
+                t2 = time_synchronized()
 
-        # Process detections
-        for i, det in enumerate(pred):  # detections per image
-            if webcam:  # batch_size >= 1
-                p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
-            else:
-                p, s, im0 = path, '', im0s
+                # Process detections
+                for i, det in enumerate(pred):  # detections per image
 
-            s += '%gx%g ' % img.shape[2:]  # print string
-            save_path = str(Path(out) / Path(p).name)
+                    """ list에 있는 정보들을 함수에서 사용하기 
+                    if UsedCamNum:  # batch_size >= 1
+                        p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
+                    else:
+                        p, s, im0 = path, '', im0s
+                    """
 
-            if det is not None and len(det):
-                # Rescale boxes from img_size to im0 size
-                det[:, :4] = scale_coords(
-                    img.shape[2:], det[:, :4], im0.shape).round()
+                    p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
 
-                # Print results
-                for c in det[:, -1].unique():
-                    n = (det[:, -1] == c).sum()  # detections per class
-                    s += '%g %ss, ' % (n, names[int(c)])  # add to string
+                    s += '%gx%g ' % img.shape[2:]  # print string
+                    save_path = str(Path(out) / Path(p).name)
 
-                xywh_bboxs = []
-                confs = []
+                    if det is not None and len(det):
+                        # Rescale boxes from img_size to im0 size
+                        det[:, :4] = scale_coords(
+                            img.shape[2:], det[:, :4], im0.shape).round()
 
-                # Adapt detections to deep sort input format
-                for *xyxy, conf, cls in det:
-                    # to deep sort format
-                    x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
-                    xywh_obj = [x_c, y_c, bbox_w, bbox_h]
-                    xywh_bboxs.append(xywh_obj)
-                    confs.append([conf.item()])
+                        # Print results
+                        for c in det[:, -1].unique():
+                            n = (det[:, -1] == c).sum()  # detections per class
+                            s += '%g %ss, ' % (n, names[int(c)])  # add to string
 
-                xywhs = torch.Tensor(xywh_bboxs)
-                confss = torch.Tensor(confs)
+                        xywh_bboxs = []
+                        confs = []
 
-                # pass detections to deepsort
-                outputs = deepsort.update(xywhs, confss, im0)
+                        # Adapt detections to deep sort input format
+                        for *xyxy, conf, cls in det:
+                            # to deep sort format
+                            x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
+                            xywh_obj = [x_c, y_c, bbox_w, bbox_h]
+                            xywh_bboxs.append(xywh_obj)
+                            confs.append([conf.item()])
 
-                # draw boxes for visualization
-                if len(outputs) > 0:
-                    bbox_xyxy = outputs[:, :4]
-                    identities = outputs[:, -1]
-                    draw_boxes(im0, bbox_xyxy, identities)
-                    # to MOT format
-                    tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
+                        xywhs = torch.Tensor(xywh_bboxs)
+                        confss = torch.Tensor(confs)
 
-                    # Write MOT compliant results to file
-                    if save_txt:
-                        for j, (tlwh_bbox, output) in enumerate(zip(tlwh_bboxs, outputs)):
-                            bbox_top = tlwh_bbox[0]
-                            bbox_left = tlwh_bbox[1]
-                            bbox_w = tlwh_bbox[2]
-                            bbox_h = tlwh_bbox[3]
-                            identity = output[-1]
-                            with open(txt_path, 'a') as f:
-                                f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_top,
-                                                            bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                        # pass detections to deepsort
+                        outputs = deepsort.update(xywhs, confss, im0)
 
-            else:
-                deepsort.increment_ages()
+                        # draw boxes for visualization
+                        if len(outputs) > 0:
+                            bbox_xyxy = outputs[:, :4]
+                            identities = outputs[:, -1]
+                            draw_boxes(im0, bbox_xyxy, identities)
+                            # to MOT format
+                            tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
 
-            # Print time (inference + NMS)
-            print('%sDone. (%.3fs)' % (s, t2 - t1))
+                            # Write MOT compliant results to file
+                            if save_txt:
+                                for j, (tlwh_bbox, output) in enumerate(zip(tlwh_bboxs, outputs)):
+                                    bbox_top = tlwh_bbox[0]
+                                    bbox_left = tlwh_bbox[1]
+                                    bbox_w = tlwh_bbox[2]
+                                    bbox_h = tlwh_bbox[3]
+                                    identity = output[-1]
+                                    with open(txt_path, 'a') as f:
+                                        f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_top,
+                                                                    bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
 
-            # Stream results
-            if show_vid:
-                cv2.imshow(p, im0)
-                if cv2.waitKey(1) == ord('q'):  # q to quit
-                    raise StopIteration
+                    else:
+                        deepsort.increment_ages()
 
-            # Save results (image with detections)
-            if save_vid:
-                if vid_path != save_path:  # new video
-                    vid_path = save_path
-                    if isinstance(vid_writer, cv2.VideoWriter):
-                        vid_writer.release()  # release previous video writer
-                    if vid_cap:  # video
-                        fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                        w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    else:  # stream
-                        fps, w, h = 30, im0.shape[1], im0.shape[0]
-                        save_path += '.mp4'
+                    # Print time (inference + NMS)
+                    print('%sDone. (%.3fs)' % (s, t2 - t1))
 
-                    vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                vid_writer.write(im0)
+                    # Stream results
+                    if show_vid:
+                    #if True:
+                        cv2.imshow("After Detection" + str(UsedCamNum), im0)
+                        if cv2.waitKey(1) == ord('q'):  # q to quit
+                            raise StopIteration
+                        """
+                        if cv2.waitKey(10) == 27: # ESC to quit
+                        """
+
+                    # Save results (image with detections)
+                    if save_vid:
+                        if vid_path != save_path:  # new video
+                            vid_path = save_path
+                            if isinstance(vid_writer, cv2.VideoWriter):
+                                vid_writer.release()  # release previous video writer
+                            if vid_cap:  # video
+                                fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                                w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                                h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            else:  # stream
+                                fps, w, h = 30, im0.shape[1], im0.shape[0]
+                                save_path += '.mp4'
+
+                            vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                        vid_writer.write(im0)
+                # Real Time detection에서는 for문이 끝나지 않으므로 break로 끊어준다.
+                break;
 
     if save_txt or save_vid:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
@@ -251,10 +271,11 @@ def detect(opt):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    # yolo model을 load하는 command line
     parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/yolov5s.pt', help='model.pt path')
     parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7', help='ckpt.t7 path')
     # file/folder, 0 for webcam
-    parser.add_argument('--source', type=str, default='0', help='source')
+    parser.add_argument('--source', type=str, default='0', help='source') # N개의 카메라를 사용한다.
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.4, help='object confidence threshold')
@@ -264,8 +285,10 @@ if __name__ == '__main__':
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
     parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
     parser.add_argument('--save-txt', action='store_true', help='save MOT compliant results to *.txt')
-    # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
-    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 16 17')
+
+    # class 0 is person, 1 is bycicle, 2 is car... 79 is oven # command line에 "--class #"을 추가하면 그 class만 사용함.
+    parser.add_argument('--classes', nargs='+', type=int, default=[0] ,help='filter by class: --class 0, or --class 16 17')
+
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--evaluate', action='store_true', help='augmented inference')
