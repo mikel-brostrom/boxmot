@@ -143,123 +143,121 @@ def detect(opt):
     txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
 
     # MultiCamera detection
-    while True:
-        # path, img, im0s, vid_cap = 0, 0, 0, 0
-        # 각각의 카메라에 대한 detection 실행
-        for UsedCamNum in range(webcamNum + 1):
-            print("Camera: ", UsedCamNum ,end=" "); # 카메라는 0번부터 존재
-            for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset[UsedCamNum]):
-                img = torch.from_numpy(img).to(device)
-                img = img.half() if half else img.float()  # uint8 to fp16/32
-                img /= 255.0  # 0 - 255 to 0.0 - 1.0 Normalize
-                if img.ndimension() == 3:
-                    img = img.unsqueeze(0)
-
-                # Inference
+    try:
+        while True:
+            # 각각의 카메라에 대한 detection 실행
+            for UsedCamNum in range(webcamNum + 1):
+                print("Camera: ", UsedCamNum ,end=" "); # 카메라는 0번부터 존재
                 t1 = time_synchronized()
-                pred = model(img, augment=opt.augment)[0]
+                for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset[UsedCamNum]):
 
-                # Apply NMS
-                pred = non_max_suppression(
-                    pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
-                t2 = time_synchronized()
+                    img = torch.from_numpy(img).to(device)
+                    img = img.half() if half else img.float()  # uint8 to fp16/32
+                    img /= 255.0  # 0 - 255 to 0.0 - 1.0 Normalize
+                    if img.ndimension() == 3:
+                        img = img.unsqueeze(0)
 
-                # Process detections
-                for i, det in enumerate(pred):  # detections per image
+                    # Inference
 
-                    """ list에 있는 정보들을 함수에서 사용하기 
-                    if UsedCamNum:  # batch_size >= 1
+                    pred = model(img, augment=opt.augment)[0]
+
+                    # Apply NMS
+                    pred = non_max_suppression(
+                        pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
+                    t2 = time_synchronized()
+
+                    # Process detections
+                    for i, det in enumerate(pred):  # detections per image
                         p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
-                    else:
-                        p, s, im0 = path, '', im0s
-                    """
 
-                    p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
+                        s += '%gx%g ' % img.shape[2:]  # print string
+                        save_path = str(Path(out) / Path(p).name)
 
-                    s += '%gx%g ' % img.shape[2:]  # print string
-                    save_path = str(Path(out) / Path(p).name)
+                        if det is not None and len(det):
+                            # Rescale boxes from img_size to im0 size
+                            det[:, :4] = scale_coords(
+                                img.shape[2:], det[:, :4], im0.shape).round()
 
-                    if det is not None and len(det):
-                        # Rescale boxes from img_size to im0 size
-                        det[:, :4] = scale_coords(
-                            img.shape[2:], det[:, :4], im0.shape).round()
+                            # Print results
+                            for c in det[:, -1].unique():
+                                n = (det[:, -1] == c).sum()  # detections per class
+                                s += '%g %ss, ' % (n, names[int(c)])  # add to string
 
-                        # Print results
-                        for c in det[:, -1].unique():
-                            n = (det[:, -1] == c).sum()  # detections per class
-                            s += '%g %ss, ' % (n, names[int(c)])  # add to string
+                            xywh_bboxs = []
+                            confs = []
 
-                        xywh_bboxs = []
-                        confs = []
+                            # Adapt detections to deep sort input format
+                            for *xyxy, conf, cls in det:
+                                # to deep sort format
+                                x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
+                                xywh_obj = [x_c, y_c, bbox_w, bbox_h]
+                                xywh_bboxs.append(xywh_obj)
+                                confs.append([conf.item()])
 
-                        # Adapt detections to deep sort input format
-                        for *xyxy, conf, cls in det:
-                            # to deep sort format
-                            x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
-                            xywh_obj = [x_c, y_c, bbox_w, bbox_h]
-                            xywh_bboxs.append(xywh_obj)
-                            confs.append([conf.item()])
+                            xywhs = torch.Tensor(xywh_bboxs)
+                            confss = torch.Tensor(confs)
 
-                        xywhs = torch.Tensor(xywh_bboxs)
-                        confss = torch.Tensor(confs)
+                            # pass detections to deepsort
+                            outputs = deepsort.update(xywhs, confss, im0)
 
-                        # pass detections to deepsort
-                        outputs = deepsort.update(xywhs, confss, im0)
+                            # draw boxes for visualization
+                            if len(outputs) > 0:
+                                bbox_xyxy = outputs[:, :4]
+                                identities = outputs[:, -1]
+                                draw_boxes(im0, bbox_xyxy, identities)
+                                # to MOT format
+                                tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
 
-                        # draw boxes for visualization
-                        if len(outputs) > 0:
-                            bbox_xyxy = outputs[:, :4]
-                            identities = outputs[:, -1]
-                            draw_boxes(im0, bbox_xyxy, identities)
-                            # to MOT format
-                            tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
+                                # Write MOT compliant results to file
+                                if save_txt:
+                                    for j, (tlwh_bbox, output) in enumerate(zip(tlwh_bboxs, outputs)):
+                                        bbox_top = tlwh_bbox[0]
+                                        bbox_left = tlwh_bbox[1]
+                                        bbox_w = tlwh_bbox[2]
+                                        bbox_h = tlwh_bbox[3]
+                                        identity = output[-1]
+                                        with open(txt_path, 'a') as f:
+                                            f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_top,
+                                                                        bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
 
-                            # Write MOT compliant results to file
-                            if save_txt:
-                                for j, (tlwh_bbox, output) in enumerate(zip(tlwh_bboxs, outputs)):
-                                    bbox_top = tlwh_bbox[0]
-                                    bbox_left = tlwh_bbox[1]
-                                    bbox_w = tlwh_bbox[2]
-                                    bbox_h = tlwh_bbox[3]
-                                    identity = output[-1]
-                                    with open(txt_path, 'a') as f:
-                                        f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_top,
-                                                                    bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                        else:
+                            deepsort.increment_ages()
 
-                    else:
-                        deepsort.increment_ages()
+                        # Print time (inference + NMS)
+                        if frame_idx == 2:
+                            print('%sDone. (%.3fs)' % (s, t2 - t1))
 
-                    # Print time (inference + NMS)
-                    print('%sDone. (%.3fs)' % (s, t2 - t1))
+                        # Stream results
+                        if show_vid:
+                            if frame_idx != 0:
+                                cv2.imshow("After Detection" + str(UsedCamNum), im0)
 
-                    # Stream results
-                    if show_vid:
-                    #if True:
-                        cv2.imshow("After Detection" + str(UsedCamNum), im0)
-                        if cv2.waitKey(1) == ord('q'):  # q to quit
-                            raise StopIteration
-                        """
-                        if cv2.waitKey(10) == 27: # ESC to quit
-                        """
+                            if cv2.waitKey(1) == ord('q'):  # q to quit
+                                raise StopIteration
 
-                    # Save results (image with detections)
-                    if save_vid:
-                        if vid_path != save_path:  # new video
-                            vid_path = save_path
-                            if isinstance(vid_writer, cv2.VideoWriter):
-                                vid_writer.release()  # release previous video writer
-                            if vid_cap:  # video
-                                fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                                w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                                h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                            else:  # stream
-                                fps, w, h = 30, im0.shape[1], im0.shape[0]
-                                save_path += '.mp4'
+                        # Save results (image with detections)
+                        if save_vid:
+                            if vid_path != save_path:  # new video
+                                vid_path = save_path
+                                if isinstance(vid_writer, cv2.VideoWriter):
+                                    vid_writer.release()  # release previous video writer
+                                if vid_cap:  # video
+                                    fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                                    w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                                    h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                                else:  # stream
+                                    fps, w, h = 30, im0.shape[1], im0.shape[0]
+                                    save_path += '.mp4'
 
-                            vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                        vid_writer.write(im0)
-                # Real Time detection에서는 for문이 끝나지 않으므로 break로 끊어준다.
-                break;
+                                vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                            vid_writer.write(im0)
+                    # Real Time detection에서는 for문이 끝나지 않으므로 break로 끊어준다.
+                    if frame_idx > 1:
+                        break;
+
+    except StopIteration:
+        pass
+
 
     if save_txt or save_vid:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
