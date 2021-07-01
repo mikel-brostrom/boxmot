@@ -122,7 +122,16 @@ def detect(opt):
 
     if webcam:
         cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
+        dataset = LoadStreams('streams.txt', img_size=imgsz, stride=stride)
+        deepsorts = []
+        for i in range(len(dataset.sources)):
+            deepsorts.append(
+                DeepSort(cfg.DEEPSORT.REID_CKPT,
+                         max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
+                         nms_max_overlap=cfg.DEEPSORT.NMS_MAX_OVERLAP, max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
+                         max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
+                         use_cuda=True)
+            )
     else:
         dataset = LoadImages(source, img_size=imgsz)
 
@@ -190,7 +199,10 @@ def detect(opt):
                 confss = torch.Tensor(confs)
 
                 # pass detections to deepsort
-                outputs = deepsort.update(xywhs, confss, im0)
+                if webcam:
+                    outputs = deepsorts[i].update(xywhs, confss, im0)
+                else:
+                    outputs = deepsort.update(xywhs, confss, im0)
 
                 # draw boxes for visualization
                 if len(outputs) > 0:
