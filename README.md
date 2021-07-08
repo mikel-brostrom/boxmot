@@ -113,9 +113,3 @@ If you find this project useful in your research, please consider cite:
     year={2020}
 }
 ```
-
-
-## Other information
-
-For more detailed information about the algorithms and their corresponding lisences used in this project access their official github implementations.
-
