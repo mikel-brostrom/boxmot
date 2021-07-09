@@ -10,8 +10,7 @@ from yolov5.utils.general import check_img_size, non_max_suppression, scale_coor
 from yolov5.utils.torch_utils import select_device, time_synchronized
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
-
-import multiprocessing as mp
+from multiprocessing import Process, Manager
 import argparse
 import os
 import platform
@@ -22,8 +21,11 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from reid import REID
-import people_counting
 import people_counting_v2
+import collections
+import copy
+import numpy as np
+import operator
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
@@ -82,11 +84,26 @@ def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
     return img
 
 
-def detect(opt, return_list, source, deepsort, model, device, imgsz):
-    out, show_vid, save_vid, save_txt, evaluate = \
-        opt.output, opt.show_vid, opt.save_vid, \
-        opt.save_txt, opt.evaluate
+def detect(opt, source, return_dict, ids_per_frame):
+    out, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz, evaluate = \
+        opt.output, opt.yolo_weights, opt.deep_sort_weights, opt.show_vid, opt.save_vid, \
+        opt.save_txt, opt.img_size, opt.evaluate
+    webcam = source == '0' or source.startswith(
+        'rtsp') or source.startswith('http') or source.endswith('.txt')
+    time_init = time.time()
+    # initialize deepsort
+    cfg = get_config()
+    cfg.merge_from_file(opt.config_deepsort)
+    attempt_download(deep_sort_weights, repo='mikel-brostrom/Yolov5_DeepSort_Pytorch')
+    deepsort = DeepSort(cfg.DEEPSORT.REID_CKPT,
+                        max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
+                        nms_max_overlap=cfg.DEEPSORT.NMS_MAX_OVERLAP, max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
+                        max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
+                        use_cuda=True)
 
+    # Initialize
+    device = select_device(opt.device)
+    """
     # The MOT16 evaluation runs multiple inference streams in parallel, each one writing to
     # its own .txt file. Hence, in that case, the output folder is not restored
     if not evaluate:
@@ -94,9 +111,13 @@ def detect(opt, return_list, source, deepsort, model, device, imgsz):
             pass
             shutil.rmtree(out)  # delete output folder
         os.makedirs(out)  # make new output folder
+    """
     half = device.type != 'cpu'  # half precision only supported on CUDA
 
     # Load model
+    model = attempt_load(yolo_weights, map_location=device)  # load FP32 model
+    stride = int(model.stride.max())  # model stride
+    imgsz = check_img_size(imgsz, s=stride)  # check img_size
     names = model.module.names if hasattr(model, 'module') else model.names  # get class names
     if half:
         model.half()  # to FP16
@@ -106,22 +127,29 @@ def detect(opt, return_list, source, deepsort, model, device, imgsz):
     # Check if environment supports image displays
     if show_vid:
         show_vid = check_imshow()
+
+    if webcam:
+        cudnn.benchmark = True  # set True to speed up constant image size inference
+        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
+    else:
+        dataset = LoadImages(source, img_size=imgsz)
+
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
 
     # Run inference
     if device.type != 'cpu':
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-    dataset = LoadImages(source, img_size=imgsz)
+
     save_path = str(Path(out))
     # extract what is in between the last '/' and last '.'
     txt_file_name = source.split('/')[-1].split('.')[0]
     txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
-
     track_cnt = dict()
-    images_by_id = dict()
-    ids_per_frame = []
+    print('time (init) : {}'.format(time.time() - time_init))
     t0 = time.time()
+    index = 0
+    images_by_id = dict()
     for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -140,7 +168,10 @@ def detect(opt, return_list, source, deepsort, model, device, imgsz):
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
-            p, s, im0 = path, '', im0s
+            if webcam:  # batch_size >= 1
+                p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
+            else:
+                p, s, im0 = path, '', im0s
 
             s += '%gx%g ' % img.shape[2:]  # print string
             save_path = str(Path(out) / Path(p).name)
@@ -170,8 +201,8 @@ def detect(opt, return_list, source, deepsort, model, device, imgsz):
                 confss = torch.Tensor(confs)
 
                 # pass detections to deepsort
-                outputs = deepsort.update(xywhs, confss, im0, images_by_id, ids_per_frame, track_cnt, frame_idx)
-
+                outputs, images_by_id = deepsort.update(xywhs, confss, im0, images_by_id, ids_per_frame, track_cnt, frame_idx)
+                """
                 # draw boxes for visualization
                 if len(outputs) > 0:
                     bbox_xyxy = outputs[:, :4]
@@ -190,15 +221,14 @@ def detect(opt, return_list, source, deepsort, model, device, imgsz):
                             identity = output[-1]
                             with open(txt_path, 'a') as f:
                                 f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_top,
-                                                               bbox_left, bbox_w, bbox_h, -1, -1, -1,
-                                                               -1))  # label format
-
+                                                            bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                  """
             else:
                 deepsort.increment_ages()
 
             # Print time (inference + NMS)
-            print('%sDone. (%.3fs)' % (s, t2 - t1))
-
+            #print('%sDone. (%.3fs)' % (s, t2 - t1))
+        """
             # Stream results
             if show_vid:
                 cv2.imshow(p, im0)
@@ -222,15 +252,130 @@ def detect(opt, return_list, source, deepsort, model, device, imgsz):
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                 vid_writer.write(im0)
 
+        if index != 0 and index % 50 == 0:
+            print('people counting : {}'.format(people_counting.return_people(reid, images_by_id, ids_per_frame)))
+            track_cnt = dict()
+            images_by_id = dict()
+            ids_per_frame = []
+        """
+        # index += 1
+    """
     if save_txt or save_vid:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
         if platform == 'darwin':  # MacOS
             os.system('open ' + save_path)
+    """
+    #print("Result")
+    #print(len(images_by_id))
+    #for key, item in images_by_id.items():
+    #  print('{} : {}'.format(key, len(images_by_id[key])))
+    #print('Copy')
+    return_dict.append(images_by_id)
+    #for j in return_dict:
+    # print('{} : {}'.format(j, len(return_dict[j])))
+    #return_list.append(images_by_id)
+    #print('\nDone. (%.3fs)' % (time.time() - t0))
+    #print(len(images_by_id))
+    #return_dict = copy.deepcopy(images_by_id)
+   # print(images_by_id)
+    # print('people counting : {}'.format(people_counting.return_people(reid, images_by_id, ids_per_frame)))
+    # print('ReID : (%.3fs)' % (time.time() - t0))
 
-    print('\nDone. (%.3fs)' % (time.time() - t0))
-    return_list.append(images_by_id)
-    # print('people counting : {}'.format(people_counting(reid, images_by_id, ids_per_frame)))
-    # print('ReID : (%.3fs)' % (time.time() - reid_time))
+def merge_dict(d1, d2):
+    """
+    Modifies d1 in-place to contain values from d2.  If any value
+    in d1 is a dictionary (or dict-like), *and* the corresponding
+    value in d2 is also a dictionary, then merge them in-place.
+    """
+    for k,v2 in d2.items():
+        v1 = d1.get(k) # returns None if v1 has no value for this key
+        if ( isinstance(v1, collections.Mapping) and
+             isinstance(v2, collections.Mapping) ):
+            merge_dict(v1, v2)
+        else:
+            d1[k] = v2
+
+def re_identification(return_dict, ids_per_frame1, ids_per_frame2):
+    #print('ReID')
+    return_list = return_dict[0]
+    return_list2 = return_dict[1]
+    #print(len(return_list))
+    #print(len(return_list2))
+    reid = REID()
+    threshold = 320
+    exist_ids = set()
+    final_fuse_id = dict()
+    ids_per_frame = []
+    ids_per_frame22 = []
+    images_by_id = dict()
+    feats = dict()
+    size = len(return_list)
+    for key, value in return_list2.items():
+        return_list[key + size] = return_list2[key]
+    # print(return_list2)
+    #  merge_dict(return_list, return_list2)
+    images_by_id = copy.deepcopy(return_list)
+    #for i in images_by_id:
+    #  print('{} : {}'.format(i, len(images_by_id[i])))
+    # print(images_by_id)
+    print(len(images_by_id))
+    #print(return_list)
+
+
+    for i in ids_per_frame2:
+      d = set()
+      for k in i:
+        k += size
+        d.add(k)
+      ids_per_frame22.append(d)
+    
+    ids_per_frame = copy.deepcopy(ids_per_frame1)
+    for k in ids_per_frame22:
+      ids_per_frame.append(k)
+
+    for i in images_by_id:
+        #print('{} : {} frames'.format(i, len(images_by_id[i])))
+        feats[i] = reid._features(images_by_id[i])  # reid._features(images_by_id[i][:min(len(images_by_id[i]),100)])
+
+    #print(len(ids_per_frame))
+    #print(len(feats))
+    for f in ids_per_frame:
+        if f:
+            if len(exist_ids) == 0:
+                for i in f:
+                    final_fuse_id[i] = [i]
+                exist_ids = exist_ids or f
+            else:
+                new_ids = f - exist_ids
+                for nid in new_ids:
+                    dis = []
+                    if len(images_by_id[nid]) < 10:
+                        exist_ids.add(nid)
+                        continue
+                    unpickable = []
+                    for i in f:
+                        for key, item in final_fuse_id.items():
+                            if i in item:
+                                unpickable += final_fuse_id[key]
+                    print('exist_ids {} unpickable {}'.format(exist_ids, unpickable))
+                    for oid in (exist_ids - set(unpickable)) & set(final_fuse_id.keys()):
+                        tmp = np.mean(reid.compute_distance(feats[nid], feats[oid]))
+                        print('nid {}, oid {}, tmp {}'.format(nid, oid, tmp))
+                        dis.append([oid, tmp])
+                    exist_ids.add(nid)
+                    if not dis:
+                        final_fuse_id[nid] = [nid]
+                        continue
+                    dis.sort(key=operator.itemgetter(1))
+                    if dis[0][1] < threshold:
+                        combined_id = dis[0][0]
+                        images_by_id[combined_id] += images_by_id[nid]  # images_by_id[combined_id] += images_by_id[nid]
+                        final_fuse_id[combined_id].append(nid)
+                    else:
+                        final_fuse_id[nid] = [nid]
+
+    print('Final ids and their sub-ids:', final_fuse_id)
+    print(len(final_fuse_id))
 
 
 if __name__ == '__main__':
@@ -249,7 +394,6 @@ if __name__ == '__main__':
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
     parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
     parser.add_argument('--save-txt', action='store_true', help='save MOT compliant results to *.txt')
-
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 16 17')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
@@ -257,51 +401,30 @@ if __name__ == '__main__':
     parser.add_argument('--evaluate', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
     args = parser.parse_args()
-    img_size = check_img_size(args.img_size)
-    reid = REID()
-    cfg = get_config()
+    args.img_size = check_img_size(args.img_size)
+    #reid = REID()
+    video1 = ['/content/drive/MyDrive/video/112.mp4','/content/drive/MyDrive/video/1.mp4']
+    video2 = ['/content/drive/MyDrive/video/131.mp4','/content/drive/MyDrive/video/2.mp4']
 
-    cfg.merge_from_file(args.config_deepsort)
-    attempt_download(args.deep_sort_weights, repo='mikel-brostrom/Yolov5_DeepSort_Pytorch')
-    deepsorts = []
-    for i in range(2):
-        deepsorts.append(DeepSort(cfg.DEEPSORT.REID_CKPT,
-                                  max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
-                                  nms_max_overlap=cfg.DEEPSORT.NMS_MAX_OVERLAP,
-                                  max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
-                                  max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT,
-                                  nn_budget=cfg.DEEPSORT.NN_BUDGET,
-                                  use_cuda=True))
-    device = select_device(args.device)
-    model = attempt_load(args.yolo_weights, map_location=device)
-    stride = int(model.stride.max())  # model stride
-    imgsz = check_img_size(args.img_size, s=stride)  # check img_size
-    videos = ['/content/drive/MyDrive/video/video2.mp4', '/content/drive/MyDrive/video/test.mp4']
-    re_list = []
     ti = time.time()
     with torch.no_grad():
-        multi = mp.set_start_method('spawn')
-        with mp.Manager() as manager:
-            return_list = manager.list()
-            p1 = mp.Process(target=detect, args=(args, return_list, videos[0], deepsorts[0], model, device, imgsz))
-            p2 = mp.Process(target=detect, args=(args, return_list, videos[1], deepsorts[1], model, device, imgsz))
+        #multi = mp.set_start_method('spawn')
+        with Manager() as manager:
+            ids_per_frame1 = manager.list()
+            ids_per_frame2 = manager.list()
+            return_dict = manager.list()
+            p1 = Process(target=detect, args=(args, video1[0], return_dict, ids_per_frame1))
+            p2 = Process(target=detect, args=(args, video2[0], return_dict, ids_per_frame2))
             p1.start()
             p2.start()
-
             p1.join()
             p2.join()
-            re_list = list(return_list)
-    feats_all = []
-    t2 = time.time()
-    for image_id in re_list:
-        feat = dict()
-        for i in image_id:
-            if (len(image_id[i])) >= 10:
-                feat[i] = reid._features(image_id[i])
-        if len(feat) != 0:
-            feats_all.append(feat)
-
-    print('People counting : {}'.format(people_counting_v2.return_people_v2(reid, feats_all)))
-    print('Done : {}'.format(time.time() - t2))
-
+            print(len(ids_per_frame1))
+            print(len(return_dict))
+            #for i in return_dict[0]:
+            #  print('{} : {}'.format(i, len(return_dict[0][i])))
+            ti3 = time.time()
+            p3 = Process(target = re_identification, args =(return_dict, ids_per_frame1, ids_per_frame2))
+            p3.start()
+            p3.join()
 
