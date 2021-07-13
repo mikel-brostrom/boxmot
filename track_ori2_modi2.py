@@ -11,7 +11,6 @@ from yolov5.utils.torch_utils import select_device, time_synchronized
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
 from multiprocessing import Process, Manager
-import multiprocessing as mp
 import argparse
 import os
 import platform
@@ -27,9 +26,60 @@ import collections
 import copy
 import numpy as np
 import operator
+import cv2
+
+def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
+    # Resize and pad image while meeting stride-multiple constraints
+    shape = img.shape[:2]  # current shape [height, width]
+    if isinstance(new_shape, int):
+        new_shape = (new_shape, new_shape)
+
+    # Scale ratio (new / old)
+    r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
+    if not scaleup:  # only scale down, do not scale up (for better test mAP)
+        r = min(r, 1.0)
+
+    # Compute padding
+    ratio = r, r  # width, height ratios
+    new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
+    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
+    if auto:  # minimum rectangle
+        dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
+    elif scaleFill:  # stretch
+        dw, dh = 0.0, 0.0
+        new_unpad = (new_shape[1], new_shape[0])
+        ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios
+
+    dw /= 2  # divide padding into 2 sides
+    dh /= 2
+
+    if shape[::-1] != new_unpad:  # resize
+        img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+    top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
+    left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+    img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+    return img, ratio, (dw, dh)
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
+class LoadVideo:  # for inference
+    def __init__(self, path, img_size=(640, 480)):
+        if not os.path.isfile(path):
+            raise FileExistsError
+
+        self.cap = cv2.VideoCapture(path)
+        self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
+        self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.width = img_size[0]
+        self.height = img_size[1]
+        self.count = 0
+
+        print('Length of {}: {:d} frames'.format(path, self.vn))
+
+    def get_VideoLabels(self):
+        return self.cap, self.frame_rate, self.vw, self.vh
 
 def xyxy_to_xywh(*xyxy):
     """" Calculates the relative bounding box from absolute pixel values. """
@@ -85,12 +135,11 @@ def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
     return img
 
 
-def detect(opt, source, return_dict, ids_per_frame):
+def detect(opt, dataset, return_dict, ids_per_frame):
     out, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz, evaluate = \
         opt.output, opt.yolo_weights, opt.deep_sort_weights, opt.show_vid, opt.save_vid, \
         opt.save_txt, opt.img_size, opt.evaluate
-    webcam = source == '0' or source.startswith(
-        'rtsp') or source.startswith('http') or source.endswith('.txt')
+    
     time_init = time.time()
     # initialize deepsort
     cfg = get_config()
@@ -128,14 +177,13 @@ def detect(opt, source, return_dict, ids_per_frame):
     # Check if environment supports image displays
     if show_vid:
         show_vid = check_imshow()
-    
+    """"
     if webcam:
         cudnn.benchmark = True  # set True to speed up constant image size inference
         dataset = LoadStreams(source, img_size=imgsz, stride=stride)
     else:
         dataset = LoadImages(source, img_size=imgsz)
-    print(type(dataset))
-    print(len(dataset))
+    """
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
 
@@ -143,16 +191,21 @@ def detect(opt, source, return_dict, ids_per_frame):
     if device.type != 'cpu':
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
 
+    """
     save_path = str(Path(out))
     # extract what is in between the last '/' and last '.'
     txt_file_name = source.split('/')[-1].split('.')[0]
     txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
+    """
     track_cnt = dict()
     print('time (init) : {}'.format(time.time() - time_init))
     t0 = time.time()
-    index = 0
+    frame_cnt = 0
     images_by_id = dict()
-    for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
+    for im0s in dataset:
+        img = letterbox(im0s, 640, stride=32)[0]
+        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3 x 416 x 416
+        img = np.ascontiguousarray(img)
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -170,13 +223,13 @@ def detect(opt, source, return_dict, ids_per_frame):
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
-            if webcam:  # batch_size >= 1
-                p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
-            else:
-                p, s, im0 = path, '', im0s
+            #if webcam:  # batch_size >= 1
+            #    p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
+            #else:
+            s, im0 = '', im0s
 
             s += '%gx%g ' % img.shape[2:]  # print string
-            save_path = str(Path(out) / Path(p).name)
+            #save_path = str(Path(out) / Path(p).name)
 
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
@@ -203,7 +256,7 @@ def detect(opt, source, return_dict, ids_per_frame):
                 confss = torch.Tensor(confs)
 
                 # pass detections to deepsort
-                outputs, images_by_id = deepsort.update(xywhs, confss, im0, images_by_id, ids_per_frame, track_cnt, frame_idx)
+                outputs, images_by_id = deepsort.update(xywhs, confss, im0, images_by_id, ids_per_frame, track_cnt, frame_cnt)
                 """
                 # draw boxes for visualization
                 if len(outputs) > 0:
@@ -260,7 +313,7 @@ def detect(opt, source, return_dict, ids_per_frame):
             images_by_id = dict()
             ids_per_frame = []
         """
-        # index += 1
+        frame_cnt += 1
     """
     if save_txt or save_vid:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
@@ -322,6 +375,7 @@ def re_identification(return_dict, ids_per_frame1, ids_per_frame2):
     # print(images_by_id)
     print(len(images_by_id))
     #print(return_list)
+
 
     for i in ids_per_frame2:
       d = set()
@@ -396,32 +450,38 @@ if __name__ == '__main__':
     parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
     parser.add_argument('--save-txt', action='store_true', help='save MOT compliant results to *.txt')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
-    parser.add_argument('--classes', default = '0', nargs='+', type=int, help='filter by class: --class 0, or --class 16 17')
+    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 16 17')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--evaluate', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
     args = parser.parse_args()
     args.img_size = check_img_size(args.img_size)
-    video1 = ['/content/drive/MyDrive/video/112.mp4','/content/drive/MyDrive/video/112.mp4']
-    video2 = ['/content/drive/MyDrive/video/131.mp4','/content/drive/MyDrive/video/131.mp4']
-    """
-    dataset1 = []
-    dataset2 = []
-    for i in range(len(video1)):
-      dataset1.append(LoadImages(video1[i], img_size = args.img_size))
-      dataset2.append(LoadImages(video2[i], img_size = args.img_size))
-    """
-    ti = time.time()
+    #reid = REID()
+    video1 = ['/content/drive/MyDrive/video/112.mp4','/content/drive/MyDrive/video/131.mp4']
+    video2 = ['/content/drive/MyDrive/video/131.mp4','/content/drive/MyDrive/video/2.mp4']
+    videos = []
+    for video in video1:
+        loadvideo = LoadVideo(video)
+        video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
+        video_frame = []
+        while True:
+            ret, frame = video_capture.read()
+            if ret != True:
+                video_capture.release()
+                break
+            video_frame.append(frame)
+        videos.append(video_frame)
+
+
     with torch.no_grad():
-        multi = mp.set_start_method('spawn')
+        #multi = mp.set_start_method('spawn')
         with Manager() as manager:
-          for i in range(1):
             ids_per_frame1 = manager.list()
             ids_per_frame2 = manager.list()
             return_dict = manager.list()
-            p1 = Process(target=detect, args=(args, video1[i], return_dict, ids_per_frame1))
-            p2 = Process(target=detect, args=(args, video2[i], return_dict, ids_per_frame2))
+            p1 = Process(target=detect, args=(args, videos[0], return_dict, ids_per_frame1))
+            p2 = Process(target=detect, args=(args, videos[1], return_dict, ids_per_frame2))
             p1.start()
             p2.start()
             p1.join()
@@ -433,5 +493,5 @@ if __name__ == '__main__':
             ti3 = time.time()
             p3 = Process(target = re_identification, args =(return_dict, ids_per_frame1, ids_per_frame2))
             p3.start()
-            p3.join
+            p3.join()
 
