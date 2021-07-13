@@ -1,1 +1,12 @@
 .vscode/
+core
+*.mp4
+*.avi
+*.MP4
+*.png
+*.jpg
+*.ping
+*.jpeg
+*.JPEG
+*.PNG
+*.PING

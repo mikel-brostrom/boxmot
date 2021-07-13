@@ -1,0 +1,40 @@
+version: '3.9'
+
+
+services:
+  main:
+    build:
+      context: ..
+      dockerfile:
+        docker/Dockerfile
+    image:
+      kagemeka/yolo-deepsort
+    devices:
+      - /dev/video0:/dev/video0
+    env_file: common.env
+    # network_mode: host
+    restart: on-failure
+    runtime: nvidia
+    tty: true
+    volumes:
+      - type: tmpfs
+        target: /tmp/
+        volume:
+          nocopy: true
+        read_only: false
+      - type: bind
+        source: /tmp/.X11-unix 
+        target: /tmp/.X11-unix
+        volume:
+          nocopy: true
+        read_only: false
+      - type: bind
+        source: $ROOT
+        target: 
+          /root/yolo-deepsort/
+        volume:
+          nocopy: true
+        read_only: false
+    working_dir: 
+      /root/yolo-deepsort/
+      
