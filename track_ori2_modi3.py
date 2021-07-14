@@ -1,5 +1,4 @@
 import sys
-
 sys.path.insert(0, './yolov5')
 
 from yolov5.utils.google_utils import attempt_download
@@ -27,7 +26,6 @@ import numpy as np
 import operator
 import cv2
 from multiprocessing import Process, Manager
-
 
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
     # Resize and pad image while meeting stride-multiple constraints
@@ -61,9 +59,7 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scale
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
     return img, ratio, (dw, dh)
 
-
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
-
 
 class LoadVideo:  # for inference
     def __init__(self, path, img_size=(640, 480)):
@@ -84,7 +80,6 @@ class LoadVideo:  # for inference
     def get_VideoLabels(self):
         return self.cap, self.frame_rate, self.vw, self.vh
 
-
 def xyxy_to_xywh(*xyxy):
     """" Calculates the relative bounding box from absolute pixel values. """
     bbox_left = min([xyxy[0].item(), xyxy[2].item()])
@@ -96,7 +91,6 @@ def xyxy_to_xywh(*xyxy):
     w = bbox_w
     h = bbox_h
     return x_c, y_c, w, h
-
 
 def xyxy_to_tlwh(bbox_xyxy):
     tlwh_bboxs = []
@@ -139,18 +133,19 @@ def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
     return img
 
 
-def detect(opt, model, reid, dataset, deepsort, device):
+def detect(opt,model, reid, dataset, deepsort):
     out, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz, evaluate = \
         opt.output, opt.yolo_weights, opt.deep_sort_weights, opt.show_vid, opt.save_vid, \
-        opt.save_txt, opt.img_size, opt.evaluate
-    # webcam = source == '0' or source.startswith(
-    #    'rtsp') or source.startswith('http') or source.endswith('.txt')
+            opt.save_txt, opt.img_size, opt.evaluate
+    webcam = source == '0' or source.startswith(
+        'rtsp') or source.startswith('http') or source.endswith('.txt')
 
     # initialize deepsort
 
     t0 = time.time()
     # Initialize
-    # reid = REID()
+    device = select_device(opt.device)
+    #reid = REID()
     # The MOT16 evaluation runs multiple inference streams in parallel, each one writing to
     # its own .txt file. Hence, in that case, the output folder is not restored
     """
@@ -227,7 +222,7 @@ def detect(opt, model, reid, dataset, deepsort, device):
             """
             s, im0 = '', im0s
             s += '%gx%g ' % img.shape[2:]  # print string
-            # save_path = str(Path(out) / Path(p).name)
+            #save_path = str(Path(out) / Path(p).name)
 
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
@@ -280,7 +275,7 @@ def detect(opt, model, reid, dataset, deepsort, device):
                 deepsort.increment_ages()
 
             # Print time (inference + NMS)
-            # print('%sDone. (%.3fs)' % (s, t2 - t1))
+            #print('%sDone. (%.3fs)' % (s, t2 - t1))
         """
             # Stream results
             if show_vid:
@@ -304,7 +299,7 @@ def detect(opt, model, reid, dataset, deepsort, device):
 
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                 vid_writer.write(im0)
-
+        
         if index != 0 and index % 50 == 0:
             print('people counting : {}'.format(people_counting.return_people(reid, images_by_id, ids_per_frame)))
             track_cnt = dict()
@@ -318,18 +313,17 @@ def detect(opt, model, reid, dataset, deepsort, device):
         if platform == 'darwin':  # MacOS
             os.system('open ' + save_path)
     """
-    # print('Done. (%.3fs)' % (time.time() - t0))
+    print('Done. (%.3fs)' % (time.time() - t0))
     print(len(images_by_id))
     reid_time = time.time()
     print('people counting : {}'.format(people_counting.return_people(reid, images_by_id, ids_per_frame)))
-    print('ReID : (%.3fs)' % (time.time() - t0))
-
+    print('ReID : (%.3fs)' % (time.time() - reid_time))
 
 def merge_frame(video1, video2, return_frame):
     for frame in video1:
         return_frame.append(frame)
 
-    # 중간에 empty frame을 추가해야 할 수도 있음.
+    #중간에 empty frame을 추가해야 할 수도 있음.
     for frame in video2:
         return_frame.append(frame)
 
@@ -337,8 +331,7 @@ def merge_frame(video1, video2, return_frame):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/yolov5s.pt', help='model.pt path')
-    parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7',
-                        help='ckpt.t7 path')
+    parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7', help='ckpt.t7 path')
     # file/folder, 0 for webcam
     parser.add_argument('--source', type=str, default='0', help='source')
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
@@ -359,7 +352,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.img_size = check_img_size(args.img_size)
     video1 = ['/content/drive/MyDrive/video/112.mp4', '/content/drive/MyDrive/video/131.mp4']
-    video2 = ['/content/drive/MyDrive/video/131.mp4', '/content/drive/MyDrive/video/112.mp4']
+    video2 = ['/content/drive/MyDrive/video/131.mp4', '/content/drive/MyDrive/video/2.mp4']
     videos = []
     videos1 = []
     videos2 = []
@@ -385,29 +378,23 @@ if __name__ == '__main__':
                 break
             video_frame.append(frame)
         videos2.append(video_frame)
-    device = select_device(args.device)
-    model = attempt_load(args.yolo_weights, map_location=device)  # load FP32 model
-
+    model = attempt_load(yolo_weights, map_location=device)  # load FP32 model
     reid = REID()
     cfg = get_config()
-    cfg.merge_from_file(args.config_deepsort)
-    attempt_download(args.deep_sort_weights, repo='mikel-brostrom/Yolov5_DeepSort_Pytorch')
+    cfg.merge_from_file(opt.config_deepsort)
+    attempt_download(deep_sort_weights, repo='mikel-brostrom/Yolov5_DeepSort_Pytorch')
+    deepsort = DeepSort(cfg.DEEPSORT.REID_CKPT,
+                        max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
+                        nms_max_overlap=cfg.DEEPSORT.NMS_MAX_OVERLAP, max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
+                        max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
+                        use_cuda=True)
     with torch.no_grad():
-        time_check = time.time()
         dataset = []
-        with Manager() as manager:
+        with Mangager() as manager:
             for i in range(2):
                 frame_get = manager.list()
-                p = Process(target=merge_frame, args=(videos1.pop(0), videos2.pop(0), frame_get))
+                p = Process(target = merge_frame, args = (videos1.pop(0), videos2.pop(0), frame_get))
                 p.start()
                 p.join()
                 dataset.append(frame_get)
-                deepsort = DeepSort(cfg.DEEPSORT.REID_CKPT,
-                                    max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
-                                    nms_max_overlap=cfg.DEEPSORT.NMS_MAX_OVERLAP,
-                                    max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
-                                    max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT,
-                                    nn_budget=cfg.DEEPSORT.NN_BUDGET,
-                                    use_cuda=True)
-                detect(args, model, reid, dataset.pop(0), deepsort, device)
-        print('Done : {}'.format(time.time() - time_check))
+                detect(args, model, reid, dataset.pop(0), deepsort)
