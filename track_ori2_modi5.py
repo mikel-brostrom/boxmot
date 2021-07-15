@@ -492,19 +492,6 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
         print('Final ids and their sub-ids:', final_fuse_id)
         print(len(final_fuse_id))
 
-def get_frame(source, return_list):
-  for video in source:
-    loadvideo = LoadVideo(video)
-    video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
-    video_frame = []
-    while True:
-        ret, frame = video_capture.read()
-        if ret != True:
-            video_capture.release()
-            break
-        video_frame.append(frame)
-    return_list.put(video_frame)
-
 warnings.filterwarnings('ignore')
 daemon_pid_file = '/var/run/daemon.pid'
 
@@ -557,7 +544,7 @@ if __name__ == '__main__':
         return_dict2 = Manager().Queue()
         p1 = Process(target=detect, args=(args, frame_get1, return_dict1, ids_per_frame1, 'Video1'))
         p2 = Process(target=detect, args=(args, frame_get2, return_dict2, ids_per_frame2, 'Video2'))
-        p3 = Process(target = re_identification, args =(return_dict,return_dict2, ids_per_frame1, ids_per_frame2))
+        p3 = Process(target = re_identification, args =(return_dict1,return_dict2, ids_per_frame1, ids_per_frame2))
         p1.start()
         p2.start()
         p3.start()
