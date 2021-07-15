@@ -23,7 +23,7 @@ class DeepSort(object):
         self.tracker = Tracker(
             metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init)
 
-    def update(self, bbox_xywh, confidences, ori_img):
+    def update(self, bbox_xywh, confidences, ori_img, images_by_id, ids_per_frame, track_cnt, frame_cnt):
         self.height, self.width = ori_img.shape[:2]
         # generate detections
         features = self._get_features(bbox_xywh, ori_img)
@@ -41,16 +41,29 @@ class DeepSort(object):
 
         # output bbox identities
         outputs = []
+        tmp_ids = []
         for track in self.tracker.tracks:
             if not track.is_confirmed() or track.time_since_update > 1:
                 continue
             box = track.to_tlwh()
             x1, y1, x2, y2 = self._tlwh_to_xyxy(box)
             track_id = track.track_id
+            area = (int(x2) - int(x1)) * (int(y2) - int(y1))
+            if x1 >= 0 and y1 >= 0 and y2 < self.height and x2 < self.width:
+                tmp_ids.append(track.track_id)
+                if track.track_id not in track_cnt:
+                    track_cnt[track.track_id] = [
+                        [frame_cnt, int(x1), int(y1), int(x2), int(y2), area]]
+                    images_by_id[track.track_id] = [ori_img[int(y1):int(y2), int(x1):int(x2)]]
+                else:
+                    track_cnt[track.track_id].append(
+                        [frame_cnt, int(x1), int(y1), int(x2), int(y2), area])
+                    images_by_id[track.track_id].append(ori_img[int(y1):int(y2), int(x1):int(x2)])
             outputs.append(np.array([x1, y1, x2, y2, track_id], dtype=np.int))
+        ids_per_frame.append(set(tmp_ids))
         if len(outputs) > 0:
             outputs = np.stack(outputs, axis=0)
-        return outputs
+        return outputs, images_by_id
 
     """
     TODO:
