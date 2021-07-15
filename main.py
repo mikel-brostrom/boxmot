@@ -114,6 +114,7 @@ class Yolo():
     self.__half = half 
     self.__opt = opt
     self.__model = model
+    self.__imgsz = imgsz
     self.__names = names
   
 
@@ -129,7 +130,7 @@ class Yolo():
   ) -> torch.Tensor:
     img = letterbox(
       img0,
-      new_shape=self.imgsz,
+      new_shape=self.__imgsz,
       stride=32,
     )[0]
     img = img[:, :, ::-1].transpose(2, 0, 1)
@@ -178,7 +179,6 @@ class Yolo():
     with torch.no_grad():
       img = self.__to_yolo_input(img0)
       pred = self.__predict(img)
-      return pred
       dets = pred[0]
       if dets is None:
         return
@@ -233,7 +233,7 @@ class Deepsort():
 
   def __call__(
     self,
-    dets: typing.Optiona[
+    dets: typing.Optional[
       torch.Tensor
     ],
     img0: np.array,
@@ -248,8 +248,6 @@ class Deepsort():
       for (
         *xyxy, conf, cls_,
       ) in dets:
-        # bbox_xywh.append([*self.bbox_rel(*xyxy)])
-        # confs.append([conf.item()])
         x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
         xywh_obj = [x_c, y_c, bbox_w, bbox_h]
         bbox_xywh.append(xywh_obj)
@@ -266,11 +264,95 @@ class Deepsort():
       return outputs
 
 
+import cv2 
+
+palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
+
+def compute_color_for_labels(label):
+  """
+  Simple function that adds fixed color depending on the class
+  """
+  color = [int((p * (label ** 2 - label + 1)) % 255) for p in palette]
+  return tuple(color)
+
+def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
+  for i, box in enumerate(bbox):
+    x1, y1, x2, y2 = [int(i) for i in box]
+    x1 += offset[0]
+    x2 += offset[0]
+    y1 += offset[1]
+    y2 += offset[1]
+    # box text and bar
+    id = int(identities[i]) if identities is not None else 0
+    color = compute_color_for_labels(id)
+    label = '{}{:d}'.format("", id)
+    t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 2, 2)[0]
+    cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
+    cv2.rectangle(
+      img, (x1, y1), (x1 + t_size[0] + 3, y1 + t_size[1] + 4), color, -1)
+    cv2.putText(
+      img, label, 
+      (x1, y1 + t_size[1] + 4), 
+      cv2.FONT_HERSHEY_PLAIN, 
+      2, [255, 255, 255], 2)
+  return img
+
+
+from tqdm import (
+  trange,
+)
 
 def main():
   opt = Options()
-  with torch.no_grad():
-    Yolo(opt)
+  yolo = Yolo(opt)
+  deepsort = Deepsort(opt)
+  img = cv2.imread('test.jpeg')
+  cap = cv2.VideoCapture(
+    'test.mp4',
+  )
+  n = cap.get(
+    cv2.CAP_PROP_FRAME_COUNT,
+  )
+  fps = cap.get(
+    cv2.CAP_PROP_FPS,
+  )
+  w = cap.get(
+    cv2.CAP_PROP_FRAME_WIDTH,
+  )
+  h = cap.get(
+    cv2.CAP_PROP_FRAME_HEIGHT,
+  )
+  writer = cv2.VideoWriter(
+    'result.mp4',
+    cv2.VideoWriter_fourcc(
+      *'MP4V',
+    ),
+    fps,
+    frameSize=(
+      int(w),
+      int(h),
+    ),
+  )
+  n = int(n)
+  for i in trange(n):
+    success, img = cap.read()
+
+    if not success:
+      continue 
+    dets = yolo.detect(img)
+    out = deepsort(dets, img)
+    if len(out) == 0:
+      # cv2.imshow('./tmp.png', img)
+      writer.write(img)
+      continue
+    bbox_xyxy = out[:, :4]
+    identities = out[:, -1]
+    draw_boxes(img, bbox_xyxy, identities)
+    # cv2.imshow('./tmp.png', img)
+    writer.write(img)
+
+  cap.release()
+  writer.release()
   ... 
 
 
