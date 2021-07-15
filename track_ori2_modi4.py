@@ -336,7 +336,7 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
         #for key, item in images_by_id.items():
         #  print('{} : {}'.format(key, len(images_by_id[key])))
         #print('Copy')
-        return_dict.append(images_by_id)
+        return_dict.put(images_by_id)
         ids_per_frame_list.put(ids_per_frame)
         print(string + ' Tracking Done')
         #for j in return_dict:
@@ -349,17 +349,17 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
         # print('people counting : {}'.format(people_counting.return_people(reid, images_by_id, ids_per_frame)))
         # print('ReID : (%.3fs)' % (time.time() - t0))
 
-def re_identification(return_dict, ids_per_frame1_list, ids_per_frame2_list):
+def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_frame2_list):
     #print('ReID')
     reid = REID()
     print('Create ReID Model')
     while True:
-        while (len(return_dict) < 2) or (ids_per_frame1_list.empty()) or (ids_per_frame2_list.empty()):
-            print('Not Ready : {}, {}, {}'.format(len(return_dict), ids_per_frame1_list.qsize(), ids_per_frame2_list.qsize()))
+        while (return_dict1.empty()) or (return_dict2.empty()) or (ids_per_frame1_list.empty()) or (ids_per_frame2_list.empty()):
+            print('Not Ready : {} {}, {}, {}'.format(return_dict1.qsize(), return_dict2.qsize(), ids_per_frame1_list.qsize(), ids_per_frame2_list.qsize()))
             time.sleep(1)
-        print('ReID start : {}, {}, {}'.format(len(return_dict), ids_per_frame1_list.qsize(), ids_per_frame2_list.qsize()))
-        return_list = return_dict.pop(0)
-        return_list2 = return_dict.pop(0)
+        print('Not Ready : {} {}, {}, {}'.format(return_dict1.qsize(), return_dict2.qsize(), ids_per_frame1_list.qsize(), ids_per_frame2_list.qsize()))
+        return_list1 = return_dict1.get()
+        return_list2 = return_dict2.get()
         #print(len(return_list))
         #print(len(return_list2))
         ids_per_frame1 = ids_per_frame1_list.get()
@@ -493,12 +493,13 @@ if __name__ == '__main__':
         p5.join()
         ids_per_frame1 = Manager().Queue()
         ids_per_frame2 = Manager().Queue()
-        return_dict = Manager().list()
+        return_dict1 = Manager().Queue()
+        return_dict2 = Manager().Queue()
         #print(len(ids_per_frame1))
         #print(len(ids_per_frame2))
-        p1 = Process(target=detect, args=(args, videos1, return_dict, ids_per_frame1, 'Video1'))
-        p2 = Process(target=detect, args=(args, videos2, return_dict, ids_per_frame2, 'Video2'))
-        p3 = Process(target = re_identification, args =(return_dict, ids_per_frame1, ids_per_frame2))
+        p1 = Process(target=detect, args=(args, videos1, return_dict1, ids_per_frame1, 'Video1'))
+        p2 = Process(target=detect, args=(args, videos2, return_dict2, ids_per_frame2, 'Video2'))
+        p3 = Process(target = re_identification, args =(return_dict,return_dict2, ids_per_frame1, ids_per_frame2))
         p1.start()
         p2.start()
         p3.start()
@@ -510,6 +511,7 @@ if __name__ == '__main__':
         #  print('{} : {}'.format(i, len(return_dict[0][i])))
         #ti3 = time.time()
         # p3.join()
-        while True:
-          time.sleep(1)
+        p1.join()
+        p2.join()
+        p3.join()
 
