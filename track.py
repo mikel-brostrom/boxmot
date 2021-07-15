@@ -2,8 +2,7 @@ import sys
 
 sys.path.insert(0, './yolov5')
 
-import daemon
-
+import warnings
 from yolov5.utils.google_utils import attempt_download
 from yolov5.models.experimental import attempt_load
 from yolov5.utils.datasets import LoadImages, LoadStreams
@@ -23,7 +22,6 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from reid import REID
-import people_counting_v2
 import collections
 import copy
 import numpy as np
@@ -32,29 +30,29 @@ import cv2
 import multiprocessing as mp
 import queue as Queue
 from itertools import chain
-from colections import defaultdict
 from google.cloud import bigquery, storage
 
 def get_frame(i, frame):
     project_id = 'atsm-202107'
     bucket_id = 'sanhak_2021'
     dataset_id = 'sanhak_2021'
-    table_id = 'video' + str(i)
+    table_id = 'video_sec-10_frame-4'
 
     storage_client = storage.Client()
     db_client = bigquery.Client()
     bucket = storage_client.bucket(bucket_id)
     select_query = (
-        "SELECT datetime, path FROM {}.{}.{} ORDER BY datetime LIMIT 1".format(project_id, dataset_id, table_id))
-
+        "SELECT camID, date_time, path FROM `{}.{}.{}` WHERE camID = {} ORDER BY date_time LIMIT 1".format(project_id,
+                                                                                                        dataset_id,
+                                                                                                        table_id, i))
     query_job = db_client.query(select_query)
     results = query_job.result()
     for row in results:
         path = row.path
-        date_time = row.datetime
+        dt = row.date_time
 
     delete_query = (
-        "DELETE FROM {}.{}.{} WHERE datetime = '{}'".format(project_id, dataset_id, table_id, date_time))
+        "DELETE FROM `{}.{}.{}` WHERE date_time = '{}' AND camID = {}".format(project_id, dataset_id, table_id, dt, i))
 
     query_job = db_client.query(delete_query)
     results = query_job.result()
@@ -82,6 +80,7 @@ def get_frame(i, frame):
     #         break
     #     frame.append(realframe)
     print("vid {} get_frame finished".format(str(i)))
+    print(len(save))
 
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
     # Resize and pad image while meeting stride-multiple constraints
@@ -309,9 +308,9 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
                     confs = []
 
                     # Adapt detections to deep sort input format
-                    for *xyxy, conf, cls in det:
+                    for xyxy, conf, cls in det:
                         # to deep sort format
-                        x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
+                        x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(xyxy)
                         xywh_obj = [x_c, y_c, bbox_w, bbox_h]
                         xywh_bboxs.append(xywh_obj)
                         confs.append([conf.item()])
@@ -411,7 +410,7 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
             print('Not Ready : {} {}, {}, {}'.format(return_dict1.qsize(), return_dict2.qsize(), ids_per_frame1_list.qsize(), ids_per_frame2_list.qsize()))
             time.sleep(1)
         print('Not Ready : {} {}, {}, {}'.format(return_dict1.qsize(), return_dict2.qsize(), ids_per_frame1_list.qsize(), ids_per_frame2_list.qsize()))
-        return_list1 = return_dict1.get()
+        return_list = return_dict1.get()
         return_list2 = return_dict2.get()
         #print(len(return_list))
         #print(len(return_list2))
@@ -490,25 +489,23 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
                             final_fuse_id[nid] = [nid]
 
         print('Final ids and their sub-ids:', final_fuse_id)
-        print(len(final_fuse_id))
+        print('people : ', len(final_fuse_id))
 
 warnings.filterwarnings('ignore')
 daemon_pid_file = '/var/run/daemon.pid'
 
 def pstart(frame_get,frame_get2):
-    cnt = 0
-    while(cnt < 10):
+    while(1):
         p1 = Process(target=get_frame, args=(0, frame_get))
         p2 = Process(target=get_frame, args=(1, frame_get2))
         p1.start()
         p2.start()
         p1.join()
         p2.join()
-        cnt+=1
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/crowdhuman_yolov5m.pt', help='model.pt path')
+    parser.add_argument('--yolo_weights', type=str, default='yolov5/models/crowdhuman_yolov5m.pt', help='model.pt path')
     parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7',
                         help='ckpt.t7 path')
     # file/folder, 0 for webcam
@@ -551,3 +548,4 @@ if __name__ == '__main__':
         p1.join()
         p2.join()
         p3.join()
+
