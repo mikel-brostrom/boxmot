@@ -19,6 +19,11 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 
+from main import (
+    Yolo,
+    Options,
+)
+yolo = Yolo(Options())
 
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
@@ -35,6 +40,7 @@ def xyxy_to_xywh(*xyxy):
     w = bbox_w
     h = bbox_h
     return x_c, y_c, w, h
+
 
 def xyxy_to_tlwh(bbox_xyxy):
     tlwh_bboxs = []
@@ -104,6 +110,8 @@ def detect(opt):
             pass
             shutil.rmtree(out)  # delete output folder
         os.makedirs(out)  # make new output folder
+
+        
     half = device.type != 'cpu'  # half precision only supported on CUDA
 
     # Load model
@@ -140,15 +148,17 @@ def detect(opt):
     txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
 
     for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
+
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
-
         # Inference
         t1 = time_synchronized()
         pred = model(img, augment=opt.augment)[0]
+        # pred = yolo.detect(img)
+
 
         # Apply NMS
         pred = non_max_suppression(
@@ -169,7 +179,6 @@ def detect(opt):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(
                     img.shape[2:], det[:, :4], im0.shape).round()
-
                 # Print results
                 for c in det[:, -1].unique():
                     n = (det[:, -1] == c).sum()  # detections per class
@@ -191,6 +200,7 @@ def detect(opt):
 
                 # pass detections to deepsort
                 outputs = deepsort.update(xywhs, confss, im0)
+                print(outputs)
 
                 # draw boxes for visualization
                 if len(outputs) > 0:

@@ -1,4 +1,4 @@
-.vscode/
+__pychache__
 core
 *.mp4
 *.avi
@@ -10,3 +10,4 @@ core
 *.JPEG
 *.PNG
 *.PING
+!.gitkeep
