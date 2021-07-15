@@ -228,7 +228,10 @@ def detect(opt):
                 deepsort.increment_ages()
 
             # Print time (inference + NMS)
-            print('%sDone. (%.3fs)' % (s, t2 - t1))
+            print('%sDone. yolo(%.3fs)' % (s, t2 - t1))
+
+            t3 = time_synchronized()
+            print('%sDone. deepsort(%.3fs)' % (s, t3 - t2))
 
             # Stream results
             if show_vid:
