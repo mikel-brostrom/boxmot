@@ -1,7 +1,7 @@
 import sys
 
 sys.path.insert(0, './yolov5')
-
+import torch.multiprocessing as mp
 import warnings
 from yolov5.utils.google_utils import attempt_download
 from yolov5.models.experimental import attempt_load
@@ -22,15 +22,18 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from reid import REID
+import people_counting_v2
 import collections
 import copy
 import numpy as np
 import operator
 import cv2
 import multiprocessing as mp
-from queue import Queue
+import queue as Queue
 from itertools import chain
 from google.cloud import bigquery, storage
+import multiprocessing
+
 
 def get_frame(i, frame):
     project_id = 'atsm-202107'
@@ -70,6 +73,7 @@ def get_frame(i, frame):
             else:
                 break
         frame.put(save)
+        print(len(save))
     else:
         print('cannot open the vid #' + str(i))
         exit()
@@ -80,7 +84,7 @@ def get_frame(i, frame):
     #         break
     #     frame.append(realframe)
     print("vid {} get_frame finished".format(str(i)))
-    print(len(save))
+
 
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
     # Resize and pad image while meeting stride-multiple constraints
@@ -224,13 +228,7 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
     # Check if environment supports image displays
     if show_vid:
         show_vid = check_imshow()
-    """"
-    if webcam:
-        cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
-    else:
-        dataset = LoadImages(source, img_size=imgsz)
-    """
+
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
 
@@ -238,19 +236,13 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
     if device.type != 'cpu':
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
 
-    """
-    save_path = str(Path(out))
-    # extract what is in between the last '/' and last '.'
-    txt_file_name = source.split('/')[-1].split('.')[0]
-    txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
-    """
 
-    for i in range(1):
+
+    while True:
         print(string + 'start')
-        print(dataset_list.qsize())
-        # while (dataset_list.empty()):
-        #     print(string + 'is Empty. Not ready for tracking')
-        #     time.sleep(1)
+        while (dataset_list.empty()):
+            time.sleep(1)
+        start_time = time.time()
         dataset = dataset_list.get()
         deepsort = DeepSort(cfg.DEEPSORT.REID_CKPT,
                             max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
@@ -258,7 +250,6 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
                             max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
                             max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
                             use_cuda=True)
-        print('Tracking Start')
         track_cnt = dict()
         #print('time (init) : {}'.format(time.time() - time_init))
         t0 = time.time()
@@ -346,43 +337,10 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
 
                 # Print time (inference + NMS)
                 print('{}, {}/{} {}Done. ({}s)'.format(string, frame_cnt, len(dataset), s, t2 - t1))
-            """
-                # Stream results
-                if show_vid:
-                    cv2.imshow(p, im0)
-                    if cv2.waitKey(1) == ord('q'):  # q to quit
-                        raise StopIteration
-    
-                # Save results (image with detections)
-                if save_vid:
-                    if vid_path != save_path:  # new video
-                        vid_path = save_path
-                        if isinstance(vid_writer, cv2.VideoWriter):
-                            vid_writer.release()  # release previous video writer
-                        if vid_cap:  # video
-                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        else:  # stream
-                            fps, w, h = 30, im0.shape[1], im0.shape[0]
-                            save_path += '.mp4'
-    
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                    vid_writer.write(im0)
-    
-            if index != 0 and index % 50 == 0:
-                print('people counting : {}'.format(people_counting.return_people(reid, images_by_id, ids_per_frame)))
-                track_cnt = dict()
-                images_by_id = dict()
-                ids_per_frame = []
-            """
+
+            print(time.time()-start_time)
             frame_cnt += 1
-        """
-        if save_txt or save_vid:
-            print('Results saved to %s' % os.getcwd() + os.sep + out)
-            if platform == 'darwin':  # MacOS
-                os.system('open ' + save_path)
-        """
+
         #print("Result")
         #print(len(images_by_id))
         #for key, item in images_by_id.items():
@@ -404,12 +362,10 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
 def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_frame2_list):
     #print('ReID')
     reid = REID()
-    print('Create ReID Model')
     while True:
         while (return_dict1.empty()) or (return_dict2.empty()) or (ids_per_frame1_list.empty()) or (ids_per_frame2_list.empty()):
-            print('Not Ready : {} {}, {}, {}'.format(return_dict1.qsize(), return_dict2.qsize(), ids_per_frame1_list.qsize(), ids_per_frame2_list.qsize()))
             time.sleep(1)
-        print('Not Ready : {} {}, {}, {}'.format(return_dict1.qsize(), return_dict2.qsize(), ids_per_frame1_list.qsize(), ids_per_frame2_list.qsize()))
+        start_time = time.time()
         return_list = return_dict1.get()
         return_list2 = return_dict2.get()
         #print(len(return_list))
@@ -490,22 +446,24 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
 
         print('Final ids and their sub-ids:', final_fuse_id)
         print('people : ', len(final_fuse_id))
+        print(time.time() - start_time)
+warnings.filterwarnings('ignore')
 
-# warnings.filterwarnings('ignore')
-# daemon_pid_file = '/var/run/daemon.pid'
 
 def pstart(frame_get,frame_get2):
-    while(1):
-        p1 = Process(target=get_frame, args=(0, frame_get))
-        p2 = Process(target=get_frame, args=(1, frame_get2))
+    cnt = 0
+    p1 = Process(target=get_frame, args=(0, frame_get))
+    p2 = Process(target=get_frame, args=(1, frame_get2))
+    while(cnt < 8):
         p1.start()
         p2.start()
         p1.join()
         p2.join()
+        cnt+=1
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/crowdhuman_yolov5m.pt', help='model.pt path')
+    parser.add_argument('--yolo_weights', type=str, default='yolov5/models/crowdhuman_yolov5m.pt', help='model.pt path')
     parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7',
                         help='ckpt.t7 path')
     # file/folder, 0 for webcam
@@ -520,45 +478,39 @@ if __name__ == '__main__':
     parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
     parser.add_argument('--save-txt', action='store_true', help='save MOT compliant results to *.txt')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
-    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 16 17')
+    parser.add_argument('--classes', nargs='+', type=int, default = '0')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--evaluate', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
     args = parser.parse_args()
-    args.img_size = check_img_size(args.img_size)
+
     credential_path = "atsm-202107-50b0c3dc3869.json"
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credential_path
-    # frame_get1 = Manager().Queue()
-    # frame_get2 = Manager().Queue()
-    # p0 = Process(target=pstart, args=(frame_get1, frame_get2))
-    # p0.start()
-    frame_get1 = Queue()
-    frame_get2 = Queue()
-    get_frame(0, frame_get1)
-    get_frame(1, frame_get2)
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+
+    multiprocessing.set_start_method("spawn")
+    frame_get1 = Manager().Queue()
+    frame_get2 = Manager().Queue()
+    args.img_size = check_img_size(args.img_size)
+    p0 = Process(target=pstart, args=(frame_get1, frame_get2))
+    p0.start()
 
     with torch.no_grad():
-        # ids_per_frame1 = Manager().Queue()
-        # ids_per_frame2 = Manager().Queue()
-        # return_dict1 = Manager().Queue()
-        # return_dict2 = Manager().Queue()
-        # p1 = Process(target=detect, args=(args, frame_get1, return_dict1, ids_per_frame1, 'Video1'))
-        # p2 = Process(target=detect, args=(args, frame_get2, return_dict2, ids_per_frame2, 'Video2'))
-        # p3 = Process(target = re_identification, args =(return_dict1,return_dict2, ids_per_frame1, ids_per_frame2))
-        # p1.start()
-        # p2.start()
-        # p3.start()
-        # p1.join()
-        # p2.join()
-        # p3.join()
-        ids_per_frame1 = Queue()
-        ids_per_frame2 = Queue()
-        return_dict1 = Queue()
-        return_dict2 = Queue()
-        detect(args, frame_get1, return_dict1, ids_per_frame1, 'Video1')
-        detect(args, frame_get2, return_dict2, ids_per_frame2, 'Video2')
-        re_identification(return_dict1,return_dict2, ids_per_frame1, ids_per_frame2)
-
-
+        ids_per_frame1 = Manager().Queue()
+        ids_per_frame2 = Manager().Queue()
+        return_dict1 = Manager().Queue()
+        return_dict2 = Manager().Queue()
+        p5 = mp.Process(target=detect, args=(args, frame_get1, return_dict1, ids_per_frame1, 'Video1'))
+        p6 = mp.Process(target=detect, args=(args, frame_get2, return_dict2, ids_per_frame2, 'Video2'))
+        p7 = mp.Process(target = re_identification, args =(return_dict1,return_dict2, ids_per_frame1, ids_per_frame2))
+        p5.start()
+        p6.start()
+        p7.start()
+        p5.join()
+        p6.join()
+        p7.join()
+        while(1):
+            time.sleep(1)
 
