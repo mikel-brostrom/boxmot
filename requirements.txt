@@ -1,4 +1,5 @@
 # pip install -r requirements.txt
+# conda install pytorch torchvision -c pytorch
 
 # base ----------------------------------------
 
@@ -11,6 +12,8 @@ scipy>=1.4.1
 torch>=1.7.0
 torchvision>=0.8.1
 tqdm>=4.41.0
+tensorboard
+Cython
 
 # plotting ------------------------------------
 
@@ -20,3 +23,9 @@ pandas
 # deep_sort -----------------------------------
 
 easydict
+
+
+# GCP -----------------------------------------
+
+google-cloud-bigquery
+google-cloud-storage
