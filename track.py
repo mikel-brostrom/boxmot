@@ -22,7 +22,6 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from reid import REID
-import people_counting_v2
 import collections
 import copy
 import numpy as np
@@ -34,6 +33,11 @@ from itertools import chain
 from google.cloud import bigquery, storage
 import multiprocessing
 
+"""
+    Connect to the cloud and receive video
+    Videos are stored in the list in the form of frame
+    and the list is stored in the queue.
+"""
 
 def get_frame(i, frame):
     project_id = 'atsm-202107'
@@ -85,7 +89,6 @@ def get_frame(i, frame):
     #     frame.append(realframe)
     print("vid {} get_frame finished".format(str(i)))
 
-
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
     # Resize and pad image while meeting stride-multiple constraints
     shape = img.shape[:2]  # current shape [height, width]
@@ -119,25 +122,6 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scale
     return img, ratio, (dw, dh)
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
-
-class LoadVideo:  # for inference
-    def __init__(self, path, img_size=(640, 480)):
-        if not os.path.isfile(path):
-            raise FileExistsError
-
-        self.cap = cv2.VideoCapture(path)
-        self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
-        self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.width = img_size[0]
-        self.height = img_size[1]
-        self.count = 0
-
-        print('Length of {}: {:d} frames'.format(path, self.vn))
-
-    def get_VideoLabels(self):
-        return self.cap, self.frame_rate, self.vw, self.vh
 
 def xyxy_to_xywh(*xyxy):
     """" Calculates the relative bounding box from absolute pixel values. """
@@ -192,7 +176,10 @@ def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
                                  t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 2, [255, 255, 255], 2)
     return img
 
-
+"""
+    Yolo + deepsort.
+    The data required for reid are stored in return_dict, ids_per_frame_list (Queue)
+"""
 def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
     out, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz, evaluate = \
         opt.output, opt.yolo_weights, opt.deep_sort_weights, opt.show_vid, opt.save_vid, \
@@ -235,11 +222,9 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
     # Run inference
     if device.type != 'cpu':
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-
-
-
+    #Detection and Tracking
     while True:
-        print(string + 'start')
+        #Wait until date the video is received.
         while (dataset_list.empty()):
             time.sleep(1)
         start_time = time.time()
@@ -251,8 +236,6 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
                             max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
                             use_cuda=True)
         track_cnt = dict()
-        #print('time (init) : {}'.format(time.time() - time_init))
-        t0 = time.time()
         frame_cnt = 1
         images_by_id = dict()
         ids_per_frame = []
@@ -276,14 +259,10 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
             t2 = time_synchronized()
 
             # Process detections
-            for i, det in enumerate(pred):  # detections per image
-                #if webcam:  # batch_size >= 1
-                #    p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
-                #else:
+            for i, det in enumerate(pred):  # detections per image:
                 s, im0 = '', im0s
 
                 s += '%gx%g ' % img.shape[2:]  # print string
-                #save_path = str(Path(out) / Path(p).name)
 
                 if det is not None and len(det):
                     # Rescale boxes from img_size to im0 size
@@ -311,56 +290,25 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
 
                     # pass detections to deepsort
                     outputs, images_by_id = deepsort.update(xywhs, confss, im0, images_by_id, ids_per_frame, track_cnt, frame_cnt)
-                    """
-                    # draw boxes for visualization
-                    if len(outputs) > 0:
-                        bbox_xyxy = outputs[:, :4]
-                        identities = outputs[:, -1]
-                        draw_boxes(im0, bbox_xyxy, identities)
-                        # to MOT format
-                        tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
-    
-                        # Write MOT compliant results to file
-                        if save_txt:
-                            for j, (tlwh_bbox, output) in enumerate(zip(tlwh_bboxs, outputs)):
-                                bbox_top = tlwh_bbox[0]
-                                bbox_left = tlwh_bbox[1]
-                                bbox_w = tlwh_bbox[2]
-                                bbox_h = tlwh_bbox[3]
-                                identity = output[-1]
-                                with open(txt_path, 'a') as f:
-                                    f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_top,
-                                                                bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
-                      """
+
                 else:
                     deepsort.increment_ages()
 
-                # Print time (inference + NMS)
                 print('{}, {}/{} {}Done. ({}s)'.format(string, frame_cnt, len(dataset), s, t2 - t1))
 
-            print(time.time()-start_time)
             frame_cnt += 1
 
-        #print("Result")
-        #print(len(images_by_id))
-        #for key, item in images_by_id.items():
-        #  print('{} : {}'.format(key, len(images_by_id[key])))
-        #print('Copy')
         return_dict.put(images_by_id)
         ids_per_frame_list.put(ids_per_frame)
-        print(string + ' Tracking Done')
-        #for j in return_dict:
-        # print('{} : {}'.format(j, len(return_dict[j])))
-        #return_list.append(images_by_id)
-        #print('\nDone. (%.3fs)' % (time.time() - t0))
-        #print(len(images_by_id))
-        #return_dict = copy.deepcopy(images_by_id)
-       # print(images_by_id)
-        # print('people counting : {}'.format(people_counting.return_people(reid, images_by_id, ids_per_frame)))
-        # print('ReID : (%.3fs)' % (time.time() - t0))
 
+"""
+    Reid
+    return_dict1 : images_by_id from camera 1
+    return_dict2 : images_by_id from camera 2
+    ids_per_frame1_list : ids_per_frame from camera 1
+    ids_per_frame2_list : ids_per_frame from camera 2
+"""
 def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_frame2_list):
-    #print('ReID')
     reid = REID()
     while True:
         while (return_dict1.empty()) or (return_dict2.empty()) or (ids_per_frame1_list.empty()) or (ids_per_frame2_list.empty()):
@@ -368,29 +316,20 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
         start_time = time.time()
         return_list = return_dict1.get()
         return_list2 = return_dict2.get()
-        #print(len(return_list))
-        #print(len(return_list2))
+
         ids_per_frame1 = ids_per_frame1_list.get()
         ids_per_frame2 = ids_per_frame2_list.get()
         threshold = 320
         exist_ids = set()
         final_fuse_id = dict()
-        ids_per_frame = []
         ids_per_frame22 = []
-        images_by_id = dict()
         feats = dict()
         size = len(return_list)
         for key, value in return_list2.items():
             return_list[key + size] = return_list2[key]
-        # print(return_list2)
-        #  merge_dict(return_list, return_list2)
-        images_by_id = copy.deepcopy(return_list)
-        #for i in images_by_id:
-        #  print('{} : {}'.format(i, len(images_by_id[i])))
-        # print(images_by_id)
-        print(len(images_by_id))
-        #print(return_list)
 
+        images_by_id = copy.deepcopy(return_list)
+        print(len(images_by_id))
 
         for i in ids_per_frame2:
           d = set()
@@ -404,11 +343,8 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
           ids_per_frame.append(k)
 
         for i in images_by_id:
-            #print('{} : {} frames'.format(i, len(images_by_id[i])))
             feats[i] = reid._features(images_by_id[i])  # reid._features(images_by_id[i][:min(len(images_by_id[i]),100)])
 
-        #print(len(ids_per_frame))
-        #print(len(feats))
         for f in ids_per_frame:
             if f:
                 if len(exist_ids) == 0:
@@ -447,13 +383,14 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
         print('Final ids and their sub-ids:', final_fuse_id)
         print('people : ', len(final_fuse_id))
         print(time.time() - start_time)
+
 warnings.filterwarnings('ignore')
 
 
 def pstart(frame_get,frame_get2):
     cnt = 0
-    p1 = Process(target=get_frame, args=(0, frame_get))
-    p2 = Process(target=get_frame, args=(1, frame_get2))
+    p1 = Process(target=get_frame, args=(0, frame_get), daemon=True)
+    p2 = Process(target=get_frame, args=(1, frame_get2), daemon=True)
     while(cnt < 8):
         p1.start()
         p2.start()
@@ -495,22 +432,26 @@ if __name__ == '__main__':
     frame_get2 = Manager().Queue()
     args.img_size = check_img_size(args.img_size)
     p0 = Process(target=pstart, args=(frame_get1, frame_get2))
-    p0.start()
+    try:
+        p0.start()
 
-    with torch.no_grad():
-        ids_per_frame1 = Manager().Queue()
-        ids_per_frame2 = Manager().Queue()
-        return_dict1 = Manager().Queue()
-        return_dict2 = Manager().Queue()
-        p5 = mp.Process(target=detect, args=(args, frame_get1, return_dict1, ids_per_frame1, 'Video1'))
-        p6 = mp.Process(target=detect, args=(args, frame_get2, return_dict2, ids_per_frame2, 'Video2'))
-        p7 = mp.Process(target = re_identification, args =(return_dict1,return_dict2, ids_per_frame1, ids_per_frame2))
-        p5.start()
-        p6.start()
-        p7.start()
-        p5.join()
-        p6.join()
-        p7.join()
-        while(1):
-            time.sleep(1)
+        with torch.no_grad():
+            ids_per_frame1 = Manager().Queue()
+            ids_per_frame2 = Manager().Queue()
+            return_dict1 = Manager().Queue()
+            return_dict2 = Manager().Queue()
+            p5 = mp.Process(target=detect, args=(args, frame_get1, return_dict1, ids_per_frame1, 'Video1'), daemon=True)
+            p6 = mp.Process(target=detect, args=(args, frame_get2, return_dict2, ids_per_frame2, 'Video2'), daemon=True)
+            p7 = mp.Process(target = re_identification, args =(return_dict1,return_dict2, ids_per_frame1, ids_per_frame2),
+                            daemon=True)
+            p5.start()
+            p6.start()
+            p7.start()
+            while True:
+                time.sleep(1)
+    except KeyboardInterrupt:
+        p0.terminate()
+        print('Program Interrupted')
+        sys.exit(0)
+
 
