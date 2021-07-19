@@ -28,7 +28,7 @@ import numpy as np
 import operator
 import cv2
 import multiprocessing as mp
-import queue as Queue
+from queue import Queue
 from itertools import chain
 from google.cloud import bigquery, storage
 
@@ -245,12 +245,12 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
     txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
     """
 
-    while True:
+    for i in range(1):
         print(string + 'start')
         print(dataset_list.qsize())
-        while (dataset_list.empty()):
-            print(string + 'is Empty. Not ready for tracking')
-            time.sleep(1)
+        # while (dataset_list.empty()):
+        #     print(string + 'is Empty. Not ready for tracking')
+        #     time.sleep(1)
         dataset = dataset_list.get()
         deepsort = DeepSort(cfg.DEEPSORT.REID_CKPT,
                             max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
@@ -308,9 +308,9 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string):
                     confs = []
 
                     # Adapt detections to deep sort input format
-                    for xyxy, conf, cls in det:
+                    for *xyxy, conf, cls in det:
                         # to deep sort format
-                        x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(xyxy)
+                        x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
                         xywh_obj = [x_c, y_c, bbox_w, bbox_h]
                         xywh_bboxs.append(xywh_obj)
                         confs.append([conf.item()])
@@ -491,8 +491,8 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
         print('Final ids and their sub-ids:', final_fuse_id)
         print('people : ', len(final_fuse_id))
 
-warnings.filterwarnings('ignore')
-daemon_pid_file = '/var/run/daemon.pid'
+# warnings.filterwarnings('ignore')
+# daemon_pid_file = '/var/run/daemon.pid'
 
 def pstart(frame_get,frame_get2):
     while(1):
@@ -505,7 +505,7 @@ def pstart(frame_get,frame_get2):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo_weights', type=str, default='yolov5/models/crowdhuman_yolov5m.pt', help='model.pt path')
+    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/crowdhuman_yolov5m.pt', help='model.pt path')
     parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7',
                         help='ckpt.t7 path')
     # file/folder, 0 for webcam
@@ -526,26 +526,39 @@ if __name__ == '__main__':
     parser.add_argument('--evaluate', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
     args = parser.parse_args()
+    args.img_size = check_img_size(args.img_size)
     credential_path = "atsm-202107-50b0c3dc3869.json"
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credential_path
-    frame_get1 = Manager().Queue()
-    frame_get2 = Manager().Queue()
-    args.img_size = check_img_size(args.img_size)
-    p0 = Process(target=pstart, args=(frame_get1, frame_get2))
-    p0.start()
+    # frame_get1 = Manager().Queue()
+    # frame_get2 = Manager().Queue()
+    # p0 = Process(target=pstart, args=(frame_get1, frame_get2))
+    # p0.start()
+    frame_get1 = Queue()
+    frame_get2 = Queue()
+    get_frame(0, frame_get1)
+    get_frame(1, frame_get2)
 
     with torch.no_grad():
-        ids_per_frame1 = Manager().Queue()
-        ids_per_frame2 = Manager().Queue()
-        return_dict1 = Manager().Queue()
-        return_dict2 = Manager().Queue()
-        p1 = Process(target=detect, args=(args, frame_get1, return_dict1, ids_per_frame1, 'Video1'))
-        p2 = Process(target=detect, args=(args, frame_get2, return_dict2, ids_per_frame2, 'Video2'))
-        p3 = Process(target = re_identification, args =(return_dict1,return_dict2, ids_per_frame1, ids_per_frame2))
-        p1.start()
-        p2.start()
-        p3.start()
-        p1.join()
-        p2.join()
-        p3.join()
+        # ids_per_frame1 = Manager().Queue()
+        # ids_per_frame2 = Manager().Queue()
+        # return_dict1 = Manager().Queue()
+        # return_dict2 = Manager().Queue()
+        # p1 = Process(target=detect, args=(args, frame_get1, return_dict1, ids_per_frame1, 'Video1'))
+        # p2 = Process(target=detect, args=(args, frame_get2, return_dict2, ids_per_frame2, 'Video2'))
+        # p3 = Process(target = re_identification, args =(return_dict1,return_dict2, ids_per_frame1, ids_per_frame2))
+        # p1.start()
+        # p2.start()
+        # p3.start()
+        # p1.join()
+        # p2.join()
+        # p3.join()
+        ids_per_frame1 = Queue()
+        ids_per_frame2 = Queue()
+        return_dict1 = Queue()
+        return_dict2 = Queue()
+        detect(args, frame_get1, return_dict1, ids_per_frame1, 'Video1')
+        detect(args, frame_get2, return_dict2, ids_per_frame2, 'Video2')
+        re_identification(return_dict1,return_dict2, ids_per_frame1, ids_per_frame2)
+
+
 

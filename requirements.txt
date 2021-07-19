@@ -1,4 +1,5 @@
 # pip install -r requirements.txt
+# conda install pytorch torchvision -c pytorch
 
 # base ----------------------------------------
 
@@ -20,3 +21,9 @@ pandas
 # deep_sort -----------------------------------
 
 easydict
+
+
+# GCP -----------------------------------------
+
+google-cloud-bigquery
+google-cloud-storage
