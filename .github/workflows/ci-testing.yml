@@ -54,6 +54,10 @@ jobs:
           pip --version
           pip list
         shell: bash
+      - name: Install dependencies
+        run: |
+          pwd
+        shell: bash
 
       - name: Tests workflow
         run: |
