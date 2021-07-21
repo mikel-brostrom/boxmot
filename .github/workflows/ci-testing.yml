@@ -2,10 +2,10 @@ name: CI CPU testing
 
 on:  # https://help.github.com/en/actions/reference/events-that-trigger-workflows
   push:
-    branches: [master]
+    branches: [master, CIdebug]
   pull_request:
     # The branches below must be a subset of the branches above
-    branches: [master]
+    branches: [master, CIdebug]
 
 jobs:
   cpu-tests:
@@ -53,16 +53,9 @@ jobs:
           pip list
           cd
         shell: bash
-      - name: Debug
-        run: |
-          pwd
-          ls
-        shell: bash
       - name: Tests workflow
         run: |
           # otherwise problems placing the yolo weights in submodule
           sudo chmod -R 777 /home/
-          cd /home/runner/work/Yolov5_DeepSort_Pytorch/Yolov5_DeepSort_Pytorch
-          pwd
           python track.py --source yolov5/data/images
         shell: bash
