@@ -4,8 +4,7 @@ sys.path.insert(0, './yolov5')
 from yolov5.utils.google_utils import attempt_download
 from yolov5.models.experimental import attempt_load
 from yolov5.utils.datasets import LoadImages, LoadStreams
-from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, \
-    check_imshow, xyxy2xywh
+from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, check_imshow, xyxy2xywh
 from yolov5.utils.torch_utils import select_device, time_synchronized
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
