@@ -64,5 +64,6 @@ jobs:
         run: |
           # otherwise problems placing the yolo weights in submodule
           sudo chmod -R 777 /home/
+          cd /home/runner/work/Yolov5_DeepSort_Pytorch/
           python track.py --source yolov5/data/images
         shell: bash
