@@ -5,7 +5,7 @@ from yolov5.utils.google_utils import attempt_download
 from yolov5.models.experimental import attempt_load
 from yolov5.utils.datasets import LoadImages, LoadStreams
 from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, \
-    check_imshow
+    check_imshow, xyxy2xywh
 from yolov5.utils.torch_utils import select_device, time_synchronized
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
@@ -23,18 +23,6 @@ import torch.backends.cudnn as cudnn
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
-
-def xyxy_to_xywh(*xyxy):
-    """" Calculates the relative bounding box from absolute pixel values. """
-    bbox_left = min([xyxy[0].item(), xyxy[2].item()])
-    bbox_top = min([xyxy[1].item(), xyxy[3].item()])
-    bbox_w = abs(xyxy[0].item() - xyxy[2].item())
-    bbox_h = abs(xyxy[1].item() - xyxy[3].item())
-    x_c = (bbox_left + bbox_w / 2)
-    y_c = (bbox_top + bbox_h / 2)
-    w = bbox_w
-    h = bbox_h
-    return x_c, y_c, w, h
 
 def xyxy_to_tlwh(bbox_xyxy):
     tlwh_bboxs = []
@@ -175,22 +163,12 @@ def detect(opt):
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
 
-                xywh_bboxs = []
-                confs = []
-
-                # Adapt detections to deep sort input format
-                for *xyxy, conf, cls in det:
-                    # to deep sort format
-                    x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
-                    xywh_obj = [x_c, y_c, bbox_w, bbox_h]
-                    xywh_bboxs.append(xywh_obj)
-                    confs.append([conf.item()])
-
-                xywhs = torch.Tensor(xywh_bboxs)
-                confss = torch.Tensor(confs)
+                xywhs = xyxy2xywh(det[:, 0:4])
+                confss = det[:, 4]
+                clss = det[:, 5]
 
                 # pass detections to deepsort
-                outputs = deepsort.update(xywhs, confss, im0)
+                outputs = deepsort.update(xywhs.cpu(), confss.cpu(), im0)
 
                 # draw boxes for visualization
                 if len(outputs) > 0:
@@ -251,7 +229,7 @@ def detect(opt):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/yolov5s.pt', help='model.pt path')
+    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/crowdhuman_yolov5m.pt', help='model.pt path')
     parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7', help='ckpt.t7 path')
     # file/folder, 0 for webcam
     parser.add_argument('--source', type=str, default='0', help='source')
