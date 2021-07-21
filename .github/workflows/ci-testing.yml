@@ -53,7 +53,12 @@ jobs:
           python --version
           pip --version
           pip list
-          cd ..
+          cd
+        shell: bash
+      - name: Debug
+        run: |
+          pwd
+          ls
         shell: bash
       - name: Tests workflow
         run: |
