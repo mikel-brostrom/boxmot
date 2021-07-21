@@ -53,12 +53,8 @@ jobs:
           python --version
           pip --version
           pip list
+          cd ..
         shell: bash
-      - name: Install dependencies
-        run: |
-          pwd
-        shell: bash
-
       - name: Tests workflow
         run: |
           # otherwise problems placing the yolo weights in submodule
