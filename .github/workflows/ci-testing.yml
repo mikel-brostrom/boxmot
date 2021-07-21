@@ -2,10 +2,10 @@ name: CI CPU testing
 
 on:  # https://help.github.com/en/actions/reference/events-that-trigger-workflows
   push:
-    branches: [master, CItest]
+    branches: [master, CIdebug]
   pull_request:
     # The branches below must be a subset of the branches above
-    branches: [master, CItest]
+    branches: [master, CIdebug]
 
 jobs:
   cpu-tests:
