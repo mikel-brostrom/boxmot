@@ -129,31 +129,31 @@ def detect(opt):
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
 
                 xywhs = xyxy2xywh(det[:, 0:4])
-                confss = det[:, 4]
+                confs = det[:, 4]
                 clss = det[:, 5]
 
                 # pass detections to deepsort
-                outputs = deepsort.update(xywhs.cpu(), confss.cpu(), clss, im0)
-
-                # pass detections to deepsort
-                outputs = deepsort.update(xywhs.cpu(), confs.cpu(), im0)
+                outputs = deepsort.update(xywhs.cpu(), confs.cpu(), clss, im0)
                 
                 # draw boxes for visualization
                 if len(outputs) > 0:
-                    for j, (output, cls, conf) in enumerate(zip(outputs, clss, confs)): 
-                        id = output[-1]
+                    for j, (output, conf) in enumerate(zip(outputs, confs)): 
+                        
                         x = output[0:4]
-                        color = compute_color_for_id(id)
+                        id = output[4]
+                        cls = output[5]
+
                         c = int(cls)  # integer class
                         label = f'{id} {names[c]} {conf:.2f}'
-                        plot_one_box(x, im0, label=label, color=color)
+                        color = compute_color_for_id(id)
+                        plot_one_box(x, im0, label=label, color=color, line_thickness=3)
+
                         if save_txt:
                             # to MOT format
                             bbox_top = output[0]
                             bbox_left = output[1]
                             bbox_w = output[2] - output[0]
                             bbox_h = output[3] - output[1]
-
                             # Write MOT compliant results to file
                             with open(txt_path, 'a') as f:
                                f.write(('%g ' * 10 + '\n') % (frame_idx, id, bbox_top,
