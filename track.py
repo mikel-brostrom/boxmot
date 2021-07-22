@@ -139,14 +139,14 @@ def detect(opt):
                 if len(outputs) > 0:
                     for j, (output, conf) in enumerate(zip(outputs, confs)): 
                         
-                        x = output[0:4]
+                        bboxes = output[0:4]
                         id = output[4]
                         cls = output[5]
 
                         c = int(cls)  # integer class
                         label = f'{id} {names[c]} {conf:.2f}'
                         color = compute_color_for_id(id)
-                        plot_one_box(x, im0, label=label, color=color, line_thickness=3)
+                        plot_one_box(bboxes, im0, label=label, color=color, line_thickness=2)
 
                         if save_txt:
                             # to MOT format
