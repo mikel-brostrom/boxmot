@@ -235,23 +235,6 @@ def detect(opt):
                 cmd_str = 'ffmpeg -y -f image2 -i {}/%06d.jpg -c:v copy {}'.format(os.path.join(out, vid_sample_dir), output_video_path)
                 os.system(cmd_str)
 
-                # old code
-
-                # if vid_path != save_path:  # new video
-                #     vid_path = save_path
-                #     if isinstance(vid_writer, cv2.VideoWriter):
-                #         vid_writer.release()  # release previous video writer
-                #     if vid_cap:  # video
-                #         fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                #         w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                #         h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                #     else:  # stream
-                #         fps, w, h = 30, im0.shape[1], im0.shape[0]
-                #         save_path += '.mp4'
-
-                #     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                # vid_writer.write(im0)
-
     if save_txt or save_vid:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
         if platform == 'darwin':  # MacOS
