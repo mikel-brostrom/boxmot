@@ -6,6 +6,7 @@ from yolov5.models.experimental import attempt_load
 from yolov5.utils.datasets import LoadImages, LoadStreams
 from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, check_imshow, xyxy2xywh
 from yolov5.utils.torch_utils import select_device, time_synchronized
+from yolov5.utils.plots import plot_one_box
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
 import argparse
@@ -19,49 +20,14 @@ import torch
 import torch.backends.cudnn as cudnn
 
 
-
-palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
-
-
-def xyxy_to_tlwh(bbox_xyxy):
-    tlwh_bboxs = []
-    for i, box in enumerate(bbox_xyxy):
-        x1, y1, x2, y2 = [int(i) for i in box]
-        top = x1
-        left = y1
-        w = int(x2 - x1)
-        h = int(y2 - y1)
-        tlwh_obj = [top, left, w, h]
-        tlwh_bboxs.append(tlwh_obj)
-    return tlwh_bboxs
-
-
-def compute_color_for_labels(label):
+def compute_color_for_id(label):
     """
     Simple function that adds fixed color depending on the class
     """
+    palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
+
     color = [int((p * (label ** 2 - label + 1)) % 255) for p in palette]
     return tuple(color)
-
-
-def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
-    for i, box in enumerate(bbox):
-        x1, y1, x2, y2 = [int(i) for i in box]
-        x1 += offset[0]
-        x2 += offset[0]
-        y1 += offset[1]
-        y2 += offset[1]
-        # box text and bar
-        id = int(identities[i]) if identities is not None else 0
-        color = compute_color_for_labels(id)
-        label = '{}{:d}'.format("", id)
-        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 2, 2)[0]
-        cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
-        cv2.rectangle(
-            img, (x1, y1), (x1 + t_size[0] + 3, y1 + t_size[1] + 4), color, -1)
-        cv2.putText(img, label, (x1, y1 +
-                                 t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 2, [255, 255, 255], 2)
-    return img
 
 
 def detect(opt):
@@ -163,31 +129,35 @@ def detect(opt):
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
 
                 xywhs = xyxy2xywh(det[:, 0:4])
-                confss = det[:, 4]
+                confs = det[:, 4]
                 clss = det[:, 5]
 
                 # pass detections to deepsort
-                outputs = deepsort.update(xywhs.cpu(), confss.cpu(), im0)
-
+                outputs = deepsort.update(xywhs.cpu(), confs.cpu(), clss, im0)
+                
                 # draw boxes for visualization
                 if len(outputs) > 0:
-                    bbox_xyxy = outputs[:, :4]
-                    identities = outputs[:, -1]
-                    draw_boxes(im0, bbox_xyxy, identities)
-                    # to MOT format
-                    tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
+                    for j, (output, conf) in enumerate(zip(outputs, confs)): 
+                        
+                        bboxes = output[0:4]
+                        id = output[4]
+                        cls = output[5]
 
-                    # Write MOT compliant results to file
-                    if save_txt:
-                        for j, (tlwh_bbox, output) in enumerate(zip(tlwh_bboxs, outputs)):
-                            bbox_top = tlwh_bbox[0]
-                            bbox_left = tlwh_bbox[1]
-                            bbox_w = tlwh_bbox[2]
-                            bbox_h = tlwh_bbox[3]
-                            identity = output[-1]
+                        c = int(cls)  # integer class
+                        label = f'{id} {names[c]} {conf:.2f}'
+                        color = compute_color_for_id(id)
+                        plot_one_box(bboxes, im0, label=label, color=color, line_thickness=2)
+
+                        if save_txt:
+                            # to MOT format
+                            bbox_top = output[0]
+                            bbox_left = output[1]
+                            bbox_w = output[2] - output[0]
+                            bbox_h = output[3] - output[1]
+                            # Write MOT compliant results to file
                             with open(txt_path, 'a') as f:
-                                f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_top,
-                                                            bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                               f.write(('%g ' * 10 + '\n') % (frame_idx, id, bbox_top,
+                                                           bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
 
             else:
                 deepsort.increment_ages()
