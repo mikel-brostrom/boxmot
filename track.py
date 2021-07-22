@@ -4,7 +4,8 @@ sys.path.insert(0, './yolov5')
 from yolov5.utils.google_utils import attempt_download
 from yolov5.models.experimental import attempt_load
 from yolov5.utils.datasets import LoadImages, LoadStreams
-from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, check_imshow, xyxy2xywh
+from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, \
+    check_imshow
 from yolov5.utils.torch_utils import select_device, time_synchronized
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
@@ -22,6 +23,18 @@ import torch.backends.cudnn as cudnn
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
+
+def xyxy_to_xywh(*xyxy):
+    """" Calculates the relative bounding box from absolute pixel values. """
+    bbox_left = min([xyxy[0].item(), xyxy[2].item()])
+    bbox_top = min([xyxy[1].item(), xyxy[3].item()])
+    bbox_w = abs(xyxy[0].item() - xyxy[2].item())
+    bbox_h = abs(xyxy[1].item() - xyxy[3].item())
+    x_c = (bbox_left + bbox_w / 2)
+    y_c = (bbox_top + bbox_h / 2)
+    w = bbox_w
+    h = bbox_h
+    return x_c, y_c, w, h
 
 def xyxy_to_tlwh(bbox_xyxy):
     tlwh_bboxs = []
@@ -162,12 +175,22 @@ def detect(opt):
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
 
-                xywhs = xyxy2xywh(det[:, 0:4])
-                confss = det[:, 4]
-                clss = det[:, 5]
+                xywh_bboxs = []
+                confs = []
+
+                # Adapt detections to deep sort input format
+                for *xyxy, conf, cls in det:
+                    # to deep sort format
+                    x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
+                    xywh_obj = [x_c, y_c, bbox_w, bbox_h]
+                    xywh_bboxs.append(xywh_obj)
+                    confs.append([conf.item()])
+
+                xywhs = torch.Tensor(xywh_bboxs)
+                confss = torch.Tensor(confs)
 
                 # pass detections to deepsort
-                outputs = deepsort.update(xywhs.cpu(), confss.cpu(), im0)
+                outputs = deepsort.update(xywhs, confss, im0)
 
                 # draw boxes for visualization
                 if len(outputs) > 0:
@@ -201,22 +224,33 @@ def detect(opt):
                 if cv2.waitKey(1) == ord('q'):  # q to quit
                     raise StopIteration
 
-            # Save results (image with detections)
+            # Save results (image with detections) and video using ffmpeg
             if save_vid:
-                if vid_path != save_path:  # new video
-                    vid_path = save_path
-                    if isinstance(vid_writer, cv2.VideoWriter):
-                        vid_writer.release()  # release previous video writer
-                    if vid_cap:  # video
-                        fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                        w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    else:  # stream
-                        fps, w, h = 30, im0.shape[1], im0.shape[0]
-                        save_path += '.mp4'
+                splitted_path = path.split('/')
+                vid_sample_dir = splitted_path[-2]
+                os.makedirs(os.path.join(out, vid_sample_dir), exist_ok = True)
+                save_path = os.path.join(out, vid_sample_dir, splitted_path[-1])
+                cv2.imwrite(save_path, im0)
+                output_video_path = os.path.join(out, vid_sample_dir, vid_sample_dir + '.mp4')
+                cmd_str = 'ffmpeg -y -f image2 -i {}/%06d.jpg -c:v copy {}'.format(os.path.join(out, vid_sample_dir), output_video_path)
+                os.system(cmd_str)
 
-                    vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                vid_writer.write(im0)
+                # old code
+
+                # if vid_path != save_path:  # new video
+                #     vid_path = save_path
+                #     if isinstance(vid_writer, cv2.VideoWriter):
+                #         vid_writer.release()  # release previous video writer
+                #     if vid_cap:  # video
+                #         fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                #         w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                #         h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                #     else:  # stream
+                #         fps, w, h = 30, im0.shape[1], im0.shape[0]
+                #         save_path += '.mp4'
+
+                #     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                # vid_writer.write(im0)
 
     if save_txt or save_vid:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
