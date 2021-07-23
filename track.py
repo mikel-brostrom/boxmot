@@ -22,7 +22,7 @@ import torch.backends.cudnn as cudnn
 
 def compute_color_for_id(label):
     """
-    Simple function that adds fixed color depending on the class
+    Simple function that adds fixed color depending on the id
     """
     palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
