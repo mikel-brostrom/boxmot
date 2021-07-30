@@ -28,6 +28,9 @@ import operator
 import cv2
 import multiprocessing as mp
 import queue as Queue
+from heatmappy import Heatmapper
+from PIL import Image
+import matplotlib.pyplot as plt
 
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
     # Resize and pad image while meeting stride-multiple constraints
@@ -374,7 +377,7 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
 
         print('Final ids and their sub-ids:', final_fuse_id)
         print('people : ', len(final_fuse_id))
-
+        print(reid_dict)
         drawimage = video_get1.get()  # list
         size2 = len(drawimage)
         track_cnt1 = video_get1.get()  # dict plus id 해야됨
@@ -403,7 +406,22 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
                             cv2_addBox(idx, img, f[1], f[2], f[3], f[4], line_thickness, text_thickness, text_scale)
             out.write(img)
         out.release()
+        example_img_path = './struct2.JPG'
+        example_img = Image.open(example_img_path)
 
+        example_points = []  # 히트맵 중심 좌표 설정
+
+        # 히트맵 그리기
+        heatmapper = Heatmapper(
+            point_diameter=50,  # the size of each point to be drawn
+            point_strength=0.5,  # the strength, between 0 and 1, of each point to be drawn
+            opacity=0.5,  # the opacity of the heatmap layer
+            colours='default',  # 'default' or 'reveal'
+            # OR a matplotlib LinearSegmentedColorMap object
+            # OR the path to a horizontal scale image
+            grey_heatmapper='PIL'  # The object responsible for drawing the points
+            # Pillow used by default, 'PySide' option available if installed
+        )
         video1_coor = coor_get1.get()
         video2_coor = coor_get2.get()
         heatmaplist1 = list()
@@ -449,6 +467,7 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
                 for point in pts1_p[0]:
                     a, b = tuple(point)
                     x = (int(a) + int(coor1_x), int(b) + int(coor1_y))
+                    example_points.append(x)
                     cv2.circle(background_image, x, 10, (0, 255, 0), -1)
             if len(pts2) > 0:
                 pts2_p = cv2.perspectiveTransform(
@@ -457,12 +476,14 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
                 for point in pts2_p[0]:
                     a, b = tuple(point)
                     x = (int(a) + int(coor2_x), int(b) + int(coor2_y))
+                    example_points.append(x)
                     cv2.circle(background_image, x, 10, (0, 255, 0), -1)
             name = str(i) + "_heat.jpg"
             if i % 20 == 0:
                 cv2.imwrite(os.path.join(save_path, name), background_image)
-
+        heatmap = heatmapper.heatmap_on_img(example_points, example_img)
         count = count + 1
+        heatmap.save('./a.png')
         print("Finish")
         break
 
