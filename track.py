@@ -391,12 +391,13 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         shape = drawimage[0].shape[:2]
         size = (shape[1], shape[0])
-        print(size)
+        out = cv2.VideoWriter(output, fourcc, 7.5, size)
+
         for frame in range(len(drawimage)):
             img = drawimage[frame]
             for idx in final_fuse_id:
-                for i in final_fuse_id[idx]:  # i = id
-                    for f in track_cnt1[i]:
+                  for i in final_fuse_id[idx]: #i = id
+                     for f in track_cnt1[i]:
                         if frame == f[0]:
                             text_scale, text_thickness, line_thickness = get_FrameLabels(img)
                             cv2_addBox(idx, img, f[1], f[2], f[3], f[4], line_thickness, text_thickness, text_scale)
