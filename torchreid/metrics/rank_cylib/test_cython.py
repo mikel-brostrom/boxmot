@@ -1,12 +1,13 @@
 from __future__ import print_function
-import sys
-import numpy as np
-import timeit
-import os.path as osp
 
-from torchreid import metrics
+import sys
+import os.path as osp
+import timeit
+import numpy as np
 
 sys.path.insert(0, osp.dirname(osp.abspath(__file__)) + '/../../..')
+from torchreid import metrics
+
 """
 Test the speed of cython-based evaluation code. The speed improvements
 can be much bigger when using the real reid data, which contains a larger
@@ -36,34 +37,19 @@ g_camids = np.random.randint(0, 5, size=num_g)
 '''
 
 print('=> Using market1501\'s metric')
-pytime = timeit.timeit(
-    'metrics.evaluate_rank(distmat, q_pids, g_pids, q_camids, g_camids, max_rank, use_cython=False)',
-    setup=setup,
-    number=20
-)
-cytime = timeit.timeit(
-    'metrics.evaluate_rank(distmat, q_pids, g_pids, q_camids, g_camids, max_rank, use_cython=True)',
-    setup=setup,
-    number=20
-)
+pytime = timeit.timeit('metrics.evaluate_rank(distmat, q_pids, g_pids, q_camids, g_camids, max_rank, use_cython=False)', setup=setup, number=20)
+cytime = timeit.timeit('metrics.evaluate_rank(distmat, q_pids, g_pids, q_camids, g_camids, max_rank, use_cython=True)', setup=setup, number=20)
 print('Python time: {} s'.format(pytime))
 print('Cython time: {} s'.format(cytime))
 print('Cython is {} times faster than python\n'.format(pytime / cytime))
 
 print('=> Using cuhk03\'s metric')
-pytime = timeit.timeit(
-    'metrics.evaluate_rank(distmat, q_pids, g_pids, q_camids, g_camids, max_rank, use_metric_cuhk03=True, use_cython=False)',
-    setup=setup,
-    number=20
-)
-cytime = timeit.timeit(
-    'metrics.evaluate_rank(distmat, q_pids, g_pids, q_camids, g_camids, max_rank, use_metric_cuhk03=True, use_cython=True)',
-    setup=setup,
-    number=20
-)
+pytime = timeit.timeit('metrics.evaluate_rank(distmat, q_pids, g_pids, q_camids, g_camids, max_rank, use_metric_cuhk03=True, use_cython=False)', setup=setup, number=20)
+cytime = timeit.timeit('metrics.evaluate_rank(distmat, q_pids, g_pids, q_camids, g_camids, max_rank, use_metric_cuhk03=True, use_cython=True)', setup=setup, number=20)
 print('Python time: {} s'.format(pytime))
 print('Cython time: {} s'.format(cytime))
 print('Cython is {} times faster than python\n'.format(pytime / cytime))
+
 """
 print("=> Check precision")
 

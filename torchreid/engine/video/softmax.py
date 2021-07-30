@@ -1,6 +1,13 @@
-from __future__ import division, print_function, absolute_import
+from __future__ import absolute_import
+from __future__ import print_function
+from __future__ import division
+
+import time
+import datetime
+
 import torch
 
+import torchreid
 from torchreid.engine.image import ImageSoftmaxEngine
 
 
@@ -57,29 +64,15 @@ class VideoSoftmaxEngine(ImageSoftmaxEngine):
         )
     """
 
-    def __init__(
-        self,
-        datamanager,
-        model,
-        optimizer,
-        scheduler=None,
-        use_gpu=True,
-        label_smooth=True,
-        pooling_method='avg'
-    ):
-        super(VideoSoftmaxEngine, self).__init__(
-            datamanager,
-            model,
-            optimizer,
-            scheduler=scheduler,
-            use_gpu=use_gpu,
-            label_smooth=label_smooth
-        )
+    def __init__(self, datamanager, model, optimizer, scheduler=None,
+                 use_gpu=True, label_smooth=True, pooling_method='avg'):
+        super(VideoSoftmaxEngine, self).__init__(datamanager, model, optimizer, scheduler=scheduler,
+                                                 use_gpu=use_gpu, label_smooth=label_smooth)
         self.pooling_method = pooling_method
 
-    def parse_data_for_train(self, data):
-        imgs = data['img']
-        pids = data['pid']
+    def _parse_data_for_train(self, data):
+        imgs = data[0]
+        pids = data[1]
         if imgs.dim() == 5:
             # b: batch size
             # s: sqeuence length
@@ -87,19 +80,20 @@ class VideoSoftmaxEngine(ImageSoftmaxEngine):
             # h: height
             # w: width
             b, s, c, h, w = imgs.size()
-            imgs = imgs.view(b * s, c, h, w)
+            imgs = imgs.view(b*s, c, h, w)
             pids = pids.view(b, 1).expand(b, s)
-            pids = pids.contiguous().view(b * s)
+            pids = pids.contiguous().view(b*s)
         return imgs, pids
 
-    def extract_features(self, input):
+    def _extract_features(self, input):
+        self.model.eval()
         # b: batch size
         # s: sqeuence length
         # c: channel depth
         # h: height
         # w: width
         b, s, c, h, w = input.size()
-        input = input.view(b * s, c, h, w)
+        input = input.view(b*s, c, h, w)
         features = self.model(input)
         features = features.view(b, s, -1)
         if self.pooling_method == 'avg':

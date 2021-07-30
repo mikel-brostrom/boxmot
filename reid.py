@@ -9,23 +9,23 @@ from timeit import time
 class REID:
     def __init__(self):
         self.model = torchreid.models.build_model(
-                name='resnet50',
+                name='osnet_x1_0',
                 num_classes=1,#human
                 loss='softmax',
                 pretrained=True,
                 use_gpu = True
             )
-        torchreid.utils.load_pretrained_weights(self.model, 'model_data/models/model.pth.tar-60')
+        torchreid.utils.load_pretrained_weights(self.model, 'model_data/models/model.pth.tar-80')
         self.model = self.model.cuda()
         self.optimizer = torchreid.optim.build_optimizer(
                 self.model,
-                optim='adam',
-                lr=0.0003
+                optim='amsgrad',
+                lr=0.0015
             )
         self.scheduler = torchreid.optim.build_lr_scheduler(
                 self.optimizer,
                 lr_scheduler='single_step',
-                stepsize=20
+                stepsize=[60]
             )
         _, self.transform_te = build_transforms(
             height=256, width=128,
