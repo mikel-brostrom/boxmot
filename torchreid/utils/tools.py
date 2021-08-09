@@ -1,21 +1,24 @@
-from __future__ import division, print_function, absolute_import
-import os
+from __future__ import absolute_import
+from __future__ import print_function
+from __future__ import division
+
+__all__ = ['mkdir_if_missing', 'check_isfile', 'read_json', 'write_json',
+           'set_random_seed', 'download_url', 'read_image', 'collect_env_info']
+
 import sys
-import json
+import os
+import os.path as osp
 import time
 import errno
-import numpy as np
-import random
-import os.path as osp
+import json
+from collections import OrderedDict
 import warnings
+import random
+import numpy as np
 import PIL
-import torch
 from PIL import Image
 
-__all__ = [
-    'mkdir_if_missing', 'check_isfile', 'read_json', 'write_json',
-    'set_random_seed', 'download_url', 'read_image', 'collect_env_info'
-]
+import torch
 
 
 def mkdir_if_missing(dirname):
@@ -82,12 +85,10 @@ def download_url(url, dst):
             return
         duration = time.time() - start_time
         progress_size = int(count * block_size)
-        speed = int(progress_size / (1024*duration))
+        speed = int(progress_size / (1024 * duration))
         percent = int(count * block_size * 100 / total_size)
-        sys.stdout.write(
-            '\r...%d%%, %d MB, %d KB/s, %d seconds passed' %
-            (percent, progress_size / (1024*1024), speed, duration)
-        )
+        sys.stdout.write('\r...%d%%, %d MB, %d KB/s, %d seconds passed' %
+                        (percent, progress_size / (1024 * 1024), speed, duration))
         sys.stdout.flush()
 
     urllib.request.urlretrieve(url, dst, _reporthook)
@@ -111,10 +112,8 @@ def read_image(path):
             img = Image.open(path).convert('RGB')
             got_img = True
         except IOError:
-            print(
-                'IOError incurred when reading "{}". Will redo. Don\'t worry. Just chill.'
-                .format(path)
-            )
+            print('IOError incurred when reading "{}". Will redo. Don\'t worry. Just chill.'.format(img_path))
+            pass
     return img
 
 

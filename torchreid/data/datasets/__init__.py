@@ -1,15 +1,16 @@
-from __future__ import print_function, absolute_import
+from __future__ import absolute_import
+from __future__ import print_function
 
-from .image import (
-    GRID, PRID, CUHK01, CUHK02, CUHK03, MSMT17, VIPeR, SenseReID, Market1501,
-    DukeMTMCreID, iLIDS
-)
-from .video import PRID2011, Mars, DukeMTMCVidReID, iLIDSVID
 from .dataset import Dataset, ImageDataset, VideoDataset
+from .image import *
+from .video import *
+
 
 __image_datasets = {
     'market1501': Market1501,
     'cuhk03': CUHK03,
+    'cuhk03_detected': CUHK03_Detected,
+    'cuhk03_labeled': CUHK03_Labeled,
     'dukemtmcreid': DukeMTMCreID,
     'msmt17': MSMT17,
     'viper': VIPeR,
@@ -20,6 +21,7 @@ __image_datasets = {
     'prid': PRID,
     'cuhk02': CUHK02
 }
+
 
 __video_datasets = {
     'mars': Mars,
@@ -33,10 +35,8 @@ def init_image_dataset(name, **kwargs):
     """Initializes an image dataset."""
     avai_datasets = list(__image_datasets.keys())
     if name not in avai_datasets:
-        raise ValueError(
-            'Invalid dataset name. Received "{}", '
-            'but expected to be one of {}'.format(name, avai_datasets)
-        )
+        raise ValueError('Invalid dataset name. Received "{}", '
+                         'but expected to be one of {}'.format(name, avai_datasets))
     return __image_datasets[name](**kwargs)
 
 
@@ -44,10 +44,8 @@ def init_video_dataset(name, **kwargs):
     """Initializes a video dataset."""
     avai_datasets = list(__video_datasets.keys())
     if name not in avai_datasets:
-        raise ValueError(
-            'Invalid dataset name. Received "{}", '
-            'but expected to be one of {}'.format(name, avai_datasets)
-        )
+        raise ValueError('Invalid dataset name. Received "{}", '
+                         'but expected to be one of {}'.format(name, avai_datasets))
     return __video_datasets[name](**kwargs)
 
 
@@ -77,10 +75,8 @@ def register_image_dataset(name, dataset):
     global __image_datasets
     curr_datasets = list(__image_datasets.keys())
     if name in curr_datasets:
-        raise ValueError(
-            'The given name already exists, please choose '
-            'another name excluding {}'.format(curr_datasets)
-        )
+        raise ValueError('The given name already exists, please choose '
+                         'another name excluding {}'.format(curr_datasets))
     __image_datasets[name] = dataset
 
 
@@ -110,8 +106,6 @@ def register_video_dataset(name, dataset):
     global __video_datasets
     curr_datasets = list(__video_datasets.keys())
     if name in curr_datasets:
-        raise ValueError(
-            'The given name already exists, please choose '
-            'another name excluding {}'.format(curr_datasets)
-        )
+        raise ValueError('The given name already exists, please choose '
+                         'another name excluding {}'.format(curr_datasets))
     __video_datasets[name] = dataset

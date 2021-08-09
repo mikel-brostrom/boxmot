@@ -1,12 +1,18 @@
-from __future__ import division, print_function, absolute_import
-import copy
-import numpy as np
+from __future__ import absolute_import
+from __future__ import print_function
+from __future__ import division
+
+import sys
+import os
 import os.path as osp
+import numpy as np
 import tarfile
 import zipfile
+import copy
+
 import torch
 
-from torchreid.utils import read_image, download_url, mkdir_if_missing
+from torchreid.utils import read_image, mkdir_if_missing, download_url
 
 
 class Dataset(object):
@@ -19,35 +25,19 @@ class Dataset(object):
         query (list): contains tuples of (img_path(s), pid, camid).
         gallery (list): contains tuples of (img_path(s), pid, camid).
         transform: transform function.
-        k_tfm (int): number of times to apply augmentation to an image
-            independently. If k_tfm > 1, the transform function will be
-            applied k_tfm times to an image. This variable will only be
-            useful for training and is currently valid for image datasets only.
         mode (str): 'train', 'query' or 'gallery'.
         combineall (bool): combines train, query and gallery in a
             dataset for training.
         verbose (bool): show information.
     """
-    _junk_pids = [
-    ] # contains useless person IDs, e.g. background, false detections
+    _junk_pids = [] # contains useless person IDs, e.g. background, false detections
 
-    def __init__(
-        self,
-        train,
-        query,
-        gallery,
-        transform=None,
-        k_tfm=1,
-        mode='train',
-        combineall=False,
-        verbose=True,
-        **kwargs
-    ):
+    def __init__(self, train, query, gallery, transform=None, mode='train',
+                 combineall=False, verbose=True, **kwargs):
         self.train = train
         self.query = query
         self.gallery = gallery
         self.transform = transform
-        self.k_tfm = k_tfm
         self.mode = mode
         self.combineall = combineall
         self.verbose = verbose
@@ -65,10 +55,8 @@ class Dataset(object):
         elif self.mode == 'gallery':
             self.data = self.gallery
         else:
-            raise ValueError(
-                'Invalid mode. Got {}, but expected to be '
-                'one of [train | query | gallery]'.format(self.mode)
-            )
+            raise ValueError('Invalid mode. Got {}, but expected to be '
+                             'one of [train | query | gallery]'.format(self.mode))
 
         if self.verbose:
             self.show_summary()
@@ -97,9 +85,7 @@ class Dataset(object):
         ###################################
         if isinstance(train[0][0], str):
             return ImageDataset(
-                train,
-                self.query,
-                self.gallery,
+                train, self.query, self.gallery,
                 transform=self.transform,
                 mode=self.mode,
                 combineall=False,
@@ -107,15 +93,11 @@ class Dataset(object):
             )
         else:
             return VideoDataset(
-                train,
-                self.query,
-                self.gallery,
+                train, self.query, self.gallery,
                 transform=self.transform,
                 mode=self.mode,
                 combineall=False,
-                verbose=False,
-                seq_len=self.seq_len,
-                sample_method=self.sample_method
+                verbose=False
             )
 
     def __radd__(self, other):
@@ -187,26 +169,19 @@ class Dataset(object):
             return
 
         if dataset_url is None:
-            raise RuntimeError(
-                '{} dataset needs to be manually '
-                'prepared, please follow the '
-                'document to prepare this dataset'.format(
-                    self.__class__.__name__
-                )
-            )
+            raise RuntimeError('{} dataset needs to be manually '
+                               'prepared, please follow the '
+                               'document to prepare this dataset'.format(self.__class__.__name__))
 
         print('Creating directory "{}"'.format(dataset_dir))
         mkdir_if_missing(dataset_dir)
         fpath = osp.join(dataset_dir, osp.basename(dataset_url))
 
-        print(
-            'Downloading {} dataset to "{}"'.format(
-                self.__class__.__name__, dataset_dir
-            )
-        )
+        print('Downloading {} dataset to "{}"'.format(self.__class__.__name__, dataset_dir))
         download_url(dataset_url, fpath)
 
         print('Extracting "{}"'.format(fpath))
+        extension = osp.basename(fpath).split('.')[-1]
         try:
             tar = tarfile.open(fpath)
             tar.extractall(path=dataset_dir)
@@ -244,25 +219,12 @@ class Dataset(object):
               '  gallery  | {:5d} | {:7d} | {:9d}\n' \
               '  ----------------------------------------\n' \
               '  items: images/tracklets for image/video dataset\n'.format(
-                  num_train_pids, len(self.train), num_train_cams,
-                  num_query_pids, len(self.query), num_query_cams,
-                  num_gallery_pids, len(self.gallery), num_gallery_cams
+              num_train_pids, len(self.train), num_train_cams,
+              num_query_pids, len(self.query), num_query_cams,
+              num_gallery_pids, len(self.gallery), num_gallery_cams
               )
 
         return msg
-
-    def _transform_image(self, tfm, k_tfm, img0):
-        """Transform a raw image (img0) k_tfm times."""
-        img_list = []
-
-        for k in range(k_tfm):
-            img_list.append(tfm(img0))
-
-        img = img_list
-        if len(img) == 1:
-            img = img[0]
-
-        return img
 
 
 class ImageDataset(Dataset):
@@ -283,9 +245,8 @@ class ImageDataset(Dataset):
         img_path, pid, camid = self.data[index]
         img = read_image(img_path)
         if self.transform is not None:
-            img = self._transform_image(self.transform, self.k_tfm, img)
-        item = {'img': img, 'pid': pid, 'camid': camid, 'impath': img_path}
-        return item
+            img = self.transform(img)
+        return img, pid, camid, img_path
 
     def show_summary(self):
         num_train_pids, num_train_cams = self.parse_data(self.train)
@@ -296,21 +257,9 @@ class ImageDataset(Dataset):
         print('  ----------------------------------------')
         print('  subset   | # ids | # images | # cameras')
         print('  ----------------------------------------')
-        print(
-            '  train    | {:5d} | {:8d} | {:9d}'.format(
-                num_train_pids, len(self.train), num_train_cams
-            )
-        )
-        print(
-            '  query    | {:5d} | {:8d} | {:9d}'.format(
-                num_query_pids, len(self.query), num_query_cams
-            )
-        )
-        print(
-            '  gallery  | {:5d} | {:8d} | {:9d}'.format(
-                num_gallery_pids, len(self.gallery), num_gallery_cams
-            )
-        )
+        print('  train    | {:5d} | {:8d} | {:9d}'.format(num_train_pids, len(self.train), num_train_cams))
+        print('  query    | {:5d} | {:8d} | {:9d}'.format(num_query_pids, len(self.query), num_query_cams))
+        print('  gallery  | {:5d} | {:8d} | {:9d}'.format(num_gallery_pids, len(self.gallery), num_gallery_cams))
         print('  ----------------------------------------')
 
 
@@ -325,15 +274,7 @@ class VideoDataset(Dataset):
     data in each batch has shape (batch_size, seq_len, channel, height, width).
     """
 
-    def __init__(
-        self,
-        train,
-        query,
-        gallery,
-        seq_len=15,
-        sample_method='evenly',
-        **kwargs
-    ):
+    def __init__(self, train, query, gallery, seq_len=15, sample_method='evenly', **kwargs):
         super(VideoDataset, self).__init__(train, query, gallery, **kwargs)
         self.seq_len = seq_len
         self.sample_method = sample_method
@@ -349,10 +290,8 @@ class VideoDataset(Dataset):
             # Randomly samples seq_len images from a tracklet of length num_imgs,
             # if num_imgs is smaller than seq_len, then replicates images
             indices = np.arange(num_imgs)
-            replace = False if num_imgs >= self.seq_len else True
-            indices = np.random.choice(
-                indices, size=self.seq_len, replace=replace
-            )
+            replace = False if num_imgs>=self.seq_len else True
+            indices = np.random.choice(indices, size=self.seq_len, replace=replace)
             # sort indices to keep temporal order (comment it to be order-agnostic)
             indices = np.sort(indices)
 
@@ -360,18 +299,13 @@ class VideoDataset(Dataset):
             # Evenly samples seq_len images from a tracklet
             if num_imgs >= self.seq_len:
                 num_imgs -= num_imgs % self.seq_len
-                indices = np.arange(0, num_imgs, num_imgs / self.seq_len)
+                indices = np.arange(0, num_imgs, num_imgs/self.seq_len)
             else:
                 # if num_imgs is smaller than seq_len, simply replicate the last image
                 # until the seq_len requirement is satisfied
                 indices = np.arange(0, num_imgs)
                 num_pads = self.seq_len - num_imgs
-                indices = np.concatenate(
-                    [
-                        indices,
-                        np.ones(num_pads).astype(np.int32) * (num_imgs-1)
-                    ]
-                )
+                indices = np.concatenate([indices, np.ones(num_pads).astype(np.int32)*(num_imgs-1)])
             assert len(indices) == self.seq_len
 
         elif self.sample_method == 'all':
@@ -379,9 +313,7 @@ class VideoDataset(Dataset):
             indices = np.arange(num_imgs)
 
         else:
-            raise ValueError(
-                'Unknown sample method: {}'.format(self.sample_method)
-            )
+            raise ValueError('Unknown sample method: {}'.format(self.sample_method))
 
         imgs = []
         for index in indices:
@@ -393,9 +325,7 @@ class VideoDataset(Dataset):
             imgs.append(img)
         imgs = torch.cat(imgs, dim=0)
 
-        item = {'img': imgs, 'pid': pid, 'camid': camid}
-
-        return item
+        return imgs, pid, camid
 
     def show_summary(self):
         num_train_pids, num_train_cams = self.parse_data(self.train)
@@ -406,19 +336,7 @@ class VideoDataset(Dataset):
         print('  -------------------------------------------')
         print('  subset   | # ids | # tracklets | # cameras')
         print('  -------------------------------------------')
-        print(
-            '  train    | {:5d} | {:11d} | {:9d}'.format(
-                num_train_pids, len(self.train), num_train_cams
-            )
-        )
-        print(
-            '  query    | {:5d} | {:11d} | {:9d}'.format(
-                num_query_pids, len(self.query), num_query_cams
-            )
-        )
-        print(
-            '  gallery  | {:5d} | {:11d} | {:9d}'.format(
-                num_gallery_pids, len(self.gallery), num_gallery_cams
-            )
-        )
+        print('  train    | {:5d} | {:11d} | {:9d}'.format(num_train_pids, len(self.train), num_train_cams))
+        print('  query    | {:5d} | {:11d} | {:9d}'.format(num_query_pids, len(self.query), num_query_cams))
+        print('  gallery  | {:5d} | {:11d} | {:9d}'.format(num_gallery_pids, len(self.gallery), num_gallery_cams))
         print('  -------------------------------------------')

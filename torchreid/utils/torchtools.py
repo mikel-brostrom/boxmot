@@ -1,25 +1,26 @@
-from __future__ import division, print_function, absolute_import
-import pickle
-import shutil
-import os.path as osp
-import warnings
-from functools import partial
+from __future__ import absolute_import
+from __future__ import print_function
+from __future__ import division
+
+__all__ = ['save_checkpoint', 'load_checkpoint', 'resume_from_checkpoint',
+           'open_all_layers', 'open_specified_layers', 'count_num_param',
+           'load_pretrained_weights']
+
 from collections import OrderedDict
+import shutil
+import warnings
+import os
+import os.path as osp
+from functools import partial
+import pickle
+
 import torch
 import torch.nn as nn
 
 from .tools import mkdir_if_missing
 
-__all__ = [
-    'save_checkpoint', 'load_checkpoint', 'resume_from_checkpoint',
-    'open_all_layers', 'open_specified_layers', 'count_num_param',
-    'load_pretrained_weights'
-]
 
-
-def save_checkpoint(
-    state, save_dir, is_best=False, remove_module_from_keys=False
-):
+def save_checkpoint(state, save_dir, is_best=False, remove_module_from_keys=False):
     r"""Saves checkpoint.
 
     Args:
@@ -70,7 +71,7 @@ def load_checkpoint(fpath):
     Returns:
         dict
 
-    Examples::
+    Examples::  
         >>> from torchreid.utils import load_checkpoint
         >>> fpath = 'log/my_model/model.pth.tar-10'
         >>> checkpoint = load_checkpoint(fpath)
@@ -85,16 +86,14 @@ def load_checkpoint(fpath):
     except UnicodeDecodeError:
         pickle.load = partial(pickle.load, encoding="latin1")
         pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
-        checkpoint = torch.load(
-            fpath, pickle_module=pickle, map_location=map_location
-        )
+        checkpoint = torch.load(fpath, pickle_module=pickle, map_location=map_location)
     except Exception:
         print('Unable to load checkpoint from "{}"'.format(fpath))
         raise
     return checkpoint
 
 
-def resume_from_checkpoint(fpath, model, optimizer=None, scheduler=None):
+def resume_from_checkpoint(fpath, model, optimizer=None):
     r"""Resumes training from a checkpoint.
 
     This will load (1) model weights and (2) ``state_dict``
@@ -104,7 +103,6 @@ def resume_from_checkpoint(fpath, model, optimizer=None, scheduler=None):
         fpath (str): path to checkpoint.
         model (nn.Module): model.
         optimizer (Optimizer, optional): an Optimizer.
-        scheduler (LRScheduler, optional): an LRScheduler.
 
     Returns:
         int: start_epoch.
@@ -112,9 +110,7 @@ def resume_from_checkpoint(fpath, model, optimizer=None, scheduler=None):
     Examples::
         >>> from torchreid.utils import resume_from_checkpoint
         >>> fpath = 'log/my_model/model.pth.tar-10'
-        >>> start_epoch = resume_from_checkpoint(
-        >>>     fpath, model, optimizer, scheduler
-        >>> )
+        >>> start_epoch = resume_from_checkpoint(fpath, model, optimizer)
     """
     print('Loading checkpoint from "{}"'.format(fpath))
     checkpoint = load_checkpoint(fpath)
@@ -123,9 +119,6 @@ def resume_from_checkpoint(fpath, model, optimizer=None, scheduler=None):
     if optimizer is not None and 'optimizer' in checkpoint.keys():
         optimizer.load_state_dict(checkpoint['optimizer'])
         print('Loaded optimizer')
-    if scheduler is not None and 'scheduler' in checkpoint.keys():
-        scheduler.load_state_dict(checkpoint['scheduler'])
-        print('Loaded scheduler')
     start_epoch = checkpoint['epoch']
     print('Last epoch = {}'.format(start_epoch))
     if 'rank1' in checkpoint.keys():
@@ -133,16 +126,8 @@ def resume_from_checkpoint(fpath, model, optimizer=None, scheduler=None):
     return start_epoch
 
 
-def adjust_learning_rate(
-    optimizer,
-    base_lr,
-    epoch,
-    stepsize=20,
-    gamma=0.1,
-    linear_decay=False,
-    final_lr=0,
-    max_epoch=100
-):
+def adjust_learning_rate(optimizer, base_lr, epoch, stepsize=20, gamma=0.1,
+                         linear_decay=False, final_lr=0, max_epoch=100):
     r"""Adjusts learning rate.
 
     Deprecated.
@@ -150,11 +135,11 @@ def adjust_learning_rate(
     if linear_decay:
         # linearly decay learning rate from base_lr to final_lr
         frac_done = epoch / max_epoch
-        lr = frac_done*final_lr + (1.-frac_done) * base_lr
+        lr = frac_done * final_lr + (1. - frac_done) * base_lr
     else:
         # decay learning rate by gamma for every stepsize
-        lr = base_lr * (gamma**(epoch // stepsize))
-
+        lr = base_lr * (gamma ** (epoch // stepsize))
+    
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
@@ -204,11 +189,7 @@ def open_specified_layers(model, open_layers):
         open_layers = [open_layers]
 
     for layer in open_layers:
-        assert hasattr(
-            model, layer
-        ), '"{}" is not an attribute of the model, please provide the correct name'.format(
-            layer
-        )
+        assert hasattr(model, layer), '"{}" is not an attribute of the model, please provide the correct name'.format(layer)
 
     for name, module in model.named_children():
         if name in open_layers:
@@ -236,20 +217,17 @@ def count_num_param(model):
         This method is deprecated in favor of
         ``torchreid.utils.compute_model_complexity``.
     """
-    warnings.warn(
-        'This method is deprecated and will be removed in the future.'
-    )
+    warnings.warn('This method is deprecated and will be removed in the future.')
 
     num_param = sum(p.numel() for p in model.parameters())
 
     if isinstance(model, nn.DataParallel):
         model = model.module
 
-    if hasattr(model,
-               'classifier') and isinstance(model.classifier, nn.Module):
+    if hasattr(model, 'classifier') and isinstance(model.classifier, nn.Module):
         # we ignore the classifier because it is unused at test time
         num_param -= sum(p.numel() for p in model.classifier.parameters())
-
+    
     return num_param
 
 
@@ -274,38 +252,31 @@ def load_pretrained_weights(model, weight_path):
         state_dict = checkpoint['state_dict']
     else:
         state_dict = checkpoint
-
+    
     model_dict = model.state_dict()
     new_state_dict = OrderedDict()
     matched_layers, discarded_layers = [], []
-
+    
     for k, v in state_dict.items():
         if k.startswith('module.'):
             k = k[7:] # discard module.
-
+        
         if k in model_dict and model_dict[k].size() == v.size():
             new_state_dict[k] = v
             matched_layers.append(k)
         else:
             discarded_layers.append(k)
-
+    
     model_dict.update(new_state_dict)
     model.load_state_dict(model_dict)
-
+    
     if len(matched_layers) == 0:
         warnings.warn(
             'The pretrained weights "{}" cannot be loaded, '
             'please check the key names manually '
-            '(** ignored and continue **)'.format(weight_path)
-        )
+            '(** ignored and continue **)'.format(weight_path))
     else:
-        print(
-            'Successfully loaded pretrained weights from "{}"'.
-            format(weight_path)
-        )
+        print('Successfully loaded pretrained weights from "{}"'.format(weight_path))
         if len(discarded_layers) > 0:
-            print(
-                '** The following layers are discarded '
-                'due to unmatched keys or layer size: {}'.
-                format(discarded_layers)
-            )
+            print('** The following layers are discarded '
+                  'due to unmatched keys or layer size: {}'.format(discarded_layers))

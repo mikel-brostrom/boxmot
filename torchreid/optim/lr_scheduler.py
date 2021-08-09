@@ -1,12 +1,14 @@
-from __future__ import print_function, absolute_import
+from __future__ import absolute_import
+from __future__ import print_function
+
 import torch
+#from warm_up import GradualWarmupScheduler
+from .warm_up import *
 
-AVAI_SCH = ['single_step', 'multi_step', 'cosine']
+AVAI_SCH = ['single_step', 'multi_step', 'cosine', 'warmup']
 
 
-def build_lr_scheduler(
-    optimizer, lr_scheduler='single_step', stepsize=1, gamma=0.1, max_epoch=1
-):
+def build_lr_scheduler(optimizer, lr_scheduler='single_step', stepsize=1, gamma=0.1, max_epoch=1, multiplier=10, total_epoch=9):
     """A function wrapper for building a learning rate scheduler.
 
     Args:
@@ -29,16 +31,12 @@ def build_lr_scheduler(
         >>> )
     """
     if lr_scheduler not in AVAI_SCH:
-        raise ValueError(
-            'Unsupported scheduler: {}. Must be one of {}'.format(
-                lr_scheduler, AVAI_SCH
-            )
-        )
-
+        raise ValueError('Unsupported scheduler: {}. Must be one of {}'.format(lr_scheduler, AVAI_SCH))
+    
     if lr_scheduler == 'single_step':
         if isinstance(stepsize, list):
             stepsize = stepsize[-1]
-
+        
         if not isinstance(stepsize, int):
             raise TypeError(
                 'For single_step lr_scheduler, stepsize must '
@@ -64,5 +62,14 @@ def build_lr_scheduler(
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, float(max_epoch)
         )
+
+    elif lr_scheduler == 'warmup':
+        scheduler_multistep = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer, milestones=stepsize, gamma=gamma        
+        )
+        scheduler = GradualWarmupScheduler(
+            optimizer, multiplier=multiplier, total_epoch=total_epoch, after_scheduler=scheduler_multistep        
+        )
+ 
 
     return scheduler

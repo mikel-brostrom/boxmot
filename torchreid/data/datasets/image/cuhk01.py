@@ -1,12 +1,16 @@
-from __future__ import division, print_function, absolute_import
-import glob
-import numpy as np
+from __future__ import absolute_import
+from __future__ import print_function
+from __future__ import division
+
+import sys
+import os
 import os.path as osp
+import glob
 import zipfile
+import numpy as np
 
+from torchreid.data.datasets import ImageDataset
 from torchreid.utils import read_json, write_json
-
-from ..dataset import ImageDataset
 
 
 class CUHK01(ImageDataset):
@@ -35,18 +39,17 @@ class CUHK01(ImageDataset):
         self.split_path = osp.join(self.dataset_dir, 'splits.json')
 
         self.extract_file()
-
-        required_files = [self.dataset_dir, self.campus_dir]
+        
+        required_files = [
+            self.dataset_dir,
+            self.campus_dir
+        ]
         self.check_before_run(required_files)
 
         self.prepare_split()
         splits = read_json(self.split_path)
         if split_id >= len(splits):
-            raise ValueError(
-                'split_id exceeds range, received {}, but expected between 0 and {}'
-                .format(split_id,
-                        len(splits) - 1)
-            )
+            raise ValueError('split_id exceeds range, received {}, but expected between 0 and {}'.format(split_id, len(splits)-1))
         split = splits[split_id]
 
         train = split['train']
@@ -93,10 +96,7 @@ class CUHK01(ImageDataset):
                 np.random.shuffle(order)
                 train_idxs = order[:num_train_pids]
                 train_idxs = np.sort(train_idxs)
-                idx2label = {
-                    idx: label
-                    for label, idx in enumerate(train_idxs)
-                }
+                idx2label = {idx: label for label, idx in enumerate(train_idxs)}
 
                 train, test_a, test_b = [], [], []
                 for img_path, pid, camid in img_list:

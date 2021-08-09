@@ -1,10 +1,15 @@
-from __future__ import division, print_function, absolute_import
-import re
-import glob
+from __future__ import absolute_import
+from __future__ import print_function
+from __future__ import division
+
+import sys
+import os
 import os.path as osp
+import glob
+import re
 import warnings
 
-from ..dataset import ImageDataset
+from torchreid.data.datasets import ImageDataset
 
 
 class Market1501(ImageDataset):
@@ -27,19 +32,17 @@ class Market1501(ImageDataset):
         self.root = osp.abspath(osp.expanduser(root))
         self.dataset_dir = osp.join(self.root, self.dataset_dir)
         self.download_dataset(self.dataset_dir, self.dataset_url)
-
+        
         # allow alternative directory structure
         self.data_dir = self.dataset_dir
         data_dir = osp.join(self.data_dir, 'Market-1501-v15.09.15')
         if osp.isdir(data_dir):
             self.data_dir = data_dir
         else:
-            warnings.warn(
-                'The current data structure is deprecated. Please '
-                'put data folders such as "bounding_box_train" under '
-                '"Market-1501-v15.09.15".'
-            )
-
+            warnings.warn('The current data structure is deprecated. Please '
+                          'put data folders such as "bounding_box_train" under '
+                          '"Market-1501-v15.09.15".')
+        
         self.train_dir = osp.join(self.data_dir, 'bounding_box_train')
         self.query_dir = osp.join(self.data_dir, 'query')
         self.gallery_dir = osp.join(self.data_dir, 'bounding_box_test')
@@ -47,7 +50,10 @@ class Market1501(ImageDataset):
         self.market1501_500k = market1501_500k
 
         required_files = [
-            self.data_dir, self.train_dir, self.query_dir, self.gallery_dir
+            self.data_dir,
+            self.train_dir,
+            self.query_dir,
+            self.gallery_dir
         ]
         if self.market1501_500k:
             required_files.append(self.extra_gallery_dir)
@@ -71,14 +77,14 @@ class Market1501(ImageDataset):
             if pid == -1:
                 continue # junk images are just ignored
             pid_container.add(pid)
-        pid2label = {pid: label for label, pid in enumerate(pid_container)}
+        pid2label = {pid:label for label, pid in enumerate(pid_container)}
 
         data = []
         for img_path in img_paths:
             pid, camid = map(int, pattern.search(img_path).groups())
             if pid == -1:
                 continue # junk images are just ignored
-            assert 0 <= pid <= 1501 # pid == 0 means background
+            assert 0 <= pid <= 1501  # pid == 0 means background
             assert 1 <= camid <= 6
             camid -= 1 # index starts from 0
             if relabel:
