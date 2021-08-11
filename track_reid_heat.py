@@ -20,6 +20,8 @@ from pathlib import Path
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
+import warnings
+import subprocess
 from reid import REID
 import collections
 import copy
@@ -28,9 +30,12 @@ import operator
 import cv2
 import multiprocessing as mp
 import queue as Queue
-from heatmappy import Heatmapper
-from PIL import Image
-import matplotlib.pyplot as plt
+<<<<<<<< HEAD:track_reid_heat.py
+import re_id as re
+import frameget as fg
+
+========
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
 
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
     # Resize and pad image while meeting stride-multiple constraints
@@ -64,8 +69,11 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scale
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
     return img, ratio, (dw, dh)
 
+
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
+<<<<<<<< HEAD:track_reid_heat.py
+========
 class LoadVideo:  # for inference
     def __init__(self, path, img_size=(640, 480)):
         if not os.path.isfile(path):
@@ -84,6 +92,7 @@ class LoadVideo:  # for inference
 
     def get_VideoLabels(self):
         return self.cap, self.frame_rate, self.vw, self.vh
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
 
 def xyxy_to_xywh(*xyxy):
     """" Calculates the relative bounding box from absolute pixel values. """
@@ -111,6 +120,8 @@ def xyxy_to_tlwh(bbox_xyxy):
     return tlwh_bboxs
 
 
+<<<<<<<< HEAD:track_reid_heat.py
+========
 def compute_color_for_labels(label):
     """
     Simple function that adds fixed color depending on the class
@@ -139,6 +150,7 @@ def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
     return img
 
 
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
 def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get, coor_get):
     out, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz, evaluate = \
         opt.output, opt.yolo_weights, opt.deep_sort_weights, opt.show_vid, opt.save_vid, \
@@ -181,7 +193,11 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
     # Run inference
     if device.type != 'cpu':
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+<<<<<<<< HEAD:track_reid_heat.py
+    count = 0
+========
 
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
     while True:
         print(string + 'start')
         while (dataset_list.empty()):
@@ -201,7 +217,11 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
         frame_cnt = 1
         images_by_id = dict()
         ids_per_frame = []
+<<<<<<<< HEAD:track_reid_heat.py
+        drawimage = []
+========
         drawimage=[]
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
         for im0s in dataset:
             img = letterbox(im0s, 640, stride=32)[0]
             img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3 x 416 x 416
@@ -230,7 +250,11 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
 
                 s += '%gx%g ' % img.shape[2:]  # print string
                 # save_path = str(Path(out) / Path(p).name)
+<<<<<<<< HEAD:track_reid_heat.py
+                coor_dict = dict()
+========
 
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
                 if det is not None and len(det):
                     # Rescale boxes from img_size to im0 size
                     det[:, :4] = scale_coords(
@@ -259,12 +283,26 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
                     outputs, images_by_id = deepsort.update(xywhs, confss, im0, images_by_id, ids_per_frame, track_cnt,
                                                             frame_cnt)
 
+<<<<<<<< HEAD:track_reid_heat.py
+========
                     coor_dict = dict()
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
                     if len(outputs) > 0:
                         bbox_xyxy = outputs[:, :4]
                         identities = outputs[:, -1]
                         tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
                         for j, (output, conf) in enumerate(zip(outputs, confs)):
+<<<<<<<< HEAD:track_reid_heat.py
+                            coor_dict[output[4]] = [output[2], (output[1] + output[3]) / 2]
+                    # print(len(coor_dict))
+
+
+                else:
+                    deepsort.increment_ages()
+                coor_get_list.append(coor_dict)
+                # Print time (inference + NMS)
+                #print('{}, {}/{} {}Done. ({}s)'.format(string, frame_cnt, len(dataset), s, t2 - t1))
+========
                             coor_dict[output[4]] = [output[2], (output[1] + output[3])/2]
                     #print(len(coor_dict))
                     coor_get_list.append(coor_dict)
@@ -272,6 +310,7 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
                     deepsort.increment_ages()
                 # Print time (inference + NMS)
                 print('{}, {}/{} {}Done. ({}s)'.format(string, frame_cnt, len(dataset), s, t2 - t1))
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
 
             drawimage.append(im0)
             frame_cnt += 1
@@ -281,6 +320,38 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
         return_dict.put(images_by_id)
         ids_per_frame_list.put(ids_per_frame)
         print(string + ' Tracking Done')
+<<<<<<<< HEAD:track_reid_heat.py
+        count += 1
+        if count == opt.limit:
+            break
+
+
+def pstart(frame_get, frame_get2, count):
+    if count != 0:
+        cnt = 0
+
+        while (cnt < count):
+            p1 = Process(target=fg.get_frame, args=(0, frame_get), daemon=True)
+            p2 = Process(target=fg.get_frame, args=(1, frame_get2), daemon=True)
+            p1.start()
+            p2.start()
+            p1.join()
+            p2.join()
+            cnt += 1
+    else:
+        while True:
+            p1 = Process(target=fg.get_frame, args=(0, frame_get), daemon=True)
+            p2 = Process(target=fg.get_frame, args=(1, frame_get2), daemon=True)
+            p1.start()
+            p2.start()
+            p1.join()
+            p2.join()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/yolov5l.pt', help='model.pt path')
+========
         break
 
 def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_frame2_list, video_get1, video_get2, coor_get1, coor_get2):
@@ -377,7 +448,7 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
 
         print('Final ids and their sub-ids:', final_fuse_id)
         print('people : ', len(final_fuse_id))
-        print(reid_dict)
+
         drawimage = video_get1.get()  # list
         size2 = len(drawimage)
         track_cnt1 = video_get1.get()  # dict plus id 해야됨
@@ -406,22 +477,7 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
                             cv2_addBox(idx, img, f[1], f[2], f[3], f[4], line_thickness, text_thickness, text_scale)
             out.write(img)
         out.release()
-        example_img_path = './struct2.JPG'
-        example_img = Image.open(example_img_path)
 
-        example_points = []  # 히트맵 중심 좌표 설정
-
-        # 히트맵 그리기
-        heatmapper = Heatmapper(
-            point_diameter=50,  # the size of each point to be drawn
-            point_strength=0.5,  # the strength, between 0 and 1, of each point to be drawn
-            opacity=0.5,  # the opacity of the heatmap layer
-            colours='default',  # 'default' or 'reveal'
-            # OR a matplotlib LinearSegmentedColorMap object
-            # OR the path to a horizontal scale image
-            grey_heatmapper='PIL'  # The object responsible for drawing the points
-            # Pillow used by default, 'PySide' option available if installed
-        )
         video1_coor = coor_get1.get()
         video2_coor = coor_get2.get()
         heatmaplist1 = list()
@@ -467,7 +523,6 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
                 for point in pts1_p[0]:
                     a, b = tuple(point)
                     x = (int(a) + int(coor1_x), int(b) + int(coor1_y))
-                    example_points.append(x)
                     cv2.circle(background_image, x, 10, (0, 255, 0), -1)
             if len(pts2) > 0:
                 pts2_p = cv2.perspectiveTransform(
@@ -476,14 +531,12 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
                 for point in pts2_p[0]:
                     a, b = tuple(point)
                     x = (int(a) + int(coor2_x), int(b) + int(coor2_y))
-                    example_points.append(x)
                     cv2.circle(background_image, x, 10, (0, 255, 0), -1)
             name = str(i) + "_heat.jpg"
             if i % 20 == 0:
                 cv2.imwrite(os.path.join(save_path, name), background_image)
-        heatmap = heatmapper.heatmap_on_img(example_points, example_img)
+
         count = count + 1
-        heatmap.save('./a.png')
         print("Finish")
         break
 
@@ -519,11 +572,12 @@ def get_frame(source, return_list):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/yolov5s.pt', help='model.pt path')
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
     parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7',
                         help='ckpt.t7 path')
     # file/folder, 0 for webcam
     parser.add_argument('--source', type=str, default='0', help='source')
-    parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
+    parser.add_argument('--output', type=str, default='output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.4, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
@@ -532,12 +586,86 @@ if __name__ == '__main__':
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
     parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
     parser.add_argument('--save-txt', action='store_true', help='save MOT compliant results to *.txt')
+    parser.add_argument('--model', type=str, default='osnet_x1_0', help='select reid model')
+    parser.add_argument('--modelpth', type=str, default='model_data/models/model.pth.tar-80', help='select reid model.pth')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
+<<<<<<<< HEAD:track_reid_heat.py
+    parser.add_argument('--classes', nargs='+', default='0', type=int,
+                        help='filter by class: --class 0, or --class 16 17')
+========
     parser.add_argument('--classes', nargs='+', default='0', type=int, help='filter by class: --class 0, or --class 16 17')
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--evaluate', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
+<<<<<<<< HEAD:track_reid_heat.py
+    parser.add_argument("--realtime", type=int, default=1)
+    parser.add_argument("--matrix", type=str, default='None')
+    parser.add_argument("--num_video", type=int, default=2)
+    parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--background", type=str, default='calliberation/rest_plan.jpg')
+    parser.add_argument("--heatmap", type=str, default=1)
+    parser.add_argument("--frame", type=int, default=1)
+    parser.add_argument("--second", type=int, default=15)
+    parser.add_argument("--threshold", type=int, default=320)
+    parser.add_argument("--video", type=str, default='None')
+    parser.add_argument("--heatmapsec", type=int, default=60)
+
+    args = parser.parse_args()
+    args.img_size = check_img_size(args.img_size)
+    credential_path = "atsm-202107-50b0c3dc3869.json"
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credential_path
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+    # reid = REID()
+    video1 = ['calliberation/in1_Trim.mp4']  # 엘리베이터
+    video2 = ['calliberation/in2_Trim.mp4']  # 입구
+    videos = [['calliberation/sample_video/ele.mp4'], ['calliberation/sample_video/en.mp4'], ['calliberation/sample_video/in.mp4']]  # 엘리베이터, 입구, 내부\
+    str_video = ['ele', 'en', 'in']
+
+    try:
+        from torchreid.metrics.rank_cylib.rank_cy import evaluate_cy
+
+        IS_CYTHON_AVAI = True
+    except ImportError:
+        IS_CYTHON_AVAI = False
+        stdout = subprocess.run(['python ./torchreid/metrics/rank_cylib/setup.py build_ext --inplace'], shell=True)
+        warnings.warn(
+            'Cython does not work, will run cython'
+        )
+
+    with torch.no_grad():
+        # mp.set_start_method('spawn')
+        if args.realtime == 0 and args.video != 'None':
+            x = args.video.split(',')
+            video1 = videos[int(x[0])]
+            if args.num_video == 2:
+                video2 = videos[int(x[1])]
+            args.matrix = 'coor_' + str_video[int(x[0])]
+            if args.num_video == 2:
+                args.matrix += ' coor_' + str_video[int(x[1])]
+
+        frame_get1 = Manager().Queue()
+        frame_get2 = Manager().Queue()
+        if args.realtime:
+            p0 = Process(target=pstart, args=(frame_get1, frame_get2, args.limit))
+            p0.start()
+        else:
+            p1 = Process(target=fg.get_frame_video, args=(video1, frame_get1, args.frame, args.second))
+            p1.start()
+            if args.num_video == 2:
+                p2 = Process(target=fg.get_frame_video, args=(video2, frame_get2, args.frame, args.second))
+                p2.start()
+                p2.join()
+            p1.join()
+            args.limit = frame_get1.qsize()
+            if args.num_video == 2:
+                size2 = frame_get2.qsize()
+                if args.limit > size2:
+                    args.limit = size2
+
+========
     args = parser.parse_args()
     args.img_size = check_img_size(args.img_size)
     #reid = REID()
@@ -555,6 +683,7 @@ if __name__ == '__main__':
         p5.start()
         p4.join()
         p5.join()
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
         ids_per_frame1 = Manager().Queue()
         ids_per_frame2 = Manager().Queue()
         return_dict1 = Manager().Queue()
@@ -563,6 +692,26 @@ if __name__ == '__main__':
         video_get2 = Manager().Queue()
         coor_get1 = Manager().Queue()
         coor_get2 = Manager().Queue()
+<<<<<<<< HEAD:track_reid_heat.py
+        p5 = mp.Process(target=detect,
+                        args=(args, frame_get1, return_dict1, ids_per_frame1, 'Video1', video_get1, coor_get1),
+                        daemon=True)
+        if args.realtime == 1 or args.num_video == 2:
+            p6 = mp.Process(target=detect,
+                            args=(args, frame_get2, return_dict2, ids_per_frame2, 'Video2', video_get2, coor_get2),
+                            daemon=True)
+        p7 = mp.Process(target=re.re_identification,
+                        args=(args, return_dict1, return_dict2, ids_per_frame1, ids_per_frame2,
+                              video_get1, video_get2, coor_get1, coor_get2), daemon=True)
+        p5.start()
+        if args.num_video == 2:
+            p6.start()
+        p7.start()
+
+        p7.join()
+
+
+========
         p5 = mp.Process(target=detect, args=(args, frame_get1, return_dict1, ids_per_frame1, 'Video1', video_get1, coor_get1))
         p6 = mp.Process(target=detect, args=(args, frame_get2, return_dict2, ids_per_frame2, 'Video2', video_get2, coor_get2))
         p7 = mp.Process(target=re_identification, args=(return_dict1, return_dict2, ids_per_frame1, ids_per_frame2,
@@ -574,4 +723,5 @@ if __name__ == '__main__':
         p6.join()
         p7.join()
         
+>>>>>>>> 5a4c0878a4430d82d94577fb0449655a3ada222d:track.py
 

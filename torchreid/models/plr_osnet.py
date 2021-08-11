@@ -1,5 +1,6 @@
 """
 Code source: https://github.com/pytorch/vision
+URL: `<https://github.com/AI-NERC-NUPT/PLR-OSNet/blob/master/torchreid/models/plr_osnet.py>`
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -19,7 +20,14 @@ from .attention_module import Attention_Module
 
 class PLR_OSNet(nn.Module):
 
-    def __init__(self, num_classes, fc_dims=None, loss=None,  pretrained=True, **kwargs):
+    def __init__(
+        self,
+        num_classes,
+        fc_dims=None,
+        loss=None, 
+        pretrained=True,
+        **kwargs
+    ):
         super(PLR_OSNet, self).__init__()
         
         osnet = osnet_x1_0(pretrained=pretrained)

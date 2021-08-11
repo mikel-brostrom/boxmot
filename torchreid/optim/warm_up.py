@@ -1,3 +1,4 @@
+# URL: `<https://github.com/AI-NERC-NUPT/PLR-OSNet/blob/master/torchreid/optim/warm_up.py>
 # from:https://github.com/ildoonet/pytorch-gradual-warmup-lr
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -17,6 +18,7 @@ class GradualWarmupScheduler(_LRScheduler):
         if self.multiplier <= 1.:
             raise ValueError('multiplier should be greater than 1.')
         self.total_epoch = total_epoch
+        print("(multiplier, total_epoch) =", (multiplier, total_epoch))
         self.after_scheduler = after_scheduler
         self.finished = False
         super().__init__(optimizer)
@@ -61,5 +63,3 @@ class GradualWarmupScheduler(_LRScheduler):
 if __name__ == '__main__':
 	scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_epoch)
 	scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=8, total_epoch=10, after_scheduler=scheduler_cosine)
-
-

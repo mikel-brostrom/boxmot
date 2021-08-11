@@ -7,34 +7,93 @@ import os
 from torchreid import metrics
 from timeit import time
 class REID:
-    def __init__(self):
-        self.model = torchreid.models.build_model(
-                name='osnet_x1_0',
-                num_classes=1,#human
+    def __init__(self, args):
+        if args.model == 'osnet_x1_0':
+            self.model = torchreid.models.build_model(
+                    name=args.model,
+                    num_classes=1,#human
+                    loss='softmax',
+                    pretrained=True,
+                    use_gpu = True
+                )
+            self.model = self.model.cuda()
+            self.optimizer = torchreid.optim.build_optimizer(
+                    self.model,
+                    optim='amsgrad',
+                    lr=0.0015
+                )
+            self.scheduler = torchreid.optim.build_lr_scheduler(
+                    self.optimizer,
+                    lr_scheduler='single_step',
+                    stepsize=[60]
+                )
+            _, self.transform_te = build_transforms(
+                height=256, width=128,
+                random_erase=False,
+                color_jitter=False,
+                color_aug=False
+            )
+            self.dist_metric = 'euclidean'
+            self.model.eval()
+
+        elif args.model == 'plr_osnet':
+            self.model = torchreid.models.build_model(
+                name=args.model,
+                num_classes=1,  # human
+                loss= 'triplet',
+                pretrained=True,
+                use_gpu=True
+            )
+            self.model = self.model.cuda()
+            self.optimizer = torchreid.optim.build_optimizer(
+                self.model,
+                optim='adam',
+                lr=0.000035
+            )
+            self.scheduler = torchreid.optim.build_lr_scheduler(
+                self.optimizer,
+                lr_scheduler='warmup',
+                stepsize=[40, 70]
+            )
+            _, self.transform_te = build_transforms(
+                height=256, width=128,
+                random_erase=False,
+                color_jitter=False,
+                color_aug=False
+            )
+            self.dist_metric = 'euclidean'
+            self.model.eval()
+        elif args.model == 'resnet50_fc512':
+            self.model = torchreid.models.build_model(
+                name=args.model,
+                num_classes=1,  # human
                 loss='softmax',
                 pretrained=True,
-                use_gpu = True
+                use_gpu=True
             )
-        torchreid.utils.load_pretrained_weights(self.model, 'model_data/models/model.pth.tar-80')
-        self.model = self.model.cuda()
-        self.optimizer = torchreid.optim.build_optimizer(
+            self.model = self.model.cuda()
+            self.optimizer = torchreid.optim.build_optimizer(
                 self.model,
                 optim='amsgrad',
-                lr=0.0015
+                lr=0.0003
             )
-        self.scheduler = torchreid.optim.build_lr_scheduler(
+            self.scheduler = torchreid.optim.build_lr_scheduler(
                 self.optimizer,
                 lr_scheduler='single_step',
-                stepsize=[60]
+                stepsize=[20]
             )
-        _, self.transform_te = build_transforms(
-            height=256, width=128,
-            random_erase=False,
-            color_jitter=False,
-            color_aug=False
-        )
-        self.dist_metric = 'euclidean'
-        self.model.eval()
+            _, self.transform_te = build_transforms(
+                height=256, width=128,
+                random_erase=False,
+                color_jitter=False,
+                color_aug=False
+            )
+            self.dist_metric = 'euclidean'
+            self.model.eval()
+
+        torchreid.utils.load_pretrained_weights(self.model, args.modelpth)
+        print(args.model)
+
 
     def _extract_features(self, input):
         self.model.eval()

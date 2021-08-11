@@ -2,6 +2,7 @@
 # Created by: CASIA IVA
 # Email: jliu@nlpr.ia.ac.cn
 # Copyright (c) 2018
+# URL: `<https://github.com/AI-NERC-NUPT/PLR-OSNet/blob/master/torchreid/models/attention_module.py>`
 ###########################################################################
 
 import torch
@@ -76,5 +77,3 @@ class Attention_Module(nn.Module):
         out = self.pam(x)
         out = self.se(out)
         return out
-
-
