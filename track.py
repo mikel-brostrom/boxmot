@@ -39,11 +39,11 @@ import multiprocessing
     and the list is stored in the queue.
 """
 
-def get_frame(i, frame):
+def get_frame(i, frame, f_skip, v_sec):
     project_id = 'atsm-202107'
     bucket_id = 'sanhak_2021'
     dataset_id = 'sanhak_2021'
-    table_id = 'video_sec-10_frame-4'
+    table_id = 'video_sec-{}_frame-{}'.format(v_sec, f_skip)
 
     storage_client = storage.Client()
     db_client = bigquery.Client()
@@ -387,10 +387,10 @@ def re_identification(return_dict1, return_dict2, ids_per_frame1_list, ids_per_f
 warnings.filterwarnings('ignore')
 
 
-def pstart(frame_get,frame_get2):
+def pstart(frame_get,frame_get2, frame_skip, vid_sec):
     cnt = 0
-    p1 = Process(target=get_frame, args=(0, frame_get), daemon=True)
-    p2 = Process(target=get_frame, args=(1, frame_get2), daemon=True)
+    p1 = Process(target=get_frame, args=(0, frame_get, frame_skip, vid_sec), daemon=True)
+    p2 = Process(target=get_frame, args=(1, frame_get2, frame_skip, vid_sec), daemon=True)
     while(cnt < 8):
         p1.start()
         p2.start()
@@ -420,6 +420,8 @@ if __name__ == '__main__':
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--evaluate', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
+    parser.add_argument('--frame-skip', type=int, default=4, help='if you set 4, just one of 4 frames would be treated')
+    parser.add_argument('--vid-sec', type=int, default=10, help='video length, seconds')
     args = parser.parse_args()
 
     credential_path = "atsm-202107-50b0c3dc3869.json"
@@ -431,7 +433,7 @@ if __name__ == '__main__':
     frame_get1 = Manager().Queue()
     frame_get2 = Manager().Queue()
     args.img_size = check_img_size(args.img_size)
-    p0 = Process(target=pstart, args=(frame_get1, frame_get2))
+    p0 = Process(target=pstart, args=(frame_get1, frame_get2, args.frame_skip, args.vid_sec))
     try:
         p0.start()
 
