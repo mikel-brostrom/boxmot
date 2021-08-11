@@ -3,6 +3,7 @@ import re
 import glob
 import os.path as osp
 import warnings
+import pdb
 
 from ..dataset import ImageDataset
 
@@ -31,6 +32,7 @@ class Market1501(ImageDataset):
         # allow alternative directory structure
         self.data_dir = self.dataset_dir
         data_dir = osp.join(self.data_dir, 'Market-1501-v15.09.15')
+        print(data_dir)
         if osp.isdir(data_dir):
             self.data_dir = data_dir
         else:
@@ -59,6 +61,8 @@ class Market1501(ImageDataset):
         if self.market1501_500k:
             gallery += self.process_dir(self.extra_gallery_dir, relabel=False)
 
+        #pdb.set_trace()
+
         super(Market1501, self).__init__(train, query, gallery, **kwargs)
 
     def process_dir(self, dir_path, relabel=False):
@@ -84,5 +88,5 @@ class Market1501(ImageDataset):
             if relabel:
                 pid = pid2label[pid]
             data.append((img_path, pid, camid))
-
+        
         return data

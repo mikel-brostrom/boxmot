@@ -20,6 +20,8 @@ class CUHK02(ImageDataset):
         - image format is png
 
     Protocol: Use P1 - P4 for training and P5 for evaluation.
+
+    Note: CUHK01 and CUHK02 overlap.
     """
     dataset_dir = 'cuhk02'
     cam_pairs = ['P1', 'P2', 'P3', 'P4', 'P5']

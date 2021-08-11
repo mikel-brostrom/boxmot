@@ -115,6 +115,10 @@ class ImageDataManager(DataManager):
         workers (int, optional): number of workers. Default is 4.
         num_instances (int, optional): number of instances per identity in a batch.
             Default is 4.
+        num_cams (int, optional): number of cameras to sample in a batch (when using
+            ``RandomDomainSampler``). Default is 1.
+        num_datasets (int, optional): number of datasets to sample in a batch (when
+            using ``RandomDatasetSampler``). Default is 1.
         train_sampler (str, optional): sampler. Default is RandomSampler.
         train_sampler_t (str, optional): sampler for target train loader. Default is RandomSampler.
         cuhk03_labeled (bool, optional): use cuhk03 labeled images.
@@ -165,6 +169,8 @@ class ImageDataManager(DataManager):
         batch_size_test=32,
         workers=4,
         num_instances=4,
+        num_cams=1,
+        num_datasets=1,
         train_sampler='RandomSampler',
         train_sampler_t='RandomSampler',
         cuhk03_labeled=False,
@@ -210,7 +216,9 @@ class ImageDataManager(DataManager):
                 trainset.train,
                 train_sampler,
                 batch_size=batch_size_train,
-                num_instances=num_instances
+                num_instances=num_instances,
+                num_cams=num_cams,
+                num_datasets=num_datasets
             ),
             batch_size=batch_size_train,
             shuffle=False,
@@ -249,7 +257,9 @@ class ImageDataManager(DataManager):
                     trainset_t.train,
                     train_sampler_t,
                     batch_size=batch_size_train,
-                    num_instances=num_instances
+                    num_instances=num_instances,
+                    num_cams=num_cams,
+                    num_datasets=num_datasets
                 ),
                 batch_size=batch_size_train,
                 shuffle=False,
@@ -360,6 +370,10 @@ class VideoDataManager(DataManager):
         workers (int, optional): number of workers. Default is 4.
         num_instances (int, optional): number of instances per identity in a batch.
             Default is 4.
+        num_cams (int, optional): number of cameras to sample in a batch (when using
+            ``RandomDomainSampler``). Default is 1.
+        num_datasets (int, optional): number of datasets to sample in a batch (when
+            using ``RandomDatasetSampler``). Default is 1.
         train_sampler (str, optional): sampler. Default is RandomSampler.
         seq_len (int, optional): how many images to sample in a tracklet. Default is 15.
         sample_method (str, optional): how to sample images in a tracklet. Default is "evenly".
@@ -411,6 +425,8 @@ class VideoDataManager(DataManager):
         batch_size_test=3,
         workers=4,
         num_instances=4,
+        num_cams=1,
+        num_datasets=1,
         train_sampler='RandomSampler',
         seq_len=15,
         sample_method='evenly'
@@ -450,7 +466,9 @@ class VideoDataManager(DataManager):
             trainset.train,
             train_sampler,
             batch_size=batch_size_train,
-            num_instances=num_instances
+            num_instances=num_instances,
+            num_cams=num_cams,
+            num_datasets=num_datasets
         )
 
         self.train_loader = torch.utils.data.DataLoader(

@@ -21,6 +21,7 @@ from .resnet_ibn_a import *
 from .resnet_ibn_b import *
 from .shufflenetv2 import *
 from .inceptionresnetv2 import *
+from .plr_osnet import *
 
 __model_factory = {
     # image classification models
@@ -71,7 +72,8 @@ __model_factory = {
     'osnet_x0_5': osnet_x0_5,
     'osnet_x0_25': osnet_x0_25,
     'osnet_ibn_x1_0': osnet_ibn_x1_0,
-    'osnet_ain_x1_0': osnet_ain_x1_0
+    'osnet_ain_x1_0': osnet_ain_x1_0,
+    'plr_osnet': plr_osnet
 }
 
 

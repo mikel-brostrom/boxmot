@@ -23,6 +23,7 @@ class GRID(ImageDataset):
     """
     dataset_dir = 'grid'
     dataset_url = 'http://personal.ie.cuhk.edu.hk/~ccloy/files/datasets/underground_reid.zip'
+    _junk_pids = [0]
 
     def __init__(self, root='', split_id=0, **kwargs):
         self.root = osp.abspath(osp.expanduser(root))

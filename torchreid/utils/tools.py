@@ -14,7 +14,8 @@ from PIL import Image
 
 __all__ = [
     'mkdir_if_missing', 'check_isfile', 'read_json', 'write_json',
-    'set_random_seed', 'download_url', 'read_image', 'collect_env_info'
+    'set_random_seed', 'download_url', 'read_image', 'collect_env_info',
+    'listdir_nohidden'
 ]
 
 
@@ -127,3 +128,16 @@ def collect_env_info():
     env_str = get_pretty_env_info()
     env_str += '\n        Pillow ({})'.format(PIL.__version__)
     return env_str
+
+
+def listdir_nohidden(path, sort=False):
+    """List non-hidden items in a directory.
+
+    Args:
+         path (str): directory path.
+         sort (bool): sort the items.
+    """
+    items = [f for f in os.listdir(path) if not f.startswith('.')]
+    if sort:
+        items.sort()
+    return items

@@ -28,7 +28,7 @@ def visualize_ranked_results(
     Args:
         distmat (numpy.ndarray): distance matrix of shape (num_query, num_gallery).
         dataset (tuple): a 2-tuple containing (query, gallery), each of which contains
-            tuples of (img_path(s), pid, camid).
+            tuples of (img_path(s), pid, camid, dsetid).
         data_type (str): "image" or "video".
         width (int, optional): resized image width. Default is 128.
         height (int, optional): resized image height. Default is 256.
@@ -76,7 +76,7 @@ def visualize_ranked_results(
             shutil.copy(src, dst)
 
     for q_idx in range(num_q):
-        qimg_path, qpid, qcamid = query[q_idx]
+        qimg_path, qpid, qcamid = query[q_idx][:3]
         qimg_path_name = qimg_path[0] if isinstance(
             qimg_path, (tuple, list)
         ) else qimg_path
@@ -107,7 +107,7 @@ def visualize_ranked_results(
 
         rank_idx = 1
         for g_idx in indices[q_idx, :]:
-            gimg_path, gpid, gcamid = gallery[g_idx]
+            gimg_path, gpid, gcamid = gallery[g_idx][:3]
             invalid = (qpid == gpid) & (qcamid == gcamid)
 
             if not invalid:

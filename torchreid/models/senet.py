@@ -90,7 +90,7 @@ pretrained_settings = {
 
 class SEModule(nn.Module):
 
-    def __init__(self, channels, reduction):
+    def __init__(self, channels, reduction=16):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.fc1 = nn.Conv2d(

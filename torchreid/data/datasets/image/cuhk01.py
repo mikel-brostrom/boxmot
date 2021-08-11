@@ -21,6 +21,8 @@ class CUHK01(ImageDataset):
         - identities: 971.
         - images: 3884.
         - cameras: 4.
+
+    Note: CUHK01 and CUHK02 overlap.
     """
     dataset_dir = 'cuhk01'
     dataset_url = None

@@ -20,10 +20,11 @@ class PRID(ImageDataset):
         - Two views.
         - View A captures 385 identities.
         - View B captures 749 identities.
-        - 200 identities appear in both views.
+        - 200 identities appear in both views (index starts from 1 to 200).
     """
     dataset_dir = 'prid2011'
     dataset_url = None
+    _junk_pids = list(range(201, 750))
 
     def __init__(self, root='', split_id=0, **kwargs):
         self.root = osp.abspath(osp.expanduser(root))

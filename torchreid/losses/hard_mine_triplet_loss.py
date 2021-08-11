@@ -1,7 +1,7 @@
 from __future__ import division, absolute_import
 import torch
 import torch.nn as nn
-
+from .weighted_softmargin_loss import WeightedSoftMarginLoss
 
 class TripletLoss(nn.Module):
     """Triplet loss with hard positive/negative mining.
@@ -18,7 +18,14 @@ class TripletLoss(nn.Module):
     def __init__(self, margin=0.3):
         super(TripletLoss, self).__init__()
         self.margin = margin
-        self.ranking_loss = nn.MarginRankingLoss(margin=margin)
+        
+        # self.ranking_loss = nn.MarginRankingLoss(margin=margin)
+        # change to 
+        if margin == 0.:
+            self.ranking_loss = nn.SoftMarginLoss()
+            #self.ranking_loss = WeightedSoftMarginLoss()
+        else:
+            self.ranking_loss = nn.MarginRankingLoss(margin=margin)
 
     def forward(self, inputs, targets):
         """
@@ -28,10 +35,10 @@ class TripletLoss(nn.Module):
         """
         n = inputs.size(0)
 
-        # Compute pairwise distance, replace by the official when merged
+        # Compute pairwise distance, replace by the official whe`n merged
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
-        dist.addmm_(1, -2, inputs, inputs.t())
+        dist.addmm_(inputs, inputs.t(), beta=1, alpha=-2)
         dist = dist.clamp(min=1e-12).sqrt() # for numerical stability
 
         # For each anchor, find the hardest positive and negative
@@ -45,4 +52,12 @@ class TripletLoss(nn.Module):
 
         # Compute ranking hinge loss
         y = torch.ones_like(dist_an)
-        return self.ranking_loss(dist_an, dist_ap, y)
+        
+        # return self.ranking_loss(dist_an, dist_ap, y)
+        # change to
+        if self.margin == 0.:
+            loss = self.ranking_loss(dist_an - dist_ap, y)
+        else:
+            loss = self.ranking_loss(dist_an, dist_ap, y)
+        return loss
+        

@@ -8,6 +8,11 @@ from .cuhk01 import CUHK01
 from .cuhk02 import CUHK02
 from .cuhk03 import CUHK03
 from .msmt17 import MSMT17
+from .cuhksysu import CUHKSYSU
 from .sensereid import SenseReID
 from .market1501 import Market1501
 from .dukemtmcreid import DukeMTMCreID
+from .university1652 import University1652
+#from .caviar4reid import CAVIAR4REID
+#from .prw import PRW
+#from .pku_reid import PKU_REID

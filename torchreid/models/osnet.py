@@ -285,7 +285,7 @@ class OSNet(nn.Module):
     Reference:
         - Zhou et al. Omni-Scale Feature Learning for Person Re-Identification. ICCV, 2019.
         - Zhou et al. Learning Generalisable Omni-Scale Representations
-          for Person Re-Identification. arXiv preprint, 2019.
+          for Person Re-Identification. TPAMI, 2021.
     """
 
     def __init__(
@@ -304,6 +304,7 @@ class OSNet(nn.Module):
         assert num_blocks == len(layers)
         assert num_blocks == len(channels) - 1
         self.loss = loss
+        self.feature_dim = feature_dim
 
         # convolutional backbone
         self.conv1 = ConvLayer(3, channels[0], 7, stride=2, padding=3, IN=IN)
@@ -334,7 +335,7 @@ class OSNet(nn.Module):
         self.global_avgpool = nn.AdaptiveAvgPool2d(1)
         # fully connected layer
         self.fc = self._construct_fc_layer(
-            feature_dim, channels[3], dropout_p=None
+            self.feature_dim, channels[3], dropout_p=None
         )
         # identity classification layer
         self.classifier = nn.Linear(self.feature_dim, num_classes)
