@@ -150,14 +150,14 @@ def detect(opt):
 
                         if save_txt:
                             # to MOT format
-                            bbox_top = output[0]
-                            bbox_left = output[1]
+                            bbox_left = output[0]
+                            bbox_top = output[1]
                             bbox_w = output[2] - output[0]
                             bbox_h = output[3] - output[1]
                             # Write MOT compliant results to file
                             with open(txt_path, 'a') as f:
-                               f.write(('%g ' * 10 + '\n') % (frame_idx, id, bbox_top,
-                                                           bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                               f.write(('%g ' * 10 + '\n') % (frame_idx, id, bbox_left,
+                                                           bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
 
             else:
                 deepsort.increment_ages()
