@@ -125,7 +125,7 @@ def detect(opt):
                 clss = det[:, 5]
 
                 # pass detections to deepsort
-                outputs = deepsort.update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0, 'kf')
+                outputs = deepsort.update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
                 
                 # draw boxes for visualization
                 if len(outputs) > 0:
