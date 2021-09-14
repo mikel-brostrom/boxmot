@@ -72,6 +72,7 @@ class Track:
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
+        self.bbox = [0, 0, 0, 0]
 
         self.state = TrackState.Tentative
         self.features = []
@@ -97,18 +98,29 @@ class Track:
         return ret
 
     def to_tlbr(self):
-        """Get current position in bounding box format `(min x, miny, max x,
+        """Get kf estimated current position in bounding box format `(min x, miny, max x,
         max y)`.
 
         Returns
         -------
         ndarray
-            The bounding box.
+            The predicted kf bounding box.
 
         """
         ret = self.to_tlwh()
         ret[2:] = ret[:2] + ret[2:]
         return ret
+
+    def get_yolo_pred(self):
+        """Get yolo prediction`.
+
+        Returns
+        -------
+        ndarray
+            The yolo bounding box.
+
+        """
+        return self.bbox.tlwh
 
     def increment_age(self):
         self.age += 1
@@ -139,6 +151,7 @@ class Track:
             The associated detection.
 
         """
+        self.bbox = detection
         self.mean, self.covariance = kf.update(
             self.mean, self.covariance, detection.to_xyah())
         self.features.append(detection.feature)
