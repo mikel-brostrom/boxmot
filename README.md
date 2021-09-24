@@ -65,13 +65,13 @@ There is a clear trade-off between model inference speed and accuracy. In order 
 you can select a Yolov5 family model for automatic download
 
 ```bash
-python3 track.py --source 0 --yolo_weights yolov5s.pt --img 640  # smallest yolov5 family model
-```
 
-```bash
-python3 track.py --source 0 --yolo_weights yolov5x6.pt --img 1280  # largest yolov5 family model
-```
 
+$ python track.py --source 0 --yolo_weights yolov5s.pt --img 640
+                                            yolov5m.pt
+                                            yolov5l.pt 
+                                            yolov5x.pt --img 1280
+```
 
 ## Filter tracked classes
 
