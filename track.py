@@ -148,7 +148,7 @@ def detect(opt):
                             # Write MOT compliant results to file
                             with open(txt_path, 'a') as f:
                                f.write(('%g ' * 10 + '\n') % (frame_idx, id, bbox_left,
-                                                           bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                                                           bbox_top, bbox_w, bbox_h, c, conf, -1, -1))  # label format
 
             else:
                 deepsort.increment_ages()
