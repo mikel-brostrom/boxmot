@@ -1,18 +1,13 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
-
-import sys
-import os
-import os.path as osp
-import glob
-import numpy as np
+from __future__ import division, print_function, absolute_import
 import copy
+import glob
 import random
+import os.path as osp
 from collections import defaultdict
 
-from torchreid.data.datasets import ImageDataset
 from torchreid.utils import read_json, write_json
+
+from ..dataset import ImageDataset
 
 
 class iLIDS(ImageDataset):
@@ -23,7 +18,7 @@ class iLIDS(ImageDataset):
     
     Dataset statistics:
         - identities: 119.
-        - images: 476. 
+        - images: 476.
         - cameras: 8 (not explicitly provided).
     """
     dataset_dir = 'ilids'
@@ -36,18 +31,18 @@ class iLIDS(ImageDataset):
 
         self.data_dir = osp.join(self.dataset_dir, 'i-LIDS_Pedestrian/Persons')
         self.split_path = osp.join(self.dataset_dir, 'splits.json')
-        
-        required_files = [
-            self.dataset_dir,
-            self.data_dir
-        ]
+
+        required_files = [self.dataset_dir, self.data_dir]
         self.check_before_run(required_files)
 
         self.prepare_split()
         splits = read_json(self.split_path)
         if split_id >= len(splits):
-            raise ValueError('split_id exceeds range, received {}, but '
-                             'expected between 0 and {}'.format(split_id, len(splits)-1))
+            raise ValueError(
+                'split_id exceeds range, received {}, but '
+                'expected between 0 and {}'.format(split_id,
+                                                   len(splits) - 1)
+            )
         split = splits[split_id]
 
         train, query, gallery = self.process_split(split)
@@ -57,7 +52,7 @@ class iLIDS(ImageDataset):
     def prepare_split(self):
         if not osp.exists(self.split_path):
             print('Creating splits ...')
-            
+
             paths = glob.glob(osp.join(self.data_dir, '*.jpg'))
             img_names = [osp.basename(path) for path in paths]
             num_imgs = len(img_names)
@@ -78,11 +73,10 @@ class iLIDS(ImageDataset):
                                     'but got {}, please check the data'.format(num_pids)
 
             num_train_pids = int(num_pids * 0.5)
-            num_test_pids = num_pids - num_train_pids # supposed to be 60
 
             splits = []
             for _ in range(10):
-                # randomly choose num_train_pids train IDs and num_test_pids test IDs
+                # randomly choose num_train_pids train IDs and the rest for test IDs
                 pids_copy = copy.deepcopy(pids)
                 random.shuffle(pids_copy)
                 train_pids = pids_copy[:num_train_pids]
@@ -122,7 +116,7 @@ class iLIDS(ImageDataset):
 
     def parse_img_names(self, img_names, pid2label=None):
         data = []
-        
+
         for img_name in img_names:
             pid = int(img_name[:4])
             if pid2label is not None:
@@ -130,11 +124,10 @@ class iLIDS(ImageDataset):
             camid = int(img_name[4:7]) - 1 # 0-based
             img_path = osp.join(self.data_dir, img_name)
             data.append((img_path, pid, camid))
-        
+
         return data
 
     def process_split(self, split):
-        train, query, gallery = [], [], []
         train_pid2label = self.get_pid2label(split['train'])
         train = self.parse_img_names(split['train'], train_pid2label)
         query = self.parse_img_names(split['query'])

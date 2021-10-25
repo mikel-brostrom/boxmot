@@ -1,13 +1,8 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
-
-import sys
-import os
-import os.path as osp
+from __future__ import division, print_function, absolute_import
 import glob
+import os.path as osp
 
-from torchreid.data.datasets import ImageDataset
+from ..dataset import ImageDataset
 
 
 class CUHK02(ImageDataset):
@@ -46,13 +41,13 @@ class CUHK02(ImageDataset):
     def get_data_list(self):
         num_train_pids, camid = 0, 0
         train, query, gallery = [], [], []
-        
+
         for cam_pair in self.cam_pairs:
             cam_pair_dir = osp.join(self.dataset_dir, cam_pair)
-            
+
             cam1_dir = osp.join(cam_pair_dir, 'cam1')
             cam2_dir = osp.join(cam_pair_dir, 'cam2')
-            
+
             impaths1 = glob.glob(osp.join(cam1_dir, '*.png'))
             impaths2 = glob.glob(osp.join(cam2_dir, '*.png'))
 
@@ -72,20 +67,27 @@ class CUHK02(ImageDataset):
                 camid += 1
 
             else:
-                pids1 = [osp.basename(impath).split('_')[0] for impath in impaths1]
-                pids2 = [osp.basename(impath).split('_')[0] for impath in impaths2]
+                pids1 = [
+                    osp.basename(impath).split('_')[0] for impath in impaths1
+                ]
+                pids2 = [
+                    osp.basename(impath).split('_')[0] for impath in impaths2
+                ]
                 pids = set(pids1 + pids2)
-                pid2label = {pid: label+num_train_pids for label, pid in enumerate(pids)}
-                
+                pid2label = {
+                    pid: label + num_train_pids
+                    for label, pid in enumerate(pids)
+                }
+
                 # add images to train from cam1
                 for impath in impaths1:
                     pid = osp.basename(impath).split('_')[0]
                     pid = pid2label[pid]
                     train.append((impath, pid, camid))
                 camid += 1
-                
-                # add images to train from cam1
-                for impath in impaths1:
+
+                # add images to train from cam2
+                for impath in impaths2:
                     pid = osp.basename(impath).split('_')[0]
                     pid = pid2label[pid]
                     train.append((impath, pid, camid))

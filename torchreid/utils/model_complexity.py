@@ -1,38 +1,38 @@
-from __future__ import absolute_import, division, print_function
+from __future__ import division, print_function, absolute_import
+import math
+import numpy as np
+from itertools import repeat
+from collections import namedtuple, defaultdict
+import torch
 
 __all__ = ['compute_model_complexity']
-
-from collections import namedtuple, defaultdict
-import numpy as np
-import math
-from itertools import repeat
-
-import torch
-import torch.nn as nn
-
-
 """
 Utility
 """
+
+
 def _ntuple(n):
+
     def parse(x):
         if isinstance(x, int):
             return tuple(repeat(x, n))
         return x
+
     return parse
+
 
 _single = _ntuple(1)
 _pair = _ntuple(2)
 _triple = _ntuple(3)
-
-
 """
 Convolution
 """
+
+
 def hook_convNd(m, x, y):
     k = torch.prod(torch.Tensor(m.kernel_size)).item()
     cin = m.in_channels
-    flops_per_ele = k*cin #+ (k*cin-1)
+    flops_per_ele = k * cin # + (k*cin-1)
     if m.bias is not None:
         flops_per_ele += 1
     flops = flops_per_ele * y.numel() / m.groups
@@ -42,6 +42,8 @@ def hook_convNd(m, x, y):
 """
 Pooling
 """
+
+
 def hook_maxpool1d(m, x, y):
     flops_per_ele = m.kernel_size - 1
     flops = flops_per_ele * y.numel()
@@ -148,6 +150,8 @@ def hook_adapavgpool3d(m, x, y):
 """
 Non-linear activations
 """
+
+
 def hook_relu(m, x, y):
     # eq: max(0, x)
     num_ele = y.numel()
@@ -164,6 +168,8 @@ def hook_leakyrelu(m, x, y):
 """
 Normalization
 """
+
+
 def hook_batchnormNd(m, x, y):
     num_ele = y.numel()
     flops = 2 * num_ele # mean and std
@@ -191,8 +197,10 @@ def hook_layernorm(m, x, y):
 """
 Linear
 """
+
+
 def hook_linear(m, x, y):
-    flops_per_ele = m.in_features #+ (m.in_features-1)
+    flops_per_ele = m.in_features # + (m.in_features-1)
     if m.bias is not None:
         flops_per_ele += 1
     flops = flops_per_ele * y.numel()
@@ -234,7 +242,6 @@ __generic_flops_counter = {
     'Linear': hook_linear,
 }
 
-
 __conv_linear_flops_counter = {
     # Convolution
     'Conv1d': hook_convNd,
@@ -251,7 +258,9 @@ def _get_flops_counter(only_conv_linear):
     return __generic_flops_counter
 
 
-def compute_model_complexity(model, input_size, verbose=False, only_conv_linear=True):
+def compute_model_complexity(
+    model, input_size, verbose=False, only_conv_linear=True
+):
     """Returns number of parameters and FLOPs.
 
     .. note::
@@ -281,8 +290,9 @@ def compute_model_complexity(model, input_size, verbose=False, only_conv_linear=
     layer = namedtuple('layer', ['class_name', 'params', 'flops'])
 
     def _add_hooks(m):
+
         def _has_submodule(m):
-            return len(list(m.children()))>0
+            return len(list(m.children())) > 0
 
         def _hook(m, x, y):
             params = sum(p.numel() for p in m.parameters())
@@ -293,11 +303,7 @@ def compute_model_complexity(model, input_size, verbose=False, only_conv_linear=
             else:
                 flops = 0
             layer_list.append(
-                layer(
-                    class_name=class_name,
-                    params=params,
-                    flops=flops
-                )
+                layer(class_name=class_name, params=params, flops=flops)
             )
 
         # only consider the very basic nn layer
@@ -314,7 +320,7 @@ def compute_model_complexity(model, input_size, verbose=False, only_conv_linear=
     if next(model.parameters()).is_cuda:
         input = input.cuda()
     model(input) # forward
-    
+
     for handle in registered_handles:
         handle.remove()
 
@@ -325,7 +331,7 @@ def compute_model_complexity(model, input_size, verbose=False, only_conv_linear=
         per_module_flops = defaultdict(list)
 
     total_params, total_flops = 0, 0
-    
+
     for layer in layer_list:
         total_params += layer.params
         total_flops += layer.flops
@@ -335,15 +341,23 @@ def compute_model_complexity(model, input_size, verbose=False, only_conv_linear=
 
     if verbose:
         num_udscore = 55
-        print('  {}'.format('-'*num_udscore))
+        print('  {}'.format('-' * num_udscore))
         print('  Model complexity with input size {}'.format(input_size))
-        print('  {}'.format('-'*num_udscore))
+        print('  {}'.format('-' * num_udscore))
         for class_name in per_module_params:
             params = int(np.sum(per_module_params[class_name]))
             flops = int(np.sum(per_module_flops[class_name]))
-            print('  {} (params={:,}, flops={:,})'.format(class_name, params, flops))
-        print('  {}'.format('-'*num_udscore))
-        print('  Total (params={:,}, flops={:,})'.format(total_params, total_flops))
-        print('  {}'.format('-'*num_udscore))
+            print(
+                '  {} (params={:,}, flops={:,})'.format(
+                    class_name, params, flops
+                )
+            )
+        print('  {}'.format('-' * num_udscore))
+        print(
+            '  Total (params={:,}, flops={:,})'.format(
+                total_params, total_flops
+            )
+        )
+        print('  {}'.format('-' * num_udscore))
 
     return total_params, total_flops

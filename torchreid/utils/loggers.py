@@ -1,12 +1,11 @@
 from __future__ import absolute_import
-
-__all__ = ['Logger', 'RankLogger']
-
-import sys
 import os
+import sys
 import os.path as osp
 
 from .tools import mkdir_if_missing
+
+__all__ = ['Logger', 'RankLogger']
 
 
 class Logger(object):
@@ -25,7 +24,8 @@ class Logger(object):
        >>> save_dir = 'log/resnet50-softmax-market1501'
        >>> log_name = 'train.log'
        >>> sys.stdout = Logger(osp.join(args.save_dir, log_name))
-    """  
+    """
+
     def __init__(self, fpath=None):
         self.console = sys.stdout
         self.file = None
@@ -104,6 +104,7 @@ class RankLogger(object):
         >>> # - epoch 20   rank1 20.0%
         >>> # - epoch 30   rank1 30.0%
     """
+
     def __init__(self, sources, targets):
         self.sources = sources
         self.targets = targets
@@ -114,7 +115,13 @@ class RankLogger(object):
         if isinstance(self.targets, str):
             self.targets = [self.targets]
 
-        self.logger = {name: {'epoch': [], 'rank1': []} for name in self.targets}
+        self.logger = {
+            name: {
+                'epoch': [],
+                'rank1': []
+            }
+            for name in self.targets
+        }
 
     def write(self, name, epoch, rank1):
         """Writes result.
@@ -133,5 +140,7 @@ class RankLogger(object):
         for name in self.targets:
             from_where = 'source' if name in self.sources else 'target'
             print('{} ({})'.format(name, from_where))
-            for epoch, rank1 in zip(self.logger[name]['epoch'], self.logger[name]['rank1']):
+            for epoch, rank1 in zip(
+                self.logger[name]['epoch'], self.logger[name]['rank1']
+            ):
                 print('- epoch {}\t rank1 {:.1%}'.format(epoch, rank1))

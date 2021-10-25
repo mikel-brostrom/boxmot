@@ -1,14 +1,9 @@
-from __future__ import absolute_import
-from __future__ import division
+from __future__ import division, absolute_import
+import torch
+import torch.utils.model_zoo as model_zoo
+from torch import nn
 
 __all__ = ['resnet50mid']
-
-import torch
-from torch import nn
-from torch.nn import functional as F
-import torchvision
-import torch.utils.model_zoo as model_zoo
-
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
@@ -21,8 +16,14 @@ model_urls = {
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                     padding=1, bias=False)
+    return nn.Conv2d(
+        in_planes,
+        out_planes,
+        kernel_size=3,
+        stride=stride,
+        padding=1,
+        bias=False
+    )
 
 
 class BasicBlock(nn.Module):
@@ -64,10 +65,18 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-                               padding=1, bias=False)
+        self.conv2 = nn.Conv2d(
+            planes,
+            planes,
+            kernel_size=3,
+            stride=stride,
+            padding=1,
+            bias=False
+        )
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(
+            planes, planes * self.expansion, kernel_size=1, bias=False
+        )
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -106,29 +115,41 @@ class ResNetMid(nn.Module):
     Public keys:
         - ``resnet50mid``: ResNet50 + mid-level feature fusion.
     """
-    
-    def __init__(self, num_classes, loss, block, layers,
-                 last_stride=2,
-                 fc_dims=None,
-                 **kwargs):
+
+    def __init__(
+        self,
+        num_classes,
+        loss,
+        block,
+        layers,
+        last_stride=2,
+        fc_dims=None,
+        **kwargs
+    ):
         self.inplanes = 64
         super(ResNetMid, self).__init__()
         self.loss = loss
         self.feature_dim = 512 * block.expansion
-        
+
         # backbone network
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.conv1 = nn.Conv2d(
+            3, 64, kernel_size=7, stride=2, padding=3, bias=False
+        )
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=last_stride)
-        
+        self.layer4 = self._make_layer(
+            block, 512, layers[3], stride=last_stride
+        )
+
         self.global_avgpool = nn.AdaptiveAvgPool2d(1)
         assert fc_dims is not None
-        self.fc_fusion = self._construct_fc_layer(fc_dims, 512 * block.expansion * 2)
+        self.fc_fusion = self._construct_fc_layer(
+            fc_dims, 512 * block.expansion * 2
+        )
         self.feature_dim += 512 * block.expansion
         self.classifier = nn.Linear(self.feature_dim, num_classes)
 
@@ -138,8 +159,13 @@ class ResNetMid(nn.Module):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion,
-                          kernel_size=1, stride=stride, bias=False),
+                nn.Conv2d(
+                    self.inplanes,
+                    planes * block.expansion,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False
+                ),
                 nn.BatchNorm2d(planes * block.expansion),
             )
 
@@ -162,9 +188,13 @@ class ResNetMid(nn.Module):
         if fc_dims is None:
             self.feature_dim = input_dim
             return None
-        
-        assert isinstance(fc_dims, (list, tuple)), 'fc_dims must be either list or tuple, but got {}'.format(type(fc_dims))
-        
+
+        assert isinstance(
+            fc_dims, (list, tuple)
+        ), 'fc_dims must be either list or tuple, but got {}'.format(
+            type(fc_dims)
+        )
+
         layers = []
         for dim in fc_dims:
             layers.append(nn.Linear(input_dim, dim))
@@ -173,15 +203,17 @@ class ResNetMid(nn.Module):
             if dropout_p is not None:
                 layers.append(nn.Dropout(p=dropout_p))
             input_dim = dim
-        
+
         self.feature_dim = fc_dims[-1]
-        
+
         return nn.Sequential(*layers)
 
     def _init_params(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(
+                    m.weight, mode='fan_out', nonlinearity='relu'
+                )
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -222,9 +254,9 @@ class ResNetMid(nn.Module):
 
         if not self.training:
             return v
-        
+
         y = self.classifier(v)
-        
+
         if self.loss == 'softmax':
             return y
         elif self.loss == 'triplet':
@@ -240,7 +272,11 @@ def init_pretrained_weights(model, model_url):
     """
     pretrain_dict = model_zoo.load_url(model_url)
     model_dict = model.state_dict()
-    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
+    pretrain_dict = {
+        k: v
+        for k, v in pretrain_dict.items()
+        if k in model_dict and model_dict[k].size() == v.size()
+    }
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 

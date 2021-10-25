@@ -1,12 +1,9 @@
-from __future__ import absolute_import
-from __future__ import division
-
-__all__ = ['MuDeep']
-
+from __future__ import division, absolute_import
 import torch
 from torch import nn
 from torch.nn import functional as F
-import torchvision
+
+__all__ = ['MuDeep']
 
 
 class ConvBlock(nn.Module):
@@ -21,7 +18,7 @@ class ConvBlock(nn.Module):
         s (int or tuple): stride.
         p (int or tuple): padding.
     """
-    
+
     def __init__(self, in_c, out_c, k, s, p):
         super(ConvBlock, self).__init__()
         self.conv = nn.Conv2d(in_c, out_c, k, stride=s, padding=p)
@@ -33,7 +30,7 @@ class ConvBlock(nn.Module):
 
 class ConvLayers(nn.Module):
     """Preprocessing layers."""
-    
+
     def __init__(self):
         super(ConvLayers, self).__init__()
         self.conv1 = ConvBlock(3, 48, k=3, s=1, p=1)
@@ -49,7 +46,7 @@ class ConvLayers(nn.Module):
 
 class MultiScaleA(nn.Module):
     """Multi-scale stream layer A (Sec.3.1)"""
-    
+
     def __init__(self):
         super(MultiScaleA, self).__init__()
         self.stream1 = nn.Sequential(
@@ -78,7 +75,7 @@ class MultiScaleA(nn.Module):
 
 class Reduction(nn.Module):
     """Reduction layer (Sec.3.1)"""
-    
+
     def __init__(self):
         super(Reduction, self).__init__()
         self.stream1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -99,7 +96,7 @@ class Reduction(nn.Module):
 
 class MultiScaleB(nn.Module):
     """Multi-scale stream layer B (Sec.3.1)"""
-    
+
     def __init__(self):
         super(MultiScaleB, self).__init__()
         self.stream1 = nn.Sequential(
@@ -130,14 +127,14 @@ class MultiScaleB(nn.Module):
 
 class Fusion(nn.Module):
     """Saliency-based learning fusion layer (Sec.3.2)"""
-    
+
     def __init__(self):
         super(Fusion, self).__init__()
         self.a1 = nn.Parameter(torch.rand(1, 256, 1, 1))
         self.a2 = nn.Parameter(torch.rand(1, 256, 1, 1))
         self.a3 = nn.Parameter(torch.rand(1, 256, 1, 1))
         self.a4 = nn.Parameter(torch.rand(1, 256, 1, 1))
-        
+
         # We add an average pooling layer to reduce the spatial dimension
         # of feature maps, which differs from the original paper.
         self.avgpool = nn.AvgPool2d(kernel_size=4, stride=4, padding=0)
@@ -161,7 +158,7 @@ class MuDeep(nn.Module):
     Public keys:
         - ``mudeep``: Multiscale deep neural network.
     """
-    
+
     def __init__(self, num_classes, loss='softmax', **kwargs):
         super(MuDeep, self).__init__()
         self.loss = loss
@@ -171,13 +168,13 @@ class MuDeep(nn.Module):
         self.block3 = Reduction()
         self.block4 = MultiScaleB()
         self.block5 = Fusion()
-        
+
         # Due to this fully connected layer, input image has to be fixed
         # in shape, i.e. (3, 256, 128), such that the last convolutional feature
         # maps are of shape (256, 16, 8). If input shape is changed,
         # the input dimension of this layer has to be changed accordingly.
         self.fc = nn.Sequential(
-            nn.Linear(256*16*8, 4096),
+            nn.Linear(256 * 16 * 8, 4096),
             nn.BatchNorm1d(4096),
             nn.ReLU(),
         )

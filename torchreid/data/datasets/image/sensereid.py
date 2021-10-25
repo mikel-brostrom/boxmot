@@ -1,14 +1,9 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
-
-import sys
-import os
-import os.path as osp
-import glob
+from __future__ import division, print_function, absolute_import
 import copy
+import glob
+import os.path as osp
 
-from torchreid.data.datasets import ImageDataset
+from ..dataset import ImageDataset
 
 
 class SenseReID(ImageDataset):
@@ -35,13 +30,11 @@ class SenseReID(ImageDataset):
         self.download_dataset(self.dataset_dir, self.dataset_url)
 
         self.query_dir = osp.join(self.dataset_dir, 'SenseReID', 'test_probe')
-        self.gallery_dir = osp.join(self.dataset_dir, 'SenseReID', 'test_gallery')
+        self.gallery_dir = osp.join(
+            self.dataset_dir, 'SenseReID', 'test_gallery'
+        )
 
-        required_files = [
-            self.dataset_dir,
-            self.query_dir,
-            self.gallery_dir
-        ]
+        required_files = [self.dataset_dir, self.query_dir, self.gallery_dir]
         self.check_before_run(required_files)
 
         query = self.process_dir(self.query_dir)
@@ -53,8 +46,13 @@ class SenseReID(ImageDataset):
             g_pids.add(pid)
         pid2label = {pid: i for i, pid in enumerate(g_pids)}
 
-        query = [(img_path, pid2label[pid], camid) for img_path, pid, camid in query]
-        gallery = [(img_path, pid2label[pid], camid) for img_path, pid, camid in gallery]
+        query = [
+            (img_path, pid2label[pid], camid) for img_path, pid, camid in query
+        ]
+        gallery = [
+            (img_path, pid2label[pid], camid)
+            for img_path, pid, camid in gallery
+        ]
         train = copy.deepcopy(query) + copy.deepcopy(gallery) # dummy variable
 
         super(SenseReID, self).__init__(train, query, gallery, **kwargs)
@@ -68,5 +66,5 @@ class SenseReID(ImageDataset):
             pid, camid = img_name.split('_')
             pid, camid = int(pid), int(camid)
             data.append((img_path, pid, camid))
-        
+
         return data

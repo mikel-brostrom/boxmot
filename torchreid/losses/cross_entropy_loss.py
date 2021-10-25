@@ -1,6 +1,4 @@
-from __future__ import absolute_import
-from __future__ import division
-
+from __future__ import division, absolute_import
 import torch
 import torch.nn as nn
 
@@ -15,23 +13,23 @@ class CrossEntropyLoss(nn.Module):
     
     .. math::
         \begin{equation}
-        (1 - \epsilon) \times y + \frac{\epsilon}{K},
+        (1 - \eps) \times y + \frac{\eps}{K},
         \end{equation}
 
-    where :math:`K` denotes the number of classes and :math:`\epsilon` is a weight. When
-    :math:`\epsilon = 0`, the loss function reduces to the normal cross entropy.
+    where :math:`K` denotes the number of classes and :math:`\eps` is a weight. When
+    :math:`\eps = 0`, the loss function reduces to the normal cross entropy.
     
     Args:
         num_classes (int): number of classes.
-        epsilon (float, optional): weight. Default is 0.1.
+        eps (float, optional): weight. Default is 0.1.
         use_gpu (bool, optional): whether to use gpu devices. Default is True.
         label_smooth (bool, optional): whether to apply label smoothing. Default is True.
     """
-    
-    def __init__(self, num_classes, epsilon=0.1, use_gpu=True, label_smooth=True):
+
+    def __init__(self, num_classes, eps=0.1, use_gpu=True, label_smooth=True):
         super(CrossEntropyLoss, self).__init__()
         self.num_classes = num_classes
-        self.epsilon = epsilon if label_smooth else 0
+        self.eps = eps if label_smooth else 0
         self.use_gpu = use_gpu
         self.logsoftmax = nn.LogSoftmax(dim=1)
 
@@ -44,7 +42,9 @@ class CrossEntropyLoss(nn.Module):
                 Each position contains the label index.
         """
         log_probs = self.logsoftmax(inputs)
-        targets = torch.zeros(log_probs.size()).scatter_(1, targets.unsqueeze(1).data.cpu(), 1)
-        if self.use_gpu: targets = targets.cuda()
-        targets = (1 - self.epsilon) * targets + self.epsilon / self.num_classes
-        return (- targets * log_probs).mean(0).sum()
+        zeros = torch.zeros(log_probs.size())
+        targets = zeros.scatter_(1, targets.unsqueeze(1).data.cpu(), 1)
+        if self.use_gpu:
+            targets = targets.cuda()
+        targets = (1 - self.eps) * targets + self.eps / self.num_classes
+        return (-targets * log_probs).mean(0).sum()

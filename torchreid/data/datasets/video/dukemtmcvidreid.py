@@ -1,15 +1,11 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
-
-import sys
-import os
-import os.path as osp
+from __future__ import division, print_function, absolute_import
 import glob
+import os.path as osp
 import warnings
 
-from torchreid.data.datasets import VideoDataset
 from torchreid.utils import read_json, write_json
+
+from ..dataset import VideoDataset
 
 
 class DukeMTMCVidReID(VideoDataset):
@@ -37,23 +33,34 @@ class DukeMTMCVidReID(VideoDataset):
 
         self.train_dir = osp.join(self.dataset_dir, 'DukeMTMC-VideoReID/train')
         self.query_dir = osp.join(self.dataset_dir, 'DukeMTMC-VideoReID/query')
-        self.gallery_dir = osp.join(self.dataset_dir, 'DukeMTMC-VideoReID/gallery')
-        self.split_train_json_path = osp.join(self.dataset_dir, 'split_train.json')
-        self.split_query_json_path = osp.join(self.dataset_dir, 'split_query.json')
-        self.split_gallery_json_path = osp.join(self.dataset_dir, 'split_gallery.json')
+        self.gallery_dir = osp.join(
+            self.dataset_dir, 'DukeMTMC-VideoReID/gallery'
+        )
+        self.split_train_json_path = osp.join(
+            self.dataset_dir, 'split_train.json'
+        )
+        self.split_query_json_path = osp.join(
+            self.dataset_dir, 'split_query.json'
+        )
+        self.split_gallery_json_path = osp.join(
+            self.dataset_dir, 'split_gallery.json'
+        )
         self.min_seq_len = min_seq_len
 
         required_files = [
-            self.dataset_dir,
-            self.train_dir,
-            self.query_dir,
-            self.gallery_dir
+            self.dataset_dir, self.train_dir, self.query_dir, self.gallery_dir
         ]
         self.check_before_run(required_files)
 
-        train = self.process_dir(self.train_dir, self.split_train_json_path, relabel=True)
-        query = self.process_dir(self.query_dir, self.split_query_json_path, relabel=False)
-        gallery = self.process_dir(self.gallery_dir, self.split_gallery_json_path, relabel=False)
+        train = self.process_dir(
+            self.train_dir, self.split_train_json_path, relabel=True
+        )
+        query = self.process_dir(
+            self.query_dir, self.split_query_json_path, relabel=False
+        )
+        gallery = self.process_dir(
+            self.gallery_dir, self.split_gallery_json_path, relabel=False
+        )
 
         super(DukeMTMCVidReID, self).__init__(train, query, gallery, **kwargs)
 
@@ -64,13 +71,17 @@ class DukeMTMCVidReID(VideoDataset):
 
         print('=> Generating split json file (** this might take a while **)')
         pdirs = glob.glob(osp.join(dir_path, '*')) # avoid .DS_Store
-        print('Processing "{}" with {} person identities'.format(dir_path, len(pdirs)))
+        print(
+            'Processing "{}" with {} person identities'.format(
+                dir_path, len(pdirs)
+            )
+        )
 
         pid_container = set()
         for pdir in pdirs:
             pid = int(osp.basename(pdir))
             pid_container.add(pid)
-        pid2label = {pid:label for label, pid in enumerate(pid_container)}
+        pid2label = {pid: label for label, pid in enumerate(pid_container)}
 
         tracklets = []
         for pdir in pdirs:
@@ -88,10 +99,16 @@ class DukeMTMCVidReID(VideoDataset):
                 img_paths = []
                 for img_idx in range(num_imgs):
                     # some tracklet starts from 0002 instead of 0001
-                    img_idx_name = 'F' + str(img_idx+1).zfill(4)
-                    res = glob.glob(osp.join(tdir, '*' + img_idx_name + '*.jpg'))
+                    img_idx_name = 'F' + str(img_idx + 1).zfill(4)
+                    res = glob.glob(
+                        osp.join(tdir, '*' + img_idx_name + '*.jpg')
+                    )
                     if len(res) == 0:
-                        warnings.warn('Index name {} in {} is missing, skip'.format(img_idx_name, tdir))
+                        warnings.warn(
+                            'Index name {} in {} is missing, skip'.format(
+                                img_idx_name, tdir
+                            )
+                        )
                         continue
                     img_paths.append(res[0])
                 img_name = osp.basename(img_paths[0])

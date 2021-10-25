@@ -1,15 +1,11 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
-
-import sys
-import os
-import os.path as osp
+from __future__ import division, print_function, absolute_import
 import glob
 import numpy as np
+import os.path as osp
 
-from torchreid.data.datasets import ImageDataset
 from torchreid.utils import read_json, write_json
+
+from ..dataset import ImageDataset
 
 
 class VIPeR(ImageDataset):
@@ -36,19 +32,20 @@ class VIPeR(ImageDataset):
         self.cam_a_dir = osp.join(self.dataset_dir, 'VIPeR', 'cam_a')
         self.cam_b_dir = osp.join(self.dataset_dir, 'VIPeR', 'cam_b')
         self.split_path = osp.join(self.dataset_dir, 'splits.json')
-        
-        required_files = [
-            self.dataset_dir,
-            self.cam_a_dir,
-            self.cam_b_dir
-        ]
+
+        required_files = [self.dataset_dir, self.cam_a_dir, self.cam_b_dir]
         self.check_before_run(required_files)
-        
+
         self.prepare_split()
         splits = read_json(self.split_path)
         if split_id >= len(splits):
-            raise ValueError('split_id exceeds range, received {}, '
-                             'but expected between 0 and {}'.format(split_id, len(splits)-1))
+            raise ValueError(
+                'split_id exceeds range, received {}, '
+                'but expected between 0 and {}'.format(
+                    split_id,
+                    len(splits) - 1
+                )
+            )
         split = splits[split_id]
 
         train = split['train']
@@ -71,7 +68,6 @@ class VIPeR(ImageDataset):
             num_pids = len(cam_a_imgs)
             print('Number of identities: {}'.format(num_pids))
             num_train_pids = num_pids // 2
-
             """
             In total, there will be 20 splits because each random split creates two
             sub-splits, one using cameraA as query and cameraB as gallery
@@ -87,7 +83,8 @@ class VIPeR(ImageDataset):
                 np.random.shuffle(order)
                 train_idxs = order[:num_train_pids]
                 test_idxs = order[num_train_pids:]
-                assert not bool(set(train_idxs) & set(test_idxs)), 'Error: train and test overlap'
+                assert not bool(set(train_idxs) & set(test_idxs)), \
+                    'Error: train and test overlap'
 
                 train = []
                 for pid, idx in enumerate(train_idxs):

@@ -1,14 +1,10 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
-
-import sys
-import os
-import os.path as osp
+from __future__ import division, print_function, absolute_import
 import glob
+import os.path as osp
 
-from torchreid.data.datasets import VideoDataset
-from torchreid.utils import read_json, write_json
+from torchreid.utils import read_json
+
+from ..dataset import VideoDataset
 
 
 class PRID2011(VideoDataset):
@@ -34,19 +30,23 @@ class PRID2011(VideoDataset):
         self.download_dataset(self.dataset_dir, self.dataset_url)
 
         self.split_path = osp.join(self.dataset_dir, 'splits_prid2011.json')
-        self.cam_a_dir = osp.join(self.dataset_dir, 'prid_2011', 'multi_shot', 'cam_a')
-        self.cam_b_dir = osp.join(self.dataset_dir, 'prid_2011', 'multi_shot', 'cam_b')
+        self.cam_a_dir = osp.join(
+            self.dataset_dir, 'prid_2011', 'multi_shot', 'cam_a'
+        )
+        self.cam_b_dir = osp.join(
+            self.dataset_dir, 'prid_2011', 'multi_shot', 'cam_b'
+        )
 
-        required_files = [
-            self.dataset_dir,
-            self.cam_a_dir,
-            self.cam_b_dir
-        ]
+        required_files = [self.dataset_dir, self.cam_a_dir, self.cam_b_dir]
         self.check_before_run(required_files)
 
         splits = read_json(self.split_path)
-        if split_id >=  len(splits):
-            raise ValueError('split_id exceeds range, received {}, but expected between 0 and {}'.format(split_id, len(splits)-1))
+        if split_id >= len(splits):
+            raise ValueError(
+                'split_id exceeds range, received {}, but expected between 0 and {}'
+                .format(split_id,
+                        len(splits) - 1)
+            )
         split = splits[split_id]
         train_dirs, test_dirs = split['train'], split['test']
 
@@ -58,8 +58,8 @@ class PRID2011(VideoDataset):
 
     def process_dir(self, dirnames, cam1=True, cam2=True):
         tracklets = []
-        dirname2pid = {dirname:i for i, dirname in enumerate(dirnames)}
-        
+        dirname2pid = {dirname: i for i, dirname in enumerate(dirnames)}
+
         for dirname in dirnames:
             if cam1:
                 person_dir = osp.join(self.cam_a_dir, dirname)
