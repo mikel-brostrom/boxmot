@@ -234,8 +234,9 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
             drawimage.append(im0)
             frame_cnt += 1
         coor_get.put(coor_get_list)
-        video_get.put(drawimage)
-        video_get.put(track_cnt)
+        if args.save_vid:
+            video_get.put(drawimage)
+            video_get.put(track_cnt)
         return_dict.put(images_by_id)
         ids_per_frame_list.put(ids_per_frame)
         print(string + ' Tracking Done')
