@@ -6,13 +6,33 @@ import time
 import queue as Queue
 import os
 import cv2
+from threading import Thread
+import GPUtil
+
+
+class Monitor(Thread):
+    def __init__(self, delay):
+        super(Monitor, self).__init__()
+        self.stopped = False
+        self.delay = delay  # Time between calls to GPUtil
+        self.start()
+
+    def run(self):
+        while not self.stopped:
+            GPUtil.showUtilization()
+            time.sleep(self.delay)
+
+    def stop(self):
+        self.stopped = True
 
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
 def store(video_get1, video_get2, size, coor_get1, coor_get2,
           M1, M2, coor1, coor2, count, num_video, final_fuse_id,
-          reid_dict, background, save_vid, heatmapcount, example_points):
+          reid_dict, background, save_vid, save_txt, heatmapcount, example_points, heat_name):
+    #monitor = Monitor(5)
+    #print('heatmap start')
     out = './output/video/'
     heatout ='./output/heatmap'
     cortxt = './output/cortxt/'
@@ -24,7 +44,10 @@ def store(video_get1, video_get2, size, coor_get1, coor_get2,
     example_img_path = background
     example_img = Image.open(example_img_path)
     #example_points = []  # 히트맵 중심 좌표 설정
-    corfile = open(cortxt + 'corfile.txt', 'a')
+    if count == 0:
+        corfile = open(cortxt + 'corfile.txt', 'w')
+    else:
+        corfile = open(cortxt + 'corfile.txt', 'a')
     corfile.write('{0}번쨰 인원 수 : {1}\n'.format(count,len(final_fuse_id)))
     # 히트맵 그리기
     heatmapper = Heatmapper(
@@ -57,7 +80,6 @@ def store(video_get1, video_get2, size, coor_get1, coor_get2,
                 track_cnt1[key + size] = track_cnt2[key]
 
             output = out + str(count) + '.avi'
-            print(output)
             fourcc = cv2.VideoWriter_fourcc(*'XVID')
             shape = drawimage[0].shape[:2]
             size_output = (shape[1], shape[0])
@@ -162,14 +184,16 @@ def store(video_get1, video_get2, size, coor_get1, coor_get2,
         name = str(i) + "_heat.jpg"
         #if i % 20 == 0:
             #cv2.imwrite(os.path.join(save_path, name), background_image)
-    for a in range(len(pointcheck)):
-        corfile.write('coordinate : {0}\n'.format(pointcheck[a]))
+    if save_txt:
+        for a in range(len(pointcheck)):
+            corfile.write('coordinate : {0}\n'.format(pointcheck[a]))
     if heatmapcount == 0:
         heatmap = heatmapper.heatmap_on_img(example_points, example_img)
-        saveheat = './output/heatmap/' + str(count) + 'heatmap.png'
+        saveheat = './output/heatmap/' + str(heat_name) + 'heatmap.png'
         heatmap.save(saveheat)
     corfile.close()
     print("Finish")
+    #monitor.stop()
 
 def get_FrameLabels(frame):
     text_scale = max(1, frame.shape[1] / 1600.)

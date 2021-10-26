@@ -5,53 +5,76 @@ import numpy as np
 import Heatmap as ht
 import copy
 import operator
+from threading import Thread
+import GPUtil
+
+class Monitor(Thread):
+    def __init__(self, delay):
+        super(Monitor, self).__init__()
+        self.stopped = False
+        self.delay = delay  # Time between calls to GPUtil
+        self.start()
+
+    def run(self):
+        while not self.stopped:
+            GPUtil.showUtilization()
+            time.sleep(self.delay)
+
+    def stop(self):
+        self.stopped = True
 
 def re_identification(args, return_dict1, return_dict2, ids_per_frame1_list, ids_per_frame2_list, video_get1, video_get2, coor_get1, coor_get2):
     reid = REID(args)
+
     num_video = args.num_video
+    thres = int(args.heatmapsec / args.second)
     if args.matrix == 'None':
-        M2 = np.load("calliberation/coor2.npy")
+        M2 = np.load("calliberation/coor_en_640.npy")
         M2 = np.array(M2, np.float32)
-        f2 = open('calliberation/coor2.txt', 'r')
+        f2 = open('calliberation/coor_en_640.txt', 'r')
         line2 = f2.readline()
         coor2 = line2.split(' ')
         f2.close()
-        M1 = np.load("calliberation/coor1.npy")
+        M1 = np.load("calliberation/coor_ele_640.npy")
         M1 = np.array(M1, np.float32)
-        f1 = open('calliberation/coor1.txt', 'r')
+        f1 = open('calliberation/coor_ele_640.txt', 'r')
         line1 = f1.readline()
         coor1 = line1.split(' ')
         f1.close()
     else:
         x = args.matrix.split(' ')
         print(x)
-        M1 = np.load("calliberation/"+x[0] + ".npy")
+        M1 = np.load("calliberation/"+x[0] + '_' + args.resolution + ".npy")
         M1 = np.array(M1, np.float32)
-        f1 = open("calliberation/"+x[0] + ".txt", 'r')
+        f1 = open("calliberation/"+x[0] + '_' + args.resolution + ".txt", 'r')
         line1 = f1.readline()
         coor1 = line1.split(' ')
         f1.close()
-        if len(x) == 2:
-            M2 = np.load("calliberation/" + x[1] + ".npy")
+        if len(x) == 2 and num_video == 2:
+            M2 = np.load("calliberation/" + x[1] + '_' + args.resolution + ".npy")
             M2 = np.array(M2, np.float32)
-            f2 = open("calliberation/" + x[1] + ".txt", 'r')
+            f2 = open("calliberation/" + x[1] + '_' + args.resolution + ".txt", 'r')
             line2 = f2.readline()
             coor2 = line2.split(' ')
             f2.close()
         else:
-            M2 = np.load("calliberation/coor2.npy")
+            M2 = np.load("calliberation/coor_en_640.npy")
             M2 = np.array(M2, np.float32)
-            f2 = open('calliberation/coor2.txt', 'r')
+            f2 = open('calliberation/coor_en_640.txt', 'r')
             line2 = f2.readline()
             coor2 = line2.split(' ')
             f2.close()
 
     count = 0
+    heatmapcount = 0
+    example_points = []
+    heat_name = 0
     while True:
         if args.realtime == 1 or num_video == 2:
             while (return_dict1.empty()) or (return_dict2.empty()) or (ids_per_frame1_list.empty())\
                     or ids_per_frame2_list.empty() or coor_get1.empty() or coor_get2.empty():
                     time.sleep(1)
+
             start_time = time.time()
             return_list = return_dict1.get()
             return_list2 = return_dict2.get()
@@ -66,6 +89,8 @@ def re_identification(args, return_dict1, return_dict2, ids_per_frame1_list, ids
             images_by_id = dict()
             feats = dict()
             size = len(return_list)
+            print('reid start')
+            monitor = Monitor(3)
             for key, value in return_list2.items():
                 return_list[key + size] = return_list2[key]
             images_by_id = copy.deepcopy(return_list)
@@ -103,10 +128,11 @@ def re_identification(args, return_dict1, return_dict2, ids_per_frame1_list, ids
                                 for key, item in final_fuse_id.items():
                                     if i in item:
                                         unpickable += final_fuse_id[key]
-                            print('exist_ids {} unpickable {}'.format(exist_ids, unpickable))
+                            #print('exist_ids {} unpickable {}'.format(exist_ids, unpickable))
                             for oid in (exist_ids - set(unpickable)) & set(final_fuse_id.keys()):
                                 tmp = np.mean(reid.compute_distance(feats[nid], feats[oid]))
-                                print('nid {}, oid {}, tmp {}'.format(nid, oid, tmp))
+
+                                #print('nid {}, oid {}, tmp {}'.format(nid, oid, tmp))
                                 dis.append([oid, tmp])
                             exist_ids.add(nid)
                             if not dis:
@@ -115,24 +141,47 @@ def re_identification(args, return_dict1, return_dict2, ids_per_frame1_list, ids
                             dis.sort(key=operator.itemgetter(1))
                             if dis[0][1] < threshold:
                                 combined_id = dis[0][0]
+                                print(dis[0][1])
+                                #print('oid {} , nid {} , tmp {}'.format(combined_id, nid, dis[0][1]))
                                 images_by_id[combined_id] += images_by_id[nid]
                                 final_fuse_id[combined_id].append(nid)
                                 reid_dict[nid] = combined_id
                             else:
                                 final_fuse_id[nid] = [nid]
+                                print(dis[0][1])
 
-            print('people : ', len(final_fuse_id))
+            print('people : {}. ID : {}'.format(len(final_fuse_id), final_fuse_id))
+            heatmapcount += 1
+            heatmapcount = heatmapcount % thres
+            if count+1 == args.limit and args.realtime != 1:
+                heatmapcount = 0
 
             ht.store(video_get1, video_get2, size, coor_get1, coor_get2, M1, M2, coor1, coor2,
-                     count, 2, final_fuse_id, reid_dict, args.background, args.save_vid)
+                     count, 2, final_fuse_id, reid_dict, args.background, args.save_vid,
+                     args.save_txt, heatmapcount, example_points, heat_name)
+            if heatmapcount == 0:
+                example_points = []
+                heat_name += 1
+
         else:
             final_fuse_id = dict()
             reid_dict = dict()
+            heatmapcount += 1
+            heatmapcount = heatmapcount % thres
+            if count + 1 == args.limit and args.realtime != 1:
+                heatmapcount = 0
+
             ht.store(video_get1, video_get2, 0, coor_get1, coor_get2, M1, M2, coor1, coor2,
-                     count, 1, final_fuse_id, reid_dict, args.background, args.save_vid)
+                     count, 1, final_fuse_id, reid_dict, args.background, args.save_vid,
+                     args.save_txt, heatmapcount, example_points, heat_name)
+
+            if heatmapcount == 0:
+                example_points = []
+                heat_name += 1
         #print(reid_dict)
 
         count += 1
+        monitor.stop()
         if args.realtime != 1 and count == args.limit:
             break
         elif args.limit != 0 and count == args.limit:

@@ -35,7 +35,7 @@ class REID:
             )
             self.dist_metric = 'euclidean'
             self.model.eval()
-
+            torchreid.utils.load_pretrained_weights(self.model, 'model_data/models/osnetx1.0.pth.tar-150')
         elif args.model == 'plr_osnet':
             self.model = torchreid.models.build_model(
                 name=args.model,
@@ -63,7 +63,9 @@ class REID:
             )
             self.dist_metric = 'euclidean'
             self.model.eval()
-        elif args.model == 'resnet50_fc512':
+            torchreid.utils.load_pretrained_weights(self.model, 'model_data/models/market1501+cuhksysu.pth.tar-140')
+
+        elif args.model == 'resnet50':
             self.model = torchreid.models.build_model(
                 name=args.model,
                 num_classes=1,  # human
@@ -90,8 +92,8 @@ class REID:
             )
             self.dist_metric = 'euclidean'
             self.model.eval()
+            torchreid.utils.load_pretrained_weights(self.model, 'model_data/models/lup_moco_r50.pth')
 
-        torchreid.utils.load_pretrained_weights(self.model, args.modelpth)
         print(args.model)
 
 

@@ -48,8 +48,7 @@ if __name__ == '__main__':
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
     parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
     parser.add_argument('--save-txt', action='store_true', help='save MOT compliant results to *.txt')
-    parser.add_argument('--model', type=str, default='osnet_x1_0', help='select reid model')
-    parser.add_argument('--modelpth', type=str, default='model_data/models/model.pth.tar-80', help='select reid model.pth')
+    parser.add_argument('--modelpth', type=str, default='model_data/models/model.pth.tar-80', help='select reid model')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', default='0', type=int,
                         help='filter by class: --class 0, or --class 16 17')
@@ -60,7 +59,7 @@ if __name__ == '__main__':
     parser.add_argument("--realtime", type=int, default=0)
     parser.add_argument("--matrix", type=str, default='None')
     parser.add_argument("--num_video", type=int, default=2)
-    parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--limit", type=int, default=2)
     parser.add_argument("--background", type=str, default='calliberation/rest_plan.jpg')
     parser.add_argument("--heatmap", type=str, default=1)
     parser.add_argument("--frame", type=int, default=1)
@@ -68,6 +67,9 @@ if __name__ == '__main__':
     parser.add_argument("--threshold", type=int, default=320)
     parser.add_argument("--video", type=str, default='None')
     parser.add_argument("--heatmapsec", type=int, default=60)
+    parser.add_argument("--model", type=str, default='plr_osnet')
+    parser.add_argument("--fps", type=int, default=15)
+    parser.add_argument("--resolution", type=str, default='640')
 
     args = parser.parse_args()
     args.img_size = check_img_size(args.img_size)
@@ -94,6 +96,8 @@ if __name__ == '__main__':
 
     with torch.no_grad():
         # mp.set_start_method('spawn')
+        video1 = videos[0];
+        video2 = videos[1];
         if args.realtime == 0 and args.video != 'None':
             x = args.video.split(',')
             video1 = videos[int(x[0])]
@@ -109,10 +113,10 @@ if __name__ == '__main__':
             p0 = Process(target=pstart, args=(frame_get1, frame_get2, args.limit))
             p0.start()
         else:
-            p1 = Process(target=fg.get_frame_video, args=(video1, frame_get1, args.frame, args.second))
+            p1 = Process(target=fg.get_frame_video, args=(video1, frame_get1, args.frame, args.second, args.fps, args.resolution, args.limit))
             p1.start()
             if args.num_video == 2:
-                p2 = Process(target=fg.get_frame_video, args=(video2, frame_get2, args.frame, args.second))
+                p2 = Process(target=fg.get_frame_video, args=(video2, frame_get2, args.frame, args.second, args.fps, args.resolution, args.limit))
                 p2.start()
                 p2.join()
             p1.join()
@@ -121,7 +125,8 @@ if __name__ == '__main__':
                 size2 = frame_get2.qsize()
                 if args.limit > size2:
                     args.limit = size2
-
+        print(frame_get1.qsize())
+        print(frame_get2.qsize())
         ids_per_frame1 = Manager().Queue()
         ids_per_frame2 = Manager().Queue()
         return_dict1 = Manager().Queue()
@@ -146,4 +151,3 @@ if __name__ == '__main__':
         p7.start()
 
         p7.join()
-

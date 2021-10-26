@@ -7,4 +7,6 @@ sample_video/
 deep_sort_pytorch/deep_sort/deep/checkpoint/*
 *.pyc
 __pycache__/
+*.mp4
+output/
 
