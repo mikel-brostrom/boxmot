@@ -5,6 +5,10 @@ import queue as Queue
 from multiprocessing import Process, Manager
 import argparse
 import os
+from yolov5.utils.general import check_img_size
+import subprocess
+import warnings
+import torch
 
 def pstart(frame_get, frame_get2, count):
     if count != 0:
