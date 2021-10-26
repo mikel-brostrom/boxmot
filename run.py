@@ -57,7 +57,7 @@ if __name__ == '__main__':
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--evaluate', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
-    parser.add_argument("--realtime", type=int, default=1)
+    parser.add_argument("--realtime", type=int, default=0)
     parser.add_argument("--matrix", type=str, default='None')
     parser.add_argument("--num_video", type=int, default=2)
     parser.add_argument("--limit", type=int, default=0)
