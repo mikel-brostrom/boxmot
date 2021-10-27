@@ -1,3 +1,5 @@
+import sys
+sys.path.insert(0, './yolov5')
 import torch.backends.cudnn as cudnn
 import torch
 import cv2
@@ -15,8 +17,7 @@ from yolov5.utils.general import check_img_size, non_max_suppression, scale_coor
 from yolov5.utils.datasets import LoadImages, LoadStreams
 from yolov5.utils.downloads import attempt_download
 from yolov5.models.experimental import attempt_load
-import sys
-sys.path.insert(0, './yolov5')
+
 
 
 # Return true if line segments AB and CD intersect ###########################
