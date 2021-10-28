@@ -70,6 +70,7 @@ if __name__ == '__main__':
     parser.add_argument("--model", type=str, default='plr_osnet')
     parser.add_argument("--fps", type=int, default=15)
     parser.add_argument("--resolution", type=str, default='640')
+    parser.add_argument("--reid", type=str, default="on")
 
     args = parser.parse_args()
     args.img_size = check_img_size(args.img_size)

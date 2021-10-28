@@ -24,7 +24,8 @@ class Monitor(Thread):
         self.stopped = True
 
 def re_identification(args, return_dict1, return_dict2, ids_per_frame1_list, ids_per_frame2_list, video_get1, video_get2, coor_get1, coor_get2):
-    reid = REID(args)
+    if(args.reid=="on"):
+        reid = REID(args)
 
     num_video = args.num_video
     thres = int(args.heatmapsec / args.second)
@@ -107,48 +108,54 @@ def re_identification(args, return_dict1, return_dict2, ids_per_frame1_list, ids
             for k in ids_per_frame22:
                 ids_per_frame.append(k)
 
-            for i in images_by_id:
-                feats[i] = reid._features(images_by_id[i][:min(len(images_by_id[i]), 60)])
             reid_dict = dict()
-            for f in ids_per_frame:
-                if f:
-                    if len(exist_ids) == 0:
+            if(args.reid=="on"):
+                for i in images_by_id:
+                    feats[i] = reid._features(images_by_id[i][:min(len(images_by_id[i]), 60)])
+                for f in ids_per_frame:
+                    if f:
+                        if len(exist_ids) == 0:
+                            for i in f:
+                                final_fuse_id[i] = [i]
+                            exist_ids = exist_ids or f
+                        else:
+                            new_ids = f - exist_ids
+                            for nid in new_ids:
+                                dis = []
+                                if len(images_by_id[nid]) < 10:
+                                    exist_ids.add(nid)
+                                    continue
+                                unpickable = []
+                                for i in f:
+                                    for key, item in final_fuse_id.items():
+                                        if i in item:
+                                            unpickable += final_fuse_id[key]
+                                #print('exist_ids {} unpickable {}'.format(exist_ids, unpickable))
+                                for oid in (exist_ids - set(unpickable)) & set(final_fuse_id.keys()):
+                                    tmp = np.mean(reid.compute_distance(feats[nid], feats[oid]))
+
+                                    #print('nid {}, oid {}, tmp {}'.format(nid, oid, tmp))
+                                    dis.append([oid, tmp])
+                                exist_ids.add(nid)
+                                if not dis:
+                                    final_fuse_id[nid] = [nid]
+                                    continue
+                                dis.sort(key=operator.itemgetter(1))
+                                if dis[0][1] < threshold:
+                                    combined_id = dis[0][0]
+                                    print(dis[0][1])
+                                    #print('oid {} , nid {} , tmp {}'.format(combined_id, nid, dis[0][1]))
+                                    images_by_id[combined_id] += images_by_id[nid]
+                                    final_fuse_id[combined_id].append(nid)
+                                    reid_dict[nid] = combined_id
+                                else:
+                                    final_fuse_id[nid] = [nid]
+                                    print(dis[0][1])
+            else:
+                for f in ids_per_frame:
+                    if f:
                         for i in f:
                             final_fuse_id[i] = [i]
-                        exist_ids = exist_ids or f
-                    else:
-                        new_ids = f - exist_ids
-                        for nid in new_ids:
-                            dis = []
-                            if len(images_by_id[nid]) < 10:
-                                exist_ids.add(nid)
-                                continue
-                            unpickable = []
-                            for i in f:
-                                for key, item in final_fuse_id.items():
-                                    if i in item:
-                                        unpickable += final_fuse_id[key]
-                            #print('exist_ids {} unpickable {}'.format(exist_ids, unpickable))
-                            for oid in (exist_ids - set(unpickable)) & set(final_fuse_id.keys()):
-                                tmp = np.mean(reid.compute_distance(feats[nid], feats[oid]))
-
-                                #print('nid {}, oid {}, tmp {}'.format(nid, oid, tmp))
-                                dis.append([oid, tmp])
-                            exist_ids.add(nid)
-                            if not dis:
-                                final_fuse_id[nid] = [nid]
-                                continue
-                            dis.sort(key=operator.itemgetter(1))
-                            if dis[0][1] < threshold:
-                                combined_id = dis[0][0]
-                                print(dis[0][1])
-                                #print('oid {} , nid {} , tmp {}'.format(combined_id, nid, dis[0][1]))
-                                images_by_id[combined_id] += images_by_id[nid]
-                                final_fuse_id[combined_id].append(nid)
-                                reid_dict[nid] = combined_id
-                            else:
-                                final_fuse_id[nid] = [nid]
-                                print(dis[0][1])
 
             print('people : {}. ID : {}'.format(len(final_fuse_id), final_fuse_id))
             heatmapcount += 1
