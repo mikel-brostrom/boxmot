@@ -1,30 +1,34 @@
+import torch.backends.cudnn as cudnn
+import torch
+import cv2
+from pathlib import Path
+import time
+import shutil
+import platform
+import os
+import argparse
+from deep_sort_pytorch.deep_sort import DeepSort
+from deep_sort_pytorch.utils.parser import get_config
+from yolov5.utils.plots import Annotator, colors
+from yolov5.utils.torch_utils import select_device, time_sync
+from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, check_imshow, xyxy2xywh
+from yolov5.utils.datasets import LoadImages, LoadStreams
+from yolov5.utils.downloads import attempt_download
+from yolov5.models.experimental import attempt_load
 import sys
 sys.path.insert(0, './yolov5')
 
-from yolov5.models.experimental import attempt_load
-from yolov5.utils.downloads import attempt_download
-from yolov5.utils.datasets import LoadImages, LoadStreams
-from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, check_imshow, xyxy2xywh
-from yolov5.utils.torch_utils import select_device, time_sync
-from yolov5.utils.plots import Annotator, colors
-from deep_sort_pytorch.utils.parser import get_config
-from deep_sort_pytorch.deep_sort import DeepSort
-import argparse
-import os
-import platform
-import shutil
-import time
-from pathlib import Path
-import cv2
-import torch
-import torch.backends.cudnn as cudnn
 
 # Return true if line segments AB and CD intersect ###########################
+
 def intersect(A, B, C, D):
     return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
+
+
 def ccw(A, B, C):
     return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
 ##############################################################################
+
 
 def detect(opt):
     out, source, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz, evaluate = \
@@ -56,7 +60,6 @@ def detect(opt):
         os.makedirs(out)  # make new output folder
 
     half = device.type != 'cpu'  # half precision only supported on CUDA
-
 
     # Load model
     model = attempt_load(yolo_weights, map_location=device)  # load FP32 model
@@ -94,9 +97,11 @@ def detect(opt):
     # extract what is in between the last '/' and last '.'
     txt_file_name = source.split('/')[-1].split('.')[0]
     txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
-    
+
     # initialize line, counter, memory #######################################
     line = [(0, 200), (1000, 200)]
+    upper_line = [(0, 100), (1000, 100)]
+    lower_line = [(0, 300), (1000, 300)]
     people_counter_in = 0
     people_counter_out = 0
     total_counter = 0
@@ -121,7 +126,7 @@ def detect(opt):
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
-            
+
             if webcam:  # batch_size >= 1
                 p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
             else:
@@ -132,7 +137,9 @@ def detect(opt):
             annotator = Annotator(im0, line_width=2, pil=not ascii)
 
             # draw line ############################################################
-            cv2.line(im0,line[0],line[1],(0,0,255),2)
+            cv2.line(im0, line[0], line[1], (0, 0, 255), 2)
+            cv2.line(im0, line[0], line[1], (255, 0, 0), 2)
+            cv2.line(im0, line[0], line[1], (255, 0, 0), 2)
             ########################################################################
 
             if det is not None and len(det):
@@ -176,15 +183,17 @@ def detect(opt):
                             bboxes, label, color=colors(c, True))
 
                     # count in, out ###############################################
-                    dic = {0:'person', 1:'head'}
+                    dic = {0: 'person', 1: 'head'}
                     names_ls.append(dic[0])
                     names_ls.append(dic[1])
-                    
+
                     for output in outputs:
-                        boxes.append([output[0],output[1],output[2],output[3]])
-                        index_id.append('{}-{}'.format(names_ls[-1],output[-2]))
-                        memory[index_id[-1]] = boxes[-1]                        
-                    
+                        boxes.append(
+                            [output[0], output[1], output[2], output[3]])
+                        index_id.append(
+                            '{}-{}'.format(names_ls[-1], output[-2]))
+                        memory[index_id[-1]] = boxes[-1]
+
                     i = int(0)
                     for box in boxes:
                         # extract the bounding box coordinates
@@ -194,22 +203,29 @@ def detect(opt):
                         if index_id[i] in previous:
                             previous_box = previous[index_id[i]]
                             # extract the previous bounding box coordinates
-                            (x2, y2) = (int(previous_box[0]), int(previous_box[1]))
-                            (w2, h2) = (int(previous_box[2]), int(previous_box[3]))
+                            (x2, y2) = (
+                                int(previous_box[0]), int(previous_box[1]))
+                            (w2, h2) = (
+                                int(previous_box[2]), int(previous_box[3]))
                             # get the middle coordinate of the box
                             p0 = (int(x + (w-x)/2), int(y + (h-y)/2))
                             p1 = (int(x2 + (w2-x2)/2), int(y2 + (h2-y2)/2))
 
                             # track line
-                            cv2.line(im0,p0,p1,(255,0,255),1)
+                            cv2.line(im0, p0, p1, (255, 0, 255), 1)
 
-                            # count if p0-p1 and line are intersect
+                            if((p0[1] > 200 and p0[1] < 300) and (p1[1] > 100 and p1[1] < 200)):
+                                people_counter_in += 1
+                            elif((p1[1] > 200 and p1[1] < 300) and (p0[1] > 100 and p0[1] < 200)):
+                                people_counter_out += 1
+
+                            """ # count if p0-p1 and line are intersect
                             if intersect(p0, p1, line[0], line[1]):
                                 # if p0's y coordinate is higher than p1's y coordinate
                                 if p0[1] > p1[1]:
                                     people_counter_in += 1
                                 else:
-                                    people_counter_out +=1
+                                    people_counter_out +=1 """
                         i += 1
                     #################################################################
 
@@ -228,9 +244,12 @@ def detect(opt):
 
             # print in, out, total ###################################################
             total_counter = people_counter_in - people_counter_out
-            cv2.putText(im0, 'In : {}'.format(people_counter_in),(40,50),cv2.FONT_HERSHEY_COMPLEX,1.0,(0,0,255),2)
-            cv2.putText(im0, 'Out : {}'.format(people_counter_out), (40,80),cv2.FONT_HERSHEY_COMPLEX,1.0,(0,0,255),2)
-            cv2.putText(im0, 'Total : {}'.format(total_counter), (40,110),cv2.FONT_HERSHEY_COMPLEX,1.0,(0,0,255),2)
+            cv2.putText(im0, 'In : {}'.format(people_counter_in),
+                        (40, 50), cv2.FONT_HERSHEY_COMPLEX, 1.0, (0, 0, 255), 2)
+            cv2.putText(im0, 'Out : {}'.format(people_counter_out),
+                        (40, 80), cv2.FONT_HERSHEY_COMPLEX, 1.0, (0, 0, 255), 2)
+            cv2.putText(im0, 'Total : {}'.format(total_counter),
+                        (40, 110), cv2.FONT_HERSHEY_COMPLEX, 1.0, (0, 0, 255), 2)
             ##########################################################################
 
             # Print time (inference + NMS)
