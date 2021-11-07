@@ -104,6 +104,7 @@ def get_frame_video(source, return_list, skip_frame, second, fps, resol, end_lim
                     #video_frame.append(frame)
                     video_frame.append(cv2.resize(frame, (width, height)))
                 index += 1
+            #print(video_frame[0].shape[:2])
             return_list.put(video_frame)
             if release or return_list.qsize() == end_limit:
                 break

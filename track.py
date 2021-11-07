@@ -207,7 +207,7 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
                         identities = outputs[:, -1]
                         tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
                         for j, (output, conf) in enumerate(zip(outputs, confs)):
-                            coor_dict[output[4]] = [output[2], (output[1] + output[3]) / 2]
+                            coor_dict[output[4]] = [(output[0] + output[2])/2, (output[1] + output[3]) / 2]
                     # print(len(coor_dict))
 
 
@@ -215,7 +215,7 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
                     deepsort.increment_ages()
                 coor_get_list.append(coor_dict)
                 # Print time (inference + NMS)
-                print('{}, {}/{} {}Done. ({}s)'.format(string, frame_cnt, len(dataset), s, t2 - t1))
+                #print('{}, {}/{} {}Done. ({}s)'.format(string, frame_cnt, len(dataset), s, t2 - t1))
 
             drawimage.append(im0)
             frame_cnt += 1
