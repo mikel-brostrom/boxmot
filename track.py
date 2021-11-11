@@ -126,9 +126,10 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
     count = 0
     while True:
-        print(string + 'start')
+
         while (dataset_list.empty()):
             time.sleep(1)
+        print(string + 'start')
         start_time = time.time()
         dataset = dataset_list.get()
         coor_get_list = list()

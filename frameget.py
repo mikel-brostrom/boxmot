@@ -26,7 +26,7 @@ class LoadVideo:  # for inference
 
 
 def get_frame(i, frame):
-    project_id = 'atsm-202107'
+    project_id = 'rapid-rite-331803'
     bucket_id = 'sanhak_2021'
     dataset_id = 'sanhak_2021'
     table_id = 'video_sec-10_frame-4'
@@ -40,6 +40,12 @@ def get_frame(i, frame):
                                                                                                         table_id, i))
     query_job = db_client.query(select_query)
     results = query_job.result()
+    while results.total_rows == 0:
+        #print("Sleep")
+        time.sleep(1)
+        query_job = db_client.query(select_query)
+        results = query_job.result()
+
     for row in results:
         path = row.path
         dt = row.date_time

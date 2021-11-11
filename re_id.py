@@ -163,7 +163,7 @@ def re_identification(args, return_dict1, return_dict2, ids_per_frame1_list, ids
             print('people : {}. ID : {}'.format(len(final_fuse_id), final_fuse_id))
             heatmapcount += 1
             heatmapcount = heatmapcount % thres
-            if count+1 == args.limit and args.realtime != 1:
+            if count+1 == args.limit:
                 heatmapcount = 0
 
             ht.store(video_get1, video_get2, size, coor_get1, coor_get2, M1, M2, coor1, coor2,

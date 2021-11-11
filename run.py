@@ -60,10 +60,10 @@ if __name__ == '__main__':
     parser.add_argument("--matrix", type=str, default='None')
     parser.add_argument("--num_video", type=int, default=2)
     parser.add_argument("--limit", type=int, default=2)
-    parser.add_argument("--background", type=str, default='calliberation/background.png')
+    parser.add_argument("--background", type=str, default='calliberation/background2.png')
     parser.add_argument("--heatmap", type=str, default=1)
     parser.add_argument("--frame", type=int, default=1)
-    parser.add_argument("--second", type=int, default=15)
+    parser.add_argument("--second", type=int, default=10)
     parser.add_argument("--threshold", type=int, default=320)
     parser.add_argument("--video", type=str, default='None')
     parser.add_argument("--heatmapsec", type=int, default=60)
@@ -74,7 +74,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     args.img_size = check_img_size(args.img_size)
-    credential_path = "atsm-202107-50b0c3dc3869.json"
+    credential_path = "rapid-rite-331803-22fb7fcac271.json"
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credential_path
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
