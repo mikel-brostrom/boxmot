@@ -11,6 +11,7 @@ sys.path.insert(0, './yolov5')
 
 from yolov5.models.experimental import attempt_load
 from yolov5.utils.downloads import attempt_download
+from yolov5.models.common import DetectMultiBackend
 from yolov5.utils.datasets import LoadImages, LoadStreams
 from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, check_imshow, xyxy2xywh
 from yolov5.utils.torch_utils import select_device, time_sync
@@ -58,12 +59,15 @@ def detect(opt):
         os.makedirs(out)  # make new output folder
 
     # Load model
-    model = attempt_load(yolo_weights, map_location=device)  # load FP32 model
-    stride = int(model.stride.max())  # model stride
-    imgsz = check_img_size(imgsz, s=stride)  # check img_size
-    names = model.module.names if hasattr(model, 'module') else model.names  # get class names
-    if half:
-        model.half()  # to FP16
+    device = select_device(device)
+    model = DetectMultiBackend(args.yolo_weights, device=device, dnn=args.dnn)
+    stride, names, pt, jit, onnx = model.stride, model.names, model.pt, model.jit, model.onnx
+    imgsz = check_img_size(imgsz, s=stride)  # check image size
+
+    # Half
+    half &= pt and device.type != 'cpu'  # half precision only supported by PyTorch on CUDA
+    if pt:
+        model.model.half() if half else model.model.float()
 
     # Set Dataloader
     vid_path, vid_writer = None, None
@@ -71,47 +75,53 @@ def detect(opt):
     if show_vid:
         show_vid = check_imshow()
 
+    # Dataloader
     if webcam:
+        view_img = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
+        dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt and not jit)
+        bs = len(dataset)  # batch_size
     else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride)
+        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt and not jit)
+        bs = 1  # batch_size
+    vid_path, vid_writer = [None] * bs, [None] * bs
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
-
-    # Run inference
-    if device.type != 'cpu':
-        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-    t0 = time.time()
 
     save_path = str(Path(out))
     # extract what is in between the last '/' and last '.'
     txt_file_name = source.split('/')[-1].split('.')[0]
     txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
 
-    for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
+    dt, seen = [0.0, 0.0, 0.0], 0
+    for frame_idx, (path, img, im0s, vid_cap, s) in enumerate(dataset):
+        t1 = time_sync()
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
+        t2 = time_sync()
+        dt[0] += t2 - t1
 
         # Inference
-        t1 = time_sync()
-        pred = model(img, augment=opt.augment)[0]
+        visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if args.visualize else False
+        pred = model(img, augment=args.augment, visualize=visualize)
+        t3 = time_sync()
+        dt[1] += t3 - t2
 
         # Apply NMS
-        pred = non_max_suppression(
-            pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
-        t2 = time_sync()
+        pred = non_max_suppression(pred, args.conf_thres, args.iou_thres, args.classes, args.agnostic_nms, max_det=args.max_det)
+        dt[2] += time_sync() - t3
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
             if webcam:  # batch_size >= 1
-                p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
+                p, im0, frame = path[i], im0s[i].copy(), dataset.count
+                s += f'{i}: '
             else:
-                p, s, im0 = path, '', im0s
+                p, im0, frame = path, im0s.copy(), getattr(dataset, 'frame', 0)
 
             s += '%gx%g ' % img.shape[2:]  # print string
             save_path = str(Path(out) / Path(p).name)
@@ -162,7 +172,7 @@ def detect(opt):
                 deepsort.increment_ages()
 
             # Print time (inference + NMS)
-            print('%sDone. (%.3fs)' % (s, t2 - t1))
+            print(f'{s}Done. ({t3 - t2:.3f}s)')
 
             # Stream results
             im0 = annotator.result()
@@ -198,7 +208,7 @@ def detect(opt):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo_weights', nargs='+', type=str, default='yolov5/weights/yolov5l.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo_weights', nargs='+', type=str, default='yolov5l.pt', help='model.pt path(s)')
     parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7', help='ckpt.t7 path')
     # file/folder, 0 for webcam
     parser.add_argument('--source', type=str, default='0', help='source')
@@ -218,6 +228,9 @@ if __name__ == '__main__':
     parser.add_argument('--evaluate', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
     parser.add_argument("--half", action="store_true", help="use FP16 half-precision inference")
+    parser.add_argument('--visualize', action='store_true', help='visualize features')
+    parser.add_argument('--max-det', type=int, default=1000, help='maximum detection per image')
+    parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
     args = parser.parse_args()
     args.img_size = check_img_size(args.img_size)
 
