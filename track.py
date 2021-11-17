@@ -228,6 +228,8 @@ def detect(opt, dataset_list, return_dict, ids_per_frame_list, string, video_get
         ids_per_frame_list.put(ids_per_frame)
         print(string + ' Tracking Done')
         count += 1
+        #print('Count: {}'.format(count))
+        #print('Limit: {}'.format(opt.limit))
         if count == opt.limit:
             print(string + 'Done')
             break

@@ -30,7 +30,7 @@ palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
 def store(video_get1, video_get2, size, coor_get1, coor_get2,
           M1, M2, coor1, coor2, count, num_video, final_fuse_id,
-          reid_dict, background, save_vid, save_txt, heatmapcount, example_points, heat_name):
+          reid_dict, background, save_vid, save_txt, heatmapcount, example_points, heat_name, date_time):
     #monitor = Monitor(5)
     #print('heatmap start')
     out = './output/video/'
@@ -45,10 +45,10 @@ def store(video_get1, video_get2, size, coor_get1, coor_get2,
     example_img = Image.open(example_img_path)
     #example_points = []  # 히트맵 중심 좌표 설정
     if count == 0:
-        corfile = open(cortxt + 'corfile.txt', 'w')
+        corfile = open(cortxt + date_time + '.txt', 'w')
     else:
-        corfile = open(cortxt + 'corfile.txt', 'a')
-    corfile.write('{0}번쨰 인원 수 : {1}\n'.format(count,len(final_fuse_id)))
+        corfile = open(cortxt + date_time + '.txt', 'a')
+    corfile.write('{0}번째 인원 수 : {1}\n'.format(count,len(final_fuse_id)))
     # 히트맵 그리기
     heatmapper = Heatmapper(
         point_diameter=15,  # the size of each point to be drawn
@@ -79,12 +79,12 @@ def store(video_get1, video_get2, size, coor_get1, coor_get2,
                     track_cnt2[key][a][0] += size2
                 track_cnt1[key + size] = track_cnt2[key]
 
-            output = out + str(count) + '.avi'
+            output = out + date_time + '_' + str(count) + '.avi'
             fourcc = cv2.VideoWriter_fourcc(*'XVID')
             shape = drawimage[0].shape[:2]
             size_output = (shape[1], shape[0])
             out2 = cv2.VideoWriter(output, fourcc, 7.5, size_output)
-            print(size_output)
+            #print(size_output)
             for frame in range(len(drawimage)):
                 img = drawimage[frame]
                 for idx in final_fuse_id:
@@ -189,7 +189,7 @@ def store(video_get1, video_get2, size, coor_get1, coor_get2,
             corfile.write('coordinate : {0}\n'.format(pointcheck[a]))
     if heatmapcount == 0:
         heatmap = heatmapper.heatmap_on_img(example_points, example_img)
-        saveheat = './output/heatmap/' + str(heat_name) + 'heatmap.png'
+        saveheat = './output/heatmap/' + date_time + '_' + str(heat_name) + '.png'
         heatmap.save(saveheat)
     corfile.close()
     print("Finish")

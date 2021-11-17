@@ -168,7 +168,7 @@ def re_identification(args, return_dict1, return_dict2, ids_per_frame1_list, ids
 
             ht.store(video_get1, video_get2, size, coor_get1, coor_get2, M1, M2, coor1, coor2,
                      count, 2, final_fuse_id, reid_dict, args.background, args.save_vid,
-                     args.save_txt, heatmapcount, example_points, heat_name)
+                     args.save_txt, heatmapcount, example_points, heat_name, args.date_time)
             if heatmapcount == 0:
                 example_points = []
                 heat_name += 1
@@ -183,7 +183,7 @@ def re_identification(args, return_dict1, return_dict2, ids_per_frame1_list, ids
 
             ht.store(video_get1, video_get2, 0, coor_get1, coor_get2, M1, M2, coor1, coor2,
                      count, 1, final_fuse_id, reid_dict, args.background, args.save_vid,
-                     args.save_txt, heatmapcount, example_points, heat_name)
+                     args.save_txt, heatmapcount, example_points, heat_name, args.date_time)
 
             if heatmapcount == 0:
                 example_points = []
@@ -192,6 +192,7 @@ def re_identification(args, return_dict1, return_dict2, ids_per_frame1_list, ids
 
         count += 1
         #monitor.stop()
+        #print('Limit: {}'.format(args.limit))
         if args.realtime != 1 and count == args.limit:
             break
         elif args.limit != 0 and count == args.limit:

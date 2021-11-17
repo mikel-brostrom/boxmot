@@ -9,6 +9,7 @@ from yolov5.utils.general import check_img_size
 import subprocess
 import warnings
 import torch
+import time
 
 def pstart(frame_get, frame_get2, count):
     if count != 0:
@@ -79,8 +80,8 @@ if __name__ == '__main__':
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
     # reid = REID()
-    video1 = ['calliberation/in1_Trim.mp4']  # 엘리베이터
-    video2 = ['calliberation/in2_Trim.mp4']  # 입구
+    #video1 = ['calliberation/in1_Trim.mp4']  # 엘리베이터
+    #video2 = ['calliberation/in2_Trim.mp4']  # 입구
     #videos = [['calliberation/sample_video/ele.mp4'], ['calliberation/sample_video/en.mp4'], ['calliberation/sample_video/in.mp4']]  # 엘리베이터, 입구, 내부\
     str_video = ['cam1_daiso', 'cam2_daiso']
     videos = [['calliberation/cam1.mp4'], ['calliberation/cam2.mp4']]
@@ -108,7 +109,9 @@ if __name__ == '__main__':
             args.matrix = 'coor_' + str_video[int(x[0])]
             if args.num_video == 2:
                 args.matrix += ' coor_' + str_video[int(x[1])]
-
+        now = time.localtime()
+        date_time = time.strftime('%Y_%m_%d_%H_%M', now)
+        args.date_time = date_time
         frame_get1 = Manager().Queue()
         frame_get2 = Manager().Queue()
         if args.realtime:
@@ -127,8 +130,8 @@ if __name__ == '__main__':
                 size2 = frame_get2.qsize()
                 if args.limit > size2:
                     args.limit = size2
-        print(frame_get1.qsize())
-        print(frame_get2.qsize())
+        #print(frame_get1.qsize())
+        #print(frame_get2.qsize())
         ids_per_frame1 = Manager().Queue()
         ids_per_frame2 = Manager().Queue()
         return_dict1 = Manager().Queue()
