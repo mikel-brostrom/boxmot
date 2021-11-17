@@ -72,7 +72,7 @@ class Track:
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
-        self.bbox = [0, 0, 0, 0]
+        self.yolo_bbox = [0, 0, 0, 0]
 
         self.state = TrackState.Tentative
         self.features = []
@@ -120,7 +120,7 @@ class Track:
             The yolo bounding box.
 
         """
-        return self.bbox.tlwh
+        return self.yolo_bbox
 
     def increment_age(self):
         self.age += 1
@@ -151,7 +151,7 @@ class Track:
             The associated detection.
 
         """
-        self.bbox = detection
+        self.yolo_bbox = detection
         self.mean, self.covariance = kf.update(
             self.mean, self.covariance, detection.to_xyah())
         self.features.append(detection.feature)
