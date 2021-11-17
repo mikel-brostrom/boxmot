@@ -50,13 +50,14 @@ If you already cloned and forgot to use `--recurse-submodules` you can run `git 
 Tracking can be run on most video formats
 
 ```bash
-python3 track.py --source ... --show-vid  # show live inference results as well
+$ python track.py --source 0  # webcam
+                           img.jpg  # image
+                           vid.mp4  # video
+                           path/  # directory
+                           path/*.jpg  # glob
+                           'https://youtu.be/Zgi9g1ksQHc'  # YouTube
+                           'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP stream
 ```
-
-- Video:  `--source file.mp4`
-- Webcam:  `--source 0`
-- RTSP stream:  `--source rtsp://170.93.143.139/rtplive/470011e600ef003a004ee33696235daa`
-- HTTP stream:  `--source http://wmccpinetop.axiscam.net/mjpg/video.mjpg`
 
 
 ## Select a Yolov5 family model
@@ -67,7 +68,8 @@ you can select a Yolov5 family model for automatic download
 ```bash
 
 
-$ python track.py --source 0 --yolo_weights yolov5s.pt --img 640
+$ python track.py --source 0 --yolo_weights yolov5n.pt --img 640
+                                            yolov5s.pt
                                             yolov5m.pt
                                             yolov5l.pt 
                                             yolov5x.pt --img 1280
