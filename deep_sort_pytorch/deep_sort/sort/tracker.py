@@ -10,7 +10,6 @@ from .track import Track
 class Tracker:
     """
     This is the multi-target tracker.
-
     Parameters
     ----------
     metric : nn_matching.NearestNeighborDistanceMetric
@@ -21,7 +20,6 @@ class Tracker:
         Number of consecutive detections before the track is confirmed. The
         track state is set to `Deleted` if a miss occurs within the first
         `n_init` frames.
-
     Attributes
     ----------
     metric : nn_matching.NearestNeighborDistanceMetric
@@ -34,14 +32,15 @@ class Tracker:
         A Kalman filter to filter target trajectories in image space.
     tracks : List[Track]
         The list of active tracks at the current time step.
-
     """
+    GATING_THRESHOLD = np.sqrt(kalman_filter.chi2inv95[4])
 
-    def __init__(self, metric, max_iou_distance=0.7, max_age=70, n_init=3):
+    def __init__(self, metric, max_iou_distance=0.7, max_age=20, n_init=3, _lambda=0):
         self.metric = metric
         self.max_iou_distance = max_iou_distance
         self.max_age = max_age
         self.n_init = n_init
+        self._lambda = _lambda
 
         self.kf = kalman_filter.KalmanFilter()
         self.tracks = []
