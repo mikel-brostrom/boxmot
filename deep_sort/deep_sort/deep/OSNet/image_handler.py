@@ -23,6 +23,7 @@ def resize(img: np.ndarray, size: Tuple[int, int], interpolation=Image.BILINEAR)
     pil_img = pil_img.resize(size[::-1], interpolation)
     return np.array(pil_img)
 
+
 def ndarray_to_tensor(pic: np.ndarray):
     """Translates the ndarray to a torch Tensor
     :param pic: PIL Image: Resized image
