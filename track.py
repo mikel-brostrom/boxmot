@@ -40,7 +40,6 @@ def detect(opt):
     # initialize deepsort
     cfg = get_config()
     cfg.merge_from_file(opt.config_deepsort)
-    #attempt_download(deep_sort_model, repo='mikel-brostrom/Yolov5_DeepSort_Pytorch')
     deepsort = DeepSort(cfg.DEEPSORT.MODEL_TYPE,
                         max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
                         max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
