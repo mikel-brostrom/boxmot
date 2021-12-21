@@ -5,12 +5,9 @@ import cv2
 import logging
 from torchreid import models
 
-from .model import Net
-
 
 class Extractor(object):
     def __init__(self, model_type, use_cuda=True):
-        self.net = Net(reid=True)
         self.device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
         self.input_width = 128
         self.input_height = 256
