@@ -3,33 +3,24 @@ import torchvision.transforms as transforms
 import numpy as np
 import cv2
 import logging
+from torchreid import models
 
 from .model import Net
-from .encoder import OsNetEncoder
 
 
 class Extractor(object):
-    def __init__(self, model_path, use_cuda=True):
+    def __init__(self, model_type, use_cuda=True):
         self.net = Net(reid=True)
         self.device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
-        self.input_width = 64
-        self.input_height = 128
+        self.input_width = 128
+        self.input_height = 256
 
-        self.net = OsNetEncoder(
-            input_width=self.input_width,
-            input_height=self.input_height,
-            weight_filepath="/home/mikel.brostrom/Yolov5_DeepSort_Pytorch/osnet_ibn_x1_0_msmt17_combineall_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip_jitter.pth",
-            batch_size=32,
-            num_classes=2022,
-            patch_height=256,
-            patch_width=128,
-            norm_mean=[0.485, 0.456, 0.406],
-            norm_std=[0.229, 0.224, 0.225],
-            GPU=True
-        )
+        self.model = models.build_model(name=model_type, num_classes=1000)
+        self.model.to(self.device)
+        self.model.eval()
 
         logger = logging.getLogger("root.tracker")
-        logger.info("Loading weights from {}... Done!".format(model_path))
+        logger.info("Selected model type: {}".format(model_type))
         self.size = (self.input_width, self.input_height)
         self.norm = transforms.Compose([
             transforms.ToTensor(),
@@ -56,7 +47,7 @@ class Extractor(object):
         im_batch = self._preprocess(im_crops)
         with torch.no_grad():
             im_batch = im_batch.to(self.device)
-            features = self.net.get_features(im_batch)
+            features = self.model(im_batch)
         return features.cpu().numpy()
 
 
