@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set +e
+
 
 # start from clean slate
 for i in data.zip MOT16.zip
@@ -20,6 +22,7 @@ done
 if [ ! -d ~/Yolov5_DeepSort_Pytorch/inference/output ]
 then
 	mkdir -p ~/Yolov5_DeepSort_Pytorch/inference/output
+	echo 'inference output folder created'
 fi
 
 
@@ -27,6 +30,7 @@ fi
 # clone evaluation repo if it does not exist
 if [ ! -d ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval ]
 then
+	echo 'Cloning official MOT16 evaluation repo'
 	git clone https://github.com/JonathonLuiten/TrackEval ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval
 	# download quick start data folder if it does not exist
 	if [ ! -d ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/data ]
