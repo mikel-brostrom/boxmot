@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 
-from .deep.OSNet.feature_extractor import Extractor
 from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
 from .sort.tracker import Tracker
