@@ -81,7 +81,7 @@ do
 			mv ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/data/MOT16/train/$i/img1/ ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/data/MOT16/train/$i/$i
 		fi
 		# run inference on sequence frames
-		python3 track.py --source ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/data/MOT16/train/$i/$i --save-txt --evaluate --yolo_weights yolov5/weights/crowdhuman_yolov5m.pt --classes 0
+		python3 track.py --source ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/data/MOT16/train/$i/$i --save-txt --evaluate --yolo_model yolov5/weights/crowdhuman_yolov5m.pt --classes 0
 	    # move generated results to evaluation repo
 	    mv ~/Yolov5_DeepSort_Pytorch/inference/output/$i.txt \
 	    ~/Yolov5_DeepSort_Pytorch/MOT16_eval/TrackEval/data/trackers/mot_challenge/MOT16-train/ch_yolov5m_deep_sort/data/$i.txt
