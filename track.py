@@ -131,7 +131,7 @@ def detect(opt):
             save_path = str(Path(out) / Path(p).name)
 
             annotator = Annotator(im0, line_width=2, pil=not ascii)
-
+            t5 = t4 = 0
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(
