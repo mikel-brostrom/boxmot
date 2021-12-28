@@ -48,7 +48,7 @@ def detect(opt):
     cfg = get_config()
     cfg.merge_from_file(opt.config_deepsort)
     deepsort = DeepSort(deep_sort_model,
-                        max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
+                        max_dist=cfg.DEEPSORT.MAX_DIST,
                         max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
                         max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
                         use_cuda=True)
@@ -194,7 +194,7 @@ def detect(opt):
             # Stream results
             im0 = annotator.result()
             if show_vid:
-                cv2.imshow(p, im0)
+                cv2.imshow(str(p), im0)
                 if cv2.waitKey(1) == ord('q'):  # q to quit
                     raise StopIteration
 
