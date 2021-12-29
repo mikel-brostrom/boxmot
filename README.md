@@ -75,7 +75,7 @@ $ python track.py --source 0 --yolo_model yolov5n.pt --img 640
                                           yolov5m.pt
                                           yolov5l.pt 
                                           yolov5x.pt --img 1280
-                                            ...
+                                          ...
 ```
 
 ### DeepSort
@@ -88,7 +88,7 @@ Choose a ReID model based on your needs from this ReID [model zoo](https://kaiya
 $ python track.py --source 0 --deep_sort_model osnet_x1_0
                                                nasnsetmobile
                                                resnext101_32x8d
-                                            ...
+                                               ...
 ```
 
 ## Filter tracked classes
