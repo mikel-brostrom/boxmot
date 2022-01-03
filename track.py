@@ -185,7 +185,7 @@ def detect(opt):
                                 f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
                                                                bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))
 
-                LOGGER.info(f'{s}Done. YOLO:({dt[1]:.3f}s), DeepSort:({t5 - t4:.3f}s)')
+                LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), DeepSort:({t5 - t4:.3f}s)')
 
             else:
                 deepsort.increment_ages()
