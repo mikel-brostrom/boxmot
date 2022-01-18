@@ -36,6 +36,15 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+# It creates an object of deepsort type
+def create_DeepSort_object(cfg, deep_sort_model):
+    my_deepsort = DeepSort(deep_sort_model,
+                            max_dist=cfg.DEEPSORT.MAX_DIST,
+                            max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
+                            max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
+                            use_cuda=True)
+    return my_deepsort
+
 
 def detect(opt):
     out, source, yolo_model, deep_sort_model, show_vid, save_vid, save_txt, imgsz, evaluate, half, project, name, exist_ok= \
@@ -44,14 +53,7 @@ def detect(opt):
     webcam = source == '0' or source.startswith(
         'rtsp') or source.startswith('http') or source.endswith('.txt')
 
-    # initialize deepsort
-    cfg = get_config()
-    cfg.merge_from_file(opt.config_deepsort)
-    deepsort = DeepSort(deep_sort_model,
-                        max_dist=cfg.DEEPSORT.MAX_DIST,
-                        max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
-                        max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
-                        use_cuda=True)
+
 
     # Initialize
     device = select_device(opt.device)
@@ -96,7 +98,22 @@ def detect(opt):
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt and not jit)
         bs = 1  # batch_size
     vid_path, vid_writer = [None] * bs, [None] * bs
-
+    
+    
+    # initialize deepsort
+    cfg = get_config()
+    cfg.merge_from_file(opt.config_deepsort)
+    
+    # Create as many trackers as there are polygons
+    deepsort_list = []
+    for i in range(bs):
+        deepsort_list.append(create_DeepSort_object(cfg,deep_sort_model))
+        
+    # Initialize values
+    xywhs = [None]*bs
+    confs = [None]*bs
+    outputs = [None]*bs
+    
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
 
@@ -158,13 +175,14 @@ def detect(opt):
 
                 # pass detections to deepsort
                 t4 = time_sync()
-                outputs = deepsort.update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
+                outputs[i] = deepsort_list[i].update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
+                #deepsort.update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
                 t5 = time_sync()
                 dt[3] += t5 - t4
 
                 # draw boxes for visualization
-                if len(outputs) > 0:
-                    for j, (output, conf) in enumerate(zip(outputs, confs)):
+                if len(outputs[i]) > 0:
+                    for j, (output, conf) in enumerate(zip(outputs[i], confs)):
 
                         bboxes = output[0:4]
                         id = output[4]
@@ -188,12 +206,13 @@ def detect(opt):
                 LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), DeepSort:({t5 - t4:.3f}s)')
 
             else:
-                deepsort.increment_ages()
+                deepsort_list[i].increment_ages()
                 LOGGER.info('No detections')
 
             # Stream results
             im0 = annotator.result()
             if show_vid:
+                cv2.namedWindow(str(p), cv2.WINDOW_NORMAL) 
                 cv2.imshow(str(p), im0)
                 if cv2.waitKey(1) == ord('q'):  # q to quit
                     raise StopIteration
