@@ -88,12 +88,11 @@ def detect(opt):
         nr_sources = 1
     vid_path, vid_writer = [None] * nr_sources, [None] * nr_sources
     
-    
     # initialize deepsort
     cfg = get_config()
     cfg.merge_from_file(opt.config_deepsort)
     
-    # Create as many trackers as there are polygons
+    # Create as many trackers as there are video sources
     deepsort_list = []
     for i in range(nr_sources):
         deepsort_list.append(DeepSort(deep_sort_model,
@@ -102,12 +101,9 @@ def detect(opt):
                              max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
                              use_cuda=True)
                             )
-        
-    # Initialize values
-    xywhs = [None] * nr_sources
-    confs = [None] * nr_sources
+
     outputs = [None] * nr_sources
-    
+                        
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
 
