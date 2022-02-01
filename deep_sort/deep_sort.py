@@ -1,19 +1,24 @@
 import numpy as np
 import torch
+import sys
 
-from .deep.feature_extractor import Extractor
 from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
 from .sort.tracker import Tracker
 
+sys.path.append('deep_sort/deep/reid')
+from torchreid.utils import FeatureExtractor
 
 __all__ = ['DeepSort']
 
 
 class DeepSort(object):
-    def __init__(self, model_type, max_dist=0.2, max_iou_distance=0.7, max_age=70, n_init=3, nn_budget=100, use_cuda=True):
+    def __init__(self, model_type, device, max_dist=0.2, max_iou_distance=0.7, max_age=70, n_init=3, nn_budget=100):
 
-        self.extractor = Extractor(model_type, use_cuda=use_cuda)
+        self.extractor = FeatureExtractor(
+            model_name=model_type,
+            device=str(device)
+        )
 
         max_cosine_distance = max_dist
         metric = NearestNeighborDistanceMetric(
@@ -21,7 +26,7 @@ class DeepSort(object):
         self.tracker = Tracker(
             metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init)
 
-    def update(self, bbox_xywh, confidences, classes, ori_img, use_yolo_preds=True):
+    def update(self, bbox_xywh, confidences, classes, ori_img, use_yolo_preds=False):
         self.height, self.width = ori_img.shape[:2]
         # generate detections
         features = self._get_features(bbox_xywh, ori_img)
