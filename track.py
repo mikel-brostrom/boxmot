@@ -44,17 +44,19 @@ def detect(opt):
     webcam = source == '0' or source.startswith(
         'rtsp') or source.startswith('http') or source.endswith('.txt')
 
+    device = select_device(opt.device)
     # initialize deepsort
     cfg = get_config()
     cfg.merge_from_file(opt.config_deepsort)
     deepsort = DeepSort(deep_sort_model,
+                        device,
                         max_dist=cfg.DEEPSORT.MAX_DIST,
                         max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
                         max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
-                        use_cuda=True)
+                        )
 
     # Initialize
-    device = select_device(opt.device)
+    
     half &= device.type != 'cpu'  # half precision only supported on CUDA
 
     # The MOT16 evaluation runs multiple inference streams in parallel, each one writing to
