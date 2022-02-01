@@ -36,15 +36,6 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-# It creates an object of deepsort type
-def create_DeepSort_object(cfg, deep_sort_model):
-    my_deepsort = DeepSort(deep_sort_model,
-                            max_dist=cfg.DEEPSORT.MAX_DIST,
-                            max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
-                            max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
-                            use_cuda=True)
-    return my_deepsort
-
 
 def detect(opt):
     out, source, yolo_model, deep_sort_model, show_vid, save_vid, save_txt, imgsz, evaluate, half, project, name, exist_ok= \
@@ -52,8 +43,6 @@ def detect(opt):
         opt.save_txt, opt.imgsz, opt.evaluate, opt.half, opt.project, opt.name, opt.exist_ok
     webcam = source == '0' or source.startswith(
         'rtsp') or source.startswith('http') or source.endswith('.txt')
-
-
 
     # Initialize
     device = select_device(opt.device)
@@ -93,11 +82,11 @@ def detect(opt):
         show_vid = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt and not jit)
-        bs = len(dataset)  # batch_size
+        nr_sources = len(dataset)
     else:
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt and not jit)
-        bs = 1  # batch_size
-    vid_path, vid_writer = [None] * bs, [None] * bs
+        nr_sources = 1
+    vid_path, vid_writer = [None] * nr_sources, [None] * nr_sources
     
     
     # initialize deepsort
@@ -106,13 +95,18 @@ def detect(opt):
     
     # Create as many trackers as there are polygons
     deepsort_list = []
-    for i in range(bs):
-        deepsort_list.append(create_DeepSort_object(cfg,deep_sort_model))
+    for i in range(nr_sources):
+        deepsort_list.append(DeepSort(deep_sort_model,
+                             max_dist=cfg.DEEPSORT.MAX_DIST,
+                             max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
+                             max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
+                             use_cuda=True)
+                            )
         
     # Initialize values
-    xywhs = [None]*bs
-    confs = [None]*bs
-    outputs = [None]*bs
+    xywhs = [None] * nr_sources
+    confs = [None] * nr_sources
+    outputs = [None] * nr_sources
     
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
