@@ -61,7 +61,6 @@ def detect(opt):
     save_dir.mkdir(parents=True, exist_ok=True)  # make dir
 
     # Load model
-    device = select_device(device)
     model = DetectMultiBackend(yolo_model, device=device, dnn=opt.dnn)
     stride, names, pt, jit, _ = model.stride, model.names, model.pt, model.jit, model.onnx
     imgsz = check_img_size(imgsz, s=stride)  # check image size
@@ -96,11 +95,12 @@ def detect(opt):
     deepsort_list = []
     for i in range(nr_sources):
         deepsort_list.append(DeepSort(deep_sort_model,
-                             max_dist=cfg.DEEPSORT.MAX_DIST,
-                             max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
-                             max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
-                             use_cuda=True)
-                            )
+                                      device,
+                                      max_dist=cfg.DEEPSORT.MAX_DIST,
+                                      max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
+                                      max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
+                                    )
+        )
 
     outputs = [None] * nr_sources
                         
@@ -191,7 +191,7 @@ def detect(opt):
                             # Write MOT compliant results to file
                             with open(txt_path, 'a') as f:
                                 f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
-                                                               bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))
+                                                               bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
 
                 LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), DeepSort:({t5 - t4:.3f}s)')
 
