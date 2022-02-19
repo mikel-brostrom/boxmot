@@ -63,7 +63,7 @@ class Track:
 
     """
 
-    def __init__(self, mean, covariance, track_id, class_id, n_init, max_age,
+    def __init__(self, mean, covariance, track_id, class_id, n_init, max_age, conf_valid_thres,
                  feature=None):
         self.mean = mean
         self.covariance = covariance
@@ -73,6 +73,7 @@ class Track:
         self.age = 1
         self.time_since_update = 0
         self.yolo_bbox = [0, 0, 0, 0]
+        self.conf_valid_thres = conf_valid_thres
 
         self.state = TrackState.Tentative
         self.features = []
@@ -139,7 +140,7 @@ class Track:
         self.mean, self.covariance = kf.predict(self.mean, self.covariance)
         self.increment_age()
 
-    def update(self, kf, detection, class_id):
+    def update(self, kf, detection, class_id, score):
         """Perform Kalman filter measurement update step and update the feature
         cache.
 
@@ -159,7 +160,7 @@ class Track:
 
         self.hits += 1
         self.time_since_update = 0
-        if self.state == TrackState.Tentative and self.hits >= self._n_init:
+        if self.state == TrackState.Tentative and self.hits >= self._n_init and score >= self.conf_valid_thres:
             self.state = TrackState.Confirmed
 
     def mark_missed(self):

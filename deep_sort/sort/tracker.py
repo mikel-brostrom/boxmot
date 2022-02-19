@@ -35,11 +35,12 @@ class Tracker:
     """
     GATING_THRESHOLD = np.sqrt(kalman_filter.chi2inv95[4])
 
-    def __init__(self, metric, max_iou_distance=0.9, max_age=30, n_init=3, _lambda=0):
+    def __init__(self, metric, max_iou_distance=0.9, max_age=30, n_init=3, conf_valid_thres=0, _lambda=0):
         self.metric = metric
         self.max_iou_distance = max_iou_distance
         self.max_age = max_age
         self.n_init = n_init
+        self.conf_valid_thres = conf_valid_thres
         self._lambda = _lambda
 
         self.kf = kalman_filter.KalmanFilter()
@@ -59,7 +60,7 @@ class Tracker:
             track.increment_age()
             track.mark_missed()
 
-    def update(self, detections, classes):
+    def update(self, detections, classes, scores):
         """Perform measurement update and track management.
 
         Parameters
@@ -75,7 +76,7 @@ class Tracker:
         # Update track set.
         for track_idx, detection_idx in matches:
             self.tracks[track_idx].update(
-                self.kf, detections[detection_idx], classes[detection_idx])
+                self.kf, detections[detection_idx], classes[detection_idx], scores[detection_idx])
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
         for detection_idx in unmatched_detections:
@@ -165,6 +166,6 @@ class Tracker:
     def _initiate_track(self, detection, class_id):
         mean, covariance = self.kf.initiate(detection.to_xyah())
         self.tracks.append(Track(
-            mean, covariance, self._next_id, class_id, self.n_init, self.max_age,
+            mean, covariance, self._next_id, class_id, self.n_init, self.max_age, self.conf_valid_thres,
             detection.feature))
         self._next_id += 1
