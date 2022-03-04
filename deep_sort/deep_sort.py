@@ -17,6 +17,7 @@ class DeepSort(object):
 
         self.extractor = FeatureExtractor(
             model_name=model_type,
+            model_path="/home/mikel/Yolov5_DeepSort_Pytorch/deep_sort/deep/checkpoint/osnet_x1_0_market_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
             device=str(device)
         )
 
