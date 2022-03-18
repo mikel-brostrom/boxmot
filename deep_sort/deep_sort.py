@@ -7,29 +7,44 @@ import os
 from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
 from .sort.tracker import Tracker
-from .deep.reid_model_factory import show_avai_models, get_model_link
+from .deep.reid_model_factory import show_downloadeable_models, get_model_link, is_model_in_factory, \
+    is_model_type_in_model_path, get_model_type, show_supported_models
 
 sys.path.append('deep_sort/deep/reid')
 from torchreid.utils import FeatureExtractor
 from torchreid.utils.tools import download_url
 
-show_avai_models()
+show_downloadeable_models()
 
 __all__ = ['DeepSort']
 
 
 class DeepSort(object):
-    def __init__(self, model_type, device, max_dist=0.2, max_iou_distance=0.7, max_age=70, n_init=3, nn_budget=100):
+    def __init__(self, model, device, max_dist=0.2, max_iou_distance=0.7, max_age=70, n_init=3, nn_budget=100):
+        if is_model_in_factory(model):
+            # download the model
+            model_path = os.path.join('deep_sort/deep/checkpoint', model + '.pth')
+            gdown.download(get_model_link(model), model_path, quiet=False)
 
-        cached_file = os.path.join('deep_sort/deep/checkpoint', model_type + '.pth')
-        gdown.download(get_model_link(model_type), cached_file, quiet=False)
-
-        self.extractor = FeatureExtractor(
-            # get rid of dataset information DeepSort model name
-            model_name=model_type.rsplit('_', 1)[:-1][0],
-            model_path=cached_file,
-            device=str(device)
-        )
+            self.extractor = FeatureExtractor(
+                # get rid of dataset information DeepSort model name
+                model_name=model.rsplit('_', 1)[:-1][0],
+                model_path=model_path,
+                device=str(device)
+            )
+        else:
+            if is_model_type_in_model_path(model):
+                model_name = get_model_type(model)
+                self.extractor = FeatureExtractor(
+                    # get rid of dataset information DeepSort model name
+                    model_name=model_name,
+                    model_path=model,
+                    device=str(device)
+                )
+            else:
+                print('Cannot infere model name from provided DeepSort path, should be one of the following')
+                show_supported_models()
+                exit()
 
         max_cosine_distance = max_dist
         metric = NearestNeighborDistanceMetric(
