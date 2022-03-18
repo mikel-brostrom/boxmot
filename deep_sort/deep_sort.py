@@ -42,7 +42,7 @@ class DeepSort(object):
                     device=str(device)
                 )
             else:
-                print('Cannot infere model name from provided DeepSort path, should be one of the following')
+                print('Cannot infere model name from provided DeepSort path, should be one of the following:')
                 show_supported_models()
                 exit()
 
