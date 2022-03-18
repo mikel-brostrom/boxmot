@@ -1,6 +1,11 @@
+__model_types = [
+    'resnet50', 'mlfn', 'hacnn', 'mobilenetv2_x1_0', 'mobilenetv2_x1_4',
+    'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25',
+    'osnet_ibn_x1_0', 'osnet_ain_x1_0']
+
 __trained_urls = {
-    
-    ####### market1501 models ##################################################
+
+    # market1501 models ########################################################
     'resnet50_market1501':
     'https://drive.google.com/uc?id=1dUUZ4rHDWohmsQXCRe2C_HbYkzz94iBV',
     'resnet50_dukemtmcreid':
@@ -90,10 +95,46 @@ __trained_urls = {
 }
 
 
-def show_avai_models():
-    print('\nAvailable ReID models')
+def show_downloadeable_models():
+    print('\nAvailable ReID models for automatic download')
     print(list(__trained_urls.keys()))
 
 
+def show_supported_models():
+    print(__model_types)
+
+
 def get_model_link(model):
-    return __trained_urls[model]
+    if model in __trained_urls:
+        return __trained_urls[model]
+    else:
+        None
+
+
+def is_model_in_factory(model):
+    if model in __trained_urls:
+        return True
+    else:
+        return False
+
+
+def is_model_in_model_types(model):
+    if model in __model_types:
+        return True
+    else:
+        return False
+
+
+def get_model_type(model):
+    for x in __model_types:
+        if x in model:
+            return x
+    return None
+
+
+def is_model_type_in_model_path(model):
+    if get_model_type(model) is None:
+        return False
+    else:
+        return True
+
