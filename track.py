@@ -67,7 +67,7 @@ def detect(opt):
         os.makedirs(out)  # make new output folder
 
     # Directories
-    name = deep_sort_model + "_" + yolo_model[0].split(".")[0]
+    name = yolo_model.split(".")[0] + "_" + deep_sort_model
     save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
     save_dir.mkdir(parents=True, exist_ok=True)  # make dir
 
@@ -229,7 +229,7 @@ def detect(opt):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo_model', nargs='+', type=str, default='yolov5m.pt', help='model.pt path(s)')
-    parser.add_argument('--deep_sort_model', type=str, default='osnet_ain_x1_0')
+    parser.add_argument('--deep_sort_model', type=str, default='osnet_ibn_x1_0_MSMT17')
     parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
