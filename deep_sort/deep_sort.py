@@ -1,13 +1,19 @@
 import numpy as np
 import torch
 import sys
+import gdown
+import os
 
 from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
 from .sort.tracker import Tracker
+from .deep.reid_model_factory import show_avai_models, get_model_link
 
 sys.path.append('deep_sort/deep/reid')
 from torchreid.utils import FeatureExtractor
+from torchreid.utils.tools import download_url
+
+show_avai_models()
 
 __all__ = ['DeepSort']
 
@@ -15,8 +21,13 @@ __all__ = ['DeepSort']
 class DeepSort(object):
     def __init__(self, model_type, device, max_dist=0.2, max_iou_distance=0.7, max_age=70, n_init=3, nn_budget=100):
 
+        cached_file = os.path.join('deep_sort/deep/checkpoint', model_type + '.pth')
+        gdown.download(get_model_link(model_type), cached_file, quiet=False)
+
         self.extractor = FeatureExtractor(
-            model_name=model_type,
+            # get rid of dataset information DeepSort model name
+            model_name=model_type.rsplit('_', 1)[:-1][0],
+            model_path=cached_file,
             device=str(device)
         )
 
