@@ -1,5 +1,9 @@
 # vim: expandtab:ts=4:sw=4
 import numpy as np
+import sys
+import torch
+sys.path.append('deep_sort/deep/reid')
+from torchreid.metrics.distance import compute_distance_matrix
 
 
 def _pdist(a, b):
@@ -62,8 +66,10 @@ def _nn_euclidean_distance(x, y):
         A vector of length M that contains for each entry in `y` the
         smallest Euclidean distance to a sample in `x`.
     """
-    distances = _pdist(x, y)
-    return np.maximum(0.0, distances.min(axis=0))
+    x_ = torch.from_numpy(np.asarray(x))
+    y_ = torch.from_numpy(np.asarray(y))
+    distances = compute_distance_matrix(x_, y_, metric='euclidean')
+    return np.maximum(0.0, torch.min(distances, axis=0)[0].numpy())
 
 
 def _nn_cosine_distance(x, y):
@@ -80,7 +86,10 @@ def _nn_cosine_distance(x, y):
         A vector of length M that contains for each entry in `y` the
         smallest cosine distance to a sample in `x`.
     """
-    distances = _cosine_distance(x, y)
+    x_ = torch.from_numpy(np.asarray(x))
+    y_ = torch.from_numpy(np.asarray(y))
+    distances = compute_distance_matrix(x_, y_, metric='cosine')
+    distances = distances.cpu().detach().numpy()
     return distances.min(axis=0)
 
 
@@ -151,5 +160,5 @@ class NearestNeighborDistanceMetric(object):
         """
         cost_matrix = np.zeros((len(targets), len(features)))
         for i, target in enumerate(targets):
-            cost_matrix[i, :] = self._metric(self.samples[target], features)
+            cost_matrix= self._metric(self.samples[target], features)
         return cost_matrix
