@@ -67,8 +67,9 @@ def detect(opt):
         os.makedirs(out)  # make new output folder
 
     # Directories
-    name = yolo_model.split(".")[0] + "_" + deep_sort_model
-    save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
+    exp_name = yolo_model.split(".")[0] if type(yolo_model) is str else "ensemble"
+    exp_name = exp_name + "_" + deep_sort_model
+    save_dir = increment_path(Path(project) / exp_name, exist_ok=exist_ok)  # increment run if project name exists
     save_dir.mkdir(parents=True, exist_ok=True)  # make dir
 
     # Load model
