@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import sys
 import gdown
-import os
+from os.path import exists as file_exists, join
 
 from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
@@ -23,8 +23,9 @@ class DeepSort(object):
     def __init__(self, model, device, max_dist=0.2, max_iou_distance=0.7, max_age=70, n_init=3, nn_budget=100):
         if is_model_in_factory(model):
             # download the model
-            model_path = os.path.join('deep_sort/deep/checkpoint', model + '.pth')
-            gdown.download(get_model_link(model), model_path, quiet=False)
+            model_path = join('deep_sort/deep/checkpoint', model + '.pth')
+            if not file_exists(model_path):
+                gdown.download(get_model_link(model), model_path, quiet=False)
 
             self.extractor = FeatureExtractor(
                 # get rid of dataset information DeepSort model name
