@@ -67,8 +67,13 @@ def detect(opt):
         os.makedirs(out)  # make new output folder
 
     # Directories
-    exp_name = yolo_model.split(".")[0] if type(yolo_model) is str else "ensemble"
-    exp_name = exp_name + "_" + deep_sort_model
+    if type(yolo_model) is str:
+        exp_name = yolo_model.split(".")[0]
+    elif type(yolo_model) is list and len(yolo_model) == 1:
+        exp_name = yolo_model[0].split(".")[0]
+    else:
+        exp_name = "ensemble"
+    exp_name = exp_name + "_" + deep_sort_model.split('/')[-1].split('.')[0]
     save_dir = increment_path(Path(project) / exp_name, exist_ok=exist_ok)  # increment run if project name exists
     save_dir.mkdir(parents=True, exist_ok=True)  # make dir
 
@@ -121,7 +126,7 @@ def detect(opt):
         dt[0] += t2 - t1
 
         # Inference
-        visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if opt.visualize else False
+        visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if opt.visualize else False
         pred = model(img, augment=opt.augment, visualize=visualize)
         t3 = time_sync()
         dt[1] += t3 - t2
