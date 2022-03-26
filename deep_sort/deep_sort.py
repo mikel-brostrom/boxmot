@@ -21,6 +21,7 @@ __all__ = ['DeepSort']
 
 class DeepSort(object):
     def __init__(self, model, device, max_dist=0.2, max_iou_distance=0.7, max_age=70, n_init=3, nn_budget=100):
+        # models trained on: market1501, dukemtmcreid and msmt17
         if is_model_in_factory(model):
             # download the model
             model_path = join('deep_sort/deep/checkpoint', model + '.pth')
@@ -37,7 +38,6 @@ class DeepSort(object):
             if is_model_type_in_model_path(model):
                 model_name = get_model_type(model)
                 self.extractor = FeatureExtractor(
-                    # get rid of dataset information DeepSort model name
                     model_name=model_name,
                     model_path=model,
                     device=str(device)
