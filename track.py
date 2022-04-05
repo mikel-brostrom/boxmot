@@ -57,7 +57,14 @@ def detect(opt):
         os.makedirs(out)  # make new output folder
 
     # Directories
-    save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
+    if type(yolo_model) is str:
+        exp_name = yolo_model.split(".")[0]
+    elif type(yolo_model) is list and len(yolo_model) == 1:
+        exp_name = yolo_model[0].split(".")[0]
+    else:
+        exp_name = "ensemble"
+    exp_name = exp_name + "_" + deep_sort_model.split('/')[-1].split('.')[0]
+    save_dir = increment_path(Path(project) / exp_name, exist_ok=exist_ok)  # increment run if project name exists
     save_dir.mkdir(parents=True, exist_ok=True)  # make dir
 
     # Load model
@@ -125,7 +132,7 @@ def detect(opt):
         dt[0] += t2 - t1
 
         # Inference
-        visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if opt.visualize else False
+        visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if opt.visualize else False
         pred = model(img, augment=opt.augment, visualize=visualize)
         t3 = time_sync()
         dt[1] += t3 - t2
@@ -236,11 +243,11 @@ def detect(opt):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo_model', nargs='+', type=str, default='yolov5m.pt', help='model.pt path(s)')
-    parser.add_argument('--deep_sort_model', type=str, default='osnet_x0_25')
+    parser.add_argument('--deep_sort_model', type=str, default='osnet_ibn_x1_0_MSMT17')
     parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
-    parser.add_argument('--conf-thres', type=float, default=0.3, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.5, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--fourcc', type=str, default='mp4v', help='output video codec (verify ffmpeg support)')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
