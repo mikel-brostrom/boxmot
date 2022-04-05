@@ -57,14 +57,13 @@ def detect(opt):
         os.makedirs(out)  # make new output folder
 
     # Directories
-    if type(yolo_model) is str:
+    if type(yolo_model) is str:  # single yolo model
         exp_name = yolo_model.split(".")[0]
-    elif type(yolo_model) is list and len(yolo_model) == 1:
+    elif type(yolo_model) is list and len(yolo_model) == 1:  # single models after --yolo_model
         exp_name = yolo_model[0].split(".")[0]
-    else:
+    else:  # multiple models after --yolo_model
         exp_name = "ensemble"
     exp_name = exp_name + "_" + deep_sort_model.split('/')[-1].split('.')[0]
-    print(exp_name)
     save_dir = increment_path(Path(project) / exp_name, exist_ok=exist_ok)  # increment run if project name exists
     (save_dir / 'tracks' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
