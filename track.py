@@ -64,8 +64,9 @@ def detect(opt):
     else:
         exp_name = "ensemble"
     exp_name = exp_name + "_" + deep_sort_model.split('/')[-1].split('.')[0]
+    print(exp_name)
     save_dir = increment_path(Path(project) / exp_name, exist_ok=exist_ok)  # increment run if project name exists
-    save_dir.mkdir(parents=True, exist_ok=True)  # make dir
+    (save_dir / 'tracks' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Load model
     model = DetectMultiBackend(yolo_model, device=device, dnn=opt.dnn)
@@ -92,25 +93,27 @@ def detect(opt):
     else:
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt and not jit)
         nr_sources = 1
-    vid_path, vid_writer = [None] * nr_sources, [None] * nr_sources
-    
+    vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
+
     # initialize deepsort
     cfg = get_config()
     cfg.merge_from_file(opt.config_deepsort)
-    
+
     # Create as many trackers as there are video sources
     deepsort_list = []
     for i in range(nr_sources):
-        deepsort_list.append(DeepSort(deep_sort_model,
-                                      device,
-                                      max_dist=cfg.DEEPSORT.MAX_DIST,
-                                      max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
-                                      max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
-                                    )
+        deepsort_list.append(
+            DeepSort(
+                deep_sort_model,
+                device,
+                max_dist=cfg.DEEPSORT.MAX_DIST,
+                max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
+                max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
+            )
         )
 
     outputs = [None] * nr_sources
-                        
+
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
 
@@ -145,13 +148,15 @@ def detect(opt):
         for i, det in enumerate(pred):  # detections per image
             seen += 1
             if webcam:  # batch_size >= 1
-                p, im0, _ = path[i], im0s[i].copy(), dataset.count
+                p, im0, frame = path[i], im0s[i].copy(), dataset.count
                 s += f'{i}: '
             else:
-                p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
+                p, im0, frame = path[i], im0s[i].copy(), getattr(dataset, 'frame', 0)
 
             p = Path(p)  # to Path
             save_path = str(save_dir / p.name)  # im.jpg, vid.mp4, ...
+            txt_path = str(save_dir / 'tracks' / p.stem)  # im.txt
+            print(txt_path)
             s += '%gx%g ' % img.shape[2:]  # print string
 
             annotator = Annotator(im0, line_width=2, pil=not ascii)
@@ -173,7 +178,6 @@ def detect(opt):
                 # pass detections to deepsort
                 t4 = time_sync()
                 outputs[i] = deepsort_list[i].update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
-                #deepsort.update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
                 t5 = time_sync()
                 dt[3] += t5 - t4
 
@@ -196,7 +200,7 @@ def detect(opt):
                             bbox_w = output[2] - output[0]
                             bbox_h = output[3] - output[1]
                             # Write MOT compliant results to file
-                            with open(txt_path, 'a') as f:
+                            with open(txt_path + '.txt', 'a') as f:
                                 f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
                                                                bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
 
