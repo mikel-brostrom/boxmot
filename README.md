@@ -112,7 +112,7 @@ python3 track.py --source 0 --yolo_model yolov5s.pt --classes 16 17  # tracks ca
 
 ## MOT compliant results
 
-Can be saved to your experiment folder `track/expN` by 
+Can be saved to your experiment folder `runs/track/<yolo_model>_<deep_sort_model>/` by 
 
 ```bash
 python3 track.py --source ... --save-txt
