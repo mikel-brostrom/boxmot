@@ -27,7 +27,6 @@ class DeepSort(object):
             model_path = join('deep_sort/deep/checkpoint', model + '.pth')
             if not file_exists(model_path):
                 gdown.download(get_model_link(model), model_path, quiet=False)
-
             self.extractor = FeatureExtractor(
                 # get rid of dataset information DeepSort model name
                 model_name=model.rsplit('_', 1)[:-1][0],
@@ -35,15 +34,16 @@ class DeepSort(object):
                 device=str(device)
             )
         else:
+            model_path = join('deep_sort/deep/checkpoint', model + '.pth')
             if is_model_type_in_model_path(model):
                 model_name = get_model_type(model)
                 self.extractor = FeatureExtractor(
                     model_name=model_name,
-                    model_path=model,
+                    model_path=model_path,
                     device=str(device)
                 )
             else:
-                print('Cannot infere model name from provided DeepSort path, should be one of the following:')
+                print('Cannot infer model name from provided DeepSort path, should be one of the following:')
                 show_supported_models()
                 exit()
 
