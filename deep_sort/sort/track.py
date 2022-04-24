@@ -63,22 +63,22 @@ class Track:
 
     """
 
-    def __init__(self, mean, covariance, track_id, class_id, n_init, max_age,
+    def __init__(self, mean, covariance, track_id, class_id, conf, n_init, max_age,
                  feature=None):
         self.mean = mean
         self.covariance = covariance
         self.track_id = track_id
-        self.class_id = class_id
+        self.class_id = int(class_id)
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
-        self.yolo_bbox = [0, 0, 0, 0]
 
         self.state = TrackState.Tentative
         self.features = []
         if feature is not None:
             self.features.append(feature)
 
+        self.conf = conf
         self._n_init = n_init
         self._max_age = max_age
 
@@ -111,16 +111,6 @@ class Track:
         ret[2:] = ret[:2] + ret[2:]
         return ret
 
-    def get_yolo_pred(self):
-        """Get yolo prediction`.
-
-        Returns
-        -------
-        ndarray
-            The yolo bounding box.
-
-        """
-        return self.yolo_bbox
 
     def increment_age(self):
         self.age += 1
@@ -139,7 +129,7 @@ class Track:
         self.mean, self.covariance = kf.predict(self.mean, self.covariance)
         self.increment_age()
 
-    def update(self, kf, detection, class_id):
+    def update(self, kf, detection, class_id, conf):
         """Perform Kalman filter measurement update step and update the feature
         cache.
 
@@ -151,11 +141,11 @@ class Track:
             The associated detection.
 
         """
-        self.yolo_bbox = detection
+        self.conf = conf
         self.mean, self.covariance = kf.update(
             self.mean, self.covariance, detection.to_xyah())
         self.features.append(detection.feature)
-        self.class_id = class_id
+        self.class_id = class_id.int()
 
         self.hits += 1
         self.time_since_update = 0
