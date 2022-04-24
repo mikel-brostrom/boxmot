@@ -53,7 +53,7 @@ class DeepSort(object):
         self.tracker = Tracker(
             metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init)
 
-    def update(self, bbox_xywh, confidences, classes, ori_img, use_yolo_preds=False):
+    def update(self, bbox_xywh, confidences, classes, ori_img):
         self.height, self.width = ori_img.shape[:2]
         # generate detections
         features = self._get_features(bbox_xywh, ori_img)
@@ -67,22 +67,21 @@ class DeepSort(object):
 
         # update tracker
         self.tracker.predict()
-        self.tracker.update(detections, classes)
+        self.tracker.update(detections, classes, confidences)
 
         # output bbox identities
         outputs = []
         for track in self.tracker.tracks:
             if not track.is_confirmed() or track.time_since_update > 1:
                 continue
-            if use_yolo_preds:
-                det = track.get_yolo_pred()
-                x1, y1, x2, y2 = self._tlwh_to_xyxy(det.tlwh)
-            else:
-                box = track.to_tlwh()
-                x1, y1, x2, y2 = self._tlwh_to_xyxy(box)
+
+            box = track.to_tlwh()
+            x1, y1, x2, y2 = self._tlwh_to_xyxy(box)
+            
             track_id = track.track_id
             class_id = track.class_id
-            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id], dtype=np.int))
+            conf = track.conf
+            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id, conf]))
         if len(outputs) > 0:
             outputs = np.stack(outputs, axis=0)
         return outputs
