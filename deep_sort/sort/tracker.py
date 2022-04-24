@@ -59,7 +59,7 @@ class Tracker:
             track.increment_age()
             track.mark_missed()
 
-    def update(self, detections, classes):
+    def update(self, detections, classes, confidences):
         """Perform measurement update and track management.
 
         Parameters
@@ -75,11 +75,11 @@ class Tracker:
         # Update track set.
         for track_idx, detection_idx in matches:
             self.tracks[track_idx].update(
-                self.kf, detections[detection_idx], classes[detection_idx])
+                self.kf, detections[detection_idx], classes[detection_idx], confidences[detection_idx])
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
         for detection_idx in unmatched_detections:
-            self._initiate_track(detections[detection_idx], classes[detection_idx].item())
+            self._initiate_track(detections[detection_idx], classes[detection_idx].item(), confidences[detection_idx].item())
         self.tracks = [t for t in self.tracks if not t.is_deleted()]
 
         # Update distance metric.
@@ -162,9 +162,9 @@ class Tracker:
         unmatched_tracks = list(set(unmatched_tracks_a + unmatched_tracks_b))
         return matches, unmatched_tracks, unmatched_detections
 
-    def _initiate_track(self, detection, class_id):
+    def _initiate_track(self, detection, class_id, conf):
         mean, covariance = self.kf.initiate(detection.to_xyah())
         self.tracks.append(Track(
-            mean, covariance, self._next_id, class_id, self.n_init, self.max_age,
+            mean, covariance, self._next_id, class_id, conf, self.n_init, self.max_age,
             detection.feature))
         self._next_id += 1
