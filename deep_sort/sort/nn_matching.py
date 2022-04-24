@@ -66,8 +66,8 @@ def _nn_euclidean_distance(x, y):
         A vector of length M that contains for each entry in `y` the
         smallest Euclidean distance to a sample in `x`.
     """
-    x_ = torch.from_numpy(np.asarray(x))
-    y_ = torch.from_numpy(np.asarray(y))
+    x_ = torch.from_numpy(np.asarray(x) / np.linalg.norm(x, axis=1, keepdims=True))
+    y_ = torch.from_numpy(np.asarray(y) / np.linalg.norm(y, axis=1, keepdims=True))
     distances = compute_distance_matrix(x_, y_, metric='euclidean')
     return np.maximum(0.0, torch.min(distances, axis=0)[0].numpy())
 
@@ -160,5 +160,5 @@ class NearestNeighborDistanceMetric(object):
         """
         cost_matrix = np.zeros((len(targets), len(features)))
         for i, target in enumerate(targets):
-            cost_matrix= self._metric(self.samples[target], features)
+            cost_matrix[i, :] = self._metric(self.samples[target], features)
         return cost_matrix
