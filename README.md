@@ -126,7 +126,7 @@ If you find this project useful in your research, please consider cite:
 
 ```latex
 @misc{yolov5-deepsort-osnet-2022,
-    title={Real-time multi-video multi-object tracker using YOLOv5 and DeepSort with OSNet},
+    title={Real-time multi-camera multi-object tracker using YOLOv5 and DeepSort with OSNet},
     author={Mikel Broström},
     howpublished = {\url{https://github.com/mikel-brostrom/Yolov5_DeepSort_OSNet}},
     year={2022}
