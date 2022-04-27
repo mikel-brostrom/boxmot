@@ -132,3 +132,7 @@ If you find this project useful in your research, please consider cite:
     year={2022}
 }
 ```
+
+## Contact 
+
+For Yolov5_DeepSort_OSNet bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_DeepSort_OSNet/issues). For business inquiries or professional support requests please send an email to: yolov5.deepsort.pytorch@gmail.com
