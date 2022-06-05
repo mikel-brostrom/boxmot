@@ -57,5 +57,5 @@ jobs:
         run: |
           # otherwise problems placing the yolo weights in submodule
           sudo chmod -R 777 /home/
-          python track.py --yolo_model yolov5n.pt --deep_sort_model osnet_x0_25_MSMT17 --source yolov5/data/images/
+          python track.py --yolo_weights yolov5n.pt --deep_sort_weights osnet_x0_25_msmt17 --source yolov5/data/images/
         shell: bash
