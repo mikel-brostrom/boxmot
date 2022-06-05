@@ -7,45 +7,34 @@ from os.path import exists as file_exists, join
 from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
 from .sort.tracker import Tracker
-from .deep.reid_model_factory import show_downloadeable_models, get_model_link, is_model_in_factory, \
-    is_model_type_in_model_path, get_model_type, show_supported_models
+from .deep.reid_model_factory import show_downloadeable_models, get_model_url, get_model_name
 
-sys.path.append('deep_sort/deep/reid')
 from torchreid.utils import FeatureExtractor
 from torchreid.utils.tools import download_url
-
-show_downloadeable_models()
 
 __all__ = ['DeepSort']
 
 
 class DeepSort(object):
-    def __init__(self, model, device, max_dist=0.2, max_iou_distance=0.7, max_age=70, n_init=3, nn_budget=100):
-        # models trained on: market1501, dukemtmcreid and msmt17
-        if is_model_in_factory(model):
-            # download the model
-            model_path = join('deep_sort/deep/checkpoint', model + '.pth')
-            if not file_exists(model_path):
-                gdown.download(get_model_link(model), model_path, quiet=False)
+    def __init__(self, model_weights, device, max_dist=0.2, max_iou_distance=0.7, max_age=70, n_init=3, nn_budget=100):
+        model_name = get_model_name(model_weights)
+        model_url = get_model_url(model_weights)
 
-            self.extractor = FeatureExtractor(
-                # get rid of dataset information DeepSort model name
-                model_name=model.rsplit('_', 1)[:-1][0],
-                model_path=model_path,
-                device=str(device)
-            )
-        else:
-            if is_model_type_in_model_path(model):
-                model_name = get_model_type(model)
-                self.extractor = FeatureExtractor(
-                    model_name=model_name,
-                    model_path=model,
-                    device=str(device)
-                )
-            else:
-                print('Cannot infere model name from provided DeepSort path, should be one of the following:')
-                show_supported_models()
-                exit()
+        if not file_exists(model_weights) and model_url is not None:
+            gdown.download(model_url, str(model_weights), quiet=False)
+        elif file_exists(model_weights):
+            pass
+        elif model_url is None:
+            print('No URL associated to the chosen DeepSort weights. Choose between:')
+            show_downloadeable_models()
+            exit()
+
+        self.extractor = FeatureExtractor(
+            # get rid of dataset information DeepSort model name
+            model_name=model_name,
+            model_path=model_weights,
+            device=str(device)
+        )
 
         self.max_dist = max_dist
         metric = NearestNeighborDistanceMetric(
