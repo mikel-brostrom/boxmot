@@ -85,10 +85,10 @@ The above applies to DeepSort models as well. Choose a ReID model based on your 
 ```bash
 
 
-$ python track.py --source 0 --deep_sort_model osnet_x0_25_market1501
-                                               osnet_x0_5_market1501
-                                               osnet_x0_75_msmt17
-                                               osnet_x1_0_msmt17
+$ python track.py --source 0 --deep_sort_model osnet_x0_25_market1501.pt
+                                               osnet_x0_5_market1501.pt
+                                               osnet_x0_75_msmt17.pt
+                                               osnet_x1_0_msmt17.pt
                                                ...
 ```
 
