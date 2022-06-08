@@ -78,9 +78,9 @@ $ python track.py --source 0 --yolo_model yolov5n.pt --img 640
                                           ...
 ```
 
-### DeepSort
+### DeepSORT
 
-The above applies to DeepSort models as well. Choose a ReID model based on your needs from this ReID [model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO)
+The above applies to DeepSORT models as well. Choose a ReID model based on your needs from this ReID [model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO)
 
 ```bash
 
