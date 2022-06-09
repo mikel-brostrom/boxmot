@@ -12,11 +12,19 @@ from .deep.reid_model_factory import show_downloadeable_models, get_model_url, g
 from torchreid.utils import FeatureExtractor
 from torchreid.utils.tools import download_url
 
-__all__ = ['DeepSort']
+__all__ = ['StrongSORT']
 
 
-class DeepSort(object):
-    def __init__(self, model_weights, device, max_dist=0.2, max_iou_distance=0.7, max_age=70, n_init=3, nn_budget=100):
+class StrongSORT(object):
+    def __init__(self, 
+                 model_weights,
+                 device, max_dist=0.2,
+                 max_iou_distance=0.7,
+                 max_age=70, n_init=3,
+                 nn_budget=100,
+                 mc_lambda=0.995,
+                 ema_alpha=0.9
+                ):
         model_name = get_model_name(model_weights)
         model_url = get_model_url(model_weights)
 
