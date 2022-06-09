@@ -221,6 +221,7 @@ def run(
 
                         if save_vid or save_crop or show_vid:  # Add bbox to image
                             c = int(cls)  # integer class
+                            id = int(id)  # integer id
                             label = f'{id} {names[c]} {conf:.2f}'
                             annotator.box_label(bboxes, label, color=colors(c, True))
                             if save_crop:
