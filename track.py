@@ -136,7 +136,7 @@ def run(
     # Run tracking
     model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
-    cur_frame, prev_frame = np.zeros((480, 640, 3)), np.zeros((480, 640, 3))
+    curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
     for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
         t1 = time_sync()
         im = torch.from_numpy(im).to(device)
@@ -177,15 +177,20 @@ def run(
                 else:
                     txt_file_name = p.parent.name  # get folder name containing current img
                     save_path = str(save_dir / p.parent.name)  # im.jpg, vid.mp4, ...
-            cur_frame = im0
+            curr_frames[i] = im0
 
             txt_path = str(save_dir / 'tracks' / txt_file_name)  # im.txt
             s += '%gx%g ' % im.shape[2:]  # print string
             imc = im0.copy() if save_crop else im0  # for save_crop
 
+            h, w, c = im0.shape
             annotator = Annotator(im0, line_width=2, pil=not ascii)
-            if cfg.STRONGSORT.ECC:
-                strongsort_list[i].tracker.camera_update(prev_frame, cur_frame)
+            if cfg.STRONGSORT.ECC:  # camera motion
+                #print('cur_frame', curr_frames.shape)
+                #print('prev_frame', prev_frames.shape) if prev_frames is not None else print('prev_frame', np.zeros((h, w, c)).shape)
+                strongsort_list[i].tracker.camera_update(
+                    prev_frames[i] if prev_frames[i] is not None else np.zeros((h, w, c)), 
+                    curr_frames[i])
 
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
@@ -262,7 +267,7 @@ def run(
                     vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                 vid_writer[i].write(im0)
 
-            prev_frame = cur_frame
+            prev_frames[i] = curr_frames[i]
 
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
