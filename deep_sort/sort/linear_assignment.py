@@ -170,5 +170,5 @@ def gate_cost_matrix(
         track = tracks[track_idx]
         gating_distance = track.kf.gating_distance(track.mean, track.covariance, measurements, only_position)
         cost_matrix[row, gating_distance > gating_threshold] = gated_cost
-        cost_matrix[row] = 0.98 * cost_matrix[row] + (1 - 0.98) *  gating_distance
+        cost_matrix[row] = 0.995 * cost_matrix[row] + (1 - 0.995) *  gating_distance
     return cost_matrix
