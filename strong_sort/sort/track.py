@@ -151,7 +151,7 @@ class Track:
         """
         assert src.shape == dst.shape, "the source image must be the same format to the target image!"
         
-        if src or dst is None: 
+        if src.any() or dst.any() is None: 
             return None, None
 
         # BGR2GRAY

@@ -126,9 +126,9 @@ class KalmanFilter(object):
             estimate.
         """
         std = [
-            self._std_weight_position * mean[0],
-            self._std_weight_position * mean[1],
-            0.1 * mean[2],
+            self._std_weight_position * mean[3],
+            self._std_weight_position * mean[3],
+            1e-1,
             self._std_weight_position * mean[3]]
 
 
