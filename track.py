@@ -183,14 +183,9 @@ def run(
             s += '%gx%g ' % im.shape[2:]  # print string
             imc = im0.copy() if save_crop else im0  # for save_crop
 
-            h, w, c = im0.shape
             annotator = Annotator(im0, line_width=2, pil=not ascii)
             if cfg.STRONGSORT.ECC:  # camera motion
-                #print('cur_frame', curr_frames.shape)
-                #print('prev_frame', prev_frames.shape) if prev_frames is not None else print('prev_frame', np.zeros((h, w, c)).shape)
-                strongsort_list[i].tracker.camera_update(
-                    prev_frames[i] if prev_frames[i] is not None else np.zeros((h, w, c)), 
-                    curr_frames[i])
+                strongsort_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
 
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
