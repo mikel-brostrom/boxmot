@@ -72,6 +72,7 @@ def run(
         hide_conf=False,  # hide confidences
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
+        ecc=False,  # camera motion compensation
 ):
 
     source = str(source)
@@ -179,7 +180,8 @@ def run(
             imc = im0.copy() if save_crop else im0  # for save_crop
 
             annotator = Annotator(im0, line_width=2, pil=not ascii)
-            deepsort_list[i].tracker.camera_update(prev_frame, cur_frame)
+            if ecc:
+                deepsort_list[i].tracker.camera_update(prev_frame, cur_frame)
 
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
@@ -299,6 +301,7 @@ def parse_opt():
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
+    parser.add_argument('--ecc', action='store_true', help='camera motion compensation')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     print_args(vars(opt))
