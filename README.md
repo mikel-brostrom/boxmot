@@ -37,7 +37,7 @@ This repository contains a highly configurable two-stage-tracker that adjusts to
 
 1. Clone the repository recursively:
 
-`git clone --recurse-submodules https://github.com/mikel-brostrom/Yolov5_DeepSort_OSNet.git`
+`git clone --recurse-submodules https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet.git`
 
 If you already cloned and forgot to use `--recurse-submodules` you can run `git submodule update --init`
 
@@ -79,18 +79,18 @@ $ python track.py --source 0 --yolo_model yolov5n.pt --img 640
                                           ...
 ```
 
-### DeepSORT
+### StrongSORT
 
-The above applies to DeepSORT models as well. Choose a ReID model based on your needs from this ReID [model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO)
+The above applies to StrongSORT models as well. Choose a ReID model based on your needs from this ReID [model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO)
 
 ```bash
 
 
-$ python track.py --source 0 --deep_sort_model osnet_x0_25_market1501.pt
-                                               osnet_x0_5_market1501.pt
-                                               osnet_x0_75_msmt17.pt
-                                               osnet_x1_0_msmt17.pt
-                                               ...
+$ python track.py --source 0 --strong-sort-weights osnet_x0_25_market1501.pt
+                                                   osnet_x0_5_market1501.pt
+                                                   osnet_x0_75_msmt17.pt
+                                                   osnet_x1_0_msmt17.pt
+                                                   ...
 ```
 
 ## Filter tracked classes
@@ -126,14 +126,14 @@ python track.py --source ... --save-txt
 If you find this project useful in your research, please consider cite:
 
 ```latex
-@misc{yolov5-deepsort-osnet-2022,
-    title={Real-time multi-camera multi-object tracker using YOLOv5 and DeepSort with OSNet},
+@misc{yolov5-strongsort-osnet-2022,
+    title={Real-time multi-camera multi-object tracker using YOLOv5 and StrongSORT with OSNet},
     author={Mikel Broström},
-    howpublished = {\url{https://github.com/mikel-brostrom/Yolov5_DeepSort_OSNet}},
+    howpublished = {\url{https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet}},
     year={2022}
 }
 ```
 
 ## Contact 
 
-For Yolov5 DeepSort OSNet bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_DeepSort_OSNet/issues). For business inquiries or professional support requests please send an email to: yolov5.deepsort.pytorch@gmail.com
+For Yolov5 DeepSort OSNet bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues). For business inquiries or professional support requests please send an email to: yolov5.deepsort.pytorch@gmail.com
