@@ -150,6 +150,9 @@ class Track:
             aligned source image of gray
         """
         assert src.shape == dst.shape, "the source image must be the same format to the target image!"
+        
+        if src or dst is None: 
+            return None, None
 
         # BGR2GRAY
         if src.ndim == 3:
