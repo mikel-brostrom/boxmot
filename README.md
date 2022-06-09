@@ -26,7 +26,7 @@ This repository contains a highly configurable two-stage-tracker that adjusts to
 
 ## Tutorials
 
-* [Yolov5 training on Custom Data (link to external repository)](https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data)&nbsp;
+* [Yolov5 training (link to external repository)](https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data)&nbsp;
 * [Deep appearance descriptor training (link to external repository)](https://kaiyangzhou.github.io/deep-person-reid/user_guide.html)&nbsp;
 * [Yolov5 StrongSORT OSNet evaluation](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/Evaluation)&nbsp;
 * [StrongSORT ablation study](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/Yolov5DeepSORTwithOSNet-vs-Yolov5StrongSORTwithOSNet-ablation-study-on-MOT16)&nbsp;
