@@ -1,0 +1,32 @@
+name: Enhancement
+description: Suggest a Yolov5_StrongSORT_OSNet enhancement
+# title: " "
+labels: [enhancement]
+body:
+
+  - type: checkboxes
+    attributes:
+      label: Search before asking
+      description: >
+        Please search the [issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues) to see if a similar enhancement request already exists.
+      options:
+        - label: >
+            I have searched the YOLOv5 [issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues) and found no similar enhancement requests.
+          required: true
+
+  - type: textarea
+    attributes:
+      label: Description
+      description: A short description of your enhancement.
+      placeholder: |
+        What new enhancement would you like to see in Yolov5_StrongSORT_OSNet?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Use case
+      description: |
+        Describe the use case of your feature request. It will help us understand and prioritize the feature request.
+      placeholder: |
+        How would this feature be used, and who would use it?
