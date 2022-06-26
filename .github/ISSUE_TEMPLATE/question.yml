@@ -1,0 +1,24 @@
+name: Question
+description: Ask a Yolov5_StrongSORT_OSNet question
+# title: " "
+labels: [question]
+body:
+
+  - type: checkboxes
+    attributes:
+      label: Search before asking
+      description: >
+        Please search the [issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues) to see if a similar question already exists.
+      options:
+        - label: >
+            I have searched the Yolov5_StrongSORT_OSNet [issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues) and found no similar bug report.
+          required: true
+
+  - type: textarea
+    attributes:
+      label: Question
+      description: What is your question?
+      placeholder: |
+        💡 ProTip! Include as much information as possible (screenshots, logs, tracebacks etc.) to receive the most helpful response.
+    validations:
+      required: true
