@@ -7,8 +7,10 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import sys
+import shutil
 import numpy as np
 from pathlib import Path
 import torch
@@ -54,7 +56,7 @@ def run(
         save_txt=False,  # save results to *.txt
         save_conf=False,  # save confidences in --save-txt labels
         save_crop=False,  # save cropped prediction boxes
-        save_vid=False,  # save confidences in --save-txt labels
+        save_vid=False,  # save video tracking results
         nosave=False,  # do not save images/videos
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=False,  # class-agnostic NMS
@@ -82,13 +84,15 @@ def run(
 
     # Directories
     if not isinstance(yolo_weights, list):  # single yolo model
-        exp_name = str(yolo_weights).rsplit('/', 1)[-1].split('.')[0]
+        exp_name = yolo_weights.stem
     elif type(yolo_weights) is list and len(yolo_weights) == 1:  # single models after --yolo_weights
-        exp_name = yolo_weights[0].split(".")[0]
+        exp_name = yolo_weights[0].stem
     else:  # multiple models after --yolo_weights
         exp_name = 'ensemble'
-    exp_name = name if name is not None else exp_name + "_" + str(strong_sort_weights).split('/')[-1].split('.')[0]
+    exp_name = name if name else exp_name + "_" + strong_sort_weights.stem
     save_dir = increment_path(Path(project) / exp_name, exist_ok=exist_ok)  # increment run
+    if os.path.exists(save_dir):
+        shutil.rmtree(save_dir)
     (save_dir / 'tracks' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Load model
@@ -110,7 +114,7 @@ def run(
 
     # initialize StrongSORT
     cfg = get_config()
-    cfg.merge_from_file(opt.config_strongsort)
+    cfg.merge_from_file(config_strongsort)
 
     # Create as many strong sort instances as there are video sources
     strongsort_list = []
@@ -146,13 +150,13 @@ def run(
         dt[0] += t2 - t1
 
         # Inference
-        visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if opt.visualize else False
-        pred = model(im, augment=opt.augment, visualize=visualize)
+        visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
+        pred = model(im, augment=augment, visualize=visualize)
         t3 = time_sync()
         dt[1] += t3 - t2
 
         # Apply NMS
-        pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, opt.classes, opt.agnostic_nms, max_det=opt.max_det)
+        pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
         dt[2] += time_sync() - t3
 
         # Process detections
