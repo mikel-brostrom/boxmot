@@ -84,7 +84,7 @@ def run(
     if not isinstance(yolo_weights, list):  # single yolo model
         exp_name = yolo_weights.stem
     elif type(yolo_weights) is list and len(yolo_weights) == 1:  # single models after --yolo_weights
-        exp_name = yolo_weights[0].stem
+        exp_name = Path(yolo_weights[0]).stem
     else:  # multiple models after --yolo_weights
         exp_name = 'ensemble'
     exp_name = name if name else exp_name + "_" + strong_sort_weights.stem
