@@ -87,7 +87,7 @@ def run(
         exp_name = yolo_weights[0].stem
     else:  # multiple models after --yolo_weights
         exp_name = 'ensemble'
-    exp_name = name if name is not None else exp_name + "_" + strong_sort_weights.stem
+    exp_name = name if name else exp_name + "_" + strong_sort_weights.stem
     save_dir = increment_path(Path(project) / exp_name, exist_ok=exist_ok)  # increment run
     (save_dir / 'tracks' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
