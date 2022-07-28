@@ -11,6 +11,13 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import sys
 import numpy as np
 from pathlib import Path
+
+import pandas as pd
+from collections import Counter
+
+import warnings
+warnings.filterwarnings('ignore')
+
 import torch
 import torch.backends.cudnn as cudnn
 
@@ -70,6 +77,8 @@ def run(
         hide_class=False,  # hide IDs
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
+        count=False,  # get counts of every obhects
+
 ):
 
     source = str(source)
@@ -220,7 +229,7 @@ def run(
                             bbox_h = output[3] - output[1]
                             # Write MOT compliant results to file
                             with open(txt_path + '.txt', 'a') as f:
-                                f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
+                                f.write(('%g ' * 11 + '\n') % (frame_idx + 1, cls, id, bbox_left,  # MOT format
                                                                bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
 
                         if save_vid or save_crop or show_vid:  # Add bbox to image
@@ -239,8 +248,54 @@ def run(
                 strongsort_list[i].increment_ages()
                 LOGGER.info('No detections')
 
-            # Stream results
-            im0 = annotator.result()
+
+            if count:
+                itemDict={}
+                ## NOTE: this works only if save-txt is true
+                try:
+                    df = pd.read_csv(txt_path +'.txt' , header=None, delim_whitespace=True)
+                    df = df.iloc[:,0:3]
+                    df.columns=["frameid" ,"class","trackid"]
+                    df = df[['class','trackid']]
+                    df = (df.groupby('trackid')['class']
+                              .apply(list)
+                              .apply(lambda x:sorted(x))
+                             ).reset_index()
+
+                    df.colums = ["trackid","class"]
+                    df['class']=df['class'].apply(lambda x: Counter(x).most_common(1)[0][0])
+                    vc = df['class'].value_counts()
+                    vc = dict(vc)
+
+                    vc2 = {}
+                    for key, val in enumerate(names):
+                        vc2[key] = val
+                    itemDict = dict((vc2[key], value) for (key, value) in vc.items())
+                    itemDict  = dict(sorted(itemDict.items(), key=lambda item: item[0]))
+                    # print(itemDict)
+
+                except:
+                    pass
+
+                if save_txt:
+                    ## overlay
+                    display = im0.copy()
+                    h, w = im0.shape[0], im0.shape[1]
+                    x1 = 10
+                    y1 = 10
+                    x2 = 10
+                    y2 = 70
+
+                    txt_size = cv2.getTextSize(str(itemDict), cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(im0, (x1, y1 + 1), (txt_size[0] * 2, y2),(0, 0, 0),-1)
+                    cv2.putText(im0, '{}'.format(itemDict), (x1 + 10, y1 + 35), cv2.FONT_HERSHEY_SIMPLEX,0.7, (210, 210, 210), 2)
+                    cv2.addWeighted(im0, 0.7, display, 1 - 0.7, 0, im0)
+
+
+            #current frame // tesing
+            cv2.imwrite('testing.jpg',im0)
+
+
             if show_vid:
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
@@ -290,6 +345,7 @@ def parse_opt():
     parser.add_argument('--save-crop', action='store_true', help='save cropped prediction boxes')
     parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
     parser.add_argument('--nosave', action='store_true', help='do not save images/videos')
+    parser.add_argument('--count', action='store_true', help='display all MOT counts results on screen')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
