@@ -22,7 +22,7 @@ seaborn>=0.11.0
 
 easydict
 
-# torchreid
+# torchreid -----------------------------------
 
 Cython
 h5py
@@ -35,3 +35,10 @@ flake8
 yapf
 isort==4.3.21
 imageio
+
+# Export --------------------------------------
+onnx>=1.9.0  # ONNX export
+onnx-simplifier>=0.4.1  # ONNX simplifier
+tensorflow>=2.4.1  # TFLite export (or tensorflow-cpu, tensorflow-aarch64)
+openvino-dev  # OpenVINO export
+git+https://github.com/PINTO0309/openvino2tensorflow
