@@ -16,10 +16,8 @@ if str(ROOT / 'yolov5') not in sys.path:
 if str(ROOT / 'strong_sort') not in sys.path:
     sys.path.append(str(ROOT / 'strong_sort/'))  # add strong_sort ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
-print(ROOT, sys.path)
 
 from yolov5.utils.general import LOGGER, colorstr
-
 from strong_sort.deep.reid.torchreid.utils.feature_extractor import FeatureExtractor
 from strong_sort.deep.reid.torchreid.models import build_model
 from strong_sort.deep.reid_model_factory import get_model_name
@@ -36,22 +34,30 @@ def file_size(path):
         return 0.0
 
 
-def export_onnx(model, im, file, opset, train=False, dynamic=False, simplify=False):
+def export_onnx(model, im, file, opset, train=False, dynamic=True, simplify=False):
     # ONNX export
     try:
         import onnx
         f = file.with_suffix('.onnx')
         LOGGER.info(f'\nstarting export with onnx {onnx.__version__}...')
         torch.onnx.export(
-            model,
-            im,
+            model.cpu() if dynamic else model,  # --dynamic only compatible with cpu
+            im.cpu() if dynamic else im,
             f,
             verbose=False,
             opset_version=opset,
             training=torch.onnx.TrainingMode.TRAINING if train else torch.onnx.TrainingMode.EVAL,
             do_constant_folding=not train,
             input_names=['images'],
-            output_names=['output']
+            output_names=['output'],
+            dynamic_axes={
+                'images': {
+                    0: 'batch',
+                },  # shape(x,3,256,128)
+                'output': {
+                    0: 'batch',
+                }  # shape(x,2048)
+            } if dynamic else None
         )
         # Checks
         model_onnx = onnx.load(f)  # load onnx model
@@ -79,7 +85,7 @@ def export_onnx(model, im, file, opset, train=False, dynamic=False, simplify=Fal
     return f
         
         
-def export_openvino(file, half, prefix=colorstr('OpenVINO:')):
+def export_openvino(file, dynamic, half, prefix=colorstr('OpenVINO:')):
     f = str(file).replace('.onnx', f'_openvino_model{os.sep}')
     # YOLOv5 OpenVINO export
     try:
@@ -88,8 +94,15 @@ def export_openvino(file, half, prefix=colorstr('OpenVINO:')):
 
         LOGGER.info(f'\n{prefix} starting export with openvino {ie.__version__}...')
         f = str(file).replace('.onnx', f'_openvino_model{os.sep}')
+        dyn_shape = [-1,3,256,128] if dynamic else None
+        cmd = f"mo \
+            --input_model {file} \
+            --output_dir {f} \
+            --data_type {'FP16' if half else 'FP32'}"
+        
+        if dyn_shape is not None:
+            cmd + f"--input_shape {dyn_shape}"
 
-        cmd = f"mo --input_model {file} --output_dir {f} --data_type {'FP16' if half else 'FP32'}"
         subprocess.check_output(cmd.split())  # export
 
         LOGGER.info(f'{prefix} export success, saved as {f} ({file_size(f):.1f} MB)')
@@ -99,7 +112,7 @@ def export_openvino(file, half, prefix=colorstr('OpenVINO:')):
     return f
         
 
-def export_tflite(file, half, prefix=colorstr('OpenVINO:')):
+def export_tflite(file, half, prefix=colorstr('TFLite:')):
     # YOLOv5 OpenVINO export
     try:
         #check_requirements(('openvino-dev',))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
@@ -107,10 +120,16 @@ def export_tflite(file, half, prefix=colorstr('OpenVINO:')):
         LOGGER.info(f'\n{prefix} starting export with openvino {ie.__version__}...')
         output = Path(str(file).replace(f'_openvino_model{os.sep}', f'_tflite_model{os.sep}'))
         f = (Path(str(file).replace(f'_openvino_model{os.sep}', f'_tflite_model{os.sep}')).parent).joinpath(list(Path(file).glob('*.xml'))[0])
-        cmd = f"openvino2tensorflow --model_path {f} --model_output_path {output} --output_pb --output_saved_model --output_no_quant_float32_tflite"
+        cmd = f"openvino2tensorflow \
+            --model_path {f} \
+            --model_output_path {output} \
+            --output_pb \
+            --output_saved_model \
+            --output_no_quant_float32_tflite \
+            --output_dynamic_range_quant_tflite"
         subprocess.check_output(cmd.split())  # export
 
-        LOGGER.info(f'{prefix} export success, saved as {f} ({file_size(f):.1f} MB)')
+        LOGGER.info(f'{prefix} export success, results saved in {output} ({file_size(f):.1f} MB)')
         return f
     except Exception as e:
         LOGGER.info(f'\n{prefix} export failure: {e}')
@@ -120,11 +139,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="CPHD train")
     parser.add_argument(
-        "-c",
-        "--config",
-        type=str,
-        default="tanet",
-        help="Name of configuration file",
+        "-d",
+        "--dynamic",
+        action="store_true",
+        help="dynamic model input",
     )
     parser.add_argument(
         "-p",
@@ -156,7 +174,7 @@ if __name__ == "__main__":
         device=str('cpu')
     )
     
-    im = torch.zeros(1, 3, 256, 128).to('cpu')  # image size(1,3,640,480) BCHW iDetection
-    f = export_onnx(extractor.model.eval(), im, args.weights, 12, False, False, True)  # opset 12
-    f = export_openvino(f, False)
+    im = torch.zeros(1, 3, args.imgsz[0], args.imgsz[1]).to('cpu')  # image size(1,3,640,480) BCHW iDetection
+    f = export_onnx(extractor.model.eval(), im, args.weights, 12, train=False, dynamic=args.dynamic, simplify=True)  # opset 12
+    f = export_openvino(f, dynamic=args.dynamic, half=False)
     export_tflite(f, False)

@@ -56,7 +56,7 @@ class StrongSORT(object):
         self.size = (256, 128)
         
         # Load TFLite model and allocate tensors.
-        self.interpreter = tf.lite.Interpreter(model_path="/home/mikel.brostrom/Yolov5_StrongSORT_OSNet/mobilenetv2_x1_4_msmt17_tflite_model/mobilenetv2_x1_4_msmt17.tflite")
+        self.interpreter = tf.lite.Interpreter(model_path="/home/mikel.brostrom/Yolov5_StrongSORT_OSNet/mobilenetv2_x1_4_msmt17_tflite_model/model_float32.tflite")
         self.interpreter.allocate_tensors()
         # Get input and output tensors.
         self.input_details = self.interpreter.get_input_details()
@@ -175,6 +175,11 @@ class StrongSORT(object):
             im_batch = torch.cat([self.norm(_resize(im, self.size)).unsqueeze(0) for im in im_crops], dim=0).float()
             # NCHW --> NHWC
             im_batch = torch.transpose(im_batch, 1, 3)
+            
+            # dynamic input openvino model cannot be exported to tflite by openvino2tensorflow
+            # self.interpreter.set_tensor(self.input_details[0]['index'], im_batch)
+            # self.interpreter.invoke()
+            # feature = torch.tensor(self.interpreter.get_tensor(self.output_details[0]['index']))
  
             features = []
             for i in range(0, im_batch.shape[0]):
