@@ -1,8 +1,10 @@
 import numpy as np
 import torch
 import sys
+import cv2
 import gdown
 from os.path import exists as file_exists, join
+import torchvision.transforms as transforms
 
 from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
@@ -11,6 +13,9 @@ from .deep.reid_model_factory import show_downloadeable_models, get_model_url, g
 
 from torchreid.utils import FeatureExtractor
 from torchreid.utils.tools import download_url
+
+import numpy as np
+import tensorflow as tf
 
 __all__ = ['StrongSORT']
 
@@ -37,13 +42,39 @@ class StrongSORT(object):
             show_downloadeable_models()
             exit()
 
-        self.extractor = FeatureExtractor(
-            # get rid of dataset information DeepSort model name
-            model_name=model_name,
-            model_path=model_weights,
-            device=str(device)
-        )
+        # self.extractor = FeatureExtractor(
+        #     # get rid of dataset information DeepSort model name
+        #     model_name=model_name,
+        #     model_path=model_weights,
+        #     device=str(device)
+        # )
+        
+        self.norm = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ])
+        self.size = (256, 128)
+        
+        # Load TFLite model and allocate tensors.
+        self.interpreter = tf.lite.Interpreter(model_path="/home/mikel.brostrom/Yolov5_StrongSORT_OSNet/resnet50_msmt17_tflite_model/resnet50_msmt17.tflite")
+        self.interpreter.allocate_tensors()
+        # Get input and output tensors.
+        self.input_details = self.interpreter.get_input_details()
+        print(self.input_details)
+        self.output_details = self.interpreter.get_output_details()
+        
+        # Test model on random input data.
+        input_data = np.array(np.random.random_sample((1,256,128,3)), dtype=np.float32)
+        self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+        
+        self.interpreter.invoke()
 
+        # The function `get_tensor()` returns a copy of the tensor data.
+        # Use `tensor()` in order to get a pointer to the tensor.
+        output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
+        print(output_data.shape)
+
+        
         self.max_dist = max_dist
         metric = NearestNeighborDistanceMetric(
             "cosine", self.max_dist, nn_budget)
@@ -138,7 +169,34 @@ class StrongSORT(object):
             im = ori_img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
-            features = self.extractor(im_crops)
+            def _resize(im, size):
+                return cv2.resize(im.astype(np.float32)/255., size)
+
+            im_batch = torch.cat([self.norm(_resize(im, self.size)).unsqueeze(0) for im in im_crops], dim=0).float()
+            # NCHW --> NHWC
+            im_batch = torch.transpose(im_batch, 1, 3)
+            print('im_batch shape', im_batch.shape)
+            #images = torch.stack(images, dim=0)
+            #im_batch = im_batch.to(self.device)
+            print(len(im_crops))
+            print(type(im_crops[0]))
+            print(im_crops[0].shape)
+            
+        
+            self.interpreter.invoke()
+
+            # The function `get_tensor()` returns a copy of the tensor data.
+            # Use `tensor()` in order to get a pointer to the tensor.
+            features = []
+            for i in range(0, im_batch.shape[0]):
+                input = np.array(im_batch[i].unsqueeze(0), dtype=np.float32)
+                print(f'input {i}:',  input.shape)
+                self.interpreter.set_tensor(self.input_details[0]['index'], input)
+                feature = torch.tensor(self.interpreter.get_tensor(self.output_details[0]['index']))
+                # NHWC -->  NCHW 
+                print('feature_output', feature.shape)
+                features.append(feature.squeeze())
+            #features = torch.tensor(features)
         else:
             features = np.array([])
         return features
