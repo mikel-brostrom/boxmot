@@ -56,7 +56,7 @@ class StrongSORT(object):
         self.size = (256, 128)
         
         # Load TFLite model and allocate tensors.
-        self.interpreter = tf.lite.Interpreter(model_path="/home/mikel.brostrom/Yolov5_StrongSORT_OSNet/resnet50_msmt17_tflite_model/resnet50_msmt17.tflite")
+        self.interpreter = tf.lite.Interpreter(model_path="/home/mikel.brostrom/Yolov5_StrongSORT_OSNet/mobilenetv2_x1_4_msmt17_tflite_model/mobilenetv2_x1_4_msmt17.tflite")
         self.interpreter.allocate_tensors()
         # Get input and output tensors.
         self.input_details = self.interpreter.get_input_details()
@@ -175,28 +175,14 @@ class StrongSORT(object):
             im_batch = torch.cat([self.norm(_resize(im, self.size)).unsqueeze(0) for im in im_crops], dim=0).float()
             # NCHW --> NHWC
             im_batch = torch.transpose(im_batch, 1, 3)
-            print('im_batch shape', im_batch.shape)
-            #images = torch.stack(images, dim=0)
-            #im_batch = im_batch.to(self.device)
-            print(len(im_crops))
-            print(type(im_crops[0]))
-            print(im_crops[0].shape)
-            
-        
-            self.interpreter.invoke()
-
-            # The function `get_tensor()` returns a copy of the tensor data.
-            # Use `tensor()` in order to get a pointer to the tensor.
+ 
             features = []
             for i in range(0, im_batch.shape[0]):
                 input = np.array(im_batch[i].unsqueeze(0), dtype=np.float32)
-                print(f'input {i}:',  input.shape)
                 self.interpreter.set_tensor(self.input_details[0]['index'], input)
+                self.interpreter.invoke()
                 feature = torch.tensor(self.interpreter.get_tensor(self.output_details[0]['index']))
-                # NHWC -->  NCHW 
-                print('feature_output', feature.shape)
                 features.append(feature.squeeze())
-            #features = torch.tensor(features)
         else:
             features = np.array([])
         return features
