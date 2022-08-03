@@ -74,9 +74,11 @@ class ReIDDetectMultiBackend(nn.Module):
             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
             print(output_data.shape)
             
+        pixel_mean=[0.485, 0.456, 0.406]
+        pixel_std=[0.229, 0.224, 0.225]
         self.norm = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            transforms.Normalize(pixel_mean, pixel_std),
         ])
         self.size = (256, 128)
         self.fp16 = fp16
@@ -102,9 +104,10 @@ class ReIDDetectMultiBackend(nn.Module):
         #     im = torch.zeros(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
         #     for _ in range(2 if self.jit else 1):  #
         #         self.forward(im)  # warmup
+
     def preprocessing(self, im_crops):
         def _resize(im, size):
-                return cv2.resize(im.astype(np.float32)/255., size)
+            return cv2.resize(im.astype(np.float32), size)
 
         im = torch.cat([self.norm(_resize(im, self.size)).unsqueeze(0) for im in im_crops], dim=0).float()
         return im
