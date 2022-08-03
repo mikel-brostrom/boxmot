@@ -96,7 +96,7 @@ __trained_urls = {
 
 
 def show_downloadeable_models():
-    print('\nAvailable ReID models for automatic download')
+    print('\nAvailable .pt ReID models for automatic download')
     print(list(__trained_urls.keys()))
 
 
