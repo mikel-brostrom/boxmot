@@ -129,6 +129,7 @@ def run(
 
             )
         )
+        strongsort_list[i].model.warmup()
     outputs = [None] * nr_sources
 
     # Run tracking
