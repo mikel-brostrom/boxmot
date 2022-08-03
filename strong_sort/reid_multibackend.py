@@ -70,9 +70,11 @@ class ReIDDetectMultiBackend(nn.Module):
             self.interpreter.invoke()
 
             # The function `get_tensor()` returns a copy of the tensor data.
-            # Use `tensor()` in order to get a pointer to the tensor.
             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
             print(output_data.shape)
+        else:
+            print('This model framework is not supported yet!')
+            exit()
             
         pixel_mean=[0.485, 0.456, 0.406]
         pixel_std=[0.229, 0.224, 0.225]
