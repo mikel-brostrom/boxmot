@@ -1,8 +1,10 @@
 import numpy as np
 import torch
 import sys
+import cv2
 import gdown
 from os.path import exists as file_exists, join
+import torchvision.transforms as transforms
 
 from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
@@ -11,6 +13,7 @@ from .deep.reid_model_factory import show_downloadeable_models, get_model_url, g
 
 from torchreid.utils import FeatureExtractor
 from torchreid.utils.tools import download_url
+from .reid_multibackend import ReIDDetectMultiBackend
 
 __all__ = ['StrongSORT']
 
@@ -18,32 +21,18 @@ __all__ = ['StrongSORT']
 class StrongSORT(object):
     def __init__(self, 
                  model_weights,
-                 device, max_dist=0.2,
+                 device,
+                 fp16,
+                 max_dist=0.2,
                  max_iou_distance=0.7,
                  max_age=70, n_init=3,
                  nn_budget=100,
                  mc_lambda=0.995,
                  ema_alpha=0.9
                 ):
-        model_name = get_model_name(model_weights)
-        model_url = get_model_url(model_weights)
-
-        if not file_exists(model_weights) and model_url is not None:
-            gdown.download(model_url, str(model_weights), quiet=False)
-        elif file_exists(model_weights):
-            pass
-        elif model_url is None:
-            print('No URL associated to the chosen DeepSort weights. Choose between:')
-            show_downloadeable_models()
-            exit()
-
-        self.extractor = FeatureExtractor(
-            # get rid of dataset information DeepSort model name
-            model_name=model_name,
-            model_path=model_weights,
-            device=str(device)
-        )
-
+        
+        self.model = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
+        
         self.max_dist = max_dist
         metric = NearestNeighborDistanceMetric(
             "cosine", self.max_dist, nn_budget)
@@ -138,7 +127,7 @@ class StrongSORT(object):
             im = ori_img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
-            features = self.extractor(im_crops)
+            features = self.model(im_crops)
         else:
             features = np.array([])
         return features
