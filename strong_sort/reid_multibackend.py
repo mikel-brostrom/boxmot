@@ -142,8 +142,8 @@ class ReIDDetectMultiBackend(nn.Module):
                     scale, zero_point = output['quantization']
                     y = (y.astype(np.float32) - zero_point) * scale  # re-scale
             
-            
+            features.append(y.squeeze())
         if isinstance(y, np.ndarray):
             y = torch.tensor(y, device=self.device)
-        features.append(y.squeeze())
+        
         return features
