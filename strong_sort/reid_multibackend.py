@@ -29,7 +29,6 @@ class ReIDDetectMultiBackend(nn.Module):
         w = str(weights[0] if isinstance(weights, list) else weights)
         self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, \
             self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs = self.model_type(w)  # get backend
-        print(self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs)
         
         if self.pt:  # PyTorch
             model_name = get_model_name(weights)
@@ -105,7 +104,7 @@ class ReIDDetectMultiBackend(nn.Module):
         #     for _ in range(2 if self.jit else 1):  #
         #         self.forward(im)  # warmup
 
-    def preprocessing(self, im_crops):
+    def preprocess(self, im_crops):
         def _resize(im, size):
             return cv2.resize(im.astype(np.float32), size)
 
@@ -113,7 +112,7 @@ class ReIDDetectMultiBackend(nn.Module):
         return im
     
     def forward(self, im_batch):
-        im_batch = self.preprocessing(im_batch)
+        im_batch = self.preprocess(im_batch)
         b, ch, h, w = im_batch.shape  # batch, channel, height, width
         features = []
         for i in range(0, im_batch.shape[0]):
