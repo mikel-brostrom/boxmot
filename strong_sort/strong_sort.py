@@ -13,6 +13,7 @@ from .deep.reid_model_factory import show_downloadeable_models, get_model_url, g
 
 from torchreid.utils import FeatureExtractor
 from torchreid.utils.tools import download_url
+from reid_multibackend import ReIDDetectMultiBackend
 
 import numpy as np
 import tensorflow as tf
@@ -30,50 +31,8 @@ class StrongSORT(object):
                  mc_lambda=0.995,
                  ema_alpha=0.9
                 ):
-        model_name = get_model_name(model_weights)
-        model_url = get_model_url(model_weights)
-
-        if not file_exists(model_weights) and model_url is not None:
-            gdown.download(model_url, str(model_weights), quiet=False)
-        elif file_exists(model_weights):
-            pass
-        elif model_url is None:
-            print('No URL associated to the chosen DeepSort weights. Choose between:')
-            show_downloadeable_models()
-            exit()
-
-        # self.extractor = FeatureExtractor(
-        #     # get rid of dataset information DeepSort model name
-        #     model_name=model_name,
-        #     model_path=model_weights,
-        #     device=str(device)
-        # )
         
-        self.norm = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-        ])
-        self.size = (256, 128)
-        
-        # Load TFLite model and allocate tensors.
-        self.interpreter = tf.lite.Interpreter(model_path="/home/mikel.brostrom/Yolov5_StrongSORT_OSNet/mobilenetv2_x1_4_msmt17_tflite_model/model_float32.tflite")
-        self.interpreter.allocate_tensors()
-        # Get input and output tensors.
-        self.input_details = self.interpreter.get_input_details()
-        print(self.input_details)
-        self.output_details = self.interpreter.get_output_details()
-        
-        # Test model on random input data.
-        input_data = np.array(np.random.random_sample((1,256,128,3)), dtype=np.float32)
-        self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
-        
-        self.interpreter.invoke()
-
-        # The function `get_tensor()` returns a copy of the tensor data.
-        # Use `tensor()` in order to get a pointer to the tensor.
-        output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
-        print(output_data.shape)
-
+        self.model = ReIDDetectMultiBackend(weights=model_weights, device=device)
         
         self.max_dist = max_dist
         metric = NearestNeighborDistanceMetric(
@@ -169,25 +128,7 @@ class StrongSORT(object):
             im = ori_img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
-            def _resize(im, size):
-                return cv2.resize(im.astype(np.float32)/255., size)
-
-            im_batch = torch.cat([self.norm(_resize(im, self.size)).unsqueeze(0) for im in im_crops], dim=0).float()
-            # NCHW --> NHWC
-            im_batch = torch.transpose(im_batch, 1, 3)
-            
-            # dynamic input openvino model cannot be exported to tflite by openvino2tensorflow
-            # self.interpreter.set_tensor(self.input_details[0]['index'], im_batch)
-            # self.interpreter.invoke()
-            # feature = torch.tensor(self.interpreter.get_tensor(self.output_details[0]['index']))
- 
-            features = []
-            for i in range(0, im_batch.shape[0]):
-                input = np.array(im_batch[i].unsqueeze(0), dtype=np.float32)
-                self.interpreter.set_tensor(self.input_details[0]['index'], input)
-                self.interpreter.invoke()
-                feature = torch.tensor(self.interpreter.get_tensor(self.output_details[0]['index']))
-                features.append(feature.squeeze())
+            features = self.model(im_crops)
         else:
             features = np.array([])
         return features
