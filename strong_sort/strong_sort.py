@@ -21,7 +21,9 @@ __all__ = ['StrongSORT']
 class StrongSORT(object):
     def __init__(self, 
                  model_weights,
-                 device, max_dist=0.2,
+                 device,
+                 fp16,
+                 max_dist=0.2,
                  max_iou_distance=0.7,
                  max_age=70, n_init=3,
                  nn_budget=100,
@@ -29,7 +31,7 @@ class StrongSORT(object):
                  ema_alpha=0.9
                 ):
         
-        self.model = ReIDDetectMultiBackend(weights=model_weights, device=device)
+        self.model = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
         
         self.max_dist = max_dist
         metric = NearestNeighborDistanceMetric(
