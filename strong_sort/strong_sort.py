@@ -13,7 +13,7 @@ from .deep.reid_model_factory import show_downloadeable_models, get_model_url, g
 
 from torchreid.utils import FeatureExtractor
 from torchreid.utils.tools import download_url
-from reid_multibackend import ReIDDetectMultiBackend
+from .reid_multibackend import ReIDDetectMultiBackend
 
 import numpy as np
 import tensorflow as tf

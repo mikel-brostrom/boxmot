@@ -4,8 +4,9 @@ from pathlib import Path
 import numpy as np
 import torchvision.transforms as transforms
 import cv2
+import gdown
 from os.path import exists as file_exists
-from deep.reid_model_factory import show_downloadeable_models, get_model_url, get_model_name
+from .deep.reid_model_factory import show_downloadeable_models, get_model_url, get_model_name
 
 from torchreid.utils import FeatureExtractor
 from torchreid.utils.tools import download_url
@@ -130,7 +131,6 @@ class ReIDDetectMultiBackend(nn.Module):
                 im = im.cpu().numpy()  # FP32
                 y = self.executable_network([im])[self.output_layer]
             else:  # TensorFlow (SavedModel, GraphDef, Lite, Edge TPU)
-                
                 im = im.permute(0, 3, 2, 1).cpu().numpy()  # torch BCHW to numpy BHWC shape(1,320,192,3)
                 input, output = self.input_details[0], self.output_details[0]
                 int8 = input['dtype'] == np.uint8  # is TFLite quantized uint8 model
