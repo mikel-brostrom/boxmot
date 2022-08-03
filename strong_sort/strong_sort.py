@@ -15,9 +15,6 @@ from torchreid.utils import FeatureExtractor
 from torchreid.utils.tools import download_url
 from .reid_multibackend import ReIDDetectMultiBackend
 
-import numpy as np
-import tensorflow as tf
-
 __all__ = ['StrongSORT']
 
 
