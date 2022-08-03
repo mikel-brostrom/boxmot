@@ -51,6 +51,14 @@ class ReIDDetectMultiBackend(nn.Module):
                 device=str(device)
             )
             self.extractor.model.half() if fp16 else  self.extractor.model.float()
+        elif self.onnx:  # ONNX Runtime
+            # LOGGER.info(f'Loading {w} for ONNX Runtime inference...')
+            cuda = torch.cuda.is_available()
+            #check_requirements(('onnx', 'onnxruntime-gpu' if cuda else 'onnxruntime'))
+            import onnxruntime
+            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if cuda else ['CPUExecutionProvider']
+            self.session = onnxruntime.InferenceSession(w, providers=providers)
+        
         elif self.tflite:
             try:  # https://coral.ai/docs/edgetpu/tflite-python/#update-existing-tf-lite-code-for-the-edge-tpu
                 from tflite_runtime.interpreter import Interpreter, load_delegate
@@ -99,13 +107,13 @@ class ReIDDetectMultiBackend(nn.Module):
         tflite &= not edgetpu  # *.tflite
         return pt, jit, onnx, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs
     
-    #def warmup(self, imgsz=(1, 3, 640, 640)):
-        # # Warmup model by running inference once
-        # warmup_types = self.pt, self.jit, self.onnx, self.engine, self.saved_model, self.pb
-        # if any(warmup_types) and self.device.type != 'cpu':
-        #     im = torch.zeros(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
-        #     for _ in range(2 if self.jit else 1):  #
-        #         self.forward(im)  # warmup
+    def warmup(self, imgsz=(1, 3, 256, 128)):
+        # Warmup model by running inference once
+        warmup_types = self.pt, self.jit, self.onnx, self.engine, self.saved_model, self.pb
+        if any(warmup_types) and self.device.type != 'cpu':
+            im = torch.zeros(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
+            for _ in range(2 if self.jit else 1):  #
+                self.forward(im)  # warmup
 
     def preprocess(self, im_crops):
         def _resize(im, size):
@@ -127,7 +135,9 @@ class ReIDDetectMultiBackend(nn.Module):
             elif self.jit:  # TorchScript
                 y = self.model(im)[0]
             elif self.onnx:  # ONNX Runtime
-                im = im.cpu().numpy()  # torch to numpy
+                print(type(im))
+                print(im.shape)
+                im = im.permute(0, 1, 3, 2).cpu().numpy()  # torch to numpy  # torch to numpy
                 y = self.session.run([self.session.get_outputs()[0].name], {self.session.get_inputs()[0].name: im})[0]
             elif self.xml:  # OpenVINO
                 im = im.cpu().numpy()  # FP32
@@ -146,8 +156,9 @@ class ReIDDetectMultiBackend(nn.Module):
                     scale, zero_point = output['quantization']
                     y = (y.astype(np.float32) - zero_point) * scale  # re-scale
             
+            if isinstance(y, np.ndarray):
+                y = torch.tensor(y, device=self.device)
             features.append(y.squeeze())
-        if isinstance(y, np.ndarray):
-            y = torch.tensor(y, device=self.device)
+
         
         return features
