@@ -120,6 +120,7 @@ class ReIDDetectMultiBackend(nn.Module):
             return cv2.resize(im.astype(np.float32), size)
 
         im = torch.cat([self.norm(_resize(im, self.size)).unsqueeze(0) for im in im_crops], dim=0).float()
+        im = torch.tensor(im, device=self.device)
         return im
     
     def forward(self, im_batch):
