@@ -73,9 +73,9 @@ you can select a Yolov5 family model for automatic download
 
 
 $ python track.py --source 0 --yolo-weights yolov5n.pt --img 640
-                                            yolov5s.pt
+                                            yolov5s.tflite
                                             yolov5m.pt
-                                            yolov5l.pt 
+                                            yolov5l.onnx 
                                             yolov5x.pt --img 1280
                                             ...
 ```
@@ -88,8 +88,8 @@ The above applies to StrongSORT models as well. Choose a ReID model based on you
 
 
 $ python track.py --source 0 --strong-sort-weights osnet_x0_25_market1501.pt
-                                                   osnet_x0_5_market1501.pt
-                                                   osnet_x0_75_msmt17.pt
+                                                   mobilenetv2_x1_4_msmt17.onnx
+                                                   resnet50_msmt17.tflite
                                                    osnet_x1_0_msmt17.pt
                                                    ...
 ```
