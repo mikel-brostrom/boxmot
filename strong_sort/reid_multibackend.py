@@ -30,7 +30,8 @@ class ReIDDetectMultiBackend(nn.Module):
         w = str(weights[0] if isinstance(weights, list) else weights)
         self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, \
             self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs = self.model_type(w)  # get backend
-        
+        fp16 &= (self.pt or self.jit or self.onnx or self.engine) and device.type != 'cpu'  # FP16
+        self.fp16 = fp16
         if self.pt:  # PyTorch
             model_name = get_model_name(weights)
             model_url = get_model_url(weights)
@@ -50,6 +51,7 @@ class ReIDDetectMultiBackend(nn.Module):
                 model_path=weights,
                 device=str(device)
             )
+            
             self.extractor.model.half() if fp16 else  self.extractor.model.float()
         elif self.onnx:  # ONNX Runtime
             # LOGGER.info(f'Loading {w} for ONNX Runtime inference...')
@@ -91,7 +93,6 @@ class ReIDDetectMultiBackend(nn.Module):
             transforms.Normalize(pixel_mean, pixel_std),
         ])
         self.size = (256, 128)
-        self.fp16 = fp16
         self.device = device
         
         
