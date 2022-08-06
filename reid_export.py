@@ -167,7 +167,7 @@ if __name__ == "__main__":
         "-p",
         "--weights",
         type=Path,
-        default="/home/mikel.brostrom/Yolov5_StrongSORT_OSNet/osnet_x0_25_msmt17.pt",
+        default="./weight/osnet_x0_25_msmt17.pt",
         help="Path to weights",
     )
     parser.add_argument(
