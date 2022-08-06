@@ -57,6 +57,6 @@ jobs:
         run: |
           # otherwise problems placing the yolo weights in submodule
           sudo chmod -R 777 /home/
-          python track.py --yolo-weights yolov5n.pt --strong-sort-weights mobilenetv2_x1_0_msmt17.pt --source yolov5/data/images/bus.jpg  # track
+          python track.py --yolo-weights yolov5n.pt --source yolov5/data/images/bus.jpg  # track
           python reid_export.py --weights ./weights/mobilenetv2_x1_0_msmt17.pt  # export
         shell: bash
