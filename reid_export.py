@@ -332,14 +332,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.device = select_device(args.device)
-    print(args.device)
     
     # Build model
     extractor = FeatureExtractor(
         # get rid of dataset information DeepSort model name
         model_name=get_model_name(args.weights),
         model_path=args.weights,
-        device=args.device
+        device=str(args.device)
     )
 
     include = [x.lower() for x in args.include]  # to lowercase
@@ -348,8 +347,13 @@ if __name__ == "__main__":
     assert sum(flags) == len(include), f'ERROR: Invalid --include {include}, valid --include arguments are {fmts}'
     torchscript, onnx, openvino, engine, tflite = flags  # export booleans
     
-    
     im = torch.zeros(1, 3, args.imgsz[0], args.imgsz[1]).to(args.device)  # image size(1,3,640,480) BCHW iDetection
+    for _ in range(2):
+        y = extractor.model(im)  # dry runs
+    if args.half:
+        im, extractor.model = im.half(), extractor.model.half()  # to FP16
+    shape = tuple(y[0].shape)  # model output shape
+    LOGGER.info(f"\n{colorstr('PyTorch:')} starting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)")
     if torchscript:
         export_torchscript(extractor.model.eval(), im, args.weights, optimize=True)  # opset 12
     if onnx:
