@@ -333,6 +333,10 @@ if __name__ == "__main__":
 
     args.device = select_device(args.device)
     
+    if type(args.weights) is list:
+        args.weights = Path(args.weights[0])
+
+    print(args.weights)
     # Build model
     extractor = FeatureExtractor(
         # get rid of dataset information DeepSort model name
@@ -354,6 +358,7 @@ if __name__ == "__main__":
         im, extractor.model = im.half(), extractor.model.half()  # to FP16
     shape = tuple(y[0].shape)  # model output shape
     LOGGER.info(f"\n{colorstr('PyTorch:')} starting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)")
+    
     if torchscript:
         export_torchscript(extractor.model.eval(), im, args.weights, optimize=True)  # opset 12
     if onnx:
