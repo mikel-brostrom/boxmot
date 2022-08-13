@@ -69,7 +69,7 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
     # YOLOv5 TensorRT export https://developer.nvidia.com/tensorrt
     prefix = colorstr('TensorRT:')
     try:
-        assert im.device.type != 'cpu', 'export running on CPU but must be on GPU, i.e. `python export.py --device 0`'
+        assert im.device.type != 'cpu', 'reid_export running on CPU but must be on GPU, i.e. `python export.py --device 0`'
         try:
             import tensorrt as trt
         except Exception:
