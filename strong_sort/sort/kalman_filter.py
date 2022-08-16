@@ -82,10 +82,10 @@ class KalmanFilter(object):
         mean = np.r_[mean_pos, mean_vel]
 
         std = [
-            20 * self._std_weight_position * measurement[3],  # the center point x
-            20 * self._std_weight_position * measurement[3],  # the center point y
-            1 * measurement[3],  # the ratio of width/height
-            20 * self._std_weight_position * measurement[3],  # the height
+            20 * self._std_weight_position * measurement[3],   # the center point x
+            20 * self._std_weight_position * measurement[3],   # the center point y
+            10 * measurement[3],                               # the ratio of width/height
+            20 * self._std_weight_position * measurement[3],   # the height
             10 * self._std_weight_velocity * measurement[3],
             10 * self._std_weight_velocity * measurement[3],
             0.1 * measurement[3],
@@ -143,8 +143,6 @@ class KalmanFilter(object):
 
         cov_sqrt = self._compute_covariance_square_root_from_sigma_points(
             mean, motion_noise_cov, self._sigma_points)
-
-        # covariance = cov_sq * np.conj(cov_sq).T
 
         # Return predicted state
         return mean, cov_sqrt
