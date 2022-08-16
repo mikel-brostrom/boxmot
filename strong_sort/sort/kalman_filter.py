@@ -2,7 +2,7 @@
 import time
 import numpy as np
 import scipy.linalg
-from functools import partial
+
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
 freedom (contains values for N=1, ..., 9). Taken from MATLAB/Octave's chi2inv
@@ -33,24 +33,24 @@ class KalmanFilter(object):
     """
 
     def __init__(self):
-        ndim, dt = 4, 1.
-        
+        self.ndim, dt = 4, 1.
+
         # Timestamp to keep track of delta time between predictions
         self._prev_time = 0
 
         # Create Kalman filter model matrices.
-        self._motion_mat = np.eye(2 * ndim, 2 * ndim)
-        for i in range(ndim):
-            self._motion_mat[i, ndim + i] = dt
+        self._motion_mat = np.eye(2 * self.ndim, 2 * self.ndim)
+        for i in range(self.ndim):
+            self._motion_mat[i, self.ndim + i] = dt
 
-        self._update_mat = np.eye(ndim, 2 * ndim)
+        self._update_mat = np.eye(self.ndim, 2 * self.ndim)
 
         # Motion and observation uncertainty are chosen relative to the current
         # state estimate. These weights control the amount of uncertainty in
         # the model. This is a bit hacky.
         self._std_weight_position = 1. / 20
         self._std_weight_velocity = 1. / 160
-        
+
         # Scaling parameter for spread of sigma points (1e-4 <= alpha <= 1)
         self._alpha = 1
         # Parameter for prior knowledge about the distribution
@@ -59,9 +59,9 @@ class KalmanFilter(object):
         # Secondary scaling parameter (usually 0)
         self._kappa = 0
         # Number of sigma points to estimate covariance
-        self._sigma_point_count = 2 * 8 + 1
-        
-        self._sigma_points = np.zeros((8, self._sigma_point_count))
+        self._sigma_point_count = 2 * 2 * self.ndim + 1
+
+        self._sigma_points = np.zeros((2 * self.ndim, self._sigma_point_count))
 
     def initiate(self, measurement):
         """Create track from unassociated measurement.
@@ -78,18 +78,18 @@ class KalmanFilter(object):
             to 0 mean.
         """
         self._compute_weights()
-        
+
         mean_pos = measurement
         mean_vel = np.zeros_like(mean_pos)
         mean = np.r_[mean_pos, mean_vel]
-        
+
         self._prev_time = time.perf_counter()
 
         std = [
-            20 * self._std_weight_position * measurement[3],   # the center point x
-            20 * self._std_weight_position * measurement[3],   # the center point y
-            1 * measurement[3],                               # the ratio of width/height
-            20 * self._std_weight_position * measurement[3],   # the height
+            20 * self._std_weight_position * measurement[3],  # the center point x
+            20 * self._std_weight_position * measurement[3],  # the center point y
+            1 * measurement[3],  # the ratio of width/height
+            20 * self._std_weight_position * measurement[3],  # the height
             10 * self._std_weight_velocity * measurement[3],
             10 * self._std_weight_velocity * measurement[3],
             0.1 * measurement[3],
@@ -98,7 +98,7 @@ class KalmanFilter(object):
 
         covariance_sqrt, _ = scipy.linalg.cho_factor(
             covariance, lower=True, check_finite=False)
-        
+
         return mean, covariance_sqrt
 
     def predict(self, mean, covariance_sqrt):
@@ -117,22 +117,22 @@ class KalmanFilter(object):
             Returns the mean vector and covariance matrix of the predicted
             state. Unobserved velocities are initialized to 0 mean.
         """
-        dt = time.perf_counter() - self._prev_time
-        for i in range(ndim):
-            self._motion_mat[i, ndim + i] = dt
-        self._prev_time = time.perf_counter()
-        
-        # Compute sigma points       
+        # dt = time.perf_counter() - self._prev_time
+        # for i in range(self.ndim):
+        #    self._motion_mat[i, self.ndim + i] = dt
+        # self._prev_time = time.perf_counter()
+
+        # Compute sigma points
         points = self._sigma_point_count
         self._sigma_points[:, 0] = mean
-        self._sigma_points[:, 1:int((points-1)/2+1)] =
+        self._sigma_points[:, 1:int((points - 1) / 2 + 1)] = \
             mean + self._gamma * covariance_sqrt
-        self._sigma_points[:, int((points-1)/2+1):points] =
+        self._sigma_points[:, int((points - 1) / 2 + 1):points] = \
             mean - self._gamma * covariance_sqrt
 
         # Compute predicted state
         mean = np.dot(self._motion_mat, mean)
-        
+
         # Compute predicted covariance
         std_pos = [
             self._std_weight_position * mean[3],
@@ -145,11 +145,11 @@ class KalmanFilter(object):
             0.1 * mean[3],
             self._std_weight_velocity * mean[3]]
         motion_noise_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
-        
+
         cov_sqrt = self._compute_covariance_square_root_from_sigma_points(
             mean, motion_noise_cov, self._sigma_points)
-        
-        #covariance = cov_sq * np.conj(cov_sq).T
+
+        # covariance = cov_sq * np.conj(cov_sq).T
 
         # Return predicted state
         return mean, cov_sqrt
@@ -169,20 +169,20 @@ class KalmanFilter(object):
             Returns the projected mean and covariance matrix of the given state
             estimate.
         """
-        
+
         # Predict measurements for each sigma point
         pred_meas_sigma_points = np.dot(self._update_mat, self._sigma_points)
-        
+
         ## Predict measurement from sigma measurement points
         pred_meas = np.dot(pred_meas_sigma_points, self._sigma_weights_m)
-        
+
         std = [
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[3],
             1e-1,
             self._std_weight_position * mean[3]]
 
-        std = [(1 - confidence) * x for x in std]
+        std = [(1 - min(0.99, confidence)) * x for x in std]
 
         measurement_noise_cov = np.diag(np.square(std))
 
@@ -209,32 +209,31 @@ class KalmanFilter(object):
         (ndarray, ndarray)
             Returns the measurement-corrected state distribution.
         """
-        
+
         # Predict measurement
-        projected_mean, projected_cov_sqrt, pred_meas_sigma_points =
-            self.project(mean, covariance_sqrt, confidence)
-        
+        projected_mean, projected_cov_sqrt, pred_meas_sigma_points = self.project(mean, covariance_sqrt, confidence)
+
         # Compute Kalman Gain
         W = np.repeat(
             self._sigma_weights_c[:, None],
             self._sigma_points.shape[0],
             axis=1
         ).T
-        
+
         P = np.dot(
-            np.multiply(sigma_points - mean[:, None], W),
+            np.multiply(self._sigma_points - mean[:, None], W),
             (pred_meas_sigma_points - projected_mean[:, None]).T
         )
-        
+
         K = scipy.linalg.cho_solve(
             (projected_cov_sqrt, True), P.T, check_finite=False).T
 
         # Update state and covariance
         innovation = measurement - projected_mean
-        new_mean = new_mean + np.dot(K, innovation)
-        
+        new_mean = mean + np.dot(K, innovation)
+
         U = np.dot(K, projected_cov_sqrt)
-        
+
         new_covariance_sqrt = covariance_sqrt
         for i in range(U.shape[1]):
             new_covariance_sqrt = self._rank_update(
@@ -282,12 +281,12 @@ class KalmanFilter(object):
         return squared_maha
 
     def _compute_weights(self):
-        self._lambda = (self._alpha**2) * (4 + self._kappa) - 4
-        self._gamma = np.sqrt(4 + self._lambda)
+        self._lambda = (self._alpha ** 2) * (2 * self.ndim + self._kappa) - 2 * self.ndim
+        self._gamma = np.sqrt(2 * self.ndim + self._lambda)
 
-        W_m_0 = self._lambda / (4 + self._lambda)
-        W_c_0 = W_m_0 + (1 - self._alpha**2 + self._beta)
-        W_i = 1 / (2 * (self._alpha**2) * (4 + self._kappa))
+        W_m_0 = self._lambda / (2 * self.ndim + self._lambda)
+        W_c_0 = W_m_0 + (1 - self._alpha ** 2 + self._beta)
+        W_i = 1 / (2 * (self._alpha ** 2) * (2 * self.ndim + self._kappa))
 
         # Ensure W_i > 0 to avoid square-root of negative number
         assert W_i > 0
@@ -302,7 +301,7 @@ class KalmanFilter(object):
 
     def _rank_update(self, L, v, nu):
         L_tril = np.tril(L)
-        
+
         L_upd, _ = scipy.linalg.cho_factor(
             L_tril @ L_tril.T + nu * np.outer(v, v),
             lower=True,
@@ -311,23 +310,22 @@ class KalmanFilter(object):
         )
 
         L_upd[np.triu_indices(L.shape[0], k=1)] = L[np.triu_indices(L.shape[0], k=1)]
-        
+
         return L_upd
-    
+
     def _compute_covariance_square_root_from_sigma_points(
-        self,
-        mean,
-        noise_cov,
-        sigma_points
+            self,
+            mean,
+            noise_cov,
+            sigma_points
     ):
         ## Build augmented matrix from sigma points and upper cholesky factor
         noise_cov_cholesky_upper, _ = scipy.linalg.cho_factor(
             noise_cov, lower=False, check_finite=False)
 
         aug_matrix = np.zeros(
-            (sigma_points.shape[1]+sigma_points.shape[0], sigma_points.shape[0]))
-        aug_matrix[:sigma_points.shape[1], :] =
-            np.sqrt(self._sigma_weights_c[1]) * (sigma_points - mean[:, None]).T
+            (sigma_points.shape[1] + sigma_points.shape[0], sigma_points.shape[0]))
+        aug_matrix[:sigma_points.shape[1], :] = np.sqrt(self._sigma_weights_c[1]) * (sigma_points - mean[:, None]).T
         aug_matrix[-sigma_points.shape[0]:, :] = noise_cov_cholesky_upper
 
         ## QR decomposition
