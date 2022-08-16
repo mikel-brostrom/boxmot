@@ -2,6 +2,7 @@
 import time
 import numpy as np
 import scipy.linalg
+from functools import partial
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
 freedom (contains values for N=1, ..., 9). Taken from MATLAB/Octave's chi2inv
@@ -49,6 +50,18 @@ class KalmanFilter(object):
         # the model. This is a bit hacky.
         self._std_weight_position = 1. / 20
         self._std_weight_velocity = 1. / 160
+        
+        # Scaling parameter for spread of sigma points (1e-4 <= alpha <= 1)
+        self._alpha = 1
+        # Parameter for prior knowledge about the distribution
+        # (beta = 2 optimal for Gaussian noise)
+        self._beta = 2
+        # Secondary scaling parameter (usually 0)
+        self._kappa = 0
+        # Number of sigma points to estimate covariance
+        self._sigma_point_count = 2 * 8 + 1
+        
+        self._sigma_points = np.zeros((8, self._sigma_point_count))
 
     def initiate(self, measurement):
         """Create track from unassociated measurement.
@@ -60,10 +73,12 @@ class KalmanFilter(object):
         Returns
         -------
         (ndarray, ndarray)
-            Returns the mean vector (8 dimensional) and covariance matrix (8x8
-            dimensional) of the new track. Unobserved velocities are initialized
+            Returns the mean vector (8 dimensional) and square root covariance matrix
+            (8x8 dimensional) of the new track. Unobserved velocities are initialized
             to 0 mean.
         """
+        _compute_weights()
+        
         mean_pos = measurement
         mean_vel = np.zeros_like(mean_pos)
         mean = np.r_[mean_pos, mean_vel]
@@ -80,18 +95,22 @@ class KalmanFilter(object):
             0.1 * measurement[3],
             10 * self._std_weight_velocity * measurement[3]]
         covariance = np.diag(np.square(std))
-        return mean, covariance
 
-    def predict(self, mean, covariance):
+        covariance_sqrt, _ = scipy.linalg.cho_factor(
+            covariance, lower=True, check_finite=False)
+        
+        return mean, covariance_sqrt
+
+    def predict(self, mean, covariance_sqrt):
         """Run Kalman filter prediction step.
         Parameters
         ----------
         mean : ndarray
             The 8 dimensional mean vector of the object state at the previous
             time step.
-        covariance : ndarray
-            The 8x8 dimensional covariance matrix of the object state at the
-            previous time step.
+        covariance_sqrt : ndarray
+            The 8x8 dimensional square root covariance matrix of the object state
+            at the previous time step.
         Returns
         -------
         (ndarray, ndarray)
@@ -103,6 +122,18 @@ class KalmanFilter(object):
             self._motion_mat[i, ndim + i] = dt
         self._prev_time = time.perf_counter()
         
+        # Compute sigma points       
+        points = self._sigma_point_count
+        self._sigma_points[:, 0] = mean
+        self._sigma_points[:, 1:(points-1)/2+1] =
+            mean + self._gamma * covariance_sqrt
+        self._sigma_points[:, (points-1)/2+1:points] =
+            mean - self._gamma * covariance_sqrt
+
+        # Compute predicted state
+        mean = np.dot(self._motion_mat, mean)
+        
+        # Compute predicted covariance
         std_pos = [
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[3],
@@ -114,28 +145,37 @@ class KalmanFilter(object):
             0.1 * mean[3],
             self._std_weight_velocity * mean[3]]
         motion_noise_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
+        
+        cov_sqrt = _compute_covariance_square_root_from_sigma_points(
+            mean, motion_noise_cov, self._sigma_points)
+        
+        #covariance = cov_sq * np.conj(cov_sq).T
 
-        mean = np.dot(self._motion_mat, mean)
-        covariance = np.linalg.multi_dot((
-            self._motion_mat, covariance, self._motion_mat.T)) + motion_noise_cov
+        # Return predicted state
+        return mean, cov_sqrt
 
-        return mean, covariance
-
-    def project(self, mean, covariance, confidence=.0):
+    def project(self, mean, covariance_sqrt, confidence=.0):
         """Project state distribution to measurement space.
         Parameters
         ----------
         mean : ndarray
             The state's mean vector (8 dimensional array).
-        covariance : ndarray
-            The state's covariance matrix (8x8 dimensional).
-        confidence: (dyh) 检测框置信度
+        covariance_sqrt : ndarray
+            The state's square root covariance matrix (8x8 dimensional).
+        confidence: (dyh)
         Returns
         -------
         (ndarray, ndarray)
             Returns the projected mean and covariance matrix of the given state
             estimate.
         """
+        
+        # Predict measurements for each sigma point
+        pred_meas_sigma_points = np.dot(self._update_mat, self._sigma_points)
+        
+        ## Predict measurement from sigma measurement points
+        pred_meas = np.dot(pred_meas_sigma_points, self._sigma_weights_m)
+        
         std = [
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[3],
@@ -146,19 +186,19 @@ class KalmanFilter(object):
 
         measurement_noise_cov = np.diag(np.square(std))
 
-        mean = np.dot(self._update_mat, mean)
-        covariance = np.linalg.multi_dot((
-            self._update_mat, covariance, self._update_mat.T))
-        return mean, covariance + measurement_noise_cov
+        meas_cov_sqrt = _compute_covariance_square_root_from_sigma_points(
+            pred_meas, measurement_noise_cov, pred_meas_sigma_points)
 
-    def update(self, mean, covariance, measurement, confidence=.0):
+        return pred_meas, meas_cov_sqrt, pred_meas_sigma_points
+
+    def update(self, mean, covariance_sqrt, measurement, confidence=.0):
         """Run Kalman filter correction step.
         Parameters
         ----------
         mean : ndarray
             The predicted state's mean vector (8 dimensional).
         covariance : ndarray
-            The state's covariance matrix (8x8 dimensional).
+            The state's square root covariance matrix (8x8 dimensional).
         measurement : ndarray
             The 4 dimensional measurement vector (x, y, a, h), where (x, y)
             is the center position, a the aspect ratio, and h the height of the
@@ -169,21 +209,40 @@ class KalmanFilter(object):
         (ndarray, ndarray)
             Returns the measurement-corrected state distribution.
         """
-        projected_mean, projected_cov = self.project(mean, covariance, confidence)
+        
+        # Predict measurement
+        projected_mean, projected_cov_sqrt, pred_meas_sigma_points =
+            self.project(mean, covariance_sqrt, confidence)
+        
+        # Compute Kalman Gain
+        W = np.repeat(
+            self._sigma_weights_c[:, None],
+            self._sigma_points.shape[0],
+            axis=1
+        ).T
+        
+        P = np.dot(
+            np.multiply(sigma_points - mean[:, None], W),
+            (pred_meas_sigma_points - projected_mean[:, None]).T
+        )
+        
+        K = scipy.linalg.cho_solve(
+            (projected_cov_sqrt, True), P.T, check_finite=False).T
 
-        chol_factor, lower = scipy.linalg.cho_factor(
-            projected_cov, lower=True, check_finite=False)
-        kalman_gain = scipy.linalg.cho_solve(
-            (chol_factor, lower), np.dot(covariance, self._update_mat.T).T,
-            check_finite=False).T
+        # Update state and covariance
         innovation = measurement - projected_mean
+        new_mean = new_mean + np.dot(K, innovation)
+        
+        U = np.dot(K, projected_cov_sqrt)
+        
+        new_covariance_sqrt = covariance_sqrt
+        for i in range(U.shape[1]):
+            new_covariance_sqrt = _rank_update(
+                new_covariance_sqrt, U[:, i], -1)
 
-        new_mean = mean + np.dot(innovation, kalman_gain.T)
-        new_covariance = covariance - np.linalg.multi_dot((
-            kalman_gain, projected_cov, kalman_gain.T))
-        return new_mean, new_covariance
+        return new_mean, new_covariance_sqrt
 
-    def gating_distance(self, mean, covariance, measurements,
+    def gating_distance(self, mean, covariance_sqrt, measurements,
                         only_position=False):
         """Compute gating distance between state distribution and measurements.
         A suitable distance threshold can be obtained from `chi2inv95`. If
@@ -193,8 +252,8 @@ class KalmanFilter(object):
         ----------
         mean : ndarray
             Mean vector over the state distribution (8 dimensional).
-        covariance : ndarray
-            Covariance of the state distribution (8x8 dimensional).
+        covariance_sqrt : ndarray
+            Square Root Covariance of the state distribution (8x8 dimensional).
         measurements : ndarray
             An Nx4 dimensional matrix of N measurements, each in
             format (x, y, a, h) where (x, y) is the bounding box center
@@ -209,16 +268,75 @@ class KalmanFilter(object):
             squared Mahalanobis distance between (mean, covariance) and
             `measurements[i]`.
         """
-        mean, covariance = self.project(mean, covariance)
+        mean, covariance_sqrt = self.project(mean, covariance_sqrt)
 
         if only_position:
-            mean, covariance = mean[:2], covariance[:2, :2]
+            mean, covariance_sqrt = mean[:2], covariance_sqrt[:2, :2]
             measurements = measurements[:, :2]
 
-        cholesky_factor = np.linalg.cholesky(covariance)
         d = measurements - mean
         z = scipy.linalg.solve_triangular(
-            cholesky_factor, d.T, lower=True, check_finite=False,
+            covariance_sqrt, d.T, lower=True, check_finite=False,
             overwrite_b=True)
         squared_maha = np.sum(z * z, axis=0)
         return squared_maha
+
+    def _compute_weights():
+        self._lambda = (self._alpha**2) * (4 + self._kappa) - 4
+        self._gamma = np.sqrt(4 + self._lambda)
+
+        W_m_0 = self._lambda / (4 + self._lambda)
+        W_c_0 = W_m_0 + (1 - self._alpha**2 + self._beta)
+        W_i = 1 / (2 * (self._alpha**2) * (4 + self._kappa))
+
+        # Ensure W_i > 0 to avoid square-root of negative number
+        assert W_i > 0
+
+        self._sigma_weights_m = [W_i for _ in range(self._sigma_point_count)]
+        self._sigma_weights_m[0] = W_m_0
+        self._sigma_weights_m = np.array(self._sigma_weights_m)
+
+        self._sigma_weights_c = [W_i for _ in range(self._sigma_point_count)]
+        self._sigma_weights_c[0] = W_c_0
+        self._sigma_weights_c = np.array(self._sigma_weights_c)
+
+    def _rank_update(L, v, nu):
+        L_tril = np.tril(L)
+        
+        L_upd, _ = scipy.linalg.cho_factor(
+            L_tril @ L_tril.T + nu * np.outer(v, v),
+            lower=True,
+            overwrite_a=True,
+            check_finite=False,
+        )
+
+        L_upd[np.triu_indices(L.shape[0], k=1)] = L[np.triu_indices(L.shape[0], k=1)]
+        
+        return L_upd
+    
+    def _compute_covariance_square_root_from_sigma_points(
+        mean,
+        noise_cov,
+        sigma_points
+    ):
+        ## Build augmented matrix from sigma points and upper cholesky factor
+        noise_cov_cholesky_upper, _ = scipy.linalg.cho_factor(
+            noise_cov, lower=False, check_finite=False)
+
+        aug_matrix = np.zeros(
+            (sigma_points.shape[1]+sigma_points.shape[0], sigma_points.shape[0]))
+        aug_matrix[:sigma_points.shape[1], :] =
+            np.sqrt(self._sigma_weights_c[1]) * (sigma_points - mean[:, None]).T
+        aug_matrix[-sigma_points.shape[0]:, :] = noise_cov_cholesky_upper
+
+        ## QR decomposition
+        _, R = scipy.linalg.qr(aug_matrix, pivoting=False, check_finite=False)
+
+        ## Update lower triangular matrix of covariance
+        covariance_sqrt = _rank_update(
+            np.conj(R).T,
+            self._sigma_points[:, 0] - mean,
+            self._sigma_weights_c[0]
+        )
+
+        return covariance_sqrt
