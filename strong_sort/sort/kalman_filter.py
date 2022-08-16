@@ -77,7 +77,7 @@ class KalmanFilter(object):
             (8x8 dimensional) of the new track. Unobserved velocities are initialized
             to 0 mean.
         """
-        _compute_weights()
+        self._compute_weights()
         
         mean_pos = measurement
         mean_vel = np.zeros_like(mean_pos)
@@ -146,7 +146,7 @@ class KalmanFilter(object):
             self._std_weight_velocity * mean[3]]
         motion_noise_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
         
-        cov_sqrt = _compute_covariance_square_root_from_sigma_points(
+        cov_sqrt = self._compute_covariance_square_root_from_sigma_points(
             mean, motion_noise_cov, self._sigma_points)
         
         #covariance = cov_sq * np.conj(cov_sq).T
@@ -186,7 +186,7 @@ class KalmanFilter(object):
 
         measurement_noise_cov = np.diag(np.square(std))
 
-        meas_cov_sqrt = _compute_covariance_square_root_from_sigma_points(
+        meas_cov_sqrt = self._compute_covariance_square_root_from_sigma_points(
             pred_meas, measurement_noise_cov, pred_meas_sigma_points)
 
         return pred_meas, meas_cov_sqrt, pred_meas_sigma_points
@@ -237,7 +237,7 @@ class KalmanFilter(object):
         
         new_covariance_sqrt = covariance_sqrt
         for i in range(U.shape[1]):
-            new_covariance_sqrt = _rank_update(
+            new_covariance_sqrt = self._rank_update(
                 new_covariance_sqrt, U[:, i], -1)
 
         return new_mean, new_covariance_sqrt
@@ -281,7 +281,7 @@ class KalmanFilter(object):
         squared_maha = np.sum(z * z, axis=0)
         return squared_maha
 
-    def _compute_weights():
+    def _compute_weights(self):
         self._lambda = (self._alpha**2) * (4 + self._kappa) - 4
         self._gamma = np.sqrt(4 + self._lambda)
 
@@ -300,7 +300,7 @@ class KalmanFilter(object):
         self._sigma_weights_c[0] = W_c_0
         self._sigma_weights_c = np.array(self._sigma_weights_c)
 
-    def _rank_update(L, v, nu):
+    def _rank_update(self, L, v, nu):
         L_tril = np.tril(L)
         
         L_upd, _ = scipy.linalg.cho_factor(
@@ -315,6 +315,7 @@ class KalmanFilter(object):
         return L_upd
     
     def _compute_covariance_square_root_from_sigma_points(
+        self,
         mean,
         noise_cov,
         sigma_points
@@ -333,7 +334,7 @@ class KalmanFilter(object):
         _, R = scipy.linalg.qr(aug_matrix, pivoting=False, check_finite=False)
 
         ## Update lower triangular matrix of covariance
-        covariance_sqrt = _rank_update(
+        covariance_sqrt = self._rank_update(
             np.conj(R).T,
             self._sigma_points[:, 0] - mean,
             self._sigma_weights_c[0]
