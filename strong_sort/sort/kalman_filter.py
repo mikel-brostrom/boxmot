@@ -1,4 +1,5 @@
 # vim: expandtab:ts=4:sw=4
+import time
 import numpy as np
 import scipy.linalg
 """
@@ -32,6 +33,9 @@ class KalmanFilter(object):
 
     def __init__(self):
         ndim, dt = 4, 1.
+        
+        # Timestamp to keep track of delta time between predictions
+        self._prev_time = 0
 
         # Create Kalman filter model matrices.
         self._motion_mat = np.eye(2 * ndim, 2 * ndim)
@@ -63,15 +67,17 @@ class KalmanFilter(object):
         mean_pos = measurement
         mean_vel = np.zeros_like(mean_pos)
         mean = np.r_[mean_pos, mean_vel]
+        
+        self._prev_time = time.perf_counter()
 
         std = [
-            2 * self._std_weight_position * measurement[0],   # the center point x
-            2 * self._std_weight_position * measurement[1],   # the center point y
-            1 * measurement[2],                               # the ratio of width/height
+            2 * self._std_weight_position * measurement[3],   # the center point x
+            2 * self._std_weight_position * measurement[3],   # the center point y
+            1 * measurement[3],                               # the ratio of width/height
             2 * self._std_weight_position * measurement[3],   # the height
-            10 * self._std_weight_velocity * measurement[0],
-            10 * self._std_weight_velocity * measurement[1],
-            0.1 * measurement[2],
+            10 * self._std_weight_velocity * measurement[3],
+            10 * self._std_weight_velocity * measurement[3],
+            0.1 * measurement[3],
             10 * self._std_weight_velocity * measurement[3]]
         covariance = np.diag(np.square(std))
         return mean, covariance
@@ -92,21 +98,26 @@ class KalmanFilter(object):
             Returns the mean vector and covariance matrix of the predicted
             state. Unobserved velocities are initialized to 0 mean.
         """
+        dt = time.perf_counter() - self._prev_time
+        for i in range(ndim):
+            self._motion_mat[i, ndim + i] = dt
+        self._prev_time = time.perf_counter()
+        
         std_pos = [
-            self._std_weight_position * mean[0],
-            self._std_weight_position * mean[1],
-            1 * mean[2],
+            self._std_weight_position * mean[3],
+            self._std_weight_position * mean[3],
+            1 * mean[3],
             self._std_weight_position * mean[3]]
         std_vel = [
-            self._std_weight_velocity * mean[0],
-            self._std_weight_velocity * mean[1],
-            0.1 * mean[2],
+            self._std_weight_velocity * mean[3],
+            self._std_weight_velocity * mean[3],
+            0.1 * mean[3],
             self._std_weight_velocity * mean[3]]
-        motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
+        motion_noise_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
 
         mean = np.dot(self._motion_mat, mean)
         covariance = np.linalg.multi_dot((
-            self._motion_mat, covariance, self._motion_mat.T)) + motion_cov
+            self._motion_mat, covariance, self._motion_mat.T)) + motion_noise_cov
 
         return mean, covariance
 
@@ -131,15 +142,14 @@ class KalmanFilter(object):
             1e-1,
             self._std_weight_position * mean[3]]
 
-
         std = [(1 - confidence) * x for x in std]
 
-        innovation_cov = np.diag(np.square(std))
+        measurement_noise_cov = np.diag(np.square(std))
 
         mean = np.dot(self._update_mat, mean)
         covariance = np.linalg.multi_dot((
             self._update_mat, covariance, self._update_mat.T))
-        return mean, covariance + innovation_cov
+        return mean, covariance + measurement_noise_cov
 
     def update(self, mean, covariance, measurement, confidence=.0):
         """Run Kalman filter correction step.
@@ -153,7 +163,7 @@ class KalmanFilter(object):
             The 4 dimensional measurement vector (x, y, a, h), where (x, y)
             is the center position, a the aspect ratio, and h the height of the
             bounding box.
-        confidence: (dyh)检测框置信度
+        confidence: (dyh)
         Returns
         -------
         (ndarray, ndarray)
