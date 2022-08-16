@@ -22,7 +22,8 @@ chi2inv95 = {
 
 class KalmanFilter(object):
     """
-    A simple Kalman filter for tracking bounding boxes in image space.
+    A Square Root Unscented Kalman filter for tracking bounding boxes in
+    image space.
     The 8-dimensional state space
         x, y, a, h, vx, vy, va, vh
     contains the bounding box center position (x, y), aspect ratio a, height h,
@@ -34,9 +35,6 @@ class KalmanFilter(object):
 
     def __init__(self):
         self.ndim, dt = 4, 1.
-
-        # Timestamp to keep track of delta time between predictions
-        self._prev_time = 0
 
         # Create Kalman filter model matrices.
         self._motion_mat = np.eye(2 * self.ndim, 2 * self.ndim)
@@ -83,8 +81,6 @@ class KalmanFilter(object):
         mean_vel = np.zeros_like(mean_pos)
         mean = np.r_[mean_pos, mean_vel]
 
-        self._prev_time = time.perf_counter()
-
         std = [
             20 * self._std_weight_position * measurement[3],  # the center point x
             20 * self._std_weight_position * measurement[3],  # the center point y
@@ -101,7 +97,7 @@ class KalmanFilter(object):
 
         return mean, covariance_sqrt
 
-    def predict(self, mean, covariance_sqrt):
+    def predict(self, mean, covariance_sqrt, delta_time=1):
         """Run Kalman filter prediction step.
         Parameters
         ----------
@@ -117,10 +113,8 @@ class KalmanFilter(object):
             Returns the mean vector and covariance matrix of the predicted
             state. Unobserved velocities are initialized to 0 mean.
         """
-        # dt = time.perf_counter() - self._prev_time
-        # for i in range(self.ndim):
-        #    self._motion_mat[i, self.ndim + i] = dt
-        # self._prev_time = time.perf_counter()
+        for i in range(self.ndim):
+            self._motion_mat[i, self.ndim + i] = delta_time
 
         # Compute sigma points
         points = self._sigma_point_count
@@ -131,7 +125,8 @@ class KalmanFilter(object):
             mean[:, None] - self._gamma * covariance_sqrt
 
         # Compute predicted state
-        mean = np.dot(self._motion_mat, mean)
+        self._sigma_points = np.dot(self._motion_mat, self._sigma_points)
+        mean = np.dot(self._sigma_points, self._sigma_weights_m)
 
         # Compute predicted covariance
         std_pos = [
