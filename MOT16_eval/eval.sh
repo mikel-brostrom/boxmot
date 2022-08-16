@@ -81,7 +81,7 @@ do
 			mv ./MOT16_eval/TrackEval/data/MOT16/train/$i/img1/ ./MOT16_eval/TrackEval/data/MOT16/train/$i/$i
 		fi
 		# run inference on sequence frames
-		python3 track.py --source ./MOT16_eval/TrackEval/data/MOT16/train/$i/$i --save-txt --yolo-weights yolov5/weights/crowdhuman_yolov5m.pt --strong-sort-weights osnet_x1_0_msmt17.pt --classes 0 --exist-ok --imgsz 1280 --save-vid
+		python3 track.py --source ./MOT16_eval/TrackEval/data/MOT16/train/$i/$i --save-txt --yolo-weights yolov5/weights/crowdhuman_yolov5m.pt --strong-sort-weights osnet_x1_0_msmt17.pt --classes 0 --exist-ok --imgsz 1280 
 	) &
 	# https://unix.stackexchange.com/questions/103920/parallelize-a-bash-for-loop
 	# allow to execute up to $N jobs in parallel
@@ -104,5 +104,5 @@ mv ./runs/track/exp/tracks/* \
 
 # run the evaluation
 python ./MOT16_eval/TrackEval/scripts/run_mot_challenge.py --BENCHMARK MOT16 \
- --TRACKERS_TO_EVAL ch_yolov5m_deep_sort/ --SPLIT_TO_EVAL train --METRICS HOTA CLEAR Identity \
+ --TRACKERS_TO_EVAL ch_yolov5m_strong_sort --SPLIT_TO_EVAL train --METRICS HOTA CLEAR Identity \
  --USE_PARALLEL False --NUM_PARALLEL_CORES 4
