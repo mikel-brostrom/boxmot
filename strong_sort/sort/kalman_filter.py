@@ -205,37 +205,45 @@ class KalmanFilter(object):
         (ndarray, ndarray)
             Returns the measurement-corrected state distribution.
         """
+        
+        try:
+            # Predict measurement
+            (
+                projected_mean,
+                projected_cov_sqrt,
+                pred_meas_sigma_points
+            ) = self.project(mean, covariance_sqrt, confidence)
 
-        # Predict measurement
-        projected_mean, projected_cov_sqrt, pred_meas_sigma_points = self.project(mean, covariance_sqrt, confidence)
+            # Compute Kalman Gain
+            W = np.repeat(
+                self._sigma_weights_c[:, None],
+                self._sigma_points.shape[0],
+                axis=1
+            ).T
 
-        # Compute Kalman Gain
-        W = np.repeat(
-            self._sigma_weights_c[:, None],
-            self._sigma_points.shape[0],
-            axis=1
-        ).T
+            P = np.dot(
+                np.multiply(self._sigma_points - mean[:, None], W),
+                (pred_meas_sigma_points - projected_mean[:, None]).T
+            )
 
-        P = np.dot(
-            np.multiply(self._sigma_points - mean[:, None], W),
-            (pred_meas_sigma_points - projected_mean[:, None]).T
-        )
+            K = scipy.linalg.cho_solve(
+                (projected_cov_sqrt, True), P.T, check_finite=False).T
 
-        K = scipy.linalg.cho_solve(
-            (projected_cov_sqrt, True), P.T, check_finite=False).T
+            # Update state and covariance
+            innovation = measurement - projected_mean
+            new_mean = mean + np.dot(K, innovation)
 
-        # Update state and covariance
-        innovation = measurement - projected_mean
-        new_mean = mean + np.dot(K, innovation)
+            U = np.dot(K, projected_cov_sqrt)
 
-        U = np.dot(K, projected_cov_sqrt)
+            new_covariance_sqrt = covariance_sqrt
+            for i in range(U.shape[1]):
+                new_covariance_sqrt = self._rank_update(
+                    new_covariance_sqrt, U[:, i], -1)
 
-        new_covariance_sqrt = covariance_sqrt
-        for i in range(U.shape[1]):
-            new_covariance_sqrt = self._rank_update(
-                new_covariance_sqrt, U[:, i], -1)
-
-        return new_mean, new_covariance_sqrt
+            return new_mean, new_covariance_sqrt
+        # Skip update on numerical errors
+        except np.linalg.linalg.LinAlgError:
+            return mean, covariance_sqrt
 
     def gating_distance(self, mean, covariance_sqrt, measurements,
                         only_position=False):
