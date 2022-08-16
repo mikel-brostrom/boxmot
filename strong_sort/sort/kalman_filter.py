@@ -126,9 +126,9 @@ class KalmanFilter(object):
         points = self._sigma_point_count
         self._sigma_points[:, 0] = mean
         self._sigma_points[:, 1:int((points - 1) / 2 + 1)] = \
-            mean + self._gamma * covariance_sqrt
+            mean[:, None] + self._gamma * covariance_sqrt
         self._sigma_points[:, int((points - 1) / 2 + 1):points] = \
-            mean - self._gamma * covariance_sqrt
+            mean[:, None] - self._gamma * covariance_sqrt
 
         # Compute predicted state
         mean = np.dot(self._motion_mat, mean)
@@ -182,6 +182,7 @@ class KalmanFilter(object):
             1e-1,
             self._std_weight_position * mean[3]]
 
+        # Limit confidence to max 0.99 in order to avoid singular matrix
         std = [(1 - min(0.99, confidence)) * x for x in std]
 
         measurement_noise_cov = np.diag(np.square(std))
