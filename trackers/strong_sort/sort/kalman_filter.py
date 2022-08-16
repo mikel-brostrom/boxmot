@@ -71,10 +71,10 @@ class KalmanFilter(object):
         self._prev_time = time.perf_counter()
 
         std = [
-            2 * self._std_weight_position * measurement[3],   # the center point x
-            2 * self._std_weight_position * measurement[3],   # the center point y
+            20 * self._std_weight_position * measurement[3],   # the center point x
+            20 * self._std_weight_position * measurement[3],   # the center point y
             1 * measurement[3],                               # the ratio of width/height
-            2 * self._std_weight_position * measurement[3],   # the height
+            20 * self._std_weight_position * measurement[3],   # the height
             10 * self._std_weight_velocity * measurement[3],
             10 * self._std_weight_velocity * measurement[3],
             0.1 * measurement[3],
@@ -114,6 +114,9 @@ class KalmanFilter(object):
             0.1 * mean[3],
             self._std_weight_velocity * mean[3]]
         motion_noise_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
+        
+        chol_factor = scipy.linalg.cho_factor(
+            projected_cov, check_finite=False)
 
         mean = np.dot(self._motion_mat, mean)
         covariance = np.linalg.multi_dot((
