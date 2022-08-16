@@ -125,9 +125,9 @@ class KalmanFilter(object):
         # Compute sigma points       
         points = self._sigma_point_count
         self._sigma_points[:, 0] = mean
-        self._sigma_points[:, 1:(points-1)/2+1] =
+        self._sigma_points[:, 1:int((points-1)/2+1)] =
             mean + self._gamma * covariance_sqrt
-        self._sigma_points[:, (points-1)/2+1:points] =
+        self._sigma_points[:, int((points-1)/2+1):points] =
             mean - self._gamma * covariance_sqrt
 
         # Compute predicted state
@@ -336,7 +336,7 @@ class KalmanFilter(object):
         ## Update lower triangular matrix of covariance
         covariance_sqrt = self._rank_update(
             np.conj(R).T,
-            self._sigma_points[:, 0] - mean,
+            sigma_points[:, 0] - mean,
             self._sigma_weights_c[0]
         )
 
