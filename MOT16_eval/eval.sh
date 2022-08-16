@@ -81,8 +81,7 @@ do
 			mv ./MOT16_eval/TrackEval/data/MOT16/train/$i/img1/ ./MOT16_eval/TrackEval/data/MOT16/train/$i/$i
 		fi
 		# run inference on sequence frames
-		python3 track.py --source ./MOT16_eval/TrackEval/data/MOT16/train/$i/$i --save-txt --yolo-weights yolov5/weights/crowdhuman_yolov5m.pt --classes 0 --exist-ok --imgsz 1280 --save-vid
-	    # move generated results to evaluation repo
+		python3 track.py --source ./MOT16_eval/TrackEval/data/MOT16/train/$i/$i --save-txt --yolo-weights yolov5/weights/crowdhuman_yolov5m.pt --strong-sort-weights osnet_x1_0_msmt17.pt --classes 0 --exist-ok --imgsz 1280 --save-vid
 	) &
 	# https://unix.stackexchange.com/questions/103920/parallelize-a-bash-for-loop
 	# allow to execute up to $N jobs in parallel
