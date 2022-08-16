@@ -331,7 +331,7 @@ class KalmanFilter(object):
         aug_matrix[-sigma_points.shape[0]:, :] = noise_cov_cholesky_upper
 
         ## QR decomposition
-        _, R = scipy.linalg.qr(aug_matrix, pivoting=False, check_finite=False)
+        (R,) = scipy.linalg.qr(aug_matrix, mode='r', pivoting=False, check_finite=False)
 
         ## Update lower triangular matrix of covariance
         covariance_sqrt = self._rank_update(
