@@ -33,9 +33,6 @@ class KalmanFilter(object):
 
     def __init__(self):
         ndim, dt = 4, 1.
-        
-        # Timestamp to keep track of delta time between predictions
-        self._prev_time = 0
 
         # Create Kalman filter model matrices.
         self._motion_mat = np.eye(2 * ndim, 2 * ndim)
@@ -69,8 +66,6 @@ class KalmanFilter(object):
         mean_pos = measurement
         mean_vel = np.zeros_like(mean_pos)
         mean = np.r_[mean_pos, mean_vel]
-        
-        self._prev_time = time.perf_counter()
 
         std = [
             2 * self._std_weight_position * measurement[3],   # the center point x
@@ -100,11 +95,6 @@ class KalmanFilter(object):
             Returns the mean vector and covariance matrix of the predicted
             state. Unobserved velocities are initialized to 0 mean.
         """
-        dt = time.perf_counter() - self._prev_time
-        for i in range(ndim):
-            self._motion_mat[i, ndim + i] = dt
-        self._prev_time = time.perf_counter()
-        
         alpha = 1 + self._initial_error_scaling
         self._initial_error_scaling =
             self._initial_error_scaling * (1-self._initial_noise_dissipation)
