@@ -49,6 +49,8 @@ class KalmanFilter(object):
         # the model. This is a bit hacky.
         self._std_weight_position = 1. / 20
         self._std_weight_velocity = 1. / 160
+        self._initial_noise_scaling = 20
+        self._initial_noise_dissipation = 0.1
 
     def initiate(self, measurement):
         """Create track from unassociated measurement.
@@ -71,14 +73,14 @@ class KalmanFilter(object):
         self._prev_time = time.perf_counter()
 
         std = [
-            20 * self._std_weight_position * measurement[3],   # the center point x
-            20 * self._std_weight_position * measurement[3],   # the center point y
+            2 * self._std_weight_position * measurement[3],   # the center point x
+            2 * self._std_weight_position * measurement[3],   # the center point y
             1 * measurement[3],                               # the ratio of width/height
-            20 * self._std_weight_position * measurement[3],   # the height
-            10 * self._std_weight_velocity * measurement[3],
-            10 * self._std_weight_velocity * measurement[3],
+            2 * self._std_weight_position * measurement[3],   # the height
+            1 * self._std_weight_velocity * measurement[3],
+            1 * self._std_weight_velocity * measurement[3],
             0.1 * measurement[3],
-            10 * self._std_weight_velocity * measurement[3]]
+            1 * self._std_weight_velocity * measurement[3]]
         covariance = np.diag(np.square(std))
         return mean, covariance
 
@@ -103,16 +105,19 @@ class KalmanFilter(object):
             self._motion_mat[i, ndim + i] = dt
         self._prev_time = time.perf_counter()
         
+        alpha = 1 + self._initial_error_scaling
+        self._initial_error_scaling =
+            self._initial_error_scaling * (1-self._initial_noise_dissipation)
         std_pos = [
-            self._std_weight_position * mean[3],
-            self._std_weight_position * mean[3],
-            1 * mean[3],
-            self._std_weight_position * mean[3]]
+            alpha * self._std_weight_position * mean[3],
+            alpha * self._std_weight_position * mean[3],
+            alpha * mean[3],
+            alpha * self._std_weight_position * mean[3]]
         std_vel = [
-            self._std_weight_velocity * mean[3],
-            self._std_weight_velocity * mean[3],
-            0.1 * mean[3],
-            self._std_weight_velocity * mean[3]]
+            alpha * self._std_weight_velocity * mean[3],
+            alpha * self._std_weight_velocity * mean[3],
+            alpha * 0.1 * mean[3],
+            alpha * self._std_weight_velocity * mean[3]]
         motion_noise_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
 
         mean = np.dot(self._motion_mat, mean)
