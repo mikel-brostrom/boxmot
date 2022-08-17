@@ -47,14 +47,30 @@ class Tracker:
         self.kf = kalman_filter.KalmanFilter()
         self.tracks = []
         self._next_id = 1
+        self._prev_time_step = 0
 
-    def predict(self):
+    def predict(self, time_step=-1):
         """Propagate track state distributions one time step forward.
 
         This function should be called once every time step, before `update`.
+        
+        Parameters
+        ----------
+        time_step : float
+            Time step of the prediction.
         """
+        if self._prev_time_step == 0:
+            self._prev_time_step = time_step
+
+        delta_time = time_step - self._prev_time_step
+        self._prev_time_step = time_step
+        
+        # default to dt = 1 if no time_step was provided
+        if delta_time < 0:
+            delta_time = 1
+        
         for track in self.tracks:
-            track.predict(self.kf)
+            track.predict(self.kf, delta_time)
 
     def increment_ages(self):
         for track in self.tracks:

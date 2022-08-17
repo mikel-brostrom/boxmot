@@ -32,14 +32,14 @@ class KalmanFilter(object):
     """
 
     def __init__(self):
-        ndim, dt = 4, 1.
+        self.ndim, dt = 4, 1.
 
         # Create Kalman filter model matrices.
-        self._motion_mat = np.eye(2 * ndim, 2 * ndim)
-        for i in range(ndim):
-            self._motion_mat[i, ndim + i] = dt
+        self._motion_mat = np.eye(2 * self.ndim, 2 * self.ndim)
+        for i in range(self.ndim):
+            self._motion_mat[i, self.ndim + i] = dt
 
-        self._update_mat = np.eye(ndim, 2 * ndim)
+        self._update_mat = np.eye(self.ndim, 2 * self.ndim)
 
         # Motion and observation uncertainty are chosen relative to the current
         # state estimate. These weights control the amount of uncertainty in
@@ -79,7 +79,7 @@ class KalmanFilter(object):
         covariance = np.diag(np.square(std))
         return mean, covariance
 
-    def predict(self, mean, covariance):
+    def predict(self, mean, covariance, delta_time=1):
         """Run Kalman filter prediction step.
         Parameters
         ----------
@@ -89,12 +89,17 @@ class KalmanFilter(object):
         covariance : ndarray
             The 8x8 dimensional covariance matrix of the object state at the
             previous time step.
+        delta_time : float
+            The time it took since the last prediction step
         Returns
         -------
         (ndarray, ndarray)
             Returns the mean vector and covariance matrix of the predicted
             state. Unobserved velocities are initialized to 0 mean.
         """
+        for i in range(self.ndim):
+           self._motion_mat[i, self.ndim + i] = delta_time
+        
         alpha = 1 + self._initial_noise_scaling
         self._initial_noise_scaling = \
             self._initial_noise_scaling * (1-self._initial_noise_dissipation)

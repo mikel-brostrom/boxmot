@@ -185,7 +185,7 @@ def run(
 
                 # pass detections to strongsort
                 t4 = time_sync()
-                outputs[i] = tracker_list[i].update(det.cpu(), im0)
+                outputs[i] = tracker_list[i].update(det.cpu(), im0, time_sync())
                 t5 = time_sync()
                 dt[3] += t5 - t4
 
