@@ -21,7 +21,7 @@ chi2inv95 = {
 
 class KalmanFilter(object):
     """
-    A simple Kalman filter for tracking bounding boxes in image space.
+    An adaptive Kalman filter for tracking bounding boxes in image space.
     The 8-dimensional state space
         x, y, a, h, vx, vy, va, vh
     contains the bounding box center position (x, y), aspect ratio a, height h,
@@ -29,6 +29,9 @@ class KalmanFilter(object):
     Object motion follows a constant velocity model. The bounding box location
     (x, y, a, h) is taken as direct observation of the state space (linear
     observation model).
+
+    Adaptive method for estimating Q and R implemented based on:
+    https://arxiv.org/ftp/arxiv/papers/1702/1702.00884.pdf
     """
 
     def __init__(self):
@@ -46,8 +49,14 @@ class KalmanFilter(object):
         # the model. This is a bit hacky.
         self._std_weight_position = 1. / 20
         self._std_weight_velocity = 1. / 160
-        self._initial_noise_scaling = 20
-        self._initial_noise_dissipation = 0.1
+        self._initial_noise_scaling = 10
+        self._initial_noise_dissipation = 0.01
+
+        self._forgetting_factor = 0.9
+
+        self._process_noise = np.zeros((8, 8))
+        self._measurement_noise = np.zeros((4, 4))
+        self._residual = np.zeros((4,))
 
     def initiate(self, measurement):
         """Create track from unassociated measurement.
@@ -70,16 +79,36 @@ class KalmanFilter(object):
         std = [
             2 * self._std_weight_position * measurement[3],   # the center point x
             2 * self._std_weight_position * measurement[3],   # the center point y
-            1 * measurement[3],                               # the ratio of width/height
-            2 * self._std_weight_position * measurement[3],   # the height
-            1 * self._std_weight_velocity * measurement[3],
-            1 * self._std_weight_velocity * measurement[3],
-            0.1 * measurement[3],
-            1 * self._std_weight_velocity * measurement[3]]
+            4 * self._std_weight_position * measurement[3],   # the ratio of width/height
+            4 * self._std_weight_position * measurement[3],   # the height
+            10 * self._std_weight_velocity * measurement[3],
+            10 * self._std_weight_velocity * measurement[3],
+            10 * self._std_weight_velocity * measurement[3],
+            10 * self._std_weight_velocity * measurement[3]]
         covariance = np.diag(np.square(std))
+
+        self._measurement_noise = np.diag([
+            4 * self._std_weight_position * measurement[3],
+            4 * self._std_weight_position * measurement[3],
+            10 * self._std_weight_position * measurement[3],
+            10 * self._std_weight_position * measurement[3],
+        ])
+
+        std_pos = [
+            self._std_weight_position * mean[3],
+            self._std_weight_position * mean[3],
+            self._std_weight_position * mean[3],
+            self._std_weight_position * mean[3]]
+        std_vel = [
+            self._std_weight_velocity * mean[3],
+            self._std_weight_velocity * mean[3],
+            self._std_weight_velocity * mean[3],
+            self._std_weight_velocity * mean[3]]
+        self._process_noise = np.diag(np.square(np.r_[std_pos, std_vel]))
+
         return mean, covariance
 
-    def predict(self, mean, covariance, delta_time=1):
+    def predict(self, mean, covariance, delta_time):
         """Run Kalman filter prediction step.
         Parameters
         ----------
@@ -89,8 +118,6 @@ class KalmanFilter(object):
         covariance : ndarray
             The 8x8 dimensional covariance matrix of the object state at the
             previous time step.
-        delta_time : float
-            The time it took since the last prediction step
         Returns
         -------
         (ndarray, ndarray)
@@ -99,57 +126,16 @@ class KalmanFilter(object):
         """
         for i in range(self.ndim):
            self._motion_mat[i, self.ndim + i] = delta_time
-        
-        alpha = 1 + self._initial_noise_scaling
-        self._initial_noise_scaling = \
-            self._initial_noise_scaling * (1-self._initial_noise_dissipation)
-        std_pos = [
-            alpha * self._std_weight_position * mean[3],
-            alpha * self._std_weight_position * mean[3],
-            alpha * mean[3],
-            alpha * self._std_weight_position * mean[3]]
-        std_vel = [
-            alpha * self._std_weight_velocity * mean[3],
-            alpha * self._std_weight_velocity * mean[3],
-            alpha * 0.1 * mean[3],
-            alpha * self._std_weight_velocity * mean[3]]
-        motion_noise_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
+
+        #alpha = 1 + self._initial_noise_scaling
+        #self._initial_noise_scaling = \
+        #    self._initial_noise_scaling * (1 - self._initial_noise_dissipation)
 
         mean = np.dot(self._motion_mat, mean)
         covariance = np.linalg.multi_dot((
-            self._motion_mat, covariance, self._motion_mat.T)) + motion_noise_cov
+            self._motion_mat, covariance, self._motion_mat.T)) + self._process_noise
 
         return mean, covariance
-
-    def project(self, mean, covariance, confidence=.0):
-        """Project state distribution to measurement space.
-        Parameters
-        ----------
-        mean : ndarray
-            The state's mean vector (8 dimensional array).
-        covariance : ndarray
-            The state's covariance matrix (8x8 dimensional).
-        confidence: (dyh) 检测框置信度
-        Returns
-        -------
-        (ndarray, ndarray)
-            Returns the projected mean and covariance matrix of the given state
-            estimate.
-        """
-        std = [
-            self._std_weight_position * mean[3],
-            self._std_weight_position * mean[3],
-            1e-1,
-            self._std_weight_position * mean[3]]
-
-        std = [(1 - confidence) * x for x in std]
-
-        measurement_noise_cov = np.diag(np.square(std))
-
-        mean = np.dot(self._update_mat, mean)
-        covariance = np.linalg.multi_dot((
-            self._update_mat, covariance, self._update_mat.T))
-        return mean, covariance + measurement_noise_cov
 
     def update(self, mean, covariance, measurement, confidence=.0):
         """Run Kalman filter correction step.
@@ -163,24 +149,52 @@ class KalmanFilter(object):
             The 4 dimensional measurement vector (x, y, a, h), where (x, y)
             is the center position, a the aspect ratio, and h the height of the
             bounding box.
-        confidence: (dyh)
+        confidence: (dyh)检测框置信度
         Returns
         -------
         (ndarray, ndarray)
             Returns the measurement-corrected state distribution.
         """
-        projected_mean, projected_cov = self.project(mean, covariance, confidence)
+        projected_mean = np.dot(self._update_mat, mean)
+        innovation = measurement - projected_mean
 
+        projected_cov = np.linalg.multi_dot((
+            self._update_mat, covariance, self._update_mat.T))
+
+        # Estimate measurement noise based on a priori residual and projected
+        # covariance
+        est_measurement_noise = np.outer(self._residual, self._residual) + projected_cov
+        self._measurement_noise = (
+                self._forgetting_factor * self._measurement_noise
+                + (1 - self._forgetting_factor) * est_measurement_noise
+        )
+
+        # Update projected covariance with adapted measurement noise
+        projected_cov += self._measurement_noise * (1 - confidence)
+
+        # Calculate Kalman gain
         chol_factor, lower = scipy.linalg.cho_factor(
             projected_cov, lower=True, check_finite=False)
         kalman_gain = scipy.linalg.cho_solve(
             (chol_factor, lower), np.dot(covariance, self._update_mat.T).T,
             check_finite=False).T
-        innovation = measurement - projected_mean
+
+        # Estimate a posteriori process noise based on Kalman gain
+        # and innovation
+        est_process_noise = np.linalg.multi_dot((
+            kalman_gain, np.outer(innovation, innovation), kalman_gain.T))
+        self._process_noise = (
+                self._forgetting_factor * self._process_noise
+                + (1 - self._forgetting_factor) * est_process_noise
+        )
 
         new_mean = mean + np.dot(innovation, kalman_gain.T)
         new_covariance = covariance - np.linalg.multi_dot((
             kalman_gain, projected_cov, kalman_gain.T))
+
+        upd_projected_mean = np.dot(self._update_mat, new_mean)
+        self._residual = measurement - upd_projected_mean
+
         return new_mean, new_covariance
 
     def gating_distance(self, mean, covariance, measurements,
