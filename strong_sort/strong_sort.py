@@ -39,7 +39,7 @@ class StrongSORT(object):
         self.tracker = Tracker(
             metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init)
 
-    def update(self, bbox_xywh, confidences, classes, ori_img):
+    def update(self, bbox_xywh, confidences, classes, ori_img, time_step=-1):
         self.height, self.width = ori_img.shape[:2]
         # generate detections
         features = self._get_features(bbox_xywh, ori_img)
@@ -52,7 +52,7 @@ class StrongSORT(object):
         scores = np.array([d.confidence for d in detections])
 
         # update tracker
-        self.tracker.predict()
+        self.tracker.predict(time_step)
         self.tracker.update(detections, classes, confidences)
 
         # output bbox identities
