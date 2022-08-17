@@ -49,8 +49,6 @@ class KalmanFilter(object):
         # the model. This is a bit hacky.
         self._std_weight_position = 1. / 20
         self._std_weight_velocity = 1. / 160
-        self._initial_noise_scaling = 10
-        self._initial_noise_dissipation = 0.01
 
         self._forgetting_factor = 0.9
 
@@ -126,10 +124,6 @@ class KalmanFilter(object):
         """
         for i in range(self.ndim):
            self._motion_mat[i, self.ndim + i] = delta_time
-
-        #alpha = 1 + self._initial_noise_scaling
-        #self._initial_noise_scaling = \
-        #    self._initial_noise_scaling * (1 - self._initial_noise_dissipation)
 
         mean = np.dot(self._motion_mat, mean)
         covariance = np.linalg.multi_dot((
@@ -223,14 +217,16 @@ class KalmanFilter(object):
             squared Mahalanobis distance between (mean, covariance) and
             `measurements[i]`.
         """
-        mean, covariance = self.project(mean, covariance)
+        projected_mean = np.dot(self._update_mat, mean)
+        projected_cov = np.linalg.multi_dot((
+            self._update_mat, covariance, self._update_mat.T))
 
         if only_position:
-            mean, covariance = mean[:2], covariance[:2, :2]
+            projected_mean, projected_cov = projected_mean[:2], projected_cov[:2, :2]
             measurements = measurements[:, :2]
 
-        cholesky_factor = np.linalg.cholesky(covariance)
-        d = measurements - mean
+        cholesky_factor = np.linalg.cholesky(projected_cov)
+        d = measurements - projected_mean
         z = scipy.linalg.solve_triangular(
             cholesky_factor, d.T, lower=True, check_finite=False,
             overwrite_b=True)
