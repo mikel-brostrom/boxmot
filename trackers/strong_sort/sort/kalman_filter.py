@@ -95,9 +95,9 @@ class KalmanFilter(object):
             Returns the mean vector and covariance matrix of the predicted
             state. Unobserved velocities are initialized to 0 mean.
         """
-        alpha = 1 + self._initial_error_scaling
-        self._initial_error_scaling =
-            self._initial_error_scaling * (1-self._initial_noise_dissipation)
+        alpha = 1 + self._initial_noise_scaling
+        self._initial_noise_scaling =
+            self._initial_noise_scaling * (1-self._initial_noise_dissipation)
         std_pos = [
             alpha * self._std_weight_position * mean[3],
             alpha * self._std_weight_position * mean[3],
