@@ -36,6 +36,7 @@ class KalmanFilter(object):
 
     def __init__(self):
         self.ndim, dt = 4, 1.
+        self._I = np.eye(2 * self.ndim)
 
         # Create Kalman filter model matrices.
         self._motion_mat = np.eye(2 * self.ndim, 2 * self.ndim)
@@ -183,8 +184,14 @@ class KalmanFilter(object):
         )
 
         new_mean = mean + np.dot(innovation, kalman_gain.T)
-        new_covariance = covariance - np.linalg.multi_dot((
-            kalman_gain, projected_cov, kalman_gain.T))
+        
+        # The following way of updating the state covariance is more numerically
+        # stable than the text book equation P' = (I-KH)P
+        I_KH = self._I - np.dot(kalman_gain, self._update_mat)
+        new_covariance = (
+            np.linalg.multi_dot((I_KH, covariance, I_KH.T))
+            + np.linalg.multi_dot((kalman_gain, self._measurement_noise, kalman_gain.T))
+        )
 
         upd_projected_mean = np.dot(self._update_mat, new_mean)
         self._residual = measurement - upd_projected_mean
