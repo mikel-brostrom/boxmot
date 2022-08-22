@@ -1,0 +1,8 @@
+# VisDrone 2019
+train: 'E:\datasets\dataset\images\train'
+val: 'E:\datasets\dataset\images\valid'
+test: 'E:\datasets\dataset\images\test'
+
+is_coco: False
+nc: 1
+names: ['car']

@@ -1,0 +1,7 @@
+# pip install -r requirements.txt
+# python3.8 environment
+
+tensorrt # TensorRT 8.0+
+pycuda==2020.1 # CUDA 11.0
+nvidia-pyindex
+pytorch-quantization

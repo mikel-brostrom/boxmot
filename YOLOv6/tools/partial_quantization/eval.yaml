@@ -1,0 +1,8 @@
+task: 'val'
+save_dir: 'runs/val/exp'
+half: True
+data: '../../data/coco.yaml'
+batch_size: 32
+img_size: 640
+device: '0'
+stride: 32
