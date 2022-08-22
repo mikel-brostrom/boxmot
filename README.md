@@ -80,6 +80,13 @@ $ python track.py --source 0 --yolo-weights yolov5n.pt --img 640
                                             ...
 ```
 
+### Yolov6
+
+
+```bash
+$ python yolov6_track.py --source 0 --yolov6-weights yolov6n.pt --yolov6-yaml YOLOv6/data/coco.yaml --img 640
+```
+
 ### StrongSORT
 
 The above applies to StrongSORT models as well. Choose a ReID model based on your needs from this ReID [model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO)
