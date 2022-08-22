@@ -31,9 +31,7 @@ if str(ROOT / 'strong_sort') not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 import logging
-from yolov5.utils.torch_utils import select_device
-from yolov5.models.common import DetectMultiBackend
-from yolov5.utils.general import LOGGER, colorstr, check_requirements, check_version
+from YOLOv6.yolov6.utils.general import LOGGER, colorstr, check_requirements, check_version
 from strong_sort.deep.reid.torchreid.utils.feature_extractor import FeatureExtractor
 from strong_sort.deep.reid.torchreid.models import build_model
 from strong_sort.deep.reid_model_factory import get_model_name

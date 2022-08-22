@@ -31,22 +31,23 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 import logging
 from YOLOv6.yolov6.layers.common import DetectBackend
-from yolov5.models.common import DetectMultiBackend
-# from yolov5.utils.dataloaders import VID_FORMATS, LoadImages, LoadStreams
-from yolov5.utils.general import (LOGGER, check_img_size, scale_coords, check_requirements, cv2,
-                                  check_imshow, xyxy2xywh, increment_path, strip_optimizer, colorstr, print_args,
-                                  check_file)
-from yolov5.utils.torch_utils import select_device, time_sync
-from yolov5.utils.plots import Annotator, colors, save_one_box
+# from yolov5.models.common import DetectMultiBackend
+
 from strong_sort.utils.parser import get_config
 from strong_sort.strong_sort import StrongSORT
-from YOLOv6.yolov6.core.inferer import Inferer
+from YOLOv6.yolov6.utils.plots import Annotator, colors, save_one_box
 from YOLOv6.yolov6.utils.events import LOGGER, load_yaml
 from YOLOv6.yolov6.utils.nms import non_max_suppression
+from YOLOv6.yolov6.utils.general import (check_img_size, scale_coords, check_requirements, cv2,
+                                  check_imshow, xyxy2xywh, increment_path, strip_optimizer, colorstr, print_args,
+                                  check_file)
+from YOLOv6.yolov6.utils.torch_utils import select_device, time_sync
 from YOLOv6.yolov6.data.datasets import LoadImages, LoadStreams, VID_FORMATS
 
 # remove duplicated stream handler to avoid duplicated logging
-logging.getLogger().removeHandler(logging.getLogger().handlers[0])
+log_handler = logging.getLogger().handlers
+if log_handler and isinstance(log_handler, list):
+    logging.getLogger().removeHandler(logging.getLogger().handlers[0])
 
 
 @torch.no_grad()
@@ -107,7 +108,7 @@ def run(
     yolov6_device = 'cpu'
     device = select_device(device)
     model = DetectBackend(yolov6_weights, device=device, dnn=dnn)
-    stride, names = model.stride, load_yaml(yolov6_yaml)['names']
+    stride, names, pt = model.stride, load_yaml(yolov6_yaml)['names'], True
     imgsz = check_img_size(imgsz, s=stride)  # check image size
 
     # Dataloader
@@ -119,7 +120,6 @@ def run(
     else:
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
         nr_sources = 1
-    # dataset1 = LoadData(source)
     vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
 
     # initialize StrongSORT
@@ -147,16 +147,11 @@ def run(
         strongsort_list[i].model.warmup()
     outputs = [None] * nr_sources
 
-    # Run tracking
-    model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
     if device.type != 'cpu':
         model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.model.parameters())))
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
     curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
-    # yolov6_infer = Inferer(source, yolov6_weights, yolov6_device, yolov6_yaml, imgsz, half)
     for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
-        # if (frame_idx + 1) % 10 == 0:
-        #     break
         t1 = time_sync()
         im = torch.from_numpy(im).to(device)
         im = im.half() if half else im.float()  # uint8 to fp16/32
@@ -168,10 +163,10 @@ def run(
 
         # Inference
         visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
-        # pred = model(im, augment=augment, visualize=visualize)
         v6_pred = model(im)
         t3 = time_sync()
         dt[1] += t3 - t2
+
         # # Apply NMS
         pred = non_max_suppression(v6_pred, 0.7, 0.6, classes, agnostic_nms, max_det=max_det)
         dt[2] += time_sync() - t3
@@ -189,7 +184,7 @@ def run(
                 p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
                 p = Path(p)  # to Path
                 # video file
-                if source.endswith(VID_FORMATS):
+                if source.endswith(tuple(VID_FORMATS)):
                     txt_file_name = p.stem
                     save_path = str(save_dir / p.name)  # im.jpg, vid.mp4, ...
                 # folder with imgs

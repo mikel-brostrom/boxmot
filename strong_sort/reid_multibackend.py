@@ -9,7 +9,7 @@ import gdown
 from os.path import exists as file_exists
 from .deep.reid_model_factory import show_downloadeable_models, get_model_url, get_model_name
 
-from yolov5.utils.general import LOGGER, check_version
+from YOLOv6.yolov6.utils.general import LOGGER, check_version
 from torchreid.utils import FeatureExtractor
 from torchreid.utils.tools import download_url
 
@@ -133,7 +133,7 @@ class ReIDDetectMultiBackend(nn.Module):
     @staticmethod
     def model_type(p='path/to/model.pt'):
         # Return model type from model path, i.e. path='path/to/model.onnx' -> type=onnx
-        from export import export_formats
+        from YOLOv6.export import export_formats
         suffixes = list(export_formats().Suffix) + ['.xml']  # export suffixes
         check_suffix(p, suffixes)  # checks
         p = Path(p).name  # eliminate trailing separators
