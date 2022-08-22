@@ -289,7 +289,7 @@ def run(
         s = f"\n{len(list(save_dir.glob('tracks/*.txt')))} tracks saved to {save_dir / 'tracks'}" if save_txt else ''
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
-        strip_optimizer(yolo_weights)  # update model (to fix SourceChangeWarning)
+        strip_optimizer(yolov6_weights)  # update model (to fix SourceChangeWarning)
 
 
 def parse_opt():
