@@ -295,10 +295,10 @@ def run(
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolov6-weights', nargs='+', type=str,
-                        default=r'E:\datasets\Yolov6\runs\train\CustomDataset_Augmented_2_IMG2k\exp1\weights\best_ckpt.pt',
+                        default=r'E:\Github\Yolov5_StrongSORT_OSNet\YOLOv6\yolov6s.pt',
                         help='model.pt path(s)')
     parser.add_argument('--yolov6-yaml', nargs='+', type=str,
-                        default=r'E:\datasets\strongsort_yolov5\Yolov5_StrongSORT_OSNet\YOLOv6\data\custom_data.yam;')
+                        default=r'E:\Github\Yolov5_StrongSORT_OSNet\YOLOv6\data\custom_data.yaml')
     parser.add_argument('--strong-sort-weights', type=str,
                         default=r'E:\datasets\strongsort_yolov5\Yolov5_StrongSORT_OSNet\osnet_x0_25_msmt17.pt')
     parser.add_argument('--config-strongsort', type=str, default='strong_sort/configs/strong_sort.yaml')
