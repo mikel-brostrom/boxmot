@@ -1,1 +1,3 @@
 .vscode/
+!/YOLOv6/yolov6s.pt
+!/runs/track/
