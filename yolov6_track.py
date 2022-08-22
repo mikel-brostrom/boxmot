@@ -293,17 +293,19 @@ def run(
 
 
 def parse_opt():
+    dirname = os.path.abspath(os.path.dirname(__file__))
+    print(f'{dirname}')
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolov6-weights', nargs='+', type=str,
-                        default=r'E:\Github\Yolov5_StrongSORT_OSNet\YOLOv6\yolov6s.pt',
+                        default=os.path.join(dirname, r'\Yolov5_StrongSORT_OSNet\YOLOv6\weights', 'yolov6s.pt'),
                         help='model.pt path(s)')
     parser.add_argument('--yolov6-yaml', nargs='+', type=str,
-                        default=r'E:\Github\Yolov5_StrongSORT_OSNet\YOLOv6\data\custom_data.yaml')
+                        default=os.path.join(dirname, r'\Yolov5_StrongSORT_OSNet\YOLOv6\data\coco.yaml'))
     parser.add_argument('--strong-sort-weights', type=str,
                         default=r'E:\datasets\strongsort_yolov5\Yolov5_StrongSORT_OSNet\osnet_x0_25_msmt17.pt')
     parser.add_argument('--config-strongsort', type=str, default='strong_sort/configs/strong_sort.yaml')
     parser.add_argument('--source', type=str,
-                        default=r'E:\DJI_SPARK_LUMS_02-08-2022\DJI_2640.MP4',
+                        default=0,
                         help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--conf-thres', type=float, default=0.5, help='confidence threshold')
@@ -344,4 +346,4 @@ def main(opt):
 
 if __name__ == "__main__":
     opt = parse_opt()
-    main(opt)
+    # main(opt)
