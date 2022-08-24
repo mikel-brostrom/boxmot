@@ -113,7 +113,6 @@ def get_model_url(model):
 
 
 def is_model_in_model_types(model):
-    model = model.name
     if model.stem in __model_types:
         return True
     else:
