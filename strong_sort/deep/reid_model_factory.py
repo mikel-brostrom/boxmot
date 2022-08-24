@@ -100,26 +100,28 @@ def show_downloadeable_models():
     print(list(__trained_urls.keys()))
 
 
+def show_downloadeable_models():
+    print('\nAvailable .pt ReID models for automatic download')
+    print(list(__trained_urls.keys()))
+
+
 def get_model_url(model):
-    model = str(model).rsplit('/', 1)[-1]
-    if model in __trained_urls:
-        return __trained_urls[model]
+    if model.stem in __trained_urls:
+        return __trained_urls[model.stem]
     else:
         None
 
 
 def is_model_in_model_types(model):
-    model = str(model).rsplit('/', 1)[-1].split('.')[0]
-    if model in __model_types:
+    model = model.name
+    if model.stem in __model_types:
         return True
     else:
         return False
 
 
 def get_model_name(model):
-    model = str(model).rsplit('/', 1)[-1].split('.')[0]
     for x in __model_types:
-        if x in model:
+        if x in model.stem:
             return x
     return None
-
