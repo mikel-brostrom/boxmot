@@ -36,6 +36,9 @@ yapf
 isort==4.3.21
 imageio
 
+# Tracking eval ----------------------------------
+GitPython
+
 # Export --------------------------------------
 #onnx>=1.9.0  # ONNX export
 #onnx-simplifier>=0.4.1  # ONNX simplifier
