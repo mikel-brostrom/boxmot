@@ -1,3 +1,6 @@
+# Make it work on non-*nix platforms
+import os
+
 __model_types = [
     'resnet50', 'mlfn', 'hacnn', 'mobilenetv2_x1_0', 'mobilenetv2_x1_4',
     'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25',
@@ -101,7 +104,7 @@ def show_downloadeable_models():
 
 
 def get_model_url(model):
-    model = str(model).rsplit('/', 1)[-1]
+    model = str(model).rsplit(os.path.sep, 1)[-1]
     if model in __trained_urls:
         return __trained_urls[model]
     else:
@@ -109,7 +112,7 @@ def get_model_url(model):
 
 
 def is_model_in_model_types(model):
-    model = str(model).rsplit('/', 1)[-1].split('.')[0]
+    model = str(model).rsplit(os.path.sep, 1)[-1].split('.')[0]
     if model in __model_types:
         return True
     else:
@@ -117,7 +120,7 @@ def is_model_in_model_types(model):
 
 
 def get_model_name(model):
-    model = str(model).rsplit('/', 1)[-1].split('.')[0]
+    model = str(model).rsplit(os.path.sep, 1)[-1].split('.')[0]
     for x in __model_types:
         if x in model:
             return x
