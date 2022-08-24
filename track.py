@@ -110,7 +110,7 @@ def run(
 
     # initialize StrongSORT
     cfg = get_config()
-    cfg.merge_from_file(opt.config_strongsort)
+    cfg.merge_from_file(config_strongsort)
 
     # Create as many strong sort instances as there are video sources
     strongsort_list = []
