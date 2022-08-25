@@ -29,9 +29,9 @@ class ReIDDetectMultiBackend(nn.Module):
     # ReID models MultiBackend class for python inference on various backends
     def __init__(self, weights='osnet_x0_25_msmt17.pt', device=torch.device('cpu'), fp16=False):
         super().__init__()
-        w = str(weights[0] if isinstance(weights, list) else weights)
+        weights = weights[0] if isinstance(weights, list) else weights
         self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, \
-            self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs = self.model_type(w)  # get backend
+            self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs = self.model_type(weights)  # get backend
         fp16 &= (self.pt or self.jit or self.onnx or self.engine) and device.type != 'cpu'  # FP16
         self.fp16 = fp16
         if self.pt:  # PyTorch
@@ -43,7 +43,7 @@ class ReIDDetectMultiBackend(nn.Module):
             elif file_exists(weights):
                 pass
             elif model_url is None:
-                print('No URL associated to the chosen DeepSort weights. Choose between:')
+                print(f'No URL associated to the chosen DeepSort weights ({weights}). Choose between:')
                 show_downloadeable_models()
                 exit()
 
