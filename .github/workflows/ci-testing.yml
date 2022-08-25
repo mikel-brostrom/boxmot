@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]  # Error: Container action is only supported on Linux
+        os: [ubuntu-latest, windows-latest]  # Error: Container action is only supported on Linux
         python-version: [3.9]
         model: ['yolov5s']  # models to test
 
@@ -56,7 +56,7 @@ jobs:
       - name: Tests workflow
         run: |
           # otherwise problems placing the yolo weights in submodule
-          sudo chmod -R 777 /home/
+          # sudo chmod -R 777 /home/
           python track.py --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg  # track
           python reid_export.py --weights ./weights/mobilenetv2_x1_0_msmt17.pt  # export
         shell: bash
