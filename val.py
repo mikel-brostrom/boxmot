@@ -116,7 +116,10 @@ def main(opt):
 
     results = (save_dir.parent / opt.eval_existing / 'tracks' if opt.eval_existing else save_dir / 'tracks').glob('*.txt')
     for src in results:
-        dst = MOT_results_folder.parent.parent / opt.eval_existing / 'data' / Path(src.stem + '.txt') if opt.eval_existing else  MOT_results_folder / Path(src.stem + '.txt')
+        if opt.eval_existing:
+            dst = MOT_results_folder.parent.parent / opt.eval_existing / 'data' / Path(src.stem + '.txt')
+        else  
+            dst = MOT_results_folder / Path(src.stem + '.txt')
         dst.parent.mkdir(parents=True, exist_ok=True)  # make
         shutil.copyfile(src, dst)
 
