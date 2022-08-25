@@ -106,14 +106,14 @@ def show_downloadeable_models():
 
 
 def get_model_url(model):
-    if model.stem in __trained_urls:
-        return __trained_urls[model.stem]
+    if model.name in __trained_urls:
+        return __trained_urls[model.name]
     else:
         None
 
 
 def is_model_in_model_types(model):
-    if model.stem in __model_types:
+    if model.name in __model_types:
         return True
     else:
         return False
@@ -121,6 +121,7 @@ def is_model_in_model_types(model):
 
 def get_model_name(model):
     for x in __model_types:
-        if x in model.stem:
+        if x in model.name:
             return x
     return None
+
