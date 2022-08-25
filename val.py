@@ -74,7 +74,7 @@ def main(opt):
     
     # download eval files
     dst_val_tools_folder = ROOT / 'val_utils'
-    #setup_evaluation(dst_val_tools_folder)
+    setup_evaluation(dst_val_tools_folder)
     
     # set paths
     mot_seqs_path = dst_val_tools_folder / 'data' / opt.benchmark / opt.split
