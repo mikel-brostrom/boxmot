@@ -118,7 +118,7 @@ def main(opt):
     for src in results:
         if opt.eval_existing:
             dst = MOT_results_folder.parent.parent / opt.eval_existing / 'data' / Path(src.stem + '.txt')
-        else  
+        else:  
             dst = MOT_results_folder / Path(src.stem + '.txt')
         dst.parent.mkdir(parents=True, exist_ok=True)  # make
         shutil.copyfile(src, dst)
