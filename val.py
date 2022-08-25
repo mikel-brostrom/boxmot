@@ -3,6 +3,7 @@ import sys
 import torch
 import logging
 import subprocess
+from subprocess import Popen
 import argparse
 import git
 from git import Repo
@@ -26,44 +27,6 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from yolov5.utils.general import LOGGER, check_requirements, print_args, increment_path
 from track import run
-
-
-class SeqThread(threading.Thread):
-    def __init__(self, seq_path, exp_results_folder, MOT_results_folder):
-        super(SeqThread, self).__init__()
-        
-        self.seq_path = seq_path
-        self.exp_results_folder = exp_results_folder
-        self.MOT_results_folder = MOT_results_folder
-        self.MOT_results_path = MOT_results_folder / Path(self.seq_path.parent.name + '.txt')
-        self.source = self.seq_path.parent / self.seq_path.parent.name
-
-    def run(self):
-        # change img1 folder name to MOTXX-YY
-        if not self.source.is_dir():
-            src = self.seq_path
-            dst = self.source
-            shutil.move(str(src), dst)
-
-        try: 
-            run(
-                source=self.source,
-                yolo_weights=WEIGHTS / 'yolov5m.pt',
-                strong_sort_weights=WEIGHTS / 'osnet_x1_0_msmt17.pt',
-                project=self.exp_results_folder.parent,
-                name=self.exp_results_folder.name,
-                classes=0,
-                imgsz=(1280, 1280),
-                exist_ok=True,
-                save_txt=True
-            )
-        except Exception as e:
-            print('Tracker error: ', e)
-
-        # copy from yolov5 exp folder to eval tracking folder
-        src = self.exp_results_folder / 'tracks' / Path(self.seq_path.parent.name + '.txt')
-        dst = self.MOT_results_folder / Path(self.seq_path.parent.name + '.txt')
-        shutil.copyfile(src, dst)
 
 
 def setup_evaluation(dst_val_tools_folder):
@@ -111,7 +74,7 @@ def main(opt):
     
     # download eval files
     dst_val_tools_folder = ROOT / 'val_utils'
-    setup_evaluation(dst_val_tools_folder)
+    #setup_evaluation(dst_val_tools_folder)
     
     # set paths
     mot_seqs_path = dst_val_tools_folder / 'data' / opt.benchmark / opt.split
@@ -119,16 +82,43 @@ def main(opt):
     save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
     MOT_results_folder = dst_val_tools_folder / 'data' / 'trackers' / 'mot_challenge' / Path(str(opt.benchmark) + '-' + str(opt.split)) / save_dir.name / 'data'
     (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
+
     
     if not opt.eval_existing:
-        threads = []
-        for seq_path in seq_paths:
-            # LOGGER.info(f'Staring eval on sequence: ', seq_path)
-            seq_thread = SeqThread(seq_path, save_dir, MOT_results_folder)
-            seq_thread.start()
-            threads.append(seq_thread)
-        for seq_thread in threads:
-            seq_thread.join()
+
+        processes = []
+        nr_gpus = torch.cuda.device_count()
+        
+        for i, seq_path in enumerate(seq_paths):
+
+            device = i % nr_gpus
+
+            dst_seq_path = seq_path.parent / seq_path.parent.name
+            if not dst_seq_path.is_dir():
+                src_seq_path = seq_path
+                shutil.move(str(src_seq_path), str(dst_seq_path))
+
+            p = subprocess.Popen([
+                "python", "track.py",\
+                "--yolo-weights", "yolov5n.pt",\
+                "--strong-sort-weights",  "mobilenetv2_x1_0_msmt17.pt",\
+                "--name", save_dir.name,\
+                "--project", opt.project,\
+                "--device", str(device),\
+                "--source", dst_seq_path,\
+                "--exist-ok",\
+                "--save-txt"
+            ])
+            processes.append(p)
+        
+        for p in processes:
+            p.wait()
+
+    results = (save_dir.parent / opt.eval_existing / 'tracks' if opt.eval_existing else save_dir / 'tracks').glob('*.txt')
+    for src in results:
+        dst = MOT_results_folder.parent.parent / opt.eval_existing / 'data' / Path(src.stem + '.txt') if opt.eval_existing else  MOT_results_folder / Path(src.stem + '.txt')
+        dst.parent.mkdir(parents=True, exist_ok=True)  # make
+        shutil.copyfile(src, dst)
 
     # run the evaluation on the generated txts
     subprocess.run([
