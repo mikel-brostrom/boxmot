@@ -29,35 +29,35 @@ class ReIDDetectMultiBackend(nn.Module):
     # ReID models MultiBackend class for python inference on various backends
     def __init__(self, weights='osnet_x0_25_msmt17.pt', device=torch.device('cpu'), fp16=False):
         super().__init__()
-        weights = weights[0] if isinstance(weights, list) else weights
+        w = weights[0] if isinstance(weights, list) else weights
         self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, \
-            self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs = self.model_type(weights)  # get backend
+            self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs = self.model_type(w)  # get backend
         fp16 &= (self.pt or self.jit or self.onnx or self.engine) and device.type != 'cpu'  # FP16
         self.fp16 = fp16
         if self.pt:  # PyTorch
-            model_name = get_model_name(weights)
-            model_url = get_model_url(weights)
+            model_name = get_model_name(w)
+            model_url = get_model_url(w)
 
-            if not file_exists(weights) and model_url is not None:
-                gdown.download(model_url, str(weights), quiet=False)
-            elif file_exists(weights):
+            if not file_exists(w) and model_url is not None:
+                gdown.download(model_url, str(w), quiet=False)
+            elif file_exists(w):
                 pass
             elif model_url is None:
-                print(f'No URL associated to the chosen DeepSort weights ({weights}). Choose between:')
+                print(f'No URL associated to the chosen DeepSort weights ({w}). Choose between:')
                 show_downloadeable_models()
                 exit()
 
             self.extractor = FeatureExtractor(
                 # get rid of dataset information DeepSort model name
                 model_name=model_name,
-                model_path=weights,
+                model_path=w,
                 device=str(device)
             )
             
             self.extractor.model.half() if fp16 else  self.extractor.model.float()
         elif self.jit:
             LOGGER.info(f'Loading {w} for TorchScript inference...')
-            self.model = torch.jit.load(weights)
+            self.model = torch.jit.load(w)
             self.model.half() if fp16 else  self.model.float()
             
         elif self.onnx:  # ONNX Runtime
@@ -102,7 +102,7 @@ class ReIDDetectMultiBackend(nn.Module):
             except ImportError:
                 import tensorflow as tf
                 Interpreter, load_delegate = tf.lite.Interpreter, tf.lite.experimental.load_delegate,
-            self.interpreter = tf.lite.Interpreter(model_path=weights)
+            self.interpreter = tf.lite.Interpreter(model_path=w)
             self.interpreter.allocate_tensors()
             # Get input and output tensors.
             self.input_details = self.interpreter.get_input_details()
