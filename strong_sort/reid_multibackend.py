@@ -163,49 +163,59 @@ class ReIDDetectMultiBackend(nn.Module):
         im_batch = self.preprocess(im_batch)
         b, ch, h, w = im_batch.shape  # batch, channel, height, width
         features = []
-        for i in range(0, im_batch.shape[0]):
-            im = im_batch[i, :, :, :].unsqueeze(0)
-            if self.fp16 and im.dtype != torch.float16:
-                im = im.half()  # to FP16
-            if self.pt:  # PyTorch
-                y = self.extractor.model(im)[0]
-            elif self.jit:  # TorchScript
-                y = self.model(im)[0]
-            elif self.onnx:  # ONNX Runtime
-                im = im.permute(0, 1, 3, 2).cpu().numpy()  # torch to numpy
-                y = self.session.run([self.session.get_outputs()[0].name], {self.session.get_inputs()[0].name: im})[0]
-            elif self.xml:  # OpenVINO
-                im = im.cpu().numpy()  # FP32
-                y = self.executable_network([im])[self.output_layer]
-            elif self.engine:  # TensorRT
-                im = im.permute(0, 1, 3, 2)
-                if self.dynamic and im.shape != self.bindings['images'].shape:
-                    i_in, i_out = (self.model.get_binding_index(x) for x in ('images', 'output'))
-                    self.context.set_binding_shape(i_in, im.shape)  # reshape if dynamic
-                    self.bindings['images'] = self.bindings['images']._replace(shape=im.shape)
-                    self.bindings['output'].data.resize_(tuple(self.context.get_binding_shape(i_out)))
-                s = self.bindings['images'].shape
-                assert im.shape == s, f"input size {im.shape} {'>' if self.dynamic else 'not equal to'} max model size {s}"
-                self.binding_addrs['images'] = int(im.data_ptr())
-                self.context.execute_v2(list(self.binding_addrs.values()))
-                y = self.bindings['output'].data
-            else:  # TensorFlow (SavedModel, GraphDef, Lite, Edge TPU)
-                im = im.permute(0, 3, 2, 1).cpu().numpy()  # torch BCHW to numpy BHWC shape(1,320,192,3)
-                input, output = self.input_details[0], self.output_details[0]
-                int8 = input['dtype'] == np.uint8  # is TFLite quantized uint8 model
-                if int8:
-                    scale, zero_point = input['quantization']
-                    im = (im / scale + zero_point).astype(np.uint8)  # de-scale
-                self.interpreter.set_tensor(input['index'], im)
-                self.interpreter.invoke()
-                y = torch.tensor(self.interpreter.get_tensor(output['index']))
-                if int8:
-                    scale, zero_point = output['quantization']
-                    y = (y.astype(np.float32) - zero_point) * scale  # re-scale
-            
-            if isinstance(y, np.ndarray):
-                y = torch.tensor(y, device=self.device)
-            features.append(y.squeeze())
 
-        
-        return features
+        # batch processing
+        if self.pt:
+            features = self.extractor.model(im_batch)
+            feats = []
+            print(features.shape)
+            for i in range(0, features.shape[0]):
+                feats.append(features[i, :])
+            return feats
+        # one at a time
+        else:
+            for i in range(0, im_batch.shape[0]):
+                im = im_batch[i, :, :, :].unsqueeze(0)
+                if self.fp16 and im.dtype != torch.float16:
+                    im = im.half()  # to FP16
+                #if self.pt:  # PyTorch
+                #    y = self.extractor.model(im)[0]
+                elif self.jit:  # TorchScript
+                    y = self.model(im)[0]
+                elif self.onnx:  # ONNX Runtime
+                    im = im.permute(0, 1, 3, 2).cpu().numpy()  # torch to numpy
+                    y = self.session.run([self.session.get_outputs()[0].name], {self.session.get_inputs()[0].name: im})[0]
+                elif self.xml:  # OpenVINO
+                    im = im.cpu().numpy()  # FP32
+                    y = self.executable_network([im])[self.output_layer]
+                elif self.engine:  # TensorRT
+                    im = im.permute(0, 1, 3, 2)
+                    if self.dynamic and im.shape != self.bindings['images'].shape:
+                        i_in, i_out = (self.model.get_binding_index(x) for x in ('images', 'output'))
+                        self.context.set_binding_shape(i_in, im.shape)  # reshape if dynamic
+                        self.bindings['images'] = self.bindings['images']._replace(shape=im.shape)
+                        self.bindings['output'].data.resize_(tuple(self.context.get_binding_shape(i_out)))
+                    s = self.bindings['images'].shape
+                    assert im.shape == s, f"input size {im.shape} {'>' if self.dynamic else 'not equal to'} max model size {s}"
+                    self.binding_addrs['images'] = int(im.data_ptr())
+                    self.context.execute_v2(list(self.binding_addrs.values()))
+                    y = self.bindings['output'].data
+                else:  # TensorFlow (SavedModel, GraphDef, Lite, Edge TPU)
+                    im = im.permute(0, 3, 2, 1).cpu().numpy()  # torch BCHW to numpy BHWC shape(1,320,192,3)
+                    input, output = self.input_details[0], self.output_details[0]
+                    int8 = input['dtype'] == np.uint8  # is TFLite quantized uint8 model
+                    if int8:
+                        scale, zero_point = input['quantization']
+                        im = (im / scale + zero_point).astype(np.uint8)  # de-scale
+                    self.interpreter.set_tensor(input['index'], im)
+                    self.interpreter.invoke()
+                    y = torch.tensor(self.interpreter.get_tensor(output['index']))
+                    if int8:
+                        scale, zero_point = output['quantization']
+                        y = (y.astype(np.float32) - zero_point) * scale  # re-scale
+                
+                if isinstance(y, np.ndarray):
+                    y = torch.tensor(y, device=self.device)
+                features.append(y.squeeze())
+
+            return features
