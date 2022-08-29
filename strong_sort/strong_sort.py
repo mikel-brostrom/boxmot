@@ -10,8 +10,8 @@ from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
 from .sort.tracker import Tracker
 
-from torchreid.utils import FeatureExtractor
-from torchreid.utils.tools import download_url
+from .deep.reid.torchreid.utils import FeatureExtractor
+from .deep.reid.torchreid.utils.tools import download_url
 from .reid_multibackend import ReIDDetectMultiBackend
 
 __all__ = ['StrongSORT']
