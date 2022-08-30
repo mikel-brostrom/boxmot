@@ -108,7 +108,8 @@ def main(opt):
                 "--device", str(device),\
                 "--source", dst_seq_path,\
                 "--exist-ok",\
-                "--save-txt"
+                "--save-txt",\
+                "--eval"
             ])
             processes.append(p)
         
