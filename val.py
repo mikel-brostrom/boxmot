@@ -42,14 +42,16 @@ def setup_evaluation(dst_val_tools_folder):
     LOGGER.info('Get ground-truth txts, meta-data and example trackers for all currently supported benchmarks')
     gt_data_url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
     subprocess.run(["wget", "-nc", gt_data_url, "-O", dst_val_tools_folder / 'data.zip']) # python module has no -nc nor -N flag
-    with zipfile.ZipFile(dst_val_tools_folder / 'data.zip', 'r') as zip_ref:
-        zip_ref.extractall(dst_val_tools_folder)
+    if not (dst_val_tools_folder / 'data').is_dir():
+        with zipfile.ZipFile(dst_val_tools_folder / 'data.zip', 'r') as zip_ref:
+            zip_ref.extractall(dst_val_tools_folder)
 
     LOGGER.info('Download official MOT images')
     mot_gt_data_url = 'https://motchallenge.net/data/MOT16.zip'
     subprocess.run(["wget", "-nc", mot_gt_data_url, "-O", dst_val_tools_folder / 'MOT16.zip']) # python module has no -nc nor -N flag
-    with zipfile.ZipFile(dst_val_tools_folder / 'MOT16.zip', 'r') as zip_ref:
-        zip_ref.extractall(dst_val_tools_folder / 'data' / 'MOT16')
+    if not (dst_val_tools_folder / 'data' / 'MOT16').is_dir():
+        with zipfile.ZipFile(dst_val_tools_folder / 'MOT16.zip', 'r') as zip_ref:
+            zip_ref.extractall(dst_val_tools_folder / 'data' / 'MOT16')
         
     
 def parse_opt():
