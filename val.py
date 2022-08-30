@@ -104,6 +104,7 @@ def main(opt):
                 "python", "track.py",\
                 "--yolo-weights", "weights/crowdhuman_yolov5m.pt",\
                 "--strong-sort-weights",  "osnet_x0_25_msmt17.pt",\
+                "--imgsz", str(1280),\
                 "--classes", str(0),\
                 "--name", save_dir.name,\
                 "--project", opt.project,\
