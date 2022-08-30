@@ -153,7 +153,7 @@ class ReIDDetectMultiBackend(nn.Module):
 
     def preprocess(self, im_crops):
         def _resize(im, size):
-            return cv2.resize(im.astype(np.float32), size)
+            return cv2.resize(cv2.cvtColor(im, cv2.COLOR_BGR2RGB).astype(np.float32), size)
 
         im = torch.cat([self.norm(_resize(im, self.size)).unsqueeze(0) for im in im_crops], dim=0).float()
         im = im.float().to(device=self.device)
@@ -168,7 +168,6 @@ class ReIDDetectMultiBackend(nn.Module):
         if self.pt:
             features = self.extractor.model(im_batch)
             feats = []
-            print(features.shape)
             for i in range(0, features.shape[0]):
                 feats.append(features[i, :])
             return feats
