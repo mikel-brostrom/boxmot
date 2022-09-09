@@ -66,7 +66,7 @@ class ReIDDetectMultiBackend(nn.Module):
             pretrained=not (w and check_isfile(w)),
             use_gpu=device
         )
-        if w and check_isfile(w) and w.suffix is '.pt':
+        if w and check_isfile(w) and w.suffix == '.pt':
             load_pretrained_weights(self.model, w)
         self.model.to(device).eval()
 
