@@ -66,60 +66,62 @@ def export_formats():
 
 
 def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose=False):
-    # YOLOv5 TensorRT export https://developer.nvidia.com/tensorrt
-    prefix = colorstr('TensorRT:')
+    assert im.device.type != 'cpu', 'export running on CPU but must be on GPU, i.e. `python export.py --device 0`'
     try:
-        assert im.device.type != 'cpu', 'reid_export running on CPU but must be on GPU, i.e. `python export.py --device 0`'
-        try:
-            import tensorrt as trt
-        except Exception:
-            if platform.system() == 'Linux':
-                check_requirements(('nvidia-tensorrt',), cmds=('-U --index-url https://pypi.ngc.nvidia.com',))
-            import tensorrt as trt
+        import tensorrt as trt
+    except Exception:
+        if platform.system() == 'Linux':
+            check_requirements(('nvidia-tensorrt',), cmds=('-U --index-url https://pypi.ngc.nvidia.com',))
+        import tensorrt as trt
 
-        LOGGER.info(f'\n{prefix} starting export with TensorRT {trt.__version__}...')
-        assert file.exists(), f'failed to export ONNX file: {onnx}'
-        f = file.with_suffix('.engine')  # TensorRT engine file
-        logger = trt.Logger(trt.Logger.INFO)
-        if verbose:
-            logger.min_severity = trt.Logger.Severity.VERBOSE
+    if trt.__version__[0] == '7':  # TensorRT 7 handling https://github.com/ultralytics/yolov5/issues/6012
+        export_onnx(model, im, file, 12, False, dynamic, simplify)  # opset 12
+    else:  # TensorRT >= 8
+        check_version(trt.__version__, '8.0.0', hard=True)  # require tensorrt>=8.0.0
+        export_onnx(model, im, file, 13, False, dynamic, simplify)  # opset 13
+    onnx = file.with_suffix('.onnx')
 
-        builder = trt.Builder(logger)
-        config = builder.create_builder_config()
-        config.max_workspace_size = workspace * 1 << 30
-        # config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace << 30)  # fix TRT 8.4 deprecation notice
+    LOGGER.info(f'\n{prefix} starting export with TensorRT {trt.__version__}...')
+    assert onnx.exists(), f'failed to export ONNX file: {onnx}'
+    f = file.with_suffix('.engine')  # TensorRT engine file
+    logger = trt.Logger(trt.Logger.INFO)
+    if verbose:
+        logger.min_severity = trt.Logger.Severity.VERBOSE
 
-        flag = (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
-        network = builder.create_network(flag)
-        parser = trt.OnnxParser(network, logger)
-        if not parser.parse_from_file(str(onnx)):
-            raise RuntimeError(f'failed to load ONNX file: {file}')
+    builder = trt.Builder(logger)
+    config = builder.create_builder_config()
+    config.max_workspace_size = workspace * 1 << 30
+    # config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace << 30)  # fix TRT 8.4 deprecation notice
 
-        inputs = [network.get_input(i) for i in range(network.num_inputs)]
-        outputs = [network.get_output(i) for i in range(network.num_outputs)]
-        LOGGER.info(f'{prefix} Network Description:')
+    flag = (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+    network = builder.create_network(flag)
+    parser = trt.OnnxParser(network, logger)
+    if not parser.parse_from_file(str(onnx)):
+        raise RuntimeError(f'failed to load ONNX file: {onnx}')
+
+    inputs = [network.get_input(i) for i in range(network.num_inputs)]
+    outputs = [network.get_output(i) for i in range(network.num_outputs)]
+    LOGGER.info(f'{prefix} Network Description:')
+    for inp in inputs:
+        LOGGER.info(f'{prefix}\tinput "{inp.name}" with shape {inp.shape} and dtype {inp.dtype}')
+    for out in outputs:
+        LOGGER.info(f'{prefix}\toutput "{out.name}" with shape {out.shape} and dtype {out.dtype}')
+
+    if dynamic:
+        print('yaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaay\n\n\nd')
+        if im.shape[0] <= 1:
+            LOGGER.warning(f"{prefix}WARNING: --dynamic model requires maximum --batch-size argument")
+        profile = builder.create_optimization_profile()
         for inp in inputs:
-            LOGGER.info(f'{prefix}\tinput "{inp.name}" with shape {inp.shape} and dtype {inp.dtype}')
-        for out in outputs:
-            LOGGER.info(f'{prefix}\toutput "{out.name}" with shape {out.shape} and dtype {out.dtype}')
+            profile.set_shape(inp.name, (1, *im.shape[1:]), (max(1, im.shape[0] // 2), *im.shape[1:]), im.shape)
+        config.add_optimization_profile(profile)
 
-        if dynamic:
-            if im.shape[0] <= 1:
-                LOGGER.warning(f"{prefix}WARNING: --dynamic model requires maximum --batch-size argument")
-            profile = builder.create_optimization_profile()
-            for inp in inputs:
-                profile.set_shape(inp.name, (1, *im.shape[1:]), (max(1, im.shape[0] // 2), *im.shape[1:]), im.shape)
-            config.add_optimization_profile(profile)
-
-        LOGGER.info(f'{prefix} building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine in {f}')
-        if builder.platform_has_fast_fp16 and half:
-            config.set_flag(trt.BuilderFlag.FP16)
-        with builder.build_engine(network, config) as engine, open(f, 'wb') as t:
-            t.write(engine.serialize())
-        LOGGER.info(f'{prefix} export success, saved as {f} ({file_size(f):.1f} MB)')
-        return f
-    except Exception as e:
-        LOGGER.info(f'\n{prefix} export failure: {e}')
+    LOGGER.info(f'{prefix} building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine in {f}')
+    if builder.platform_has_fast_fp16 and half:
+        config.set_flag(trt.BuilderFlag.FP16)
+    with builder.build_engine(network, config) as engine, open(f, 'wb') as t:
+        t.write(engine.serialize())
+    return f, None
 
 
 def export_torchscript(model, im, file, optimize, prefix=colorstr('TorchScript:')):
@@ -196,31 +198,20 @@ def export_onnx(model, im, file, opset, train=False, dynamic=True, simplify=Fals
     return f
         
         
-def export_openvino(file, dynamic, half, prefix=colorstr('OpenVINO:')):
-    f = str(file).replace('.onnx', f'_openvino_model{os.sep}')
+def export_openvino(model, file, half, prefix=colorstr('OpenVINO:')):
     # YOLOv5 OpenVINO export
+    check_requirements(('openvino-dev',))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
+    import openvino.inference_engine as ie
     try:
-        check_requirements(('openvino-dev',))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
-        import openvino.inference_engine as ie
-
         LOGGER.info(f'\n{prefix} starting export with openvino {ie.__version__}...')
         f = str(file).replace('.onnx', f'_openvino_model{os.sep}')
-        dyn_shape = [-1,3,256,128] if dynamic else None
-        cmd = f"mo \
-            --input_model {file} \
-            --output_dir {f} \
-            --data_type {'FP16' if half else 'FP32'}"
-        
-        if dyn_shape is not None:
-            cmd + f"--input_shape {dyn_shape}"
 
+        cmd = f"mo --input_model {file.with_suffix('.onnx')} --output_dir {f} --data_type {'FP16' if half else 'FP32'}"
         subprocess.check_output(cmd.split())  # export
-
-        LOGGER.info(f'{prefix} export success, saved as {f} ({file_size(f):.1f} MB)')
-        return f
+        LOGGER.info(f'export success, saved as {f} ({file_size(f):.1f} MB)')
     except Exception as e:
-        LOGGER.info(f'\n{prefix} export failure: {e}')
-    return f
+        LOGGER.info(f'export failure: {e}')
+    return f, None
         
 
 def export_tflite(file, half, prefix=colorstr('TFLite:')):
@@ -294,12 +285,14 @@ def export_engine(model, im, file, train, half, dynamic, simplify, workspace=4, 
         for out in outputs:
             LOGGER.info(f'{prefix}\toutput "{out.name}" with shape {out.shape} and dtype {out.dtype}')
 
-        if dynamic:
+        if True:
             if im.shape[0] <= 1:
                 LOGGER.warning(f"{prefix}WARNING: --dynamic model requires maximum --batch-size argument")
             profile = builder.create_optimization_profile()
             for inp in inputs:
-                profile.set_shape(inp.name, (1, *im.shape[1:]), (max(1, im.shape[0] // 2), *im.shape[1:]), im.shape)
+                print((1, *im.shape[1:]), (max(1, im.shape[0] // 2), *im.shape[1:]), (10, *im.shape[1:]))
+                # change 10 by any value that suits your dataset
+                profile.set_shape(inp.name, (1, *im.shape[1:]), (max(1, im.shape[0] // 2), *im.shape[1:]), (10, *im.shape[1:]))
             config.add_optimization_profile(profile)
 
         LOGGER.info(f'{prefix} building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine in {f}')
@@ -349,7 +342,7 @@ if __name__ == "__main__":
     fmts = tuple(export_formats()['Argument'][1:])  # --include arguments
     flags = [x in include for x in fmts]
     assert sum(flags) == len(include), f'ERROR: Invalid --include {include}, valid --include arguments are {fmts}'
-    torchscript, onnx, openvino, engine, tflite = flags  # export booleans
+    jit, onnx, openvino, engine, tflite = flags  # export booleans
     
     im = torch.zeros(1, 3, args.imgsz[0], args.imgsz[1]).to(args.device)  # image size(1,3,640,480) BCHW iDetection
     for _ in range(2):
@@ -359,13 +352,14 @@ if __name__ == "__main__":
     shape = tuple(y[0].shape)  # model output shape
     LOGGER.info(f"\n{colorstr('PyTorch:')} starting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)")
     
-    if torchscript:
+    if jit:
         export_torchscript(extractor.model.eval(), im, args.weights, optimize=True)  # opset 12
     if onnx:
         f = export_onnx(extractor.model.eval(), im, args.weights, args.opset, train=False, dynamic=args.dynamic, simplify=args.simplify)  # opset 12
-    if engine:  # TensorRT required before ONNX
-        export_engine(extractor.model.eval(), im, f, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
+    if engine:  # ONNX required before TensorRT
+        export_engine(extractor.model.eval(), im, f, False, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
     if openvino:
-        f = export_openvino(f, dynamic=args.dynamic, half=args.half)
+        f = export_openvino(extractor.model.eval(), f, half=args.half)
     if tflite:
         export_tflite(f, False)
+
