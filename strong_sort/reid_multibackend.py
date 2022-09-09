@@ -53,8 +53,12 @@ class ReIDDetectMultiBackend(nn.Module):
 
         if w.suffix == '.pt':
             model_url = get_model_url(w)
+            print(file_exists(w))
+            print(model_url is not None)
             if not file_exists(w) and model_url is not None:
                 gdown.download(model_url, str(w), quiet=False)
+            elif file_exists(w):
+                pass
             else:
                 print(f'No URL associated to the chosen StrongSORT weights ({w}). Choose between:')
                 show_downloadeable_models()
