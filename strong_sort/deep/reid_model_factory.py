@@ -100,11 +100,6 @@ def show_downloadeable_models():
     print(list(__trained_urls.keys()))
 
 
-def show_downloadeable_models():
-    print('\nAvailable .pt ReID models for automatic download')
-    print(list(__trained_urls.keys()))
-
-
 def get_model_url(model):
     if model.name in __trained_urls:
         return __trained_urls[model.name]
