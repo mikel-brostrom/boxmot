@@ -6,7 +6,7 @@
 
 <div align="center">
 <p>
-<img src="strong_sort/results/track_pedestrians.gif" width="400"/> <img src="strong_sort/results/track_all.gif" width="400"/> 
+<img src="strong_sort/results/track_pedestrians_1280_05conf.gif" width="400"/> <img src="strong_sort/results/track_all_1280_025conf.gif" width="400"/> 
 </p>
 <br>
 <div>
