@@ -49,28 +49,30 @@ class ReIDDetectMultiBackend(nn.Module):
         self.preprocess = T.Compose(self.transforms)
         self.to_pil = T.ToPILImage()
 
-        # Build model
         model_name = get_model_name(w)
-        model_url = get_model_url(w.with_suffix('.pt'))
-        if not file_exists(w) and model_url is not None:
-            gdown.download(model_url, str(w), quiet=False)
-        elif file_exists(w):
-            pass
-        elif model_url is None:
-            print(f'No URL associated to the chosen StrongSORT weights ({w}). Choose between:')
-            show_downloadeable_models()
-            exit()
+
+        if w.suffix == '.pt':
+            model_url = get_model_url(w)
+            if not file_exists(w) and model_url is not None:
+                gdown.download(model_url, str(w), quiet=False)
+            else:
+                print(f'No URL associated to the chosen StrongSORT weights ({w}). Choose between:')
+                show_downloadeable_models()
+                exit()
+
+        # Build model
         self.model = build_model(
             model_name,
             num_classes=1,
             pretrained=not (w and check_isfile(w)),
             use_gpu=device
         )
-        if w and check_isfile(w) and w.suffix == '.pt':
-            load_pretrained_weights(self.model, w)
-        self.model.to(device).eval()
 
-        if self.pt:  # PyTorch      
+        if self.pt:  # PyTorch
+            # populate model arch with weights
+            if w and check_isfile(w) and w.suffix == '.pt':
+                load_pretrained_weights(self.model, w)
+            self.model.to(device).eval()
             self.model.half() if fp16 else  self.model.float()
         elif self.jit:
             LOGGER.info(f'Loading {w} for TorchScript inference...')
