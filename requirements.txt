@@ -43,6 +43,6 @@ GitPython
 #onnx>=1.9.0  # ONNX export
 #onnx-simplifier>=0.4.1  # ONNX simplifier
 #tensorflow>=2.4.1  # TFLite export (or tensorflow-cpu, tensorflow-aarch64)
-#openvino-dev  # OpenVINO export
+#openvino-dev==2022.2.0.dev20220829  # OpenVINO export for dynamic models, errors with 2022.1.0 version
 #git+https://github.com/PINTO0309/openvino2tensorflow #OpenVINO to TFLite export
 #nvidia-tensorrt
