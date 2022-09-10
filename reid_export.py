@@ -290,9 +290,7 @@ def export_engine(model, im, file, train, half, dynamic, simplify, workspace=4, 
                 LOGGER.warning(f"{prefix}WARNING: --dynamic model requires maximum --batch-size argument")
             profile = builder.create_optimization_profile()
             for inp in inputs:
-                print((1, *im.shape[1:]), (max(1, im.shape[0] // 2), *im.shape[1:]), (10, *im.shape[1:]))
-                # change 10 by any value that suits your dataset
-                profile.set_shape(inp.name, (1, *im.shape[1:]), (max(1, im.shape[0] // 2), *im.shape[1:]), (10, *im.shape[1:]))
+                profile.set_shape(inp.name, (1, *im.shape[1:]), (max(1, im.shape[0] // 2), *im.shape[1:]), im.shape)
             config.add_optimization_profile(profile)
 
         LOGGER.info(f'{prefix} building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine in {f}')
@@ -309,6 +307,7 @@ def export_engine(model, im, file, train, half, dynamic, simplify, workspace=4, 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Yolov5 StrongSORT OSNet export")
+    parser.add_argument('--batch-size', type=int, default=1, help='batch size')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[256, 128], help='image (h, w)')
     parser.add_argument('--device', default='cpu', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--dynamic', action='store_true', help='ONNX/TF/TensorRT: dynamic axes')
@@ -344,12 +343,12 @@ if __name__ == "__main__":
     assert sum(flags) == len(include), f'ERROR: Invalid --include {include}, valid --include arguments are {fmts}'
     jit, onnx, openvino, engine, tflite = flags  # export booleans
     
-    im = torch.zeros(1, 3, args.imgsz[0], args.imgsz[1]).to(args.device)  # image size(1,3,640,480) BCHW iDetection
+    im = torch.zeros(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(args.device)  # image size(1,3,640,480) BCHW iDetection
     for _ in range(2):
         y = extractor.model(im)  # dry runs
     if args.half:
         im, extractor.model = im.half(), extractor.model.half()  # to FP16
-    shape = tuple(y[0].shape)  # model output shape
+    shape = tuple((y[0] if isinstance(y, tuple) else y).shape)  # model output shape
     LOGGER.info(f"\n{colorstr('PyTorch:')} starting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)")
     
     if jit:
