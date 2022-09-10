@@ -108,7 +108,6 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
         LOGGER.info(f'{prefix}\toutput "{out.name}" with shape {out.shape} and dtype {out.dtype}')
 
     if dynamic:
-        print('yaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaay\n\n\nd')
         if im.shape[0] <= 1:
             LOGGER.warning(f"{prefix}WARNING: --dynamic model requires maximum --batch-size argument")
         profile = builder.create_optimization_profile()

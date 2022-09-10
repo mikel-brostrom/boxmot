@@ -128,12 +128,10 @@ class ReIDDetectMultiBackend(nn.Module):
             if network.get_parameters()[0].get_layout().empty:
                 network.get_parameters()[0].set_layout(Layout("NCWH"))
             batch_dim = get_batch(network)
-            print('\n\n\n\n', batch_dim.is_static)
             if batch_dim.is_static:
                 batch_size = batch_dim.get_length()
             self.executable_network = ie.compile_model(network, device_name="CPU")  # device_name="MYRIAD" for Intel NCS2
             self.output_layer = next(iter(self.executable_network.outputs))
-            print(self.output_layer)
         
         elif self.tflite:
             LOGGER.info(f'Loading {w} for TensorFlow Lite inference...')
@@ -251,9 +249,9 @@ class ReIDDetectMultiBackend(nn.Module):
             self.binding_addrs['images'] = int(im_batch.data_ptr())
             self.context.execute_v2(list(self.binding_addrs.values()))
             features = self.bindings['output'].data
-        # elif self.xml:  # OpenVINO
-        #     im_batch = im_batch.cpu().numpy()  # FP32
-        #     features = self.executable_network([im_batch])[self.output_layer]
+        elif self.xml:  # OpenVINO
+            im_batch = im_batch.cpu().numpy()  # FP32
+            features = self.executable_network([im_batch])[self.output_layer]
         else:
             print('Framework not supported at the moment, we are working on it...')
             exit()
