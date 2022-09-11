@@ -264,3 +264,11 @@ class ReIDDetectMultiBackend(nn.Module):
 
     def from_numpy(self, x):
         return torch.from_numpy(x).to(self.device) if isinstance(x, np.ndarray) else x
+
+    def warmup(self, imgsz=(1, 3, 128, 256)):
+        # Warmup model by running inference once
+        warmup_types = self.pt, self.jit, self.onnx, self.engine, self.saved_model, self.pb
+        if any(warmup_types) and self.device.type != 'cpu':
+            im = torch.empty(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
+            for _ in range(2 if self.jit else 1):  #
+                self.forward(im)  # warmup
