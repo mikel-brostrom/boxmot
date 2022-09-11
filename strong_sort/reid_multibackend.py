@@ -168,15 +168,7 @@ class ReIDDetectMultiBackend(nn.Module):
         xml |= xml2  # *_openvino_model or *.xml
         tflite &= not edgetpu  # *.tflite
         return pt, jit, onnx, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs
-    
-    def warmup(self, imgsz=(1, 256, 128, 3)):
-        # Warmup model by running inference once
-        warmup_types = self.pt, self.jit, self.onnx, self.engine, self.saved_model, self.pb
-        if any(warmup_types) and self.device.type != 'cpu':
-            im = torch.zeros(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
-            im = im.cpu().numpy()
-            for _ in range(2 if self.jit else 1):  #
-                self.forward(im)  # warmup
+
 
     def _preprocess(self, im_batch):
 
@@ -190,6 +182,7 @@ class ReIDDetectMultiBackend(nn.Module):
         images = images.to(self.device)
 
         return images
+    
     
     def forward(self, im_batch):
         
