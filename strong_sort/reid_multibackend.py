@@ -34,8 +34,8 @@ class ReIDDetectMultiBackend(nn.Module):
         w = weights[0] if isinstance(weights, list) else weights
         self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, \
             self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs = self.model_type(w)  # get backend
-        fp16 &= (self.pt or self.jit or self.onnx or self.engine) and device.type != 'cpu'  # FP16
         self.fp16 = fp16
+        self.fp16 &= self.pt or self.jit or self.engine  # FP16
 
         # Build transform functions
         self.device = device
@@ -53,8 +53,6 @@ class ReIDDetectMultiBackend(nn.Module):
 
         if w.suffix == '.pt':
             model_url = get_model_url(w)
-            print(file_exists(w))
-            print(model_url is not None)
             if not file_exists(w) and model_url is not None:
                 gdown.download(model_url, str(w), quiet=False)
             elif file_exists(w):
@@ -77,11 +75,11 @@ class ReIDDetectMultiBackend(nn.Module):
             if w and check_isfile(w) and w.suffix == '.pt':
                 load_pretrained_weights(self.model, w)
             self.model.to(device).eval()
-            self.model.half() if fp16 else  self.model.float()
+            self.model.half() if self.fp16 else  self.model.float()
         elif self.jit:
             LOGGER.info(f'Loading {w} for TorchScript inference...')
             self.model = torch.jit.load(w)
-            self.model.half() if fp16 else  self.model.float()
+            self.model.half() if self.fp16 else self.model.float()
         elif self.onnx:  # ONNX Runtime
             LOGGER.info(f'Loading {w} for ONNX Runtime inference...')
             cuda = torch.cuda.is_available() and device.type != 'cpu'
@@ -101,7 +99,7 @@ class ReIDDetectMultiBackend(nn.Module):
                 self.model_ = runtime.deserialize_cuda_engine(f.read())
             self.context = self.model_.create_execution_context()
             self.bindings = OrderedDict()
-            fp16 = False  # default updated below
+            self.fp16 = False  # default updated below
             dynamic = False
             for index in range(self.model_.num_bindings):
                 name = self.model_.get_binding_name(index)
@@ -111,7 +109,7 @@ class ReIDDetectMultiBackend(nn.Module):
                         dynamic = True
                         self.context.set_binding_shape(index, tuple(self.model_.get_profile_shape(0, index)[2]))
                     if dtype == np.float16:
-                        fp16 = True
+                        self.fp16 = True
                 shape = tuple(self.context.get_binding_shape(index))
                 im = torch.from_numpy(np.empty(shape, dtype=dtype)).to(device)
                 self.bindings[name] = Binding(name, dtype, shape, im, int(im.data_ptr()))
@@ -215,7 +213,7 @@ class ReIDDetectMultiBackend(nn.Module):
         elif isinstance(im_batch, torch.Tensor):
             if im_batch.dim() == 3:
                 im_batch = im_batch.unsqueeze(0)
-            images = iim_batchnput.to(self.device)
+            images = im_batch.to(self.device)
 
         else:
             raise NotImplementedError
@@ -223,11 +221,12 @@ class ReIDDetectMultiBackend(nn.Module):
         return images
     
     def forward(self, im_batch):
+        
+        im_batch = self._preprocess(im_batch)
 
         if self.fp16 and im_batch.dtype != torch.float16:
-            im_batch = im_batch.half()  # to FP16
+            im_batch = im_batch.half()
 
-        im_batch = self._preprocess(im_batch)
         features = []
 
         # batch processing
