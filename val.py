@@ -103,7 +103,7 @@ def main(opt):
             p = subprocess.Popen([
                 "python", "track.py",\
                 "--yolo-weights", "weights/crowdhuman_yolov5m.pt",\
-                "--strong-sort-weights",  "weights/osnet_x0_25_msmt17.pt",\
+                "--strong-sort-weights",  "weights/osnet_x1_0_dukemtmcreid.pt",\
                 "--imgsz", str(1280),\
                 "--classes", str(0),\
                 "--name", save_dir.name,\
