@@ -30,7 +30,7 @@ This repository contains a highly configurable two-stage-tracker that adjusts to
 * [Deep appearance descriptor training (link to external repository)](https://kaiyangzhou.github.io/deep-person-reid/user_guide.html)&nbsp;
 * [Yolov5 StrongSORT OSNet evaluation](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/Evaluation)&nbsp;
 * [StrongSORT ablation study](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/Yolov5DeepSORTwithOSNet-vs-Yolov5StrongSORTwithOSNet-ablation-study-on-MOT16)&nbsp;
-* [ReID model export to ONNX, TensorRT and TorchScript](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/ReID-model-export-to-ONNX,-OpenVINO-and-TFLite)&nbsp;
+* [ReID model export to ONNX, OpenVINO, TensorRT and TorchScript](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/ReID-multi-framework-model-export)&nbsp;
 
 
 
