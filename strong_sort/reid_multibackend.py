@@ -222,14 +222,15 @@ class ReIDDetectMultiBackend(nn.Module):
     
     def forward(self, im_batch):
         
+        # preprocess batch
         im_batch = self._preprocess(im_batch)
 
+        # batch to half
         if self.fp16 and im_batch.dtype != torch.float16:
-            im_batch = im_batch.half()
-
-        features = []
+           im_batch = im_batch.half()
 
         # batch processing
+        features = []
         if self.pt:
             features = self.model(im_batch)
         elif self.jit:  # TorchScript
@@ -255,7 +256,6 @@ class ReIDDetectMultiBackend(nn.Module):
             print('Framework not supported at the moment, we are working on it...')
             exit()
 
-
         if isinstance(features, (list, tuple)):
             return self.from_numpy(features[0]) if len(features) == 1 else [self.from_numpy(x) for x in features]
         else:
@@ -265,7 +265,7 @@ class ReIDDetectMultiBackend(nn.Module):
     def from_numpy(self, x):
         return torch.from_numpy(x).to(self.device) if isinstance(x, np.ndarray) else x
 
-    def warmup(self, imgsz=(1, 3, 128, 256)):
+    def warmup(self, imgsz=(1, 3, 256, 128)):
         # Warmup model by running inference once
         warmup_types = self.pt, self.jit, self.onnx, self.engine, self.saved_model, self.pb
         if any(warmup_types) and self.device.type != 'cpu':
