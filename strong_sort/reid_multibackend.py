@@ -179,44 +179,15 @@ class ReIDDetectMultiBackend(nn.Module):
                 self.forward(im)  # warmup
 
     def _preprocess(self, im_batch):
-        
-        if isinstance(im_batch, list):
-            images = []
-            for element in im_batch:
-                if isinstance(element, str):
-                    image = Image.open(element).convert('RGB')
 
-                elif isinstance(element, np.ndarray):
-                    image = self.to_pil(element)
-
-                else:
-                    raise TypeError(
-                        'Type of each element must belong to [str | numpy.ndarray]'
-                    )
-
-                image = self.preprocess(image)
-                images.append(image)
-
-            images = torch.stack(images, dim=0)
-            images = images.to(self.device)
-
-        elif isinstance(im_batch, str):
-            image = Image.open(im_batch).convert('RGB')
+        images = []
+        for element in im_batch:
+            image = self.to_pil(element)
             image = self.preprocess(image)
-            images = image.unsqueeze(0).to(self.device)
+            images.append(image)
 
-        elif isinstance(im_batch, np.ndarray):
-            image = self.to_pil(im_batch)
-            image = self.preprocess(image)
-            images = image.unsqueeze(0).to(self.device)
-
-        elif isinstance(im_batch, torch.Tensor):
-            if im_batch.dim() == 3:
-                im_batch = im_batch.unsqueeze(0)
-            images = im_batch.to(self.device)
-
-        else:
-            raise NotImplementedError
+        images = torch.stack(images, dim=0)
+        images = images.to(self.device)
 
         return images
     
@@ -261,14 +232,13 @@ class ReIDDetectMultiBackend(nn.Module):
         else:
             return self.from_numpy(features)
 
-
     def from_numpy(self, x):
         return torch.from_numpy(x).to(self.device) if isinstance(x, np.ndarray) else x
 
-    def warmup(self, imgsz=(1, 3, 256, 128)):
+    def warmup(self, imgsz=[(256, 128, 3)]):
         # Warmup model by running inference once
         warmup_types = self.pt, self.jit, self.onnx, self.engine, self.saved_model, self.pb
         if any(warmup_types) and self.device.type != 'cpu':
-            im = torch.empty(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
+            im = [np.empty(*imgsz).astype(np.uint8)]  # input
             for _ in range(2 if self.jit else 1):  #
                 self.forward(im)  # warmup
