@@ -38,6 +38,8 @@ This repository contains a highly configurable two-stage-tracker that adjusts to
 * [Effect of different Osnet architectures on MOT16](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/OSNet-architecture-performances-on-MOT16)
 
 * [StrongSORT vs BoTSORT vs OCSORT](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/StrongSORT-vs-BoTSORT-vs-OCSORT)
+    * https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/tree/ocsort
+    * https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/tree/botsort
 
 
 
