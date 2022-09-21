@@ -37,9 +37,9 @@ This repository contains a highly configurable two-stage-tracker that adjusts to
 * [StrongSORT ablation study](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/Yolov5DeepSORTwithOSNet-vs-Yolov5StrongSORTwithOSNet-ablation-study-on-MOT16)&nbsp;
 * [Effect of different Osnet architectures on MOT16](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/OSNet-architecture-performances-on-MOT16)
 
-* [StrongSORT vs BoTSORT vs OCSORT](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/StrongSORT-vs-BoTSORT-vs-OCSORT)
-    * https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/tree/ocsort
-    * https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/tree/botsort
+* [Yolov5 StrongSORT vs BoTSORT vs OCSORT](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/StrongSORT-vs-BoTSORT-vs-OCSORT)
+    * Yolov5 [OCSORT](https://arxiv.org/abs/2203.14360) branch: https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/tree/ocsort
+    * Yolov5 [BoTSORT](https://arxiv.org/abs/2206.14651) branch: https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/tree/botsort
 
 
 
