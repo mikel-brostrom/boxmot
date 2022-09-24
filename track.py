@@ -36,7 +36,7 @@ from yolov5.utils.plots import Annotator, colors, save_one_box
 from strong_sort.utils.parser import get_config
 from strong_sort.strong_sort import StrongSORT
 
-# remove duplicated stream handler to avoid duplicated logging
+# remove duplicated stream handler to avoid duplicated logging.
 logging.getLogger().removeHandler(logging.getLogger().handlers[0])
 
 @torch.no_grad()
