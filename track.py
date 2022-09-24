@@ -254,7 +254,7 @@ def run(
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
 
-            # Save results (image with detections)
+            # Save results (image with detections).
             if save_vid:
                 if vid_path[i] != save_path:  # new video
                     vid_path[i] = save_path
