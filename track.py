@@ -71,6 +71,7 @@ def run(
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
         eval=False,  # run multi-gpu eval
+        tactile_paving=None
 ):
 
     source = str(source)
@@ -247,6 +248,8 @@ def run(
 
             # Stream results
             im0 = annotator.result()
+            if tactile_paving:
+                cv2.line(im0, tactile_paving[0], tactile_paving[1], (255, 0, 0), 2)
             if show_vid:
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
@@ -278,6 +281,10 @@ def run(
     if update:
         strip_optimizer(yolo_weights)  # update model (to fix SourceChangeWarning)
 
+def tuple_type(strings):
+    strings = strings.replace("(", "").replace(")", "")
+    mapped_int = map(int, strings.split(","))
+    return tuple(mapped_int)
 
 def parse_opt():
     parser = argparse.ArgumentParser()
@@ -312,6 +319,7 @@ def parse_opt():
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
     parser.add_argument('--eval', action='store_true', help='run evaluation')
+    parser.add_argument('--tactile-paving', nargs='+', type=tuple_type, help='4 coordinates of detect area: --tactile-paving (10, 20) (10, 30) (90, 25) (95, 35)')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     print_args(vars(opt))
