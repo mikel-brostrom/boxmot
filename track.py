@@ -249,7 +249,11 @@ def run(
             # Stream results
             im0 = annotator.result()
             if tactile_paving:
-                cv2.line(im0, tactile_paving[0], tactile_paving[1], (255, 0, 0), 2)
+                start=0
+                while start < len(tactile_paving)-1:
+                    cv2.line(im0, tactile_paving[start], tactile_paving[start+1], (255, 0, 0), 2)
+                    start+=1
+                cv2.line(im0, tactile_paving[start], tactile_paving[0], (255, 0, 0), 2)
             if show_vid:
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
