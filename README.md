@@ -14,6 +14,8 @@
 <br>  
 <a href="https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
  
+ [![kandi Featured](https://kandi.openweaver.com/badges/featured.svg)](https://kandi.openweaver.com/collections/vision/object-tracking-system)
+ 
 </div>
 
 </div>
@@ -40,7 +42,6 @@ This repository contains a highly configurable two-stage-tracker that adjusts to
 * [Yolov5 StrongSORT vs BoTSORT vs OCSORT](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/StrongSORT-vs-BoTSORT-vs-OCSORT)
     * Yolov5 [OCSORT](https://arxiv.org/abs/2203.14360) branch: https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/tree/ocsort
     * Yolov5 [BoTSORT](https://arxiv.org/abs/2206.14651) branch: https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/tree/botsort
-
 
 
 ## Before you run the tracker
