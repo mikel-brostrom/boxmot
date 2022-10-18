@@ -318,7 +318,7 @@ if __name__ == "__main__":
     parser.add_argument('--half', action='store_true', help='FP16 half-precision export')
     parser.add_argument('--include',
                         nargs='+',
-                        default=['onnx'],
+                        default=['torchscript'],
                         help='torchscript, onnx, openvino, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs')
     args = parser.parse_args()
 
