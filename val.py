@@ -29,7 +29,7 @@ from yolov5.utils.general import LOGGER, check_requirements, print_args, increme
 from track import run
 
 
-def setup_evaluation(dst_val_tools_folder):
+def setup_evaluation(dst_val_tools_folder, benchmark):
     
     # source: https://github.com/JonathonLuiten/TrackEval#official-evaluation-code
     LOGGER.info('Download official MOT evaluation repo')
@@ -47,11 +47,11 @@ def setup_evaluation(dst_val_tools_folder):
             zip_ref.extractall(dst_val_tools_folder)
 
     LOGGER.info('Download official MOT images')
-    mot_gt_data_url = 'https://motchallenge.net/data/MOT16.zip'
-    subprocess.run(["wget", "-nc", mot_gt_data_url, "-O", dst_val_tools_folder / 'MOT16.zip']) # python module has no -nc nor -N flag
-    if not (dst_val_tools_folder / 'data' / 'MOT16').is_dir():
-        with zipfile.ZipFile(dst_val_tools_folder / 'MOT16.zip', 'r') as zip_ref:
-            zip_ref.extractall(dst_val_tools_folder / 'data' / 'MOT16')
+    mot_gt_data_url = 'https://motchallenge.net/data/' + benchmark + '.zip'
+    subprocess.run(["wget", "-nc", mot_gt_data_url, "-O", dst_val_tools_folder / (benchmark + '.zip')]) # python module has no -nc nor -N flag
+    if not (dst_val_tools_folder / 'data' / benchmark).is_dir():
+        with zipfile.ZipFile(dst_val_tools_folder / (benchmark + '.zip'), 'r') as zip_ref:
+            zip_ref.extractall(dst_val_tools_folder / 'data' )
         
     
 def parse_opt():
@@ -76,11 +76,26 @@ def main(opt):
     
     # download eval files
     dst_val_tools_folder = ROOT / 'val_utils'
-    setup_evaluation(dst_val_tools_folder)
+    setup_evaluation(dst_val_tools_folder, opt.benchmark)
     
     # set paths
     mot_seqs_path = dst_val_tools_folder / 'data' / opt.benchmark / opt.split
-    seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if p.is_dir()]
+    
+    if opt.benchmark is 'MOT17':
+        # each sequences is present 3 times, one for each detector
+        # (DPM, FRCNN, SDP). Keep only sequences from  one of them
+        seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
+        seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
+        with open(dst_val_tools_folder / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "r") as f:  # 
+            lines = f.readlines()
+        # overwrite MOT17 evaluation sequences to evaluate so that they are not duplicated
+        with open(dst_val_tools_folder / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "w") as f:
+            for line in seq_paths:
+                f.write(str(line))
+    else:
+        # this is not the case for MOT16 and MOT20
+        seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
+    
     save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
     MOT_results_folder = dst_val_tools_folder / 'data' / 'trackers' / 'mot_challenge' / Path(str(opt.benchmark) + '-' + str(opt.split)) / save_dir.name / 'data'
     (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
@@ -131,7 +146,7 @@ def main(opt):
     # run the evaluation on the generated txts
     subprocess.run([
         "python",  dst_val_tools_folder / "scripts/run_mot_challenge.py",\
-        "--BENCHMARK", "MOT16",\
+        "--BENCHMARK", opt.benchmark,\
         "--TRACKERS_TO_EVAL",  opt.eval_existing if opt.eval_existing else MOT_results_folder.parent.name,\
         "--SPLIT_TO_EVAL", "train",\
         "--METRICS", "HOTA", "CLEAR", "Identity",\
