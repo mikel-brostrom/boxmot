@@ -51,7 +51,10 @@ def setup_evaluation(dst_val_tools_folder, benchmark):
     subprocess.run(["wget", "-nc", mot_gt_data_url, "-O", dst_val_tools_folder / (benchmark + '.zip')]) # python module has no -nc nor -N flag
     if not (dst_val_tools_folder / 'data' / benchmark).is_dir():
         with zipfile.ZipFile(dst_val_tools_folder / (benchmark + '.zip'), 'r') as zip_ref:
-            zip_ref.extractall(dst_val_tools_folder / 'data' )
+            if opt.benchmark == 'MOT16':
+                zip_ref.extractall(dst_val_tools_folder / 'data' / 'MOT16')
+            else:
+                zip_ref.extractall(dst_val_tools_folder / 'data')
         
     
 def parse_opt():
@@ -81,7 +84,7 @@ def main(opt):
     # set paths
     mot_seqs_path = dst_val_tools_folder / 'data' / opt.benchmark / opt.split
     
-    if opt.benchmark is 'MOT17':
+    if opt.benchmark == 'MOT17':
         # each sequences is present 3 times, one for each detector
         # (DPM, FRCNN, SDP). Keep only sequences from  one of them
         seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
