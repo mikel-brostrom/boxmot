@@ -94,7 +94,7 @@ def main(opt):
         # overwrite MOT17 evaluation sequences to evaluate so that they are not duplicated
         with open(dst_val_tools_folder / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "w") as f:
             for line in seq_paths:
-                f.write(str(line))
+                f.write(str(line.parent.stem) + '\n')
     else:
         # this is not the case for MOT16 and MOT20
         seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
