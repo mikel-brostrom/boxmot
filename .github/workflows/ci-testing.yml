@@ -57,4 +57,5 @@ jobs:
         run: |
           python track.py --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg  # track
           python reid_export.py --weights ./weights/mobilenetv2_x1_0_msmt17.pt  # export
+          python track.py --strong-sort-weights ./weights/mobilenetv2_x1_0_msmt17.torchscript --source yolov5/data/images/bus.jpg
         shell: bash
