@@ -200,7 +200,7 @@ def run(
     
                         bboxes = output[0:4]
                         id = output[4]
-                        #cls = output[5]
+                        cls = output[5]
 
                         if save_txt:
                             # to MOT format
@@ -214,10 +214,10 @@ def run(
                                                                bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
 
                         if save_vid or save_crop or show_vid:  # Add bbox to image
-                            #c = int(cls)  # integer class
+                            c = int(cls)  # integer class
                             id = int(id)  # integer id
-                            label = None if hide_labels else (f'{id} ' if hide_conf else \
-                                (f'{id} {conf:.2f}' if hide_class else f'{id}  {conf:.2f}'))
+                            label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
+                                (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             annotator.box_label(bboxes, label, color=colors(c, True))
                             if save_crop:
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
