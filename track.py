@@ -114,7 +114,6 @@ def run(
     # Create as many strong sort instances as there are video sources
     tracker_list = []
     for i in range(nr_sources):
-        print(tracking_method)
         tracker = create_tracker(tracking_method, appearance_descriptor_weights, device, half)
         tracker_list.append(tracker, )
         if hasattr(tracker_list[i], 'model'):
@@ -224,7 +223,7 @@ def run(
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
                                 save_one_box(bboxes, imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
 
-                LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)')
+                LOGGER.info(f'{s}Done. yolo:({t3 - t2:.3f}s), {tracking_method}:({t5 - t4:.3f}s)')
 
             else:
                 #strongsort_list[i].increment_ages()
