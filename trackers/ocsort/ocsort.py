@@ -93,7 +93,7 @@ class KalmanBoxTracker(object):
         self.hit_streak = 0
         self.age = 0
         #self.conf = conf
-        #self.cls = cls
+        self.cls = 0
         """
         NOTE: [-1,-1,-1,-1,-1] is a compromising placeholder for non-observation status, the same for the return of 
         function k_previous_obs. It is ugly and I do not like it. But to support generate observation array in a 
@@ -312,7 +312,7 @@ class OCSort(object):
                 d = trk.last_observation[:4]
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
                 # +1 as MOT benchmark requires positive
-                ret.append(np.concatenate((d, [trk.id+1])).reshape(1, -1))
+                ret.append(np.concatenate((d, [trk.id+1], [trk.cls])).reshape(1, -1))
             i -= 1
             # remove dead tracklet
             if(trk.time_since_update > self.max_age):
