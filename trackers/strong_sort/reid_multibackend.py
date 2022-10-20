@@ -2,17 +2,17 @@ import torch.nn as nn
 import torch
 from pathlib import Path
 import numpy as np
+from itertools import islice
 import torchvision.transforms as transforms
 import cv2
 import torchvision.transforms as T
 from collections import OrderedDict, namedtuple
 import gdown
 from os.path import exists as file_exists
-from .deep.reid_model_factory import show_downloadeable_models, get_model_url, get_model_name
+from .deep.reid_model_factory import show_downloadeable_models, get_model_url, get_model_name, download_url, load_pretrained_weights
 
 from yolov5.utils.general import LOGGER, check_version, check_requirements
-from trackers.strong_sort.deep.reid.torchreid.utils import check_isfile, load_pretrained_weights, compute_model_complexity
-from trackers.strong_sort.deep.reid.torchreid.utils.tools import download_url
+
 from trackers.strong_sort.deep.reid.torchreid.models import build_model
 
 
@@ -66,14 +66,15 @@ class ReIDDetectMultiBackend(nn.Module):
         self.model = build_model(
             model_name,
             num_classes=1,
-            pretrained=not (w and check_isfile(w)),
+            pretrained=not (w and w.is_file()),
             use_gpu=device
         )
 
         if self.pt:  # PyTorch
             # populate model arch with weights
-            if w and check_isfile(w) and w.suffix == '.pt':
+            if w and w.is_file() and w.suffix == '.pt':
                 load_pretrained_weights(self.model, w)
+                
             self.model.to(device).eval()
             self.model.half() if self.fp16 else  self.model.float()
         elif self.jit:
