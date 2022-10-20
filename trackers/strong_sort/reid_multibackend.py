@@ -11,9 +11,9 @@ from os.path import exists as file_exists
 from .deep.reid_model_factory import show_downloadeable_models, get_model_url, get_model_name
 
 from yolov5.utils.general import LOGGER, check_version, check_requirements
-from strong_sort.deep.reid.torchreid.utils import check_isfile, load_pretrained_weights, compute_model_complexity
-from strong_sort.deep.reid.torchreid.utils.tools import download_url
-from strong_sort.deep.reid.torchreid.models import build_model
+from trackers.strong_sort.deep.reid.torchreid.utils import check_isfile, load_pretrained_weights, compute_model_complexity
+from trackers.strong_sort.deep.reid.torchreid.utils.tools import download_url
+from trackers.strong_sort.deep.reid.torchreid.models import build_model
 
 
 def check_suffix(file='yolov5s.pt', suffix=('.pt',), msg=''):

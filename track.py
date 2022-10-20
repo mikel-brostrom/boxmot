@@ -33,8 +33,8 @@ from yolov5.utils.general import (LOGGER, check_img_size, non_max_suppression, s
                                   check_imshow, xyxy2xywh, increment_path, strip_optimizer, colorstr, print_args, check_file)
 from yolov5.utils.torch_utils import select_device, time_sync
 from yolov5.utils.plots import Annotator, colors, save_one_box
-from strong_sort.utils.parser import get_config
-from strong_sort.strong_sort import StrongSORT
+from trackers.strong_sort.utils.parser import get_config
+from trackers.strong_sort.strong_sort import StrongSORT
 
 # remove duplicated stream handler to avoid duplicated logging
 logging.getLogger().removeHandler(logging.getLogger().handlers[0])
@@ -283,7 +283,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-weights', nargs='+', type=Path, default=WEIGHTS / 'yolov5m.pt', help='model.pt path(s)')
     parser.add_argument('--strong-sort-weights', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
-    parser.add_argument('--config-strongsort', type=str, default='strong_sort/configs/strong_sort.yaml')
+    parser.add_argument('--config-strongsort', type=str, default='trackers/strong_sort/configs/strong_sort.yaml')
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')  
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--conf-thres', type=float, default=0.5, help='confidence threshold')
