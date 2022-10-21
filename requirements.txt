@@ -36,6 +36,9 @@ yapf
 isort==4.3.21
 imageio
 
+# ocsort
+filterpy
+
 # Tracking eval ----------------------------------
 GitPython
 
