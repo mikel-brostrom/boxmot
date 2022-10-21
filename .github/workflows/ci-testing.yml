@@ -55,7 +55,12 @@ jobs:
         shell: bash
       - name: Tests workflow
         run: |
-          python track.py --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg  # track
-          python reid_export.py --weights ./weights/mobilenetv2_x1_0_msmt17.pt  # export
-          python track.py --strong-sort-weights ./weights/mobilenetv2_x1_0_msmt17.torchscript --source yolov5/data/images/bus.jpg
+          # STRONGSORT
+          python track.py --tracking-method strongsort --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg
+          # OCSORT
+          python track.py --tracking-method ocsort --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg
+          # EXPORT
+          python reid_export.py --weights ./weights/osnet_x0_25_msmt17.pt  # export
+          # STRONGSORT w. EXPORTED REID MODEL
+          python track.py --appearance-descriptor-weights ./weights/osnet_x0_25_msmt17.torchscript --source yolov5/data/images/bus.jpg
         shell: bash
