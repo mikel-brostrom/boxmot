@@ -1,6 +1,6 @@
-from .strong_sort.utils.parser import get_config
-from .strong_sort.strong_sort import StrongSORT
-from .ocsort.ocsort import OCSort
+from trackers.strong_sort.utils.parser import get_config
+from trackers.strong_sort.strong_sort import StrongSORT
+from trackers.ocsort.ocsort import OCSort
 
 
 def create_tracker(tracker_type, appearance_descriptor_weights, device, half):
