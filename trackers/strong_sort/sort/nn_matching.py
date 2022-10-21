@@ -86,8 +86,8 @@ def _nn_cosine_distance(x, y):
     """
     x_ = torch.from_numpy(np.asarray(x))
     y_ = torch.from_numpy(np.asarray(y))
-    distances = compute_distance_matrix(x_, y_, metric='cosine')
-    distances = distances.cpu().detach().numpy()
+    distances = _cosine_distance(x_, y_)
+    distances = distances
     return distances.min(axis=0)
 
 
