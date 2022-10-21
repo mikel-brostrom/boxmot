@@ -61,7 +61,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-weights', nargs='+', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
     parser.add_argument('--appearance-descriptor-weights', type=str, default=WEIGHTS / 'mobilenetv2_x1_0_msmt17.pt')
-    parser.add_argument('--config-strongsort', type=str, default='track/strong_sort/configs/strong_sort.yaml')
+    parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs/track', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
@@ -122,6 +122,7 @@ def main(opt):
                 "python", "track.py",\
                 "--yolo-weights", "weights/crowdhuman_yolov5m.pt",\
                 "--appearance-descriptor-weights",  "weights/osnet_x1_0_dukemtmcreid.pt",\
+                "--tracking-method", opt.tracking_method,\
                 "--imgsz", str(1280),\
                 "--classes", str(0),\
                 "--name", save_dir.name,\
