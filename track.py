@@ -22,8 +22,12 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 if str(ROOT / 'yolov5') not in sys.path:
     sys.path.append(str(ROOT / 'yolov5'))  # add yolov5 ROOT to PATH
-if str(ROOT / 'strong_sort') not in sys.path:
-    sys.path.append(str(ROOT / 'strong_sort'))  # add strong_sort ROOT to PATH
+if str(ROOT / 'trackers' / 'strong_sort') not in sys.path:
+    sys.path.append(str(ROOT / 'trackers' / 'strong_sort'))  # add strong_sort ROOT to PATH
+if str(ROOT / 'trackers' / 'ocsort') not in sys.path:
+    sys.path.append(str(ROOT / 'trackers' / 'ocsort'))  # add strong_sort ROOT to PATH
+if str(ROOT / 'trackers' / 'strong_sort' / 'deep' / 'reid' / 'torchreid') not in sys.path:
+    sys.path.append(str(ROOT / 'trackers' / 'strong_sort' / 'deep' / 'reid' / 'torchreid'))  # add strong_sort ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 import logging
@@ -33,8 +37,7 @@ from yolov5.utils.general import (LOGGER, check_img_size, non_max_suppression, s
                                   check_imshow, xyxy2xywh, increment_path, strip_optimizer, colorstr, print_args, check_file)
 from yolov5.utils.torch_utils import select_device, time_sync
 from yolov5.utils.plots import Annotator, colors, save_one_box
-from strong_sort.utils.parser import get_config
-from strong_sort.strong_sort import StrongSORT
+from trackers.multi_tracker_zoo import create_tracker
 
 # remove duplicated stream handler to avoid duplicated logging
 logging.getLogger().removeHandler(logging.getLogger().handlers[0])
@@ -43,8 +46,8 @@ logging.getLogger().removeHandler(logging.getLogger().handlers[0])
 def run(
         source='0',
         yolo_weights=WEIGHTS / 'yolov5m.pt',  # model.pt path(s),
-        strong_sort_weights=WEIGHTS / 'osnet_x0_25_msmt17.pt',  # model.pt path,
-        config_strongsort=ROOT / 'strong_sort/configs/strong_sort.yaml',
+        appearance_descriptor_weights=WEIGHTS / 'osnet_x0_25_msmt17.pt',  # model.pt path,
+        tracking_method='strongsort',
         imgsz=(640, 640),  # inference size (height, width)
         conf_thres=0.25,  # confidence threshold
         iou_thres=0.45,  # NMS IOU threshold
@@ -112,29 +115,14 @@ def run(
         nr_sources = 1
     vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
 
-    # initialize StrongSORT
-    cfg = get_config()
-    cfg.merge_from_file(config_strongsort)
-
     # Create as many strong sort instances as there are video sources
-    strongsort_list = []
+    tracker_list = []
     for i in range(nr_sources):
-        strongsort_list.append(
-            StrongSORT(
-                strong_sort_weights,
-                device,
-                half,
-                max_dist=cfg.STRONGSORT.MAX_DIST,
-                max_iou_distance=cfg.STRONGSORT.MAX_IOU_DISTANCE,
-                max_age=cfg.STRONGSORT.MAX_AGE,
-                n_init=cfg.STRONGSORT.N_INIT,
-                nn_budget=cfg.STRONGSORT.NN_BUDGET,
-                mc_lambda=cfg.STRONGSORT.MC_LAMBDA,
-                ema_alpha=cfg.STRONGSORT.EMA_ALPHA,
-
-            )
-        )
-        strongsort_list[i].model.warmup()
+        tracker = create_tracker(tracking_method, appearance_descriptor_weights, device, half)
+        tracker_list.append(tracker, )
+        if hasattr(tracker_list[i], 'model'):
+            if hasattr(tracker_list[i].model, 'warmup'):
+                tracker_list[i].model.warmup()
     outputs = [None] * nr_sources
 
     # Run tracking
@@ -188,8 +176,8 @@ def run(
             imc = im0.copy() if save_crop else im0  # for save_crop
 
             annotator = Annotator(im0, line_width=line_thickness, pil=not ascii)
-            if cfg.STRONGSORT.ECC:  # camera motion compensation
-                strongsort_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
+            #if cfg.STRONGSORT.ECC:  # camera motion compensation
+            #    strongsort_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
 
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
@@ -206,7 +194,7 @@ def run(
 
                 # pass detections to strongsort
                 t4 = time_sync()
-                outputs[i] = strongsort_list[i].update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
+                outputs[i] = tracker_list[i].update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
                 t5 = time_sync()
                 dt[3] += t5 - t4
 
@@ -239,10 +227,10 @@ def run(
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
                                 save_one_box(bboxes, imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
 
-                LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)')
+                LOGGER.info(f'{s}Done. yolo:({t3 - t2:.3f}s), {tracking_method}:({t5 - t4:.3f}s)')
 
             else:
-                strongsort_list[i].increment_ages()
+                #strongsort_list[i].increment_ages()
                 LOGGER.info('No detections')
 
             # Stream results
@@ -282,8 +270,8 @@ def run(
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-weights', nargs='+', type=Path, default=WEIGHTS / 'yolov5m.pt', help='model.pt path(s)')
-    parser.add_argument('--strong-sort-weights', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
-    parser.add_argument('--config-strongsort', type=str, default='strong_sort/configs/strong_sort.yaml')
+    parser.add_argument('--appearance-descriptor-weights', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
+    parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')  
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--conf-thres', type=float, default=0.5, help='confidence threshold')
