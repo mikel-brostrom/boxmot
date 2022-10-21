@@ -123,6 +123,7 @@ def main(opt):
                 "--yolo-weights", "weights/crowdhuman_yolov5m.pt",\
                 "--appearance-descriptor-weights",  "weights/osnet_x1_0_dukemtmcreid.pt",\
                 "--tracking-method", opt.tracking_method,\
+                "--conf-thres", str(0.45),\
                 "--imgsz", str(1280),\
                 "--classes", str(0),\
                 "--name", save_dir.name,\
