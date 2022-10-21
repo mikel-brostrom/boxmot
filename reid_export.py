@@ -34,9 +34,8 @@ import logging
 from yolov5.utils.torch_utils import select_device
 from yolov5.models.common import DetectMultiBackend
 from yolov5.utils.general import LOGGER, colorstr, check_requirements, check_version
-from strong_sort.deep.reid.torchreid.utils.feature_extractor import FeatureExtractor
-from strong_sort.deep.reid.torchreid.models import build_model
-from strong_sort.deep.reid_model_factory import get_model_name
+from trackers.strong_sort.deep.models import build_model
+from trackers.strong_sort.deep.reid_model_factory import get_model_name, load_pretrained_weights
 
 # remove duplicated stream handler to avoid duplicated logging
 logging.getLogger().removeHandler(logging.getLogger().handlers[0])
@@ -327,14 +326,13 @@ if __name__ == "__main__":
     if type(args.weights) is list:
         args.weights = Path(args.weights[0])
 
-    print(args.weights)
-    # Build model
-    extractor = FeatureExtractor(
-        # get rid of dataset information DeepSort model name
-        model_name=get_model_name(args.weights),
-        model_path=args.weights,
-        device=str(args.device)
+    model = build_model(
+        get_model_name(args.weights),
+        num_classes=1,
+        pretrained=not (args.weights and args.weights.is_file() and args.weights.suffix == '.pt'),
+        use_gpu=args.device
     )
+    load_pretrained_weights(model, args.weights)
 
     include = [x.lower() for x in args.include]  # to lowercase
     fmts = tuple(export_formats()['Argument'][1:])  # --include arguments
@@ -344,20 +342,20 @@ if __name__ == "__main__":
     
     im = torch.zeros(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(args.device)  # image size(1,3,640,480) BCHW iDetection
     for _ in range(2):
-        y = extractor.model(im)  # dry runs
+        y = model.eval()(im)  # dry runs
     if args.half:
-        im, extractor.model = im.half(), extractor.model.half()  # to FP16
+        im, model = im.half(), model.half()  # to FP16
     shape = tuple((y[0] if isinstance(y, tuple) else y).shape)  # model output shape
     LOGGER.info(f"\n{colorstr('PyTorch:')} starting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)")
     
     if jit:
-        export_torchscript(extractor.model.eval(), im, args.weights, optimize=True)  # opset 12
+        export_torchscript(model.eval(), im, args.weights, optimize=True)  # opset 12
     if onnx:
-        f = export_onnx(extractor.model.eval(), im, args.weights, args.opset, train=False, dynamic=args.dynamic, simplify=args.simplify)  # opset 12
+        f = export_onnx(model.eval(), im, args.weights, args.opset, train=False, dynamic=args.dynamic, simplify=args.simplify)  # opset 12
     if engine:  # ONNX required before TensorRT
-        export_engine(extractor.model.eval(), im, f, False, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
+        export_engine(model.eval(), im, f, False, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
     if openvino:
-        f = export_openvino(extractor.model.eval(), f, half=args.half)
+        f = export_openvino(model.eval(), f, half=args.half)
     if tflite:
         export_tflite(f, False)
 
