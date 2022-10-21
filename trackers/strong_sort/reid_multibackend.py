@@ -30,7 +30,7 @@ class ReIDDetectMultiBackend(nn.Module):
     # ReID models MultiBackend class for python inference on various backends
     def __init__(self, weights='osnet_x0_25_msmt17.pt', device=torch.device('cpu'), fp16=False):
         super().__init__()
-        from deep.reid.torchscript.models import build_model
+        from deep.reid.torchreid.models import build_model
         w = weights[0] if isinstance(weights, list) else weights
         self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, \
             self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs = self.model_type(w)  # get backend
