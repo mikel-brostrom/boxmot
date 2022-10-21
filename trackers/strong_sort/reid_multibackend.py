@@ -5,15 +5,14 @@ import numpy as np
 from itertools import islice
 import torchvision.transforms as transforms
 import cv2
+import sys
 import torchvision.transforms as T
 from collections import OrderedDict, namedtuple
 import gdown
 from os.path import exists as file_exists
-from .deep.reid_model_factory import show_downloadeable_models, get_model_url, get_model_name, download_url, load_pretrained_weights
 
 from yolov5.utils.general import LOGGER, check_version, check_requirements
-
-from trackers.strong_sort.deep.reid.torchreid.models import build_model
+from deep.reid_model_factory import show_downloadeable_models, get_model_url, get_model_name, download_url, load_pretrained_weights
 
 
 def check_suffix(file='yolov5s.pt', suffix=('.pt',), msg=''):
@@ -31,6 +30,7 @@ class ReIDDetectMultiBackend(nn.Module):
     # ReID models MultiBackend class for python inference on various backends
     def __init__(self, weights='osnet_x0_25_msmt17.pt', device=torch.device('cpu'), fp16=False):
         super().__init__()
+        from models import build_model
         w = weights[0] if isinstance(weights, list) else weights
         self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, \
             self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs = self.model_type(w)  # get backend
