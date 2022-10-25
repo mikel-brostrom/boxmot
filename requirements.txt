@@ -39,6 +39,10 @@ imageio
 # ocsort
 filterpy
 
+#bytetrack
+lap
+cython_bbox
+
 # Tracking eval ----------------------------------
 GitPython
 
