@@ -46,7 +46,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install numpy
+          pip install numpy Cython
           pip install -qr requirements.txt -f https://download.pytorch.org/whl/cpu/torch_stable.html
           pip install requests
           python --version
