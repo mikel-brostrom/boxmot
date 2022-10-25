@@ -1,1 +1,11 @@
 .vscode/
+
+# interpreter bytecode
+__pycache__/
+
+# exports
+*_openvino_model
+*.torchscript
+*.pt
+*.onnx
+*.engine
