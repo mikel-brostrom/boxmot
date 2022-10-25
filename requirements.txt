@@ -19,7 +19,6 @@ pandas>=1.1.4
 seaborn>=0.11.0
 
 # deep_sort -----------------------------------
-
 easydict
 
 # torchreid -----------------------------------
@@ -35,6 +34,10 @@ flake8
 yapf
 isort==4.3.21
 imageio
+
+#bytetrack
+lap
+git+https://github.com/samson-wang/cython_bbox.git@9badb346a9222c98f828ba45c63fe3b7f2790ea2
 
 # ocsort
 filterpy
