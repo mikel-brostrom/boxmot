@@ -41,6 +41,7 @@ filterpy
 
 #bytetrack
 lap
+Cython
 cython_bbox
 
 # Tracking eval ----------------------------------
