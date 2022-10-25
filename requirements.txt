@@ -35,11 +35,12 @@ yapf
 isort==4.3.21
 imageio
 
-# ocsort
-filterpy
-
 #bytetrack
 lap
+cython-bbox
+
+# ocsort
+filterpy
 
 # Tracking eval ----------------------------------
 GitPython
