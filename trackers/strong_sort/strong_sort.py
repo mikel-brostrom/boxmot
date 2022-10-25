@@ -12,6 +12,8 @@ from sort.tracker import Tracker
 
 from reid_multibackend import ReIDDetectMultiBackend
 
+from yolov5.utils.general import xyxy2xywh
+
 
 class StrongSORT(object):
     def __init__(self, 
@@ -34,13 +36,22 @@ class StrongSORT(object):
         self.tracker = Tracker(
             metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init)
 
-    def update(self, bbox_xywh, confidences, classes, ori_img):
+    def update(self, dets,  ori_img):
+        
+        xyxys = dets[:, 0:4]
+        confs = dets[:, 4]
+        clss = dets[:, 5]
+        
+        classes = clss.numpy()
+        xywhs = xyxy2xywh(xyxys.numpy())
+        confs = confs.numpy()
         self.height, self.width = ori_img.shape[:2]
+        
         # generate detections
-        features = self._get_features(bbox_xywh, ori_img)
-        bbox_tlwh = self._xywh_to_tlwh(bbox_xywh)
+        features = self._get_features(xywhs, ori_img)
+        bbox_tlwh = self._xywh_to_tlwh(xywhs)
         detections = [Detection(bbox_tlwh[i], conf, features[i]) for i, conf in enumerate(
-            confidences)]
+            confs)]
 
         # run on non-maximum supression
         boxes = np.array([d.tlwh for d in detections])
@@ -48,7 +59,7 @@ class StrongSORT(object):
 
         # update tracker
         self.tracker.predict()
-        self.tracker.update(detections, classes, confidences)
+        self.tracker.update(detections, clss, confs)
 
         # output bbox identities
         outputs = []

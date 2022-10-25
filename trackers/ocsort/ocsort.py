@@ -195,7 +195,7 @@ class OCSort(object):
         self.use_byte = use_byte
         KalmanBoxTracker.count = 0
 
-    def update(self, xywhs, confs, clss, im0):
+    def update(self, dets, _):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -206,12 +206,15 @@ class OCSort(object):
 
         self.frame_count += 1
         
+        xyxys = dets[:, 0:4]
+        confs = dets[:, 4]
+        clss = dets[:, 5]
+        
         classes = clss.numpy()
-        xywhs = xywhs.numpy()
-        bboxes = xywh2xyxy(xywhs)
+        xyxys = xyxys.numpy()
         confs = confs.numpy()
 
-        output_results = np.column_stack((bboxes, confs, classes))
+        output_results = np.column_stack((xyxys, confs, classes))
         
         inds_low = confs > 0.1
         inds_high = confs < self.det_thresh
