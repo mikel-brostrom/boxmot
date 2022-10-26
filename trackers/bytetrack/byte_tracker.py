@@ -156,7 +156,7 @@ class BYTETracker(object):
         
         self.track_thresh = track_thresh
         self.match_thresh = match_thresh
-        self.det_thresh = track_thresh
+        # self.det_thresh = track_thresh
         self.det_thresh = track_thresh + 0.1
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
@@ -296,7 +296,9 @@ class BYTETracker(object):
             tid = t.track_id
             #vertical = tlwh[2] / tlwh[3] > 1.6
             #if tlwh[2] * tlwh[3] > args.min_box_area and not vertical:
-            output.extend(tlwh)
+            print(xywh2xyxy(tlwh))
+            flatten_list = [j for sub in xywh2xyxy(tlwh) for j in sub]
+            output.extend(flatten_list)
             output.append(tid)
             output.append(t.score)
             outputs.append(output)
