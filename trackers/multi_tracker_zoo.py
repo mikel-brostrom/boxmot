@@ -32,7 +32,12 @@ def create_tracker(tracker_type, appearance_descriptor_weights, device, half):
         )
         return ocsort
     elif tracker_type == 'bytetrack':
-        bytetracker = BYTETracker()
+        bytetracker = BYTETracker(
+            track_thresh=0.6,
+            track_buffer=30,
+            match_thresh=0.8,
+            frame_rate=30
+        )
         return bytetracker
     else:
         print('No such tracker')
