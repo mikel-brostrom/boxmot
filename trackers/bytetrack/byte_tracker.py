@@ -288,13 +288,17 @@ class BYTETracker(object):
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
-
+        print('wooo')
+        print(len(output_stracks))
         outputs = []
         for t in output_stracks:
             output= []
             tlwh = t.tlwh
             tid = t.track_id
-            output.extend(tlwh)
+            tlwh = np.expand_dims(tlwh, axis=0)
+            xyxy = xywh2xyxy(tlwh)
+            xyxy = np.squeeze(xyxy, axis=0)
+            output.extend(xyxy)
             output.append(tid)
             output.append(t.score)
             outputs.append(output)
