@@ -6,7 +6,7 @@ import copy
 import torch
 import torch.nn.functional as F
 
-from yolov5.utils.general import xywh2xyxy
+from yolov5.utils.general import xywh2xyxy, xyxy2xywh
 
 
 from trackers.bytetrack.kalman_filter import KalmanFilter
@@ -170,6 +170,7 @@ class BYTETracker(object):
         removed_stracks = []
 
         xyxys = dets[:, 0:4]
+        xywh = xyxy2xywh(xyxys)
         confs = dets[:, 4]
         clss = dets[:, 5]
         
@@ -182,15 +183,14 @@ class BYTETracker(object):
         inds_high = confs < self.track_thresh
 
         inds_second = np.logical_and(inds_low, inds_high)
-        dets_second = xyxys[inds_second]
-        dets = xyxys[remain_inds]
+        dets_second = xywh[inds_second]
+        dets = xywh[remain_inds]
         scores_keep = confs[remain_inds]
         scores_second = confs[inds_second]
 
         if len(dets) > 0:
             '''Detections'''
-            detections = [STrack(xywh, s) for
-                          (xywh, s) in zip(dets, scores_keep)]
+            detections = [STrack(xyxy, s) for (xyxy, s) in zip(dets, scores_keep)]
         else:
             detections = []
 
@@ -226,8 +226,7 @@ class BYTETracker(object):
         # association the untrack to the low score detections
         if len(dets_second) > 0:
             '''Detections'''
-            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
-                          (tlbr, s) in zip(dets_second, scores_second)]
+            detections_second = [STrack(xywh, s) for (xywh, s) in zip(dets_second, scores_second)]
         else:
             detections_second = []
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
