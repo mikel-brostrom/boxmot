@@ -294,9 +294,7 @@ class BYTETracker(object):
             output= []
             tlwh = t.tlwh
             tid = t.track_id
-            #vertical = tlwh[2] / tlwh[3] > 1.6
-            #if tlwh[2] * tlwh[3] > args.min_box_area and not vertical:
-            print(xywh2xyxy(tlwh))
+
             flatten_list = [j for sub in xywh2xyxy(tlwh) for j in sub]
             output.extend(flatten_list)
             output.append(tid)
