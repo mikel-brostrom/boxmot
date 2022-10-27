@@ -283,8 +283,7 @@ if __name__ == "__main__":
     jit, onnx, openvino, engine, tflite = flags  # export booleans
     
     im = torch.zeros(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(args.device)  # image size(1,3,640,480) BCHW iDetection
-    print(type(im))
-    print(type(model))
+
     for _ in range(2):
         y = model.eval()(im)  # dry runs
     if args.half:
