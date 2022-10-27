@@ -15,7 +15,7 @@ from trackers.bytetrack.basetrack import BaseTrack, TrackState
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
-    def __init__(self, tlwh, score):
+    def __init__(self, tlwh, score, cls):
 
         # wait activate
         self._tlwh = np.asarray(tlwh, dtype=np.float)
@@ -25,6 +25,7 @@ class STrack(BaseTrack):
 
         self.score = score
         self.tracklet_len = 0
+        self.cls = cls
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -81,6 +82,7 @@ class STrack(BaseTrack):
         """
         self.frame_id = frame_id
         self.tracklet_len += 1
+        # self.cls = cls
 
         new_tlwh = new_track.tlwh
         self.mean, self.covariance = self.kalman_filter.update(
@@ -183,14 +185,20 @@ class BYTETracker(object):
         inds_high = confs < self.track_thresh
 
         inds_second = np.logical_and(inds_low, inds_high)
+        
         dets_second = xywh[inds_second]
         dets = xywh[remain_inds]
+        
         scores_keep = confs[remain_inds]
         scores_second = confs[inds_second]
+        
+        clss_keep = classes[remain_inds]
+        clss_second = classes[remain_inds]
+        
 
         if len(dets) > 0:
             '''Detections'''
-            detections = [STrack(xyxy, s) for (xyxy, s) in zip(dets, scores_keep)]
+            detections = [STrack(xyxy, s, c) for (xyxy, s, c) in zip(dets, scores_keep, clss_keep)]
         else:
             detections = []
 
@@ -226,7 +234,7 @@ class BYTETracker(object):
         # association the untrack to the low score detections
         if len(dets_second) > 0:
             '''Detections'''
-            detections_second = [STrack(xywh, s) for (xywh, s) in zip(dets_second, scores_second)]
+            detections_second = [STrack(xywh, s, c) for (xywh, s, c) in zip(dets_second, scores_second, clss_second)]
         else:
             detections_second = []
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
@@ -297,7 +305,7 @@ class BYTETracker(object):
             xyxy = np.squeeze(xyxy, axis=0)
             output.extend(xyxy)
             output.append(tid)
-            output.append(t.score)
+            output.append(t.cls)
             outputs.append(output)
 
         return outputs
