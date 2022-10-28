@@ -71,6 +71,7 @@ class STrack(BaseTrack):
         if new_id:
             self.track_id = self.next_id()
         self.score = new_track.score
+        self.cls = new_track.cls
 
     def update(self, new_track, frame_id):
         """
