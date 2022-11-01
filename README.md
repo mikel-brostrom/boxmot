@@ -96,7 +96,7 @@ $ python track.py --source 0 --yolo-weights yolov5n.pt --img 640
                                             ...
 ```
 
-### StrongSORT
+### ReID
 
 The above applies to StrongSORT models as well. Choose a ReID model based on your needs from this ReID [model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO)
 
