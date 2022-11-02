@@ -12,6 +12,7 @@ import sys
 import numpy as np
 from pathlib import Path
 import torch
+import time
 import platform
 import pandas as pd
 import subprocess
@@ -22,12 +23,13 @@ FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # yolov5 strongsort root directory
 WEIGHTS = ROOT / 'weights'
 
+print(ROOT)
+
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 if str(ROOT / 'yolov5') not in sys.path:
     sys.path.append(str(ROOT / 'yolov5'))  # add yolov5 ROOT to PATH
-if str(ROOT / 'strong_sort') not in sys.path:
-    sys.path.append(str(ROOT / 'strong_sort'))  # add strong_sort ROOT to PATH
+
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 import logging
@@ -82,14 +84,14 @@ def export_torchscript(model, im, file, optimize, prefix=colorstr('TorchScript:'
         LOGGER.info(f'{prefix} export failure: {e}')
 
 
-def export_onnx(model, im, file, opset, train=False, dynamic=True, simplify=False):
+def export_onnx(model, im, file, opset, dynamic, simplify, prefix=colorstr('ONNX:')):
     # ONNX export
     try:
         check_requirements(('onnx',))
         import onnx
 
         f = file.with_suffix('.onnx')
-        LOGGER.info(f'\nstarting export with onnx {onnx.__version__}...')
+        LOGGER.info(f'\n{prefix} starting export with onnx {onnx.__version__}...')
 
         torch.onnx.export(
             model.cpu() if dynamic else model,  # --dynamic only compatible with cpu
@@ -97,18 +99,10 @@ def export_onnx(model, im, file, opset, train=False, dynamic=True, simplify=Fals
             f,
             verbose=False,
             opset_version=opset,
-            training=torch.onnx.TrainingMode.TRAINING if train else torch.onnx.TrainingMode.EVAL,
-            do_constant_folding=not train,
+            do_constant_folding=True,
             input_names=['images'],
             output_names=['output'],
-            dynamic_axes={
-                'images': {
-                    0: 'batch',
-                },  # shape(x,3,256,128)
-                'output': {
-                    0: 'batch',
-                }  # shape(x,2048)
-            } if dynamic else None
+            dynamic_axes=dynamic or None
         )
         # Checks
         model_onnx = onnx.load(f)  # load onnx model
@@ -123,35 +117,31 @@ def export_onnx(model, im, file, opset, train=False, dynamic=True, simplify=Fals
                 import onnxsim
 
                 LOGGER.info(f'simplifying with onnx-simplifier {onnxsim.__version__}...')
-                model_onnx, check = onnxsim.simplify(
-                    model_onnx,
-                    dynamic_input_shape=dynamic,
-                    input_shapes={'t0': list(im.shape)} if dynamic else None)
+                model_onnx, check = onnxsim.simplify(model_onnx)
                 assert check, 'assert check failed'
                 onnx.save(model_onnx, f)
             except Exception as e:
                 LOGGER.info(f'simplifier failure: {e}')
-        LOGGER.info(f'export success, saved as {f} ({file_size(f):.1f} MB)')
-        LOGGER.info(f"run --dynamic ONNX model inference with: 'python detect.py --weights {f}'")
     except Exception as e:
         LOGGER.info(f'export failure: {e}')
+    LOGGER.info(f'{prefix} export success, saved as {f} ({file_size(f):.1f} MB)')
     return f
         
         
-def export_openvino(model, file, half, prefix=colorstr('OpenVINO:')):
+def export_openvino(file, half, prefix=colorstr('OpenVINO:')):
     # YOLOv5 OpenVINO export
     check_requirements(('openvino-dev',))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
     import openvino.inference_engine as ie
     try:
         LOGGER.info(f'\n{prefix} starting export with openvino {ie.__version__}...')
-        f = str(file).replace('.onnx', f'_openvino_model{os.sep}')
+        f = str(file).replace('.pt', f'_openvino_model{os.sep}')
 
         cmd = f"mo --input_model {file.with_suffix('.onnx')} --output_dir {f} --data_type {'FP16' if half else 'FP32'}"
         subprocess.check_output(cmd.split())  # export
-        LOGGER.info(f'export success, saved as {f} ({file_size(f):.1f} MB)')
     except Exception as e:
         LOGGER.info(f'export failure: {e}')
-    return f, None
+    LOGGER.info(f'{prefix} export success, saved as {f} ({file_size(f):.1f} MB)')
+    return f
         
 
 def export_tflite(file, half, prefix=colorstr('TFLite:')):
@@ -177,7 +167,7 @@ def export_tflite(file, half, prefix=colorstr('TFLite:')):
         LOGGER.info(f'\n{prefix} export failure: {e}')
         
         
-def export_engine(model, im, file, train, half, dynamic, simplify, workspace=4, verbose=False):
+def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose=False):
     # YOLOv5 TensorRT export https://developer.nvidia.com/tensorrt
     prefix = colorstr('TensorRT:')
     try:
@@ -196,7 +186,7 @@ def export_engine(model, im, file, train, half, dynamic, simplify, workspace=4, 
             model.model[-1].anchor_grid = grid
         else:  # TensorRT >= 8
             check_version(trt.__version__, '8.0.0', hard=True)  # require tensorrt>=8.0.0
-            export_onnx(model, im, file, 13, train, dynamic, simplify)  # opset 13
+            export_onnx(model, im, file, 12, dynamic, simplify)  # opset 13
         onnx = file.with_suffix('.onnx')
 
         LOGGER.info(f'\n{prefix} starting export with TensorRT {trt.__version__}...')
@@ -225,7 +215,7 @@ def export_engine(model, im, file, train, half, dynamic, simplify, workspace=4, 
         for out in outputs:
             LOGGER.info(f'{prefix}\toutput "{out.name}" with shape {out.shape} and dtype {out.dtype}')
 
-        if True:
+        if dynamic:
             if im.shape[0] <= 1:
                 LOGGER.warning(f"{prefix}WARNING: --dynamic model requires maximum --batch-size argument")
             profile = builder.create_optimization_profile()
@@ -246,14 +236,15 @@ def export_engine(model, im, file, train, half, dynamic, simplify, workspace=4, 
         
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description="Yolov5 StrongSORT OSNet export")
+    parser = argparse.ArgumentParser(description="ReID export")
     parser.add_argument('--batch-size', type=int, default=1, help='batch size')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[256, 128], help='image (h, w)')
     parser.add_argument('--device', default='cpu', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+    parser.add_argument('--optimize', action='store_true', help='TorchScript: optimize for mobile')
     parser.add_argument('--dynamic', action='store_true', help='ONNX/TF/TensorRT: dynamic axes')
     parser.add_argument('--simplify', action='store_true', help='ONNX: simplify model')
-    parser.add_argument('--workspace', type=int, default=4, help='TensorRT: workspace size (GB)')
     parser.add_argument('--opset', type=int, default=12, help='ONNX: opset version')
+    parser.add_argument('--workspace', type=int, default=4, help='TensorRT: workspace size (GB)')
     parser.add_argument('--verbose', action='store_true', help='TensorRT: verbose log')
     parser.add_argument('--weights', nargs='+', type=str, default=WEIGHTS / 'osnet_x0_25_msmt17.pt', help='model.pt path(s)')
     parser.add_argument('--half', action='store_true', help='FP16 half-precision export')
@@ -263,7 +254,18 @@ if __name__ == "__main__":
                         help='torchscript, onnx, openvino, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs')
     args = parser.parse_args()
 
+    t = time.time()
+
+    include = [x.lower() for x in args.include]  # to lowercase
+    fmts = tuple(export_formats()['Argument'][1:])  # --include arguments
+    flags = [x in include for x in fmts]
+    assert sum(flags) == len(include), f'ERROR: Invalid --include {include}, valid --include arguments are {fmts}'
+    jit, onnx, openvino, engine, tflite = flags  # export booleans
+
     args.device = select_device(args.device)
+    if args.half:
+        assert args.device.type != 'cpu', '--half only compatible with GPU export, i.e. use --device 0'
+        assert not args.dynamic, '--half not compatible with --dynamic, i.e. use either --half or --dynamic but not both'
     
     if type(args.weights) is list:
         args.weights = Path(args.weights[0])
@@ -275,30 +277,36 @@ if __name__ == "__main__":
         use_gpu=args.device
     ).to(args.device)
     load_pretrained_weights(model, args.weights)
+    model.eval()
 
-    include = [x.lower() for x in args.include]  # to lowercase
-    fmts = tuple(export_formats()['Argument'][1:])  # --include arguments
-    flags = [x in include for x in fmts]
-    assert sum(flags) == len(include), f'ERROR: Invalid --include {include}, valid --include arguments are {fmts}'
-    jit, onnx, openvino, engine, tflite = flags  # export booleans
+    if args.optimize:
+        assert device.type == 'cpu', '--optimize not compatible with cuda devices, i.e. use --device cpu'
     
     im = torch.zeros(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(args.device)  # image size(1,3,640,480) BCHW iDetection
-
     for _ in range(2):
-        y = model.eval()(im)  # dry runs
+        y = model(im)  # dry runs
     if args.half:
         im, model = im.half(), model.half()  # to FP16
     shape = tuple((y[0] if isinstance(y, tuple) else y).shape)  # model output shape
     LOGGER.info(f"\n{colorstr('PyTorch:')} starting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)")
     
+    # Exports
+    f = [''] * len(fmts)  # exported filenames
     if jit:
-        export_torchscript(model.eval(), im, args.weights, optimize=True)  # opset 12
-    if onnx:
-        f = export_onnx(model.eval(), im, args.weights, args.opset, train=False, dynamic=args.dynamic, simplify=args.simplify)  # opset 12
-    if engine:  # ONNX required before TensorRT
-        export_engine(model.eval(), im, f, False, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
+        f[0] = export_torchscript(model, im, args.weights, args.optimize)  # opset 12
+    if engine:  # TensorRT required before ONNX
+        f[1] = export_engine(model, im, f, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
+    if onnx:  # OpenVINO requires ONNX
+        f[2] = export_onnx(model, im, args.weights, args.opset, args.dynamic, args.simplify)  # opset 12
     if openvino:
-        f = export_openvino(model.eval(), f, half=args.half)
+        f[3] = export_openvino(args.weights, args.half)
     if tflite:
         export_tflite(f, False)
+
+    # Finish
+    f = [str(x) for x in f if x]  # filter out '' and None
+    if any(f):
+        LOGGER.info(f'\nExport complete ({time.time() - t:.1f}s)'
+                    f"\nResults saved to {colorstr('bold', args.weights.parent.resolve())}"
+                    f"\nVisualize:       https://netron.app")
 
