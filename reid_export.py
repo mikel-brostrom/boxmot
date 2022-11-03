@@ -182,7 +182,7 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
         if trt.__version__[0] == '7':  # TensorRT 7 handling https://github.com/ultralytics/yolov5/issues/6012
             grid = model.model[-1].anchor_grid
             model.model[-1].anchor_grid = [a[..., :1, :1, :] for a in grid]
-            export_onnx(model, im, file, 12, train, dynamic, simplify)  # opset 12
+            export_onnx(model, im, file, 12, dynamic, simplify)  # opset 12
             model.model[-1].anchor_grid = grid
         else:  # TensorRT >= 8
             check_version(trt.__version__, '8.0.0', hard=True)  # require tensorrt>=8.0.0
@@ -251,7 +251,7 @@ if __name__ == "__main__":
     parser.add_argument('--include',
                         nargs='+',
                         default=['torchscript'],
-                        help='torchscript, onnx, openvino, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs')
+                        help='torchscript, onnx, openvino, engine')
     args = parser.parse_args()
 
     t = time.time()
@@ -295,7 +295,7 @@ if __name__ == "__main__":
     if jit:
         f[0] = export_torchscript(model, im, args.weights, args.optimize)  # opset 12
     if engine:  # TensorRT required before ONNX
-        f[1] = export_engine(model, im, f, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
+        f[1] = export_engine(model, im, args.weights, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
     if onnx:  # OpenVINO requires ONNX
         f[2] = export_onnx(model, im, args.weights, args.opset, args.dynamic, args.simplify)  # opset 12
     if openvino:
