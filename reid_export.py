@@ -92,6 +92,10 @@ def export_onnx(model, im, file, opset, dynamic, simplify, prefix=colorstr('ONNX
 
         f = file.with_suffix('.onnx')
         LOGGER.info(f'\n{prefix} starting export with onnx {onnx.__version__}...')
+        
+        if dynamic:
+            dynamic = {'images': {0: 'batch'}}  # shape(1,3,640,640)
+            dynamic['output'] = {0: 'batch'}  # shape(1,25200,85)
 
         torch.onnx.export(
             model.cpu() if dynamic else model,  # --dynamic only compatible with cpu
@@ -122,10 +126,11 @@ def export_onnx(model, im, file, opset, dynamic, simplify, prefix=colorstr('ONNX
                 onnx.save(model_onnx, f)
             except Exception as e:
                 LOGGER.info(f'simplifier failure: {e}')
+        LOGGER.info(f'{prefix} export success, saved as {f} ({file_size(f):.1f} MB)')
+        return f
     except Exception as e:
         LOGGER.info(f'export failure: {e}')
-    LOGGER.info(f'{prefix} export success, saved as {f} ({file_size(f):.1f} MB)')
-    return f
+    
         
         
 def export_openvino(file, half, prefix=colorstr('OpenVINO:')):
@@ -167,9 +172,8 @@ def export_tflite(file, half, prefix=colorstr('TFLite:')):
         LOGGER.info(f'\n{prefix} export failure: {e}')
         
         
-def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose=False):
+def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose=False, prefix=colorstr('TensorRT:')):
     # YOLOv5 TensorRT export https://developer.nvidia.com/tensorrt
-    prefix = colorstr('TensorRT:')
     try:
         assert im.device.type != 'cpu', 'export running on CPU but must be on GPU, i.e. `python export.py --device 0`'
         try:
