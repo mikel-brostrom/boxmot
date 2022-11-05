@@ -178,7 +178,7 @@ def run(
             annotator = Annotator(im0, line_width=line_thickness, pil=not ascii)
             
             if prev_frames[i] is not None and curr_frames[i] is not None:  # camera motion compensation
-                if hasattr(tracker_list[i].tracker, 'camera_update'):
+                if hasattr(tracker_list[i], 'tracker') and hasattr(tracker_list[i].tracker, 'camera_update'):
                     tracker_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
 
             if det is not None and len(det):
