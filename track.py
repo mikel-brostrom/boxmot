@@ -176,8 +176,10 @@ def run(
             imc = im0.copy() if save_crop else im0  # for save_crop
 
             annotator = Annotator(im0, line_width=line_thickness, pil=not ascii)
-            #if cfg.STRONGSORT.ECC:  # camera motion compensation
-            #    strongsort_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
+            
+            if prev_frames[i] is not None and curr_frames[i] is not None:  # camera motion compensation
+                if hasattr(tracker_list[i].tracker, camera_update)
+                    tracker_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
 
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
