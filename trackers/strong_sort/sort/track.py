@@ -150,13 +150,6 @@ class Track:
             aligned source image of gray
         """
 
-        # skip if current and previous frame are not initialized (1st inference)
-        if (src.any() or dst.any() is None):
-            return None, None
-        # skip if current and previous fames are not the same size
-        elif (src.shape != dst.shape):
-            return None, None
-
         # BGR2GRAY
         if src.ndim == 3:
             # Convert images to grayscale
@@ -197,9 +190,9 @@ class Track:
         try:
             (cc, warp_matrix) = cv2.findTransformECC (src_r, dst_r, warp_matrix, warp_mode, criteria, None, 1)
         except cv2.error as e:
+            print('ecc transform failed')
             return None, None
         
-
         if scale is not None:
             warp_matrix[0, 2] = warp_matrix[0, 2] / scale[0]
             warp_matrix[1, 2] = warp_matrix[1, 2] / scale[1]
