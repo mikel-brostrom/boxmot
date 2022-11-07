@@ -60,7 +60,7 @@ def setup_evaluation(dst_val_tools_folder, benchmark):
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-weights', nargs='+', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
-    parser.add_argument('--appearance-descriptor-weights', type=str, default=WEIGHTS / 'mobilenetv2_x1_0_msmt17.pt')
+    parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'mobilenetv2_x1_0_msmt17.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs/track', help='save results to project/name')
@@ -125,8 +125,8 @@ def main(opt):
                 "--yolo-weights", opt.yolo_weights,\
                 "--reid-weights",  opt.reid_weights,\
                 "--tracking-method", opt.tracking_method,\
-                "--conf-thres", opt.conf_thres,\
-                "--imgsz", opt.imgsz,\
+                "--conf-thres", str(opt.conf_thres),\
+                "--imgsz", str(opt.imgsz[0]),\
                 "--classes", str(0),\
                 "--name", save_dir.name,\
                 "--project", opt.project,\
