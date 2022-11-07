@@ -60,7 +60,7 @@ def setup_evaluation(dst_val_tools_folder, benchmark):
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-weights', nargs='+', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
-    parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'mobilenetv2_x1_0_msmt17.pt')
+    parser.add_argument('--appearance-descriptor-weights', type=str, default=WEIGHTS / 'mobilenetv2_x1_0_msmt17.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs/track', help='save results to project/name')
@@ -68,6 +68,8 @@ def parse_opt():
     parser.add_argument('--benchmark', type=str,  default='MOT16', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
+    parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
+    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
 
     opt = parser.parse_args()
     print_args(vars(opt))
@@ -120,11 +122,11 @@ def main(opt):
 
             p = subprocess.Popen([
                 "python", "track.py",\
-                "--yolo-weights", "weights/crowdhuman_yolov5m.pt",\
-                "--reid-weights",  "weights/osnet_x1_0_dukemtmcreid.pt",\
+                "--yolo-weights", opt.yolo_weights,\
+                "--reid-weights",  opt.reid_weights,\
                 "--tracking-method", opt.tracking_method,\
-                "--conf-thres", str(0.45),\
-                "--imgsz", str(1280),\
+                "--conf-thres", opt.conf_thres,\
+                "--imgsz", opt.imgsz,\
                 "--classes", str(0),\
                 "--name", save_dir.name,\
                 "--project", opt.project,\
