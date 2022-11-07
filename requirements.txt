@@ -37,7 +37,7 @@ imageio
 
 #bytetrack
 lap
-cython-bbox
+cython_bbox
 
 # ocsort
 filterpy
