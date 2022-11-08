@@ -69,7 +69,7 @@ def parse_opt():
     parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
     parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
+    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
 
     opt = parser.parse_args()
     print_args(vars(opt))
@@ -98,7 +98,7 @@ def main(opt):
             for line in seq_paths:
                 f.write(str(line.parent.stem) + '\n')
     else:
-        # this is not the case for MOT16 and MOT20
+        # this is not the case for MOT16, MOT20 or your custom dataset
         seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
     
     save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
