@@ -94,8 +94,7 @@ $ python track.py --source 0  # webcam
 <details>
 <summary>Select Yolov5 model</summary>
 
-There is a clear trade-off between model inference speed and accuracy. In order to make it possible to fulfill your inference speed/accuracy needs
-you can select a Yolov5 family model for automatic download
+There is a clear trade-off between model inference speed and overall performance. In order to make it possible to fulfill your inference speed/accuracy needs you can select a Yolov5 family model for automatic download. These model can be further optimized for you needs by the [export.py](https://github.com/ultralytics/yolov5/blob/master/export.py) script
 
 ```bash
 
@@ -113,7 +112,7 @@ $ python track.py --source 0 --yolo-weights yolov5n.pt --img 640
 <details>
 <summary>Select ReID model</summary>
 
-The above applies to StrongSORT models as well. Choose a ReID model based on your needs from this ReID [model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO)
+The above applies to StrongSORT models as well. Choose a ReID model based on your needs from this ReID [model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/master/reid_export.py) script
 
 ```bash
 
@@ -138,7 +137,7 @@ If you want to track a subset of the classes that you model predicts, add their 
 python track.py --source 0 --yolo-weights yolov5s.pt --classes 16 17  # COCO yolov5 model. Track cats and dogs, only
 ```
 
-[Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a Yolov5 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero.
+[Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a Yolov5 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
 
 </details>
 
