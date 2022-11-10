@@ -29,24 +29,25 @@ from yolov5.utils.general import LOGGER, check_requirements, print_args, increme
 from track import run
 
 
-def setup_evaluation(dst_val_tools_folder, benchmark):
-    
+def download_official_mot_eval_tool(dst_val_tools_folder):
     # source: https://github.com/JonathonLuiten/TrackEval#official-evaluation-code
-    LOGGER.info('Download official MOT evaluation repo')
     val_tools_url = "https://github.com/JonathonLuiten/TrackEval"
     try:
         Repo.clone_from(val_tools_url, dst_val_tools_folder)
+        LOGGER.info('Official MOT evaluation repo downloaded')
     except git.exc.GitError as err:
         LOGGER.info('Eval repo already downloaded')
         
-    LOGGER.info('Get ground-truth txts, meta-data and example trackers for all currently supported benchmarks')
+def download_mot_dataset(dst_val_tools_folder, benchmark):
     gt_data_url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
     subprocess.run(["wget", "-nc", gt_data_url, "-O", dst_val_tools_folder / 'data.zip']) # python module has no -nc nor -N flag
     if not (dst_val_tools_folder / 'data').is_dir():
         with zipfile.ZipFile(dst_val_tools_folder / 'data.zip', 'r') as zip_ref:
             zip_ref.extractall(dst_val_tools_folder)
+        LOGGER.info('MOTs ground truth downloaded')
+    else:
+        LOGGER.info('gt already downloaded')
 
-    LOGGER.info('Download official MOT images')
     mot_gt_data_url = 'https://motchallenge.net/data/' + benchmark + '.zip'
     subprocess.run(["wget", "-nc", mot_gt_data_url, "-O", dst_val_tools_folder / (benchmark + '.zip')]) # python module has no -nc nor -N flag
     if not (dst_val_tools_folder / 'data' / benchmark).is_dir():
@@ -55,6 +56,9 @@ def setup_evaluation(dst_val_tools_folder, benchmark):
                 zip_ref.extractall(dst_val_tools_folder / 'data' / 'MOT16')
             else:
                 zip_ref.extractall(dst_val_tools_folder / 'data')
+        LOGGER.info(f'{benchmark} images downloaded')
+    else:
+        LOGGER.info(f'{benchmark} data already downloaded')
         
     
 def parse_opt():
@@ -81,7 +85,10 @@ def main(opt):
     
     # download eval files
     dst_val_tools_folder = ROOT / 'val_utils'
-    setup_evaluation(dst_val_tools_folder, opt.benchmark)
+    download_official_mot_eval_tool(dst_val_tools_folder)
+    
+    if any(opt.benchmark is s for s in ['MOT16', 'MOT17', 'MOT20']):
+        download_mot_dataset(dst_val_tools_folder, opt.benchmark)
     
     # set paths
     mot_seqs_path = dst_val_tools_folder / 'data' / opt.benchmark / opt.split
