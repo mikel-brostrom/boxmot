@@ -26,6 +26,7 @@ if str(ROOT / 'strong_sort') not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from yolov5.utils.general import LOGGER, check_requirements, print_args, increment_path
+from yolov5.utils.torch_utils import select_device
 from track import run
 
 
@@ -72,10 +73,22 @@ def parse_opt():
     parser.add_argument('--benchmark', type=str,  default='MOT17', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
-    parser.add_argument('--conf-thres', type=float, default=0.508, help='confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
+    parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
 
+    
     opt = parser.parse_args()
+    device = []
+    
+    for a in opt.device.split(','):
+        try:
+            a = int(a)
+        except ValueError:
+            pass
+        device.append(a)
+    opt.device = device
+        
     print_args(vars(opt))
     return opt
 
@@ -112,16 +125,20 @@ def main(opt):
     MOT_results_folder = dst_val_tools_folder / 'data' / 'trackers' / 'mot_challenge' / Path(str(opt.benchmark) + '-' + str(opt.split)) / save_dir.name / 'data'
     (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
 
-    
+    # extend devices to as many sequences are available
+    if any(isinstance(i,int) for i in opt.device) and len(opt.device) > 1:
+        devices = opt.device
+        for a in range(0, len(opt.device) % len(seq_paths)):
+            opt.device.extend(devices)
+        opt.device = opt.device[:len(seq_paths)]
+ 
     if not opt.eval_existing:
-
         processes = []
-        nr_gpus = torch.cuda.device_count()
-        
         for i, seq_path in enumerate(seq_paths):
-
-            device = i % nr_gpus
-
+            # spawn one subprocess per GPU in increasing order.
+            # When max devices are reached start at 0 again
+            tracking_subprocess_device = opt.device[i] if len(opt.device) > 1 else opt.device[0]
+        
             dst_seq_path = seq_path.parent / seq_path.parent.name
             if not dst_seq_path.is_dir():
                 src_seq_path = seq_path
@@ -137,11 +154,10 @@ def main(opt):
                 "--classes", str(0),\
                 "--name", save_dir.name,\
                 "--project", opt.project,\
-                "--device", str(device),\
+                "--device", str(tracking_subprocess_device),\
                 "--source", dst_seq_path,\
                 "--exist-ok",\
                 "--save-txt",\
-                "--eval"
             ])
             processes.append(p)
         
