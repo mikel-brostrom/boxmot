@@ -121,7 +121,7 @@ $ python track.py --source 0 --reid-weights osnet_x0_25_market1501.pt
                                             mobilenetv2_x1_4_msmt17.engine
                                             resnet50_msmt17.onnx
                                             osnet_x1_0_msmt17.pt
-                                                             ...
+                                            ...
 ```
 
 </details>
@@ -167,4 +167,5 @@ If you find this project useful in your research, please consider cite:
 
 ## Contact 
 
-For Yolov5 DeepSort OSNet bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues). For business inquiries or professional support requests please send an email to: yolov5.deepsort.pytorch@gmail.com
+For Yolov5 DeepSort OSNet bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues). 
+For business inquiries or professional support requests please send an email to: yolov5.deepsort.pytorch@gmail.com
