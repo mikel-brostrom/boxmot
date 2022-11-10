@@ -73,7 +73,6 @@ def run(
         hide_class=False,  # hide IDs
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
-        eval=False,  # run multi-gpu eval
 ):
 
     source = str(source)
