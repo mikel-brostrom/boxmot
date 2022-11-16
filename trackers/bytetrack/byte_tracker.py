@@ -165,7 +165,11 @@ class BYTETracker(object):
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
 
-    def update(self, dets, _):
+    # FIXME (henriksod): Added time_step to be compatible with strong_sort.
+    #                    Delta time is never going to be constant in a real system,
+    #                    it should be passed to the update method instead of being set
+    #                    during init.
+    def update(self, dets, _cls, time_step=-1):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []

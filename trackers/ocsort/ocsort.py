@@ -105,7 +105,11 @@ class KalmanBoxTracker(object):
         self.velocity = None
         self.delta_t = delta_t
 
-    def update(self, bbox, cls):
+    # FIXME (henriksod): Added time_step to be compatible with strong_sort.
+    #                    Delta time is never going to be constant in a real system,
+    #                    it should be passed to the update method instead of being set
+    #                    during init.
+    def update(self, bbox, cls, time_step=-1):
         """
         Updates the state vector with observed bbox.
         """
