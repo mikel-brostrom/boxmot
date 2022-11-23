@@ -39,8 +39,6 @@ from yolov5.utils.general import LOGGER, colorstr, check_requirements, check_ver
 from trackers.strong_sort.deep.models import build_model
 from trackers.strong_sort.deep.reid_model_factory import get_model_name, load_pretrained_weights
 
-# remove duplicated stream handler to avoid duplicated logging
-logging.getLogger().removeHandler(logging.getLogger().handlers[0])
 
 def file_size(path):
     # Return file/dir size (MB)
