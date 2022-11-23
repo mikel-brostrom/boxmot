@@ -1,55 +1,47 @@
 # pip install -r requirements.txt
 
-# base ----------------------------------------
+# Base ----------------------------------------
+gitpython
+ipython  # interactive notebook
 matplotlib>=3.2.2
 numpy>=1.18.5
 opencv-python>=4.1.1
 Pillow>=7.1.2
+psutil  # system resources
 PyYAML>=5.3.1
 requests>=2.23.0
 scipy>=1.4.1
-torch>=1.7.0
+thop>=0.1.1  # FLOPs computation
+torch>=1.7.0  # see https://pytorch.org/get-started/locally (recommended)
 torchvision>=0.8.1
 tqdm>=4.64.0
-protobuf<=3.20.1
+# protobuf<=3.20.1  # https://github.com/ultralytics/yolov5/issues/8012
 
-# plotting ------------------------------------
+# Logging ---------------------------------------------------------------------
+tensorboard>=2.4.1
+# clearml>=1.2.0
+# comet
 
+# Plotting --------------------------------------------------------------------
 pandas>=1.1.4
 seaborn>=0.11.0
 
-# deep_sort -----------------------------------
+# StrongSORT ------------------------------------------------------------------
 easydict
 
-# torchreid -----------------------------------
-
-Cython
-h5py
-six
-tb-nightly
-future
-yacs
+# torchreid -------------------------------------------------------------------
 gdown
-flake8
-yapf
-isort==4.3.21
-imageio
 
-#bytetrack
+# ByteTrack -------------------------------------------------------------------
 lap
 git+https://github.com/samson-wang/cython_bbox.git@9badb346a9222c98f828ba45c63fe3b7f2790ea2
 
-# ocsort
+# OCSORT ----------------------------------------------------------------------
 filterpy
 
-# Tracking eval ----------------------------------
-GitPython
-
-# Export --------------------------------------
-#onnx>=1.9.0  # ONNX export
-#onnx-simplifier>=0.4.1  # ONNX simplifier
-#tensorflow>=2.4.1  # TFLite export (or tensorflow-cpu, tensorflow-aarch64)
-#openvino-dev
-#git+https://github.com/PINTO0309/openvino2tensorflow #OpenVINO to TFLite export
+# Export ----------------------------------------------------------------------
+# onnx>=1.9.0  # ONNX export
+# onnx-simplifier>=0.4.1  # ONNX simplifier
 # nvidia-pyindex  # TensorRT export
 # nvidia-tensorrt  # TensorRT export
+# openvino-dev  # OpenVINO export
