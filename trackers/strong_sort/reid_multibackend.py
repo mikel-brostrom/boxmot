@@ -34,8 +34,8 @@ class ReIDDetectMultiBackend(nn.Module):
         super().__init__()
 
         w = weights[0] if isinstance(weights, list) else weights
-        self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, \
-            self.saved_model, self.pb, self.tflite, self.edgetpu, self.tfjs = self.model_type(w)  # get backend
+        self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, self.saved_model, \
+            self.pb, self.tflite, self.edgetpu, self.tfjs, self.paddle = self.model_type(w)  # get backend
         self.fp16 = fp16
         self.fp16 &= self.pt or self.jit or self.engine  # FP16
 
@@ -164,14 +164,11 @@ class ReIDDetectMultiBackend(nn.Module):
     def model_type(p='path/to/model.pt'):
         # Return model type from model path, i.e. path='path/to/model.onnx' -> type=onnx
         from export import export_formats
-        suffixes = list(export_formats().Suffix) + ['.xml']  # export suffixes
-        check_suffix(p, suffixes)  # checks
-        p = Path(p).name  # eliminate trailing separators
-        pt, jit, onnx, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, xml2 = (s in p for s in suffixes)
-        xml |= xml2  # *_openvino_model or *.xml
-        tflite &= not edgetpu  # *.tflite
-        return pt, jit, onnx, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs
-
+        sf = list(export_formats().Suffix)  # export suffixes
+        check_suffix(p, sf)  # checks
+        types = [s in Path(p).name for s in sf]
+        types[8] &= not types[9]  # tflite &= not edgetpu
+        return types
 
     def _preprocess(self, im_batch):
 
