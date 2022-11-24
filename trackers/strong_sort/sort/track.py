@@ -239,7 +239,7 @@ class Track:
         self.age += 1
         self.time_since_update += 1
 
-    def predict(self, delta_time=1):
+    def predict(self, delta_time):
         """Propagate the state distribution to the current time step using a
         Kalman filter prediction step.
 

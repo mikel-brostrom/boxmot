@@ -92,7 +92,7 @@ class KalmanBoxTracker(object):
         self.hits = 0
         self.hit_streak = 0
         self.age = 0
-        #self.conf = conf
+        self.conf = bbox[4]
         self.cls = cls
         """
         NOTE: [-1,-1,-1,-1,-1] is a compromising placeholder for non-observation status, the same for the return of 
@@ -105,16 +105,13 @@ class KalmanBoxTracker(object):
         self.velocity = None
         self.delta_t = delta_t
 
-    # FIXME (henriksod): Added time_step to be compatible with strong_sort.
-    #                    Delta time is never going to be constant in a real system,
-    #                    it should be passed to the update method instead of being set
-    #                    during init.
-    def update(self, bbox, cls, time_step=-1):
+    def update(self, bbox, cls):
         """
         Updates the state vector with observed bbox.
         """
         
         if bbox is not None:
+            self.conf = bbox[4]
             self.cls = cls
             if self.last_observation.sum() >= 0:  # no previous observation
                 previous_box = None
@@ -146,7 +143,7 @@ class KalmanBoxTracker(object):
         else:
             self.kf.update(bbox)
 
-    def predict(self):
+    def predict(self, time_step=-1):
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
@@ -199,7 +196,20 @@ class OCSort(object):
         self.use_byte = use_byte
         KalmanBoxTracker.count = 0
 
-    def update(self, dets, _):
+    def predict(self):
+        ret = []
+        for trk in reversed(self.trackers):
+            trk.predict()
+
+            d = trk.get_state()[0]
+            if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
+                # +1 as MOT benchmark requires positive
+                ret.append(np.concatenate((d, [trk.id + 1], [trk.cls], [trk.conf])).reshape(1, -1))
+        if len(ret) > 0:
+            return np.concatenate(ret)
+        return np.empty((0, 5))
+
+    def update(self, dets, _cls, time_step = -1):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -318,10 +328,10 @@ class OCSort(object):
                     this is optional to use the recent observation or the kalman filter prediction,
                     we didn't notice significant difference here
                 """
-                d = trk.last_observation[:4]
+                d = trk.last_observation[:4]  # henriksod: Why do this?
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
                 # +1 as MOT benchmark requires positive
-                ret.append(np.concatenate((d, [trk.id+1], [trk.cls])).reshape(1, -1))
+                ret.append(np.concatenate((d, [trk.id+1], [trk.cls], [trk.conf])).reshape(1, -1))
             i -= 1
             # remove dead tracklet
             if(trk.time_since_update > self.max_age):

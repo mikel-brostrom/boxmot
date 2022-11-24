@@ -160,16 +160,37 @@ class BYTETracker(object):
         self.track_thresh = track_thresh
         self.match_thresh = match_thresh
         # self.det_thresh = track_thresh
-        self.det_thresh = track_thresh + 0.1
+        self.det_thresh = min(1.0, track_thresh + 0.1)
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
 
-    # FIXME (henriksod): Added time_step to be compatible with strong_sort.
-    #                    Delta time is never going to be constant in a real system,
-    #                    it should be passed to the update method instead of being set
-    #                    during init.
-    def update(self, dets, _cls, time_step=-1):
+    def predict(self):
+        """ Fetch only activated stracks """
+        output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+
+        """ Perform prediction """
+        strack_pool = joint_stracks(output_stracks, self.lost_stracks)
+        # Predict the current location with KF
+        STrack.multi_predict(strack_pool)
+
+        outputs = []
+        for t in output_stracks:
+            output = []
+            tlwh = t.tlwh
+            tid = t.track_id
+            tlwh = np.expand_dims(tlwh, axis=0)
+            xyxy = xywh2xyxy(tlwh)
+            xyxy = np.squeeze(xyxy, axis=0)
+            output.extend(xyxy)
+            output.append(tid)
+            output.append(t.cls)
+            output.append(t.score)
+            outputs.append(output)
+
+        return outputs
+
+    def update(self, dets, _cls, time_step = -1):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -311,6 +332,7 @@ class BYTETracker(object):
             output.extend(xyxy)
             output.append(tid)
             output.append(t.cls)
+            output.append(t.score)
             outputs.append(output)
 
         return outputs

@@ -44,9 +44,10 @@ class Tracker:
 
         self.tracks = []
         self._next_id = 1
+        
         self._prev_time_step = 0
 
-    def predict(self, time_step=-1):
+    def predict(self, time_step):
         """Propagate track state distributions one time step forward.
 
         This function should be called once every time step, before `update`.
@@ -61,10 +62,6 @@ class Tracker:
 
         delta_time = time_step - self._prev_time_step
         self._prev_time_step = time_step
-        
-        # default to dt = 1 if no time_step was provided
-        if delta_time < 0:
-            delta_time = 1
         
         for track in self.tracks:
             track.predict(delta_time)
