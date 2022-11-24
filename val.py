@@ -78,7 +78,7 @@ def download_mot_dataset(dst_val_tools_folder, benchmark):
     
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov5m.pt', help='model.pt path(s)')  # crowdhuman_yolov5m.pt
+    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov5m.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--name', default='exp', help='save results to project/name')
@@ -167,8 +167,8 @@ def main(opt):
             dst_seq_path = seq_path.parent / seq_path.parent.name
             if not dst_seq_path.is_dir():
                 src_seq_path = seq_path
-                shutil.move(str(src_seq_path), str(dst_seq_path))
-
+                shutil.move(str(src_seq_path), str(dst_seq_path))   
+            
             p = subprocess.Popen([
                 sys.executable, "track.py",
                 "--yolo-weights", opt.yolo_weights,
