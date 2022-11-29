@@ -40,23 +40,37 @@ def download_official_mot_eval_tool(dst_val_tools_folder):
         LOGGER.info('Eval repo already downloaded')
         
 def download_mot_dataset(dst_val_tools_folder, benchmark):
+    import wget
+    import ssl
+
+    try:
+        _create_unverified_https_context = ssl._create_unverified_context
+    except AttributeError:
+        # Legacy Python that doesn't verify HTTPS certificates by default
+        pass
+    else:
+        # Handle target environment that doesn't support HTTPS verification
+        ssl._create_default_https_context = _create_unverified_https_context
+
     gt_data_url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
-    subprocess.run(["wget", "-nc", gt_data_url, "-O", dst_val_tools_folder / 'data.zip']) # python module has no -nc nor -N flag
     if not (dst_val_tools_folder / 'data').is_dir():
+        wget.download(gt_data_url, out=str(dst_val_tools_folder / 'data.zip'))
         with zipfile.ZipFile(dst_val_tools_folder / 'data.zip', 'r') as zip_ref:
             zip_ref.extractall(dst_val_tools_folder)
+        os.remove(dst_val_tools_folder / 'data.zip') 
         LOGGER.info('MOTs ground truth downloaded')
     else:
         LOGGER.info('gt already downloaded')
 
     mot_gt_data_url = 'https://motchallenge.net/data/' + benchmark + '.zip'
-    subprocess.run(["wget", "-nc", mot_gt_data_url, "-O", dst_val_tools_folder / (benchmark + '.zip')]) # python module has no -nc nor -N flag
     if not (dst_val_tools_folder / 'data' / benchmark).is_dir():
+        wget.download(mot_gt_data_url, out=str(dst_val_tools_folder / (benchmark + '.zip')))
         with zipfile.ZipFile(dst_val_tools_folder / (benchmark + '.zip'), 'r') as zip_ref:
             if opt.benchmark == 'MOT16':
                 zip_ref.extractall(dst_val_tools_folder / 'data' / 'MOT16')
             else:
                 zip_ref.extractall(dst_val_tools_folder / 'data')
+        os.remove(dst_val_tools_folder / (benchmark + '.zip')) 
         LOGGER.info(f'{benchmark} images downloaded')
     else:
         LOGGER.info(f'{benchmark} data already downloaded')
@@ -64,7 +78,7 @@ def download_mot_dataset(dst_val_tools_folder, benchmark):
     
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov5m.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--name', default='exp', help='save results to project/name')
@@ -76,7 +90,7 @@ def parse_opt():
     parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-
+    parser.add_argument('--processes-per-device', type=int, default=2, help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
     
     opt = parser.parse_args()
     device = []
@@ -134,10 +148,21 @@ def main(opt):
  
     if not opt.eval_existing:
         processes = []
+        free_devices = opt.device * opt.processes_per_device
+        busy_devices = []
         for i, seq_path in enumerate(seq_paths):
             # spawn one subprocess per GPU in increasing order.
             # When max devices are reached start at 0 again
-            tracking_subprocess_device = opt.device[i] if len(opt.device) > 1 else opt.device[0]
+            if i > 0 and len(free_devices) == 0:
+                if len(processes) == 0:
+                    raise IndexError("No active processes and no devices available.")
+                
+                # Wait for oldest process to finish so we can get a free device
+                processes.pop(0).wait()
+                free_devices.append(busy_devices.pop(0))
+            
+            tracking_subprocess_device = free_devices.pop(0)
+            busy_devices.append(tracking_subprocess_device)
         
             dst_seq_path = seq_path.parent / seq_path.parent.name
             if not dst_seq_path.is_dir():
@@ -145,19 +170,19 @@ def main(opt):
                 shutil.move(str(src_seq_path), str(dst_seq_path))   
             
             p = subprocess.Popen([
-                "python", "track.py", \
-                "--yolo-weights", opt.yolo_weights, \
-                "--reid-weights",  opt.reid_weights, \
-                "--tracking-method", opt.tracking_method, \
-                "--conf-thres", str(opt.conf_thres), \
-                "--imgsz", str(opt.imgsz[0]), \
-                "--classes", str(0), \
-                "--name", save_dir.name, \
-                "--project", opt.project, \
-                "--device", str(tracking_subprocess_device), \
-                "--source", dst_seq_path, \
-                "--exist-ok", \
-                "--save-txt", \
+                sys.executable, "track.py",
+                "--yolo-weights", opt.yolo_weights,
+                "--reid-weights",  opt.reid_weights,
+                "--tracking-method", opt.tracking_method,
+                "--conf-thres", str(opt.conf_thres),
+                "--imgsz", str(opt.imgsz[0]),
+                "--classes", str(0),
+                "--name", save_dir.name,
+                "--project", opt.project,
+                "--device", str(tracking_subprocess_device),
+                "--source", dst_seq_path,
+                "--exist-ok",
+                "--save-txt",
             ])
             processes.append(p)
         
@@ -175,13 +200,13 @@ def main(opt):
 
     # run the evaluation on the generated txts
     subprocess.run([
-        "python",  dst_val_tools_folder / "scripts/run_mot_challenge.py",\
-        "--BENCHMARK", opt.benchmark,\
-        "--TRACKERS_TO_EVAL",  opt.eval_existing if opt.eval_existing else MOT_results_folder.parent.name,\
-        "--SPLIT_TO_EVAL", "train",\
-        "--METRICS", "HOTA", "CLEAR", "Identity",\
-        "--USE_PARALLEL", "True",\
-        "--NUM_PARALLEL_CORES", "4"\
+        sys.executable,  dst_val_tools_folder / "scripts/run_mot_challenge.py",
+        "--BENCHMARK", opt.benchmark,
+        "--TRACKERS_TO_EVAL",  opt.eval_existing if opt.eval_existing else MOT_results_folder.parent.name,
+        "--SPLIT_TO_EVAL", "train",
+        "--METRICS", "HOTA", "CLEAR", "Identity",
+        "--USE_PARALLEL", "True",
+        "--NUM_PARALLEL_CORES", "4"
     ])
     
 

@@ -44,7 +44,6 @@ class Tracker:
         self.ema_alpha = ema_alpha
         self.mc_lambda = mc_lambda
 
-        self.kf = kalman_filter.KalmanFilter()
         self.tracks = []
         self._next_id = 1
 
@@ -54,7 +53,7 @@ class Tracker:
         This function should be called once every time step, before `update`.
         """
         for track in self.tracks:
-            track.predict(self.kf)
+            track.predict()
 
     def increment_ages(self):
         for track in self.tracks:
@@ -171,7 +170,45 @@ class Tracker:
         return matches, unmatched_tracks, unmatched_detections
 
     def _initiate_track(self, detection, class_id, conf):
-        self.tracks.append(Track(
-            detection.to_xyah(), self._next_id, class_id, conf, self.n_init, self.max_age, self.ema_alpha,
-            detection.feature))
+        # Get initial Q and R noise covariance matrices from
+        # mean of current tracks
+        """process_noise_matrices = []
+        measurement_noise_matrices = []
+        for track in self.tracks:
+            process_noise_matrices.append(track.kf.process_noise)
+            measurement_noise_matrices.append(track.kf.measurement_noise)
+        
+        mean_process_noise = np.zeros((8, 8))
+        mean_measurement_noise = np.zeros((4, 4))
+        
+        if len(self.tracks) > 0:
+            mean_process_noise = np.mean(process_noise_matrices, axis=0)
+            mean_measurement_noise = np.mean(measurement_noise_matrices, axis=0)
+        """
+        
+        process_noise = np.zeros((8, 8))
+        measurement_noise = np.zeros((4, 4))
+        
+        if len(self.tracks) > 0:
+            oldest_track = self.tracks[0]
+            for track in self.tracks:
+                if track.age > oldest_track.age:
+                    oldest_track = track
+            
+            process_noise = oldest_track.kf.process_noise
+            measurement_noise = oldest_track.kf.measurement_noise
+        
+        new_track = Track(
+            detection.to_xyah(),
+            self._next_id,
+            class_id,
+            conf,
+            self.n_init,
+            self.max_age,
+            self.ema_alpha,
+            detection.feature
+        )
+        new_track.kf.process_noise = process_noise
+        new_track.kf.measurement_noise = measurement_noise
+        self.tracks.append(new_track)
         self._next_id += 1

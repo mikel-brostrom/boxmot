@@ -2,7 +2,7 @@
 import cv2
 import numpy as np
 from trackers.strong_sort.sort.kalman_filter import KalmanFilter
-
+from trackers.strong_sort.sort.adaptive_kalman_filter import AdaptiveKalmanFilter
 
 class TrackState:
     """
@@ -85,7 +85,7 @@ class Track:
         self._n_init = n_init
         self._max_age = max_age
 
-        self.kf = KalmanFilter()
+        self.kf = AdaptiveKalmanFilter()
         self.mean, self.covariance = self.kf.initiate(detection)
 
     def to_tlwh(self):
@@ -239,15 +239,9 @@ class Track:
         self.age += 1
         self.time_since_update += 1
 
-    def predict(self, kf):
+    def predict(self):
         """Propagate the state distribution to the current time step using a
         Kalman filter prediction step.
-
-        Parameters
-        ----------
-        kf : kalman_filter.KalmanFilter
-            The Kalman filter.
-
         """
         self.mean, self.covariance = self.kf.predict(self.mean, self.covariance)
         self.age += 1
