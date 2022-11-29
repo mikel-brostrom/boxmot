@@ -4,6 +4,7 @@ import numpy as np
 from . import kalman_filter
 from . import linear_assignment
 from . import iou_matching
+from . import detection
 from .track import Track
 
 
@@ -65,7 +66,7 @@ class Tracker:
         for track in self.tracks:
             track.camera_update(previous_img, current_img)
 
-    def update(self, detections, classes, confidences):
+    def update(self, detections, classes, confidences, update_missed=True):
         """Perform measurement update and track management.
 
         Parameters
@@ -84,6 +85,9 @@ class Tracker:
                 detections[detection_idx], classes[detection_idx], confidences[detection_idx])
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
+            if update_missed and self.tracks[track_idx].updates_wo_assignment < self.tracks[track_idx].max_num_updates_wo_assignment:
+                bbox = self.tracks[track_idx].to_tlwh()
+                self.tracks[track_idx].update_kf(detection.to_xyah_ext(bbox))
         for detection_idx in unmatched_detections:
             self._initiate_track(detections[detection_idx], classes[detection_idx].item(), confidences[detection_idx].item())
         self.tracks = [t for t in self.tracks if not t.is_deleted()]
