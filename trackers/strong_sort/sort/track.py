@@ -73,7 +73,7 @@ class Track:
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
-        self.max_num_updates_wo_assignment = 10
+        self.max_num_updates_wo_assignment = 7
         self.updates_wo_assignment = 0
         self.ema_alpha = ema_alpha
 
