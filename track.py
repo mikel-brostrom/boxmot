@@ -188,40 +188,52 @@ def run(
                 outputs[i] = tracker_list[i].update(det.cpu(), im0)
                 t5 = time_sync()
                 dt[3] += t5 - t4
-                
-                # draw boxes for visualization
-                if len(outputs[i]) > 0:
-                    for j, (output, conf) in enumerate(zip(outputs[i], det[:, 4])):
-    
-                        bboxes = output[0:4]
-                        id = output[4]
-                        cls = output[5]
-
-                        if save_txt:
-                            # to MOT format
-                            bbox_left = output[0]
-                            bbox_top = output[1]
-                            bbox_w = output[2] - output[0]
-                            bbox_h = output[3] - output[1]
-                            # Write MOT compliant results to file
-                            with open(txt_path + '.txt', 'a') as f:
-                                f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
-                                                               bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
-
-                        if save_vid or save_crop or show_vid:  # Add bbox to image
-                            c = int(cls)  # integer class
-                            id = int(id)  # integer id
-                            label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
-                                (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
-                            annotator.box_label(bboxes, label, color=colors(c, True))
-                            if save_crop:
-                                txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
-                                save_one_box(bboxes, imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
 
                 LOGGER.info(f'{s}Done. yolo:({t3 - t2:.3f}s), {tracking_method}:({t5 - t4:.3f}s)')
-                
+
+            # Predict tracks if no detections are present
             else:
-                LOGGER.info('No detections')
+                t4 = time_sync()
+                outputs[i] = tracker_list[i].predict()
+                t5 = time_sync()
+                dt[3] += t5 - t4
+
+                if len(outputs[i]) > 0:
+                    LOGGER.info(f'No detections, predicting tracks... {tracking_method}:({t5 - t4:.3f}s)')
+                else:
+                    LOGGER.info(f'No detections')
+
+            # draw boxes for visualization
+            if len(outputs[i]) > 0:
+                for j, output in enumerate(outputs[i]):
+
+                    bboxes = output[0:4]
+                    id = output[4]
+                    cls = output[5]
+                    conf = output[6]
+
+                    if save_txt:
+                        # to MOT format
+                        bbox_left = output[0]
+                        bbox_top = output[1]
+                        bbox_w = output[2] - output[0]
+                        bbox_h = output[3] - output[1]
+                        # Write MOT compliant results to file
+                        with open(txt_path + '.txt', 'a') as f:
+                            f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
+                                                           bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
+
+                    if save_vid or save_crop or show_vid:  # Add bbox to image
+                        c = int(cls)  # integer class
+                        id = int(id)  # integer id
+                        label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else
+                                                          (
+                                                              f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
+                        annotator.box_label(bboxes, label, color=colors(c, True))
+                        if save_crop:
+                            txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
+                            save_one_box(bboxes, imc, file=save_dir / 'crops' / txt_file_name / names[
+                                c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
 
             # Stream results
             im0 = annotator.result()
@@ -248,7 +260,7 @@ def run(
             prev_frames[i] = curr_frames[i]
 
     # Print results
-    t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
+    t = tuple(x / (seen + 1E3) for x in dt)  # speeds per image
     LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS, %.1fms {tracking_method} update per image at shape {(1, 3, *imgsz)}' % t)
     if save_txt or save_vid:
         s = f"\n{len(list(save_dir.glob('tracks/*.txt')))} tracks saved to {save_dir / 'tracks'}" if save_txt else ''

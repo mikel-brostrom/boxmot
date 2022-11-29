@@ -36,7 +36,29 @@ class StrongSORT(object):
         self.tracker = Tracker(
             metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init)
 
-    def update(self, dets,  ori_img):
+    def predict(self):
+        # Only perform prediction, no update.
+        self.tracker.predict()
+
+        # output bbox identities
+        outputs = []
+        for track in self.tracker.tracks:
+            if not track.is_confirmed() or track.time_since_update > 1:
+                continue
+
+            box = track.to_tlwh()
+            x1, y1, x2, y2 = self._tlwh_to_xyxy(box)
+
+            track_id = track.track_id
+            class_id = track.class_id
+            conf = track.conf
+            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id, conf]))
+        if len(outputs) > 0:
+            outputs = np.stack(outputs, axis=0)
+        return outputs
+
+
+    def update(self, dets, ori_img):
         
         xyxys = dets[:, 0:4]
         confs = dets[:, 4]
@@ -45,6 +67,7 @@ class StrongSORT(object):
         classes = clss.numpy()
         xywhs = xyxy2xywh(xyxys.numpy())
         confs = confs.numpy()
+
         self.height, self.width = ori_img.shape[:2]
         
         # generate detections

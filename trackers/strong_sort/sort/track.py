@@ -241,15 +241,9 @@ class Track:
         self.age += 1
         self.time_since_update += 1
 
-    def predict(self, kf):
+    def predict(self):
         """Propagate the state distribution to the current time step using a
         Kalman filter prediction step.
-
-        Parameters
-        ----------
-        kf : kalman_filter.KalmanFilter
-            The Kalman filter.
-
         """
         self.mean, self.covariance = self.kf.predict(self.mean, self.covariance)
         self.age += 1
