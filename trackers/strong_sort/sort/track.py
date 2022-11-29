@@ -73,6 +73,8 @@ class Track:
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
+        self.max_num_updates_wo_assignment = 10
+        self.updates_wo_assignment = 0
         self.ema_alpha = ema_alpha
 
         self.state = TrackState.Tentative
@@ -252,6 +254,10 @@ class Track:
         self.mean, self.covariance = self.kf.predict(self.mean, self.covariance)
         self.age += 1
         self.time_since_update += 1
+        
+    def update_kf(self, bbox, confidence=0.5):
+        self.updates_wo_assignment = self.updates_wo_assignment + 1
+        self.mean, self.covariance = self.kf.update(self.mean, self.covariance, bbox, confidence)
 
     def update(self, detection, class_id, conf):
         """Perform Kalman filter measurement update step and update the feature
