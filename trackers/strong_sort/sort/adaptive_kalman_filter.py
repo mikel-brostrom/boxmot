@@ -57,6 +57,9 @@ class AdaptiveKalmanFilter(object):
         self._process_noise = np.zeros((8, 8))
         self._measurement_noise = np.zeros((4, 4))
         self._residual = np.zeros((4,))
+        
+        self.image_width = 0
+        self.image_height = 0
 
     
     @property
@@ -105,7 +108,7 @@ class AdaptiveKalmanFilter(object):
         ]
         covariance = np.diag(np.square(std))
 
-        self._measurement_noise = np.diag([
+        """self._measurement_noise = np.diag([
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[3],
             1e-1,
@@ -124,7 +127,7 @@ class AdaptiveKalmanFilter(object):
             0.1 * mean[2],
             self._std_weight_velocity * mean[3]
         ]
-        self._process_noise = np.diag(np.square(np.r_[std_pos, std_vel]))
+        self._process_noise = np.diag(np.square(np.r_[std_pos, std_vel]))"""
 
         return mean, covariance
 
@@ -177,14 +180,22 @@ class AdaptiveKalmanFilter(object):
 
         # Estimate measurement noise based on a priori residual and projected
         # covariance
+        std = [
+            self._std_weight_position * mean[3],
+            self._std_weight_position * mean[3],
+            1e-1,
+            self._std_weight_position * mean[3]]
+
+        additive_measurement_noise = [(1 - confidence) * x for x in std]
+        
         est_measurement_noise = np.outer(self._residual, self._residual) + projected_cov
         self._measurement_noise = (
-                self._forgetting_factor * self._measurement_noise
+                self._forgetting_factor * (self._measurement_noise + additive_measurement_noise)
                 + (1 - self._forgetting_factor) * est_measurement_noise
         )
 
         # Update projected covariance with adapted measurement noise
-        projected_cov += self._measurement_noise * (1 - confidence)
+        projected_cov += self._measurement_noise #* (1 - confidence)
 
         # Calculate Kalman gain
         chol_factor, lower = scipy.linalg.cho_factor(
@@ -195,10 +206,22 @@ class AdaptiveKalmanFilter(object):
 
         # Estimate a posteriori process noise based on Kalman gain
         # and innovation
+        std_pos = [
+            self._std_weight_position * mean[0],
+            self._std_weight_position * mean[1],
+            1 * mean[2],
+            self._std_weight_position * mean[3]]
+        std_vel = [
+            self._std_weight_velocity * mean[0],
+            self._std_weight_velocity * mean[1],
+            0.1 * mean[2],
+            self._std_weight_velocity * mean[3]]
+        additive_process_noise = np.diag(np.square(np.r_[std_pos, std_vel]))
+        
         est_process_noise = np.linalg.multi_dot((
             kalman_gain, np.outer(innovation, innovation), kalman_gain.T))
         self._process_noise = (
-                self._forgetting_factor * self._process_noise
+                self._forgetting_factor * (self._process_noise + additive_process_noise)
                 + (1 - self._forgetting_factor) * est_process_noise
         )
 

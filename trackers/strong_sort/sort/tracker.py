@@ -46,6 +46,10 @@ class Tracker:
 
         self.tracks = []
         self._next_id = 1
+        
+        self._process_noise = np.zeros((8,8))
+        self._measurement_noise = np.zeros((4,4))
+        
 
     def predict(self):
         """Propagate track state distributions one time step forward.
@@ -186,8 +190,11 @@ class Tracker:
             mean_measurement_noise = np.mean(measurement_noise_matrices, axis=0)
         """
         
-        process_noise = np.zeros((8, 8))
-        measurement_noise = np.zeros((4, 4))
+        bbox = detection.to_xyah()
+        
+        if np.sum(self._process_noise) == 0:
+            self._process_noise = np.eye(8) * bbox[3]
+            self._measurement_noise = np.eye(4) * bbox[3]
         
         if len(self.tracks) > 0:
             oldest_track = self.tracks[0]
@@ -195,11 +202,11 @@ class Tracker:
                 if track.age > oldest_track.age:
                     oldest_track = track
             
-            process_noise = oldest_track.kf.process_noise
-            measurement_noise = oldest_track.kf.measurement_noise
+            self._process_noise = oldest_track.kf.process_noise
+            self._measurement_noise = oldest_track.kf.measurement_noise
         
         new_track = Track(
-            detection.to_xyah(),
+            bbox,
             self._next_id,
             class_id,
             conf,
@@ -208,7 +215,7 @@ class Tracker:
             self.ema_alpha,
             detection.feature
         )
-        new_track.kf.process_noise = process_noise
-        new_track.kf.measurement_noise = measurement_noise
+        new_track.kf.process_noise = self._process_noise
+        new_track.kf.measurement_noise = self._measurement_noise
         self.tracks.append(new_track)
         self._next_id += 1

@@ -219,6 +219,10 @@ class Track:
             return eye
 
     def camera_update(self, previous_frame, next_frame):
+        # TODO: Get the frame width and height and send to KF
+        self.kf.image_width = next_frame.shape[0]
+        self.kf.image_height = next_frame.shape[1]
+        
         warp_matrix, src_aligned = self.ECC(previous_frame, next_frame)
         if warp_matrix is None and src_aligned is None:
             return
