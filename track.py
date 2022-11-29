@@ -188,7 +188,7 @@ def run(
                 outputs[i] = tracker_list[i].update(det.cpu(), im0)
                 t5 = time_sync()
                 dt[3] += t5 - t4
-
+                
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
                     for j, (output, conf) in enumerate(zip(outputs[i], det[:, 4])):
@@ -219,9 +219,8 @@ def run(
                                 save_one_box(bboxes, imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
 
                 LOGGER.info(f'{s}Done. yolo:({t3 - t2:.3f}s), {tracking_method}:({t5 - t4:.3f}s)')
-
+                
             else:
-                #strongsort_list[i].increment_ages()
                 LOGGER.info('No detections')
 
             # Stream results
