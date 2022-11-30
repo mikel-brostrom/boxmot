@@ -78,6 +78,9 @@ class AdaptiveKalmanFilter(object):
     def measurement_noise(self, val):
         self._measurement_noise = val
 
+    def distance_to_image_center(self, bbox):
+        return np.sqrt((self.image_width / 2 - bbox[0]) ** 2 + (self.image_height / 2 - bbox[1]) ** 2)
+
     def initiate(self, measurement):
         """Create track from unassociated measurement.
         Parameters
@@ -95,14 +98,16 @@ class AdaptiveKalmanFilter(object):
         mean_pos = measurement
         mean_vel = np.zeros_like(mean_pos)
         mean = np.r_[mean_pos, mean_vel]
+        
+        dist = self.distance_to_image_center(measurement)
 
         std = [
-            2 * self._std_weight_position * measurement[0],   # the center point x
-            2 * self._std_weight_position * measurement[1],   # the center point y
+            2 * self._std_weight_position * dist,   # the center point x
+            2 * self._std_weight_position * dist,   # the center point y
             1 * measurement[2],                               # the ratio of width/height
             2 * self._std_weight_position * measurement[3],   # the height
-            10 * self._std_weight_velocity * measurement[0],
-            10 * self._std_weight_velocity * measurement[1],
+            10 * self._std_weight_velocity * dist,
+            10 * self._std_weight_velocity * dist,
             0.1 * measurement[2],
             10 * self._std_weight_velocity * measurement[3]
         ]
@@ -206,14 +211,15 @@ class AdaptiveKalmanFilter(object):
 
         # Estimate a posteriori process noise based on Kalman gain
         # and innovation
+        dist = self.distance_to_image_center(mean)
         std_pos = [
-            self._std_weight_position * mean[0],
-            self._std_weight_position * mean[1],
+            self._std_weight_position * dist,
+            self._std_weight_position * dist,
             1 * mean[2],
             self._std_weight_position * mean[3]]
         std_vel = [
-            self._std_weight_velocity * mean[0],
-            self._std_weight_velocity * mean[1],
+            self._std_weight_velocity * dist,
+            self._std_weight_velocity * dist,
             0.1 * mean[2],
             self._std_weight_velocity * mean[3]]
         additive_process_noise = np.diag(np.square(np.r_[std_pos, std_vel]))
