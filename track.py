@@ -222,7 +222,8 @@ def run(
                 
             else:
                 LOGGER.info('No detections')
-
+                #tracker_list[i].tracker.pred_n_update_all_tracks()
+                
             # Stream results
             im0 = annotator.result()
             if show_vid:
