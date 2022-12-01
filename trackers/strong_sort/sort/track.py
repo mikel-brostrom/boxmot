@@ -92,7 +92,7 @@ class Track:
         self.mean, self.covariance = self.kf.initiate(detection)
         
         # Initializing trajectory queue
-        self.q = deque(maxlen=50)
+        self.q = deque(maxlen=25)
 
     def to_tlwh(self):
         """Get current position in bounding box format `(top left x, top left y,
