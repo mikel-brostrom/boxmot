@@ -194,7 +194,7 @@ class BYTETracker(object):
         scores_second = confs[inds_second]
         
         clss_keep = classes[remain_inds]
-        clss_second = classes[remain_inds]
+        clss_second = classes[inds_second]
         
 
         if len(dets) > 0:
