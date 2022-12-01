@@ -22,7 +22,9 @@ class StrongSORT(object):
                  fp16,
                  max_dist=0.2,
                  max_iou_distance=0.7,
-                 max_age=70, n_init=3,
+                 max_age=70,
+                 max_unmatched_preds=7,
+                 n_init=3,
                  nn_budget=100,
                  mc_lambda=0.995,
                  ema_alpha=0.9
@@ -34,7 +36,7 @@ class StrongSORT(object):
         metric = NearestNeighborDistanceMetric(
             "cosine", self.max_dist, nn_budget)
         self.tracker = Tracker(
-            metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init)
+            metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init, max_unmatched_preds=max_unmatched_preds)
 
     def update(self, dets,  ori_img):
         
