@@ -139,3 +139,12 @@ class StrongSORT(object):
         else:
             features = np.array([])
         return features
+    
+    def trajectory(self, im0, tracks, color, fill=None, outline=None, width=1):
+        # Add rectangle to image (PIL-only)
+        for t in tracks:
+            for p in t.q:
+                if p[0] is 'observationupdate': 
+                    cv2.circle(im0, p[1], 2, color, 2)
+                else:
+                    cv2.circle(im0, p[1], 2, (255,255,255), 2)
