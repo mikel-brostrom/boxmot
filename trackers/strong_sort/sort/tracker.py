@@ -4,6 +4,7 @@ import numpy as np
 from . import kalman_filter
 from . import linear_assignment
 from . import iou_matching
+from . import detection
 from .track import Track
 
 
@@ -35,7 +36,7 @@ class Tracker:
     """
     GATING_THRESHOLD = np.sqrt(kalman_filter.chi2inv95[4])
 
-    def __init__(self, metric, max_iou_distance=0.9, max_age=30, n_init=3, _lambda=0, ema_alpha=0.9, mc_lambda=0.995):
+    def __init__(self, metric, max_iou_distance=0.9, max_age=30, max_unmatched_preds=7, n_init=3, _lambda=0, ema_alpha=0.9, mc_lambda=0.995):
         self.metric = metric
         self.max_iou_distance = max_iou_distance
         self.max_age = max_age
@@ -43,7 +44,8 @@ class Tracker:
         self._lambda = _lambda
         self.ema_alpha = ema_alpha
         self.mc_lambda = mc_lambda
-
+        self.max_unmatched_preds = max_unmatched_preds
+        
         self.kf = kalman_filter.KalmanFilter()
         self.tracks = []
         self._next_id = 1
@@ -64,6 +66,16 @@ class Tracker:
     def camera_update(self, previous_img, current_img):
         for track in self.tracks:
             track.camera_update(previous_img, current_img)
+            
+    def pred_n_update_all_tracks(self):
+        """Perform predictions and updates for all tracks by its own predicted state.
+
+        """
+        self.predict()
+        for t in self.tracks:
+            if self.max_unmatched_preds != 0 and t.updates_wo_assignment < t.max_num_updates_wo_assignment:
+                bbox = t.to_tlwh()
+                t.update_kf(detection.to_xyah_ext(bbox))
 
     def update(self, detections, classes, confidences):
         """Perform measurement update and track management.
@@ -84,6 +96,9 @@ class Tracker:
                 detections[detection_idx], classes[detection_idx], confidences[detection_idx])
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
+            if self.max_unmatched_preds != 0 and self.tracks[track_idx].updates_wo_assignment < self.tracks[track_idx].max_num_updates_wo_assignment:
+                bbox = self.tracks[track_idx].to_tlwh()
+                self.tracks[track_idx].update_kf(detection.to_xyah_ext(bbox))
         for detection_idx in unmatched_detections:
             self._initiate_track(detections[detection_idx], classes[detection_idx].item(), confidences[detection_idx].item())
         self.tracks = [t for t in self.tracks if not t.is_deleted()]
