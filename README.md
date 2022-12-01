@@ -145,9 +145,16 @@ python track.py --source 0 --yolo-weights yolov5s.pt --classes 16 17  # COCO yol
 <details>
 <summary>Updates with predicted-ahead bbox in StrongSORT</summary>
   
-If your use-case contains many occlussions and the motion trajectiories are not too complex you will most certainly benefit from updating the Kalman Filter by its own predicted state. You can select the number of predictions that suits your needs here:
+If your use-case contains many occlussions and the motion trajectiories are not too complex, you will most certainly benefit from updating the Kalman Filter by its own predicted state. Select the number of predictions that suits your needs here:
 
 https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/b1da64717ef50e1f60df2f1d51e1ff91d3b31ed4/trackers/strong_sort/configs/strong_sort.yaml#L7
+
+Save the trajectories to you video by:
+
+```bash
+python track.py --source ... --save-trajectories --save-vid
+```
+
 </details>
 
 <details>
