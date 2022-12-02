@@ -2,6 +2,7 @@
 import cv2
 import numpy as np
 from trackers.strong_sort.sort.kalman_filter import KalmanFilter
+from collections import deque
 
 
 class TrackState:
@@ -73,6 +74,8 @@ class Track:
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
+        self.max_num_updates_wo_assignment = 7
+        self.updates_wo_assignment = 0
         self.ema_alpha = ema_alpha
 
         self.state = TrackState.Tentative
@@ -87,6 +90,9 @@ class Track:
 
         self.kf = KalmanFilter()
         self.mean, self.covariance = self.kf.initiate(detection)
+        
+        # Initializing trajectory queue
+        self.q = deque(maxlen=25)
 
     def to_tlwh(self):
         """Get current position in bounding box format `(top left x, top left y,
@@ -252,6 +258,14 @@ class Track:
         self.mean, self.covariance = self.kf.predict(self.mean, self.covariance)
         self.age += 1
         self.time_since_update += 1
+        
+    def update_kf(self, bbox, confidence=0.5):
+        self.updates_wo_assignment = self.updates_wo_assignment + 1
+        self.mean, self.covariance = self.kf.update(self.mean, self.covariance, bbox, confidence)
+        tlbr = self.to_tlbr()
+        x_c = int((tlbr[0] + tlbr[2]) / 2)
+        y_c = int((tlbr[1] + tlbr[3]) / 2)
+        self.q.append(('predupdate', (x_c, y_c)))
 
     def update(self, detection, class_id, conf):
         """Perform Kalman filter measurement update step and update the feature
@@ -275,6 +289,11 @@ class Track:
         self.time_since_update = 0
         if self.state == TrackState.Tentative and self.hits >= self._n_init:
             self.state = TrackState.Confirmed
+        
+        tlbr = self.to_tlbr()
+        x_c = int((tlbr[0] + tlbr[2]) / 2)
+        y_c = int((tlbr[1] + tlbr[3]) / 2)
+        self.q.append(('observationupdate', (x_c, y_c)))
 
     def mark_missed(self):
         """Mark this track as missed (no association at the current time step).
