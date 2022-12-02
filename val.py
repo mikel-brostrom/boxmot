@@ -40,42 +40,45 @@ def download_official_mot_eval_tool(dst_val_tools_folder):
         LOGGER.info('Eval repo already downloaded')
         
 def download_mot_dataset(dst_val_tools_folder, benchmark):
+    
     import wget
-    import ssl
-
-    try:
-        _create_unverified_https_context = ssl._create_unverified_context
-    except AttributeError:
-        # Legacy Python that doesn't verify HTTPS certificates by default
-        pass
-    else:
-        # Handle target environment that doesn't support HTTPS verification
-        ssl._create_default_https_context = _create_unverified_https_context
-
+    
     gt_data_url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
+    subprocess.run(["wget", "-nc", gt_data_url, "-O", dst_val_tools_folder / 'data.zip']) # python module has no -nc nor -N flag
     if not (dst_val_tools_folder / 'data').is_dir():
-        wget.download(gt_data_url, out=str(dst_val_tools_folder / 'data.zip'))
-        with zipfile.ZipFile(dst_val_tools_folder / 'data.zip', 'r') as zip_ref:
-            zip_ref.extractall(dst_val_tools_folder)
-        os.remove(dst_val_tools_folder / 'data.zip') 
-        LOGGER.info('MOTs ground truth downloaded')
+        try:
+            with zipfile.ZipFile(dst_val_tools_folder / 'data.zip', 'r') as zip_ref:
+                zip_ref.extractall(dst_val_tools_folder)
+            LOGGER.info('MOTs ground truth downloaded')
+        except Exception as e:
+            LOGGER.info(f"{data}.zip seems to be corrupt... Try deleting it and run the script again")
+            exit()
     else:
         LOGGER.info('gt already downloaded')
 
     mot_gt_data_url = 'https://motchallenge.net/data/' + benchmark + '.zip'
     if not (dst_val_tools_folder / 'data' / benchmark).is_dir():
         wget.download(mot_gt_data_url, out=str(dst_val_tools_folder / (benchmark + '.zip')))
-        with zipfile.ZipFile(dst_val_tools_folder / (benchmark + '.zip'), 'r') as zip_ref:
-            if opt.benchmark == 'MOT16':
-                zip_ref.extractall(dst_val_tools_folder / 'data' / 'MOT16')
-            else:
-                zip_ref.extractall(dst_val_tools_folder / 'data')
-        os.remove(dst_val_tools_folder / (benchmark + '.zip')) 
-        LOGGER.info(f'{benchmark} images downloaded')
-    else:
-        LOGGER.info(f'{benchmark} data already downloaded')
-        
+        try:
+            with zipfile.ZipFile(dst_val_tools_folder / (benchmark + '.zip'), 'r') as zip_ref:
+                if opt.benchmark == 'MOT16':
+                    # MOT 16 is not contained in a folder, have to create the folder to extract in it
+                    if not (dst_val_tools_folder / 'data' / benchmark / 'train').is_dir():
+                        zip_ref.extractall(dst_val_tools_folder / 'data' / 'MOT16')
+                    else:
+                        LOGGER.info(f'{benchmark} data already downloaded')
+                else:
+                    # MOT17 & MOT20 are compressed as a folder
+                    if not (dst_val_tools_folder / 'data' / benchmark).is_dir():
+                        zip_ref.extractall(dst_val_tools_folder / 'data' )
+                    else:
+                        LOGGER.info(f'{benchmark} data already downloaded')
+            LOGGER.info(f'{benchmark} images downloaded')
+        except Exception as e:
+            LOGGER.info(f"{benchmark}.zip seems to be corrupt... Try deleting it and run the script again")
+            exit()
     
+        
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov5m.pt', help='model.pt path(s)')
@@ -114,7 +117,7 @@ def main(opt):
     dst_val_tools_folder = ROOT / 'val_utils'
     download_official_mot_eval_tool(dst_val_tools_folder)
     
-    if any(opt.benchmark is s for s in ['MOT16', 'MOT17', 'MOT20']):
+    if any(opt.benchmark == s for s in ['MOT16', 'MOT17', 'MOT20']):
         download_mot_dataset(dst_val_tools_folder, opt.benchmark)
     
     # set paths
