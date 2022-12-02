@@ -163,6 +163,12 @@ Save the trajectories to you video by:
 python track.py --source ... --save-trajectories --save-vid
 ```
 
+<div align="center">
+<p>
+<img src="trackers/strong_sort/results/preds_example.gif" width="400"/> 
+</p>
+</div>
+
 </details>
 
 <details>
