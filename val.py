@@ -85,7 +85,6 @@ def download_mot_dataset(val_tools_target_location, benchmark):
                         zip_file.extract(member, val_tools_target_location / 'data')
         LOGGER.info(f'{benchmark}.zip unzipped successfully')
     except Exception as e:
-        print(e)
         print(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
         sys.exit()
 
