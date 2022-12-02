@@ -1,5 +1,4 @@
-.*/
-.*
+.vscode/
 
 # interpreter bytecode
 __pycache__/
@@ -16,9 +15,3 @@ val_utils/
 *.pt
 *.onnx
 *.engine
-
-*.pyc
-
-runs/
-val_utils/
-venv/
