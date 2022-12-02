@@ -11,7 +11,7 @@ import zipfile
 from pathlib import Path
 import shutil
 import threading
-
+from tqdm import tqdm
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # yolov5 strongsort root directory
@@ -30,55 +30,66 @@ from yolov5.utils.torch_utils import select_device
 from track import run
 
 
-def download_official_mot_eval_tool(dst_val_tools_folder):
+def download_official_mot_eval_tool(val_tools_target_location):
     # source: https://github.com/JonathonLuiten/TrackEval#official-evaluation-code
     val_tools_url = "https://github.com/JonathonLuiten/TrackEval"
     try:
-        Repo.clone_from(val_tools_url, dst_val_tools_folder)
+        Repo.clone_from(val_tools_url, val_tools_target_location)
         LOGGER.info('Official MOT evaluation repo downloaded')
     except git.exc.GitError as err:
         LOGGER.info('Eval repo already downloaded')
         
-def download_mot_dataset(dst_val_tools_folder, benchmark):
+def download_mot_dataset(val_tools_target_location, benchmark):
     
-    import wget
+    # download and unzip ground truth
+    url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
+    zip_dst = val_tools_target_location / 'data.zip'
+    if not zip_dst.exists():
+        LOGGER.info(f'data.zip downloaded sucessfully')
+        os.system(f"curl -# -L '{url}' -o '{zip_dst}' -# --retry 3 -C -")
     
-    gt_data_url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
-    subprocess.run(["wget", "-nc", gt_data_url, "-O", dst_val_tools_folder / 'data.zip']) # python module has no -nc nor -N flag
-    if not (dst_val_tools_folder / 'data').is_dir():
-        try:
-            with zipfile.ZipFile(dst_val_tools_folder / 'data.zip', 'r') as zip_ref:
-                zip_ref.extractall(dst_val_tools_folder)
-            LOGGER.info('MOTs ground truth downloaded')
-        except Exception as e:
-            LOGGER.info(f"{data}.zip seems to be corrupt... Try deleting it and run the script again")
-            exit()
-    else:
-        LOGGER.info('gt already downloaded')
-
-    mot_gt_data_url = 'https://motchallenge.net/data/' + benchmark + '.zip'
-    if not (dst_val_tools_folder / 'data' / benchmark).is_dir():
-        wget.download(mot_gt_data_url, out=str(dst_val_tools_folder / (benchmark + '.zip')))
-        try:
-            with zipfile.ZipFile(dst_val_tools_folder / (benchmark + '.zip'), 'r') as zip_ref:
-                if opt.benchmark == 'MOT16':
-                    # MOT 16 is not contained in a folder, have to create the folder to extract in it
-                    if not (dst_val_tools_folder / 'data' / benchmark / 'train').is_dir():
-                        zip_ref.extractall(dst_val_tools_folder / 'data' / 'MOT16')
-                    else:
-                        LOGGER.info(f'{benchmark} data already downloaded')
+    try:
+        with zipfile.ZipFile(val_tools_target_location / 'data.zip', 'r') as zip_file:
+            for member in tqdm(zip_file.namelist(), desc=f'Extracting MOT ground truth'):
+                # extract only if file has not already been extracted
+                if os.path.exists(val_tools_target_location / member) or os.path.isfile(val_tools_target_location / member):
+                    pass
                 else:
-                    # MOT17 & MOT20 are compressed as a folder
-                    if not (dst_val_tools_folder / 'data' / benchmark).is_dir():
-                        zip_ref.extractall(dst_val_tools_folder / 'data' )
-                    else:
-                        LOGGER.info(f'{benchmark} data already downloaded')
-            LOGGER.info(f'{benchmark} images downloaded')
-        except Exception as e:
-            LOGGER.info(f"{benchmark}.zip seems to be corrupt... Try deleting it and run the script again")
-            exit()
+                    zip_file.extract(member, val_tools_target_location)
+        LOGGER.info(f'data.zip unzipped sucessfully')
+    except Exception as e:
+        print('data.zip is corrupted. Try deleting the file and run the script again')
+        sys.exit()
+
+    # download and unzip the rest of MOTXX
+    url = 'https://motchallenge.net/data/' + benchmark + '.zip'
+    zip_dst = val_tools_target_location / (benchmark + '.zip')
+    if not zip_dst.exists():
+        LOGGER.info(f'{benchmark}.zip downloaded sucessfully')
+        os.system(f"curl -# -L '{url}' -o '{zip_dst}' -# --retry 3 -C -")
     
-        
+    try:
+        with zipfile.ZipFile((val_tools_target_location / (benchmark + '.zip')), 'r') as zip_file:
+            if opt.benchmark == 'MOT16':
+                # extract only if file has not already been extracted
+                for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
+                    if os.path.exists(val_tools_target_location / 'data' / 'MOT16' / member) or os.path.isfile(val_tools_target_location / 'data' / 'MOT16' / member):
+                        pass
+                    else:
+                        zip_file.extract(member, val_tools_target_location / 'data' / 'MOT16')
+            else:
+                for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
+                    if os.path.exists(val_tools_target_location / 'data' / member) or os.path.isfile(val_tools_target_location / 'data' / member):
+                        pass
+                    else:
+                        zip_file.extract(member, val_tools_target_location / 'data')
+        LOGGER.info(f'{benchmark}.zip unzipped successfully')
+    except Exception as e:
+        print(e)
+        print(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
+        sys.exit()
+
+
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov5m.pt', help='model.pt path(s)')
@@ -114,24 +125,24 @@ def main(opt):
     check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
     
     # download eval files
-    dst_val_tools_folder = ROOT / 'val_utils'
-    download_official_mot_eval_tool(dst_val_tools_folder)
+    val_tools_target_location = ROOT / 'val_utils'
+    download_official_mot_eval_tool(val_tools_target_location)
     
     if any(opt.benchmark == s for s in ['MOT16', 'MOT17', 'MOT20']):
-        download_mot_dataset(dst_val_tools_folder, opt.benchmark)
+        download_mot_dataset(val_tools_target_location, opt.benchmark)
     
     # set paths
-    mot_seqs_path = dst_val_tools_folder / 'data' / opt.benchmark / opt.split
+    mot_seqs_path = val_tools_target_location / 'data' / opt.benchmark / opt.split
     
     if opt.benchmark == 'MOT17':
         # each sequences is present 3 times, one for each detector
         # (DPM, FRCNN, SDP). Keep only sequences from  one of them
         seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
         seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
-        with open(dst_val_tools_folder / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "r") as f:  # 
+        with open(val_tools_target_location / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "r") as f:  # 
             lines = f.readlines()
         # overwrite MOT17 evaluation sequences to evaluate so that they are not duplicated
-        with open(dst_val_tools_folder / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "w") as f:
+        with open(val_tools_target_location / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "w") as f:
             for line in seq_paths:
                 f.write(str(line.parent.stem) + '\n')
     else:
@@ -139,7 +150,7 @@ def main(opt):
         seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
     
     save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
-    MOT_results_folder = dst_val_tools_folder / 'data' / 'trackers' / 'mot_challenge' / Path(str(opt.benchmark) + '-' + str(opt.split)) / save_dir.name / 'data'
+    MOT_results_folder = val_tools_target_location / 'data' / 'trackers' / 'mot_challenge' / Path(str(opt.benchmark) + '-' + str(opt.split)) / save_dir.name / 'data'
     (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
 
     # extend devices to as many sequences are available
@@ -203,7 +214,7 @@ def main(opt):
 
     # run the evaluation on the generated txts
     subprocess.run([
-        sys.executable,  dst_val_tools_folder / "scripts/run_mot_challenge.py",
+        sys.executable,  val_tools_target_location / "scripts/run_mot_challenge.py",
         "--BENCHMARK", opt.benchmark,
         "--TRACKERS_TO_EVAL",  opt.eval_existing if opt.eval_existing else MOT_results_folder.parent.name,
         "--SPLIT_TO_EVAL", "train",
