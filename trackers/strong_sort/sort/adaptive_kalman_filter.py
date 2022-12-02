@@ -159,6 +159,49 @@ class AdaptiveKalmanFilter(object):
 
         return mean, covariance
 
+    def project(self, mean, covariance, confidence=.0):
+        """Project state distribution to measurement space.
+        Parameters
+        ----------
+        mean : ndarray
+            The state's mean vector (8 dimensional array).
+        covariance : ndarray
+            The state's covariance matrix (8x8 dimensional).
+        confidence: (dyh) 检测框置信度
+        Returns
+        -------
+        (ndarray, ndarray)
+            Returns the projected mean and covariance matrix of the given state
+            estimate.
+        """
+        projected_mean = np.dot(self._update_mat, mean)
+        
+
+        projected_cov = np.linalg.multi_dot((
+            self._update_mat, covariance, self._update_mat.T))
+
+        # Estimate measurement noise based on a priori residual and projected
+        # covariance
+        std = [
+            self._std_weight_position * mean[3],
+            self._std_weight_position * mean[3],
+            1e-1,
+            self._std_weight_position * mean[3]]
+
+        std = [(1 - confidence) * x for x in std]
+        additive_measurement_noise = np.diag(np.square(std))
+        
+        est_measurement_noise = np.outer(self._residual, self._residual) + projected_cov
+        self._measurement_noise = (
+                self._forgetting_factor * (self._measurement_noise + additive_measurement_noise)
+                + (1 - self._forgetting_factor) * est_measurement_noise
+        )
+
+        # Update projected covariance with adapted measurement noise
+        projected_cov += self._measurement_noise
+        
+        return projected_mean, projected_cov
+
     def update(self, mean, covariance, measurement, confidence=.0):
         """Run Kalman filter correction step.
         Parameters
@@ -177,30 +220,9 @@ class AdaptiveKalmanFilter(object):
         (ndarray, ndarray)
             Returns the measurement-corrected state distribution.
         """
-        projected_mean = np.dot(self._update_mat, mean)
+        projected_mean, projected_cov = self.project(mean, covariance, confidence)
+
         innovation = measurement - projected_mean
-
-        projected_cov = np.linalg.multi_dot((
-            self._update_mat, covariance, self._update_mat.T))
-
-        # Estimate measurement noise based on a priori residual and projected
-        # covariance
-        std = [
-            self._std_weight_position * mean[3],
-            self._std_weight_position * mean[3],
-            1e-1,
-            self._std_weight_position * mean[3]]
-
-        additive_measurement_noise = [(1 - confidence) * x for x in std]
-        
-        est_measurement_noise = np.outer(self._residual, self._residual) + projected_cov
-        self._measurement_noise = (
-                self._forgetting_factor * (self._measurement_noise + additive_measurement_noise)
-                + (1 - self._forgetting_factor) * est_measurement_noise
-        )
-
-        # Update projected covariance with adapted measurement noise
-        projected_cov += self._measurement_noise #* (1 - confidence)
 
         # Calculate Kalman gain
         chol_factor, lower = scipy.linalg.cho_factor(
@@ -272,9 +294,7 @@ class AdaptiveKalmanFilter(object):
             squared Mahalanobis distance between (mean, covariance) and
             `measurements[i]`.
         """
-        projected_mean = np.dot(self._update_mat, mean)
-        projected_cov = np.linalg.multi_dot((
-            self._update_mat, covariance, self._update_mat.T))
+        projected_mean, projected_cov = self.project(mean, covariance)
 
         if only_position:
             projected_mean, projected_cov = projected_mean[:2], projected_cov[:2, :2]
