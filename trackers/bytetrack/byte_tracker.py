@@ -307,10 +307,11 @@ class BYTETracker(object):
             output.extend(xyxy)
             output.append(tid)
             output.append(t.cls)
+            output.append(t.score)
             outputs.append(output)
 
         return outputs
-
+#track_id, class_id, conf
 
 def joint_stracks(tlista, tlistb):
     exists = {}
