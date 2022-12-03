@@ -111,6 +111,7 @@ class KalmanBoxTracker(object):
         """
         
         if bbox is not None:
+            self.conf = bbox[-1]
             self.cls = cls
             if self.last_observation.sum() >= 0:  # no previous observation
                 previous_box = None
