@@ -217,8 +217,10 @@ def run(
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             color = colors(c, True)
                             annotator.box_label(bboxes, label, color=color)
-                            if save_trajectories:
-                                tracker_list[i].trajectory(im0, tracker_list[i].tracker.tracks, color=color)
+
+                            if save_trajectories and tracking_method == 'strongsort':
+                                q = output[7]
+                                tracker_list[i].trajectory(im0, q, color=color)
                             if save_crop:
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
                                 save_one_box(bboxes, imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
