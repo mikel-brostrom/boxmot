@@ -55,6 +55,7 @@ class Tracker:
 
         This function should be called once every time step, before `update`.
         """
+        print(len(self.tracks), flush=True)
         for track in self.tracks:
             track.predict(self.kf)
 

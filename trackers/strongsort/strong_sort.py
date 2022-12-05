@@ -38,6 +38,9 @@ class StrongSORT(object):
         self.tracker = Tracker(
             metric, max_iou_dist=max_iou_dist, max_age=max_age, n_init=n_init, max_unmatched_preds=max_unmatched_preds, mc_lambda=mc_lambda, ema_alpha=ema_alpha)
 
+    def camera_update(self, previous_img, current_img):
+        self.tracker.camera_update(previous_img, current_img)
+
     def update(self, dets,  ori_img):
         
         xyxys = dets[:, 0:4]
@@ -48,6 +51,8 @@ class StrongSORT(object):
         xywhs = xyxy2xywh(xyxys.numpy())
         confs = confs.numpy()
         self.height, self.width = ori_img.shape[:2]
+
+        output_results = np.column_stack((xyxys, confs, classes))
         
         # generate detections
         features = self._get_features(xywhs, ori_img)
@@ -141,11 +146,12 @@ class StrongSORT(object):
             features = np.array([])
         return features
     
-    def trajectory(self, im0, q, color):
+    def trajectory(self, im0, color):
         # Add rectangle to image (PIL-only)
-        for i, p in enumerate(q):
-            thickness = int(np.sqrt(float (i + 1)) * 1.5)
-            if p[0] == 'observationupdate': 
-                cv2.circle(im0, p[1], 2, color=color, thickness=thickness)
-            else:
-                cv2.circle(im0, p[1], 2, color=(255,255,255), thickness=thickness)
+        for t in self.tracker.tracks:
+            for i, p in enumerate(t.q):
+                thickness = int(np.sqrt(float (i + 1)) * 1.5)
+                if p[0] == 'observationupdate':
+                    cv2.circle(im0, p[1], 2, color=color, thickness=thickness)
+                else:
+                    cv2.circle(im0, p[1], 2, color=(255,255,255), thickness=thickness)

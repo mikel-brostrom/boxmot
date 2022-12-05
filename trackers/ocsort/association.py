@@ -262,7 +262,7 @@ def associate(detections, trackers, iou_threshold, velocities, previous_obs, vdc
 
     angle_diff_cost = (valid_mask * diff_angle) * vdc_weight
     angle_diff_cost = angle_diff_cost.T
-    angle_diff_cost = angle_diff_cost * scores
+    angle_diff_cost = angle_diff_cost * (1 - scores)
 
     if min(iou_matrix.shape) > 0:
         a = (iou_matrix > iou_threshold).astype(np.int32)

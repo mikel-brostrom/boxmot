@@ -207,6 +207,7 @@ class KalmanFilter(object):
 
         cholesky_factor = np.linalg.cholesky(covariance)
         d = measurements - mean
+
         z = scipy.linalg.solve_triangular(
             cholesky_factor, d.T, lower=True, check_finite=False,
             overwrite_b=True)

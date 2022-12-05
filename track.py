@@ -195,9 +195,9 @@ def run(
 
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
             
-            if hasattr(tracker_list[i], 'tracker') and hasattr(tracker_list[i].tracker, 'camera_update'):
+            if hasattr(tracker_list[i], 'camera_update'):
                 if prev_frames[i] is not None and curr_frames[i] is not None:  # camera motion compensation
-                    tracker_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
+                    tracker_list[i].camera_update(prev_frames[i], curr_frames[i])
 
             if det is not None and len(det):
                 if is_seg:
@@ -257,11 +257,10 @@ def run(
                             label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             color = colors(c, True)
-                            annotator.box_label(bbox, label, color=color)
-                            
-                            if save_trajectories and tracking_method == 'strongsort':
-                                q = output[7]
-                                tracker_list[i].trajectory(im0, q, color=color)
+                            annotator.box_label(bboxes, label, color=color)
+                            if save_trajectories:
+                                if hasattr(tracker_list[i], 'trajectory'):
+                                    tracker_list[i].trajectory(im0, color=color)
                             if save_crop:
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
                                 save_one_box(np.array(bbox, dtype=np.int16), imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
