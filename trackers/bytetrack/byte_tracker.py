@@ -194,7 +194,7 @@ class BYTETracker(object):
         scores_second = confs[inds_second]
         
         clss_keep = classes[remain_inds]
-        clss_second = classes[remain_inds]
+        clss_second = classes[inds_second]
         
 
         if len(dets) > 0:
@@ -307,10 +307,11 @@ class BYTETracker(object):
             output.extend(xyxy)
             output.append(tid)
             output.append(t.cls)
+            output.append(t.score)
             outputs.append(output)
 
         return outputs
-
+#track_id, class_id, conf
 
 def joint_stracks(tlista, tlistb):
     exists = {}

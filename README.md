@@ -65,6 +65,21 @@ In inverse chronological order:
 * [Yolov5 StrongSORT OSNet vs other trackers MOT16 (deprecated)](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/MOT-16-evaluation)&nbsp;
 
   </details>
+  
+<details>
+<summary>Custom object detection architecture</summary>
+
+The trackers provided in this repo can be used with other object detectors than Yolov5. Make sure that the output of your detector has the following format:
+
+```bash
+(x1,y1, x2, y2, obj, cls0, cls1, ..., clsn)
+```
+
+pass this directly to the tracker here:
+
+https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/a4bc0c38c33023fab9e5481861d9520eb81e28bc/track.py#L189
+
+</details>
 
 ## Tracking
 
@@ -163,6 +178,12 @@ Save the trajectories to you video by:
 python track.py --source ... --save-trajectories --save-vid
 ```
 
+<div align="center">
+<p>
+<img src="trackers/strong_sort/results/preds_example.gif" width="400"/> 
+</p>
+</div>
+
 </details>
 
 <details>
@@ -191,5 +212,5 @@ If you find this project useful in your research, please consider cite:
 
 ## Contact 
 
-For Yolov5 DeepSort OSNet bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues). 
+For Yolov5 StrongSORT OSNet bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues). 
 For business inquiries or professional support requests please send an email to: yolov5.deepsort.pytorch@gmail.com

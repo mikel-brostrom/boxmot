@@ -145,11 +145,12 @@ class StrongSORT(object):
             features = np.array([])
         return features
     
-    def trajectory(self, im0, color, fill=None, outline=None, width=1):
+    def trajectory(self, im0, color):
         # Add rectangle to image (PIL-only)
         for t in self.tracker.tracks:
-            for p in t.q:
+            for i, p in enumerate(t.q):
+                thickness = int(np.sqrt(float (i + 1)) * 1.5)
                 if p[0] == 'observationupdate':
-                    cv2.circle(im0, p[1], 2, color, 2)
+                    cv2.circle(im0, p[1], 2, color, thickness=thickness)
                 else:
-                    cv2.circle(im0, p[1], 2, (255,255,255), 2)
+                    cv2.circle(im0, p[1], 2, (255,255,255), thickness=thickness)
