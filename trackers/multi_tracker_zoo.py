@@ -2,6 +2,7 @@ from trackers.strong_sort.utils.parser import get_config
 from trackers.strong_sort.strong_sort import StrongSORT
 from trackers.ocsort.ocsort import OCSort
 from trackers.bytetrack.byte_tracker import BYTETracker
+from trackers.strong_ocsort.strong_ocsort import StrongOCSort
 
 
 def create_tracker(tracker_type, appearance_descriptor_weights, device, half):
@@ -40,6 +41,29 @@ def create_tracker(tracker_type, appearance_descriptor_weights, device, half):
             frame_rate=30
         )
         return bytetracker
+    elif tracker_type == 'strong-ocsort':
+        # initialize Strong-OCSort
+        cfg = get_config()
+        cfg.merge_from_file('trackers/strong_ocsort/configs/strong_ocsort.yaml')
+
+        strongocsort = StrongOCSort(
+            appearance_descriptor_weights,
+            device,
+            half,
+            det_thresh=cfg.STRONG_OCSORT.DET_THRESH,
+            max_dist=cfg.STRONG_OCSORT.MAX_DIST,
+            nn_budget=cfg.STRONG_OCSORT.NN_BUDGET,
+            ema_alpha=cfg.STRONG_OCSORT.EMA_ALPHA,
+            max_age=cfg.STRONG_OCSORT.MAX_AGE,
+            min_hits=cfg.STRONG_OCSORT.MIN_HITS,
+            iou_threshold=cfg.STRONG_OCSORT.IOU_THRESHOLD,
+            delta_t=cfg.STRONG_OCSORT.DELTA_T,
+            inertia=cfg.STRONG_OCSORT.INERTIA,
+            use_byte=cfg.STRONG_OCSORT.USE_BYTE,
+            use_resurrection=cfg.STRONG_OCSORT.USE_RESURRECTION,
+        )
+
+        return strongocsort
     else:
         print('No such tracker')
         exit()

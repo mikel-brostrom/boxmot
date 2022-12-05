@@ -1,0 +1,22 @@
+# StrongOCSort performs association in 3 steps:
+#
+# For all detections with confidence above DET_THRESH:
+#   1. Associate using feature matching (StrongSort)
+#   2. Associate using trajectory matching (OCSort)
+#
+# For all detections with confidence below DET_THRESH, if USE_BYTE is True:
+#   3. Associate using byte association
+#
+STRONG_OCSORT:
+  DELTA_T: 1              # How many timesteps to look back for speed direction estimation
+  DET_THRESH: 0.45        # Minimum detection threshold for primary association
+  ECC: True               # activate camera motion compensation
+  EMA_ALPHA: 0.9          # updates  appearance  state in  an exponential moving average manner
+  IOU_THRESHOLD: 0.2      # Gating threshold for IOU association. Associations with cost larger than this value are disregarded.
+  INERTIA: 2.0            # How insensitive trajectory association is to changes in track direction
+  MAX_AGE: 30             # Maximum number of missed misses before a track is deleted
+  MIN_HITS: 3             # Number of frames that a track remains in initialization phase
+  MAX_DIST: 0.18          # The matching threshold. Feature samples with larger distance are considered an invalid match
+  NN_BUDGET: 100          # Maximum size of the appearance descriptors gallery
+  USE_BYTE: True          # Use byte association for detections with confidence under DET_THRESH
+  USE_RESURRECTION: False # Turns on the resurrection system. Allows dead tracks to be revived if an unmatched detection feature matches with the dead track's feature history, controlled with MAX_DIST.

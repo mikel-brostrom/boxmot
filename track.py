@@ -171,9 +171,9 @@ def run(
 
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
             
-            if hasattr(tracker_list[i], 'tracker') and hasattr(tracker_list[i].tracker, 'camera_update'):
+            if hasattr(tracker_list[i], 'camera_update'):
                 if prev_frames[i] is not None and curr_frames[i] is not None:  # camera motion compensation
-                    tracker_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
+                    tracker_list[i].camera_update(prev_frames[i], curr_frames[i])
 
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
@@ -217,7 +217,8 @@ def run(
                             color = colors(c, True)
                             annotator.box_label(bboxes, label, color=color)
                             if save_trajectories:
-                                tracker_list[i].trajectory(im0, tracker_list[i].tracker.tracks, color=color)
+                                if hasattr(tracker_list[i], 'trajectory'):
+                                    tracker_list[i].trajectory(im0, color=color)
                             if save_crop:
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
                                 save_one_box(bboxes, imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
