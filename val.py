@@ -45,8 +45,8 @@ def download_mot_dataset(val_tools_target_location, benchmark):
     url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
     zip_dst = val_tools_target_location / 'data.zip'
     if not zip_dst.exists():
+        os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
         LOGGER.info(f'data.zip downloaded sucessfully')
-        os.system(f"curl -# -L '{url}' -o '{zip_dst}' -# --retry 3 -C -")
     
     try:
         with zipfile.ZipFile(val_tools_target_location / 'data.zip', 'r') as zip_file:
@@ -65,8 +65,8 @@ def download_mot_dataset(val_tools_target_location, benchmark):
     url = 'https://motchallenge.net/data/' + benchmark + '.zip'
     zip_dst = val_tools_target_location / (benchmark + '.zip')
     if not zip_dst.exists():
+        os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
         LOGGER.info(f'{benchmark}.zip downloaded sucessfully')
-        os.system(f"curl -# -L '{url}' -o '{zip_dst}' -# --retry 3 -C -")
     
     try:
         with zipfile.ZipFile((val_tools_target_location / (benchmark + '.zip')), 'r') as zip_file:
