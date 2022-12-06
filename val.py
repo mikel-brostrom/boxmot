@@ -40,53 +40,61 @@ def download_official_mot_eval_tool(val_tools_target_location):
         LOGGER.info('Eval repo already downloaded')
         
 def download_mot_dataset(val_tools_target_location, benchmark):
+
+    downloaded_flag_file = val_tools_target_location / '.mot_data_downloaded'
     
     # download and unzip ground truth
     url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
     zip_dst = val_tools_target_location / 'data.zip'
-    if not zip_dst.exists():
+    if not downloaded_flag_file.exists():
+        os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
         LOGGER.info(f'data.zip downloaded sucessfully')
-        os.system(f"curl -# -L '{url}' -o '{zip_dst}' -# --retry 3 -C -")
     
-    try:
-        with zipfile.ZipFile(val_tools_target_location / 'data.zip', 'r') as zip_file:
-            for member in tqdm(zip_file.namelist(), desc=f'Extracting MOT ground truth'):
-                # extract only if file has not already been extracted
-                if os.path.exists(val_tools_target_location / member) or os.path.isfile(val_tools_target_location / member):
-                    pass
-                else:
-                    zip_file.extract(member, val_tools_target_location)
-        LOGGER.info(f'data.zip unzipped sucessfully')
-    except Exception as e:
-        print('data.zip is corrupted. Try deleting the file and run the script again')
-        sys.exit()
+    if zip_dst.exists():
+        try:
+            with zipfile.ZipFile(val_tools_target_location / 'data.zip', 'r') as zip_file:
+                for member in tqdm(zip_file.namelist(), desc=f'Extracting MOT ground truth'):
+                    # extract only if file has not already been extracted
+                    if os.path.exists(val_tools_target_location / member) or os.path.isfile(val_tools_target_location / member):
+                        pass
+                    else:
+                        zip_file.extract(member, val_tools_target_location)
+            LOGGER.info(f'data.zip unzipped sucessfully')
+        except Exception as e:
+            print('data.zip is corrupted. Try deleting the file and run the script again')
+            sys.exit()
 
     # download and unzip the rest of MOTXX
     url = 'https://motchallenge.net/data/' + benchmark + '.zip'
     zip_dst = val_tools_target_location / (benchmark + '.zip')
-    if not zip_dst.exists():
+    if not downloaded_flag_file.exists():
+        os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
         LOGGER.info(f'{benchmark}.zip downloaded sucessfully')
-        os.system(f"curl -# -L '{url}' -o '{zip_dst}' -# --retry 3 -C -")
     
-    try:
-        with zipfile.ZipFile((val_tools_target_location / (benchmark + '.zip')), 'r') as zip_file:
-            if opt.benchmark == 'MOT16':
-                # extract only if file has not already been extracted
-                for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
-                    if os.path.exists(val_tools_target_location / 'data' / 'MOT16' / member) or os.path.isfile(val_tools_target_location / 'data' / 'MOT16' / member):
-                        pass
-                    else:
-                        zip_file.extract(member, val_tools_target_location / 'data' / 'MOT16')
-            else:
-                for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
-                    if os.path.exists(val_tools_target_location / 'data' / member) or os.path.isfile(val_tools_target_location / 'data' / member):
-                        pass
-                    else:
-                        zip_file.extract(member, val_tools_target_location / 'data')
-        LOGGER.info(f'{benchmark}.zip unzipped successfully')
-    except Exception as e:
-        print(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
-        sys.exit()
+    if zip_dst.exists():
+        try:
+            with zipfile.ZipFile((val_tools_target_location / (benchmark + '.zip')), 'r') as zip_file:
+                if opt.benchmark == 'MOT16':
+                    # extract only if file has not already been extracted
+                    for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
+                        if os.path.exists(val_tools_target_location / 'data' / 'MOT16' / member) or os.path.isfile(val_tools_target_location / 'data' / 'MOT16' / member):
+                            pass
+                        else:
+                            zip_file.extract(member, val_tools_target_location / 'data' / 'MOT16')
+                else:
+                    for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
+                        if os.path.exists(val_tools_target_location / 'data' / member) or os.path.isfile(val_tools_target_location / 'data' / member):
+                            pass
+                        else:
+                            zip_file.extract(member, val_tools_target_location / 'data')
+            LOGGER.info(f'{benchmark}.zip unzipped successfully')
+            
+            # Create a flag file to indicate that we have already downloaded the dataset
+            with open(downloaded_flag_file, 'w'):
+                pass
+        except Exception as e:
+            print(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
+            sys.exit()
 
 
 def parse_opt():

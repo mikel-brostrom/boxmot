@@ -93,6 +93,7 @@ class AssocMethod:
     TRAJECTORY = 1
     BYTE = 3
     REBORN = 4
+    IOU_LAST = 5
     NONE = -1
 
 
@@ -441,13 +442,12 @@ class StrongOCSort(object):
         det_thresh: float,
         max_dist: float = 0.2,
         nn_budget: int = 100,
-        max_iou_distance: float = 0.7,
         ema_alpha : float = 0.9,
         max_age: int = 30,
         min_hits: int = 3,
         iou_threshold : float = 0.3,
         delta_t: float = 3,
-        assoc_func: str = "iou",
+        assoc_func: str = "ciou",
         inertia: float = 0.2,
         use_byte: bool = False,
         use_resurrection: bool = False
@@ -483,7 +483,6 @@ class StrongOCSort(object):
         self.track_graveyard = []
 
         self.height, self.width = 0, 0
-
 
     def camera_update(self, previous_img, current_img):
         for track in self.trackers:
@@ -540,7 +539,7 @@ class StrongOCSort(object):
             self.trackers.pop(t)
 
         """
-            First association step
+            First association step, for detections above det_thresh
         """
         detections = [ClassifiedDetection(bbox_tlwh[i], dets[i, 4], dets[i, 5], features[i]) for i, _ in enumerate(dets)]
 
@@ -554,12 +553,12 @@ class StrongOCSort(object):
             trk.update(dets[m[1], :5], dets[m[1], 5], _feature, self.ema_alpha)
 
         """
-            Second association step
+            Second association step, for detections below det_thresh
         """
         # BYTE association
         if self.use_byte and len(dets_second) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
-            iou_left = self.asso_func(dets_second, u_trks)  # iou between low score detections and unmatched tracks
+            iou_left = self.assoc_func(dets_second, u_trks)  # iou between low score detections and unmatched tracks
             iou_left = np.array(iou_left)
             if iou_left.max() > self.iou_threshold:
                 """
@@ -578,6 +577,7 @@ class StrongOCSort(object):
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
+        # Update unmatched tracks
         for m in unmatched_trks:
             self.trackers[m].update_method = AssocMethod.NONE
             self.trackers[m].update(None, None)

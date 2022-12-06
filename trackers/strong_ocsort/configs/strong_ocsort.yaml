@@ -13,7 +13,7 @@ STRONG_OCSORT:
   ECC: True               # activate camera motion compensation
   EMA_ALPHA: 0.9          # updates  appearance  state in  an exponential moving average manner
   IOU_THRESHOLD: 0.2      # Gating threshold for IOU association. Associations with cost larger than this value are disregarded.
-  INERTIA: 2.0            # How insensitive trajectory association is to changes in track direction
+  INERTIA: 2.0           # How insensitive trajectory association is to changes in track direction. Increasing this value might improve performance in some scenarios.
   MAX_AGE: 30             # Maximum number of missed misses before a track is deleted
   MIN_HITS: 3             # Number of frames that a track remains in initialization phase
   MAX_DIST: 0.18          # The matching threshold. Feature samples with larger distance are considered an invalid match
