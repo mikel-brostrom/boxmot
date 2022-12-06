@@ -43,7 +43,7 @@ def download_mot_dataset(val_tools_target_location, benchmark):
     
     # download and unzip ground truth
     url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
-    zip_dst = zip_dst / 'data.zip'
+    zip_dst = val_tools_target_location / 'data.zip'
     if not zip_dst.exists():
         os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
         LOGGER.info(f'data.zip downloaded sucessfully')
@@ -64,7 +64,7 @@ def download_mot_dataset(val_tools_target_location, benchmark):
     # download and unzip the rest of MOTXX
     url = 'https://motchallenge.net/data/' + benchmark + '.zip'
     zip_dst = val_tools_target_location / (benchmark + '.zip')
-    if not downloaded_flag_file.exists():
+    if not zip_dst.exists():
         os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
         LOGGER.info(f'{benchmark}.zip downloaded sucessfully')
     
