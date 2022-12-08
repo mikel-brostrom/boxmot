@@ -22,7 +22,9 @@ class StrongSORT(object):
                  fp16,
                  max_dist=0.2,
                  max_iou_distance=0.7,
-                 max_age=70, n_init=3,
+                 max_age=70,
+                 max_unmatched_preds=7,
+                 n_init=3,
                  nn_budget=100,
                  mc_lambda=0.995,
                  ema_alpha=0.9
@@ -34,7 +36,7 @@ class StrongSORT(object):
         metric = NearestNeighborDistanceMetric(
             "cosine", self.max_dist, nn_budget)
         self.tracker = Tracker(
-            metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init)
+            metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init, max_unmatched_preds=max_unmatched_preds)
 
     def update(self, dets,  ori_img):
         
@@ -73,7 +75,8 @@ class StrongSORT(object):
             track_id = track.track_id
             class_id = track.class_id
             conf = track.conf
-            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id, conf]))
+            queue = track.q
+            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id, conf, queue]))
         if len(outputs) > 0:
             outputs = np.stack(outputs, axis=0)
         return outputs
@@ -137,3 +140,12 @@ class StrongSORT(object):
         else:
             features = np.array([])
         return features
+    
+    def trajectory(self, im0, q, color):
+        # Add rectangle to image (PIL-only)
+        for i, p in enumerate(q):
+            thickness = int(np.sqrt(float (i + 1)) * 1.5)
+            if p[0] is 'observationupdate': 
+                cv2.circle(im0, p[1], 2, color=color, thickness=thickness)
+            else:
+                cv2.circle(im0, p[1], 2, color=(255,255,255), thickness=thickness)
