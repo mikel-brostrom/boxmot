@@ -93,7 +93,7 @@ def download_mot_dataset(val_tools_target_location, benchmark):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov5m.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--name', default='exp', help='save results to project/name')
@@ -102,7 +102,7 @@ def parse_opt():
     parser.add_argument('--benchmark', type=str,  default='MOT17', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
-    parser.add_argument('--conf-thres', type=float, default=0.40, help='confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--processes-per-device', type=int, default=2, help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
@@ -203,6 +203,8 @@ def main(opt):
         
         for p in processes:
             p.wait()
+            
+    print_args(vars(opt))
 
     results = (save_dir.parent / opt.eval_existing / 'tracks' if opt.eval_existing else save_dir / 'tracks').glob('*.txt')
     for src in results:
