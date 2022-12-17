@@ -8,6 +8,7 @@ WORKDIR /usr/src/app
 # Copy contents
 COPY . /usr/src/app
 
+# Install dependencies
 RUN pip install -r requirements.txt
 
-CMD ["python3", "track.py"]
+CMD ["python", "track.py"]
