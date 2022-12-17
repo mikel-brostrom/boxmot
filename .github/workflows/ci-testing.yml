@@ -69,5 +69,5 @@ jobs:
           # STRONGSORT w. EXPORTED REID MODEL
           python track.py --reid-weights ./weights/osnet_x0_25_msmt17.torchscript --source yolov5/data/images/bus.jpg
           # TRACK WITH SEGMENTATIONS
-          python track --tracking-method strongsort --yolo-weights ./weights/yolov5n-seg.pt --source yolov5/data/images/bus.jpg
+          python track.py --tracking-method strongsort --yolo-weights ./weights/yolov5n-seg.pt --source yolov5/data/images/bus.jpg
         shell: bash
