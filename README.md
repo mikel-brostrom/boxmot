@@ -84,7 +84,13 @@ https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/a4bc0c38c33023fab
 ## Tracking
 
 ```bash
-$ python track.py
+$ python track.py  # bboxes only
+```
+
+or
+
+```bash
+$ python track_seg.py  # track with bboxes + segmentation masks
 ```
 
 <details>
