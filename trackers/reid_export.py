@@ -20,10 +20,9 @@ import torch.backends.cudnn as cudnn
 from torch.utils.mobile_optimizer import optimize_for_mobile
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # yolov5 strongsort root directory
+ROOT = FILE.parents[0].parents[0]  # yolov5 strongsort root directory
 WEIGHTS = ROOT / 'weights'
 
-print(ROOT)
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
