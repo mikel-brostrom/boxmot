@@ -6,8 +6,8 @@
 
 <div align="center">
 <p>
-<img src="trackers/strong_sort/results/track_all_seg_1280_025conf.gif" width="400"/> 
-<img src="trackers/strong_sort/results/output_th025.gif" width="400"/> 
+<img src="trackers/strong_sort/results/output_th025.gif" width="400"/>
+<img src="trackers/strong_sort/results/track_all_seg_1280_025conf.gif" width="400"/>
 </p>
 <br>
 <div>
