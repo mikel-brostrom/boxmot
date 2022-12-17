@@ -88,12 +88,6 @@ $ python track.py --yolo-weights yolov5n.pt      # bboxes only
                                  yolov5n-seg.pt  # track with bboxes + segmentation masks
 ```
 
-or
-
-```bash
-$ python track_seg.py  
-```
-
 <details>
 <summary>Tracking methods</summary>
 
