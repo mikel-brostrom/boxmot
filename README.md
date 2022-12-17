@@ -204,7 +204,7 @@ If you find this project useful in your research, please consider cite:
 
 ```latex
 @misc{yolov5-strongsort-osnet-2022,
-    title={Real-time multi-camera multi-object tracker using YOLOv5 and StrongSORT with OSNet},
+    title={Real-time multi-camera multi-object tracking using YOLOv5 and StrongSORT with OSNet},
     author={Mikel Broström},
     howpublished = {\url{https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet}},
     year={2022}
