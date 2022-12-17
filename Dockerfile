@@ -11,4 +11,4 @@ COPY . /usr/src/app
 # Install dependencies
 RUN pip install -r requirements.txt
 
-CMD ["python", "track.py"]
+CMD ["python", "track.py", "--source", "yolov5/data/images/bus.jpg"]
