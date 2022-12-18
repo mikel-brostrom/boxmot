@@ -136,7 +136,6 @@ class StrongSORT(object):
         im_crops = []
         for box, mask in zip(bbox_xywhs, masks):
             x1, y1, x2, y2 = self._xywh_to_xyxy(box)
-            print(mask.shape)
             # equal color where mask, else image
             # this would paint your object silhouette entirely with `color`
             masked_img = np.where(mask[...,None] == 0, (0,0,0), ori_img).astype(np.uint8)
