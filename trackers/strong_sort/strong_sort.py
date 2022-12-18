@@ -38,7 +38,7 @@ class StrongSORT(object):
         self.tracker = Tracker(
             metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init, max_unmatched_preds=max_unmatched_preds)
 
-    def update(self, dets,  ori_img):
+    def update(self, dets, masks, ori_img):
         
         xyxys = dets[:, 0:4]
         confs = dets[:, 4]
@@ -47,10 +47,11 @@ class StrongSORT(object):
         classes = clss.numpy()
         xywhs = xyxy2xywh(xyxys.numpy())
         confs = confs.numpy()
+        masks = masks.numpy()
         self.height, self.width = ori_img.shape[:2]
         
         # generate detections
-        features = self._get_features(xywhs, ori_img)
+        features = self._get_features(xywhs, masks, ori_img)
         bbox_tlwh = self._xywh_to_tlwh(xywhs)
         detections = [Detection(bbox_tlwh[i], conf, features[i]) for i, conf in enumerate(
             confs)]
@@ -129,11 +130,17 @@ class StrongSORT(object):
         h = int(y2 - y1)
         return t, l, w, h
 
-    def _get_features(self, bbox_xywh, ori_img):
+    def _get_features(self, bbox_xywhs, masks, ori_img):
+        #print(type(masks))
+        #print(np.unique(masks))
         im_crops = []
-        for box in bbox_xywh:
+        for box, mask in zip(bbox_xywhs, masks):
             x1, y1, x2, y2 = self._xywh_to_xyxy(box)
-            im = ori_img[y1:y2, x1:x2]
+            print(mask.shape)
+            # equal color where mask, else image
+            # this would paint your object silhouette entirely with `color`
+            masked_img = np.where(mask[...,None] == 0, (0,0,0), ori_img).astype(np.uint8)
+            im = masked_img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
             features = self.model(im_crops)

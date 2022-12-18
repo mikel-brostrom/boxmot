@@ -191,6 +191,8 @@ def run(
                         masks = process_mask(proto[i], det[:, 6:], det[:, :4], im.shape[2:], upsample=True)  # HWC
                         det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
                         
+                    print(masks.shape)
+                        
                     # Mask plotting
                     annotator.masks(
                         masks,
@@ -208,7 +210,7 @@ def run(
 
                 # pass detections to strongsort
                 with dt[3]:
-                    outputs[i] = tracker_list[i].update(det.cpu(), im0)
+                    outputs[i] = tracker_list[i].update(det.cpu(), masks.cpu(), im0)
                 
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
