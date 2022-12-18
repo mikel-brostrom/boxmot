@@ -54,7 +54,7 @@ class StrongSORT(object):
         confs = confs.numpy()
         self.height, self.width = ori_img.shape[:2]
         
-        # generate detections
+        # generate features based on detection cutouts
         if 'det' in kwargs and 'masks' in kwargs:
             features = self._get_refined_features(ori_img, **kwargs)
         else:
