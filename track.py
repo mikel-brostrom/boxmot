@@ -191,7 +191,7 @@ def run(
                     else:
                         masks = process_mask(proto[i], det[:, 6:], det[:, :4], im.shape[2:], upsample=True)  # HWC
                         det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size  
-                    #tracking_inputs['masks'] = masks.cpu()
+                    tracking_inputs['masks'] = masks.cpu()
                 tracking_inputs['det'] = det.cpu()              
 
                 # Print results
