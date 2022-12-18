@@ -133,16 +133,16 @@ class StrongSORT(object):
     def _get_features(self, bbox_xywhs, masks, ori_img):
         #print(type(masks))
         #print(np.unique(masks))
-        im_crops = []
+        crops = []
         for box, mask in zip(bbox_xywhs, masks):
             x1, y1, x2, y2 = self._xywh_to_xyxy(box)
-            # equal color where mask, else image
-            # this would paint your object silhouette entirely with `color`
-            masked_img = np.where(mask[...,None] == 0, (114, 114, 114), ori_img).astype(np.uint8)
-            im = masked_img[y1:y2, x1:x2]
-            im_crops.append(im)
-        if im_crops:
-            features = self.model(im_crops)
+            m = mask[y1:y2, x1:x2]
+            crop = ori_img[y1:y2, x1:x2]
+            # grey out everything that is not the detected object's mask
+            masked_crop = np.where(m[...,None] == 0, (114, 114, 114), crop).astype(np.uint8)
+            crops.append(masked_crop)
+        if crops:
+            features = self.model(crops)
         else:
             features = np.array([])
         return features
