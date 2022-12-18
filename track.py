@@ -190,14 +190,6 @@ def run(
                     else:
                         masks = process_mask(proto[i], det[:, 6:], det[:, :4], im.shape[2:], upsample=True)  # HWC
                         det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
-                        
-                    # Mask plotting
-                    annotator.masks(
-                        masks,
-                        colors=[colors(x, True) for x in det[:, 5]],
-                        im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
-                        255 if retina_masks else im[i]
-                    )
                 else:
                     det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
 
@@ -237,6 +229,13 @@ def run(
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             color = colors(c, True)
                             annotator.box_label(bboxes, label, color=color)
+                            # Mask plotting
+                            annotator.masks(
+                                masks,
+                                colors=[colors(x, True) for x in det[:, 5]],
+                                im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
+                                255 if retina_masks else im[i]
+                            )
 
                             if save_trajectories and tracking_method == 'strongsort':
                                 q = output[7]
