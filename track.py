@@ -182,6 +182,7 @@ def run(
                     tracker_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
 
             if det is not None and len(det):
+                tracking_inputs = {}
                 if is_seg:
                     # scale bbox first the crop masks
                     if retina_masks:
@@ -189,9 +190,9 @@ def run(
                         masks = process_mask_native(proto[i], det[:, 6:], det[:, :4], im0.shape[:2])  # HWC
                     else:
                         masks = process_mask(proto[i], det[:, 6:], det[:, :4], im.shape[2:], upsample=True)  # HWC
-                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
-                else:
-                    det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
+                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size  
+                    #tracking_inputs['masks'] = masks.cpu()
+                tracking_inputs['det'] = det.cpu()              
 
                 # Print results
                 for c in det[:, 5].unique():
@@ -200,7 +201,7 @@ def run(
 
                 # pass detections to strongsort
                 with dt[3]:
-                    outputs[i] = tracker_list[i].update(det.cpu(), masks.cpu(), im0)
+                    outputs[i] = tracker_list[i].update(im0, **tracking_inputs)
                 
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
@@ -230,12 +231,13 @@ def run(
                             color = colors(c, True)
                             annotator.box_label(bboxes, label, color=color)
                             # Mask plotting
-                            annotator.masks(
-                                masks,
-                                colors=[colors(x, True) for x in det[:, 5]],
-                                im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
-                                255 if retina_masks else im[i]
-                            )
+                            if is_seg:
+                                annotator.masks(
+                                    masks,
+                                    colors=[colors(x, True) for x in det[:, 5]],
+                                    im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
+                                    255 if retina_masks else im[i]
+                                )
 
                             if save_trajectories and tracking_method == 'strongsort':
                                 q = output[7]

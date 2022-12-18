@@ -38,7 +38,9 @@ class StrongSORT(object):
         self.tracker = Tracker(
             metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init, max_unmatched_preds=max_unmatched_preds)
 
-    def update(self, dets, masks, ori_img):
+    def update(self, ori_img, **kwargs):
+
+        dets = kwargs['det']
         
         xyxys = dets[:, 0:4]
         confs = dets[:, 4]
@@ -46,12 +48,18 @@ class StrongSORT(object):
         
         classes = clss.numpy()
         xywhs = xyxy2xywh(xyxys.numpy())
+        
+        kwargs['det'] = xywhs
+        
         confs = confs.numpy()
-        masks = masks.numpy()
         self.height, self.width = ori_img.shape[:2]
         
         # generate detections
-        features = self._get_features(xywhs, masks, ori_img)
+        if 'det' in kwargs and 'masks' in kwargs:
+            features = self._get_refined_features(ori_img, **kwargs)
+        else:
+            features = self._get_features(ori_img, **kwargs)
+            
         bbox_tlwh = self._xywh_to_tlwh(xywhs)
         detections = [Detection(bbox_tlwh[i], conf, features[i]) for i, conf in enumerate(
             confs)]
@@ -130,9 +138,11 @@ class StrongSORT(object):
         h = int(y2 - y1)
         return t, l, w, h
 
-    def _get_features(self, bbox_xywhs, masks, ori_img):
-        #print(type(masks))
-        #print(np.unique(masks))
+    def _get_refined_features(self, ori_img, det, masks):
+        
+        bbox_xywhs = det
+        masks = masks.numpy()
+
         crops = []
         for box, mask in zip(bbox_xywhs, masks):
             x1, y1, x2, y2 = self._xywh_to_xyxy(box)
@@ -141,6 +151,20 @@ class StrongSORT(object):
             # grey out everything that is not the detected object's mask
             masked_crop = np.where(m[...,None] == 0, (114, 114, 114), crop).astype(np.uint8)
             crops.append(masked_crop)
+        if crops:
+            features = self.model(crops)
+        else:
+            features = np.array([])
+        return features
+    
+    def _get_features(self, ori_img, det):
+
+        crops = []
+        for box in det:
+            x1, y1, x2, y2 = self._xywh_to_xyxy(box)
+            crop = ori_img[y1:y2, x1:x2]
+            # grey out everything that is not the detected object's mask
+            crops.append(crop)
         if crops:
             features = self.model(crops)
         else:
