@@ -22,15 +22,29 @@ RUN git clone --recurse-submodules https://github.com/mikel-brostrom/Yolov5_Stro
 
 # ------------------------------------------------------------------------------
 
-# run default command with all gpus accessible
-#   docker run -it --gpus all mikel-brostrom/yolov5_strongsort_osnet
-# run default command on first and third GPU
-#   docker run -it --gpus '"device=0, 2"' mikel-brostrom/yolov5_strongsort_osnet
-# notice the containers will die once you exit them and everything will be lost 
+# A docker container exits when its main process finishes, which in this case is bash.
+# This means that the containers will stop once you exit them and everything will be lost.
+# To avoid this use detach mode. More on this in the next paragraph
+#
+#   - run interactively with all GPUs accessible:
+#
+#       docker run -it --gpus all mikel-brostrom/yolov5_strongsort_osnet bash
+#
+#   - run interactively with first and third GPU accessible:
+#
+#       docker run -it --gpus '"device=0, 2"' mikel-brostrom/yolov5_strongsort_osnet bash
 
-# run in detached mode (if you exit the container it won't stop)
-#   docker run -it --gpus all -d mikel-brostrom/yolov5_strongsort_osnet
-# this will return a <container_id> number which makes it accessible
-#   docker exec -it <container_id>
-# stop the container by
-#   docker stop <container_id>
+
+# Run in detached mode (if you exit the container it won't stop)
+#
+#   -create a detached docker container from an image:
+#
+#       docker run -it --gpus all -d mikel-brostrom/yolov5_strongsort_osnet
+#
+#   - this will return a <container_id> number which makes it accessible. Access it by:
+#   
+#       docker exec -it <container_id>
+# 
+#   - When you are done with the container stop it by:
+#
+#       docker stop <container_id>
