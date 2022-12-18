@@ -56,7 +56,6 @@ class StrongSORT(object):
         
         # generate detections
         if 'det' in kwargs and 'masks' in kwargs:
-            print('refined')
             features = self._get_refined_features(ori_img, **kwargs)
         else:
             features = self._get_features(ori_img, **kwargs)
