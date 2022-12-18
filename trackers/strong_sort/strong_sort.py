@@ -138,7 +138,7 @@ class StrongSORT(object):
             x1, y1, x2, y2 = self._xywh_to_xyxy(box)
             # equal color where mask, else image
             # this would paint your object silhouette entirely with `color`
-            masked_img = np.where(mask[...,None] == 0, (0,0,0), ori_img).astype(np.uint8)
+            masked_img = np.where(mask[...,None] == 0, (114, 114, 114), ori_img).astype(np.uint8)
             im = masked_img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
