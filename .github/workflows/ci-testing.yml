@@ -45,10 +45,10 @@ jobs:
             ${{ runner.os }}-${{ matrix.python-version }}-pip-  
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install --upgrade pip
           # ImportError: lap requires numpy, please "pip install numpy".
           # ImportError: lap requires Cython, please "pip install Cython".
-          pip install numpy Cython
+          #pip install numpy Cython
           pip install -qr requirements.txt -f https://download.pytorch.org/whl/cpu/torch_stable.html
           pip install requests
           python --version
@@ -63,7 +63,7 @@ jobs:
           # OCSORT
           python track.py --tracking-method ocsort --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg
           # BYTETRACK
-          #python track.py --tracking-method bytetrack --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg
+          python track.py --tracking-method bytetrack --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg
           # EXPORT
           python trackers/reid_export.py --weights ./weights/osnet_x0_25_msmt17.pt  # export deafults to torchscript
           # STRONGSORT w. EXPORTED REID MODEL
