@@ -1,4 +1,4 @@
-# Multi-Object tracking and Segmentation using Yolov5 StrongSORT OSNet
+# Multi-Object tracking and Segmentation using Yolov5 with StrongSORT and OSNet
 
 
 <div align="center">
