@@ -1,7 +1,4 @@
-# Yolov5 + StrongSORT with OSNet
-
-
-
+# Multi-Object tracking and Śegmentation (MOTS) using Yolov5 StrongSORT OSNet
 
 
 <div align="center">
