@@ -1,4 +1,4 @@
-# Multi-Object tracking and Segmentation using Yolov5 with StrongSORT and OSNet
+# Real-time Multi-Object Tracking and Segmentation (MOTS) using Yolov5 with StrongSORT and OSNet
 
 
 <div align="center">
