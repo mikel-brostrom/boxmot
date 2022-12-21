@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
-          submodules: true
+          submodules: recursive
           python-version: ${{ matrix.python-version }}
       - name: Install requirments
         run: |
