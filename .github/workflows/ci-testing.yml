@@ -23,7 +23,7 @@ jobs:
     steps:
       - name: Set up Repository
       - uses: actions/checkout@v3
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
           submodules: recursive
           python-version: ${{ matrix.python-version }}
