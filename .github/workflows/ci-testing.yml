@@ -7,10 +7,12 @@ on:  # https://help.github.com/en/actions/reference/events-that-trigger-workflow
     # The branches below must be a subset of the branches above
     branches: [master, CIdebug]
 
+variables:
+      GIT_SUBMODULE_STRATEGY: recursive
+      
 jobs:
   cpu-tests:
-    variables:
-      GIT_SUBMODULE_STRATEGY: recursive
+    
 
     runs-on: ${{ matrix.os }}
     strategy:
