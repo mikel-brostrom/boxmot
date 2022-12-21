@@ -31,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           # ImportError: lap requires numpy, please "pip install numpy".
           # ImportError: lap requires Cython, please "pip install Cython".
-          pip install Cmake
+          pip install numpy
           pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
           pip install requests
           python --version
