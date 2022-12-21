@@ -5,9 +5,9 @@ preferred-citation:
   authors:
   - family-names: Broström
     given-names: Mikel
-  title: "Real-time multi-camera multi-object tracking using YOLOv5 and StrongSORT with OSNet"
+  title: "Real-time multi-object tracking and segmentation using Yolov5 with StrongSORT and OSNet"
   version: 8.0
   doi: 10.5281/zenodo.7452874
-  date-released: 2022-11
+  date-released: 2022-12
   license: GPL-3.0
   url: "https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet"
