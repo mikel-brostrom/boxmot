@@ -1,14 +1,17 @@
+# name of the workflow, what it is doing (optional)
 name: CI CPU testing
 
-on:  # https://help.github.com/en/actions/reference/events-that-trigger-workflows
+# events that trigger the workflow (required)
+on:
   push:
     branches: [master, CIdebug]
   pull_request:
-    # The branches below must be a subset of the branches above
-    branches: [master, CIdebug]
+    # pull request where master is target
+    branches: [master]
 
+# the workflow that gets triggerd
 jobs:
-  cpu-tests:
+  build:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -20,16 +23,19 @@ jobs:
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
     steps:
+      # Check out the repository recursively, updated to v3
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Prepare environment with python 3.9
       - uses: actions/setup-python@v4
         with:
-          submodules: true
           python-version: ${{ matrix.python-version }}
       - name: Install requirments
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          # ImportError: lap requires numpy, please "pip install numpy".
-          # ImportError: lap requires Cython, please "pip install Cython".
+          # If not importing this prior to installing requirements...
+          # ImportError: lap requires numpy, please "pip install numpy". Workaround...
           pip install numpy
           pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
           pip install requests
