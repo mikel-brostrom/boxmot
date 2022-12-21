@@ -9,6 +9,8 @@ on:  # https://help.github.com/en/actions/reference/events-that-trigger-workflow
 
 jobs:
   cpu-tests:
+    variables:
+      GIT_SUBMODULE_STRATEGY: recursive
 
     runs-on: ${{ matrix.os }}
     strategy:
