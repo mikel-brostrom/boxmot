@@ -37,7 +37,6 @@ jobs:
           python --version
           pip --version
           pip list
-          cd
         shell: bash
       - name: Tests workflow
         run: |
