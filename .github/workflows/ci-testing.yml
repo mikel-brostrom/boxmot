@@ -23,10 +23,11 @@ jobs:
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
     steps:
-      # Check out the repository recursively
+      # Check out the repository recursively, updated to v3
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+      # Prepare environment with python 3.9
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
