@@ -5,6 +5,8 @@ __pycache__/
 
 # experiment results
 runs/
+videos/
+weights
 
 # evaluation tools folder
 val_utils/
