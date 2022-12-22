@@ -182,7 +182,7 @@ def run(
                     tracker_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
 
             if det is not None and len(det):
-                tracking_inputs = {}
+                tracking_inputs={}
                 if is_seg:
                     # scale bbox first the crop masks
                     if retina_masks:
@@ -190,9 +190,13 @@ def run(
                         masks = process_mask_native(proto[i], det[:, 6:], det[:, :4], im0.shape[:2])  # HWC
                     else:
                         masks = process_mask(proto[i], det[:, 6:], det[:, :4], im.shape[2:], upsample=True)  # HWC
-                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size  
-                    tracking_inputs['masks'] = masks.cpu()
-                tracking_inputs['det'] = det.cpu()              
+                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
+                    tracking_inputs['det']=det.cpu()
+                    tracking_inputs['masks']=masks.cpu()
+                    
+                else:
+                    det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
+                    tracking_inputs['det']=det.cpu()
 
                 # Print results
                 for c in det[:, 5].unique():
@@ -207,7 +211,7 @@ def run(
                 if len(outputs[i]) > 0:
                     for j, (output) in enumerate(outputs[i]):
     
-                        bboxes = output[0:4]
+                        bbox = output[0:4]
                         id = output[4]
                         cls = output[5]
                         conf = output[6]
@@ -229,7 +233,8 @@ def run(
                             label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             color = colors(c, True)
-                            annotator.box_label(bboxes, label, color=color)
+                            annotator.box_label(bbox, label, color=color)
+
                             # Mask plotting
                             if is_seg:
                                 annotator.masks(
@@ -238,13 +243,13 @@ def run(
                                     im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
                                     255 if retina_masks else im[i]
                                 )
-
+                                
                             if save_trajectories and tracking_method == 'strongsort':
                                 q = output[7]
                                 tracker_list[i].trajectory(im0, q, color=color)
                             if save_crop:
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
-                                save_one_box(bboxes, imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
+                                save_one_box(bbox.astype(np.int16), imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
                 
             else:
                 pass
@@ -280,7 +285,7 @@ def run(
             prev_frames[i] = curr_frames[i]
             
         # Print total time (preprocessing + inference + NMS + tracking)
-        LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{sum([dt.dt for dt in dt]) * 1E3:.1f}ms")
+        LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{sum([dt.dt for dt in dt if hasattr(dt, 'dt')]) * 1E3:.1f}ms")
 
     # Print results
     t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
