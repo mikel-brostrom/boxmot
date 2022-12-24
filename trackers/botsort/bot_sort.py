@@ -10,7 +10,7 @@ from trackers.botsort.kalman_filter import KalmanFilter
 
 # from fast_reid.fast_reid_interfece import FastReIDInterface
 
-from strong_sort.reid_multibackend import ReIDDetectMultiBackend
+from trackers.strong_sort.reid_multibackend import ReIDDetectMultiBackend
 from yolov5.utils.general import xyxy2xywh
 
 class STrack(BaseTrack):
@@ -321,12 +321,11 @@ class BoTSORT(object):
 
         ious_dists = matching.fuse_score(ious_dists, detections)
 
-        if self.with_reid:
-            emb_dists = matching.embedding_distance(strack_pool, detections) / 2.0
-            raw_emb_dists = emb_dists.copy()
-            emb_dists[emb_dists > self.appearance_thresh] = 1.0
-            emb_dists[ious_dists_mask] = 1.0
-            dists = np.minimum(ious_dists, emb_dists)
+        emb_dists = matching.embedding_distance(strack_pool, detections) / 2.0
+        raw_emb_dists = emb_dists.copy()
+        emb_dists[emb_dists > self.appearance_thresh] = 1.0
+        emb_dists[ious_dists_mask] = 1.0
+        dists = np.minimum(ious_dists, emb_dists)
 
             # Popular ReID method (JDE / FairMOT)
             # raw_emb_dists = matching.embedding_distance(strack_pool, detections)
@@ -336,9 +335,7 @@ class BoTSORT(object):
             # IoU making ReID
             # dists = matching.embedding_distance(strack_pool, detections)
             # dists[ious_dists_mask] = 1.0
-        else:
-            dists = ious_dists
-
+    
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
 
         for itracked, idet in matches:
@@ -398,15 +395,13 @@ class BoTSORT(object):
         
         ious_dists = matching.fuse_score(ious_dists, detections)
 
-        if self.with_reid:
-            emb_dists = matching.embedding_distance(unconfirmed, detections) / 2.0
-            raw_emb_dists = emb_dists.copy()
-            emb_dists[emb_dists > self.appearance_thresh] = 1.0
-            emb_dists[ious_dists_mask] = 1.0
-            dists = np.minimum(ious_dists, emb_dists)
-        else:
-            dists = ious_dists
-
+    
+        emb_dists = matching.embedding_distance(unconfirmed, detections) / 2.0
+        raw_emb_dists = emb_dists.copy()
+        emb_dists[emb_dists > self.appearance_thresh] = 1.0
+        emb_dists[ious_dists_mask] = 1.0
+        dists = np.minimum(ious_dists, emb_dists)
+    
         matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
         for itracked, idet in matches:
             unconfirmed[itracked].update(detections[idet], self.frame_id)
