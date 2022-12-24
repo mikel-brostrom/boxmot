@@ -3,8 +3,11 @@ import scipy
 import lap
 from scipy.spatial.distance import cdist
 
-from cython_bbox import bbox_overlaps as bbox_ious
 from trackers.botsort import kalman_filter
+
+import pyximport
+pyximport.install(setup_args={"script_args" : ["--verbose"]})
+from trackers.botsort.c_bbox import bbox_overlaps as bbox_ious
 
 def merge_matches(m1, m2, shape):
     O,P,Q = shape

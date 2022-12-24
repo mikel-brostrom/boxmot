@@ -213,7 +213,7 @@ def run(
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
                     for j, (output) in enumerate(outputs[i]):
-    
+                        
                         bbox = output[0:4]
                         id = output[4]
                         cls = output[5]
