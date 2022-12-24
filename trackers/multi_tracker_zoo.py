@@ -46,9 +46,14 @@ def create_tracker(tracker_type, appearance_descriptor_weights, device, half):
             appearance_descriptor_weights,
             device,
             half,
-            track_thresh=0.6,
-            track_buffer=30,
-            match_thresh=0.8,
+            track_high_thresh = 0.6,
+            track_low_thresh= 0.1,
+            new_track_thresh= 0.7,
+            track_buffer = 30,
+            match_thresh= 0.8,
+            proximity_thresh= 0.5,
+            appearance_thresh= 0.25,
+            cmc_method = 'orb',
             frame_rate=30
         )
         return bytetracker
