@@ -20,3 +20,5 @@ val_utils/
 *.pt
 *.onnx
 *.engine
+*.pyd
+*.c

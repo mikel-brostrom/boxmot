@@ -173,7 +173,7 @@ class BYTETracker(object):
         removed_stracks = []
 
         xyxys = dets[:, 0:4]
-        xywh = xyxy2xywh(xyxys)
+        xywh = xyxy2xywh(xyxys.numpy())
         confs = dets[:, 4]
         clss = dets[:, 5]
         
@@ -199,7 +199,8 @@ class BYTETracker(object):
 
         if len(dets) > 0:
             '''Detections'''
-            detections = [STrack(xyxy, s, c) for (xyxy, s, c) in zip(dets, scores_keep, clss_keep)]
+            detections = [STrack(xyxy, s, c) for 
+                (xyxy, s, c) in zip(dets, scores_keep, clss_keep)]
         else:
             detections = []
 

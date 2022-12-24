@@ -11,18 +11,22 @@ from trackers.botsort.kalman_filter import KalmanFilter
 # from fast_reid.fast_reid_interfece import FastReIDInterface
 
 from trackers.strong_sort.reid_multibackend import ReIDDetectMultiBackend
-from yolov5.utils.general import xyxy2xywh
+from yolov5.utils.general import xyxy2xywh, xywh2xyxy
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
 
-    def __init__(self, tlwh, score, feat=None, feat_history=50):
+    def __init__(self, tlwh, score, cls, feat=None, feat_history=50):
 
         # wait activate
         self._tlwh = np.asarray(tlwh, dtype=np.float)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
+
+        self.cls = -1
+        self.cls_hist = []  # (cls id, freq)
+        self.update_cls(cls, score)
 
         self.score = score
         self.tracklet_len = 0
@@ -43,6 +47,25 @@ class STrack(BaseTrack):
             self.smooth_feat = self.alpha * self.smooth_feat + (1 - self.alpha) * feat
         self.features.append(feat)
         self.smooth_feat /= np.linalg.norm(self.smooth_feat)
+
+    def update_cls(self, cls, score):
+        if len(self.cls_hist) > 0:
+            max_freq = 0
+            found = False
+            for c in self.cls_hist:
+                if cls == c[0]:
+                    c[1] += score
+                    found = True
+
+                if c[1] > max_freq:
+                    max_freq = c[1]
+                    self.cls = c[0]
+            if not found:
+                self.cls_hist.append([cls, score])
+                self.cls = cls
+        else:
+            self.cls_hist.append([cls, score])
+            self.cls = cls
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -111,6 +134,8 @@ class STrack(BaseTrack):
             self.track_id = self.next_id()
         self.score = new_track.score
 
+        self.update_cls(new_track.cls, new_track.score)
+
     def update(self, new_track, frame_id):
         """
         Update a matched track
@@ -133,6 +158,7 @@ class STrack(BaseTrack):
         self.is_activated = True
 
         self.score = new_track.score
+        self.update_cls(new_track.cls, new_track.score)
 
     @property
     def tlwh(self):
@@ -206,8 +232,7 @@ class BoTSORT(object):
                 model_weights,
                 device,
                 fp16,
-                track_high_thresh:float = 0.6,
-                track_low_thresh:float = 0.1,
+                track_high_thresh:float = 0.5,
                 new_track_thresh:float = 0.7,
                 track_buffer:int = 30,
                 match_thresh:float = 0.8,
@@ -225,7 +250,6 @@ class BoTSORT(object):
         self.frame_id = 0
 
         self.track_high_thresh = track_high_thresh
-        self.track_low_thresh = track_low_thresh
         self.new_track_thresh = new_track_thresh
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
@@ -247,51 +271,41 @@ class BoTSORT(object):
         refind_stracks = []
         lost_stracks = []
         removed_stracks = []
+        
+        xyxys = output_results[:, 0:4]
+        xywh = xyxy2xywh(xyxys.numpy())
+        confs = output_results[:, 4]
+        clss = output_results[:, 5]
+        
+        classes = clss.numpy()
+        xyxys = xyxys.numpy()
+        confs = confs.numpy()
 
-        if len(output_results):
-            if output_results.shape[1] == 5:
-                scores = output_results[:, 4]
-                bboxes = output_results[:, :4]
-                classes = output_results[:, -1]
-            else:
-                scores = output_results[:, 4] * output_results[:, 5]
-                bboxes = output_results[:, :4]  # x1y1x2y2
-                classes = output_results[:, -1]
+        remain_inds = confs > self.track_high_thresh
+        inds_low = confs > 0.1
+        inds_high = confs < self.track_high_thresh
 
-            scores = scores.numpy()
-            bboxes = xyxy2xywh(bboxes.numpy())
-            self.height, self.width = img.shape[:2]
+        inds_second = np.logical_and(inds_low, inds_high)
+        
+        dets_second = xywh[inds_second]
+        dets = xywh[remain_inds]
+        
+        scores_keep = confs[remain_inds]
+        scores_second = confs[inds_second]
+        
+        classes_keep = classes[remain_inds]
+        clss_second = classes[inds_second]
 
-            # Remove bad detections
-            lowest_inds = scores > self.track_low_thresh
-            bboxes = bboxes[lowest_inds]
-            scores = scores[lowest_inds]
-            classes = classes[lowest_inds]
-
-            # Find high threshold detections
-            remain_inds = scores > self.track_high_thresh
-            dets = bboxes[remain_inds]
-            scores_keep = scores[remain_inds]
-            classes_keep = classes[remain_inds]
-
-        else:
-            bboxes = []
-            scores = []
-            classes = []
-            dets = []
-            scores_keep = []
-            classes_keep = []
+        self.height, self.width = img.shape[:2]
 
         '''Extract embeddings '''
-        
         features_keep = self._get_features(dets, img)
 
         if len(dets) > 0:
             '''Detections'''
             
-            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s, f) for
-                            (tlbr, s, f) in zip(dets, scores_keep, features_keep)]
-    
+            detections = [STrack(xyxy, s, c, f.cpu().numpy()) for
+                              (xyxy, s, c, f) in zip(dets, scores_keep, classes_keep, features_keep)]
         else:
             detections = []
 
@@ -349,23 +363,23 @@ class BoTSORT(object):
                 refind_stracks.append(track)
 
         ''' Step 3: Second association, with low score detection boxes'''
-        if len(scores):
-            inds_high = scores < self.track_high_thresh
-            inds_low = scores > self.track_low_thresh
-            inds_second = np.logical_and(inds_low, inds_high)
-            dets_second = bboxes[inds_second]
-            scores_second = scores[inds_second]
-            classes_second = classes[inds_second]
-        else:
-            dets_second = []
-            scores_second = []
-            classes_second = []
+        # if len(scores):
+        #     inds_high = scores < self.track_high_thresh
+        #     inds_low = scores > self.track_low_thresh
+        #     inds_second = np.logical_and(inds_low, inds_high)
+        #     dets_second = bboxes[inds_second]
+        #     scores_second = scores[inds_second]
+        #     classes_second = classes[inds_second]
+        # else:
+        #     dets_second = []
+        #     scores_second = []
+        #     classes_second = []
 
         # association the untrack to the low score detections
         if len(dets_second) > 0:
             '''Detections'''
-            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
-                                 (tlbr, s) in zip(dets_second, scores_second)]
+            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s, c) for
+                (tlbr, s, c) in zip(dets_second, scores_second, clss_second)]
         else:
             detections_second = []
 
@@ -437,10 +451,22 @@ class BoTSORT(object):
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
 
         # output_stracks = [track for track in self.tracked_stracks if track.is_activated]
-        output_stracks = [track for track in self.tracked_stracks]
+        output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+        outputs = []
+        for t in output_stracks:
+            output= []
+            tlwh = t.tlwh
+            tid = t.track_id
+            tlwh = np.expand_dims(tlwh, axis=0)
+            xyxy = xywh2xyxy(tlwh)
+            xyxy = np.squeeze(xyxy, axis=0)
+            output.extend(xyxy)
+            output.append(tid)
+            output.append(t.cls)
+            output.append(t.score)
+            outputs.append(output)
 
-
-        return output_stracks
+        return outputs
 
     def _xywh_to_xyxy(self, bbox_xywh):
         x, y, w, h = bbox_xywh
