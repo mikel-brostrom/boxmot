@@ -42,20 +42,20 @@ def create_tracker(tracker_type, appearance_descriptor_weights, device, half):
         return bytetracker
     
     elif tracker_type == 'botsort':
-        bytetracker = BoTSORT(
+        botsort = BoTSORT(
             appearance_descriptor_weights,
             device,
             half,
             track_high_thresh = 0.45,
-            new_track_thresh= 0.5,
+            new_track_thresh= 0.6,
             track_buffer = 30,
-            match_thresh= 0.7,
+            match_thresh= 0.8,
             proximity_thresh= 0.5,
             appearance_thresh= 0.25,
             cmc_method = 'sparseOptFlow',
             frame_rate=30
         )
-        return bytetracker
+        return botsort
     else:
         print('No such tracker')
         exit()
