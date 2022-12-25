@@ -232,13 +232,13 @@ class BoTSORT(object):
                 model_weights,
                 device,
                 fp16,
-                track_high_thresh:float = 0.5,
-                new_track_thresh:float = 0.7,
+                track_high_thresh:float = 0.45,
+                new_track_thresh:float = 0.6,
                 track_buffer:int = 30,
                 match_thresh:float = 0.8,
                 proximity_thresh:float = 0.5,
                 appearance_thresh:float = 0.25,
-                cmc_method:str = 'orb',
+                cmc_method:str = 'sparseOptFlow',
                 frame_rate=30
                 ):
 
@@ -325,9 +325,9 @@ class BoTSORT(object):
         STrack.multi_predict(strack_pool)
 
         # Fix camera motion
-        warp = self.gmc.apply(img, dets)
-        STrack.multi_gmc(strack_pool, warp)
-        STrack.multi_gmc(unconfirmed, warp)
+        #warp = self.gmc.apply(img, dets)
+        #STrack.multi_gmc(strack_pool, warp)
+        #STrack.multi_gmc(unconfirmed, warp)
 
         # Associate with high score detection boxes
         ious_dists = matching.iou_distance(strack_pool, detections)
