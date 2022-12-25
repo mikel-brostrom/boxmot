@@ -38,6 +38,14 @@ lap
 # OCSORT ----------------------------------------------------------------------
 filterpy
 
+# BoT-SORT --------------------------------------------------------------------
+lap
+easydict
+yacs
+termcolor
+loguru
+tabulate
+
 # Export ----------------------------------------------------------------------
 # onnx>=1.9.0  # ONNX export
 # onnx-simplifier>=0.4.1  # ONNX simplifier
