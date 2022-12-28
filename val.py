@@ -5,7 +5,10 @@ import logging
 import subprocess
 from subprocess import Popen
 import argparse
+from io import StringIO
 import git
+import re
+import pandas as pd
 from git import Repo
 import zipfile
 from pathlib import Path
@@ -99,7 +102,7 @@ def parse_opt():
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs/track', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--benchmark', type=str,  default='MOT17', help='MOT16, MOT17, MOT20')
+    parser.add_argument('--benchmark', type=str,  default='MOT17-copy', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
     parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
@@ -216,15 +219,28 @@ def main(opt):
         shutil.copyfile(src, dst)
 
     # run the evaluation on the generated txts
-    subprocess.run([
-        sys.executable,  val_tools_target_location / "scripts/run_mot_challenge.py",
-        "--BENCHMARK", opt.benchmark,
-        "--TRACKERS_TO_EVAL",  opt.eval_existing if opt.eval_existing else MOT_results_folder.parent.name,
-        "--SPLIT_TO_EVAL", "train",
-        "--METRICS", "HOTA", "CLEAR", "Identity",
-        "--USE_PARALLEL", "True",
-        "--NUM_PARALLEL_CORES", "4"
-    ])
+    p = subprocess.run(
+        args=[
+            sys.executable,  val_tools_target_location / "scripts/run_mot_challenge.py",
+            "--BENCHMARK", opt.benchmark,
+            "--TRACKERS_TO_EVAL",  opt.eval_existing if opt.eval_existing else MOT_results_folder.parent.name,
+            "--SPLIT_TO_EVAL", "train",
+            "--METRICS", "HOTA", "CLEAR", "Identity",
+            "--USE_PARALLEL", "True",
+            "--NUM_PARALLEL_CORES", "4"
+        ],
+        universal_newlines=True,
+        stdout=subprocess.PIPE
+    )
+    print(p.stdout)
+
+    # get HOTA, MOTA, IDF1, Dets COMBINED results
+    combined_results = p.stdout.split('COMBINED')[2:-1]
+    # robust way of getting first ints/float in string
+    combined_results = [re.findall("[-+]?(?:\d*\.*\d+)", f)[0] for f in combined_results]
+    # pack everything in dict
+    combined_results = {key: value for key, value in zip(['HOTA', 'MOTA', 'IDF1'], combined_results)}
+
     
 
 if __name__ == "__main__":
