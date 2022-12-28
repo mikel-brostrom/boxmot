@@ -133,6 +133,7 @@ class Objective:
     def __call__(self, trial):
         # Calculate an objective value by using the extra arguments.
         self.opt.conf_thres = trial.suggest_float("conf_thres", 0.3, 0.6)
+        self.opt.imgsz[0] = trial.suggest_categorical("imgsz", [320, 640, 1280])
         
         # download eval files
         val_tools_target_location = ROOT / 'val_utils'
@@ -251,12 +252,11 @@ class Objective:
 
 if __name__ == "__main__":
     opt = parse_opt()
-    #objective(opt)
     check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
     
     objective_num = 3
     study = optuna.create_study(directions=['maximize']*objective_num)
-    study.optimize(Objective(opt), n_trials=10)
+    study.optimize(Objective(opt), n_trials=20)
     fig = optuna.visualization.plot_pareto_front(study, target_names=["HOTA", "MOTA", "IDF1"])
     fig.show()
     fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[0], target_name="HOTA")
