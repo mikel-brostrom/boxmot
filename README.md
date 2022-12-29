@@ -200,6 +200,19 @@ python track.py --source ... --save-txt
 
 </details>
 
+<details>
+<summary>Genetic tracker hyperparameter evolution</summary>
+
+We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. Run it by
+
+```bash
+$ python val.py --benchmark MOT17 --evolve --n-trials 100  # tune for MOT17
+                --benchmark <your-custom-dataset>          # tune for your custom tracking dataset
+
+```
+
+</details>
+
 ## Contact 
 
 For Yolov5 StrongSORT OSNet bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues). 
