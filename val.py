@@ -264,7 +264,7 @@ class Objective(Evaluator):
                 
     def get_new_config(self, trial):
         
-        d = {self.opt.tracking_method: None}
+        d = {}
                 
         if self.opt.tracking_method == 'strongsort':
             
@@ -318,13 +318,13 @@ class Objective(Evaluator):
             d['OCSORT'] = \
                 {
                     'DET_THRESH': self.opt.conf_thres,
-                    'MAX_AGE': max_age
-                    'MIN_HITS': min_hits
+                    'MAX_AGE': max_age,
+                    'MIN_HITS': min_hits,
                     'IOU_THRESH': iou_thresh,
-                    'DELTA_T': delta_t
-                    'ASSO_FUNC': asso_func
-                    'INERTIA': inertia
-                    'USE_BYTE': use_byte
+                    'DELTA_T': delta_t,
+                    'ASSO_FUNC': asso_func,
+                    'INERTIA': inertia,
+                    'USE_BYTE': use_byte,
                 }
                 
         with open(self.opt.tracking_config, 'w') as f:
