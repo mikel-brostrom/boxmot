@@ -37,10 +37,10 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
     
     elif tracker_type == 'bytetrack':
         bytetracker = BYTETracker(
-            track_thresh=0.6,
-            track_buffer=30,
-            match_thresh=0.8,
-            frame_rate=30
+            track_thresh=cfg.BYTETRACK.TRACK_TRESH,
+            track_buffer=cfg.BYTETRACK.TRACK_BUFFER,
+            match_thresh=cfg.BYTETRACK.MATCH_THRESH,
+            frame_rate=cfg.BYTETRACK.FRAME_RATE
         )
         return bytetracker
     else:
