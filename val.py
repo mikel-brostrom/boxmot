@@ -7,6 +7,7 @@ from subprocess import Popen
 import argparse
 from io import StringIO
 import git
+import yaml
 import optuna
 import re
 import pandas as pd
@@ -100,10 +101,11 @@ def parse_opt():
     parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
+    parser.add_argument('--tracking-config', type=Path, default=None)
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs/track', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--benchmark', type=str,  default='MOT17-copy', help='MOT16, MOT17, MOT20')
+    parser.add_argument('--benchmark', type=str,  default='MOT17', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
     parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
@@ -112,6 +114,8 @@ def parse_opt():
     parser.add_argument('--processes-per-device', type=int, default=2, help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
     
     opt = parser.parse_args()
+    opt.tracking_config = ROOT / 'trackers' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
+
     device = []
     
     for a in opt.device.split(','):
@@ -128,12 +132,70 @@ def parse_opt():
 
 class Objective:
     def __init__(self, opts):  
-        self.opt = opts  
+        self.opt = opts
+                
+    def get_new_config(self, trial):
+        
+        d = {self.opt.tracking_method: None}
+                
+        if self.opt.tracking_method == 'strongsort':
+            
+            self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
+            self.iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
+            self.ecc = trial.suggest_categorical("ecc", [True, False])
+            self.ema_alpha = trial.suggest_float("ema_alpha", 0.7, 0.95)
+            self.max_dist = trial.suggest_float("max_dist", 0.1, 0.4)
+            self.max_iou_dist = trial.suggest_float("max_iou_dist", 0.5, 0.9)
+            self.max_age = trial.suggest_int("max_age", 10, 200, step=10)
+            self.n_init = trial.suggest_int("n_init", 1, 3, step=1)
+
+            d['STRONGSORT'] = \
+                {
+                    'ECC': self.ecc,
+                    'MC_LAMBDA': 0.995,
+                    'EMA_ALPHA': self.ema_alpha,
+                    'MAX_DIST':  self.max_dist,
+                    'MAX_IOU_DISTANCE': self.max_iou_dist,
+                    'MAX_UNMATCHED_PREDS': 0,
+                    'MAX_AGE': self.max_age,
+                    'N_INIT': self.n_init,
+                    'NN_BUDGET': 100
+                }
+                
+        elif self.opt.tracking_method == 'bytetrack':
+            
+            self.opt.track_thres = trial.suggest_float("track_thres", 0.35, 0.55)
+            self.track_buffer = trial.suggest_float("track_buffer", 10, 60, step=10)
+            self.match_thresh = trial.suggest_float("match_thresh", 0.7, 0.9)
+            
+            d['BYTETRACK'] = \
+                {
+                    'TRACK_THRESH': self.opt.conf_thres,
+                    'TRACK_BUFFER': self.track_buffer,
+                    'MATCH_THRESH': self.match_thresh,
+                    'FRAME_RATE': 30
+                }
+                
+        elif self.opt.tracking_method == 'ocsort':
+            
+            self.opt.conf_thres = trial.suggest_float("conf_thres", 0.4, 0.5)
+            self.iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
+            self.use_byte = trial.suggest_categorical("use_byte", [True, False])
+            
+            d['OCSORT'] = \
+                {
+                    'DET_THRESH': self.opt.conf_thres,
+                    'IOU_THRESH': self.iou_thresh,
+                    'USE_BYTE': self.use_byte
+                }
+                
+        with open(self.opt.tracking_config, 'w') as f:
+            data = yaml.dump(d, f)   
     
     def __call__(self, trial):
+        
         # Calculate an objective value by using the extra arguments.
-        self.opt.conf_thres = trial.suggest_float("conf_thres", 0.3, 0.6)
-        self.opt.imgsz[0] = trial.suggest_categorical("imgsz", [320, 640, 1280])
+        self.get_new_config(trial)
         
         # download eval files
         val_tools_target_location = ROOT / 'val_utils'
@@ -247,6 +309,7 @@ class Objective:
         combined_results = [re.findall("[-+]?(?:\d*\.*\d+)", f)[0] for f in combined_results]
         # pack everything in dict
         combined_results = {key: float(value) for key, value in zip(['HOTA', 'MOTA', 'IDF1'], combined_results)}
+        print(combined_results)
         return combined_results['HOTA'], combined_results['MOTA'], combined_results['IDF1']
     
 
@@ -256,8 +319,14 @@ if __name__ == "__main__":
     
     objective_num = 3
     study = optuna.create_study(directions=['maximize']*objective_num)
-    study.optimize(Objective(opt), n_trials=20)
+    study.optimize(Objective(opt), n_trials=100)
     fig = optuna.visualization.plot_pareto_front(study, target_names=["HOTA", "MOTA", "IDF1"])
     fig.show()
+    fig.write_image("pareto_front.png")
     fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[0], target_name="HOTA")
     fig.show()
+    fig.write_image("param_importances.png")
+    trial = study.best_trial
+
+    print('Accuracy: {}'.format(trial.value))
+    print("Best hyperparameters: {}".format(trial.params))
