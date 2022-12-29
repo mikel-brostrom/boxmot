@@ -45,7 +45,7 @@ def parse_opt():
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs/track', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--benchmark', type=str,  default='MOT17-copy', help='MOT16, MOT17, MOT20')
+    parser.add_argument('--benchmark', type=str,  default='MOT17', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
     parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
@@ -306,7 +306,7 @@ class Objective(Evaluator):
                 
         elif self.opt.tracking_method == 'ocsort':
             
-            self.opt.conf_thres = trial.suggest_float("conf_thres", 0.4, 0.5)
+            self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
             self.iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
             self.use_byte = trial.suggest_categorical("use_byte", [True, False])
             
