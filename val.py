@@ -299,8 +299,8 @@ class Objective(Evaluator):
             d['BYTETRACK'] = \
                 {
                     'TRACK_THRESH': self.opt.conf_thres,
-                    'TRACK_BUFFER': track_buffer,
                     'MATCH_THRESH': match_thresh,
+                    'TRACK_BUFFER': track_buffer,
                     'FRAME_RATE': 30
                 }
                 
