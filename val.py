@@ -293,7 +293,7 @@ class Objective(Evaluator):
         elif self.opt.tracking_method == 'bytetrack':
             
             self.opt.track_thres = trial.suggest_float("track_thres", 0.35, 0.55)
-            self.track_buffer = trial.suggest_float("track_buffer", 10, 60, step=10)
+            self.track_buffer = trial.suggest_int("track_buffer", 10, 60, step=10)
             self.match_thresh = trial.suggest_float("match_thresh", 0.7, 0.9)
             
             d['BYTETRACK'] = \
@@ -348,6 +348,7 @@ if __name__ == "__main__":
         e.run(opt)
     else:
         objective_num = 3
+        # A fast and elitist multiobjective genetic algorithm: NSGA-II
         # https://ieeexplore.ieee.org/document/996017
         study = optuna.create_study(directions=['maximize']*objective_num)
         study.optimize(Objective(opt, e), n_trials=opt.n_trials)
@@ -365,7 +366,7 @@ if __name__ == "__main__":
         print(f"\tparams: {trial_with_highest_HOTA.params}")
         print(f"\tvalues: {trial_with_highest_HOTA.values}")
         trial_with_highest_MOTA = max(study.best_trials, key=lambda t: t.values[1])
-        print(f"Trial with highest HOTA: ")
+        print(f"Trial with highest MOTA: ")
         print(f"\tnumber: {trial_with_highest_MOTA.number}")
         print(f"\tparams: {trial_with_highest_MOTA.params}")
         print(f"\tvalues: {trial_with_highest_MOTA.values}")
