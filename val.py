@@ -308,11 +308,11 @@ class Objective(Evaluator):
             
             self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
             max_age = trial.suggest_int("max_age", 10, 60, step=10)
-            min_hits = trial.suggest_int("min_hits", 1, 65, step=1)
+            min_hits = trial.suggest_int("min_hits", 1, 5, step=1)
             iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
             delta_t = trial.suggest_int("delta_t", 1, 5, step=1)
             asso_func = trial.suggest_categorical("asso_func", ['iou', 'giou'])
-            inertia = trial.suggest_float("inertia", 0.1, 0.4, step=0.1)
+            inertia = trial.suggest_float("inertia", 0.1, 0.4)
             use_byte = trial.suggest_categorical("use_byte", [True, False])
             
             d['OCSORT'] = \
