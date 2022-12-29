@@ -293,7 +293,7 @@ class Objective(Evaluator):
         elif self.opt.tracking_method == 'bytetrack':
             
             self.opt.track_thres = trial.suggest_float("track_thres", 0.35, 0.55)
-            track_buffer = trial.suggest_int("track_buffer", 10, 60, step=10)
+            track_buffer = trial.suggest_int("track_buffer", 10, 60, step=10)  
             match_thresh = trial.suggest_float("match_thresh", 0.7, 0.9)
             
             d['BYTETRACK'] = \
