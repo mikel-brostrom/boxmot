@@ -269,52 +269,62 @@ class Objective(Evaluator):
         if self.opt.tracking_method == 'strongsort':
             
             self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
-            self.iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
-            self.ecc = trial.suggest_categorical("ecc", [True, False])
-            self.ema_alpha = trial.suggest_float("ema_alpha", 0.7, 0.95)
-            self.max_dist = trial.suggest_float("max_dist", 0.1, 0.4)
-            self.max_iou_dist = trial.suggest_float("max_iou_dist", 0.5, 0.9)
-            self.max_age = trial.suggest_int("max_age", 10, 200, step=10)
-            self.n_init = trial.suggest_int("n_init", 1, 3, step=1)
+            iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
+            ecc = trial.suggest_categorical("ecc", [True, False])
+            ema_alpha = trial.suggest_float("ema_alpha", 0.7, 0.95)
+            max_dist = trial.suggest_float("max_dist", 0.1, 0.4)
+            max_iou_dist = trial.suggest_float("max_iou_dist", 0.5, 0.9)
+            max_age = trial.suggest_int("max_age", 10, 200, step=10)
+            n_init = trial.suggest_int("n_init", 1, 3, step=1)
 
             d['STRONGSORT'] = \
                 {
-                    'ECC': self.ecc,
+                    'ECC': ecc,
                     'MC_LAMBDA': 0.995,
-                    'EMA_ALPHA': self.ema_alpha,
-                    'MAX_DIST':  self.max_dist,
-                    'MAX_IOU_DISTANCE': self.max_iou_dist,
+                    'EMA_ALPHA': ema_alpha,
+                    'MAX_DIST':  max_dist,
+                    'MAX_IOU_DISTANCE': max_iou_dist,
                     'MAX_UNMATCHED_PREDS': 0,
-                    'MAX_AGE': self.max_age,
-                    'N_INIT': self.n_init,
+                    'MAX_AGE': max_age,
+                    'N_INIT': n_init,
                     'NN_BUDGET': 100
                 }
                 
         elif self.opt.tracking_method == 'bytetrack':
             
             self.opt.track_thres = trial.suggest_float("track_thres", 0.35, 0.55)
-            self.track_buffer = trial.suggest_int("track_buffer", 10, 60, step=10)
-            self.match_thresh = trial.suggest_float("match_thresh", 0.7, 0.9)
+            track_buffer = trial.suggest_int("track_buffer", 10, 60, step=10)
+            match_thresh = trial.suggest_float("match_thresh", 0.7, 0.9)
             
             d['BYTETRACK'] = \
                 {
                     'TRACK_THRESH': self.opt.conf_thres,
-                    'TRACK_BUFFER': self.track_buffer,
-                    'MATCH_THRESH': self.match_thresh,
+                    'TRACK_BUFFER': track_buffer,
+                    'MATCH_THRESH': match_thresh,
                     'FRAME_RATE': 30
                 }
                 
         elif self.opt.tracking_method == 'ocsort':
             
             self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
-            self.iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
-            self.use_byte = trial.suggest_categorical("use_byte", [True, False])
+            max_age = trial.suggest_int("max_age", 10, 60, step=10)
+            min_hits = trial.suggest_int("min_hits", 1, 65, step=1)
+            iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
+            delta_t = trial.suggest_int("delta_t", 1, 5, step=1)
+            asso_func = trial.suggest_categorical("asso_func", ['iou', 'giou'])
+            inertia = trial.suggest_float("inertia", 0.1, 0.4, step=0.1)
+            use_byte = trial.suggest_categorical("use_byte", [True, False])
             
             d['OCSORT'] = \
                 {
                     'DET_THRESH': self.opt.conf_thres,
-                    'IOU_THRESH': self.iou_thresh,
-                    'USE_BYTE': self.use_byte
+                    'MAX_AGE': max_age
+                    'MIN_HITS': min_hits
+                    'IOU_THRESH': iou_thresh,
+                    'DELTA_T': delta_t
+                    'ASSO_FUNC': asso_func
+                    'INERTIA': inertia
+                    'USE_BYTE': use_byte
                 }
                 
         with open(self.opt.tracking_config, 'w') as f:
