@@ -340,7 +340,7 @@ class Objective(Evaluator):
         val_tools_target_location = ROOT / 'val_utils'
         results= self.run(opt)
         
-        # get HOTA, MOTA, IDF1, Dets COMBINED results
+        # get HOTA, MOTA, IDF1 COMBINED results
         combined_results = results.split('COMBINED')[2:-1]
         # robust way of getting first ints/float in string
         combined_results = [re.findall("[-+]?(?:\d*\.*\d+)", f)[0] for f in combined_results]
@@ -367,7 +367,11 @@ if __name__ == "__main__":
         fig.write_image("pareto_front_" + opt.tracking_method + ".png")
         if not opt.n_trials <= 1:
             fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[0], target_name="HOTA")
-            fig.write_image("param_importances_" + opt.tracking_method + ".png")
+            fig.write_image("HOTA_param_importances_" + opt.tracking_method + ".png")
+            fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[1], target_name="MOTA")
+            fig.write_image("MOTA_param_importances_" + opt.tracking_method + ".png")
+            fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[2], target_name="IDF1")
+            fig.write_image("IDF1_param_importances_" + opt.tracking_method + ".png")
             
         print(f"Number of trials on the Pareto front: {len(study.best_trials)}")
         trial_with_highest_HOTA = max(study.best_trials, key=lambda t: t.values[0])
