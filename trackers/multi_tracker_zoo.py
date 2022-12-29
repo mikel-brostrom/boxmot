@@ -30,7 +30,12 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
     elif tracker_type == 'ocsort':
         ocsort = OCSort(
             det_thresh=cfg.OCSORT.DET_THRESH,
+            max_age=cfg.OCSORT.MAX_AGE,
+            min_hits=cfg.OCSORT.MIN_HITS,
             iou_threshold=cfg.OCSORT.IOU_THRESH,
+            delta_t=cfg.OCSORT.DELTA_T,
+            asso_func=cfg.OCSORT.ASSO_FUNC,
+            inertia=cfg.OCSORT.INERTIA,
             use_byte=cfg.OCSORT.USE_BYTE,
         )
         return ocsort
