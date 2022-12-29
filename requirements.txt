@@ -48,3 +48,4 @@ filterpy
 # Hyperparam search -----------------------------------------------------------
 #optuna
 #plotly
+#kaleido
