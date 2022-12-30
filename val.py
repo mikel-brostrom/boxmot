@@ -351,7 +351,7 @@ class Objective(Evaluator):
         return combined_results['HOTA'], combined_results['MOTA'], combined_results['IDF1']
     
 
-def print_trails_result(study):
+def print_trials_result(study):
     print(f"Number of trials on the Pareto front: {len(study.best_trials)}")
     trial_with_highest_HOTA = max(study.best_trials, key=lambda t: t.values[0])
     print(f"Trial with highest HOTA: ")
@@ -403,5 +403,5 @@ if __name__ == "__main__":
         joblib.dump(study, opt.tracking_method + "_study.pkl")
         
         generate_plots(study, opt)
-        print_trails_result(study)
+        print_trials_result(study)
             
