@@ -21,7 +21,7 @@ class StrongSORT(object):
                  device,
                  fp16,
                  max_dist=0.2,
-                 max_iou_distance=0.7,
+                 max_iou_dist=0.7,
                  max_age=70,
                  max_unmatched_preds=7,
                  n_init=3,
