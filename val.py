@@ -278,18 +278,21 @@ class Objective(Evaluator):
             max_iou_dist = trial.suggest_float("max_iou_dist", 0.5, 0.9)
             max_age = trial.suggest_int("max_age", 10, 200, step=10)
             n_init = trial.suggest_int("n_init", 1, 3, step=1)
+            mc_lambda = trial.suggest_categorical("mc_lambda", [0.995])
+            nn_budget = trial.suggest_categorical("nn_budget", [100])
+            max_unmatched_preds = trial.suggest_categorical("max_unmatched_preds", [0])
 
-            d['STRONGSORT'] = \
+            d['strongsort'] = \
                 {
-                    'ECC': ecc,
-                    'MC_LAMBDA': 0.995,
-                    'EMA_ALPHA': ema_alpha,
-                    'MAX_DIST':  max_dist,
-                    'MAX_IOU_DISTANCE': max_iou_dist,
-                    'MAX_UNMATCHED_PREDS': 0,
-                    'MAX_AGE': max_age,
-                    'N_INIT': n_init,
-                    'NN_BUDGET': 100
+                    'ecc': ecc,
+                    'mc_lambda': mc_lambda,
+                    'ema_alpha': ema_alpha,
+                    'max_dist':  max_dist,
+                    'max_iou_dist': max_iou_dist,
+                    'max_unmatched_preds': max_unmatched_preds,
+                    'max_age': max_age,
+                    'n_init': n_init,
+                    'nn_budget': nn_budget
                 }
                 
         elif self.opt.tracking_method == 'bytetrack':
@@ -298,12 +301,12 @@ class Objective(Evaluator):
             track_buffer = trial.suggest_int("track_buffer", 10, 60, step=10)  
             match_thresh = trial.suggest_float("match_thresh", 0.7, 0.9)
             
-            d['BYTETRACK'] = \
+            d['bytetrack'] = \
                 {
-                    'TRACK_THRESH': self.opt.conf_thres,
-                    'MATCH_THRESH': match_thresh,
-                    'TRACK_BUFFER': track_buffer,
-                    'FRAME_RATE': 30
+                    'track_thresh': self.opt.conf_thres,
+                    'match_thresh': match_thresh,
+                    'track_buffer': track_buffer,
+                    'frame_rate': 30
                 }
                 
         elif self.opt.tracking_method == 'ocsort':
@@ -317,16 +320,16 @@ class Objective(Evaluator):
             inertia = trial.suggest_float("inertia", 0.1, 0.4)
             use_byte = trial.suggest_categorical("use_byte", [True, False])
             
-            d['OCSORT'] = \
+            d['ocsort'] = \
                 {
-                    'DET_THRESH': self.opt.conf_thres,
-                    'MAX_AGE': max_age,
-                    'MIN_HITS': min_hits,
-                    'IOU_THRESH': iou_thresh,
-                    'DELTA_T': delta_t,
-                    'ASSO_FUNC': asso_func,
-                    'INERTIA': inertia,
-                    'USE_BYTE': use_byte,
+                    'det_thresh': self.opt.conf_thres,
+                    'max_age': max_age,
+                    'min_hits': min_hits,
+                    'iou_thresh': iou_thresh,
+                    'delta_t': delta_t,
+                    'asso_func': asso_func,
+                    'inertia': inertia,
+                    'use_byte': use_byte,
                 }
                 
         with open(self.opt.tracking_config, 'w') as f:
