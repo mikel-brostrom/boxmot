@@ -3,12 +3,12 @@
 #        params: {'conf_thres': 0.509976968959466, 'max_age': 50, 'min_hits': 1, 'iou_thresh': 0.2110948468787117, 'delta_t': 2, 'asso_func': 'iou', 'inertia': 0.13896227093446162, 'use_byte': True}
 #        values: [55.415, 64.386, 69.839]
 
-OCSORT:
-  ASSO_FUNC: iou
-  DELTA_T: 2
-  DET_THRESH: 0.509976968959466
-  INERTIA: 0.13896227093446162
-  IOU_THRESH: 0.2110948468787117
-  MAX_AGE: 50
-  MIN_HITS: 1
-  USE_BYTE: True
+ocsort:
+  asso_func: iou
+  delta_t: 2
+  det_thresh: 0.509976968959466
+  inertia: 0.13896227093446162
+  iou_thresh: 0.2110948468787117
+  max_age: 50
+  min_hits: 1
+  use_byte: True

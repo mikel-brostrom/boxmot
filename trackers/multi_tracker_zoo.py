@@ -15,37 +15,37 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
             reid_weights,
             device,
             half,
-            max_dist=cfg.STRONGSORT.MAX_DIST,
-            max_iou_distance=cfg.STRONGSORT.MAX_IOU_DISTANCE,
-            max_age=cfg.STRONGSORT.MAX_AGE,
-            max_unmatched_preds=cfg.STRONGSORT.MAX_UNMATCHED_PREDS,
-            n_init=cfg.STRONGSORT.N_INIT,
-            nn_budget=cfg.STRONGSORT.NN_BUDGET,
-            mc_lambda=cfg.STRONGSORT.MC_LAMBDA,
-            ema_alpha=cfg.STRONGSORT.EMA_ALPHA,
+            max_dist=cfg.strongsort.max_dist,
+            max_iou_dist=cfg.strongsort.max_iou_dist,
+            max_age=cfg.strongsort.max_age,
+            max_unmatched_preds=cfg.strongsort.max_unmatched_preds,
+            n_init=cfg.strongsort.n_init,
+            nn_budget=cfg.strongsort.nn_budget,
+            mc_lambda=cfg.strongsort.mc_lambda,
+            ema_alpha=cfg.strongsort.ema_alpha,
 
         )
         return strongsort
     
     elif tracker_type == 'ocsort':
         ocsort = OCSort(
-            det_thresh=cfg.OCSORT.DET_THRESH,
-            max_age=cfg.OCSORT.MAX_AGE,
-            min_hits=cfg.OCSORT.MIN_HITS,
-            iou_threshold=cfg.OCSORT.IOU_THRESH,
-            delta_t=cfg.OCSORT.DELTA_T,
-            asso_func=cfg.OCSORT.ASSO_FUNC,
-            inertia=cfg.OCSORT.INERTIA,
-            use_byte=cfg.OCSORT.USE_BYTE,
+            det_thresh=cfg.ocsort.det_thresh,
+            max_age=cfg.ocsort.max_age,
+            min_hits=cfg.ocsort.min_hits,
+            iou_threshold=cfg.ocsort.iou_thresh,
+            delta_t=cfg.ocsort.delta_t,
+            asso_func=cfg.ocsort.asso_func,
+            inertia=cfg.ocsort.inertia,
+            use_byte=cfg.ocsort.use_byte,
         )
         return ocsort
     
     elif tracker_type == 'bytetrack':
         bytetracker = BYTETracker(
-            track_thresh=cfg.BYTETRACK.TRACK_TRESH,
-            match_thresh=cfg.BYTETRACK.MATCH_THRESH,
-            track_buffer=cfg.BYTETRACK.TRACK_BUFFER,
-            frame_rate=cfg.BYTETRACK.FRAME_RATE
+            track_thresh=cfg.bytetrack.track_thresh,
+            match_thresh=cfg.bytetrack.match_thresh,
+            track_buffer=cfg.bytetrack.track_buffer,
+            frame_rate=cfg.bytetrack.frame_rate
         )
         return bytetracker
     else:
