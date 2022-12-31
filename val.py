@@ -351,7 +351,7 @@ class Objective(Evaluator):
         return combined_results['HOTA'], combined_results['MOTA'], combined_results['IDF1']
     
 
-def print_trials_result(study):
+def print_best_trial_metric_results(study):
     print(f"Number of trials on the Pareto front: {len(study.best_trials)}")
     trial_with_highest_HOTA = max(study.best_trials, key=lambda t: t.values[0])
     print(f"Trial with highest HOTA: ")
@@ -370,10 +370,10 @@ def print_trials_result(study):
     print(f"\tvalues: {trial_with_highest_IDF1.values}")
     
     
-def generate_plots(study, opt):
+def save_plots(study, opt):
     fig = optuna.visualization.plot_pareto_front(study, target_names=["HOTA", "MOTA", "IDF1"])
     fig.write_html("pareto_front_" + opt.tracking_method + ".html")
-    if not opt.n_trials <= 1:  # more than one trail needed for parameter importance 
+    if not opt.n_trials <= 1:  # more than one trial needed for parameter importance 
         fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[0], target_name="HOTA")
         fig.write_html("HOTA_param_importances_" + opt.tracking_method + ".html")
         fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[1], target_name="MOTA")
@@ -391,17 +391,18 @@ if __name__ == "__main__":
     else:
         objective_num = 3
         if opt.resume:
+            # resume from last saved study
             study = joblib.load(opt.tracking_method + "_study.pkl")
         else:
             # A fast and elitist multiobjective genetic algorithm: NSGA-II
             # https://ieeexplore.ieee.org/document/996017
             study = optuna.create_study(directions=['maximize']*objective_num)
-            
+
         study.optimize(Objective(opt, e), n_trials=opt.n_trials)
         
-        # save hps results
+        # save hps study, all trial results are stored here, used for resuming
         joblib.dump(study, opt.tracking_method + "_study.pkl")
         
-        generate_plots(study, opt)
-        print_trials_result(study)
+        save_plots(study, opt)
+        print_best_trial_metric_results(study)
             
