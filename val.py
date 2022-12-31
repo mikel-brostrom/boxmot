@@ -373,7 +373,7 @@ def print_best_trial_metric_results(study):
     print(f"\tvalues: {trial_with_highest_IDF1.values}")
     
     
-def save_plots(study, opt):
+def save_plots(opt, study):
     fig = optuna.visualization.plot_pareto_front(study, target_names=["HOTA", "MOTA", "IDF1"])
     fig.write_html("pareto_front_" + opt.tracking_method + ".html")
     if not opt.n_trials <= 1:  # more than one trial needed for parameter importance 
@@ -383,6 +383,15 @@ def save_plots(study, opt):
         fig.write_html("MOTA_param_importances_" + opt.tracking_method + ".html")
         fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[2], target_name="IDF1")
         fig.write_html("IDF1_param_importances_" + opt.tracking_method + ".html")
+        
+        
+def write_best_HOTA_params_to_config(opt, study):
+    trial_with_highest_HOTA = max(study.best_trials, key=lambda t: t.values[0])
+    d = {opt.tracking_method: trial_with_highest_HOTA.params}
+    with open(opt.tracking_config, 'w') as f:
+        f.write(f'# Trial number:      {trial_with_highest_HOTA.number}\n')
+        f.write(f'# HOTA, MOTA, IDF1:  {trial_with_highest_HOTA.values}\n')
+        data = yaml.dump(d, f)  
 
         
 if __name__ == "__main__":
@@ -406,6 +415,7 @@ if __name__ == "__main__":
         # save hps study, all trial results are stored here, used for resuming
         joblib.dump(study, opt.tracking_method + "_study.pkl")
         
-        save_plots(study, opt)
+        save_plots(opt, study)
         print_best_trial_metric_results(study)
-            
+        write_best_HOTA_params_to_config(opt, study)
+        
