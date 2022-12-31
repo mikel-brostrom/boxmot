@@ -3,7 +3,7 @@
 
 <div align="center">
   <p>
-  <img src="trackers/strong_sort/results/track_all_seg_1280_025conf.gif" width="400"/>
+  <img src="trackers/strongsort/results/track_all_seg_1280_025conf.gif" width="400"/>
   </p>
   <br>
   <div>
