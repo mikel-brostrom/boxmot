@@ -190,14 +190,6 @@ def run(
                     else:
                         masks = process_mask(proto[i], det[:, 6:], det[:, :4], im.shape[2:], upsample=True)  # HWC
                         det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
-                        
-                    # Mask plotting
-                    annotator.masks(
-                        masks,
-                        colors=[colors(x, True) for x in det[:, 5]],
-                        im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
-                        255 if retina_masks else im[i]
-                    )
                 else:
                     det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
 
@@ -237,14 +229,21 @@ def run(
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             color = colors(c, True)
                             annotator.box_label(bbox, label, color=color)
-
+                            if is_seg:
+                                # Mask plotting
+                                annotator.masks(
+                                    masks,
+                                    colors=[colors(x, True) for x in det[:, 5]],
+                                    im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
+                                    255 if retina_masks else im[i]
+                                )
                             if save_trajectories and tracking_method == 'strongsort':
                                 q = output[7]
                                 tracker_list[i].trajectory(im0, q, color=color)
                             if save_crop:
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
                                 save_one_box(bbox.astype(np.int16), imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
-                
+                            
             else:
                 pass
                 #tracker_list[i].tracker.pred_n_update_all_tracks()
