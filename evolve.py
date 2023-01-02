@@ -1,3 +1,15 @@
+"""
+Evolve hyperparameters for the specific selected tracking method and a specific dataset.
+The best set of hyperparameters is written to the config file of the selected tracker
+(trackers/<tracking-method>/configs). Tracker parameter importance and pareto front plots
+are generated as well.
+
+Usage:
+
+    $ python3 evolve.py --tracking-method strongsort --benchmark MOT17 --device 0,1,2,3 --n-trials 100
+                        --tracking-method ocsort     --benchmark MOT16 --n-trials 1000
+"""
+
 import os
 import sys
 import logging
@@ -34,7 +46,7 @@ class Objective(Evaluator):
     
     Note:
         The objective function inherits all the methods and properties from the Evaluator
-        which let us evolve hparams genetically for a specific dataset. Split you dataset in
+        which let us evolve hparams genetically for a specific dataset. Split your dataset in
         half to speed up this process.
 
     Args:
@@ -233,7 +245,6 @@ def parse_opt():
     parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--evolve', action='store_true', help='evolve hparams of the trackers')
     parser.add_argument('--n-trials', type=int, default=10, help='nr of trials for evolution')
     parser.add_argument('--resume', action='store_true', help='resume hparam search')
     parser.add_argument('--processes-per-device', type=int, default=2, help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
@@ -258,24 +269,22 @@ def parse_opt():
 if __name__ == "__main__":
     opt = parse_opt()
     check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
-    if opt.evolve == False:
-        e.run(opt)
-    else:
-        objective_num = 3
-        if opt.resume:
-            # resume from last saved study
-            study = joblib.load(opt.tracking_method + "_study.pkl")
-        else:
-            # A fast and elitist multiobjective genetic algorithm: NSGA-II
-            # https://ieeexplore.ieee.org/document/996017
-            study = optuna.create_study(directions=['maximize']*objective_num)
 
-        study.optimize(Objective(opt), n_trials=opt.n_trials)
-        
-        # save hps study, all trial results are stored here, used for resuming
-        joblib.dump(study, opt.tracking_method + "_study.pkl")
-        
-        save_plots(opt, study)
-        print_best_trial_metric_results(study)
-        write_best_HOTA_params_to_config(opt, study)
+    objective_num = 3
+    if opt.resume:
+        # resume from last saved study
+        study = joblib.load(opt.tracking_method + "_study.pkl")
+    else:
+        # A fast and elitist multiobjective genetic algorithm: NSGA-II
+        # https://ieeexplore.ieee.org/document/996017
+        study = optuna.create_study(directions=['maximize']*objective_num)
+
+    study.optimize(Objective(opt), n_trials=opt.n_trials)
+    
+    # save hps study, all trial results are stored here, used for resuming
+    joblib.dump(study, opt.tracking_method + "_study.pkl")
+    
+    save_plots(opt, study)
+    print_best_trial_metric_results(study)
+    write_best_HOTA_params_to_config(opt, study)
         

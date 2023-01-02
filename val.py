@@ -1,3 +1,14 @@
+"""
+Evaluate on the benchmark of your choice. MOT16, 17 and 20 are donwloaded and unpackaged automatically when selected.
+Mimic the structure of either of these datasets to evaluate on your custom one
+
+Usage:
+
+    $ python3 val.py --tracking-method strongsort --benchmark MOT16
+                     --tracking-method ocsort     --benchmark MOT17
+                     --tracking-method ocsort     --benchmark <your-custom-dataset>
+"""
+
 import os
 import sys
 import torch
