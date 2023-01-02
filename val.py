@@ -1,22 +1,15 @@
 import os
 import sys
 import torch
-import logging
 import subprocess
 from subprocess import Popen
 import argparse
-from io import StringIO
 import git
-import joblib
-import yaml
 import optuna
-import re
-import pandas as pd
 from git import Repo
 import zipfile
 from pathlib import Path
 import shutil
-import threading
 from tqdm import tqdm
 
 FILE = Path(__file__).resolve()
@@ -32,126 +25,106 @@ if str(ROOT / 'strong_sort') not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from yolov5.utils.general import LOGGER, check_requirements, print_args, increment_path
-from yolov5.utils.torch_utils import select_device
 from track import run
     
 
-
-def parse_opt():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
-    parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
-    parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
-    parser.add_argument('--tracking-config', type=Path, default=None)
-    parser.add_argument('--name', default='exp', help='save results to project/name')
-    parser.add_argument('--project', default=ROOT / 'runs/track', help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--benchmark', type=str,  default='MOT17', help='MOT16, MOT17, MOT20')
-    parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
-    parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
-    parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
-    parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--evolve', action='store_true', help='evolve hparams of the trackers')
-    parser.add_argument('--n-trials', type=int, default=10, help='nr of trials for evolution')
-    parser.add_argument('--resume', action='store_true', help='resume hparam search')
-    parser.add_argument('--processes-per-device', type=int, default=2, help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
-    
-    opt = parser.parse_args()
-    opt.tracking_config = ROOT / 'trackers' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
-
-    device = []
-    
-    for a in opt.device.split(','):
-        try:
-            a = int(a)
-        except ValueError:
-            pass
-        device.append(a)
-    opt.device = device
-        
-    print_args(vars(opt))
-    return opt
-
-
 class Evaluator:
+    """Evaluates a specific benchmark (MOT16, MOT17, MOT20) and split (train, val, test)
+    
+    This object provides interfaces to download: the official tools for MOT evaluation and the
+    official MOT datasets. It also provides setup functionality to select which devices to run
+    sequences on and configuration to enable evaluation on different MOT datasets.
+
+    Args:
+        opt: the parsed script arguments
+
+    Attributes:
+        opt: the parsed script arguments
+
+    """
     def __init__(self, opts):  
         self.opt = opts
         
-    def download_official_mot_eval_tool(self, val_tools_target_location):
+
+    def download_mot_eval_tools(self, val_tools_path):
+        """Download officail evaluation tools for MOT metrics
+
+        Args:
+            val_tools_path (pathlib.Path): path to the val tool folder destination
+
+        Returns:
+            None
+        """
         # source: https://github.com/JonathonLuiten/TrackEval#official-evaluation-code
         val_tools_url = "https://github.com/JonathonLuiten/TrackEval"
         try:
-            Repo.clone_from(val_tools_url, val_tools_target_location)
+            Repo.clone_from(val_tools_url, val_tools_path)
             LOGGER.info('Official MOT evaluation repo downloaded')
         except git.exc.GitError as err:
             LOGGER.info('Eval repo already downloaded')
-            
-    def download_mot_dataset(self, val_tools_target_location, benchmark):
-        
-        # download and unzip ground truth
-        url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
-        zip_dst = val_tools_target_location / 'data.zip'
-        
-        # download and unzip if not already unzipped
-        if not zip_dst.with_suffix('').exists():
-            os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
-            LOGGER.info(f'data.zip downloaded sucessfully')
-        
-            try:
-                with zipfile.ZipFile(val_tools_target_location / 'data.zip', 'r') as zip_file:
-                    for member in tqdm(zip_file.namelist(), desc=f'Extracting MOT ground truth'):
-                        # extract only if file has not already been extracted
-                        if os.path.exists(val_tools_target_location / member) or os.path.isfile(val_tools_target_location / member):
-                            pass
-                        else:
-                            zip_file.extract(member, val_tools_target_location)
-                LOGGER.info(f'data.zip unzipped sucessfully')
-            except Exception as e:
-                print('data.zip is corrupted. Try deleting the file and run the script again')
-                sys.exit()
+
+
+    def download_mot_dataset(self, val_tools_path, benchmark):
+        """Download specific MOT dataset and unpack it
+
+        Args:
+            val_tools_path (pathlib.Path): path to destination folder of the downloaded MOT benchmark zip
+            benchmark (str): the MOT benchmark to download
+
+        Returns:
+            None
+        """
 
         # download and unzip the rest of MOTXX
         url = 'https://motchallenge.net/data/' + benchmark + '.zip'
-        zip_dst = val_tools_target_location / (benchmark + '.zip')
+        zip_dst = val_tools_path / (benchmark + '.zip')
         if not (val_tools_target_location / 'data' / benchmark).exists():
             os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
             LOGGER.info(f'{benchmark}.zip downloaded sucessfully')
         
             try:
-                with zipfile.ZipFile((val_tools_target_location / (benchmark + '.zip')), 'r') as zip_file:
+                with zipfile.ZipFile((val_tools_path / (benchmark + '.zip')), 'r') as zip_file:
                     if opt.benchmark == 'MOT16':
                         # extract only if file has not already been extracted
                         for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
-                            if os.path.exists(val_tools_target_location / 'data' / 'MOT16' / member) or os.path.isfile(val_tools_target_location / 'data' / 'MOT16' / member):
+                            if os.path.exists(val_tools_path / 'data' / 'MOT16' / member) or os.path.isfile(val_tools_path / 'data' / 'MOT16' / member):
                                 pass
                             else:
-                                zip_file.extract(member, val_tools_target_location / 'data' / 'MOT16')
+                                zip_file.extract(member, val_tools_path / 'data' / 'MOT16')
                     else:
                         for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
-                            if os.path.exists(val_tools_target_location / 'data' / member) or os.path.isfile(val_tools_target_location / 'data' / member):
+                            if os.path.exists(val_tools_path / 'data' / member) or os.path.isfile(val_tools_path / 'data' / member):
                                 pass
                             else:
-                                zip_file.extract(member, val_tools_target_location / 'data')
+                                zip_file.extract(member, val_tools_path / 'data')
                 LOGGER.info(f'{benchmark}.zip unzipped successfully')
             except Exception as e:
                 print(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
                 sys.exit()
     
-    def eval_setup(self, opt, val_tools_target_location):
+    def eval_setup(self, opt, val_tools_path):
+        """Download specific MOT dataset and unpack it
+
+        Args:
+            opt: the parsed script arguments
+            val_tools_path (pathlib.Path): path to destination folder of the downloaded MOT benchmark zip
+
+        Returns:
+            [Path], Path, Path: benchmark sequence paths, original tracking results destination, eval tracking result destination
+        """
         
         # set paths
-        mot_seqs_path = val_tools_target_location / 'data' / opt.benchmark / opt.split
+        mot_seqs_path = val_tools_path / 'data' / opt.benchmark / opt.split
         
         if opt.benchmark == 'MOT17':
             # each sequences is present 3 times, one for each detector
             # (DPM, FRCNN, SDP). Keep only sequences from  one of them
             seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
             seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
-            with open(val_tools_target_location / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "r") as f:  # 
+            with open(val_tools_path / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "r") as f:  # 
                 lines = f.readlines()
             # overwrite MOT17 evaluation sequences to evaluate so that they are not duplicated
-            with open(val_tools_target_location / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "w") as f:
+            with open(val_tools_path / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "w") as f:
                 for line in seq_paths:
                     f.write(str(line.parent.stem) + '\n')
         else:
@@ -159,12 +132,21 @@ class Evaluator:
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
         
         save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
-        MOT_results_folder = val_tools_target_location / 'data' / 'trackers' / 'mot_challenge' / Path(str(opt.benchmark) + '-' + str(opt.split)) / save_dir.name / 'data'
+        MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / Path(str(opt.benchmark) + '-' + str(opt.split)) / save_dir.name / 'data'
         (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make 
         return seq_paths, save_dir, MOT_results_folder
 
 
     def device_setup(self, opt, seq_paths):
+        """Selects which devices (cuda:N, cpu) to run each sequence on
+
+        Args:
+            opt: the parsed script arguments
+            seq_paths (list of Path): list of paths to each sequence in the benchmark to be evaluated
+
+        Returns:
+            list of str
+        """
         # extend devices to as many sequences are available
         if any(isinstance(i,int) for i in opt.device) and len(opt.device) > 1:
             devices = opt.device
@@ -174,7 +156,23 @@ class Evaluator:
         free_devices = opt.device * opt.processes_per_device
         return free_devices
     
-    def eval(self, opt, seq_paths, save_dir, MOT_results_folder, val_tools_target_location, free_devices):
+    def eval(self, opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, free_devices):
+        """Benchmark evaluation
+        
+        Runns each benchmark sequence on the selected device configuration and moves the results to
+        a unique eval folder
+
+        Args:
+            opt: the parsed script arguments
+            seq_paths ([Path]): path to sequence folders in benchmark
+            save_dir (Path): original tracking result destination
+            MOT_results_folder (Path): evaluation trackinf result destination
+            val_tools_path (pathlib.Path): path to destination folder of the downloaded MOT benchmark zip
+            free_devices: [str]
+
+        Returns:
+            (str): the complete evaluation results generated by "scripts/run_mot_challenge.py"
+        """
         
         if not self.opt.eval_existing:
             processes = []
@@ -231,191 +229,90 @@ class Evaluator:
             shutil.copyfile(src, dst)
 
         # run the evaluation on the generated txts
+        d = [seq_path.parent.name for seq_path in seq_paths]
         p = subprocess.run(
             args=[
-                sys.executable,  val_tools_target_location / "scripts/run_mot_challenge.py",
+                sys.executable,  val_tools_path / "scripts/run_mot_challenge.py",
                 "--BENCHMARK", self.opt.benchmark,
                 "--TRACKERS_TO_EVAL",  self.opt.eval_existing if self.opt.eval_existing else MOT_results_folder.parent.name,
                 "--SPLIT_TO_EVAL", "train",
                 "--METRICS", "HOTA", "CLEAR", "Identity",
                 "--USE_PARALLEL", "True",
-                "--NUM_PARALLEL_CORES", "4"
-            ],
+                "--NUM_PARALLEL_CORES", "4",
+                "--SEQ_INFO"] + d,
             universal_newlines=True,
             stdout=subprocess.PIPE
         )
+        
         print(p.stdout)
+        
+        # save MOT results in txt 
+        with open(save_dir / 'MOT_results.txt', 'w') as f:
+            f.write(p.stdout)
+        # copy tracking method config to exp folder
+        shutil.copyfile(opt.tracking_config, save_dir / opt.tracking_config.name)
+
         return p.stdout
 
     
     def run(self, opt):
+        """Download all needed resources for evaluation, setup and evaluate
+        
+        Downloads evaluation tools and MOT dataset. Setup to make evaluation possible on different benchmarks
+        and with custom devices configuration.
+
+        Args:
+            opt: the parsed script arguments
+
+        Returns:
+            (str): the complete evaluation results generated by "scripts/run_mot_challenge.py"
+        """
         e = Evaluator(opt)
-        val_tools_target_location = ROOT / 'val_utils'
-        e.download_official_mot_eval_tool(val_tools_target_location)
+        val_tools_path = ROOT / 'val_utils'
+        e.download_mot_eval_tools(val_tools_path)
         if any(opt.benchmark == s for s in ['MOT16', 'MOT17', 'MOT20']):
-            e.download_mot_dataset(val_tools_target_location, opt.benchmark)
-        seq_paths, save_dir, MOT_results_folder = e.eval_setup(opt, val_tools_target_location)
+            e.download_mot_dataset(val_tools_path, opt.benchmark)
+        seq_paths, save_dir, MOT_results_folder = e.eval_setup(opt, val_tools_path)
         free_devices = e.device_setup(opt, seq_paths)
-        return e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_target_location, free_devices)
+        return e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, free_devices) 
 
 
-class Objective(Evaluator):
-    def __init__(self, opts, evaluator):  
-        self.opt = opts
-        self.evaluator = evaluator
-                
-    def get_new_config(self, trial):
-        
-        d = {}
-                
-        if self.opt.tracking_method == 'strongsort':
-            
-            self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
-            iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
-            ecc = trial.suggest_categorical("ecc", [True, False])
-            ema_alpha = trial.suggest_float("ema_alpha", 0.7, 0.95)
-            max_dist = trial.suggest_float("max_dist", 0.1, 0.4)
-            max_iou_dist = trial.suggest_float("max_iou_dist", 0.5, 0.9)
-            max_age = trial.suggest_int("max_age", 10, 200, step=10)
-            n_init = trial.suggest_int("n_init", 1, 3, step=1)
-            mc_lambda = trial.suggest_categorical("mc_lambda", [0.995])
-            nn_budget = trial.suggest_categorical("nn_budget", [100])
-            max_unmatched_preds = trial.suggest_categorical("max_unmatched_preds", [0])
-
-            d['strongsort'] = \
-                {
-                    'ecc': ecc,
-                    'mc_lambda': mc_lambda,
-                    'ema_alpha': ema_alpha,
-                    'max_dist':  max_dist,
-                    'max_iou_dist': max_iou_dist,
-                    'max_unmatched_preds': max_unmatched_preds,
-                    'max_age': max_age,
-                    'n_init': n_init,
-                    'nn_budget': nn_budget
-                }
-                
-        elif self.opt.tracking_method == 'bytetrack':
-            
-            self.opt.track_thres = trial.suggest_float("track_thres", 0.35, 0.55)
-            track_buffer = trial.suggest_int("track_buffer", 10, 60, step=10)  
-            match_thresh = trial.suggest_float("match_thresh", 0.7, 0.9)
-            
-            d['bytetrack'] = \
-                {
-                    'track_thresh': self.opt.conf_thres,
-                    'match_thresh': match_thresh,
-                    'track_buffer': track_buffer,
-                    'frame_rate': 30
-                }
-                
-        elif self.opt.tracking_method == 'ocsort':
-            
-            self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
-            max_age = trial.suggest_int("max_age", 10, 60, step=10)
-            min_hits = trial.suggest_int("min_hits", 1, 5, step=1)
-            iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
-            delta_t = trial.suggest_int("delta_t", 1, 5, step=1)
-            asso_func = trial.suggest_categorical("asso_func", ['iou', 'giou'])
-            inertia = trial.suggest_float("inertia", 0.1, 0.4)
-            use_byte = trial.suggest_categorical("use_byte", [True, False])
-            
-            d['ocsort'] = \
-                {
-                    'det_thresh': self.opt.conf_thres,
-                    'max_age': max_age,
-                    'min_hits': min_hits,
-                    'iou_thresh': iou_thresh,
-                    'delta_t': delta_t,
-                    'asso_func': asso_func,
-                    'inertia': inertia,
-                    'use_byte': use_byte,
-                }
-                
-        with open(self.opt.tracking_config, 'w') as f:
-            data = yaml.dump(d, f)   
+def parse_opt():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
+    parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
+    parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
+    parser.add_argument('--tracking-config', type=Path, default=None)
+    parser.add_argument('--name', default='exp', help='save results to project/name')
+    parser.add_argument('--project', default=ROOT / 'runs/val', help='save results to project/name')
+    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--benchmark', type=str,  default='MOT17', help='MOT16, MOT17, MOT20')
+    parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
+    parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
+    parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
+    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
+    parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+    parser.add_argument('--processes-per-device', type=int, default=2, help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
     
+    opt = parser.parse_args()
+    opt.tracking_config = ROOT / 'trackers' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
 
-    def __call__(self, trial):
-        
-        # Calculate an objective value by using the extra arguments.
-        self.get_new_config(trial)
-        
-        # download eval files
-        val_tools_target_location = ROOT / 'val_utils'
-        results= self.run(opt)
-        
-        # get HOTA, MOTA, IDF1 COMBINED results
-        combined_results = results.split('COMBINED')[2:-1]
-        # robust way of getting first ints/float in string
-        combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
-        # pack everything in dict
-        combined_results = {key: value for key, value in zip(['HOTA', 'MOTA', 'IDF1'], combined_results)}
-        return combined_results['HOTA'], combined_results['MOTA'], combined_results['IDF1']
+    device = []
     
-
-def print_best_trial_metric_results(study):
-    print(f"Number of trials on the Pareto front: {len(study.best_trials)}")
-    trial_with_highest_HOTA = max(study.best_trials, key=lambda t: t.values[0])
-    print(f"Trial with highest HOTA: ")
-    print(f"\tnumber: {trial_with_highest_HOTA.number}")
-    print(f"\tparams: {trial_with_highest_HOTA.params}")
-    print(f"\tvalues: {trial_with_highest_HOTA.values}")
-    trial_with_highest_MOTA = max(study.best_trials, key=lambda t: t.values[1])
-    print(f"Trial with highest MOTA: ")
-    print(f"\tnumber: {trial_with_highest_MOTA.number}")
-    print(f"\tparams: {trial_with_highest_MOTA.params}")
-    print(f"\tvalues: {trial_with_highest_MOTA.values}")
-    trial_with_highest_IDF1 = max(study.best_trials, key=lambda t: t.values[2])
-    print(f"Trial with highest IDF1: ")
-    print(f"\tnumber: {trial_with_highest_IDF1.number}")
-    print(f"\tparams: {trial_with_highest_IDF1.params}")
-    print(f"\tvalues: {trial_with_highest_IDF1.values}")
-    
-    
-def save_plots(opt, study):
-    fig = optuna.visualization.plot_pareto_front(study, target_names=["HOTA", "MOTA", "IDF1"])
-    fig.write_html("pareto_front_" + opt.tracking_method + ".html")
-    if not opt.n_trials <= 1:  # more than one trial needed for parameter importance 
-        fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[0], target_name="HOTA")
-        fig.write_html("HOTA_param_importances_" + opt.tracking_method + ".html")
-        fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[1], target_name="MOTA")
-        fig.write_html("MOTA_param_importances_" + opt.tracking_method + ".html")
-        fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[2], target_name="IDF1")
-        fig.write_html("IDF1_param_importances_" + opt.tracking_method + ".html")
+    for a in opt.device.split(','):
+        try:
+            a = int(a)
+        except ValueError:
+            pass
+        device.append(a)
+    opt.device = device
         
-        
-def write_best_HOTA_params_to_config(opt, study):
-    trial_with_highest_HOTA = max(study.best_trials, key=lambda t: t.values[0])
-    d = {opt.tracking_method: trial_with_highest_HOTA.params}
-    with open(opt.tracking_config, 'w') as f:
-        f.write(f'# Trial number:      {trial_with_highest_HOTA.number}\n')
-        f.write(f'# HOTA, MOTA, IDF1:  {trial_with_highest_HOTA.values}\n')
-        data = yaml.dump(d, f)  
+    print_args(vars(opt))
+    return opt
 
         
 if __name__ == "__main__":
     opt = parse_opt()
     check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
     e = Evaluator(opt)
-    if opt.evolve == False:
-        e.run(opt)
-    else:
-        objective_num = 3
-        if opt.resume:
-            # resume from last saved study
-            study = joblib.load(opt.tracking_method + "_study.pkl")
-        else:
-            # A fast and elitist multiobjective genetic algorithm: NSGA-II
-            # https://ieeexplore.ieee.org/document/996017
-            study = optuna.create_study(directions=['maximize']*objective_num)
-
-        study.optimize(Objective(opt, e), n_trials=opt.n_trials)
-        
-        # save hps study, all trial results are stored here, used for resuming
-        joblib.dump(study, opt.tracking_method + "_study.pkl")
-        
-        save_plots(opt, study)
-        print_best_trial_metric_results(study)
-        write_best_HOTA_params_to_config(opt, study)
-        
+    e.run(opt)
