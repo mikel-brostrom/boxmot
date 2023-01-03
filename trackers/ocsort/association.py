@@ -195,7 +195,7 @@ def linear_assignment(cost_matrix):
         return np.array(list(zip(x, y)))
 
 
-def associate_detections_to_trackers(detections,trackers,iou_threshold = 0.3):
+def associate_detections_to_trackers(detections,trackers, iou_threshold = 0.3):
     """
     Assigns detections to tracked object (both represented as bounding boxes)
     Returns 3 lists of matches, unmatched_detections and unmatched_trackers
