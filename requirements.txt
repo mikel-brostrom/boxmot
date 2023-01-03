@@ -44,3 +44,8 @@ filterpy
 # nvidia-pyindex  # TensorRT export
 # nvidia-tensorrt  # TensorRT export
 # openvino-dev  # OpenVINO export
+
+# Hyperparam search -----------------------------------------------------------
+#optuna
+#plotly
+#kaleido

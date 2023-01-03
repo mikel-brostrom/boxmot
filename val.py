@@ -1,16 +1,26 @@
+"""
+Evaluate on the benchmark of your choice. MOT16, 17 and 20 are donwloaded and unpackaged automatically when selected.
+Mimic the structure of either of these datasets to evaluate on your custom one
+
+Usage:
+
+    $ python3 val.py --tracking-method strongsort --benchmark MOT16
+                     --tracking-method ocsort     --benchmark MOT17
+                     --tracking-method ocsort     --benchmark <your-custom-dataset>
+"""
+
 import os
 import sys
 import torch
-import logging
 import subprocess
 from subprocess import Popen
 import argparse
 import git
+import optuna
 from git import Repo
 import zipfile
 from pathlib import Path
 import shutil
-import threading
 from tqdm import tqdm
 
 FILE = Path(__file__).resolve()
@@ -26,69 +36,253 @@ if str(ROOT / 'strong_sort') not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from yolov5.utils.general import LOGGER, check_requirements, print_args, increment_path
-from yolov5.utils.torch_utils import select_device
 from track import run
+    
 
+class Evaluator:
+    """Evaluates a specific benchmark (MOT16, MOT17, MOT20) and split (train, val, test)
+    
+    This object provides interfaces to download: the official tools for MOT evaluation and the
+    official MOT datasets. It also provides setup functionality to select which devices to run
+    sequences on and configuration to enable evaluation on different MOT datasets.
 
-def download_official_mot_eval_tool(val_tools_target_location):
-    # source: https://github.com/JonathonLuiten/TrackEval#official-evaluation-code
-    val_tools_url = "https://github.com/JonathonLuiten/TrackEval"
-    try:
-        Repo.clone_from(val_tools_url, val_tools_target_location)
-        LOGGER.info('Official MOT evaluation repo downloaded')
-    except git.exc.GitError as err:
-        LOGGER.info('Eval repo already downloaded')
+    Args:
+        opt: the parsed script arguments
+
+    Attributes:
+        opt: the parsed script arguments
+
+    """
+    def __init__(self, opts):  
+        self.opt = opts
         
-def download_mot_dataset(val_tools_target_location, benchmark):
-    
-    # download and unzip ground truth
-    url = 'https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip'
-    zip_dst = val_tools_target_location / 'data.zip'
-    
-    # download and unzip if not already unzipped
-    if not zip_dst.with_suffix('').exists():
-        os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
-        LOGGER.info(f'data.zip downloaded sucessfully')
-    
-        try:
-            with zipfile.ZipFile(val_tools_target_location / 'data.zip', 'r') as zip_file:
-                for member in tqdm(zip_file.namelist(), desc=f'Extracting MOT ground truth'):
-                    # extract only if file has not already been extracted
-                    if os.path.exists(val_tools_target_location / member) or os.path.isfile(val_tools_target_location / member):
-                        pass
-                    else:
-                        zip_file.extract(member, val_tools_target_location)
-            LOGGER.info(f'data.zip unzipped sucessfully')
-        except Exception as e:
-            print('data.zip is corrupted. Try deleting the file and run the script again')
-            sys.exit()
 
-    # download and unzip the rest of MOTXX
-    url = 'https://motchallenge.net/data/' + benchmark + '.zip'
-    zip_dst = val_tools_target_location / (benchmark + '.zip')
-    if not (val_tools_target_location / 'data' / benchmark).exists():
-        os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
-        LOGGER.info(f'{benchmark}.zip downloaded sucessfully')
-    
+    def download_mot_eval_tools(self, val_tools_path):
+        """Download officail evaluation tools for MOT metrics
+
+        Args:
+            val_tools_path (pathlib.Path): path to the val tool folder destination
+
+        Returns:
+            None
+        """
+        # source: https://github.com/JonathonLuiten/TrackEval#official-evaluation-code
+        val_tools_url = "https://github.com/JonathonLuiten/TrackEval"
         try:
-            with zipfile.ZipFile((val_tools_target_location / (benchmark + '.zip')), 'r') as zip_file:
-                if opt.benchmark == 'MOT16':
-                    # extract only if file has not already been extracted
-                    for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
-                        if os.path.exists(val_tools_target_location / 'data' / 'MOT16' / member) or os.path.isfile(val_tools_target_location / 'data' / 'MOT16' / member):
-                            pass
-                        else:
-                            zip_file.extract(member, val_tools_target_location / 'data' / 'MOT16')
-                else:
-                    for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
-                        if os.path.exists(val_tools_target_location / 'data' / member) or os.path.isfile(val_tools_target_location / 'data' / member):
-                            pass
-                        else:
-                            zip_file.extract(member, val_tools_target_location / 'data')
-            LOGGER.info(f'{benchmark}.zip unzipped successfully')
-        except Exception as e:
-            print(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
-            sys.exit()
+            Repo.clone_from(val_tools_url, val_tools_path)
+            LOGGER.info('Official MOT evaluation repo downloaded')
+        except git.exc.GitError as err:
+            LOGGER.info('Eval repo already downloaded')
+
+
+    def download_mot_dataset(self, val_tools_path, benchmark):
+        """Download specific MOT dataset and unpack it
+
+        Args:
+            val_tools_path (pathlib.Path): path to destination folder of the downloaded MOT benchmark zip
+            benchmark (str): the MOT benchmark to download
+
+        Returns:
+            None
+        """
+
+        # download and unzip the rest of MOTXX
+        url = 'https://motchallenge.net/data/' + benchmark + '.zip'
+        zip_dst = val_tools_path / (benchmark + '.zip')
+        if not (val_tools_path / 'data' / benchmark).exists():
+            os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
+            LOGGER.info(f'{benchmark}.zip downloaded sucessfully')
+        
+            try:
+                with zipfile.ZipFile((val_tools_path / (benchmark + '.zip')), 'r') as zip_file:
+                    if opt.benchmark == 'MOT16':
+                        # extract only if file has not already been extracted
+                        for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
+                            if os.path.exists(val_tools_path / 'data' / 'MOT16' / member) or os.path.isfile(val_tools_path / 'data' / 'MOT16' / member):
+                                pass
+                            else:
+                                zip_file.extract(member, val_tools_path / 'data' / 'MOT16')
+                    else:
+                        for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
+                            if os.path.exists(val_tools_path / 'data' / member) or os.path.isfile(val_tools_path / 'data' / member):
+                                pass
+                            else:
+                                zip_file.extract(member, val_tools_path / 'data')
+                LOGGER.info(f'{benchmark}.zip unzipped successfully')
+            except Exception as e:
+                print(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
+                sys.exit()
+    
+    def eval_setup(self, opt, val_tools_path):
+        """Download specific MOT dataset and unpack it
+
+        Args:
+            opt: the parsed script arguments
+            val_tools_path (pathlib.Path): path to destination folder of the downloaded MOT benchmark zip
+
+        Returns:
+            [Path], Path, Path: benchmark sequence paths, original tracking results destination, eval tracking result destination
+        """
+        
+        # set paths
+        mot_seqs_path = val_tools_path / 'data' / opt.benchmark / opt.split
+        
+        if opt.benchmark == 'MOT17':
+            # each sequences is present 3 times, one for each detector
+            # (DPM, FRCNN, SDP). Keep only sequences from  one of them
+            seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
+            seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
+        else:
+            # this is not the case for MOT16, MOT20 or your custom dataset
+            seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
+        
+        save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
+        MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
+        (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make 
+        return seq_paths, save_dir, MOT_results_folder
+
+
+    def device_setup(self, opt, seq_paths):
+        """Selects which devices (cuda:N, cpu) to run each sequence on
+
+        Args:
+            opt: the parsed script arguments
+            seq_paths (list of Path): list of paths to each sequence in the benchmark to be evaluated
+
+        Returns:
+            list of str
+        """
+        # extend devices to as many sequences are available
+        if any(isinstance(i,int) for i in opt.device) and len(opt.device) > 1:
+            devices = opt.device
+            for a in range(0, len(opt.device) % len(seq_paths)):
+                opt.device.extend(devices)
+            opt.device = opt.device[:len(seq_paths)]
+        free_devices = opt.device * opt.processes_per_device
+        return free_devices
+    
+    def eval(self, opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, free_devices):
+        """Benchmark evaluation
+        
+        Runns each benchmark sequence on the selected device configuration and moves the results to
+        a unique eval folder
+
+        Args:
+            opt: the parsed script arguments
+            seq_paths ([Path]): path to sequence folders in benchmark
+            save_dir (Path): original tracking result destination
+            MOT_results_folder (Path): evaluation trackinf result destination
+            val_tools_path (pathlib.Path): path to destination folder of the downloaded MOT benchmark zip
+            free_devices: [str]
+
+        Returns:
+            (str): the complete evaluation results generated by "scripts/run_mot_challenge.py"
+        """
+        
+        if not self.opt.eval_existing:
+            processes = []
+            
+            busy_devices = []
+            for i, seq_path in enumerate(seq_paths):
+                # spawn one subprocess per GPU in increasing order.
+                # When max devices are reached start at 0 again
+                if i > 0 and len(free_devices) == 0:
+                    if len(processes) == 0:
+                        raise IndexError("No active processes and no devices available.")
+                    
+                    # Wait for oldest process to finish so we can get a free device
+                    processes.pop(0).wait()
+                    free_devices.append(busy_devices.pop(0))
+                
+                tracking_subprocess_device = free_devices.pop(0)
+                busy_devices.append(tracking_subprocess_device)
+            
+                dst_seq_path = seq_path.parent / seq_path.parent.name
+
+                if not dst_seq_path.is_dir():
+                    src_seq_path = seq_path
+                    shutil.move(str(src_seq_path), str(dst_seq_path))  
+                
+                p = subprocess.Popen([
+                    sys.executable, "track.py",
+                    "--yolo-weights", self.opt.yolo_weights,
+                    "--reid-weights",  self.opt.reid_weights,
+                    "--tracking-method", self.opt.tracking_method,
+                    "--conf-thres", str(self.opt.conf_thres),
+                    "--imgsz", str(self.opt.imgsz[0]),
+                    "--classes", str(0),
+                    "--name", save_dir.name,
+                    "--project", self.opt.project,
+                    "--device", str(tracking_subprocess_device),
+                    "--source", dst_seq_path,
+                    "--exist-ok",
+                    "--save-txt",
+                ])
+                processes.append(p)
+            
+            for p in processes:
+                p.wait()
+                
+        print_args(vars(self.opt))
+
+        results = (save_dir.parent / self.opt.eval_existing / 'tracks' if self.opt.eval_existing else save_dir / 'tracks').glob('*.txt')
+        for src in results:
+            if self.opt.eval_existing:
+                dst = MOT_results_folder.parent.parent / self.opt.eval_existing / 'data' / Path(src.stem + '.txt')
+            else:  
+                dst = MOT_results_folder / Path(src.stem + '.txt')
+            dst.parent.mkdir(parents=True, exist_ok=True)  # make
+            shutil.copyfile(src, dst)
+        # run the evaluation on the generated txts
+        d = [seq_path.parent.name for seq_path in seq_paths]
+        p = subprocess.run(
+            args=[
+                sys.executable,  val_tools_path / "scripts/run_mot_challenge.py",
+                "--GT_FOLDER", val_tools_path / 'data' / self.opt.benchmark / self.opt.split,
+                "--BENCHMARK", self.opt.benchmark,
+                "--TRACKERS_TO_EVAL",  self.opt.eval_existing if self.opt.eval_existing else self.opt.benchmark,
+                "--SPLIT_TO_EVAL", "train",
+                "--METRICS", "HOTA", "CLEAR", "Identity",
+                "--USE_PARALLEL", "True",
+                "--TRACKER_SUB_FOLDER", str(Path(*Path(MOT_results_folder).parts[-2:])),
+                "--NUM_PARALLEL_CORES", "4",
+                "--SKIP_SPLIT_FOL", "True",
+                "--SEQ_INFO"] + d,
+            universal_newlines=True,
+            stdout=subprocess.PIPE
+        )
+        
+        print(p.stdout)
+        
+        # save MOT results in txt 
+        with open(save_dir / 'MOT_results.txt', 'w') as f:
+            f.write(p.stdout)
+        # copy tracking method config to exp folder
+        shutil.copyfile(opt.tracking_config, save_dir / opt.tracking_config.name)
+
+        return p.stdout
+
+    
+    def run(self, opt):
+        """Download all needed resources for evaluation, setup and evaluate
+        
+        Downloads evaluation tools and MOT dataset. Setup to make evaluation possible on different benchmarks
+        and with custom devices configuration.
+
+        Args:
+            opt: the parsed script arguments
+
+        Returns:
+            (str): the complete evaluation results generated by "scripts/run_mot_challenge.py"
+        """
+        e = Evaluator(opt)
+        val_tools_path = ROOT / 'val_utils'
+        e.download_mot_eval_tools(val_tools_path)
+        if any(opt.benchmark == s for s in ['MOT16', 'MOT17', 'MOT20']):
+            e.download_mot_dataset(val_tools_path, opt.benchmark)
+        seq_paths, save_dir, MOT_results_folder = e.eval_setup(opt, val_tools_path)
+        free_devices = e.device_setup(opt, seq_paths)
+        return e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, free_devices) 
 
 
 def parse_opt():
@@ -96,8 +290,9 @@ def parse_opt():
     parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
+    parser.add_argument('--tracking-config', type=Path, default=None)
     parser.add_argument('--name', default='exp', help='save results to project/name')
-    parser.add_argument('--project', default=ROOT / 'runs/track', help='save results to project/name')
+    parser.add_argument('--project', default=ROOT / 'runs/val', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--benchmark', type=str,  default='MOT17', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
@@ -108,6 +303,8 @@ def parse_opt():
     parser.add_argument('--processes-per-device', type=int, default=2, help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
     
     opt = parser.parse_args()
+    opt.tracking_config = ROOT / 'trackers' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
+
     device = []
     
     for a in opt.device.split(','):
@@ -121,112 +318,9 @@ def parse_opt():
     print_args(vars(opt))
     return opt
 
-
-def main(opt):
-    check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
-    
-    # download eval files
-    val_tools_target_location = ROOT / 'val_utils'
-    download_official_mot_eval_tool(val_tools_target_location)
-    
-    if any(opt.benchmark == s for s in ['MOT16', 'MOT17', 'MOT20']):
-        download_mot_dataset(val_tools_target_location, opt.benchmark)
-    
-    # set paths
-    mot_seqs_path = val_tools_target_location / 'data' / opt.benchmark / opt.split
-    
-    if opt.benchmark == 'MOT17':
-        # each sequences is present 3 times, one for each detector
-        # (DPM, FRCNN, SDP). Keep only sequences from  one of them
-        seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
-        seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
-        with open(val_tools_target_location / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "r") as f:  # 
-            lines = f.readlines()
-        # overwrite MOT17 evaluation sequences to evaluate so that they are not duplicated
-        with open(val_tools_target_location / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "w") as f:
-            for line in seq_paths:
-                f.write(str(line.parent.stem) + '\n')
-    else:
-        # this is not the case for MOT16, MOT20 or your custom dataset
-        seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
-    
-    save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
-    MOT_results_folder = val_tools_target_location / 'data' / 'trackers' / 'mot_challenge' / Path(str(opt.benchmark) + '-' + str(opt.split)) / save_dir.name / 'data'
-    (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
-
-    # extend devices to as many sequences are available
-    if any(isinstance(i,int) for i in opt.device) and len(opt.device) > 1:
-        devices = opt.device
-        for a in range(0, len(opt.device) % len(seq_paths)):
-            opt.device.extend(devices)
-        opt.device = opt.device[:len(seq_paths)]
- 
-    if not opt.eval_existing:
-        processes = []
-        free_devices = opt.device * opt.processes_per_device
-        busy_devices = []
-        for i, seq_path in enumerate(seq_paths):
-            # spawn one subprocess per GPU in increasing order.
-            # When max devices are reached start at 0 again
-            if i > 0 and len(free_devices) == 0:
-                if len(processes) == 0:
-                    raise IndexError("No active processes and no devices available.")
-                
-                # Wait for oldest process to finish so we can get a free device
-                processes.pop(0).wait()
-                free_devices.append(busy_devices.pop(0))
-            
-            tracking_subprocess_device = free_devices.pop(0)
-            busy_devices.append(tracking_subprocess_device)
         
-            dst_seq_path = seq_path.parent / seq_path.parent.name
-            if not dst_seq_path.is_dir():
-                src_seq_path = seq_path
-                shutil.move(str(src_seq_path), str(dst_seq_path))   
-            
-            p = subprocess.Popen([
-                sys.executable, "track.py",
-                "--yolo-weights", opt.yolo_weights,
-                "--reid-weights",  opt.reid_weights,
-                "--tracking-method", opt.tracking_method,
-                "--conf-thres", str(opt.conf_thres),
-                "--imgsz", str(opt.imgsz[0]),
-                "--classes", str(0),
-                "--name", save_dir.name,
-                "--project", opt.project,
-                "--device", str(tracking_subprocess_device),
-                "--source", dst_seq_path,
-                "--exist-ok",
-                "--save-txt",
-            ])
-            processes.append(p)
-        
-        for p in processes:
-            p.wait()
-            
-    print_args(vars(opt))
-
-    results = (save_dir.parent / opt.eval_existing / 'tracks' if opt.eval_existing else save_dir / 'tracks').glob('*.txt')
-    for src in results:
-        if opt.eval_existing:
-            dst = MOT_results_folder.parent.parent / opt.eval_existing / 'data' / Path(src.stem + '.txt')
-        else:  
-            dst = MOT_results_folder / Path(src.stem + '.txt')
-        dst.parent.mkdir(parents=True, exist_ok=True)  # make
-        shutil.copyfile(src, dst)
-
-    # run the evaluation on the generated txts
-    subprocess.run([
-        sys.executable,  val_tools_target_location / "scripts/run_mot_challenge.py",
-        "--BENCHMARK", opt.benchmark,
-        "--TRACKERS_TO_EVAL",  opt.eval_existing if opt.eval_existing else MOT_results_folder.parent.name,
-        "--SPLIT_TO_EVAL", "train",
-        "--METRICS", "HOTA", "CLEAR", "Identity",
-        "--USE_PARALLEL", "True",
-        "--NUM_PARALLEL_CORES", "4"
-    ])
-    
-
 if __name__ == "__main__":
     opt = parse_opt()
-    main(opt)
+    check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
+    e = Evaluator(opt)
+    e.run(opt)
