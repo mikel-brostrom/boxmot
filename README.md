@@ -210,9 +210,8 @@ python track.py --source ... --save-txt
 We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. Run it by
 
 ```bash
-$ python val.py --benchmark MOT17 --evolve --n-trials 100  # tune for MOT17
-                --benchmark <your-custom-dataset>          # tune for your custom tracking dataset
-
+$ python evolve.py --tracking-method strongsort --benchmark MOT17 --n-trials 100  # tune for MOT17
+                   --tracking-method strongsort --benchmark <your-custom-dataset> # tune for your custom tracking dataset
 ```
 
 </details>
