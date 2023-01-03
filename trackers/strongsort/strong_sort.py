@@ -36,7 +36,7 @@ class StrongSORT(object):
         metric = NearestNeighborDistanceMetric(
             "cosine", self.max_dist, nn_budget)
         self.tracker = Tracker(
-            metric, max_iou_dist=max_iou_dist, max_age=max_age, n_init=n_init, max_unmatched_preds=max_unmatched_preds)
+            metric, max_iou_dist=max_iou_dist, max_age=max_age, n_init=n_init, max_unmatched_preds=max_unmatched_preds, mc_lambda=mc_lambda, ema_alpha=ema_alpha)
 
     def update(self, dets,  ori_img):
         
