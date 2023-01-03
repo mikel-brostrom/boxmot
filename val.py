@@ -89,7 +89,7 @@ class Evaluator:
         # download and unzip the rest of MOTXX
         url = 'https://motchallenge.net/data/' + benchmark + '.zip'
         zip_dst = val_tools_path / (benchmark + '.zip')
-        if not (val_tools_target_location / 'data' / benchmark).exists():
+        if not (val_tools_path / 'data' / benchmark).exists():
             os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
             LOGGER.info(f'{benchmark}.zip downloaded sucessfully')
         
@@ -132,12 +132,6 @@ class Evaluator:
             # (DPM, FRCNN, SDP). Keep only sequences from  one of them
             seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
             seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
-            with open(val_tools_path / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "r") as f:  # 
-                lines = f.readlines()
-            # overwrite MOT17 evaluation sequences to evaluate so that they are not duplicated
-            with open(val_tools_path / "data/gt/mot_challenge/seqmaps/MOT17-train.txt", "w") as f:
-                for line in seq_paths:
-                    f.write(str(line.parent.stem) + '\n')
         else:
             # this is not the case for MOT16, MOT20 or your custom dataset
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
@@ -204,9 +198,10 @@ class Evaluator:
                 busy_devices.append(tracking_subprocess_device)
             
                 dst_seq_path = seq_path.parent / seq_path.parent.name
+
                 if not dst_seq_path.is_dir():
                     src_seq_path = seq_path
-                    shutil.move(str(src_seq_path), str(dst_seq_path))   
+                    shutil.move(str(src_seq_path), str(dst_seq_path))  
                 
                 p = subprocess.Popen([
                     sys.executable, "track.py",
