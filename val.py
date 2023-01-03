@@ -1,3 +1,4 @@
+#  Yolov5_StrongSORT_OSNet, GPL-3.0 license
 """
 Evaluate on the benchmark of your choice. MOT16, 17 and 20 are donwloaded and unpackaged automatically when selected.
 Mimic the structure of either of these datasets to evaluate on your custom one
