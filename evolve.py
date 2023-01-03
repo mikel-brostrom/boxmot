@@ -114,7 +114,7 @@ class Objective(Evaluator):
                 
         elif self.opt.tracking_method == 'ocsort':
             
-            self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
+            self.opt.conf_thres = trial.suggest_float("det_thresh", 0.35, 0.55)
             max_age = trial.suggest_int("max_age", 10, 60, step=10)
             min_hits = trial.suggest_int("min_hits", 1, 5, step=1)
             iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
