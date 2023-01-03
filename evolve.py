@@ -79,9 +79,9 @@ class Objective(Evaluator):
             ema_alpha = trial.suggest_float("ema_alpha", 0.7, 0.95)
             max_dist = trial.suggest_float("max_dist", 0.1, 0.4)
             max_iou_dist = trial.suggest_float("max_iou_dist", 0.5, 0.9)
-            max_age = trial.suggest_int("max_age", 10, 200, step=10)
+            max_age = trial.suggest_int("max_age", 10, 150, step=10)
             n_init = trial.suggest_int("n_init", 1, 3, step=1)
-            mc_lambda = trial.suggest_categorical("mc_lambda", [0.995])
+            mc_lambda = trial.suggest_float("mc_lambda", 0.90, 0.999)
             nn_budget = trial.suggest_categorical("nn_budget", [100])
             max_unmatched_preds = trial.suggest_categorical("max_unmatched_preds", [0])
 
