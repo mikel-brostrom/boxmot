@@ -21,7 +21,7 @@ This repository contains a highly configurable two-stage-tracker that adjusts to
 
 ## Why using this tracking toolbox?
 
-Everything is designed with simplicity and flexibility in mind. We don't hyperfocus on results on a single dataset, we prioritize real-world results. If you don't get good tracking results on your custom dataset with the off-the-box tracker configurations, use the `evolve.py` script for tracker hyperparameter tuning.
+Everything is designed with simplicity and flexibility in mind. We don't hyperfocus on results on a single dataset, we prioritize real-world results. If you don't get good tracking results on your custom dataset with the out-of-the-box tracker configurations, use the `evolve.py` script for tracker hyperparameter tuning.
 
 ## Installation
 
