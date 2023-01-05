@@ -79,7 +79,7 @@ class Objective(Evaluator):
             ecc = trial.suggest_categorical("ecc", [True, False])
             ema_alpha = trial.suggest_float("ema_alpha", 0.7, 0.95)
             max_dist = trial.suggest_float("max_dist", 0.1, 0.4)
-            max_iou_dist = trial.suggest_float("max_iou_dist", 0.5, 0.9)
+            max_iou_dist = trial.suggest_float("max_iou_dist", 0.5, 0.95)
             max_age = trial.suggest_int("max_age", 10, 150, step=10)
             n_init = trial.suggest_int("n_init", 1, 3, step=1)
             mc_lambda = trial.suggest_float("mc_lambda", 0.90, 0.999)
@@ -154,17 +154,19 @@ class Objective(Evaluator):
         # generate new set of params
         self.get_new_config(trial)
         # run trial
-        results = self.run(opt)
+        results = self.run(self.opt)
         # get HOTA, MOTA, IDF1 COMBINED string lines
         combined_results = results.split('COMBINED')[2:-1]
         # robust way of getting first ints/float in string
         combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
         # pack everything in dict
         combined_results = {key: value for key, value in zip(['HOTA', 'MOTA', 'IDF1'], combined_results)}
-        return combined_results['HOTA'], combined_results['MOTA'], combined_results['IDF1']
+        # extract objective results of current trial
+        combined_results = [combined_results.get(key) for key in self.opt.objectives]
+        return combined_results
     
 
-def print_best_trial_metric_results(study):
+def print_best_trial_metric_results(study, objectives):
     """Print the main MOTA metric (HOTA, MOTA, IDF1) results
 
     Args:
@@ -173,25 +175,17 @@ def print_best_trial_metric_results(study):
     Returns:
         None
     """
-    print(f"Number of trials on the Pareto front: {len(study.best_trials)}")
-    trial_with_highest_HOTA = max(study.best_trials, key=lambda t: t.values[0])
-    print(f"Trial with highest HOTA: ")
-    print(f"\tnumber: {trial_with_highest_HOTA.number}")
-    print(f"\tparams: {trial_with_highest_HOTA.params}")
-    print(f"\tvalues: {trial_with_highest_HOTA.values}")
-    trial_with_highest_MOTA = max(study.best_trials, key=lambda t: t.values[1])
-    print(f"Trial with highest MOTA: ")
-    print(f"\tnumber: {trial_with_highest_MOTA.number}")
-    print(f"\tparams: {trial_with_highest_MOTA.params}")
-    print(f"\tvalues: {trial_with_highest_MOTA.values}")
-    trial_with_highest_IDF1 = max(study.best_trials, key=lambda t: t.values[2])
-    print(f"Trial with highest IDF1: ")
-    print(f"\tnumber: {trial_with_highest_IDF1.number}")
-    print(f"\tparams: {trial_with_highest_IDF1.params}")
-    print(f"\tvalues: {trial_with_highest_IDF1.values}")
+    
+    for ob in enumerate(objectives):  
+        trial_with_highest_ob = max(study.best_trials, key=lambda t: t.values[0])    
+        print(f"Trial with highest {ob}: ")
+        print(f"\tnumber: {trial_with_highest_ob.number}")
+        print(f"\tparams: {trial_with_highest_ob.params}")
+        print(f"\tvalues: {trial_with_highest_ob.values}")
+
     
     
-def save_plots(opt, study):
+def save_plots(opt, study, objectives):
     """Print the main MOTA metric (HOTA, MOTA, IDF1) results
 
     Args:
@@ -201,15 +195,14 @@ def save_plots(opt, study):
     Returns:
         None
     """
-    fig = optuna.visualization.plot_pareto_front(study, target_names=["HOTA", "MOTA", "IDF1"])
-    fig.write_html("pareto_front_" + opt.tracking_method + ".html")
-    if not opt.n_trials <= 1:  # more than one trial needed for parameter importance 
-        fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[0], target_name="HOTA")
-        fig.write_html("HOTA_param_importances_" + opt.tracking_method + ".html")
-        fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[1], target_name="MOTA")
-        fig.write_html("MOTA_param_importances_" + opt.tracking_method + ".html")
-        fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[2], target_name="IDF1")
-        fig.write_html("IDF1_param_importances_" + opt.tracking_method + ".html")
+    if len(objectives) > 1:
+        fig = optuna.visualization.plot_pareto_front(study, target_names=["HOTA", "MOTA", "IDF1"])
+        fig.write_html("pareto_front_" + opt.tracking_method + ".html")
+    
+    for i, ob in enumerate(objectives):  
+        if not opt.n_trials <= 1:  # more than one trial needed for parameter importance 
+            fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.values[i], target_name=ob)
+            fig.write_html(f"{ob}_param_importances_" + opt.tracking_method + ".html")
         
         
 def write_best_HOTA_params_to_config(opt, study):
@@ -249,9 +242,11 @@ def parse_opt():
     parser.add_argument('--n-trials', type=int, default=10, help='nr of trials for evolution')
     parser.add_argument('--resume', action='store_true', help='resume hparam search')
     parser.add_argument('--processes-per-device', type=int, default=2, help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
+    parser.add_argument('--objectives', type=str, default='HOTA,MOTA,IDF1', help='set of objective metrics: HOTA,MOTA,IDF1')
     
     opt = parser.parse_args()
     opt.tracking_config = ROOT / 'trackers' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
+    opt.objectives = opt.objectives.split(",")
 
     device = []
     
@@ -271,21 +266,20 @@ if __name__ == "__main__":
     opt = parse_opt()
     check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
 
-    objective_num = 3
     if opt.resume:
         # resume from last saved study
         study = joblib.load(opt.tracking_method + "_study.pkl")
     else:
         # A fast and elitist multiobjective genetic algorithm: NSGA-II
         # https://ieeexplore.ieee.org/document/996017
-        study = optuna.create_study(directions=['maximize']*objective_num)
+        study = optuna.create_study(directions=['maximize']*len(opt.objectives))
 
     study.optimize(Objective(opt), n_trials=opt.n_trials)
     
     # save hps study, all trial results are stored here, used for resuming
     joblib.dump(study, opt.tracking_method + "_study.pkl")
     
-    save_plots(opt, study)
-    print_best_trial_metric_results(study)
+    save_plots(opt, study, opt.objectives)
+    print_best_trial_metric_results(study, opt.objectives)
     write_best_HOTA_params_to_config(opt, study)
         
