@@ -47,6 +47,6 @@ filterpy
 
 # Hyperparam search -----------------------------------------------------------
 # optuna
-# plotly  
+# plotly                    # for hp importance and pareto front plots
 # kaleido
 # joblib
