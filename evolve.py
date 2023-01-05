@@ -196,7 +196,7 @@ def save_plots(opt, study, objectives):
         None
     """
     if len(objectives) > 1:
-        fig = optuna.visualization.plot_pareto_front(study, target_names=["HOTA", "MOTA", "IDF1"])
+        fig = optuna.visualization.plot_pareto_front(study, target_names=objectives)
         fig.write_html("pareto_front_" + opt.tracking_method + ".html")
     
     for i, ob in enumerate(objectives):  
