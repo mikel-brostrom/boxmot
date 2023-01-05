@@ -21,7 +21,7 @@ This repository contains a highly configurable two-stage-tracker that adjusts to
 
 ## Why using this tracking toolbox?
 
-Everything is designed with simplicity and flexibility in mind. We don't hyperfocus on results on a single dataset, we prioritize real-world results. If you don't get good tracking results on your custom dataset with the off-the-box tracker configurations, use the `evolve.py` script for tracker hyperparameter tuning.
+Everything is designed with simplicity and flexibility in mind. We don't hyperfocus on results on a single dataset, we prioritize real-world results. If you don't get good tracking results on your custom dataset with the out-of-the-box tracker configurations, use the `evolve.py` script for tracker hyperparameter tuning.
 
 ## Installation
 
@@ -205,7 +205,7 @@ python track.py --source ... --save-txt
 </details>
 
 <details>
-<summary>Genetic tracker hyperparameter evolution</summary>
+<summary>Tracker hyperparameter tuning</summary>
 
 We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. Run it by
 
@@ -213,6 +213,8 @@ We use a fast and elitist multiobjective genetic algorithm for tracker hyperpara
 $ python evolve.py --tracking-method strongsort --benchmark MOT17 --n-trials 100  # tune strongsort for MOT17
                    --tracking-method ocsort     --benchmark <your-custom-dataset> # tune ocsort for your custom tracking dataset
 ```
+
+The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
 
 </details>
 
