@@ -264,7 +264,7 @@ def parse_opt():
     
 if __name__ == "__main__":
     opt = parse_opt()
-    check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
+    check_requirements(('optuna', 'plotly', 'kaleido', 'joblib'))
 
     if opt.resume:
         # resume from last saved study
