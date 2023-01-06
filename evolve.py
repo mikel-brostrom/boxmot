@@ -276,10 +276,14 @@ if __name__ == "__main__":
 
     study.optimize(Objective(opt), n_trials=opt.n_trials)
     
+    # write the parameters to the config file of the selected tracking method
+    write_best_HOTA_params_to_config(opt, study)
+    
     # save hps study, all trial results are stored here, used for resuming
     joblib.dump(study, opt.tracking_method + "_study.pkl")
     
+    # plots
     save_plots(opt, study, opt.objectives)
     print_best_trial_metric_results(study, opt.objectives)
-    write_best_HOTA_params_to_config(opt, study)
+
         
