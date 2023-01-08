@@ -1,11 +1,12 @@
-# Trial number:      265
-# HOTA, MOTA, IDF1:  [55.394, 61.715, 69.573]
+# Trial number:      137
+# HOTA, MOTA, IDF1:  [55.567]
 ocsort:
   asso_func: giou
-  delta_t: 5
-  det_thresh: 0.5183940071436728
-  inertia: 0.3165349836717576
-  iou_thresh: 0.24605747723296342
-  max_age: 60
+  conf_thres: 0.5122620708221085
+  delta_t: 1
+  det_thresh: 0
+  inertia: 0.3941737016672115
+  iou_thresh: 0.22136877277096445
+  max_age: 50
   min_hits: 1
-  use_byte: true
+  use_byte: false
