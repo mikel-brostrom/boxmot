@@ -71,10 +71,10 @@ class Objective(Evaluator):
         """
         
         d = {}
-                
+        self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
+        
         if self.opt.tracking_method == 'strongsort':
             
-            self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
             iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
             ecc = trial.suggest_categorical("ecc", [True, False])
             ema_alpha = trial.suggest_float("ema_alpha", 0.7, 0.95)
@@ -100,8 +100,8 @@ class Objective(Evaluator):
                 }
                 
         elif self.opt.tracking_method == 'bytetrack':
-            
-            self.opt.track_thres = trial.suggest_float("track_thres", 0.35, 0.55)
+
+            track_thresh = trial.suggest_float("track_thresh", 0.4, 0.6)              
             track_buffer = trial.suggest_int("track_buffer", 10, 60, step=10)  
             match_thresh = trial.suggest_float("match_thresh", 0.7, 0.9)
             
@@ -115,7 +115,7 @@ class Objective(Evaluator):
                 
         elif self.opt.tracking_method == 'ocsort':
             
-            self.opt.conf_thres = trial.suggest_float("det_thresh", 0.35, 0.55)
+            det_thresh = trial.suggest_int("det_thresh", 0.4, 0.6)
             max_age = trial.suggest_int("max_age", 10, 60, step=10)
             min_hits = trial.suggest_int("min_hits", 1, 5, step=1)
             iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
@@ -126,7 +126,7 @@ class Objective(Evaluator):
             
             d['ocsort'] = \
                 {
-                    'det_thresh': self.opt.conf_thres,
+                    'det_thresh': det_thresh,
                     'max_age': max_age,
                     'min_hits': min_hits,
                     'iou_thresh': iou_thresh,
@@ -135,7 +135,7 @@ class Objective(Evaluator):
                     'inertia': inertia,
                     'use_byte': use_byte,
                 }
-        
+                        
         # overwrite existing config for tracker
         with open(self.opt.tracking_config, 'w') as f:
             data = yaml.dump(d, f)   
@@ -198,6 +198,9 @@ def save_plots(opt, study, objectives):
     if len(objectives) > 1:
         fig = optuna.visualization.plot_pareto_front(study, target_names=objectives)
         fig.write_html("pareto_front_" + opt.tracking_method + ".html")
+    else:
+        fig = optuna.visualization.plot_optimization_history(study)
+        fig.write_html("plot_optim_history_" + opt.tracking_method + ".html")
     
     for i, ob in enumerate(objectives):  
         if not opt.n_trials <= 1:  # more than one trial needed for parameter importance 
@@ -273,9 +276,15 @@ if __name__ == "__main__":
         # A fast and elitist multiobjective genetic algorithm: NSGA-II
         # https://ieeexplore.ieee.org/document/996017
         study = optuna.create_study(directions=['maximize']*len(opt.objectives))
+        # first trial with params in yaml file, evolved for MOT17
+        with open(opt.tracking_config, 'r') as f:
+            params = yaml.load(f, Loader=yaml.loader.SafeLoader)
+            study.enqueue_trial(params[opt.tracking_config.stem])
+            print(study.trials)
+
 
     study.optimize(Objective(opt), n_trials=opt.n_trials)
-    
+        
     # write the parameters to the config file of the selected tracking method
     write_best_HOTA_params_to_config(opt, study)
     
