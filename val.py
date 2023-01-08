@@ -17,6 +17,7 @@ import subprocess
 from subprocess import Popen
 import argparse
 import git
+import yaml
 import optuna
 from git import Repo
 import zipfile
@@ -305,6 +306,9 @@ def parse_opt():
     
     opt = parser.parse_args()
     opt.tracking_config = ROOT / 'trackers' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
+    with open(opt.tracking_config, 'r') as f:
+        params = yaml.load(f, Loader=yaml.loader.SafeLoader)
+        opt.conf_thres = params[opt.tracking_method]['conf_thres']    
 
     device = []
     
