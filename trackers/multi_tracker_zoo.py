@@ -51,7 +51,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
     
     elif tracker_type == 'botsort':
         botsort = BoTSORT(
-            appearance_descriptor_weights,
+            reid_weights,
             device,
             half,
             track_high_thresh = 0.45,
