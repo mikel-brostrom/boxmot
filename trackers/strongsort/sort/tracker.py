@@ -36,9 +36,9 @@ class Tracker:
     """
     GATING_THRESHOLD = np.sqrt(kalman_filter.chi2inv95[4])
 
-    def __init__(self, metric, max_iou_distance=0.9, max_age=30, max_unmatched_preds=7, n_init=3, _lambda=0, ema_alpha=0.9, mc_lambda=0.995):
+    def __init__(self, metric, max_iou_dist=0.9, max_age=30, max_unmatched_preds=7, n_init=3, _lambda=0, ema_alpha=0.9, mc_lambda=0.995):
         self.metric = metric
-        self.max_iou_distance = max_iou_distance
+        self.max_iou_dist = max_iou_dist
         self.max_age = max_age
         self.n_init = n_init
         self._lambda = _lambda
@@ -153,7 +153,7 @@ class Tracker:
             features = np.array([dets[i].feature for i in detection_indices])
             targets = np.array([tracks[i].track_id for i in track_indices])
             cost_matrix = self.metric.distance(features, targets)
-            cost_matrix = linear_assignment.gate_cost_matrix(cost_matrix, tracks, dets, track_indices, detection_indices)
+            cost_matrix = linear_assignment.gate_cost_matrix(cost_matrix, tracks, dets, track_indices, detection_indices, self.mc_lambda)
 
             return cost_matrix
 
@@ -178,7 +178,7 @@ class Tracker:
             self.tracks[k].time_since_update != 1]
         matches_b, unmatched_tracks_b, unmatched_detections = \
             linear_assignment.min_cost_matching(
-                iou_matching.iou_cost, self.max_iou_distance, self.tracks,
+                iou_matching.iou_cost, self.max_iou_dist, self.tracks,
                 detections, iou_track_candidates, unmatched_detections)
 
         matches = matches_a + matches_b
