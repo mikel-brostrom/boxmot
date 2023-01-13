@@ -20,5 +20,6 @@ val_utils/
 *.pt
 *.onnx
 *.engine
-*.pyd
-*.c
+
+# interactive plots
+*.html
