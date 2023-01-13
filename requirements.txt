@@ -39,8 +39,14 @@ lap
 filterpy
 
 # Export ----------------------------------------------------------------------
-# onnx>=1.9.0  # ONNX export
-# onnx-simplifier>=0.4.1  # ONNX simplifier
-# nvidia-pyindex  # TensorRT export
-# nvidia-tensorrt  # TensorRT export
-# openvino-dev  # OpenVINO export
+# onnx>=1.9.0               # ONNX export
+# onnx-simplifier>=0.4.1    # ONNX simplifier
+# nvidia-pyindex            # TensorRT export
+# nvidia-tensorrt           # TensorRT export
+# openvino-dev              # OpenVINO export
+
+# Hyperparam search -----------------------------------------------------------
+# optuna
+# plotly                    # for hp importance and pareto front plots
+# kaleido
+# joblib
