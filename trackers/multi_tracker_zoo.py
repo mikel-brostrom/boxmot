@@ -54,14 +54,14 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
             reid_weights,
             device,
             half,
-            track_high_thresh = 0.45,
-            new_track_thresh= 0.6,
-            track_buffer = 30,
-            match_thresh= 0.8,
-            proximity_thresh= 0.5,
-            appearance_thresh= 0.25,
-            cmc_method = 'sparseOptFlow',
-            frame_rate=30
+            track_high_thresh=cfg.botsort.track_high_thresh,
+            new_track_thresh=cfg.botsort.new_track_thresh,
+            track_buffer =cfg.botsort.track_buffer,
+            match_thresh=cfg.botsort.match_thresh,
+            proximity_thresh=cfg.botsort.proximity_thresh,
+            appearance_thresh=cfg.botsort.appearance_thresh,
+            cmc_method =cfg.botsort.cmc_method,
+            frame_rate=cfg.botsort.frame_rate
         )
         return botsort
     else:
