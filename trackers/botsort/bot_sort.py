@@ -10,7 +10,7 @@ from trackers.botsort.kalman_filter import KalmanFilter
 
 # from fast_reid.fast_reid_interfece import FastReIDInterface
 
-from trackers.strong_sort.reid_multibackend import ReIDDetectMultiBackend
+from reid_multibackend import ReIDDetectMultiBackend
 from yolov5.utils.general import xyxy2xywh, xywh2xyxy
 
 class STrack(BaseTrack):
@@ -19,7 +19,7 @@ class STrack(BaseTrack):
     def __init__(self, tlwh, score, cls, feat=None, feat_history=50):
 
         # wait activate
-        self._tlwh = np.asarray(tlwh, dtype=np.float)
+        self._tlwh = np.asarray(tlwh, dtype=np.float32)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
