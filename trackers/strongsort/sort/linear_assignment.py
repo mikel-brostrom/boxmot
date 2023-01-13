@@ -129,7 +129,7 @@ def matching_cascade(
 
 
 def gate_cost_matrix(
-        cost_matrix, tracks, detections, track_indices, detection_indices,
+        cost_matrix, tracks, detections, track_indices, detection_indices, mc_lambda,
         gated_cost=INFTY_COST, only_position=False):
     """Invalidate infeasible entries in cost matrix based on the state
     distributions obtained by Kalman filtering.
@@ -170,5 +170,5 @@ def gate_cost_matrix(
         track = tracks[track_idx]
         gating_distance = track.kf.gating_distance(track.mean, track.covariance, measurements, only_position)
         cost_matrix[row, gating_distance > gating_threshold] = gated_cost
-        cost_matrix[row] = 0.995 * cost_matrix[row] + (1 - 0.995) *  gating_distance
+        cost_matrix[row] = mc_lambda * cost_matrix[row] + (1 - mc_lambda) *  gating_distance
     return cost_matrix
