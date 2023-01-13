@@ -1,10 +1,9 @@
 botsort:
-  ecc: true
-  ema_alpha: 0.8962157769329083
-  max_age: 40
-  max_dist: 0.1594374041012136
-  max_iou_dist: 0.5431835667667874
-  max_unmatched_preds: 0
-  mc_lambda: 0.995
-  n_init: 3
-  nn_budget: 100
+  appearance_thresh: 0.25
+  cmc_method: sparseOptFlow
+  frame_rate: 30
+  match_thresh: 0.8
+  new_track_thresh: 0.6
+  proximity_thresh: 0.5
+  track_buffer: 30
+  track_high_thresh: 0.45
