@@ -21,7 +21,7 @@ class StrongSORT(object):
                  device,
                  fp16,
                  max_dist=0.2,
-                 max_iou_distance=0.7,
+                 max_iou_dist=0.7,
                  max_age=70,
                  max_unmatched_preds=7,
                  n_init=3,
@@ -36,7 +36,7 @@ class StrongSORT(object):
         metric = NearestNeighborDistanceMetric(
             "cosine", self.max_dist, nn_budget)
         self.tracker = Tracker(
-            metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init, max_unmatched_preds=max_unmatched_preds)
+            metric, max_iou_dist=max_iou_dist, max_age=max_age, n_init=n_init, max_unmatched_preds=max_unmatched_preds, mc_lambda=mc_lambda, ema_alpha=ema_alpha)
 
     def update(self, dets,  ori_img):
         
@@ -77,7 +77,7 @@ class StrongSORT(object):
             class_id = track.class_id
             conf = track.conf
             queue = track.q
-            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id, conf, queue]))
+            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id, conf, queue], dtype=object))
         if len(outputs) > 0:
             outputs = np.stack(outputs, axis=0)
         return outputs
