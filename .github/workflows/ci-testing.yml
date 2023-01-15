@@ -48,7 +48,7 @@ jobs:
           # STRONGSORT
           python track.py --tracking-method strongsort --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
           # OCSORT
-          python track.py --tracking-method ocsort --yolo-weights ./weights/yolov8n.pt --sourceyolov8/ultralytics/assets/bus.jpg
+          python track.py --tracking-method ocsort --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
           # BYTETRACK
           python track.py --tracking-method bytetrack --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
           # EXPORT
