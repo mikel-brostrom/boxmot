@@ -5,7 +5,7 @@ from __future__ import print_function
 
 import numpy as np
 from .association import *
-from yolov5.utils.general import xywh2xyxy
+from yolov8.ultralytics.yolo.utils.ops import xywh2xyxy
 
 
 def k_previous_obs(observations, cur_age, k):
