@@ -92,8 +92,8 @@ https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/a4bc0c38c33023fab
 ## Tracking
 
 ```bash
-$ python track.py --yolo-weights yolov5n.pt      # bboxes only
-                                 yolov5n-seg.pt  # bboxes + segmentation masks
+$ python track.py --yolo-weights yolov8n.pt      # bboxes only
+                                 yolov58-seg.pt  # bboxes + segmentation masks
 ```
 
 <details>
@@ -125,18 +125,18 @@ $ python track.py --source 0  # webcam
 </details>
 
 <details>
-<summary>Select Yolov5 model</summary>
+<summary>Select Yolov8 model</summary>
 
 There is a clear trade-off between model inference speed and overall performance. In order to make it possible to fulfill your inference speed/accuracy needs you can select a Yolov5 family model for automatic download. These model can be further optimized for you needs by the [export.py](https://github.com/ultralytics/yolov5/blob/master/export.py) script
 
 ```bash
 
 
-$ python track.py --source 0 --yolo-weights yolov5n.pt --img 640
-                                            yolov5s.tflite
-                                            yolov5m.pt
-                                            yolov5l.onnx 
-                                            yolov5x.pt --img 1280
+$ python track.py --source 0 --yolo-weights yolov8n.pt --img 640
+                                            yolov8s.tflite
+                                            yolov8m.pt
+                                            yolov8l.onnx 
+                                            yolov8x.pt --img 1280
                                             ...
 ```
   
@@ -167,10 +167,10 @@ By default the tracker tracks all MS COCO classes.
 If you want to track a subset of the classes that you model predicts, add their corresponding index after the classes flag,
 
 ```bash
-python track.py --source 0 --yolo-weights yolov5s.pt --classes 16 17  # COCO yolov5 model. Track cats and dogs, only
+python track.py --source 0 --yolo-weights yolov8s.pt --classes 16 17  # COCO yolov8 model. Track cats and dogs, only
 ```
 
-[Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a Yolov5 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
+[Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a Yolov8 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
 
 </details>
 
