@@ -1,4 +1,4 @@
-# Real-time multi-object tracking and segmentation using Yolov5 with StrongSORT and OSNet
+# Real-time multi-object tracking and segmentation using Yolov8 with StrongSORT and OSNet
 
 
 <div align="center">
