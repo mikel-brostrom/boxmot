@@ -1,4 +1,4 @@
-# Real-time multi-object tracking and segmentation
+# SOTA real-time multi-object tracking and segmentation
 
 
 <div align="center">
@@ -93,7 +93,7 @@ https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/a4bc0c38c33023fab
 
 ```bash
 $ python track.py --yolo-weights yolov8n.pt      # bboxes only
-                                 yolov58-seg.pt  # bboxes + segmentation masks
+                                 yolov8-seg.pt  # bboxes + segmentation masks
 ```
 
 <details>
