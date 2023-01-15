@@ -36,8 +36,7 @@ class ReIDDetectMultiBackend(nn.Module):
         super().__init__()
 
         w = weights[0] if isinstance(weights, list) else weights
-        self.pt, self.jit, self.onnx, self.xml, self.engine, self.coreml, self.saved_model, \
-            self.pb, self.tflite, self.edgetpu, self.tfjs, self.paddle = self.model_type(w)  # get backend
+        self.pt, self.jit, self.onnx, self.xml, self.engine, self.tflite = self.model_type(w)  # get backend
         self.fp16 = fp16
         self.fp16 &= self.pt or self.jit or self.engine  # FP16
 
@@ -165,11 +164,10 @@ class ReIDDetectMultiBackend(nn.Module):
     @staticmethod
     def model_type(p='path/to/model.pt'):
         # Return model type from model path, i.e. path='path/to/model.onnx' -> type=onnx
-        from reid_export import export_formats
+        from trackers.reid_export import export_formats
         sf = list(export_formats().Suffix)  # export suffixes
         check_suffix(p, sf)  # checks
         types = [s in Path(p).name for s in sf]
-        types[8] &= not types[9]  # tflite &= not edgetpu
         return types
 
     def _preprocess(self, im_batch):
@@ -232,7 +230,7 @@ class ReIDDetectMultiBackend(nn.Module):
 
     def warmup(self, imgsz=[(256, 128, 3)]):
         # Warmup model by running inference once
-        warmup_types = self.pt, self.jit, self.onnx, self.engine, self.saved_model, self.pb
+        warmup_types = self.pt, self.jit, self.onnx, self.engine, self.tflite
         if any(warmup_types) and self.device.type != 'cpu':
             im = [np.empty(*imgsz).astype(np.uint8)]  # input
             for _ in range(2 if self.jit else 1):  #
