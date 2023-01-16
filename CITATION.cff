@@ -1,13 +1,13 @@
 cff-version: 1.2.0
 preferred-citation:
   type: software
-  message: "If you use Yolov5 StrongSORT OSNet, please cite it as below."
+  message: "If you use Yolov8 StrongSORT OSNet, please cite it as below."
   authors:
   - family-names: Broström
     given-names: Mikel
-  title: "Real-time multi-object tracking and segmentation using Yolov5 with StrongSORT and OSNet"
+  title: "Real-time multi-object tracking and segmentation using Yolov8 with StrongSORT and OSNet"
   version: 8.0
   doi: 10.5281/zenodo.7452874
   date-released: 2022-12
   license: GPL-3.0
-  url: "https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet"
+  url: "https://github.com/mikel-brostrom/yolov8_tracking"
