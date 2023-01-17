@@ -1,5 +1,5 @@
 import argparse
-
+import cv2
 import os
 # limit the number of cpus used by high performance libraries
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -29,13 +29,16 @@ if str(ROOT / 'trackers' / 'strongsort') not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 import logging
-from yolov5.models.common import DetectMultiBackend
-from yolov5.utils.dataloaders import VID_FORMATS, LoadImages, LoadStreams
-from yolov5.utils.general import (LOGGER, Profile, check_img_size, non_max_suppression, scale_boxes, check_requirements, cv2,
-                                  check_imshow, xyxy2xywh, increment_path, strip_optimizer, colorstr, print_args, check_file)
-from yolov5.utils.torch_utils import select_device, time_sync
-from yolov5.utils.plots import Annotator, colors, save_one_box
-from yolov5.utils.segment.general import masks2segments, process_mask, process_mask_native
+from yolov8.ultralytics.nn.autobackend import AutoBackend
+from yolov8.ultralytics.yolo.data.dataloaders.stream_loaders import LoadImages, LoadStreams
+from yolov8.ultralytics.yolo.data.utils import IMG_FORMATS, VID_FORMATS
+from yolov8.ultralytics.yolo.utils import DEFAULT_CONFIG, LOGGER, SETTINGS, callbacks, colorstr, ops
+from yolov8.ultralytics.yolo.utils.checks import check_file, check_imgsz, check_imshow, print_args, check_requirements
+from yolov8.ultralytics.yolo.utils.files import increment_path
+from yolov8.ultralytics.yolo.utils.torch_utils import select_device
+from yolov8.ultralytics.yolo.utils.ops import Profile, non_max_suppression, scale_boxes, process_mask, process_mask_native
+from yolov8.ultralytics.yolo.utils.plotting import Annotator, colors
+
 from trackers.multi_tracker_zoo import create_tracker
 
 
@@ -98,19 +101,34 @@ def run(
     # Load model
     device = select_device(device)
     is_seg = '-seg' in str(yolo_weights)
-    model = DetectMultiBackend(yolo_weights, device=device, dnn=dnn, data=None, fp16=half)
+    model = AutoBackend(yolo_weights, device=device, dnn=dnn, fp16=half)
     stride, names, pt = model.stride, model.names, model.pt
-    imgsz = check_img_size(imgsz, s=stride)  # check image size
+    imgsz = check_imgsz(imgsz, stride=stride)  # check image size
 
     # Dataloader
     if webcam:
-        show_vid = check_imshow()
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
+        show_vid = check_imshow(warn=True)
+        dataset = LoadStreams(
+            source,
+            imgsz=imgsz,
+            stride=stride,
+            auto=pt,
+            transforms=getattr(model.model, 'transforms', None),
+            vid_stride=vid_stride
+        )
         nr_sources = len(dataset)
     else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
+        dataset = LoadImages(
+            source,
+            imgsz=imgsz,
+            stride=stride,
+            auto=pt,
+            transforms=getattr(model.model, 'transforms', None),
+            vid_stride=vid_stride
+        )
         nr_sources = 1
     vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
+    model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
 
     # Create as many strong sort instances as there are video sources
     tracker_list = []
@@ -126,7 +144,9 @@ def run(
     #model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile(), Profile())
     curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
-    for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
+    for batch in dataset:
+        path, im, im0s, vid_cap, s = batch
+        visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
         with dt[0]:
             im = torch.from_numpy(im).to(device)
             im = im.half() if half else im.float()  # uint8 to fp16/32
@@ -136,22 +156,19 @@ def run(
 
         # Inference
         with dt[1]:
-            visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
-            if is_seg:
-                pred, proto = model(im, augment=augment, visualize=visualize)[:2]
-            else:
-                pred = model(im, augment=augment, visualize=visualize)
+            preds = model(im, augment=augment, visualize=visualize)
 
         # Apply NMS
         with dt[2]:
             if is_seg:
-                pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det, nm=32)
+                masks = []
+                p = non_max_suppression(preds[0], conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det, nm=32)
+                proto = preds[1][-1]
             else:
-                pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
+                p = non_max_suppression(preds, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
             
-
         # Process detections
-        for i, det in enumerate(pred):  # detections per image
+        for i, det in enumerate(p):  # detections per image
             seen += 1
             if webcam:  # nr_sources >= 1
                 p, im0, _ = path[i], im0s[i].copy(), dataset.count
@@ -184,13 +201,14 @@ def run(
 
             if det is not None and len(det):
                 if is_seg:
+                    shape = im0.shape
                     # scale bbox first the crop masks
                     if retina_masks:
-                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
-                        masks = process_mask_native(proto[i], det[:, 6:], det[:, :4], im0.shape[:2])  # HWC
+                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], shape).round()  # rescale boxes to im0 size
+                        masks.append(process_mask_native(proto[i], det[:, 6:], det[:, :4], im0.shape[:2]))  # HWC
                     else:
-                        masks = process_mask(proto[i], det[:, 6:], det[:, :4], im.shape[2:], upsample=True)  # HWC
-                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
+                        masks.append(process_mask(proto[i], det[:, 6:], det[:, :4], im.shape[2:], upsample=True))  # HWC
+                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], shape).round()  # rescale boxes to im0 size
                 else:
                     det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
 
@@ -205,14 +223,7 @@ def run(
                 
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
-                    if save_vid and is_seg:
-                        # Mask plotting
-                        annotator.masks(
-                            masks,
-                            colors=[colors(x, True) for x in det[:, 5]],
-                            im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
-                            255 if retina_masks else im[i]
-                        )
+                    
                     for j, (output) in enumerate(outputs[i]):
                         
                         bbox = output[0:4]
@@ -231,13 +242,21 @@ def run(
                                 f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
                                                                bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
 
-                        if save_vid or save_crop or show_vid:  # Add bbox to image
+                        if save_vid or save_crop or show_vid:  # Add bbox/seg to image
                             c = int(cls)  # integer class
                             id = int(id)  # integer id
                             label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             color = colors(c, True)
                             annotator.box_label(bbox, label, color=color)
+                            if is_seg:
+                                    # Mask plotting
+                                annotator.masks(
+                                    masks[i],
+                                    colors=[colors(x, True) for x in det[:, 5]],
+                                    im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
+                                    255 if retina_masks else im[i]
+                                )
                             if save_trajectories and tracking_method == 'strongsort':
                                 q = output[7]
                                 tracker_list[i].trajectory(im0, q, color=color)
@@ -293,7 +312,7 @@ def run(
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', nargs='+', type=Path, default=WEIGHTS / 'yolov5s-seg.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo-weights', nargs='+', type=Path, default=WEIGHTS / 'yolov8s-seg.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
     parser.add_argument('--tracking-method', type=str, default='bytetrack', help='strongsort, ocsort, bytetrack')
     parser.add_argument('--tracking-config', type=Path, default=None)

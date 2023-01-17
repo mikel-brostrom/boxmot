@@ -1,6 +1,3 @@
-[submodule "yolov5"]
-	path = yolov5
-	url = https://github.com/ultralytics/yolov5.git
-[submodule "trackers/strong_sort/deep/reid"]
-	path = trackers/strong_sort/deep/reid
-	url = https://github.com/KaiyangZhou/deep-person-reid
+[submodule "yolov8"]
+	path = yolov8
+	url = https://github.com/ultralytics/ultralytics
