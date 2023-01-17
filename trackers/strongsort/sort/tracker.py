@@ -196,5 +196,5 @@ class Tracker:
             detection.feature
         )
         track.predict(self.kf)  # Might not work due to zero velocity
-        self.tracks.append()
+        self.tracks.append(track)
         self._next_id += 1
