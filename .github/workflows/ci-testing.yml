@@ -46,15 +46,15 @@ jobs:
       - name: Tests workflow
         run: |
           # STRONGSORT
-          python track.py --tracking-method strongsort --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg
+          python track.py --tracking-method strongsort --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
           # OCSORT
-          python track.py --tracking-method ocsort --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg
+          python track.py --tracking-method ocsort --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
           # BYTETRACK
-          python track.py --tracking-method bytetrack --yolo-weights ./weights/yolov5n.pt --source yolov5/data/images/bus.jpg
+          python track.py --tracking-method bytetrack --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
           # EXPORT
           python trackers/reid_export.py --weights ./weights/osnet_x0_25_msmt17.pt  # export deafults to torchscript
           # STRONGSORT w. EXPORTED REID MODEL
-          python track.py --reid-weights ./weights/osnet_x0_25_msmt17.torchscript --source yolov5/data/images/bus.jpg
+          python track.py --reid-weights ./weights/osnet_x0_25_msmt17.torchscript --source yolov8/ultralytics/assets/bus.jpg
           # TRACK WITH SEGMENTATIONS
-          python track.py --tracking-method strongsort --yolo-weights ./weights/yolov5n-seg.pt --source yolov5/data/images/bus.jpg
+          python track.py --tracking-method strongsort --yolo-weights ./weights/yolov8n-seg.pt --source yolov8/ultralytics/assets/bus.jpg
         shell: bash
