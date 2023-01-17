@@ -186,7 +186,15 @@ class Tracker:
         return matches, unmatched_tracks, unmatched_detections
 
     def _initiate_track(self, detection, class_id, conf):
-        self.tracks.append(Track(
-            detection.to_xyah(), self._next_id, class_id, conf, self.n_init, self.max_age, self.ema_alpha,
-            detection.feature))
+        track = Track(
+            detection.to_xyah(),
+            self._next_id,
+            class_id, conf,
+            self.n_init,
+            self.max_age,
+            self.ema_alpha,
+            detection.feature
+        )
+        track.predict(self.kf)  # Might not work due to zero velocity
+        self.tracks.append()
         self._next_id += 1
