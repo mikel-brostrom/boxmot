@@ -43,7 +43,7 @@ class Objective(Evaluator):
     
     This object is passed to an objective function and provides interfaces to overwrite
     a tracker's config yaml file and the call to the objective function (evaluation on 
-    a specific benchmark: MOT16, MOT17... and split) with a specifc set up harams.
+    a specific benchmark: MOT16, MOT17... and split) with a specific set up harams.
     
     Note:
         The objective function inherits all the methods and properties from the Evaluator
