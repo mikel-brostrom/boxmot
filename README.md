@@ -26,8 +26,8 @@ Everything is designed with simplicity and flexibility in mind. We don't hyperfo
 ## Installation
 
 ```
-git clone --recurse-submodules https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet.git  # clone recursively
-cd Yolov5_StrongSORT_OSNet
+git clone --recurse-submodules https://github.com/mikel-brostrom/yolov8_tracking.git  # clone recursively
+cd yolov8_tracking
 pip install -r requirements.txt  # install dependencies
 ```
 
