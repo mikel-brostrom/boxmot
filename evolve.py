@@ -264,6 +264,15 @@ def parse_opt():
     print_args(vars(opt))
     return opt
 
+
+class ContinuousStudySave:
+    def __init__(self, tracking_method):
+        self.tracking_method = tracking_method
+        
+    def __call__(self, study, trial):
+        print('SAVIIIIING\n\n')
+        joblib.dump(study, opt.tracking_method + "_study.pkl")
+
     
 if __name__ == "__main__":
     opt = parse_opt()
@@ -282,8 +291,8 @@ if __name__ == "__main__":
             study.enqueue_trial(params[opt.tracking_config.stem])
             print(study.trials)
 
-
-    study.optimize(Objective(opt), n_trials=opt.n_trials)
+    continuous_study_save_cb = ContinuousStudySave(opt.tracking_method)
+    study.optimize(Objective(opt), n_trials=opt.n_trials, callbacks=[continuous_study_save_cb])
         
     # write the parameters to the config file of the selected tracking method
     write_best_HOTA_params_to_config(opt, study)
