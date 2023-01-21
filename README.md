@@ -92,7 +92,7 @@ https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/a4bc0c38c33023fab
 ## Tracking
 
 ```bash
-$ python track.py --yolo-weights yolov8n.pt      # bboxes only
+$ python track.py --yolo-weights yolov8n.pt     # bboxes only
                                  yolov8-seg.pt  # bboxes + segmentation masks
 ```
 
@@ -209,11 +209,11 @@ python track.py --source ... --save-txt
 <details>
 <summary>Tracker hyperparameter tuning</summary>
 
-We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. Run it by
+We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. By default the objectives are: HOTA, MOTA, IDF1. Run it by
 
 ```bash
 $ python evolve.py --tracking-method strongsort --benchmark MOT17 --n-trials 100  # tune strongsort for MOT17
-                   --tracking-method ocsort     --benchmark <your-custom-dataset> # tune ocsort for your custom tracking dataset
+                   --tracking-method ocsort     --benchmark <your-custom-dataset> --objective HOTA, # tune ocsort for maximizing HOTA on your custom tracking dataset
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
