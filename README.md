@@ -77,7 +77,7 @@ In inverse chronological order:
 <details>
 <summary>Custom object detection architecture</summary>
 
-The trackers provided in this repo can be used with other object detectors than Yolov5. Make sure that the output of your detector has the following format:
+The trackers provided in this repo can be used with other object detectors than Yolov8. Make sure that the output of your detector has the following format:
 
 ```bash
 (x1,y1, x2, y2, obj, cls0, cls1, ..., clsn)
@@ -222,5 +222,5 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 
 ## Contact 
 
-For Yolov5 StrongSORT OSNet bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues). 
+For Yolov8 tracking bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues). 
 For business inquiries or professional support requests please send an email to: yolov5.deepsort.pytorch@gmail.com
