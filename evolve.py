@@ -270,7 +270,6 @@ class ContinuousStudySave:
         self.tracking_method = tracking_method
         
     def __call__(self, study, trial):
-        print('SAVIIIIING\n\n')
         joblib.dump(study, opt.tracking_method + "_study.pkl")
 
     
