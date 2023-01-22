@@ -266,6 +266,14 @@ def parse_opt():
 
 
 class ContinuousStudySave:
+    """Helper class for saving the study after each trial. This is to avoid
+       loosing partial study results if the study is stopped before finishing
+
+    Args:
+        tracking_method: the tracking method name
+    Attributes:
+        tracking_method: the tracking method name
+    """
     def __init__(self, tracking_method):
         self.tracking_method = tracking_method
         
