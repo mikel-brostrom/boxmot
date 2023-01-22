@@ -213,7 +213,7 @@ We use a fast and elitist multiobjective genetic algorithm for tracker hyperpara
 
 ```bash
 $ python evolve.py --tracking-method strongsort --benchmark MOT17 --n-trials 100  # tune strongsort for MOT17
-                   --tracking-method ocsort     --benchmark <your-custom-dataset> --objective HOTA, # tune ocsort for maximizing HOTA on your custom tracking dataset
+                   --tracking-method ocsort     --benchmark <your-custom-dataset> --objective HOTA # tune ocsort for maximizing HOTA on your custom tracking dataset
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
