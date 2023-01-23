@@ -224,6 +224,15 @@ def run(
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
                     
+                    if is_seg:
+                        # Mask plotting
+                        annotator.masks(
+                            masks[i],
+                            colors=[colors(x, True) for x in det[:, 5]],
+                            im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
+                            255 if retina_masks else im[i]
+                        )
+                    
                     for j, (output) in enumerate(outputs[i]):
                         
                         bbox = output[0:4]
@@ -249,14 +258,7 @@ def run(
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             color = colors(c, True)
                             annotator.box_label(bbox, label, color=color)
-                            if is_seg:
-                                    # Mask plotting
-                                annotator.masks(
-                                    masks[i],
-                                    colors=[colors(x, True) for x in det[:, 5]],
-                                    im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
-                                    255 if retina_masks else im[i]
-                                )
+                            
                             if save_trajectories and tracking_method == 'strongsort':
                                 q = output[7]
                                 tracker_list[i].trajectory(im0, q, color=color)
