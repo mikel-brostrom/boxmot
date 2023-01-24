@@ -106,6 +106,7 @@ def run(
     imgsz = check_imgsz(imgsz, stride=stride)  # check image size
 
     # Dataloader
+    bs = 1
     if webcam:
         show_vid = check_imshow(warn=True)
         dataset = LoadStreams(
@@ -116,7 +117,7 @@ def run(
             transforms=getattr(model.model, 'transforms', None),
             vid_stride=vid_stride
         )
-        nr_sources = len(dataset)
+        bs = len(dataset)
     else:
         dataset = LoadImages(
             source,
@@ -126,24 +127,23 @@ def run(
             transforms=getattr(model.model, 'transforms', None),
             vid_stride=vid_stride
         )
-        nr_sources = 1
-    vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
+    vid_path, vid_writer, txt_path = [None] * bs, [None] * bs, [None] * bs
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
 
     # Create as many strong sort instances as there are video sources
     tracker_list = []
-    for i in range(nr_sources):
+    for i in range(bs):
         tracker = create_tracker(tracking_method, tracking_config, reid_weights, device, half)
         tracker_list.append(tracker, )
         if hasattr(tracker_list[i], 'model'):
             if hasattr(tracker_list[i].model, 'warmup'):
                 tracker_list[i].model.warmup()
-    outputs = [None] * nr_sources
+    outputs = [None] * bs
 
     # Run tracking
     #model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile(), Profile())
-    curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
+    curr_frames, prev_frames = [None] * bs, [None] * bs
     for frame_idx, batch in enumerate(dataset):
         path, im, im0s, vid_cap, s = batch
         visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
@@ -170,7 +170,7 @@ def run(
         # Process detections
         for i, det in enumerate(p):  # detections per image
             seen += 1
-            if webcam:  # nr_sources >= 1
+            if webcam:  # bs >= 1
                 p, im0, _ = path[i], im0s[i].copy(), dataset.count
                 p = Path(p)  # to Path
                 s += f'{i}: '
