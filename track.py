@@ -141,7 +141,7 @@ def run(
     outputs = [None] * bs
 
     # Run tracking
-    #model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
+    #model.warmup(imgsz=(1 if pt else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile(), Profile())
     curr_frames, prev_frames = [None] * bs, [None] * bs
     for frame_idx, batch in enumerate(dataset):
