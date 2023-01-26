@@ -37,7 +37,10 @@ if str(ROOT / 'strong_sort') not in sys.path:
     sys.path.append(str(ROOT / 'strong_sort'))  # add strong_sort ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-from yolov5.utils.general import LOGGER, check_requirements, print_args, increment_path
+from yolov8.ultralytics.yolo.utils import LOGGER
+from yolov8.ultralytics.yolo.utils.checks import check_requirements, print_args
+from yolov8.ultralytics.yolo.utils.files import increment_path
+
 from track import run
     
 
