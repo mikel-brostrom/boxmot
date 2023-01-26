@@ -3,4 +3,5 @@ bytetrack:
   track_buffer: 30   # the frames for keep lost tracks
   match_thresh: 0.8  # matching threshold for tracking
   frame_rate: 30     # FPS
+  conf_thres: 0.5122620708221085
   
