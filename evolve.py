@@ -176,7 +176,6 @@ def print_best_trial_metric_results(study, objectives):
     Returns:
         None
     """
-    print(objectives)
     for ob in enumerate(objectives):  
         trial_with_highest_ob = max(study.best_trials, key=lambda t: t.values[0])
         print(f"Trial with highest {ob}: ")
