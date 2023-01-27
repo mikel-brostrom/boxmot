@@ -28,13 +28,13 @@ WEIGHTS = ROOT / 'weights'
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
-if str(ROOT / 'yolov5') not in sys.path:
-    sys.path.append(str(ROOT / 'yolov5'))  # add yolov5 ROOT to PATH
+if str(ROOT / 'yolov8') not in sys.path:
+    sys.path.append(str(ROOT / 'yolov8'))  # add yolov5 ROOT to PATH
 if str(ROOT / 'strong_sort') not in sys.path:
     sys.path.append(str(ROOT / 'strong_sort'))  # add strong_sort ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-from yolov8.ultralytics.yolo.utils.general import LOGGER
+from yolov8.ultralytics.yolo.utils import LOGGER
 from yolov8.ultralytics.yolo.utils.checks import check_requirements, print_args
 from track import run
 
@@ -176,9 +176,9 @@ def print_best_trial_metric_results(study, objectives):
     Returns:
         None
     """
-    
+    print(objectives)
     for ob in enumerate(objectives):  
-        trial_with_highest_ob = max(study.best_trials, key=lambda t: t.values[0])    
+        trial_with_highest_ob = max(study.best_trials, key=lambda t: t.values[0])
         print(f"Trial with highest {ob}: ")
         print(f"\tnumber: {trial_with_highest_ob.number}")
         print(f"\tparams: {trial_with_highest_ob.params}")
@@ -230,7 +230,7 @@ def write_best_HOTA_params_to_config(opt, study):
     
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8x.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--tracking-config', type=Path, default=None)
