@@ -18,7 +18,6 @@ from subprocess import Popen
 import argparse
 import git
 import yaml
-import optuna
 from git import Repo
 import zipfile
 from pathlib import Path
@@ -31,8 +30,8 @@ WEIGHTS = ROOT / 'weights'
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
-if str(ROOT / 'yolov5') not in sys.path:
-    sys.path.append(str(ROOT / 'yolov5'))  # add yolov5 ROOT to PATH
+if str(ROOT / 'yolov8') not in sys.path:
+    sys.path.append(str(ROOT / 'yolov8'))  # add yolov5 ROOT to PATH
 if str(ROOT / 'strong_sort') not in sys.path:
     sys.path.append(str(ROOT / 'strong_sort'))  # add strong_sort ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
