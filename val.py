@@ -135,21 +135,24 @@ class Evaluator:
         """
         
         # set paths
-        mot_seqs_path = Path('./assets/MOT17-mini/train')
-        
+        gt_folder = val_tools_path / 'data' / self.opt.benchmark / self.opt.split
+        mot_seqs_path = val_tools_path / 'data' / opt.benchmark / opt.split
         if opt.benchmark == 'MOT17':
             # each sequences is present 3 times, one for each detector
             # (DPM, FRCNN, SDP). Keep only sequences from  one of them
             seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
             seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
-        else:
+        elif opt.benchmark == 'MOT16' or opt.benchmark == 'MOT20':
             # this is not the case for MOT16, MOT20 or your custom dataset
+            seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
+        elif opt.benchmark == 'MOT17-mini':
+            mot_seqs_path = Path('./assets/MOT17-mini/train')
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
         
         save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
         MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
-        (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make 
-        return seq_paths, save_dir, MOT_results_folder
+        (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
+        return seq_paths, save_dir, MOT_results_folder, gt_folder
 
 
     def device_setup(self, opt, seq_paths):
@@ -171,7 +174,7 @@ class Evaluator:
         free_devices = opt.device * opt.processes_per_device
         return free_devices
     
-    def eval(self, opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, free_devices):
+    def eval(self, opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, gt_folder, free_devices):
         """Benchmark evaluation
         
         Runns each benchmark sequence on the selected device configuration and moves the results to
@@ -248,7 +251,7 @@ class Evaluator:
         p = subprocess.run(
             args=[
                 sys.executable,  val_tools_path / 'scripts' / 'run_mot_challenge.py',
-                "--GT_FOLDER", './assets/MOT17-mini/train',
+                "--GT_FOLDER", gt_folder,
                 "--BENCHMARK", self.opt.benchmark,
                 "--TRACKERS_TO_EVAL",  self.opt.eval_existing if self.opt.eval_existing else self.opt.benchmark,
                 "--SPLIT_TO_EVAL", "train",
@@ -290,9 +293,9 @@ class Evaluator:
         e.download_mot_eval_tools(val_tools_path)
         if any(opt.benchmark == s for s in ['MOT16', 'MOT17', 'MOT20']):
             e.download_mot_dataset(val_tools_path, opt.benchmark)
-        seq_paths, save_dir, MOT_results_folder = e.eval_setup(opt, val_tools_path)
+        seq_paths, save_dir, MOT_results_folder, gt_folder = e.eval_setup(opt, val_tools_path)
         free_devices = e.device_setup(opt, seq_paths)
-        return e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, free_devices) 
+        return e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, gt_folder, free_devices) 
 
 
 def parse_opt():
