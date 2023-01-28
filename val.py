@@ -147,6 +147,7 @@ class Evaluator:
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
         elif opt.benchmark == 'MOT17-mini':
             mot_seqs_path = Path('./assets/MOT17-mini/train')
+            gt_folder = Path('./assets/MOT17-mini/train')
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
         
         save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
