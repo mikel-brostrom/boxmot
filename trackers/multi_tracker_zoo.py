@@ -1,7 +1,4 @@
 from trackers.strongsort.utils.parser import get_config
-from trackers.strongsort.strong_sort import StrongSORT
-from trackers.ocsort.ocsort import OCSort
-from trackers.bytetrack.byte_tracker import BYTETracker
 
 
 def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
@@ -10,7 +7,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
     cfg.merge_from_file(tracker_config)
     
     if tracker_type == 'strongsort':
-
+        from trackers.strongsort.strong_sort import StrongSORT
         strongsort = StrongSORT(
             reid_weights,
             device,
@@ -28,6 +25,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
         return strongsort
     
     elif tracker_type == 'ocsort':
+        from trackers.ocsort.ocsort import OCSort
         ocsort = OCSort(
             det_thresh=cfg.ocsort.det_thresh,
             max_age=cfg.ocsort.max_age,
@@ -41,6 +39,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
         return ocsort
     
     elif tracker_type == 'bytetrack':
+        from trackers.bytetrack.byte_tracker import BYTETracker
         bytetracker = BYTETracker(
             track_thresh=cfg.bytetrack.track_thresh,
             match_thresh=cfg.bytetrack.match_thresh,
