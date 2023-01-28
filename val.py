@@ -36,6 +36,12 @@ if str(ROOT / 'strong_sort') not in sys.path:
     sys.path.append(str(ROOT / 'strong_sort'))  # add strong_sort ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+import numpy as np
+
+from packaging import version
+if version.parse(np.__version__) >= version.parse("1.24.0"):
+    np.float = np.float32
+
 from yolov8.ultralytics.yolo.utils import LOGGER
 from yolov8.ultralytics.yolo.utils.checks import check_requirements, print_args
 from yolov8.ultralytics.yolo.utils.files import increment_path
@@ -129,7 +135,7 @@ class Evaluator:
         """
         
         # set paths
-        mot_seqs_path = val_tools_path / 'data' / opt.benchmark / opt.split
+        mot_seqs_path = Path('./assets/MOT17-mini/train')
         
         if opt.benchmark == 'MOT17':
             # each sequences is present 3 times, one for each detector
@@ -242,7 +248,7 @@ class Evaluator:
         p = subprocess.run(
             args=[
                 sys.executable,  val_tools_path / 'scripts' / 'run_mot_challenge.py',
-                "--GT_FOLDER", val_tools_path / 'data' / self.opt.benchmark / self.opt.split,
+                "--GT_FOLDER", './assets/MOT17-mini/train',
                 "--BENCHMARK", self.opt.benchmark,
                 "--TRACKERS_TO_EVAL",  self.opt.eval_existing if self.opt.eval_existing else self.opt.benchmark,
                 "--SPLIT_TO_EVAL", "train",
