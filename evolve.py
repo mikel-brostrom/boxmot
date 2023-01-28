@@ -15,7 +15,6 @@ import os
 import sys
 import logging
 import argparse
-import joblib
 import yaml
 import optuna
 import re
@@ -284,6 +283,7 @@ class ContinuousStudySave:
 if __name__ == "__main__":
     opt = parse_opt()
     check_requirements(('optuna', 'plotly', 'kaleido', 'joblib', 'pycocotools'))
+    import joblib
 
     if opt.resume:
         # resume from last saved study
