@@ -283,7 +283,7 @@ class ContinuousStudySave:
     
 if __name__ == "__main__":
     opt = parse_opt()
-    check_requirements(('optuna', 'plotly', 'kaleido', 'joblib'))
+    check_requirements(('optuna', 'plotly', 'kaleido', 'joblib', 'pycocotools'))
 
     if opt.resume:
         # resume from last saved study
