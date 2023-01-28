@@ -16,7 +16,6 @@ import sys
 import logging
 import argparse
 import yaml
-import optuna
 import re
 from pathlib import Path
 from val import Evaluator
@@ -284,6 +283,7 @@ if __name__ == "__main__":
     opt = parse_opt()
     check_requirements(('optuna', 'plotly', 'kaleido', 'joblib', 'pycocotools'))
     import joblib
+    import optuna
 
     if opt.resume:
         # resume from last saved study
