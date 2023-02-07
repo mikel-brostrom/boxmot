@@ -65,14 +65,14 @@ class KalmanFilter(object):
         mean = np.r_[mean_pos, mean_vel]
 
         std = [
-            2 * self._std_weight_position * measurement[0],   # the center point x
-            2 * self._std_weight_position * measurement[1],   # the center point y
-            1 * measurement[2],                               # the ratio of width/height
-            2 * self._std_weight_position * measurement[3],   # the height
-            10 * self._std_weight_velocity * measurement[0],
-            10 * self._std_weight_velocity * measurement[1],
-            0.1 * measurement[2],
-            10 * self._std_weight_velocity * measurement[3]]
+            2 * self._std_weight_position * measurement[3],   # x
+            2 * self._std_weight_position * measurement[3],   # y
+            1e-2,                                             # aspect ratio
+            2 * self._std_weight_position * measurement[3],   # height
+            10 * self._std_weight_velocity * measurement[3],  # velocity x
+            10 * self._std_weight_velocity * measurement[3],  # velocity y
+            1e-5,                                             # velocity aspect ratio
+            10 * self._std_weight_velocity * measurement[3]]  # velocity height
         covariance = np.diag(np.square(std))
         return mean, covariance
 
@@ -93,15 +93,15 @@ class KalmanFilter(object):
             state. Unobserved velocities are initialized to 0 mean.
         """
         std_pos = [
-            self._std_weight_position * mean[0],
-            self._std_weight_position * mean[1],
-            1 * mean[2],
-            self._std_weight_position * mean[3]]
+            self._std_weight_position * mean[3],  # x
+            self._std_weight_position * mean[3],  # y
+            1e-2,                                 # a
+            self._std_weight_position * mean[3]]  # h
         std_vel = [
-            self._std_weight_velocity * mean[0],
-            self._std_weight_velocity * mean[1],
-            0.1 * mean[2],
-            self._std_weight_velocity * mean[3]]
+            self._std_weight_velocity * mean[3],  # vx
+            self._std_weight_velocity * mean[3],  # vy
+            1e-5,                                 # va
+            self._std_weight_velocity * mean[3]]  # vh
         motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
 
         mean = np.dot(self._motion_mat, mean)

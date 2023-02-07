@@ -29,8 +29,6 @@ class Tracker:
         Maximum number of missed misses before a track is deleted.
     n_init : int
         Number of frames that a track remains in initialization phase.
-    kf : kalman_filter.KalmanFilter
-        A Kalman filter to filter target trajectories in image space.
     tracks : List[Track]
         The list of active tracks at the current time step.
     """
@@ -45,8 +43,7 @@ class Tracker:
         self.ema_alpha = ema_alpha
         self.mc_lambda = mc_lambda
         self.max_unmatched_preds = max_unmatched_preds
-        
-        self.kf = kalman_filter.KalmanFilter()
+
         self.tracks = []
         self._next_id = 1
 
@@ -56,7 +53,7 @@ class Tracker:
         This function should be called once every time step, before `update`.
         """
         for track in self.tracks:
-            track.predict(self.kf)
+            track.predict()
 
     def increment_ages(self):
         for track in self.tracks:
@@ -129,9 +126,10 @@ class Tracker:
         pos_cost = np.empty([len(track_indices), len(detection_indices)])
         msrs = np.asarray([dets[i].to_xyah() for i in detection_indices])
         for row, track_idx in enumerate(track_indices):
+            track = tracks[track_idx]
             pos_cost[row, :] = np.sqrt(
-                self.kf.gating_distance(
-                    tracks[track_idx].mean, tracks[track_idx].covariance, msrs, False
+                track.kf.gating_distance(
+                    track.mean, track.covariance, msrs, False
                 )
             ) / self.GATING_THRESHOLD
         pos_gate = pos_cost > 1.0
