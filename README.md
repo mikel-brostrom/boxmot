@@ -93,7 +93,7 @@ https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/a4bc0c38c33023fab
 
 ```bash
 $ python track.py --yolo-weights yolov8n.pt     # bboxes only
-                                 yolov8-seg.pt  # bboxes + segmentation masks
+                                 yolov8n-seg.pt  # bboxes + segmentation masks
 ```
 
 <details>
