@@ -98,6 +98,30 @@ class Objective(Evaluator):
                     'nn_budget': nn_budget
                 }
                 
+        elif self.opt.tracking_method == 'botsort':
+            
+            track_high_thresh = trial.suggest_float("track_high_thresh", 0.2, 0.7)
+            new_track_thresh = trial.suggest_float("new_track_thresh", 0.2, 0.8)
+            track_buffer = trial.suggest_int("track_buffer", 20, 50, step=10)
+            match_thresh = trial.suggest_float("match_thresh", 0.2, 0.9)
+            proximity_thresh = trial.suggest_float("proximity_thresh", 0.25, 0.75)
+            appearance_thresh = trial.suggest_float("appearance_thresh", 0.1, 0.6)
+            cmc_method = trial.suggest_categorical("cmc_method", ['sparseOptFlow'])
+            frame_rate = trial.suggest_categorical("frame_rate", [30])
+
+
+            d['botsort'] = \
+                {
+                    'track_high_thresh': track_high_thresh,
+                    'new_track_thresh': new_track_thresh,
+                    'track_buffer': track_buffer,
+                    'match_thresh':  match_thresh,
+                    'proximity_thresh': proximity_thresh,
+                    'appearance_thresh': appearance_thresh,
+                    'cmc_method': cmc_method,
+                    'frame_rate': frame_rate,
+                }
+                
         elif self.opt.tracking_method == 'bytetrack':
 
             track_thresh = trial.suggest_float("track_thresh", 0.4, 0.6)              
@@ -152,16 +176,10 @@ class Objective(Evaluator):
         
         # generate new set of params
         self.get_new_config(trial)
-        # run trial
+        # run trial, get HOTA, MOTA, IDF1 COMBINED results
         results = self.run(self.opt)
-        # get HOTA, MOTA, IDF1 COMBINED string lines
-        combined_results = results.split('COMBINED')[2:-1]
-        # robust way of getting first ints/float in string
-        combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
-        # pack everything in dict
-        combined_results = {key: value for key, value in zip(['HOTA', 'MOTA', 'IDF1'], combined_results)}
         # extract objective results of current trial
-        combined_results = [combined_results.get(key) for key in self.opt.objectives]
+        combined_results = [results.get(key) for key in self.opt.objectives]
         return combined_results
     
 
@@ -227,7 +245,7 @@ def write_best_HOTA_params_to_config(opt, study):
     
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8x.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8m.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--tracking-config', type=Path, default=None)
