@@ -275,7 +275,7 @@ class Evaluator:
 
         return p.stdout
     
-    def parse_mot_results(self, mot_results):
+    def parse_mot_results(self, results):
         """Extract the COMBINED HOTA, MOTA, IDF1 from the results generate by the
            run_mot_challenge.py script.
 
