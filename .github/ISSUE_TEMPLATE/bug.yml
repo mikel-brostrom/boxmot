@@ -1,6 +1,6 @@
 name: Bug
 # title: " "
-description: Report a Yolov5_StrongSORT_OSNet bug
+description: Report a Yolov8 Tracking bug
 labels: [bug]
 body:
 
@@ -8,21 +8,22 @@ body:
     attributes:
       label: Search before asking
       description: >
-        Please search the [issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues) and [discussions](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/discussions) to see if a similar question already exists.
+        Please search the [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolov8_tracking/discussions) to see if a similar question already exists.
       options:
         - label: >
-            I have searched the Yolov5_StrongSORT_OSNet [issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues) and [discussions](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/discussions) and found no similar questions.
+            I have searched the Yolov8 Tracking [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolov8_tracking/discussions) and found no similar questions.
           required: true
 
   - type: dropdown
     attributes:
-      label: Yolov5_StrongSORT_OSNet Component
+      label: Yolv8 Tracking Component
       description: |
-        Please select the part of Yolov5_StrongSORT_OSNet where you found the bug.
+        Please select the part of Yolov8 Tracking where you found the bug.
       multiple: true
       options:
         - "Tracking"
         - "Evaluation"
+        - "Evolution"
         - "Integrations"
         - "Other"
     validations:
@@ -42,7 +43,7 @@ body:
       label: Environment
       description: Please specify the software and hardware you used to produce the bug.
       placeholder: |
-        - YOLO: YOLOv5 🚀 v6.0-67-g60e42e1 torch 1.9.0+cu111 CUDA:0 (A100-SXM4-40GB, 40536MiB)
+        - Ultralytics YOLOv8.0.23 🚀 Python-3.8.15 torch-1.11.0+cu102 CUDA:0 (Quadro P2000, 4032MiB)
         - StrongSORT: osnet_x0_25
         - OS: Ubuntu 20.04
         - Python: 3.9.0

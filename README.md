@@ -26,8 +26,8 @@ Everything is designed with simplicity and flexibility in mind. We don't hyperfo
 ## Installation
 
 ```
-git clone --recurse-submodules https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet.git  # clone recursively
-cd Yolov5_StrongSORT_OSNet
+git clone --recurse-submodules https://github.com/mikel-brostrom/yolov8_tracking.git  # clone recursively
+cd yolov8_tracking
 pip install -r requirements.txt  # install dependencies
 ```
 
@@ -86,7 +86,7 @@ In inverse chronological order:
 <details>
 <summary>Custom object detection architecture</summary>
 
-The trackers provided in this repo can be used with other object detectors than Yolov5. Make sure that the output of your detector has the following format:
+The trackers provided in this repo can be used with other object detectors than Yolov8. Make sure that the output of your detector has the following format:
 
 ```bash
 (x1,y1, x2, y2, obj, cls0, cls1, ..., clsn)
@@ -101,8 +101,8 @@ https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/a4bc0c38c33023fab
 ## Tracking
 
 ```bash
-$ python track.py --yolo-weights yolov8n.pt      # bboxes only
-                                 yolov8-seg.pt  # bboxes + segmentation masks
+$ python track.py --yolo-weights yolov8n.pt     # bboxes only
+                                 yolov8n-seg.pt  # bboxes + segmentation masks
 ```
 
 <details>
@@ -219,11 +219,11 @@ python track.py --source ... --save-txt
 <details>
 <summary>Tracker hyperparameter tuning</summary>
 
-We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. Run it by
+We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. By default the objectives are: HOTA, MOTA, IDF1. Run it by
 
 ```bash
 $ python evolve.py --tracking-method strongsort --benchmark MOT17 --n-trials 100  # tune strongsort for MOT17
-                   --tracking-method ocsort     --benchmark <your-custom-dataset> # tune ocsort for your custom tracking dataset
+                   --tracking-method ocsort     --benchmark <your-custom-dataset> --objective HOTA # tune ocsort for maximizing HOTA on your custom tracking dataset
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
@@ -232,5 +232,5 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 
 ## Contact 
 
-For Yolov5 StrongSORT OSNet bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues). 
+For Yolov8 tracking bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues). 
 For business inquiries or professional support requests please send an email to: yolov5.deepsort.pytorch@gmail.com

@@ -1,5 +1,5 @@
 name: Enhancement
-description: Suggest a Yolov5_StrongSORT_OSNet enhancement
+description: Suggest a Yolov8 Tracking enhancement
 # title: " "
 labels: [enhancement]
 body:
@@ -8,10 +8,10 @@ body:
     attributes:
       label: Search before asking
       description: >
-        Please search the [issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues) to see if a similar enhancement request already exists.
+        Please search the [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) to see if a similar enhancement request already exists.
       options:
         - label: >
-            I have searched the YOLOv5 [issues](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/issues) and found no similar enhancement requests.
+            I have searched the Yolov8 Tracking [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) and found no similar enhancement requests.
           required: true
 
   - type: textarea
@@ -19,7 +19,7 @@ body:
       label: Description
       description: A short description of your enhancement.
       placeholder: |
-        What new enhancement would you like to see in Yolov5_StrongSORT_OSNet?
+        What new enhancement would you like to see in Yolov8 Tracking?
     validations:
       required: true
 
