@@ -176,16 +176,10 @@ class Objective(Evaluator):
         
         # generate new set of params
         self.get_new_config(trial)
-        # run trial
+        # run trial, get HOTA, MOTA, IDF1 COMBINED results
         results = self.run(self.opt)
-        # get HOTA, MOTA, IDF1 COMBINED string lines
-        combined_results = results.split('COMBINED')[2:-1]
-        # robust way of getting first ints/float in string
-        combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
-        # pack everything in dict
-        combined_results = {key: value for key, value in zip(['HOTA', 'MOTA', 'IDF1'], combined_results)}
         # extract objective results of current trial
-        combined_results = [combined_results.get(key) for key in self.opt.objectives]
+        combined_results = [results.get(key) for key in self.opt.objectives]
         return combined_results
     
 
@@ -251,7 +245,7 @@ def write_best_HOTA_params_to_config(opt, study):
     
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8x.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8m.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--tracking-config', type=Path, default=None)
