@@ -11,7 +11,7 @@ body:
         Please search the [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) to see if a similar question already exists.
       options:
         - label: >
-            I have searched the Yolov5_StrongSORT_OSNet [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) and found no similar bug report.
+            I have searched the Yolov8 Tracking [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) and found no similar bug report.
           required: true
 
   - type: textarea
