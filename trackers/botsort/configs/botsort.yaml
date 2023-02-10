@@ -1,4 +1,5 @@
 botsort:
+  conf_thres: 0.45
   appearance_thresh: 0.25
   cmc_method: sparseOptFlow
   frame_rate: 30
