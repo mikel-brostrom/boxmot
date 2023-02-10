@@ -18,7 +18,6 @@ from subprocess import Popen
 import argparse
 import git
 import yaml
-import optuna
 from git import Repo
 import zipfile
 from pathlib import Path
@@ -31,13 +30,22 @@ WEIGHTS = ROOT / 'weights'
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
-if str(ROOT / 'yolov5') not in sys.path:
-    sys.path.append(str(ROOT / 'yolov5'))  # add yolov5 ROOT to PATH
+if str(ROOT / 'yolov8') not in sys.path:
+    sys.path.append(str(ROOT / 'yolov8'))  # add yolov5 ROOT to PATH
 if str(ROOT / 'strong_sort') not in sys.path:
     sys.path.append(str(ROOT / 'strong_sort'))  # add strong_sort ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-from yolov5.utils.general import LOGGER, check_requirements, print_args, increment_path
+import numpy as np
+
+from packaging import version
+if version.parse(np.__version__) >= version.parse("1.24.0"):
+    np.float = np.float32
+
+from yolov8.ultralytics.yolo.utils import LOGGER
+from yolov8.ultralytics.yolo.utils.checks import check_requirements, print_args
+from yolov8.ultralytics.yolo.utils.files import increment_path
+
 from track import run
     
 
@@ -127,21 +135,25 @@ class Evaluator:
         """
         
         # set paths
+        gt_folder = val_tools_path / 'data' / self.opt.benchmark / self.opt.split
         mot_seqs_path = val_tools_path / 'data' / opt.benchmark / opt.split
-        
         if opt.benchmark == 'MOT17':
             # each sequences is present 3 times, one for each detector
             # (DPM, FRCNN, SDP). Keep only sequences from  one of them
             seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
             seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
-        else:
+        elif opt.benchmark == 'MOT16' or opt.benchmark == 'MOT20':
             # this is not the case for MOT16, MOT20 or your custom dataset
+            seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
+        elif opt.benchmark == 'MOT17-mini':
+            mot_seqs_path = Path('./assets') / self.opt.benchmark / self.opt.split
+            gt_folder = Path('./assets') / self.opt.benchmark / self.opt.split
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
         
         save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
         MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
-        (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make 
-        return seq_paths, save_dir, MOT_results_folder
+        (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
+        return seq_paths, save_dir, MOT_results_folder, gt_folder
 
 
     def device_setup(self, opt, seq_paths):
@@ -163,7 +175,7 @@ class Evaluator:
         free_devices = opt.device * opt.processes_per_device
         return free_devices
     
-    def eval(self, opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, free_devices):
+    def eval(self, opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, gt_folder, free_devices):
         """Benchmark evaluation
         
         Runns each benchmark sequence on the selected device configuration and moves the results to
@@ -240,7 +252,7 @@ class Evaluator:
         p = subprocess.run(
             args=[
                 sys.executable,  val_tools_path / 'scripts' / 'run_mot_challenge.py',
-                "--GT_FOLDER", val_tools_path / 'data' / self.opt.benchmark / self.opt.split,
+                "--GT_FOLDER", gt_folder,
                 "--BENCHMARK", self.opt.benchmark,
                 "--TRACKERS_TO_EVAL",  self.opt.eval_existing if self.opt.eval_existing else self.opt.benchmark,
                 "--SPLIT_TO_EVAL", "train",
@@ -282,14 +294,14 @@ class Evaluator:
         e.download_mot_eval_tools(val_tools_path)
         if any(opt.benchmark == s for s in ['MOT16', 'MOT17', 'MOT20']):
             e.download_mot_dataset(val_tools_path, opt.benchmark)
-        seq_paths, save_dir, MOT_results_folder = e.eval_setup(opt, val_tools_path)
+        seq_paths, save_dir, MOT_results_folder, gt_folder = e.eval_setup(opt, val_tools_path)
         free_devices = e.device_setup(opt, seq_paths)
-        return e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, free_devices) 
+        return e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, gt_folder, free_devices) 
 
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--tracking-config', type=Path, default=None)
