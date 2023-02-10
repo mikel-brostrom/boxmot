@@ -15,9 +15,7 @@ import os
 import sys
 import logging
 import argparse
-import joblib
 import yaml
-import optuna
 import re
 from pathlib import Path
 from val import Evaluator
@@ -28,13 +26,14 @@ WEIGHTS = ROOT / 'weights'
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
-if str(ROOT / 'yolov5') not in sys.path:
-    sys.path.append(str(ROOT / 'yolov5'))  # add yolov5 ROOT to PATH
+if str(ROOT / 'yolov8') not in sys.path:
+    sys.path.append(str(ROOT / 'yolov8'))  # add yolov5 ROOT to PATH
 if str(ROOT / 'strong_sort') not in sys.path:
     sys.path.append(str(ROOT / 'strong_sort'))  # add strong_sort ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-from yolov5.utils.general import LOGGER, check_requirements, print_args
+from yolov8.ultralytics.yolo.utils import LOGGER
+from yolov8.ultralytics.yolo.utils.checks import check_requirements, print_args
 from track import run
 
 
@@ -199,9 +198,8 @@ def print_best_trial_metric_results(study, objectives):
     Returns:
         None
     """
-    
     for ob in enumerate(objectives):  
-        trial_with_highest_ob = max(study.best_trials, key=lambda t: t.values[0])    
+        trial_with_highest_ob = max(study.best_trials, key=lambda t: t.values[0])
         print(f"Trial with highest {ob}: ")
         print(f"\tnumber: {trial_with_highest_ob.number}")
         print(f"\tparams: {trial_with_highest_ob.params}")
@@ -253,7 +251,7 @@ def write_best_HOTA_params_to_config(opt, study):
     
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'crowdhuman_yolov5m.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8x.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'osnet_x1_0_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort')
     parser.add_argument('--tracking-config', type=Path, default=None)
@@ -288,10 +286,28 @@ def parse_opt():
     print_args(vars(opt))
     return opt
 
+
+class ContinuousStudySave:
+    """Helper class for saving the study after each trial. This is to avoid
+       loosing partial study results if the study is stopped before finishing
+
+    Args:
+        tracking_method: the tracking method name
+    Attributes:
+        tracking_method: the tracking method name
+    """
+    def __init__(self, tracking_method):
+        self.tracking_method = tracking_method
+        
+    def __call__(self, study, trial):
+        joblib.dump(study, opt.tracking_method + "_study.pkl")
+
     
 if __name__ == "__main__":
     opt = parse_opt()
-    check_requirements(('optuna', 'plotly', 'kaleido', 'joblib'))
+    check_requirements(('optuna', 'plotly', 'kaleido', 'joblib', 'pycocotools'))
+    import joblib
+    import optuna
 
     if opt.resume:
         # resume from last saved study
@@ -306,8 +322,8 @@ if __name__ == "__main__":
             study.enqueue_trial(params[opt.tracking_config.stem])
             print(study.trials)
 
-
-    study.optimize(Objective(opt), n_trials=opt.n_trials)
+    continuous_study_save_cb = ContinuousStudySave(opt.tracking_method)
+    study.optimize(Objective(opt), n_trials=opt.n_trials, callbacks=[continuous_study_save_cb])
         
     # write the parameters to the config file of the selected tracking method
     write_best_HOTA_params_to_config(opt, study)

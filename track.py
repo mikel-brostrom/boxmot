@@ -21,8 +21,8 @@ WEIGHTS = ROOT / 'weights'
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
-if str(ROOT / 'yolov5') not in sys.path:
-    sys.path.append(str(ROOT / 'yolov5'))  # add yolov5 ROOT to PATH
+if str(ROOT / 'yolov8') not in sys.path:
+    sys.path.append(str(ROOT / 'yolov8'))  # add yolov5 ROOT to PATH
 if str(ROOT / 'trackers' / 'strongsort') not in sys.path:
     sys.path.append(str(ROOT / 'trackers' / 'strongsort'))  # add strong_sort ROOT to PATH
 
@@ -32,7 +32,7 @@ import logging
 from yolov8.ultralytics.nn.autobackend import AutoBackend
 from yolov8.ultralytics.yolo.data.dataloaders.stream_loaders import LoadImages, LoadStreams
 from yolov8.ultralytics.yolo.data.utils import IMG_FORMATS, VID_FORMATS
-from yolov8.ultralytics.yolo.utils import DEFAULT_CONFIG, LOGGER, SETTINGS, callbacks, colorstr, ops
+from yolov8.ultralytics.yolo.utils import DEFAULT_CFG, LOGGER, SETTINGS, callbacks, colorstr, ops
 from yolov8.ultralytics.yolo.utils.checks import check_file, check_imgsz, check_imshow, print_args, check_requirements
 from yolov8.ultralytics.yolo.utils.files import increment_path
 from yolov8.ultralytics.yolo.utils.torch_utils import select_device
@@ -106,6 +106,7 @@ def run(
     imgsz = check_imgsz(imgsz, stride=stride)  # check image size
 
     # Dataloader
+    bs = 1
     if webcam:
         show_vid = check_imshow(warn=True)
         dataset = LoadStreams(
@@ -116,7 +117,7 @@ def run(
             transforms=getattr(model.model, 'transforms', None),
             vid_stride=vid_stride
         )
-        nr_sources = len(dataset)
+        bs = len(dataset)
     else:
         dataset = LoadImages(
             source,
@@ -126,25 +127,24 @@ def run(
             transforms=getattr(model.model, 'transforms', None),
             vid_stride=vid_stride
         )
-        nr_sources = 1
-    vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
+    vid_path, vid_writer, txt_path = [None] * bs, [None] * bs, [None] * bs
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
 
     # Create as many strong sort instances as there are video sources
     tracker_list = []
-    for i in range(nr_sources):
+    for i in range(bs):
         tracker = create_tracker(tracking_method, tracking_config, reid_weights, device, half)
         tracker_list.append(tracker, )
         if hasattr(tracker_list[i], 'model'):
             if hasattr(tracker_list[i].model, 'warmup'):
                 tracker_list[i].model.warmup()
-    outputs = [None] * nr_sources
+    outputs = [None] * bs
 
     # Run tracking
-    #model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
+    #model.warmup(imgsz=(1 if pt else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile(), Profile())
-    curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
-    for batch in dataset:
+    curr_frames, prev_frames = [None] * bs, [None] * bs
+    for frame_idx, batch in enumerate(dataset):
         path, im, im0s, vid_cap, s = batch
         visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
         with dt[0]:
@@ -170,7 +170,7 @@ def run(
         # Process detections
         for i, det in enumerate(p):  # detections per image
             seen += 1
-            if webcam:  # nr_sources >= 1
+            if webcam:  # bs >= 1
                 p, im0, _ = path[i], im0s[i].copy(), dataset.count
                 p = Path(p)  # to Path
                 s += f'{i}: '
@@ -224,6 +224,15 @@ def run(
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
                     
+                    if is_seg:
+                        # Mask plotting
+                        annotator.masks(
+                            masks[i],
+                            colors=[colors(x, True) for x in det[:, 5]],
+                            im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
+                            255 if retina_masks else im[i]
+                        )
+                    
                     for j, (output) in enumerate(outputs[i]):
                         
                         bbox = output[0:4]
@@ -249,14 +258,7 @@ def run(
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             color = colors(c, True)
                             annotator.box_label(bbox, label, color=color)
-                            if is_seg:
-                                    # Mask plotting
-                                annotator.masks(
-                                    masks[i],
-                                    colors=[colors(x, True) for x in det[:, 5]],
-                                    im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
-                                    255 if retina_masks else im[i]
-                                )
+                            
                             if save_trajectories and tracking_method == 'strongsort':
                                 q = output[7]
                                 tracker_list[i].trajectory(im0, q, color=color)

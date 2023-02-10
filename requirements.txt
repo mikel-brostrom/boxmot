@@ -1,11 +1,11 @@
 # pip install -r requirements.txt
-ultralytics
+ultralytics==8.0.20
 
 # Base ----------------------------------------
 gitpython
 ipython  # interactive notebook
 matplotlib>=3.2.2
-numpy>=1.18.5
+numpy==1.23.1
 opencv-python>=4.1.1
 Pillow>=7.1.2
 psutil  # system resources

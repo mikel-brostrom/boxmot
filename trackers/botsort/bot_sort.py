@@ -11,7 +11,8 @@ from trackers.botsort.kalman_filter import KalmanFilter
 # from fast_reid.fast_reid_interfece import FastReIDInterface
 
 from reid_multibackend import ReIDDetectMultiBackend
-from yolov5.utils.general import xyxy2xywh, xywh2xyxy
+from yolov8.ultralytics.yolo.utils.ops import xyxy2xywh, xywh2xyxy
+
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
