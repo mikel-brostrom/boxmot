@@ -17,6 +17,7 @@ import subprocess
 from subprocess import Popen
 import argparse
 import git
+import re
 import yaml
 from git import Repo
 import zipfile
@@ -45,6 +46,8 @@ if version.parse(np.__version__) >= version.parse("1.24.0"):
 from yolov8.ultralytics.yolo.utils import LOGGER
 from yolov8.ultralytics.yolo.utils.checks import check_requirements, print_args
 from yolov8.ultralytics.yolo.utils.files import increment_path
+
+from torch.utils.tensorboard import SummaryWriter
 
 from track import run
     
@@ -275,7 +278,24 @@ class Evaluator:
         shutil.copyfile(opt.tracking_config, save_dir / opt.tracking_config.name)
 
         return p.stdout
+    
+    def parse_mot_results(self, mot_results):
+        """Extract the COMBINED HOTA, MOTA, IDF1 from the results generate by the
+           run_mot_challenge.py script.
 
+        Args:
+            str: mot_results
+
+        Returns:
+            (dict): {'HOTA': x, 'MOTA':y, 'IDF1':z}
+        """
+        combined_results = results.split('COMBINED')[2:-1]
+        # robust way of getting first ints/float in string
+        combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
+        # pack everything in dict
+        combined_results = {key: value for key, value in zip(['HOTA', 'MOTA', 'IDF1'], combined_results)}
+        return combined_results
+    
     
     def run(self, opt):
         """Download all needed resources for evaluation, setup and evaluate
@@ -296,9 +316,19 @@ class Evaluator:
             e.download_mot_dataset(val_tools_path, opt.benchmark)
         seq_paths, save_dir, MOT_results_folder, gt_folder = e.eval_setup(opt, val_tools_path)
         free_devices = e.device_setup(opt, seq_paths)
-        return e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, gt_folder, free_devices) 
-
-
+        results = e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, gt_folder, free_devices)
+        # extract main metric results: HOTA, MOTA, IDF1
+        combined_results = parse_mot_results(results)
+        
+        # log them with tensorboard
+        writer = SummaryWriter(save_dir)
+        writer.add_scalar('HOTA', combined_results['HOTA'])
+        writer.add_scalar('MOTA', combined_results['MOTA'])
+        writer.add_scalar('IDF1', combined_results['IDF1'])
+        
+        return combined_results
+        
+        
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
