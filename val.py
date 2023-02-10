@@ -314,7 +314,7 @@ class Evaluator:
         free_devices = e.device_setup(opt, seq_paths)
         results = e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, gt_folder, free_devices)
         # extract main metric results: HOTA, MOTA, IDF1
-        combined_results = parse_mot_results(results)
+        combined_results = self.parse_mot_results(results)
         
         # log them with tensorboard
         writer = SummaryWriter(save_dir)
