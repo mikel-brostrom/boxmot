@@ -1,10 +1,12 @@
+# Trial number:      218
+# HOTA, MOTA, IDF1:  [46.393]
 botsort:
-  conf_thres: 0.45
-  appearance_thresh: 0.25
+  appearance_thresh: 0.2964260290304661
   cmc_method: sparseOptFlow
+  conf_thres: 0.3800227264275698
   frame_rate: 30
-  match_thresh: 0.8
-  new_track_thresh: 0.6
-  proximity_thresh: 0.5
-  track_buffer: 30
-  track_high_thresh: 0.45
+  match_thresh: 0.3308863999927688
+  new_track_thresh: 0.31786145296035834
+  proximity_thresh: 0.7479090273813079
+  track_buffer: 40
+  track_high_thresh: 0.3082782338069589
