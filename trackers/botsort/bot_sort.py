@@ -240,7 +240,8 @@ class BoTSORT(object):
                 proximity_thresh:float = 0.5,
                 appearance_thresh:float = 0.25,
                 cmc_method:str = 'sparseOptFlow',
-                frame_rate=30
+                frame_rate=30,
+                lambda_=0.985
                 ):
 
         self.tracked_stracks = []  # type: list[STrack]
@@ -250,6 +251,7 @@ class BoTSORT(object):
 
         self.frame_id = 0
 
+        self.lambda_ = lambda_
         self.track_high_thresh = track_high_thresh
         self.new_track_thresh = new_track_thresh
 
@@ -331,16 +333,19 @@ class BoTSORT(object):
         STrack.multi_gmc(unconfirmed, warp)
 
         # Associate with high score detection boxes
-        ious_dists = matching.iou_distance(strack_pool, detections)
-        ious_dists_mask = (ious_dists > self.proximity_thresh)
+        raw_emb_dists = matching.embedding_distance(strack_pool, detections)
+        dists = matching.fuse_motion(self.kalman_filter, raw_emb_dists, strack_pool, detections, only_position=False, lambda_=self.lambda_)
 
-        ious_dists = matching.fuse_score(ious_dists, detections)
+        # ious_dists = matching.iou_distance(strack_pool, detections)
+        # ious_dists_mask = (ious_dists > self.proximity_thresh)
 
-        emb_dists = matching.embedding_distance(strack_pool, detections) / 2.0
-        raw_emb_dists = emb_dists.copy()
-        emb_dists[emb_dists > self.appearance_thresh] = 1.0
-        emb_dists[ious_dists_mask] = 1.0
-        dists = np.minimum(ious_dists, emb_dists)
+        # ious_dists = matching.fuse_score(ious_dists, detections)
+
+        # emb_dists = matching.embedding_distance(strack_pool, detections) / 2.0
+        # raw_emb_dists = emb_dists.copy()
+        # emb_dists[emb_dists > self.appearance_thresh] = 1.0
+        # emb_dists[ious_dists_mask] = 1.0
+        # dists = np.minimum(ious_dists, emb_dists)
 
             # Popular ReID method (JDE / FairMOT)
             # raw_emb_dists = matching.embedding_distance(strack_pool, detections)
@@ -409,7 +414,6 @@ class BoTSORT(object):
         ious_dists_mask = (ious_dists > self.proximity_thresh)
         
         ious_dists = matching.fuse_score(ious_dists, detections)
-
     
         emb_dists = matching.embedding_distance(unconfirmed, detections) / 2.0
         raw_emb_dists = emb_dists.copy()
