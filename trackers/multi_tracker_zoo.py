@@ -60,7 +60,8 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
             proximity_thresh=cfg.botsort.proximity_thresh,
             appearance_thresh=cfg.botsort.appearance_thresh,
             cmc_method =cfg.botsort.cmc_method,
-            frame_rate=cfg.botsort.frame_rate
+            frame_rate=cfg.botsort.frame_rate,
+            lambda_=cfg.botsort.lambda_
         )
         return botsort
     else:
