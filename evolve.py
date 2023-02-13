@@ -101,9 +101,9 @@ class Objective(Evaluator):
         elif self.opt.tracking_method == 'botsort':
             
             track_high_thresh = trial.suggest_float("track_high_thresh", 0.2, 0.7)
-            new_track_thresh = trial.suggest_float("new_track_thresh", 0.2, 0.8)
-            track_buffer = trial.suggest_int("track_buffer", 20, 60, step=10)
-            match_thresh = trial.suggest_float("match_thresh", 0.2, 0.9)
+            new_track_thresh = trial.suggest_float("new_track_thresh", 0.1, 0.8)
+            track_buffer = trial.suggest_int("track_buffer", 20, 80, step=10)
+            match_thresh = trial.suggest_float("match_thresh", 0.1, 0.9)
             proximity_thresh = trial.suggest_float("proximity_thresh", 0.25, 0.75)
             appearance_thresh = trial.suggest_float("appearance_thresh", 0.1, 0.8)
             cmc_method = trial.suggest_categorical("cmc_method", ['sparseOptFlow'])
