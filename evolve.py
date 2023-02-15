@@ -101,14 +101,14 @@ class Objective(Evaluator):
         elif self.opt.tracking_method == 'botsort':
             
             track_high_thresh = trial.suggest_float("track_high_thresh", 0.2, 0.7)
-            new_track_thresh = trial.suggest_float("new_track_thresh", 0.2, 0.8)
-            track_buffer = trial.suggest_int("track_buffer", 20, 50, step=10)
-            match_thresh = trial.suggest_float("match_thresh", 0.2, 0.9)
+            new_track_thresh = trial.suggest_float("new_track_thresh", 0.1, 0.8)
+            track_buffer = trial.suggest_int("track_buffer", 20, 80, step=10)
+            match_thresh = trial.suggest_float("match_thresh", 0.1, 0.9)
             proximity_thresh = trial.suggest_float("proximity_thresh", 0.25, 0.75)
-            appearance_thresh = trial.suggest_float("appearance_thresh", 0.1, 0.6)
+            appearance_thresh = trial.suggest_float("appearance_thresh", 0.1, 0.8)
             cmc_method = trial.suggest_categorical("cmc_method", ['sparseOptFlow'])
             frame_rate = trial.suggest_categorical("frame_rate", [30])
-
+            lambda_ = trial.suggest_float("lambda_", 0.97, 0.995)
 
             d['botsort'] = \
                 {
@@ -120,6 +120,7 @@ class Objective(Evaluator):
                     'appearance_thresh': appearance_thresh,
                     'cmc_method': cmc_method,
                     'frame_rate': frame_rate,
+                    'lambda_': lambda_
                 }
                 
         elif self.opt.tracking_method == 'bytetrack':
