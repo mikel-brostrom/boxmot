@@ -38,6 +38,15 @@ pip install -r requirements.txt  # install dependencies
 ```
 
 <details>
+<summary>Additional setup for BoT-SORT</summary>
+
+```
+cd trackers/botsort
+python setup.py build_ext --inplace
+```
+ </details>
+
+<details>
 <summary>Tutorials</summary>
 
 * [Yolov5 training (link to external repository)](https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data)&nbsp;
@@ -109,6 +118,7 @@ $ python track.py --yolo-weights yolov8n.pt     # bboxes only
 $ python track.py --tracking-method strongsort
                                     ocsort
                                     bytetrack
+                                    botsort
 ```
   
 </details>
