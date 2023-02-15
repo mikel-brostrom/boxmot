@@ -45,6 +45,8 @@ jobs:
         shell: bash
       - name: Tests workflow
         run: |
+          # BOTSORT
+          python track.py --tracking-method botsort --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
           # STRONGSORT
           python track.py --tracking-method strongsort --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
           # OCSORT
