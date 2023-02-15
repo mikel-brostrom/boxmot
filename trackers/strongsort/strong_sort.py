@@ -50,7 +50,6 @@ class StrongSORT(object):
         self.height, self.width = ori_img.shape[:2]
         
         # generate detections
-        print(xywhs)
         features = self._get_features(xywhs, ori_img)
         bbox_tlwh = self._xywh_to_tlwh(xywhs)
         detections = [Detection(bbox_tlwh[i], conf, features[i]) for i, conf in enumerate(
