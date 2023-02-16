@@ -638,7 +638,7 @@ class StrongOCSort(object):
                 if trk.state == TrackState.Tentative:
                     trk.state = TrackState.Confirmed
                 # +1 as MOT benchmark requires positive
-                ret.append(np.concatenate((d, [trk.id + 1], [trk.cls])).reshape(1, -1))
+                ret.append(np.concatenate((d, [trk.id + 1], [trk.cls], [trk.conf])).reshape(1, -1))
             i -= 1
             # remove dead tracklet
             if trk.state == TrackState.Deleted or trk.time_since_update > self.max_age:
@@ -764,17 +764,18 @@ class StrongOCSort(object):
                 if t.id+1 not in track_id_whitelist:
                     continue
             # Color each point based on the association method used
-            for point in t.trajectory_queue:
+            for i, point in enumerate(t.trajectory_queue):
+                thickness = int(np.sqrt(float(i + 1)) * 1.5)
                 if point[0] == AssocMethod.FEATURE:
-                    cv2.circle(im0, point[1], 2, (255, 0, 0), 2)
+                    cv2.circle(im0, point[1], 2, (255, 0, 0), thickness=thickness)
                 elif point[0] == AssocMethod.TRAJECTORY:
-                    cv2.circle(im0, point[1], 2, (0, 255, 0), 2)
+                    cv2.circle(im0, point[1], 2, (0, 255, 0), thickness=thickness)
                 elif point[0] == AssocMethod.BYTE:
-                    cv2.circle(im0, point[1], 2, (0, 0, 255), 2)
+                    cv2.circle(im0, point[1], 2, (0, 0, 255), thickness=thickness)
                 elif point[0] == AssocMethod.REBORN:
-                    cv2.circle(im0, point[1], 2, (255, 0, 255), 2)
+                    cv2.circle(im0, point[1], 2, (255, 0, 255), thickness=thickness)
                 else:
-                    cv2.circle(im0, point[1], 2, (255, 255, 255), 2)
+                    cv2.circle(im0, point[1], 2, (255, 255, 255), thickness=thickness)
 
     @staticmethod
     def _xywh_to_tlwh(bbox_xywh):

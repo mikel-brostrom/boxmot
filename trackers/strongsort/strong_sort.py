@@ -41,6 +41,9 @@ class StrongSORT(object):
     def camera_update(self, previous_img, current_img):
         self.tracker.camera_update(previous_img, current_img)
 
+    def camera_update(self, previous_img, current_img):
+        self.tracker.camera_update(previous_img, current_img)
+
     def update(self, dets,  ori_img):
         
         xyxys = dets[:, 0:4]
@@ -80,8 +83,7 @@ class StrongSORT(object):
             track_id = track.track_id
             class_id = track.class_id
             conf = track.conf
-            queue = track.q
-            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id, conf, queue], dtype=object))
+            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id, conf]))
         if len(outputs) > 0:
             outputs = np.stack(outputs, axis=0)
         return outputs

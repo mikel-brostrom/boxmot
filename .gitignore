@@ -1,8 +1,10 @@
-.vscode/
+.*/
+.*
 
 # interpreter bytecode
 __pycache__/
 
+<<<<<<< HEAD
 # experiment results
 runs/
 videos/
@@ -14,6 +16,8 @@ val_utils/
 # zip files
 *.zip
 
+=======
+>>>>>>> 925d5a9c5864f8578741119fc69d44c979c71c20
 # exports
 *_openvino_model
 *.torchscript
@@ -21,5 +25,13 @@ val_utils/
 *.onnx
 *.engine
 
+<<<<<<< HEAD
 # interactive plots
 *.html
+=======
+*.pyc
+
+runs/
+val_utils/
+venv/
+>>>>>>> 925d5a9c5864f8578741119fc69d44c979c71c20
