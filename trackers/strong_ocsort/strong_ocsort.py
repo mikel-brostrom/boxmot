@@ -5,16 +5,16 @@ import torch
 import cv2
 from collections import deque
 
-from yolov5.utils.general import xyxy2xywh
+from yolov8.ultralytics.yolo.utils.ops import xyxy2xywh
 
 from ..ocsort.association import *
 from ..ocsort.kalmanfilter import KalmanFilterNew as KalmanFilter
 
-from ..strong_sort.reid_multibackend import ReIDDetectMultiBackend
-from ..strong_sort.sort import linear_assignment as strong_linear_assignment
-from ..strong_sort.sort import iou_matching
-from ..strong_sort.sort.detection import Detection
-from ..strong_sort.sort.nn_matching import NearestNeighborDistanceMetric, _cosine_distance
+from ..strongsort.reid_multibackend import ReIDDetectMultiBackend
+from ..strongsort.sort import linear_assignment as strong_linear_assignment
+from ..strongsort.sort import iou_matching
+from ..strongsort.sort.detection import Detection
+from ..strongsort.sort.nn_matching import NearestNeighborDistanceMetric, _cosine_distance
 
 def k_previous_obs(observations, cur_age, k):
     if len(observations) == 0:
@@ -449,6 +449,7 @@ class StrongOCSort(object):
         delta_t: float = 3,
         assoc_func: str = "ciou",
         inertia: float = 0.2,
+        mc_lambda: float = 0.995,
         use_byte: bool = False,
         use_resurrection: bool = False
     ):
@@ -463,6 +464,7 @@ class StrongOCSort(object):
         self.trackers = []
         self.frame_count = 0
         self.det_thresh = det_thresh
+        self.mc_lambda = mc_lambda
         self.delta_t = delta_t
         self.assoc_func = ASSOC_FUNCS[assoc_func]
         self.inertia = inertia
@@ -668,7 +670,7 @@ class StrongOCSort(object):
             targets = np.array([tracks[i].id for i in track_indices])
             cost_matrix = self.metric.distance(features, targets)
             cost_matrix = strong_linear_assignment.gate_cost_matrix(
-                cost_matrix, tracks, dets, track_indices, detection_indices) #, only_position=True
+                cost_matrix, tracks, dets, track_indices, detection_indices, self.mc_lambda) #, only_position=True
 
             return cost_matrix
 

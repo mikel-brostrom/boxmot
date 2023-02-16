@@ -66,27 +66,28 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
         )
         return botsort
 
-    elif tracker_type == 'strong-ocsort':
+    elif tracker_type == 'strong_ocsort':
         from trackers.strong_ocsort.strong_ocsort import StrongOCSort
         # initialize Strong-OCSort
         cfg = get_config()
         cfg.merge_from_file('trackers/strong_ocsort/configs/strong_ocsort.yaml')
 
         strongocsort = StrongOCSort(
-            appearance_descriptor_weights,
+            reid_weights,
             device,
             half,
-            det_thresh=cfg.STRONG_OCSORT.DET_THRESH,
-            max_dist=cfg.STRONG_OCSORT.MAX_DIST,
-            nn_budget=cfg.STRONG_OCSORT.NN_BUDGET,
-            ema_alpha=cfg.STRONG_OCSORT.EMA_ALPHA,
-            max_age=cfg.STRONG_OCSORT.MAX_AGE,
-            min_hits=cfg.STRONG_OCSORT.MIN_HITS,
-            iou_threshold=cfg.STRONG_OCSORT.IOU_THRESHOLD,
-            delta_t=cfg.STRONG_OCSORT.DELTA_T,
-            inertia=cfg.STRONG_OCSORT.INERTIA,
-            use_byte=cfg.STRONG_OCSORT.USE_BYTE,
-            use_resurrection=cfg.STRONG_OCSORT.USE_RESURRECTION,
+            det_thresh=cfg.strong_ocsort.DET_THRESH,
+            max_dist=cfg.strong_ocsort.MAX_DIST,
+            nn_budget=cfg.strong_ocsort.NN_BUDGET,
+            ema_alpha=cfg.strong_ocsort.EMA_ALPHA,
+            max_age=cfg.strong_ocsort.MAX_AGE,
+            min_hits=cfg.strong_ocsort.MIN_HITS,
+            iou_threshold=cfg.strong_ocsort.IOU_THRESHOLD,
+            delta_t=cfg.strong_ocsort.DELTA_T,
+            inertia=cfg.strong_ocsort.INERTIA,
+            mc_lambda=cfg.strong_ocsort.MC_LAMBDA,
+            use_byte=cfg.strong_ocsort.USE_BYTE,
+            use_resurrection=cfg.strong_ocsort.USE_RESURRECTION,
         )
 
         return strongocsort
