@@ -1,4 +1,12 @@
+<<<<<<< HEAD
 from trackers.strongsort.utils.parser import get_config
+=======
+from trackers.strong_sort.utils.parser import get_config
+from trackers.strong_sort.strong_sort import StrongSORT
+from trackers.ocsort.ocsort import OCSort
+from trackers.bytetrack.byte_tracker import BYTETracker
+from trackers.strong_ocsort.strong_ocsort import StrongOCSort
+>>>>>>> 925d5a9c5864f8578741119fc69d44c979c71c20
 
 def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
     
