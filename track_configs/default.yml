@@ -1,0 +1,13 @@
+yolo_weights: "yolov8s.pt"                                  # path to yolo weight
+reid_weights: "osnet_x0_25_msmt17.pt"                       # path to reid weight
+tracking_method: "bytetrack"                                # strongsort, ocsort, bytetrack
+classes:                                                    # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
+imgsz: [640]                                                # inference size h,w
+vid_stride: 1                                               # video frame-rate stride
+device: "cpu"                                               # cuda device, i.e. 0 or 0,1,2,3 or cpu
+save_txt: True                                              # save results to *.txt
+save_config: True                                           # save configs to *.json
+save_log: True                                              # save log & runtime to *.log      
+save_trajectories: True                                     # save trajectories for each track
+save_vid: True                                              # save video tracking results
+show_vid: False                                             # visualize video while running
