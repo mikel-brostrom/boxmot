@@ -1,5 +1,5 @@
-yolo_weights: "yolov8s.pt"                                  # path to yolo weight
-reid_weights: "osnet_x0_25_msmt17.pt"                       # path to reid weight
+yolo_weights: "weights/yolov5/yolov8n.pt"                   # path to yolo weight
+reid_weights: "weights/reid/osnet_x0_25_msmt17.pt"          # path to reid weight
 tracking_method: "bytetrack"                                # strongsort, ocsort, bytetrack
 classes:                                                    # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
 imgsz: [640]                                                # inference size h,w

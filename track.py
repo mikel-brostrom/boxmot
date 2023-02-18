@@ -21,27 +21,63 @@ ROOT = FILE.parents[0]
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
+if str(ROOT / 'yolov5') not in sys.path:
+    sys.path.append(str(ROOT / 'yolov5'))  # add yolov5 ROOT to PATH
+if str(ROOT / 'yolov8') not in sys.path:
+    sys.path.append(str(ROOT / 'yolov8'))  # add yolov8 ROOT to PATH
 
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 import logging
-from yolov8.ultralytics.nn.autobackend import AutoBackend
 from yolov8.ultralytics.yolo.data.dataloaders.stream_loaders import LoadImages, LoadStreams
 from yolov8.ultralytics.yolo.data.utils import IMG_FORMATS, VID_FORMATS
 from yolov8.ultralytics.yolo.utils import DEFAULT_CFG, LOGGER, SETTINGS, callbacks, colorstr, ops
 from yolov8.ultralytics.yolo.utils.checks import check_file, check_imgsz, check_imshow, print_args, check_requirements
 from yolov8.ultralytics.yolo.utils.files import increment_path
 from yolov8.ultralytics.yolo.utils.torch_utils import select_device, strip_optimizer
-from yolov8.ultralytics.yolo.utils.ops import Profile, non_max_suppression, scale_boxes, process_mask, process_mask_native
+from yolov8.ultralytics.yolo.utils.ops import Profile
 from yolov8.ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 
+from yolov5.models.common import DetectMultiBackend
+from yolov8.ultralytics.nn.autobackend import AutoBackend
 from trackers.multi_tracker_zoo import create_tracker
 
+
+def load_data(source, imgsz=640, stride=32, auto=True, transforms=None, vid_stride=1):
+    is_file = Path(source).suffix[1:] in (VID_FORMATS)
+    is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
+    webcam = source.isnumeric() or source.endswith('.txt') or (is_url and not is_file)
+    if is_url and is_file:
+        source = check_file(source)  # download
+
+    if webcam:
+        show_vid = check_imshow(warn=True)
+        dataset = LoadStreams(
+            source,
+            imgsz=imgsz,
+            stride=stride,
+            auto=auto,
+            transforms=transforms,
+            vid_stride=vid_stride
+        )
+        bs = len(dataset)
+    else:
+        dataset = LoadImages(
+            source,
+            imgsz=imgsz,
+            stride=stride,
+            auto=auto,
+            transforms=transforms,
+            vid_stride=vid_stride
+        )
+        bs = 1
+    return dataset, bs
 
 @torch.no_grad()
 def run(
         source='0',
         yolo_weights='weights/yolov8/yolov5m.pt',  # model.pt path(s),
+        data='yolov5/data/coco128.yaml',
         reid_weights='weights/reid/osnet_x0_25_msmt17.pt',  # model.pt path,
         tracking_method='strongsort',
         tracking_config=None,
@@ -61,7 +97,7 @@ def run(
         augment=False,  # augmented inference
         update=False,  # update all models
         save_dir='runs/track/exp', # output save directory
-        save_log=True,
+        save_log=False,
         line_thickness=2,  # bounding box thickness (pixels)
         hide_labels=False,  # hide labels
         hide_conf=False,  # hide confidences
@@ -74,49 +110,34 @@ def run(
 ):
     if save_log:
         LOGGER.setLevel(logging.INFO)
-        fh = logging.FileHandler(os.path.join(opt.save_dir, 'logging', 'info.log'))
+        fh = logging.FileHandler(os.path.join(save_dir, 'logging', 'info.log'))
         fh.setLevel(logging.INFO)
         LOGGER.addHandler(fh)
 
-    source = str(source)
-    is_file = Path(source).suffix[1:] in (VID_FORMATS)
-    is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
-    webcam = source.isnumeric() or source.endswith('.txt') or (is_url and not is_file)
-    if is_url and is_file:
-        source = check_file(source)  # download
-
     # Load model
-    device = select_device(opt.device)
+    device = select_device(device)
     is_seg = '-seg' in str(yolo_weights)
-    model = AutoBackend(yolo_weights, device=device, dnn=dnn, fp16=half)
+    if 'v8' in str(yolo_weights):
+        from yolov8.ultralytics.yolo.utils.ops import non_max_suppression, scale_boxes, process_mask, process_mask_native
+        model = AutoBackend(yolo_weights, device=device, dnn=dnn, fp16=half)
+
+    elif 'v5' in str(yolo_weights):
+        from yolov5.utils.general import non_max_suppression, scale_boxes
+        from yolov5.utils.segment.general import process_mask, process_mask_native
+        model = DetectMultiBackend(yolo_weights, device=device, dnn=dnn, fp16=half)
+
     stride, names, pt = model.stride, model.names, model.pt
+    transforms = getattr(model.model, 'transforms', None)
+
     imgsz *= 2 if len(imgsz) == 1 else 1  # expand
     imgsz = check_imgsz(imgsz, stride=stride)  # check image size
 
-    # Dataloader
-    bs = 1
-    if webcam:
-        show_vid = check_imshow(warn=True)
-        dataset = LoadStreams(
-            source,
-            imgsz=imgsz,
-            stride=stride,
-            auto=pt,
-            transforms=getattr(model.model, 'transforms', None),
-            vid_stride=vid_stride
-        )
-        bs = len(dataset)
-    else:
-        dataset = LoadImages(
-            source,
-            imgsz=imgsz,
-            stride=stride,
-            auto=pt,
-            transforms=getattr(model.model, 'transforms', None),
-            vid_stride=vid_stride
-        )
-    vid_path, vid_writer, txt_path = [None] * bs, [None] * bs, [None] * bs
+    dataset, bs = load_data(source, imgsz=imgsz, stride=stride, auto=pt, 
+                            transforms=transforms, vid_stride=vid_stride)
+
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
+
+    vid_path, vid_writer, txt_path = [None] * bs, [None] * bs, [None] * bs
 
     # Create as many tracker instances as there are video sources
     tracker_list = []
@@ -126,6 +147,7 @@ def run(
         if hasattr(tracker_list[i], 'model'):
             if hasattr(tracker_list[i].model, 'warmup'):
                 tracker_list[i].model.warmup()
+    
     outputs = [None] * bs
 
     # Run tracking
@@ -146,7 +168,7 @@ def run(
         with dt[1]:
             # preds = model(im, augment=augment, visualize=visualize)
             preds = model(im, augment=augment)
-
+  
         # Apply NMS
         with dt[2]:
             if is_seg:
@@ -159,7 +181,7 @@ def run(
         # Process detections
         for i, det in enumerate(p):  # detections per image
             seen += 1
-            if webcam:  # bs >= 1
+            if bs>1:  # webcam
                 p, im0, _ = path[i], im0s[i].copy(), dataset.count
                 p = Path(p)  # to Path
                 s += f'{i}: '
@@ -190,6 +212,8 @@ def run(
 
             if det is not None and len(det):
                 if is_seg:
+                    if len(proto.shape) == 3:
+                        proto = torch.unsqueeze(proto,0)
                     shape = im0.shape
                     # scale bbox first the crop masks
                     if retina_masks:
@@ -371,6 +395,7 @@ def parse_opt():
         track_config = yaml.safe_load(outfile)
     for key in track_config:
         setattr(opt, key, track_config[key])
+    
     return opt
 
 def main(opt):
