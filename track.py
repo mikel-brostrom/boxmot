@@ -121,7 +121,7 @@ def run(
     # Create as many tracker instances as there are video sources
     tracker_list = []
     for i in range(bs):
-        tracker = create_tracker(tracking_method, tracking_config, reid_weights, device, half)
+        tracker = create_tracker(tracking_method, tracking_config, Path(reid_weights), device, half)
         tracker_list.append(tracker, )
         if hasattr(tracker_list[i], 'model'):
             if hasattr(tracker_list[i].model, 'warmup'):
