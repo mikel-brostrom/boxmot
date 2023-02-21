@@ -1,0 +1,19 @@
+save_txt: True                                              # save results to *.txt
+save_config: True                                           # save configs to *.json
+save_log: True                                              # save log & runtime to *.log     
+show_foot_trajectories: True                                # show human foot trajectories 
+show_bounding_box: True                                     # show bounding box result
+show_segmentation: True                                     # show segmentation result for seg model
+show_heatmap: False                                         # show dynamic object heatmap
+show_trajectories: False                                    # show trajectories for each track 
+save_vid: True                                              # save video tracking results
+show_vid: True                                              # show video while running
+
+save_conf:                                                  # save confidences in #.txt output
+save_crop:                                                  # save cropped prediction boxes
+exist_ok:                                                   # existing project/name ok, do not increment
+line_thickness:                                             # bounding box thickness (pixels)
+hide_labels:                                                # hide labels in vis
+hide_conf:                                                  # hide confidence in vis
+hide_class:                                                 # hide class in vis
+retina_masks:                                               # whether to plot masks in native resolution

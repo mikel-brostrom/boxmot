@@ -38,7 +38,6 @@ from yolov8.ultralytics.yolo.utils.torch_utils import select_device, strip_optim
 from yolov8.ultralytics.yolo.utils.ops import Profile
 from yolov8.ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 
-from yolov5.models.common import DetectMultiBackend
 from yolov8.ultralytics.nn.autobackend import AutoBackend
 from trackers.multi_tracker_zoo import create_tracker
 
@@ -77,7 +76,6 @@ def load_data(source, imgsz=640, stride=32, auto=True, transforms=None, vid_stri
 def run(
         source='0',
         yolo_weights='weights/yolov8/yolov5m.pt',  # model.pt path(s),
-        data='yolov5/data/coco128.yaml',
         reid_weights='weights/reid/osnet_x0_25_msmt17.pt',  # model.pt path,
         tracking_method='strongsort',
         tracking_config=None,
@@ -89,8 +87,12 @@ def run(
         show_vid=False,  # show results
         save_txt=False,  # save results to *.txt
         save_conf=False,  # save confidences in --save-txt labels
-        save_crop=False,  # save cropped prediction boxes
-        save_trajectories=False,  # save trajectories for each track
+        save_crop=False,  # save cropped prediction boxes        
+        show_foot_trajectories= False, # show human foot trajectories
+        show_bounding_box= False,      # show bounding box result
+        show_segmentation= False,     # show segmentation result for seg model
+        show_heatmap= False,        # show human heatmap
+        show_trajectories=False,  # save trajectories for each track
         save_vid=False,  # save confidences in --save-txt labels
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=False,  # class-agnostic NMS
@@ -122,6 +124,7 @@ def run(
         model = AutoBackend(yolo_weights, device=device, dnn=dnn, fp16=half)
 
     elif 'v5' in str(yolo_weights):
+        from yolov5.models.common import DetectMultiBackend
         from yolov5.utils.general import non_max_suppression, scale_boxes
         from yolov5.utils.segment.general import process_mask, process_mask_native
         model = DetectMultiBackend(yolo_weights, device=device, dnn=dnn, fp16=half)
@@ -149,13 +152,22 @@ def run(
                 tracker_list[i].model.warmup()
     
     outputs = [None] * bs
-
+    
     # Run tracking
     #model.warmup(imgsz=(1 if pt else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile(), Profile())
     curr_frames, prev_frames = [None] * bs, [None] * bs
     for frame_idx, batch in enumerate(dataset):
         path, im, im0s, vid_cap, s = batch
+        
+        if frame_idx==0:
+            fme_h, fme_w = np.shape(im0s)[-3:-1]
+            if show_foot_trajectories: 
+                tj = Trajectory(fme_h, fme_w)
+            if show_heatmap: 
+                hm = Heatmap()
+                emp_h = np.zeros((fme_h, fme_w), np.uint8)
+            
         # visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
         with dt[0]:
             im = torch.from_numpy(im).to(device)
@@ -181,7 +193,7 @@ def run(
         # Process detections
         for i, det in enumerate(p):  # detections per image
             seen += 1
-            if bs>1:  # webcam
+            if type(path)==list:  # webcam
                 p, im0, _ = path[i], im0s[i].copy(), dataset.count
                 p = Path(p)  # to Path
                 s += f'{i}: '
@@ -237,7 +249,7 @@ def run(
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
                     
-                    if is_seg:
+                    if is_seg and show_segmentation:
                         # Mask plotting
                         annotator.masks(
                             masks[i],
@@ -245,6 +257,7 @@ def run(
                             im_gpu=torch.as_tensor(im0, dtype=torch.float16).to(device).permute(2, 0, 1).flip(0).contiguous() /
                             255 if retina_masks else im[i]
                         )
+                        im0 = annotator.result()
                     
                     for j, (output) in enumerate(outputs[i]):
                         
@@ -252,7 +265,7 @@ def run(
                         id = output[4]
                         cls = output[5]
                         conf = output[6]
-
+        
                         if save_txt:
                             # to MOT format
                             bbox_left = output[0]
@@ -270,9 +283,13 @@ def run(
                             label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             color = colors(c, True)
-                            annotator.box_label(bbox, label, color=color)
                             
-                            if save_trajectories and tracking_method == 'strongsort':
+                            if show_bounding_box:
+                                annotator.box_label(bbox, label, color=color)
+                                im0 = annotator.result()
+                            if show_foot_trajectories :
+                                im0 = tj.draw_line(im0, output, mode="foot")
+                            if show_trajectories and tracking_method == 'strongsort':
                                 q = output[7]
                                 tracker_list[i].trajectory(im0, q, color=color)
                             if save_crop:
@@ -284,7 +301,9 @@ def run(
                 #tracker_list[i].tracker.pred_n_update_all_tracks()
                 
             # Stream results
-            im0 = annotator.result()
+            if show_vid or save_vid:
+                if show_heatmap:
+                    emp_h, im0 = hm.get_heatmap(emp_h, im0)
             if show_vid:
                 if platform.system() == 'Linux' and p not in windows:
                     windows.append(p)
@@ -348,7 +367,7 @@ def initialize_path(opt):
     
 
 def set_default_value(opt, opt_list, key, value):
-    if key.upper() not in opt_list and key not in opt_list:
+    if (key.upper() not in opt_list and key not in opt_list) or not getattr(opt, key):
         setattr(opt, key, value)
 
 def initialize_config(opt):
@@ -368,7 +387,11 @@ def initialize_config(opt):
     set_default_value(opt, opt_list, 'save_log', False)
     set_default_value(opt, opt_list, 'save_conf', False)
     set_default_value(opt, opt_list, 'save_crop', False)
-    set_default_value(opt, opt_list, 'save_trajectories', False)
+    set_default_value(opt, opt_list, 'show_foot_trajectories', False)
+    set_default_value(opt, opt_list, 'show_bounding_box', False)
+    set_default_value(opt, opt_list, 'show_segmentation', False)
+    set_default_value(opt, opt_list, 'show_heatmap', False)
+    set_default_value(opt, opt_list, 'show_trajectories', False)
     set_default_value(opt, opt_list, 'save_vid', False)
     set_default_value(opt, opt_list, 'classes', None)
     set_default_value(opt, opt_list, 'agnostic_nmsp', False)
@@ -388,13 +411,19 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')  
     parser.add_argument('--output', type=str, default= str(ROOT / 'runs' / 'track' / 'exp'), help='output folder for the result')  
-    parser.add_argument('--track_config', type=str, default='track_configs/default.yml', help='config file name')
+    parser.add_argument('--track_config', type=str, default='track_configs/default.yml', help='core func config file path')
+    parser.add_argument('--out_config', type=str, default='out_configs/default.yml', help='vis func config file path')
+    
     opt = parser.parse_args()
 
     with open(opt.track_config, 'r') as outfile :
         track_config = yaml.safe_load(outfile)
+    with open(opt.out_config, 'r') as outfile :
+        out_config = yaml.safe_load(outfile)
     for key in track_config:
         setattr(opt, key, track_config[key])
+    for key in out_config:
+        setattr(opt, key, out_config[key])
     
     return opt
 
@@ -403,6 +432,75 @@ def main(opt):
     initialize_config(opt)
     initialize_path(opt)
     run(**vars(opt))
+
+
+class Heatmap:
+    def __init__(self):
+        self.bg_sub = cv2.createBackgroundSubtractorMOG2()
+    
+    def get_heatmap(self, emp_fme, fme):
+        """ 
+        generate heatmap using bg subtract
+        """
+        # -- remove background --
+        bg_rm = self.bg_sub.apply(fme)
+        # -- apply threshold --
+        _, th1 = cv2.threshold(bg_rm, 2, 2, cv2.THRESH_BINARY)
+        # -- add to empty frame --
+        emp_fme = cv2.add(emp_fme, th1)
+        # -- apply colormap --
+        hm = cv2.applyColorMap(emp_fme, cv2.COLORMAP_JET)
+        # -- align to original frame --
+        out = cv2.addWeighted(fme, 0.8, hm, 0.3, 0)
+        
+        return emp_fme, out
+
+class Trajectory:
+    def __init__(self, fme_h, fme_w):
+        self.empt_fme = np.zeros((fme_h, fme_w, 3), np.uint8)
+        self.empt_fme[:] = 255
+        self.prev_out = {}
+        
+    def draw_line(self, fme, c_out, mode="foot", draw_box=False):
+    
+        id = c_out[4]
+        cx1, cy1, cx2, cy2 = c_out[:4]
+        if mode == "foot":
+            current_p = (int((cx1+cx2)/2) , int(cy2))
+        elif mode == "middle":
+            current_p = (int((cx1+cx2)/2) , int((cy1+cy2)/2))
+        if id not in self.prev_out:
+            prev_p = current_p
+        else:
+            prev_p = self.prev_out[id]
+        # -- draw box --
+        if draw_box:
+            fme = self.draw_box(fme, cx1, cy1, cx2, cy2)
+        # -- draw line on empty frame --
+        self.empt_fme = cv2.line(self.empt_fme, 
+                                prev_p, 
+                                current_p, 
+                                (0,255,255), 
+                                3)
+
+        # -- save current ids to previous id --
+        self.prev_out[id] = current_p
+        # -- overlay mask on frame --
+        print(fme.shape, self.empt_fme.shape)
+        return cv2.bitwise_and(fme,self.empt_fme)
+        
+    @staticmethod
+    def draw_box(fme, x1, y1, x2, y2):
+        fme = cv2.rectangle(
+                            fme,
+                            [int(x1),int(y1)],
+                            [int(x2),int(y2)],
+                            [255,110,0],
+                            2,
+                            cv2.LINE_AA
+        )
+        return fme
+
 
 if __name__ == "__main__":
     opt = parse_opt()
