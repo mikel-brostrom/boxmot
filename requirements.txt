@@ -5,7 +5,7 @@ ultralytics==8.0.20
 gitpython
 ipython  # interactive notebook
 matplotlib>=3.2.2
-numpy==1.23.1
+numpy==1.21.6
 opencv-python>=4.1.1
 Pillow>=7.1.2
 psutil  # system resources
