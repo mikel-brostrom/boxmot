@@ -159,6 +159,39 @@ class Objective(Evaluator):
                     'inertia': inertia,
                     'use_byte': use_byte,
                 }
+
+        elif self.opt.tracking_method == 'strong_ocsort':
+        
+            delta_t = trial.suggest_int("DELTA_T", 1, 5, step=1)
+            det_thresh = trial.suggest_int("DET_THRESH", 0.4, 0.6)
+            ecc = trial.suggest_categorical("ECC", [True, False])
+            ema_alpha = trial.suggest_float("EMA_ALPHA", 0.7, 0.95)
+            iou_thresh = trial.suggest_float("IOU_THRESHOLD", 0.1, 0.4)
+            inertia = trial.suggest_float("INERTIA", 0.1, 3.0)
+            mc_lambda = trial.suggest_float("MC_LAMBDA", 0.90, 0.999)
+            max_age = trial.suggest_int("MAX_AGE", 10, 60, step=10)
+            min_hits = trial.suggest_int("MIN_HITS", 1, 5, step=1)
+            max_dist = trial.suggest_float("MAX_DIST", 0.1, 0.4)
+            nn_budget = trial.suggest_categorical("NN_BUDGET", [100])
+            use_byte = trial.suggest_categorical("USE_BYTE", [True, False])
+            use_resurrection = trial.suggest_categorical("USE_RESURRECTION", [True, False])
+
+            d['strong_ocsort'] = \
+                {
+                    'DELTA_T': delta_t,
+                    'DET_THRESH': det_thresh,
+                    'ECC': ecc,
+                    'EMA_ALPHA': ema_alpha,
+                    'IOU_THRESHOLD': iou_thresh,
+                    'INERTIA': inertia,
+                    'MC_LAMBDA': mc_lambda,
+                    'MAX_AGE': max_age,
+                    'MIN_HITS': min_hits,
+                    'MAX_DIST': max_dist,
+                    'NN_BUDGET': nn_budget,
+                    'USE_BYTE': use_byte,
+                    'USE_RESURRECTION': use_resurrection,
+                }
                         
         # overwrite existing config for tracker
         with open(self.opt.tracking_config, 'w') as f:

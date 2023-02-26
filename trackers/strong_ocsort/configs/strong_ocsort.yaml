@@ -1,24 +1,17 @@
-# StrongOCSort performs association in 3 steps:
-#
-# For all detections with confidence above DET_THRESH:
-#   1. Associate using feature matching (StrongSort)
-#   2. Associate using trajectory matching (OCSort)
-#
-# For all detections with confidence below DET_THRESH, if USE_BYTE is True:
-#   3. Associate using byte association
-#
+# Trial number:      8
+# HOTA, MOTA, IDF1:  [41.734, 41.528, 49.572]
 strong_ocsort:
-  DELTA_T: 1              # How many timesteps to look back for speed direction estimation
-  DET_THRESH: 0.45        # Minimum detection threshold for primary association
-  ECC: True               # activate camera motion compensation
-  EMA_ALPHA: 0.9          # updates  appearance  state in  an exponential moving average manner
-  IOU_THRESHOLD: 0.2      # Gating threshold for IOU association. Associations with cost larger than this value are disregarded.
-  INERTIA: 2.0            # How insensitive trajectory association is to changes in track direction. Increasing this value might improve performance in some scenarios.
-  MC_LAMBDA: 0.995        # Used in gated association metric
-  MAX_AGE: 30             # Maximum number of missed misses before a track is deleted
-  MIN_HITS: 3             # Number of frames that a track remains in initialization phase
-  MAX_DIST: 0.18          # The matching threshold. Feature samples with larger distance are considered an invalid match
-  NN_BUDGET: 100          # Maximum size of the appearance descriptors gallery
-  USE_BYTE: True          # Use byte association for detections with confidence under DET_THRESH
-  USE_RESURRECTION: False # Turns on the resurrection system. Allows dead tracks to be revived if an unmatched detection feature matches with the dead track's feature history, controlled with MAX_DIST.
-  conf_thres: 0.5122620708221085
+  DELTA_T: 1
+  DET_THRESH: 0
+  ECC: true
+  EMA_ALPHA: 0.7470299572646664
+  INERTIA: 1.393193344636491
+  IOU_THRESHOLD: 0.3822801330179513
+  MAX_AGE: 50
+  MAX_DIST: 0.1580544302795878
+  MC_LAMBDA: 0.9178548319584965
+  MIN_HITS: 3
+  NN_BUDGET: 100
+  USE_BYTE: true
+  USE_RESURRECTION: true
+  conf_thres: 0.36882300760913234
