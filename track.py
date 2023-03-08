@@ -37,7 +37,7 @@ from yolov8.ultralytics.yolo.utils.checks import check_file, check_imgsz, check_
 from yolov8.ultralytics.yolo.utils.files import increment_path
 from yolov8.ultralytics.yolo.utils.torch_utils import select_device
 from yolov8.ultralytics.yolo.utils.ops import Profile, non_max_suppression, scale_boxes, process_mask, process_mask_native
-from yolov8.ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
+from yolov8.ultralytics.yolo.utils.plotting import Annotator, colors
 
 from trackers.multi_tracker_zoo import create_tracker
 
@@ -316,7 +316,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-weights', nargs='+', type=Path, default=WEIGHTS / 'yolov8s-seg.pt', help='model.pt path(s)')
     parser.add_argument('--reid-weights', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
-    parser.add_argument('--tracking-method', type=str, default='botsort', help='strongsort, ocsort, bytetrack, botsort')
+    parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--tracking-config', type=Path, default=None)
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')  
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
