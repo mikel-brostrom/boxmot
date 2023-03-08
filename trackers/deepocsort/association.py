@@ -285,7 +285,6 @@ def compute_aw_max_metric(emb_cost, w_association_emb, bottom=0.5):
             col_weight = 1 - max((emb_cost[inds[1], idj] / emb_cost[inds[0], idj]) - bottom, 0) / (1 - bottom)
         w_emb[:, idj] *= col_weight
 
-    print(emb_cost.max(), emb_cost.mean())
     return w_emb * emb_cost
 
 

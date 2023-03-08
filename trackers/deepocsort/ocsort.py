@@ -393,7 +393,7 @@ class OCSort(object):
         if self.embedding_off or dets.shape[0] == 0:
             dets_embs = np.ones((dets.shape[0], 1))
         else:
-            # (Ndets x 2048)
+            # (Ndets x X) [512, 1024, 2048]
             #dets_embs = self.embedder.compute_embedding(img_numpy, dets[:, :4], tag)
             dets_embs = self._get_features(dets[:, :4], img_numpy)
 
@@ -662,9 +662,7 @@ class OCSort(object):
                 self.trackers.pop(i)
 
         if len(ret) > 0:
-            print('ocsort ret', ret.shape)
             return np.concatenate(ret)
-        print('ocsort ret', np.empty((0, 7)).shape)
         return np.empty((0, 7))
 
     def dump_cache(self):
