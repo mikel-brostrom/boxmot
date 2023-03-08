@@ -70,13 +70,13 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
             reid_weights,
             device,
             half,
-            det_thresh=cfg.ocsort.det_thresh,
-            max_age=cfg.ocsort.max_age,
-            min_hits=cfg.ocsort.min_hits,
-            iou_threshold=cfg.ocsort.iou_thresh,
-            delta_t=cfg.ocsort.delta_t,
-            asso_func=cfg.ocsort.asso_func,
-            inertia=cfg.ocsort.inertia,
+            det_thresh=cfg.deepocsort.det_thresh,
+            max_age=cfg.deepocsort.max_age,
+            min_hits=cfg.deepocsort.min_hits,
+            iou_threshold=cfg.deepocsort.iou_thresh,
+            delta_t=cfg.deepocsort.delta_t,
+            asso_func=cfg.deepocsort.asso_func,
+            inertia=cfg.deepocsort.inertia,
         )
         return botsort
     else:
