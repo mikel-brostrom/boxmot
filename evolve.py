@@ -139,7 +139,7 @@ class Objective(Evaluator):
                 
         elif self.opt.tracking_method == 'ocsort':
             
-            det_thresh = trial.suggest_int("det_thresh", 0.4, 0.6)
+            det_thresh = trial.suggest_int("det_thresh", 0, 0.6)
             max_age = trial.suggest_int("max_age", 10, 60, step=10)
             min_hits = trial.suggest_int("min_hits", 1, 5, step=1)
             iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
@@ -158,6 +158,41 @@ class Objective(Evaluator):
                     'asso_func': asso_func,
                     'inertia': inertia,
                     'use_byte': use_byte,
+                }
+                
+        elif self.opt.tracking_method == 'deepocsort':
+            
+            det_thresh = trial.suggest_int("det_thresh", 0.3, 0.6)
+            max_age = trial.suggest_int("max_age", 10, 60, step=10)
+            min_hits = trial.suggest_int("min_hits", 1, 5, step=1)
+            iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
+            delta_t = trial.suggest_int("delta_t", 1, 5, step=1)
+            asso_func = trial.suggest_categorical("asso_func", ['iou', 'giou'])
+            inertia = trial.suggest_float("inertia", 0.1, 0.4)
+            w_association_emb = trial.suggest_float("w_association_emb", 0.5, 0.9)
+            alpha_fixed_emb = trial.suggest_float("alpha_fixed_emb", 0.9, 0.999)
+            aw_param = trial.suggest_float("aw_param", 0.3, 0.7)
+            embedding_off = trial.suggest_categorical("embedding_off", [True, False])
+            cmc_off = trial.suggest_categorical("cmc_off", [True, False])
+            aw_off = trial.suggest_categorical("aw_off", [True, False])
+            new_kf_off = trial.suggest_categorical("new_kf_off", [True, False])
+            
+            d['deepocsort'] = \
+                {
+                    'det_thresh': det_thresh,
+                    'max_age': max_age,
+                    'min_hits': min_hits,
+                    'iou_thresh': iou_thresh,
+                    'delta_t': delta_t,
+                    'asso_func': asso_func,
+                    'inertia': inertia,
+                    'w_association_emb': w_association_emb,
+                    'alpha_fixed_emb': alpha_fixed_emb,
+                    'aw_param': aw_param,
+                    'embedding_off': embedding_off,
+                    'cmc_off': cmc_off,
+                    'aw_off': aw_off,
+                    'new_kf_off': new_kf_off
                 }
                         
         # overwrite existing config for tracker
