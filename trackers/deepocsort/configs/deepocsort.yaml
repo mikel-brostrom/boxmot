@@ -1,6 +1,6 @@
 # Trial number:      137
 # HOTA, MOTA, IDF1:  [55.567]
-ocsort:
+deepocsort:
   asso_func: giou
   conf_thres: 0.5122620708221085
   delta_t: 1
