@@ -1,4 +1,4 @@
-# Real-time multi-object tracking and segmentation using Yolov8
+# Real-time multi-object tracking and segmentation using Yolov8 with DeepOCSORT and OSNet
 
 
 <div align="center">
@@ -106,7 +106,8 @@ $ python track.py --yolo-weights yolov8n.pt     # bboxes only
 <summary>Tracking methods</summary>
 
 ```bash
-$ python track.py --tracking-method strongsort
+$ python track.py --tracking-method deepocsort
+                                    strongsort
                                     ocsort
                                     bytetrack
                                     botsort
@@ -120,11 +121,11 @@ $ python track.py --tracking-method strongsort
 Tracking can be run on most video formats
 
 ```bash
-$ python track.py --source 0  # webcam
-                           img.jpg  # image
-                           vid.mp4  # video
-                           path/  # directory
-                           path/*.jpg  # glob
+$ python track.py --source 0                               # webcam
+                           img.jpg                         # image
+                           vid.mp4                         # video
+                           path/                           # directory
+                           path/*.jpg                      # glob
                            'https://youtu.be/Zgi9g1ksQHc'  # YouTube
                            'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP stream
 ```
