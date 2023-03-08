@@ -393,11 +393,9 @@ class OCSort(object):
         if self.embedding_off or dets.shape[0] == 0:
             dets_embs = np.ones((dets.shape[0], 1))
         else:
-            # (Ndets x 2048)
+            # (Ndets x X) [512, 1024, 2048]
             #dets_embs = self.embedder.compute_embedding(img_numpy, dets[:, :4], tag)
-            print('\n\n\n')
             dets_embs = self._get_features(dets[:, :4], img_numpy)
-            print('dets_embs', dets_embs.shape)
 
         # CMC
         if not self.cmc_off:
@@ -428,7 +426,6 @@ class OCSort(object):
             trk_embs = np.vstack(trk_embs)
         else:
             trk_embs = np.array(trk_embs)
-        print(trk_embs.shape)
 
         for t in reversed(to_del):
             self.trackers.pop(t)
@@ -544,7 +541,6 @@ class OCSort(object):
             features = self.embedder(im_crops).cpu()
         else:
             features = np.array([])
-        print('_get_features', features.shape)  
         
         return features
 
@@ -666,9 +662,7 @@ class OCSort(object):
                 self.trackers.pop(i)
 
         if len(ret) > 0:
-            print('ocsort ret', ret.shape)
             return np.concatenate(ret)
-        print('ocsort ret', np.empty((0, 7)).shape)
         return np.empty((0, 7))
 
     def dump_cache(self):
