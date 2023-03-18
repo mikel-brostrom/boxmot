@@ -14,7 +14,7 @@ jobs:
             👋 Hello, this issue has been automatically marked as stale because it has not had recent activity. Please note it will be closed if no further activity occurs.
             Feel free to inform us of any other **issues** you discover or **feature requests** that come to mind in the future. Pull Requests (PRs) are also always welcomed!
           stale-pr-message: 'This issue has been automatically marked as stale because it has not had recent activity. It will be closed if no further activity occurs.'
-          days-before-stale: 30
-          days-before-close: 5
+          days-before-stale: 10
+          days-before-close: 3
           exempt-issue-labels: 'documentation,tutorial'
           operations-per-run: 100  # The maximum number of operations per run, used to control rate limiting.
