@@ -264,6 +264,16 @@ def run(
                                 tracker_list[i].trajectory(im0, q, color=color)
                             if save_crop:
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
+
+                                # #save cropped image for x,y,h,w
+                                # bbox_left = output[0]
+                                # bbox_top = output[1]
+                                # bbox_w = output[2] - output[0]
+                                # bbox_h = output[3] - output[1]
+                                #
+                                # imd = imc[int(bbox_top):int(bbox_top+bbox_h), int(bbox_left):int(bbox_left+bbox_w)]
+                                #
+                                # cv2.imwrite(str(save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}_{frame_idx+1}.jpg'), imd)
                                 save_one_box(np.array(bbox, dtype=np.int16), imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}_{frame_idx+1}.jpg', BGR=True)
                             
             else:
