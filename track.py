@@ -248,15 +248,24 @@ def run(
                             bbox_w = output[2] - output[0]
                             bbox_h = output[3] - output[1]
                             # Write MOT compliant results to file
-                            # Get the mask for the current detection
-                            mask = masks[i][j]
-                            # Encode the mask into RLE format
-                            rle = maskUtils.encode(np.asfortranarray(mask))
-                            rle_str = maskUtils.encodeToString(rle)
-                            # Write MOT compliant results to file, including mask data in RLE format
-                            with open(txt_path + '.txt', 'a') as f:
-                                f.write(('%g ' * 11 + '%s\n') % (frame_idx + 1, id, bbox_left,  # MOT format
-                                                                  bbox_top, bbox_w, bbox_h, -1, -1, -1, i, rle_str))
+                            if is_seg:
+                                # Get the mask for the current detection
+                                mask = masks[i][j]
+                                # Move the mask to CPU before encoding it
+                                # Normalize and convert to uint8
+                                mask = (mask / torch.max(mask)).cpu().numpy()  # Normalize
+                                mask = np.uint8(mask * 255)  # Scale to 0-255 and convert to uint8
+                                                        # Encode the mask into RLE format
+                                rle = maskUtils.encode(np.asfortranarray(mask))
+                                # Write MOT compliant results to file, including mask data in RLE format
+                                with open(txt_path + '.txt', 'a') as f:
+                                    f.write(('%g\t' * 10 + '"%s"\n') % (frame_idx + 1, id, bbox_left,  # MOT format
+                                                                      bbox_top, bbox_w, bbox_h, -1, -1, -1, i,str(rle)))
+                            else:
+                                with open(txt_path + '.txt', 'a') as f:
+                                    f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
+                                                                  bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
+
 
                         if save_vid or save_crop or show_vid:  # Add bbox/seg to image
                             c = int(cls)  # integer class
