@@ -1,6 +1,7 @@
 import argparse
 
 import os
+
 # limit the number of cpus used by high performance libraries
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -22,7 +23,6 @@ from torch.utils.mobile_optimizer import optimize_for_mobile
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0].parents[0]  # yolov5 strongsort root directory
 WEIGHTS = ROOT / 'weights'
-
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
@@ -81,7 +81,7 @@ def export_torchscript(model, im, file, optimize, prefix=colorstr('TorchScript:'
         LOGGER.info(f'{prefix} export failure: {e}')
 
 
-def export_onnx(model, im, file, opset, dynamic, simplify, prefix=colorstr('ONNX:')):
+def export_onnx(model, im, file, opset, dynamic, fp16, simplify, prefix=colorstr('ONNX:')):
     # ONNX export
     try:
         check_requirements(('onnx',))
@@ -89,14 +89,13 @@ def export_onnx(model, im, file, opset, dynamic, simplify, prefix=colorstr('ONNX
 
         f = file.with_suffix('.onnx')
         LOGGER.info(f'\n{prefix} starting export with onnx {onnx.__version__}...')
-        
+
         if dynamic:
-            dynamic = {'images': {0: 'batch'}}  # shape(1,3,640,640)
-            dynamic['output'] = {0: 'batch'}  # shape(1,25200,85)
+            dynamic = {'images': {0: 'batch'}, 'output': {0: 'batch'}}  # input --> shape(1,3,640,640), output --> shape(1,25200,85)
 
         torch.onnx.export(
-            model.cpu() if dynamic else model,  # --dynamic only compatible with cpu
-            im.cpu() if dynamic else im,
+            model.half() if fp16 else model.cpu(),
+            im.half() if fp16 else im.cpu(),
             f,
             verbose=False,
             opset_version=opset,
@@ -127,9 +126,8 @@ def export_onnx(model, im, file, opset, dynamic, simplify, prefix=colorstr('ONNX
         return f
     except Exception as e:
         LOGGER.info(f'export failure: {e}')
-    
-        
-        
+
+
 def export_openvino(file, half, prefix=colorstr('OpenVINO:')):
     # YOLOv5 OpenVINO export
     check_requirements(('openvino-dev',))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
@@ -144,12 +142,13 @@ def export_openvino(file, half, prefix=colorstr('OpenVINO:')):
         LOGGER.info(f'export failure: {e}')
     LOGGER.info(f'{prefix} export success, saved as {f} ({file_size(f):.1f} MB)')
     return f
-        
+
 
 def export_tflite(file, half, prefix=colorstr('TFLite:')):
     # YOLOv5 OpenVINO export
     try:
-        check_requirements(('openvino2tensorflow', 'tensorflow', 'tensorflow_datasets'))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
+        check_requirements(
+            ('openvino2tensorflow', 'tensorflow', 'tensorflow_datasets'))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
         import openvino.inference_engine as ie
         LOGGER.info(f'\n{prefix} starting export with openvino {ie.__version__}...')
         output = Path(str(file).replace(f'_openvino_model{os.sep}', f'_tflite_model{os.sep}'))
@@ -167,8 +166,8 @@ def export_tflite(file, half, prefix=colorstr('TFLite:')):
         return f
     except Exception as e:
         LOGGER.info(f'\n{prefix} export failure: {e}')
-        
-        
+
+
 def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose=False, prefix=colorstr('TensorRT:')):
     # YOLOv5 TensorRT export https://developer.nvidia.com/tensorrt
     try:
@@ -183,11 +182,11 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
         if trt.__version__[0] == '7':  # TensorRT 7 handling https://github.com/ultralytics/yolov5/issues/6012
             grid = model.model[-1].anchor_grid
             model.model[-1].anchor_grid = [a[..., :1, :1, :] for a in grid]
-            export_onnx(model, im, file, 12, dynamic, simplify)  # opset 12
+            export_onnx(model, im, file, 12, dynamic, half, simplify)  # opset 12
             model.model[-1].anchor_grid = grid
         else:  # TensorRT >= 8
             check_version(trt.__version__, '8.0.0', hard=True)  # require tensorrt>=8.0.0
-            export_onnx(model, im, file, 12, dynamic, simplify)  # opset 13
+            export_onnx(model, im, file, 12, dynamic, half, simplify)  # opset 13
         onnx = file.with_suffix('.onnx')
 
         LOGGER.info(f'\n{prefix} starting export with TensorRT {trt.__version__}...')
@@ -221,20 +220,23 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
                 LOGGER.warning(f"{prefix}WARNING: --dynamic model requires maximum --batch-size argument")
             profile = builder.create_optimization_profile()
             for inp in inputs:
+                if half:
+                    inp.dtype = trt.float16
                 profile.set_shape(inp.name, (1, *im.shape[1:]), (max(1, im.shape[0] // 2), *im.shape[1:]), im.shape)
             config.add_optimization_profile(profile)
 
         LOGGER.info(f'{prefix} building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine in {f}')
         if builder.platform_has_fast_fp16 and half:
             config.set_flag(trt.BuilderFlag.FP16)
+            config.default_device_type = trt.DeviceType.GPU
         with builder.build_engine(network, config) as engine, open(f, 'wb') as t:
             t.write(engine.serialize())
         LOGGER.info(f'{prefix} export success, saved as {f} ({file_size(f):.1f} MB)')
         return f
     except Exception as e:
         LOGGER.info(f'\n{prefix} export failure: {e}')
-        
-        
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="ReID export")
@@ -266,8 +268,8 @@ if __name__ == "__main__":
     args.device = select_device(args.device)
     if args.half:
         assert args.device.type != 'cpu', '--half only compatible with GPU export, i.e. use --device 0'
-        assert not args.dynamic, '--half not compatible with --dynamic, i.e. use either --half or --dynamic but not both'
-    
+        # assert not args.dynamic, '--half not compatible with --dynamic, i.e. use either --half or --dynamic but not both'
+
     if type(args.weights) is list:
         args.weights = Path(args.weights[0])
 
@@ -282,7 +284,7 @@ if __name__ == "__main__":
 
     if args.optimize:
         assert device.type == 'cpu', '--optimize not compatible with cuda devices, i.e. use --device cpu'
-    
+
     im = torch.zeros(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(args.device)  # image size(1,3,640,480) BCHW iDetection
     for _ in range(2):
         y = model(im)  # dry runs
@@ -290,7 +292,7 @@ if __name__ == "__main__":
         im, model = im.half(), model.half()  # to FP16
     shape = tuple((y[0] if isinstance(y, tuple) else y).shape)  # model output shape
     LOGGER.info(f"\n{colorstr('PyTorch:')} starting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)")
-    
+
     # Exports
     f = [''] * len(fmts)  # exported filenames
     if jit:
@@ -298,7 +300,7 @@ if __name__ == "__main__":
     if engine:  # TensorRT required before ONNX
         f[1] = export_engine(model, im, args.weights, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
     if onnx:  # OpenVINO requires ONNX
-        f[2] = export_onnx(model, im, args.weights, args.opset, args.dynamic, args.simplify)  # opset 12
+        f[2] = export_onnx(model, im, args.weights, args.opset, args.dynamic, args.half, args.simplify)  # opset 12
     if openvino:
         f[3] = export_openvino(args.weights, args.half)
     if tflite:
