@@ -14,6 +14,7 @@ import numpy as np
 from pathlib import Path
 import torch
 import torch.backends.cudnn as cudnn
+import keyboard
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # yolov5 strongsort root directory
@@ -41,6 +42,11 @@ from yolov8.ultralytics.yolo.utils.plotting import Annotator, colors, save_one_b
 
 from trackers.multi_tracker_zoo import create_tracker
 
+def is_right(x1, x2, y1, y2, xb1, xbm, xb2, yb1, yb2):
+    return x1>xbm and x1<xb2 and y2>yb1
+
+def is_left(x1, x2, y1, y2, xb1, xbm, xb2, yb1, yb2):
+    return x2<xbm and x2>xb1 and y2>yb1
 
 @torch.no_grad()
 def run(
@@ -141,10 +147,20 @@ def run(
     outputs = [None] * bs
 
     # Run tracking
+    nb_went_trough = 0
+    buff_l = []
+    buff_r = []
     #model.warmup(imgsz=(1 if pt else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile(), Profile())
     curr_frames, prev_frames = [None] * bs, [None] * bs
     for frame_idx, batch in enumerate(dataset):
+        # Detect badging
+        if keyboard.is_pressed("p"):
+            print('Just badged')
+            nb_went_trough = 0
+            buff_l = []
+            buff_r = []
+
         path, im, im0s, vid_cap, s = batch
         visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
         with dt[0]:
@@ -220,7 +236,7 @@ def run(
                 # pass detections to strongsort
                 with dt[3]:
                     outputs[i] = tracker_list[i].update(det.cpu(), im0)
-                
+
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
                     
@@ -239,6 +255,18 @@ def run(
                         id = output[4]
                         cls = output[5]
                         conf = output[6]
+
+                        xb1 = im0.shape[1]//4
+                        xbm = 2*im0.shape[1]//4
+                        xb2 = 3*im0.shape[1]//4
+                        yb1 = im0.shape[0]//2
+                        yb2 = im0.shape[0]-1
+                        if id not in buff_l:
+                            if is_left(bbox[0], bbox[2], bbox[1], bbox[3], xb1, xbm, xb2, yb1, yb2):
+                                buff_l.append(id)
+                        if id not in buff_r:
+                            if is_right(bbox[0], bbox[2], bbox[1], bbox[3], xb1, xbm, xb2, yb1, yb2):
+                                buff_r.append(id)
 
                         if save_txt:
                             # to MOT format
@@ -265,13 +293,25 @@ def run(
                             if save_crop:
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
                                 save_one_box(np.array(bbox, dtype=np.int16), imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
+                    nb_went_trough = len(set(buff_l) & set(buff_r))
                             
             else:
                 pass
                 #tracker_list[i].tracker.pred_n_update_all_tracks()
                 
             # Stream results
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            xb1 = im0.shape[1]//4
+            xbm = 2*im0.shape[1]//4
+            xb2 = 3*im0.shape[1]//4
+            yb1 = im0.shape[0]//2
+            yb2 = im0.shape[0]-1
             im0 = annotator.result()
+            im0 = cv2.line(im0, (xbm, yb1), (xbm, yb2), 0, line_thickness)
+            im0 = cv2.rectangle(im0, (xb1, yb1), (xb2, yb2), 500, line_thickness)
+            im0 = cv2.putText(im0, f"{nb_went_trough}", (7, 70), font, 3, (0, 255, 0), 3, cv2.LINE_AA)
+            if nb_went_trough > 1:
+                im0 = cv2.putText(im0, f"WARNING : {nb_went_trough}", (7, 70), font, 3, (0, 0, 255), 3, cv2.LINE_AA)
             if show_vid:
                 if platform.system() == 'Linux' and p not in windows:
                     windows.append(p)
