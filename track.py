@@ -42,6 +42,40 @@ from yolov8.ultralytics.yolo.utils.plotting import Annotator, colors, save_one_b
 
 from trackers.multi_tracker_zoo import create_tracker
 
+
+### helper function
+def find_center(x, y, x2, y2):
+    '''Find the center of the rectangle for detection'''
+    cx = (x + x2) // 2
+    cy = (y + y2) // 2
+    return cx, cy
+
+def count_object(
+    center, id, left, right, l_count, r_count, mid_list
+    ):
+    
+    ix, iy = center
+    if (ix > left) and (ix < right):
+        if id not in mid_list:
+            mid_list.append(id)
+
+    elif ix < left:
+        if id in mid_list:
+            mid_list.remove(id)
+            l_count += 1
+
+    elif ix > right:
+        if id in mid_list:
+            mid_list.remove(id)
+            r_count += 1
+    return l_count, r_count, mid_list
+
+def check_in_gate(center, left, right):
+    ix, iy = center
+    if (ix > left) and (ix < right):
+        return True
+    return False
+
 def is_right(x1, x2, y1, y2, xb1, xbm, xb2, yb1, yb2):
     return x1>xbm and x1<xb2 and y2>yb1
 
@@ -146,20 +180,30 @@ def run(
                 tracker_list[i].model.warmup()
     outputs = [None] * bs
 
-    # Run tracking
-    nb_went_trough = 0
-    buff_l = []
-    buff_r = []
+    # variables for tracking
+    middle_list = []
+    left_count, right_count = 0, 0
+    font_color = (0, 255, 0)
+    font_size = 1.
+    font_thickness = 2
+    font_type = cv2.FONT_HERSHEY_SIMPLEX
+    center = (0, 0)
+    include_count = 0
+    # nb_went_trough = 0
+    # buff_l = []
+    # buff_r = []
+
     #model.warmup(imgsz=(1 if pt else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile(), Profile())
     curr_frames, prev_frames = [None] * bs, [None] * bs
     for frame_idx, batch in enumerate(dataset):
+
         # Detect badging
-        if keyboard.is_pressed("p"):
-            print('Just badged')
-            nb_went_trough = 0
-            buff_l = []
-            buff_r = []
+        # if keyboard.is_pressed("p"):
+        #     print('Just badged')
+        #     nb_went_trough = 0
+        #     buff_l = []
+        #     buff_r = []
 
         path, im, im0s, vid_cap, s = batch
         visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
@@ -238,8 +282,8 @@ def run(
                     outputs[i] = tracker_list[i].update(det.cpu(), im0)
 
                 # draw boxes for visualization
+                include_count = 0
                 if len(outputs[i]) > 0:
-                    
                     if is_seg:
                         # Mask plotting
                         annotator.masks(
@@ -256,17 +300,35 @@ def run(
                         cls = output[5]
                         conf = output[6]
 
-                        xb1 = im0.shape[1]//4
-                        xbm = 2*im0.shape[1]//4
-                        xb2 = 3*im0.shape[1]//4
-                        yb1 = im0.shape[0]//2
-                        yb2 = im0.shape[0]-1
-                        if id not in buff_l:
-                            if is_left(bbox[0], bbox[2], bbox[1], bbox[3], xb1, xbm, xb2, yb1, yb2):
-                                buff_l.append(id)
-                        if id not in buff_r:
-                            if is_right(bbox[0], bbox[2], bbox[1], bbox[3], xb1, xbm, xb2, yb1, yb2):
-                                buff_r.append(id)
+                        ### count object
+                        ih, iw, _ = im0.shape
+                        middle_line_position = iw // 2
+
+                        ### set line position
+                        left_line_position = middle_line_position - 150
+                        right_line_position = middle_line_position + 150
+                        center = find_center(*bbox)
+
+                        left_count, right_count, middle_list = count_object(
+                            center, id, left_line_position, right_line_position, 
+                            left_count, right_count, middle_list)
+                        middle_list = middle_list[-100:]
+
+                        if check_in_gate(center, left_line_position, right_line_position):
+                            include_count += 1
+                        cv2.circle(im0, (int(center[0]), int(center[1])), 5, (0, 0, 255), -1)
+
+                        # xb1 = im0.shape[1]//4
+                        # xbm = 2*im0.shape[1]//4
+                        # xb2 = 3*im0.shape[1]//4
+                        # yb1 = im0.shape[0]//2
+                        # yb2 = im0.shape[0]-1
+                        # if id not in buff_l:
+                        #     if is_left(bbox[0], bbox[2], bbox[1], bbox[3], xb1, xbm, xb2, yb1, yb2):
+                        #         buff_l.append(id)
+                        # if id not in buff_r:
+                        #     if is_right(bbox[0], bbox[2], bbox[1], bbox[3], xb1, xbm, xb2, yb1, yb2):
+                        #         buff_r.append(id)
 
                         if save_txt:
                             # to MOT format
@@ -293,30 +355,46 @@ def run(
                             if save_crop:
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
                                 save_one_box(np.array(bbox, dtype=np.int16), imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
-                    nb_went_trough = len(set(buff_l) & set(buff_r))
+                    
+                    # nb_went_trough = len(set(buff_l) & set(buff_r))
                             
             else:
                 pass
                 #tracker_list[i].tracker.pred_n_update_all_tracks()
                 
             # Stream results
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            xb1 = im0.shape[1]//4
-            xbm = 2*im0.shape[1]//4
-            xb2 = 3*im0.shape[1]//4
-            yb1 = im0.shape[0]//2
-            yb2 = im0.shape[0]-1
-            im0 = annotator.result()
-            im0 = cv2.line(im0, (xbm, yb1), (xbm, yb2), 0, line_thickness)
-            im0 = cv2.rectangle(im0, (xb1, yb1), (xb2, yb2), 500, line_thickness)
-            im0 = cv2.putText(im0, f"{nb_went_trough}", (7, 70), font, 3, (0, 255, 0), 3, cv2.LINE_AA)
-            if nb_went_trough > 1:
-                im0 = cv2.putText(im0, f"WARNING : {nb_went_trough}", (7, 70), font, 3, (0, 0, 255), 3, cv2.LINE_AA)
+            if include_count > 1:
+                cv2.putText(im0, f"ALARM", (ih // 2 - 50, iw // 2 - 150), font_type, 5, (0, 0, 255), 3)
+
+            # display result
+            # cv2.line(im0, (middle_line_position, 0), (middle_line_position, ih), (255, 0, 255), 2)
+            cv2.line(im0, (left_line_position, ih // 2), (left_line_position, ih), (255, 0, 0), 2)
+            cv2.line(im0, (right_line_position, ih // 2), (right_line_position, ih), (255, 0, 0), 2)
+            cv2.line(im0, (left_line_position, ih // 2), (right_line_position, ih // 2), (255, 0, 0), 2)
+            im0 = cv2.flip(im0, 1)
+            cv2.putText(im0, f"In --->: {left_count}", (20, 40), font_type, font_size, font_color, font_thickness)
+            cv2.putText(im0, f"Out <---: {right_count}", (20, 80), font_type, font_size, font_color, font_thickness)
+
+            # font = cv2.FONT_HERSHEY_SIMPLEX
+            # xb1 = im0.shape[1]//4
+            # xbm = 2*im0.shape[1]//4
+            # xb2 = 3*im0.shape[1]//4
+            # yb1 = im0.shape[0]//2
+            # yb2 = im0.shape[0]-1
+            # im0 = annotator.result()
+            # im0 = cv2.line(im0, (xbm, yb1), (xbm, yb2), 0, line_thickness)
+            # im0 = cv2.rectangle(im0, (xb1, yb1), (xb2, yb2), 500, line_thickness)
+            # im0 = cv2.putText(im0, f"{nb_went_trough}", (7, 70), font, 3, (0, 255, 0), 3, cv2.LINE_AA)
+            # if nb_went_trough > 1:
+            #     im0 = cv2.putText(im0, f"WARNING : {nb_went_trough}", (7, 70), font, 3, (0, 0, 255), 3, cv2.LINE_AA)
+            
             if show_vid:
                 if platform.system() == 'Linux' and p not in windows:
                     windows.append(p)
                     cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
                     cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
+
+                cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
                 cv2.imshow(str(p), im0)
                 if cv2.waitKey(1) == ord('q'):  # 1 millisecond
                     exit()
