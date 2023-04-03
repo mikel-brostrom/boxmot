@@ -198,18 +198,21 @@ def detect(save_img=False):
                     identities = outputs[:, -1]
                     im0 = draw_boxes(im0, bbox_xyxy, identities)  # BGR
 
-                    center = find_center(*bbox_xyxy[0])
-                    cv2.circle(im0, (int(center[0]), int(center[1])), 3, (0, 0, 255), -1)
+                    for out in outputs:
+                        bbox_xyxy = out[:4]
+                        obj_id = out[-1]
+                        center = find_center(*bbox_xyxy)
+                        cv2.circle(im0, (int(center[0]), int(center[1])), 3, (0, 0, 255), -1)
  				
-                    left_count, right_count, left_list, right_list = count_object(
-                         center, id, middle_line_position, left_line_position, right_line_position, 
-                         left_count, right_count, left_list, right_list)
+                        left_count, right_count, left_list, right_list = count_object(
+                             center, obj_id, middle_line_position, left_line_position, right_line_position, 
+                             left_count, right_count, left_list, right_list)
 
-                    left_list = left_list[-50:]
-                    right_list = right_list[-50:]
+                        left_list = left_list[-50:]
+                        right_list = right_list[-50:]
 
-                    if check_in_gate(center, left_line_position, right_line_position):
-                        include_count += 1
+                        if check_in_gate(center, left_line_position, right_line_position):
+                            include_count += 1
 
             # Print time (inference + NMS)
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS')
@@ -219,17 +222,18 @@ def detect(save_img=False):
                 middle_line_position = iw // 2
                 left_line_position = middle_line_position - 150
                 right_line_position = middle_line_position + 150
-                cv2.line(im0, (left_line_position, ih // 2), (left_line_position, ih), (255, 0, 0), 1)
-                cv2.line(im0, (right_line_position, ih // 2), (right_line_position, ih), (255, 0, 0), 1)
-                cv2.line(im0, (left_line_position, ih // 2), (right_line_position, ih // 2), (255, 0, 0), 1)
+                cv2.line(im0, (left_line_position, ih // 2), (left_line_position, ih), (0, 255, 0), 1)
+                cv2.line(im0, (right_line_position, ih // 2), (right_line_position, ih), (0, 255, 0), 1)
+                cv2.line(im0, (left_line_position, ih // 2), (right_line_position, ih // 2), (0, 255, 0), 1)
                 im0 = cv2.flip(im0, 1)
                 text_scale = max(1, im0.shape[1] // 1600)
                 cv2.putText(
                    im0, f"In -->: {left_count}", (20, 40), font_type, font_size, font_color, font_thickness)
                 cv2.putText(
                    im0, f"Out <--: {right_count}", (20, 80), font_type, font_size, font_color, font_thickness)
-                # if include_count > 1:
-                    # cv2.putText(im0, f"ALARM", (ih // 2 - 50, iw // 2 - 150), font_type, 8, (0, 0, 255), 5)
+
+                if include_count > 1:
+                    cv2.putText(im0, f"WARNING", (ih // 2 - 50, iw // 2 - 150), font_type, 2, (0, 0, 255), 5)
                 
                 cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO) 
                 # cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
