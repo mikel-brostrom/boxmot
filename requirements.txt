@@ -1,4 +1,5 @@
 # pip install -r requirements.txt
+grpcio==1.48.2
 ultralytics==8.0.20
 
 # Base ----------------------------------------
