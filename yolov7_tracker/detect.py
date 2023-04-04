@@ -72,7 +72,7 @@ def detect(save_img=False):
 
     # deep sort init
     cfg = get_config()
-    cfg.merge_from_file("./configs/deep_sort.yaml")
+    cfg.merge_from_file("./cfg/deep_sort.yaml")
     deepsort = build_tracker(cfg, use_cuda=device.type)
 
     # Load model
