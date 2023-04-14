@@ -15,6 +15,8 @@ from .association import *
 from .embedding import EmbeddingComputer
 from .cmc import CMCComputer
 from reid_multibackend import ReIDDetectMultiBackend
+from yolov8.ultralytics.yolo.utils.ops import xyxy2xywh
+
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -531,10 +533,10 @@ class OCSort(object):
         y2 = min(int(y + h / 2), self.height - 1)
         return x1, y1, x2, y2
     
-    def _get_features(self, bbox_xywh, ori_img):
+    def _get_features(self, bbox_xyxy, ori_img):
         im_crops = []
-        for box in bbox_xywh:
-            x1, y1, x2, y2 = self._xywh_to_xyxy(box)
+        for box in bbox_xyxy:
+            x1, y1, x2, y2 = box.astype(int)
             im = ori_img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
