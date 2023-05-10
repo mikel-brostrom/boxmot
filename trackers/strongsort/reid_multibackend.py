@@ -2,10 +2,6 @@ import torch.nn as nn
 import torch
 from pathlib import Path
 import numpy as np
-from itertools import islice
-import torchvision.transforms as transforms
-import cv2
-import sys
 import torchvision.transforms as T
 from collections import OrderedDict, namedtuple
 import gdown
@@ -221,9 +217,10 @@ class ReIDDetectMultiBackend(nn.Module):
             exit()
 
         if isinstance(features, (list, tuple)):
-            return self.from_numpy(features[0]) if len(features) == 1 else [self.from_numpy(x) for x in features]
+            features = self.from_numpy(features[0]) if len(features) == 1 else [self.from_numpy(x) for x in features]
         else:
-            return self.from_numpy(features)
+            features = self.from_numpy(features)
+        return features
 
     def from_numpy(self, x):
         return torch.from_numpy(x).to(self.device) if isinstance(x, np.ndarray) else x
