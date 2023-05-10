@@ -56,12 +56,12 @@ jobs:
           # BYTETRACK
           python track.py --tracking-method bytetrack --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
           # EXPORT
-          python trackers/reid_export.py --weights ./weights/osnet_x0_25_msmt17.pt  # export deafults to torchscript
+          python trackers/reid_export.py --weights ./weights/lmbn_n_cuhk03_d.pt  # export deafults to torchscript
           # STRONGSORT w. EXPORTED REID MODEL
-          python track.py --reid-weights ./weights/osnet_x0_25_msmt17.torchscript --source yolov8/ultralytics/assets/bus.jpg
+          python track.py --reid-weights ./weights/lmbn_n_cuhk03_d.torchscript --source yolov8/ultralytics/assets/bus.jpg
           
           # TRACK WITH SEGMENTATIONS
-          python track.py --tracking-method strongsort --yolo-weights ./weights/yolov8n-seg.pt --source yolov8/ultralytics/assets/bus.jpg
-          python val.py --tracking-method strongsort --device cpu --yolo-weights yolov8n.pt --benchmark MOT17-mini
+          python track.py --tracking-method deepocsort --yolo-weights ./weights/yolov8n-seg.pt --source yolov8/ultralytics/assets/bus.jpg
+          python val.py --tracking-method deepocsort --device cpu --yolo-weights yolov8n.pt --benchmark MOT17-mini
           python3 evolve.py --device cpu --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1
         shell: bash
