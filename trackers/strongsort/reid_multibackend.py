@@ -221,9 +221,11 @@ class ReIDDetectMultiBackend(nn.Module):
             exit()
 
         if isinstance(features, (list, tuple)):
-            return self.from_numpy(features[0]) if len(features) == 1 else [self.from_numpy(x) for x in features]
+            features = self.from_numpy(features[0]) if len(features) == 1 else [self.from_numpy(x) for x in features]
+            return features
         else:
-            return self.from_numpy(features)
+            features = self.from_numpy(features)
+            return features
 
     def from_numpy(self, x):
         return torch.from_numpy(x).to(self.device) if isinstance(x, np.ndarray) else x
