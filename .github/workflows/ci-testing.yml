@@ -56,9 +56,9 @@ jobs:
           # BYTETRACK
           python track.py --tracking-method bytetrack --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
           # EXPORT
-          python trackers/reid_export.py --weights ./weights/osnet_x0_25_msmt17.pt  # export deafults to torchscript
+          python trackers/reid_export.py --weights ./weights/lmbn_n_cuhk03_d.pt  # export deafults to torchscript
           # STRONGSORT w. EXPORTED REID MODEL
-          python track.py --reid-weights ./weights/osnet_x0_25_msmt17.torchscript --source yolov8/ultralytics/assets/bus.jpg
+          python track.py --reid-weights ./weights/lmbn_n_cuhk03_d.torchscript --source yolov8/ultralytics/assets/bus.jpg
           
           # TRACK WITH SEGMENTATIONS
           python track.py --tracking-method strongsort --yolo-weights ./weights/yolov8n-seg.pt --source yolov8/ultralytics/assets/bus.jpg
