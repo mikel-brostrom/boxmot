@@ -1,6 +1,7 @@
 import torch
+import time
+import sys
 from collections import OrderedDict
-
 
 
 __model_types = [
@@ -97,6 +98,13 @@ __trained_urls = {
     'https://drive.google.com/uc?id=1q3Sj2ii34NlfxA4LvmHdWO_75NDRmECJ',
     'osnet_ain_x1_0_msmt17.pt':
     'https://drive.google.com/uc?id=1SigwBE6mPdqiJMqhuIY4aqC7--5CsMal',
+
+    'lmbn_n_duke.pt':
+    'https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth',
+    'lmbn_n_market.pt':
+    'https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_market.pth',
+    'lmbn_n_cuhk03_d.pt':
+    'https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_cuhk03_d.pth'
 }
 
 
@@ -172,45 +180,48 @@ def load_pretrained_weights(model, weight_path):
         >>> weight_path = 'log/my_model/model-best.pth.tar'
         >>> load_pretrained_weights(model, weight_path)
     """
-    checkpoint = torch.load(weight_path)
+    if not torch.cuda.is_available():
+        checkpoint = torch.load(weight_path, map_location=torch.device('cpu'))
     if 'state_dict' in checkpoint:
         state_dict = checkpoint['state_dict']
     else:
         state_dict = checkpoint
-
     model_dict = model.state_dict()
-    # new_state_dict = OrderedDict()
-    # matched_layers, discarded_layers = [], []
-    # [print(k) for k,v in state_dict.items()]
 
-    # for k, v in state_dict.items():
-    #     if k.startswith('module.'):
-    #         k = k[7:] # discard module.
+    if 'lmbn' in str(weight_path):
+        model.load_state_dict(model_dict, strict=True)
+    else:
+        new_state_dict = OrderedDict()
+        matched_layers, discarded_layers = [], []
 
-    #     if k in model_dict and model_dict[k].size() == v.size():
-    #         new_state_dict[k] = v
-    #         matched_layers.append(k)
-    #     else:
-    #         discarded_layers.append(k)
+        for k, v in state_dict.items():
+            if k.startswith('module.'):
+                k = k[7:] # discard module.
 
-    # model_dict.update(new_state_dict)
-    model.load_state_dict(model_dict, strict=True)
+            if k in model_dict and model_dict[k].size() == v.size():
+                new_state_dict[k] = v
+                matched_layers.append(k)
+            else:
+                discarded_layers.append(k)
 
-    # if len(matched_layers) == 0:
-    #     print(
-    #         'The pretrained weights "{}" cannot be loaded, '
-    #         'please check the key names manually '
-    #         '(** ignored and continue **)'.format(weight_path)
-    #     )
-    # else:
-    #     print(
-    #         'Successfully loaded pretrained weights from "{}"'.
-    #         format(weight_path)
-    #     )
-    #     if len(discarded_layers) > 0:
-    #         print(
-    #             '** The following layers are discarded '
-    #             'due to unmatched keys or layer size: {}'.
-    #             format(discarded_layers)
-    #         )
+        model_dict.update(new_state_dict)
+        model.load_state_dict(model_dict)
+
+        if len(matched_layers) == 0:
+            print(
+                'The pretrained weights "{}" cannot be loaded, '
+                'please check the key names manually '
+                '(** ignored and continue **)'.format(weight_path)
+            )
+        else:
+            print(
+                'Successfully loaded pretrained weights from "{}"'.
+                format(weight_path)
+            )
+            if len(discarded_layers) > 0:
+                print(
+                    '** The following layers are discarded '
+                    'due to unmatched keys or layer size: {}'.
+                    format(discarded_layers)
+                )
 
