@@ -89,10 +89,6 @@ The trackers provided in this repo can be used with other object detectors than 
 (x1,y1, x2, y2, obj, cls0, cls1, ..., clsn)
 ```
 
-pass this directly to the tracker here:
-
-https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/a4bc0c38c33023fab9e5481861d9520eb81e28bc/track.py#L189
-
 </details>
 
 ## Tracking
