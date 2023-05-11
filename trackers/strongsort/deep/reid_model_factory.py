@@ -180,12 +180,17 @@ def load_pretrained_weights(model, weight_path):
         >>> weight_path = 'log/my_model/model-best.pth.tar'
         >>> load_pretrained_weights(model, weight_path)
     """
+    
     if not torch.cuda.is_available():
         checkpoint = torch.load(weight_path, map_location=torch.device('cpu'))
+    else:
+        checkpoint = torch.load(weight_path)
+        
     if 'state_dict' in checkpoint:
         state_dict = checkpoint['state_dict']
     else:
         state_dict = checkpoint
+
     model_dict = model.state_dict()
 
     if 'lmbn' in str(weight_path):
