@@ -144,25 +144,16 @@ def export_openvino(file, half, prefix=colorstr('OpenVINO:')):
     return f
 
 
-def export_tflite(file, half, prefix=colorstr('TFLite:')):
+def export_tflite(file, prefix=colorstr('TFLite:')):
     # YOLOv5 OpenVINO export
     try:
-        check_requirements(
-            ('openvino2tensorflow', 'tensorflow', 'tensorflow_datasets'))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
-        import openvino.inference_engine as ie
-        LOGGER.info(f'\n{prefix} starting export with openvino {ie.__version__}...')
-        output = Path(str(file).replace(f'_openvino_model{os.sep}', f'_tflite_model{os.sep}'))
-        modelxml = list(Path(file).glob('*.xml'))[0]
-        cmd = f"openvino2tensorflow \
-            --model_path {modelxml} \
-            --model_output_path {output} \
-            --output_pb \
-            --output_saved_model \
-            --output_no_quant_float32_tflite \
-            --output_dynamic_range_quant_tflite"
+        check_requirements(('onnx2tf', 'tensorflow', 'onnx_graphsurgeon', 'sng4onnx'))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
+        import onnx2tf
+        LOGGER.info(f'\n{prefix} starting {file} export with onnx2tf {onnx2tf.__version__}')
+        f = str(file).replace('.onnx', f'_saved_model{os.sep}')
+        cmd = f"onnx2tf -i {file} -o {f} -nuo --non_verbose"
         subprocess.check_output(cmd.split())  # export
-
-        LOGGER.info(f'{prefix} export success, results saved in {output} ({file_size(f):.1f} MB)')
+        LOGGER.info(f'{prefix} export success, results saved in {f} ({file_size(f):.1f} MB)')
         return f
     except Exception as e:
         LOGGER.info(f'\n{prefix} export failure: {e}')
@@ -285,6 +276,10 @@ if __name__ == "__main__":
     if args.optimize:
         assert device.type == 'cpu', '--optimize not compatible with cuda devices, i.e. use --device cpu'
 
+    # adapt input shapes for lmbn models
+    if 'lmbn' in str(args.weights):
+        args.imgsz = (384, 128)
+         
     im = torch.zeros(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(args.device)  # image size(1,3,640,480) BCHW iDetection
     for _ in range(2):
         y = model(im)  # dry runs
@@ -301,10 +296,11 @@ if __name__ == "__main__":
         f[1] = export_engine(model, im, args.weights, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
     if onnx:  # OpenVINO requires ONNX
         f[2] = export_onnx(model, im, args.weights, args.opset, args.dynamic, args.half, args.simplify)  # opset 12
+    if tflite:
+        export_tflite(f[2])
     if openvino:
         f[3] = export_openvino(args.weights, args.half)
-    if tflite:
-        export_tflite(f, False)
+    
 
     # Finish
     f = [str(x) for x in f if x]  # filter out '' and None
