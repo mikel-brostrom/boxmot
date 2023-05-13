@@ -1,6 +1,7 @@
 # https://github.com/ultralytics/ultralytics/issues/1429#issuecomment-1519239409
 
 from pathlib import Path
+import torch
 
 from trackers.multi_tracker_zoo import create_tracker
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
@@ -26,15 +27,13 @@ STREAM_WARNING = """
 """
 
 def on_predict_start(predictor):
-    tracker_list = []
+    predictor.trackers = []
     for i in range(predictor.dataset.bs):
         tracker = create_tracker('deepocsort', 'trackers/deepocsort/configs/deepocsort.yaml', Path('lmbn_n_duke.pt'), predictor.device, False)
-        print(tracker)
-        tracker_list.append(tracker)
-        if hasattr(tracker_list[i], 'model'):
-            if hasattr(tracker_list[i].model, 'warmup'):
-                tracker_list[i].model.warmup()
-    return tracker_list
+        predictor.trackers.append(tracker)
+        if hasattr(predictor.trackers[i], 'model'):
+            if hasattr(predictor.trackers[i].model, 'warmup'):
+                predictor.trackers[i].model.warmup()
 
 
 if __name__ == '__main__':
@@ -56,7 +55,7 @@ if __name__ == '__main__':
         LOGGER.warning(f"WARNING ⚠️ 'source' is missing. Using 'source={source}'.")
     
     from ultralytics.yolo.engine.model import YOLO
-    model = YOLO('yolov8s.pt')
+    model = YOLO('yolov8s-pose.pt')
     overrides = model.overrides.copy()
     model.predictor = TASK_MAP[model.task][3](overrides=overrides, _callbacks=model.callbacks)
     predictor = model.predictor
@@ -87,8 +86,7 @@ if __name__ == '__main__':
         predictor.done_warmup = True
     predictor.seen, predictor.windows, predictor.batch, predictor.profilers = 0, [], None, (ops.Profile(), ops.Profile(), ops.Profile())
     predictor.add_callback('on_predict_start', on_predict_start)
-    tracker_list = run_callbacks('on_predict_start')
-    print(tracker_list)
+    run_callbacks('on_predict_start')
     for batch in dataset:
         run_callbacks('on_predict_batch_start')
         predictor.batch = batch
@@ -108,7 +106,6 @@ if __name__ == '__main__':
         with predictor.profilers[2]:
             predictor.results = postprocess(preds, im, im0s)
         run_callbacks('on_predict_postprocess_end')
-        #print(predictor.results.boxes.shape)
         
         # Visualize, save, write results
         n = len(im0s)
@@ -121,6 +118,15 @@ if __name__ == '__main__':
                 continue
             p, im0 = path[i], im0s[i].copy()
             p = Path(p)
+            
+            xyxy = predictor.results[i].boxes.xyxy
+            conf = predictor.results[i].boxes.conf
+            cls = predictor.results[i].boxes.cls
+            print(xyxy.shape)
+            print(conf.shape)
+            print(cls.shape)
+            dets = torch.cat((xyxy, conf, cls), 1)
+            predictor.trackers[i].update(dets.cpu(), im0)
 
             if verbose or save or save_txt or show:
                 s += write_results(i, predictor.results, (p, im, im0))
