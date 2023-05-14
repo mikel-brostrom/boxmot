@@ -5,29 +5,19 @@ import torch
 
 from trackers.multi_tracker_zoo import create_tracker
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
-from ultralytics.yolo.engine.predictor import BasePredictor
+from ultralytics.yolo.engine.predictor import BasePredictor, STREAM_WARNING
 
 from ultralytics.yolo.utils import DEFAULT_CFG, LOGGER, SETTINGS, callbacks, colorstr, ops
 from ultralytics.yolo.utils.checks import check_imgsz, check_imshow
 from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.utils.torch_utils import select_device, smart_inference_mode
 from ultralytics.yolo.data import load_inference_source
+from ultralytics.yolo.engine.results import Boxes
 
-
-STREAM_WARNING = """
-    WARNING ⚠️ stream/video/webcam/dir predict source will accumulate results in RAM unless `stream=True` is passed,
-    causing potential out-of-memory errors for large sources or long-running streams/videos.
-
-    Usage:
-        results = model(source=..., stream=True)  # generator of Results objects
-        for r in results:
-            boxes = r.boxes  # Boxes object for bbox outputs
-            masks = r.masks  # Masks object for segment masks outputs
-            probs = r.probs  # Class probabilities for classification outputs
-"""
 
 def on_predict_start(predictor):
     predictor.trackers = []
+    predictor.tracker_outputs = [None] * predictor.dataset.bs
     for i in range(predictor.dataset.bs):
         tracker = create_tracker('deepocsort', 'trackers/deepocsort/configs/deepocsort.yaml', Path('lmbn_n_duke.pt'), predictor.device, False)
         predictor.trackers.append(tracker)
@@ -43,8 +33,8 @@ if __name__ == '__main__':
     save_dir=False
     vid_stride = 1
     verbose = True
-    save = False
-    save_txt = False
+    save = True
+    save_txt = True
     show = True
     visualize=False
     plotted_img = False
@@ -55,10 +45,12 @@ if __name__ == '__main__':
         LOGGER.warning(f"WARNING ⚠️ 'source' is missing. Using 'source={source}'.")
     
     from ultralytics.yolo.engine.model import YOLO
-    model = YOLO('yolov8s-pose.pt')
+    model = YOLO('yolov8s.pt')
     overrides = model.overrides.copy()
     model.predictor = TASK_MAP[model.task][3](overrides=overrides, _callbacks=model.callbacks)
+    
     predictor = model.predictor
+    #predictor.device = 'cpu'
     if not predictor.model:
         predictor.setup_model(model=model.model, verbose=False)
 
@@ -67,6 +59,7 @@ if __name__ == '__main__':
     
     predictor.setup_source(source if source is not None else predictor.args.source)
     predictor.args.conf = 0.5
+    predictor.args.save_txt = True
     
     dataset = predictor.dataset
     model = predictor.model
@@ -76,6 +69,7 @@ if __name__ == '__main__':
     postprocess = predictor.postprocess
     run_callbacks = predictor.run_callbacks
     write_results = predictor.write_results
+    save_preds = predictor.save_preds
     
     # Check if save_dir/ label file exists
     if predictor.args.save or predictor.args.save_txt:
@@ -86,6 +80,7 @@ if __name__ == '__main__':
         predictor.done_warmup = True
     predictor.seen, predictor.windows, predictor.batch, predictor.profilers = 0, [], None, (ops.Profile(), ops.Profile(), ops.Profile())
     predictor.add_callback('on_predict_start', on_predict_start)
+    
     run_callbacks('on_predict_start')
     for batch in dataset:
         run_callbacks('on_predict_batch_start')
@@ -119,27 +114,33 @@ if __name__ == '__main__':
             p, im0 = path[i], im0s[i].copy()
             p = Path(p)
             
-            xyxy = predictor.results[i].boxes.xyxy
-            conf = predictor.results[i].boxes.conf
-            cls = predictor.results[i].boxes.cls
-            print(xyxy.shape)
-            print(conf.shape)
-            print(cls.shape)
-            dets = torch.cat((xyxy, conf, cls), 1)
-            predictor.trackers[i].update(dets.cpu(), im0)
-
+            # get bboxes matrix
+            dets = predictor.results[i].boxes.data
+            
+            # get predictions
+            predictor.tracker_outputs[i] = predictor.trackers[i].update(dets.cpu().detach(), im0)
+            
+            # overwrite bbox results with tracker predictions
+            predictor.results[i].boxes = Boxes(
+                torch.from_numpy(predictor.tracker_outputs[i]),
+                im0.shape,
+            )
+            
+            # write inference results to a file or directory
             if verbose or save or save_txt or show:
-                s += write_results(i, predictor.results, (p, im, im0))
+                s += predictor.write_results(i, predictor.results, (p, im, im0))
 
+            # display an image in a window using OpenCV imshow()
             if show and plotted_img is not None:
-                predictor.show('blub')
+                predictor.show(p)
 
+            # save video predictions
             if save and plotted_img is not None:
-                save_preds(vid_cap, i, str(save_dir / p.name))
-        run_callbacks('on_predict_batch_end')
-        [r for r in predictor.results]
+                predictor.save_preds(vid_cap, i, str(predictor.save_dir / p.name))
 
-        # Print time (inference-only)
+        run_callbacks('on_predict_batch_end')
+
+        # print time (inference-only)
         if verbose:
             LOGGER.info(f'{s}{predictor.profilers[1].dt * 1E3:.1f}ms')
 
