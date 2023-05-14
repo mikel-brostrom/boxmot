@@ -223,13 +223,13 @@ class Evaluator:
         print_args(vars(self.opt))
 
         results = (save_dir.parent / self.opt.eval_existing / 'tracks' if self.opt.eval_existing else save_dir / 'tracks').glob('*.txt')
-        for src in results:
-            if self.opt.eval_existing:
-                dst = MOT_results_folder.parent.parent / self.opt.eval_existing / 'data' / Path(src.stem + '.txt')
-            else:
-                dst = MOT_results_folder / Path(src.stem + '.txt')
-            dst.parent.mkdir(parents=True, exist_ok=True)  # make
-            shutil.copyfile(src, dst)
+        # for src in results:
+        #     if self.opt.eval_existing:
+        #         dst = MOT_results_folder.parent.parent / self.opt.eval_existing / 'data' / Path(src.stem + '.txt')
+        #     else:
+        #         dst = MOT_results_folder / Path(src.stem + '.txt')
+        #     dst.parent.mkdir(parents=True, exist_ok=True)  # make
+        #     shutil.copyfile(src, dst)
         # run the evaluation on the generated txts
         d = [seq_path.parent.name for seq_path in seq_paths]
         p = subprocess.run(
