@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import torch
+import numpy as np
 
 from trackers.multi_tracker_zoo import create_tracker
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
@@ -13,6 +14,7 @@ from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.utils.torch_utils import select_device, smart_inference_mode
 from ultralytics.yolo.data import load_inference_source
 from ultralytics.yolo.engine.results import Boxes
+from ultralytics.yolo.data.utils import VID_FORMATS
 
 
 def on_predict_start(predictor):
@@ -24,6 +26,25 @@ def on_predict_start(predictor):
         if hasattr(predictor.trackers[i], 'model'):
             if hasattr(predictor.trackers[i].model, 'warmup'):
                 predictor.trackers[i].model.warmup()
+                
+                
+def write_MOT_results(txt_path, results, frame_idx, i):
+    nr_dets = len(results.boxes)
+    frame_idx = torch.full((1, 1), frame_idx + 1)
+    frame_idx = frame_idx.repeat(nr_dets, 1)
+    dont_care = torch.full((nr_dets, 3), -1)
+    i = torch.full((nr_dets, 1), i)
+    mot = torch.cat([
+        frame_idx,
+        results.boxes.xywh,
+        results.boxes.id.unsqueeze(1),
+        dont_care,
+        i
+    ], dim=1)
+    print('mot', mot.shape)
+
+    with open(str(txt_path) + '.txt', 'ab') as f:  # append binary mode
+        np.savetxt(f, mot.numpy())
 
 
 if __name__ == '__main__':
@@ -60,6 +81,8 @@ if __name__ == '__main__':
     predictor.setup_source(source if source is not None else predictor.args.source)
     predictor.args.conf = 0.5
     predictor.args.save_txt = True
+    predictor.args.save = True
+    predictor.write_MOT_results = write_MOT_results
     
     dataset = predictor.dataset
     model = predictor.model
@@ -68,7 +91,6 @@ if __name__ == '__main__':
     preprocess = predictor.preprocess
     postprocess = predictor.postprocess
     run_callbacks = predictor.run_callbacks
-    write_results = predictor.write_results
     save_preds = predictor.save_preds
     
     # Check if save_dir/ label file exists
@@ -82,7 +104,7 @@ if __name__ == '__main__':
     predictor.add_callback('on_predict_start', on_predict_start)
     
     run_callbacks('on_predict_start')
-    for batch in dataset:
+    for frame_idx, batch in enumerate(dataset):
         run_callbacks('on_predict_batch_start')
         predictor.batch = batch
         path, im0s, vid_cap, s = batch
@@ -126,9 +148,25 @@ if __name__ == '__main__':
                 im0.shape,
             )
             
-            # write inference results to a file or directory
+            # write inference results to a file or directory   
             if verbose or save or save_txt or show:
                 s += predictor.write_results(i, predictor.results, (p, im, im0))
+                predictor.txt_path = Path(predictor.txt_path)
+                print(predictor.txt_path)
+                print(predictor.txt_path.parent)
+                if source.endswith(VID_FORMATS):
+                    predictor.MOT_txt_path = predictor.txt_path.parent / p.stem
+                    print(p.stem)
+                else:
+                    txt_file_name = p.parent.name  # get folder name containing current img
+                    predictor.MOT_txt_path = predictor.txt_path.parent / p.name
+                    print(p.name)
+                write_MOT_results(
+                    predictor.MOT_txt_path,
+                    predictor.results[i],
+                    frame_idx,
+                    i
+                )
 
             # display an image in a window using OpenCV imshow()
             if show and plotted_img is not None:
