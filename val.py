@@ -39,13 +39,13 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 import numpy as np
 
-from yolov8.ultralytics.yolo.utils import LOGGER
-from yolov8.ultralytics.yolo.utils.checks import check_requirements, print_args
-from yolov8.ultralytics.yolo.utils.files import increment_path
+from ultralytics.yolo.utils import LOGGER
+from ultralytics.yolo.utils.checks import check_requirements, print_args
+from ultralytics.yolo.utils.files import increment_path
 
 from torch.utils.tensorboard import SummaryWriter
 
-from track import run
+from track_v2 import run
 
 
 class Evaluator:
@@ -201,19 +201,19 @@ class Evaluator:
                     shutil.move(str(src_seq_path), str(dst_seq_path))
 
                 p = subprocess.Popen([
-                    sys.executable, "track.py",
-                    "--yolo-weights", self.opt.yolo_weights,
-                    "--reid-weights", self.opt.reid_weights,
-                    "--tracking-method", self.opt.tracking_method,
-                    "--conf-thres", str(self.opt.conf_thres),
-                    "--imgsz", str(self.opt.imgsz[0]),
-                    "--classes", str(0),
-                    "--name", save_dir.name,
-                    "--project", self.opt.project,
-                    "--device", str(tracking_subprocess_device),
+                    sys.executable, "track_v2.py",
+                    # "--yolo-weights", self.opt.yolo_weights,
+                    # "--reid-weights", self.opt.reid_weights,
+                    # "--tracking-method", self.opt.tracking_method,
+                    # "--conf-thres", str(self.opt.conf_thres),
+                    # "--imgsz", str(self.opt.imgsz[0]),
+                    # "--classes", str(0),
+                    # "--name", save_dir.name,
+                    # "--project", self.opt.project,
+                    # "--device", str(tracking_subprocess_device),
                     "--source", dst_seq_path,
-                    "--exist-ok",
-                    "--save-txt",
+                    # "--exist-ok",
+                    # "--save-txt",
                 ])
                 processes.append(p)
 
@@ -317,7 +317,7 @@ def parse_opt():
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs' / 'val', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--benchmark', type=str, default='MOT17', help='MOT16, MOT17, MOT20')
+    parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
     parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
