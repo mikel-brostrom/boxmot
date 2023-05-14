@@ -110,8 +110,7 @@ def run(
         run_callbacks('on_predict_batch_start')
         predictor.batch = batch
         path, im0s, vid_cap, s = batch
-        visualize = increment_path(save_dir / Path(path[0]).stem,
-                                    mkdir=True) if visualize and (not source_type.tensor) else False
+        visualize = increment_path(save_dir / Path(path[0]).stem, exist_ok=True, mkdir=True) if visualize and (not source_type.tensor) else False
 
         # Preprocess
         with predictor.profilers[0]:
