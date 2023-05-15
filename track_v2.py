@@ -38,13 +38,11 @@ def write_MOT_results(txt_path, results, frame_idx, i):
     i = torch.full((nr_dets, 1), i)
     mot = torch.cat([
         frame_idx,
-        #torch.flip(results.boxes.id, dims=(0,)).unsqueeze(1),
         results.boxes.id.unsqueeze(1),
-        results.boxes.xywh,
+        ops.xyxy2ltwh(results.boxes.xyxy),
         dont_care,
         i
     ], dim=1)
-    #print('mot', mot.shape)
 
     with open(str(txt_path) + '.txt', 'ab') as f:  # append binary mode
         np.savetxt(f, mot.numpy(), fmt='%d')  # save as ints instead of scientific notation
@@ -154,8 +152,8 @@ def run(
             
             # overwrite bbox results with tracker predictions
             predictor.results[i].boxes = Boxes(
-                torch.from_numpy(predictor.tracker_outputs[i]),
-                im.shape,
+                boxes=torch.from_numpy(predictor.tracker_outputs[i]),
+                orig_shape=im0.shape[:2],  # (height, width)
             )
             
             # write inference results to a file or directory   
