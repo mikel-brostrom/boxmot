@@ -4,6 +4,7 @@ from pathlib import Path
 import torch
 import argparse
 import numpy as np
+import cv2
 
 from trackers.multi_tracker_zoo import create_tracker
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
@@ -15,7 +16,7 @@ from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.utils.torch_utils import select_device, smart_inference_mode
 from ultralytics.yolo.data import load_inference_source
 from ultralytics.yolo.engine.results import Boxes
-from ultralytics.yolo.data.utils import VID_FORMATS
+from ultralytics.yolo.data.utils import VID_FORMATS, ROOT
 
 
 def on_predict_start(predictor):
@@ -55,14 +56,16 @@ def run(
     save_dir=False,
     vid_stride = 1,
     verbose = True,
+    project = None,
+    name = None,
     save = True,
     save_txt = True,
-    show = True,
+    show = False,
     visualize=False,
     plotted_img = False,
     augment = False,
 ):
-
+    print(project, name)
     if source is None:
         source = ROOT / 'assets' if is_git_dir() else 'https://ultralytics.com/images/bus.jpg'
         LOGGER.warning(f"WARNING ⚠️ 'source' is missing. Using 'source={source}'.")
@@ -82,6 +85,8 @@ def run(
     
     predictor.setup_source(source if source is not None else predictor.args.source)
     predictor.args.conf = 0.5
+    predictor.args.project = project
+    predictor.args.name = name
     predictor.args.save_txt = True
     predictor.args.save = True
     predictor.write_MOT_results = write_MOT_results
@@ -94,6 +99,8 @@ def run(
     postprocess = predictor.postprocess
     run_callbacks = predictor.run_callbacks
     save_preds = predictor.save_preds
+    predictor.save_dir = increment_path(Path(predictor.args.project) / name, exist_ok=True)
+    print(predictor.save_dir)
     
     # Check if save_dir/ label file exists
     if predictor.args.save or predictor.args.save_txt:
@@ -183,18 +190,18 @@ def run(
             LOGGER.info(f'{s}{predictor.profilers[1].dt * 1E3:.1f}ms')
 
     # Release assets
-    if isinstance(vid_writer[-1], cv2.VideoWriter):
-        vid_writer[-1].release()  # release final video writer
+    if isinstance(predictor.vid_writer[-1], cv2.VideoWriter):
+        predictor.vid_writer[-1].release()  # release final video writer
 
     # Print results
-    if verbose and seen:
-        t = tuple(x.t / seen * 1E3 for x in profilers)  # speeds per image
+    if verbose and predictor.seen:
+        t = tuple(x.t / predictor.seen * 1E3 for x in predictor.profilers)  # speeds per image
         LOGGER.info(f'Speed: %.1fms preprocess, %.1fms inference, %.1fms postprocess per image at shape '
                     f'{(1, 3, *imgsz)}' % t)
     if save or args.save_txt or args.save_crop:
-        nl = len(list(save_dir.glob('labels/*.txt')))  # number of labels
-        s = f"\n{nl} label{'s' * (nl > 1)} saved to {save_dir / 'labels'}" if args.save_txt else ''
-        LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
+        nl = len(list(predictor.save_dir.glob('labels/*.txt')))  # number of labels
+        s = f"\n{nl} label{'s' * (nl > 1)} saved to {predictor.save_dir / 'labels'}" if predictor.args.save_txt else ''
+        LOGGER.info(f"Results saved to {colorstr('bold', predictor.save_dir)}{s}")
 
     run_callbacks('on_predict_end')
     
@@ -224,8 +231,8 @@ def parse_opt():
     # parser.add_argument('--augment', action='store_true', help='augmented inference')
     # parser.add_argument('--visualize', action='store_true', help='visualize features')
     # parser.add_argument('--update', action='store_true', help='update all models')
-    # parser.add_argument('--project', default=ROOT / 'runs' / 'track', help='save results to project/name')
-    # parser.add_argument('--name', default='exp', help='save results to project/name')
+    parser.add_argument('--project', default=ROOT / 'runs' / 'track', help='save results to project/name')
+    parser.add_argument('--name', default='exp', help='save results to project/name')
     # parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     # parser.add_argument('--line-thickness', default=2, type=int, help='bounding box thickness (pixels)')
     # parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels')

@@ -208,8 +208,8 @@ class Evaluator:
                     # "--conf-thres", str(self.opt.conf_thres),
                     # "--imgsz", str(self.opt.imgsz[0]),
                     # "--classes", str(0),
-                    # "--name", save_dir.name,
-                    # "--project", self.opt.project,
+                    "--name", save_dir.name,
+                    "--project", self.opt.project,
                     # "--device", str(tracking_subprocess_device),
                     "--source", dst_seq_path,
                     # "--exist-ok",
@@ -223,13 +223,13 @@ class Evaluator:
         print_args(vars(self.opt))
 
         results = (save_dir.parent / self.opt.eval_existing / 'tracks' if self.opt.eval_existing else save_dir / 'tracks').glob('*.txt')
-        # for src in results:
-        #     if self.opt.eval_existing:
-        #         dst = MOT_results_folder.parent.parent / self.opt.eval_existing / 'data' / Path(src.stem + '.txt')
-        #     else:
-        #         dst = MOT_results_folder / Path(src.stem + '.txt')
-        #     dst.parent.mkdir(parents=True, exist_ok=True)  # make
-        #     shutil.copyfile(src, dst)
+        for src in results:
+            if self.opt.eval_existing:
+                dst = MOT_results_folder.parent.parent / self.opt.eval_existing / 'data' / Path(src.stem + '.txt')
+            else:
+                dst = MOT_results_folder / Path(src.stem + '.txt')
+            dst.parent.mkdir(parents=True, exist_ok=True)  # make
+            shutil.copyfile(src, dst)
         # run the evaluation on the generated txts
         d = [seq_path.parent.name for seq_path in seq_paths]
         p = subprocess.run(
@@ -237,11 +237,12 @@ class Evaluator:
                      sys.executable, val_tools_path / 'scripts' / 'run_mot_challenge.py',
                      "--GT_FOLDER", gt_folder,
                      "--BENCHMARK", self.opt.benchmark,
-                     "--TRACKERS_TO_EVAL", self.opt.eval_existing if self.opt.eval_existing else self.opt.benchmark,
+                     "--TRACKERS_FOLDER", save_dir,
+                     #"--TRACKERS_TO_EVAL", self.opt.eval_existing if self.opt.eval_existing else self.opt.benchmark,
                      "--SPLIT_TO_EVAL", "train",
                      "--METRICS", "HOTA", "CLEAR", "Identity",
                      "--USE_PARALLEL", "True",
-                     "--TRACKER_SUB_FOLDER", str(Path(*Path(MOT_results_folder).parts[-2:])),
+                     "--TRACKER_SUB_FOLDER", "",
                      "--NUM_PARALLEL_CORES", "4",
                      "--SKIP_SPLIT_FOL", "True",
                      "--SEQ_INFO"] + d,
