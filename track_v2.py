@@ -88,6 +88,7 @@ def run(
     predictor.args.conf = 0.5
     predictor.args.project = project
     predictor.args.name = name
+    predictor.args.imgsz = imgsz
     predictor.args.save_txt = True
     predictor.args.save = True
     predictor.write_MOT_results = write_MOT_results
@@ -168,7 +169,6 @@ def run(
                 else:
                     # append folder name containing current img
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.name
-                    print(predictor.MOT_txt_path)
                 write_MOT_results(
                     predictor.MOT_txt_path,
                     predictor.results[i],
@@ -214,7 +214,7 @@ def parse_opt():
     # parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     # parser.add_argument('--tracking-config', type=Path, default=None)
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')  
-    # parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
+    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     # parser.add_argument('--conf-thres', type=float, default=0.5, help='confidence threshold')
     # parser.add_argument('--iou-thres', type=float, default=0.5, help='NMS IoU threshold')
     # parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
