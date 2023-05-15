@@ -46,7 +46,7 @@ def write_MOT_results(txt_path, results, frame_idx, i):
     print('mot', mot.shape)
 
     with open(str(txt_path) + '.txt', 'ab') as f:  # append binary mode
-        np.savetxt(f, mot.numpy())
+        np.savetxt(f, mot.numpy(), fmt='%d')  # save as ints instead of scientific notation
 
 
 @torch.no_grad()
