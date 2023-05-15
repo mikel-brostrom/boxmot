@@ -3,19 +3,12 @@
 """
 from __future__ import print_function
 
-import pdb
-import pickle
-
-import cv2
-import torch
-import torchvision
 
 import numpy as np
 from .association import *
-from .embedding import EmbeddingComputer
 from .cmc import CMCComputer
-from reid_multibackend import ReIDDetectMultiBackend
-from yolov8.ultralytics.yolo.utils.ops import xyxy2xywh
+from trackers.deep.reid_multibackend import ReIDDetectMultiBackend
+from ultralytics.yolo.utils.ops import xyxy2xywh
 
 
 
