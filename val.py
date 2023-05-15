@@ -206,7 +206,7 @@ class Evaluator:
                     # "--reid-weights", self.opt.reid_weights,
                     # "--tracking-method", self.opt.tracking_method,
                     # "--conf-thres", str(self.opt.conf_thres),
-                    # "--imgsz", str(self.opt.imgsz[0]),
+                    "--imgsz", str(self.opt.imgsz[0]),
                     # "--classes", str(0),
                     "--name", save_dir.name,
                     "--project", self.opt.project,
