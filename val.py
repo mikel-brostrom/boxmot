@@ -134,7 +134,7 @@ class Evaluator:
             gt_folder = Path('./assets') / self.opt.benchmark / self.opt.split
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
 
-        save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)
+        save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exists_ok)
         MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
         (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
         return seq_paths, save_dir, MOT_results_folder, gt_folder
@@ -212,7 +212,7 @@ class Evaluator:
                     "--project", self.opt.project,
                     # "--device", str(tracking_subprocess_device),
                     "--source", dst_seq_path,
-                    # "--exist-ok",
+                    "--exists-ok",
                     # "--save-txt",
                 ])
                 processes.append(p)
@@ -317,7 +317,7 @@ def parse_opt():
     parser.add_argument('--tracking-config', type=Path, default=None)
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs' / 'val', help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--exists-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
