@@ -35,8 +35,8 @@ import logging
 from ultralytics.yolo.utils.torch_utils import select_device
 from ultralytics.yolo.utils import LOGGER, colorstr, ops
 from ultralytics.yolo.utils.checks import check_requirements, check_version
-from trackers.strongsort.deep.models import build_model
-from trackers.strongsort.deep.reid_model_factory import get_model_name, load_pretrained_weights
+from trackers.deep.models import build_model
+from trackers.deep.reid_model_factory import get_model_name, load_pretrained_weights
 
 
 def file_size(path):
