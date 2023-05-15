@@ -17,7 +17,8 @@ from ultralytics.yolo.data.utils import VID_FORMATS
 
 WEIGHTS = Path(SETTINGS['weights_dir'])
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # yolov5 strongsort root directory
+ROOT = FILE.parents[0]  # root dir
+print(ROOT)
 WEIGHTS = ROOT / 'weights'
 
 
@@ -79,15 +80,17 @@ def run(
     visualize=False,
     plotted_img = False,
     augment = False,
-    conf_thres = 0.5,
+    conf = 0.5,
     device = '',
     show = False,
-    half = True
+    half = True,
+    classes = None
 ):
     if source is None:
         source = ROOT / 'assets' if is_git_dir() else 'https://ultralytics.com/images/bus.jpg'
         LOGGER.warning(f"WARNING ⚠️ 'source' is missing. Using 'source={source}'.")
     
+    print(yolo_model)
     model = YOLO(yolo_model)
     overrides = model.overrides.copy()
     model.predictor = TASK_MAP[model.task][3](overrides=overrides, _callbacks=model.callbacks)
@@ -102,7 +105,9 @@ def run(
     predictor.args.conf = 0.5
     predictor.args.project = project
     predictor.args.name = name
-    predictor.args.half = True
+    predictor.args.conf = conf
+    predictor.args.half = half
+    predictor.args.classes = classes
     predictor.args.imgsz = imgsz
     predictor.args.vid_stride = vid_stride
     predictor.args.save_txt = True
@@ -239,12 +244,12 @@ def parse_opt():
     parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')  
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
-    parser.add_argument('--conf-thres', type=float, default=0.5, help='confidence threshold')
+    parser.add_argument('--conf', type=float, default=0.5, help='confidence threshold')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--show', action='store_true', help='display tracking video results')
     # parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
     # # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
-    # parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
+    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     # parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     # parser.add_argument('--augment', action='store_true', help='augmented inference')
     # parser.add_argument('--visualize', action='store_true', help='visualize features')
