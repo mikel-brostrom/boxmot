@@ -18,6 +18,7 @@ val_utils/
 *_openvino_model
 *.torchscript
 *.pt
+*.pth
 *.onnx
 *.engine
 
