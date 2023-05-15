@@ -46,7 +46,7 @@ jobs:
       - name: Tests workflow
         run: |
           # DEEPOCSORT
-          python track.py --tracking-method deepocsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python track.py --tracking-method deepocsort --yolo-model ./weights/yolov8n.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           # BOTSORT
           python track.py --tracking-method botsort --yolo-model ./weights/yolov8n.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           # STRONGSORT
