@@ -134,7 +134,7 @@ class Evaluator:
             gt_folder = Path('./assets') / self.opt.benchmark / self.opt.split
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
 
-        save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
+        save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)
         MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
         (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
         return seq_paths, save_dir, MOT_results_folder, gt_folder
@@ -236,9 +236,9 @@ class Evaluator:
             args=[
                      sys.executable, val_tools_path / 'scripts' / 'run_mot_challenge.py',
                      "--GT_FOLDER", gt_folder,
-                     "--BENCHMARK", self.opt.benchmark,
+                     "--BENCHMARK", "",
                      "--TRACKERS_FOLDER", save_dir,
-                     #"--TRACKERS_TO_EVAL", self.opt.eval_existing if self.opt.eval_existing else self.opt.benchmark,
+                     "--TRACKERS_TO_EVAL", self.opt.eval_existing if self.opt.eval_existing else "labels",
                      "--SPLIT_TO_EVAL", "train",
                      "--METRICS", "HOTA", "CLEAR", "Identity",
                      "--USE_PARALLEL", "True",
