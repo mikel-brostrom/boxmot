@@ -8,13 +8,10 @@ import cv2
 
 from trackers.multi_tracker_zoo import create_tracker
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
-from ultralytics.yolo.engine.predictor import BasePredictor, STREAM_WARNING
 
-from ultralytics.yolo.utils import DEFAULT_CFG, LOGGER, SETTINGS, callbacks, colorstr, ops
-from ultralytics.yolo.utils.checks import check_imgsz, check_imshow, print_args, check_requirements
+from ultralytics.yolo.utils import LOGGER, SETTINGS, colorstr, ops, is_git_dir
+from ultralytics.yolo.utils.checks import check_imgsz, print_args
 from ultralytics.yolo.utils.files import increment_path
-from ultralytics.yolo.utils.torch_utils import select_device, smart_inference_mode
-from ultralytics.yolo.data import load_inference_source
 from ultralytics.yolo.engine.results import Boxes
 from ultralytics.yolo.data.utils import VID_FORMATS
 
@@ -66,10 +63,9 @@ def write_MOT_results(txt_path, results, frame_idx, i):
 
 @torch.no_grad()
 def run(
-    yolo_model=WEIGHTS / 'yolov8s.pt',  # model.pt path(s),
+    yolo_model=WEIGHTS / 'yolov8n.pt',  # model.pt path(s),
     reid_model=WEIGHTS / 'osnet_x0_25_msmt17.pt',  # model.pt path,
     tracking_method='strongsort',
-    tracking_config=None,
     source = '0',
     imgsz = [640, 640],
     save_dir=False,
@@ -228,7 +224,7 @@ def run(
         t = tuple(x.t / predictor.seen * 1E3 for x in predictor.profilers)  # speeds per image
         LOGGER.info(f'Speed: %.1fms preprocess, %.1fms inference, %.1fms postprocess, %.1fms tracking per image at shape '
                     f'{(1, 3, *imgsz)}' % t)
-    if save or args.save_txt or args.save_crop:
+    if save or predictor.args.save_txt or predictor.args.save_crop:
         nl = len(list(predictor.save_dir.glob('labels/*.txt')))  # number of labels
         s = f"\n{nl} label{'s' * (nl > 1)} saved to {predictor.save_dir / 'labels'}" if predictor.args.save_txt else ''
         LOGGER.info(f"Results saved to {colorstr('bold', predictor.save_dir)}{s}")
@@ -238,10 +234,9 @@ def run(
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', nargs='+', type=str, default=WEIGHTS / 'yolov8s.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo-model', nargs='+', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack')
-    parser.add_argument('--tracking-config', type=Path, default=None)
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')  
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--conf-thres', type=float, default=0.5, help='confidence threshold')
