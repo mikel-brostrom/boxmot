@@ -46,15 +46,15 @@ jobs:
       - name: Tests workflow
         run: |
           # DEEPOCSORT
-          python track.py --tracking-method deepocsort --yolo-model yolov8n.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python track.py --tracking-method deepocsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           # BOTSORT
-          python track.py --tracking-method botsort --yolo-model yolov8n.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python track.py --tracking-method botsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           # STRONGSORT
-          python track.py --tracking-method strongsort --yolo-model yolov8n.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python track.py --tracking-method strongsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           # OCSORT
-          python track.py --tracking-method ocsort --yolo-model ./weights/yolov8n.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python track.py --tracking-method ocsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           # BYTETRACK
-          python track.py --tracking-method bytetrack --yolo-model ./weights/yolov8n.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python track.py --tracking-method bytetrack --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           # EXPORT
           python trackers/reid_export.py --weights ./weights/lmbn_n_cuhk03_d.pt  # export deafults to torchscript
           # STRONGSORT w. EXPORTED REID MODEL
