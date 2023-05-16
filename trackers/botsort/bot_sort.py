@@ -470,7 +470,8 @@ class BoTSORT(object):
             output.append(t.cls)
             output.append(t.score)
             outputs.append(output)
-
+            
+        outputs = np.asarray(outputs)
         return outputs
 
     def _xywh_to_xyxy(self, bbox_xywh):
