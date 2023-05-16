@@ -24,8 +24,8 @@ import logging
 from ultralytics.yolo.utils.torch_utils import select_device
 from ultralytics.yolo.utils import LOGGER, colorstr, ops
 from ultralytics.yolo.utils.checks import check_requirements, check_version
-from trackers.deep.models import build_model
-from trackers.deep.reid_model_factory import get_model_name, load_pretrained_weights
+from .models import build_model
+from .reid_model_factory import get_model_name, load_pretrained_weights
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # root dir
