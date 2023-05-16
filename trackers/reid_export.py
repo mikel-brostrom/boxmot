@@ -240,7 +240,7 @@ if __name__ == "__main__":
     parser.add_argument('--opset', type=int, default=12, help='ONNX: opset version')
     parser.add_argument('--workspace', type=int, default=4, help='TensorRT: workspace size (GB)')
     parser.add_argument('--verbose', action='store_true', help='TensorRT: verbose log')
-    parser.add_argument('--weights', nargs='+', type=str, default=WEIGHTS / 'osnet_x0_25_msmt17.pt', help='model.pt path(s)')
+    parser.add_argument('--weights', nargs='+', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt', help='model.pt path(s)')
     parser.add_argument('--half', action='store_true', help='FP16 half-precision export')
     parser.add_argument('--include',
                         nargs='+',
