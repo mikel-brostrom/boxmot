@@ -43,10 +43,8 @@ jobs:
           pip --version
           pip list
         shell: bash
-      - name: Tests trackers
+      - name: Tests all tracking options
         run: |
-          # test all tracking options
-
           # deepocsort
           python track.py --tracking-method deepocsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
 
