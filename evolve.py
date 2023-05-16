@@ -273,8 +273,8 @@ def write_best_HOTA_params_to_config(opt, study):
     
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
-    parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'lmbn_n_cuhk03_d.pt')
+    parser.add_argument('--yolo-model', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
+    parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'lmbn_n_cuhk03_d.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort', help='strongsort, ocsort')
     parser.add_argument('--tracking-config', type=Path, default=None)
     parser.add_argument('--name', default='exp', help='save results to project/name')
