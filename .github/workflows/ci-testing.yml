@@ -62,6 +62,6 @@ jobs:
           
           # TRACK WITH SEGMENTATIONS
           python track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
-          python val.py --tracking-method deepocsort --device cpu --yolo-model yolov8n.pt --benchmark MOT17-mini
+          python val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini
           python3 evolve.py --device cpu --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1
         shell: bash
