@@ -1,4 +1,4 @@
-# Real-time multi-object tracking and segmentation using Yolov8 with DeepOCSORT and LightMBN
+# Real-time multi-object, segmentation and pose tracking using Yolov8 with DeepOCSORT and LightMBN
 
 
 <div align="center">
