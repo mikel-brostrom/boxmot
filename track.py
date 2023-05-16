@@ -39,9 +39,9 @@ def on_predict_start(predictor):
             predictor.args.half
         )
         predictor.trackers.append(tracker)
-        if hasattr(predictor.trackers[i], 'model'):
-            if hasattr(predictor.trackers[i].model, 'warmup'):
-                predictor.trackers[i].model.warmup()
+        # if hasattr(predictor.trackers[i], 'model'):
+        #     if hasattr(predictor.trackers[i].model, 'warmup'):
+        #         predictor.trackers[i].model.warmup()
                 
                 
 def write_MOT_results(txt_path, results, frame_idx, i):
