@@ -45,7 +45,7 @@ from ultralytics.yolo.utils.files import increment_path
 
 from torch.utils.tensorboard import SummaryWriter
 
-from track_v2 import run
+from track import run
 
 
 class Evaluator:
@@ -202,18 +202,18 @@ class Evaluator:
 
                 p = subprocess.Popen([
                     sys.executable, "track_v2.py",
-                    # "--yolo-weights", self.opt.yolo_weights,
-                    # "--reid-weights", self.opt.reid_weights,
-                    # "--tracking-method", self.opt.tracking_method,
-                    # "--conf-thres", str(self.opt.conf_thres),
+                    "--yolo-model", self.opt.yolo_weights,
+                    "--reid-model", self.opt.reid_weights,
+                    "--tracking-method", self.opt.tracking_method,
+                    "--conf", str(self.opt.conf_thres),
                     "--imgsz", str(self.opt.imgsz[0]),
-                    # "--classes", str(0),
+                    "--classes", str(0),
                     "--name", save_dir.name,
                     "--project", self.opt.project,
-                    # "--device", str(tracking_subprocess_device),
+                    "--device", str(tracking_subprocess_device),
                     "--source", dst_seq_path,
                     "--exists-ok",
-                    # "--save-txt",
+                    "--save",
                 ])
                 processes.append(p)
 
@@ -312,7 +312,7 @@ class Evaluator:
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
-    parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'lmbn_n_cuhk03_d.pt')
+    parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort', help='strongsort, ocsort')
     parser.add_argument('--tracking-config', type=Path, default=None)
     parser.add_argument('--name', default='exp', help='save results to project/name')
