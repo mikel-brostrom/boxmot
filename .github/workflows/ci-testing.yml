@@ -64,7 +64,7 @@ jobs:
           python track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
 
           # tracking with POSE models
-          python3 track.py --yolo-model yolov8n-pose.pt
+          python3 track.py --yolo-model yolov8n-pose.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
 
           # validation on a few MOT17 imges
           python val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini
