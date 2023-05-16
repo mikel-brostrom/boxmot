@@ -60,8 +60,15 @@ jobs:
           # STRONGSORT w. EXPORTED REID MODEL
           python track.py --reid-model weights/mobilenetv2_x1_4_dukemtmcreid.torchscript --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           
-          # TRACK WITH SEGMENTATIONS
+          # tracking with SEG models
           python track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+
+          # tracking with POSE models
+          python3 track.py --yolo-model yolov8n-pose.pt
+
+          # validation on a few MOT17 imges
           python val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini
+
+          # evolve a for a single set of parameters
           python evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1
         shell: bash
