@@ -181,12 +181,13 @@ def run(
                 'tracking': predictor.profilers[3].dt * 1E3 / n
             
             }
-            
+
             # overwrite bbox results with tracker predictions
-            predictor.results[i].boxes = Boxes(
-                boxes=torch.from_numpy(predictor.tracker_outputs[i]),
-                orig_shape=im0.shape[:2],  # (height, width)
-            )
+            if predictor.tracker_outputs[i].size != 0:
+                predictor.results[i].boxes = Boxes(
+                    boxes=torch.from_numpy(predictor.tracker_outputs[i]),
+                    orig_shape=im0.shape[:2],  # (height, width)
+                )
             
             # write inference results to a file or directory   
             if verbose or save or save_txt or show:
@@ -199,12 +200,14 @@ def run(
                 else:
                     # append folder name containing current img
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.name
-                write_MOT_results(
-                    predictor.MOT_txt_path,
-                    predictor.results[i],
-                    frame_idx,
-                    i
-                )
+                    
+                if predictor.tracker_outputs[i].size != 0:
+                    write_MOT_results(
+                        predictor.MOT_txt_path,
+                        predictor.results[i],
+                        frame_idx,
+                        i
+                    )
 
             # display an image in a window using OpenCV imshow()
             if show and plotted_img is not None:
