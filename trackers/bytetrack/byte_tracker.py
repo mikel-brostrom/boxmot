@@ -6,7 +6,7 @@ import copy
 import torch
 import torch.nn.functional as F
 
-from yolov8.ultralytics.yolo.utils.ops import xywh2xyxy, xyxy2xywh
+from ultralytics.yolo.utils.ops import xywh2xyxy, xyxy2xywh
 
 
 from trackers.bytetrack.kalman_filter import KalmanFilter
