@@ -2,17 +2,21 @@ import torch.nn as nn
 import torch
 from pathlib import Path
 import numpy as np
+from itertools import islice
+import torchvision.transforms as transforms
+import cv2
+import sys
 import torchvision.transforms as T
 from collections import OrderedDict, namedtuple
 import gdown
 from os.path import exists as file_exists
 
 
-from yolov8.ultralytics.yolo.utils.checks import check_requirements, check_version
-from yolov8.ultralytics.yolo.utils import LOGGER
-from trackers.strongsort.deep.reid_model_factory import (show_downloadeable_models, get_model_url, get_model_name,
+from ultralytics.yolo.utils.checks import check_requirements, check_version
+from ultralytics.yolo.utils import LOGGER
+from trackers.deep.reid_model_factory import (show_downloadeable_models, get_model_url, get_model_name,
                                                           download_url, load_pretrained_weights)
-from trackers.strongsort.deep.models import build_model
+from trackers.deep.models import build_model
 
 
 def check_suffix(file='yolov5s.pt', suffix=('.pt',), msg=''):
@@ -160,7 +164,7 @@ class ReIDDetectMultiBackend(nn.Module):
     @staticmethod
     def model_type(p='path/to/model.pt'):
         # Return model type from model path, i.e. path='path/to/model.onnx' -> type=onnx
-        from trackers.reid_export import export_formats
+        from .reid_export import export_formats
         sf = list(export_formats().Suffix)  # export suffixes
         check_suffix(p, sf)  # checks
         types = [s in Path(p).name for s in sf]
@@ -217,10 +221,9 @@ class ReIDDetectMultiBackend(nn.Module):
             exit()
 
         if isinstance(features, (list, tuple)):
-            features = self.from_numpy(features[0]) if len(features) == 1 else [self.from_numpy(x) for x in features]
+            return self.from_numpy(features[0]) if len(features) == 1 else [self.from_numpy(x) for x in features]
         else:
-            features = self.from_numpy(features)
-        return features
+            return self.from_numpy(features)
 
     def from_numpy(self, x):
         return torch.from_numpy(x).to(self.device) if isinstance(x, np.ndarray) else x

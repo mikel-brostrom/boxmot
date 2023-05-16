@@ -1,4 +1,5 @@
 .vscode/
+env/
 
 # interpreter bytecode
 __pycache__/
@@ -18,8 +19,13 @@ val_utils/
 *_openvino_model
 *.torchscript
 *.pt
+*.pth
 *.onnx
 *.engine
 
 # interactive plots
 *.html
+
+# tf models
+*saved_model/
+tf_models/

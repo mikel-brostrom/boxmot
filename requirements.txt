@@ -1,5 +1,5 @@
 # pip install -r requirements.txt
-ultralytics==8.0.20
+ultralytics==8.0.98
 
 # Base ----------------------------------------
 gitpython

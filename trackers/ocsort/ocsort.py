@@ -5,7 +5,7 @@ from __future__ import print_function
 
 import numpy as np
 from .association import *
-from yolov8.ultralytics.yolo.utils.ops import xywh2xyxy
+from ultralytics.yolo.utils.ops import xywh2xyxy
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -325,4 +325,4 @@ class OCSort(object):
                 self.trackers.pop(i)
         if(len(ret) > 0):
             return np.concatenate(ret)
-        return np.empty((0, 5))
+        return np.array([])
