@@ -205,7 +205,7 @@ class Evaluator:
                     "--yolo-model", self.opt.yolo_model,
                     "--reid-model", self.opt.reid_model,
                     "--tracking-method", self.opt.tracking_method,
-                    "--conf", str(self.opt.conf_thres),
+                    "--conf", str(self.opt.conf),
                     "--imgsz", str(self.opt.imgsz[0]),
                     "--classes", str(0),
                     "--name", save_dir.name,
@@ -325,7 +325,7 @@ def parse_opt():
     parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
-    parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
+    parser.add_argument('--conf', type=float, default=0.45, help='confidence threshold')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--processes-per-device', type=int, default=2,

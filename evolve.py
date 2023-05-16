@@ -62,7 +62,7 @@ class Objective(Evaluator):
         """
         
         d = {}
-        self.opt.conf_thres = trial.suggest_float("conf_thres", 0.35, 0.55)
+        self.opt.conf = trial.suggest_float("conf", 0.35, 0.55)
         
         if self.opt.tracking_method == 'strongsort':
             
@@ -123,7 +123,7 @@ class Objective(Evaluator):
             
             d['bytetrack'] = \
                 {
-                    'track_thresh': self.opt.conf_thres,
+                    'track_thresh': self.opt.conf,
                     'match_thresh': match_thresh,
                     'track_buffer': track_buffer,
                     'frame_rate': 30
@@ -283,7 +283,7 @@ def parse_opt():
     parser.add_argument('--benchmark', type=str,  default='MOT17', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str,  default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
-    parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
+    parser.add_argument('--conf', type=float, default=0.45, help='confidence threshold')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--n-trials', type=int, default=10, help='nr of trials for evolution')
