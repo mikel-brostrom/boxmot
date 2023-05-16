@@ -18,7 +18,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]  # Error: Container action is only supported on Linux
         python-version: [3.9]
-        model: ['yolov5n']  # models to test
+        model: ['yolov8n']  # models to test
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install requirments
+      - name: Install requirements
         run: |
           python -m pip install --upgrade pip setuptools wheel
           # If not importing this prior to installing requirements...
@@ -43,25 +43,52 @@ jobs:
           pip --version
           pip list
         shell: bash
-      - name: Tests workflow
+      - name: Tests all tracking options
         run: |
-          # DEEPOCSORT
-          python track.py --tracking-method deepocsort --source yolov8/ultralytics/assets/bus.jpg
-          # BOTSORT
-          python track.py --tracking-method botsort --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
-          # STRONGSORT
-          python track.py --tracking-method strongsort --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
-          # OCSORT
-          python track.py --tracking-method ocsort --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
-          # BYTETRACK
-          python track.py --tracking-method bytetrack --yolo-weights ./weights/yolov8n.pt --source yolov8/ultralytics/assets/bus.jpg
-          # EXPORT
-          python trackers/reid_export.py --weights ./weights/lmbn_n_cuhk03_d.pt  # export deafults to torchscript
-          # STRONGSORT w. EXPORTED REID MODEL
-          python track.py --reid-weights ./weights/lmbn_n_cuhk03_d.torchscript --source yolov8/ultralytics/assets/bus.jpg
+          # deepocsort
+          python track.py --tracking-method deepocsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+
+          # botsort
+          python track.py --tracking-method botsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           
-          # TRACK WITH SEGMENTATIONS
-          python track.py --tracking-method deepocsort --yolo-weights ./weights/yolov8n-seg.pt --source yolov8/ultralytics/assets/bus.jpg
-          python val.py --tracking-method deepocsort --device cpu --yolo-weights yolov8n.pt --benchmark MOT17-mini
-          python3 evolve.py --device cpu --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1
-        shell: bash
+          # strongsort
+          python track.py --tracking-method strongsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          
+          # ocsort
+          python track.py --tracking-method ocsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          
+          # bytetrack
+          python track.py --tracking-method bytetrack --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          
+      - name: Tests tracker with exported reid model
+        shell: bash  # for Windows compatibility
+        run: |
+          # export
+          python trackers/deep/reid_export.py --weights weights/mobilenetv2_x1_4_dukemtmcreid.pt  # export deafults to torchscript
+          
+          # strongsort w. exported reid model
+          python track.py --reid-model weights/mobilenetv2_x1_4_dukemtmcreid.torchscript --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+      
+      - name: Test tracking with seg models
+        shell: bash  # for Windows compatibility
+        run: |
+          # tracking with SEG models
+          python track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+
+      - name: Test tracking with pose models
+        shell: bash  # for Windows compatibility
+        run: |
+          # tracking with POSE models
+          python3 track.py --yolo-model yolov8n-pose.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+
+      - name: Test validation on MOT17 subset
+        shell: bash  # for Windows compatibility
+        run: |
+          # validation on a few MOT17 imges
+          python val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini
+
+      - name: Test evolution on MOT17 subset
+        shell: bash  # for Windows compatibility
+        run: |
+          # evolve a for a single set of parameters
+          python evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1

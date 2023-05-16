@@ -39,9 +39,9 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 import numpy as np
 
-from yolov8.ultralytics.yolo.utils import LOGGER
-from yolov8.ultralytics.yolo.utils.checks import check_requirements, print_args
-from yolov8.ultralytics.yolo.utils.files import increment_path
+from ultralytics.yolo.utils import LOGGER
+from ultralytics.yolo.utils.checks import check_requirements, print_args
+from ultralytics.yolo.utils.files import increment_path
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -134,7 +134,7 @@ class Evaluator:
             gt_folder = Path('./assets') / self.opt.benchmark / self.opt.split
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
 
-        save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
+        save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exists_ok)
         MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
         (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
         return seq_paths, save_dir, MOT_results_folder, gt_folder
@@ -202,18 +202,18 @@ class Evaluator:
 
                 p = subprocess.Popen([
                     sys.executable, "track.py",
-                    "--yolo-weights", self.opt.yolo_weights,
-                    "--reid-weights", self.opt.reid_weights,
+                    "--yolo-model", self.opt.yolo_model,
+                    "--reid-model", self.opt.reid_model,
                     "--tracking-method", self.opt.tracking_method,
-                    "--conf-thres", str(self.opt.conf_thres),
+                    "--conf", str(self.opt.conf),
                     "--imgsz", str(self.opt.imgsz[0]),
                     "--classes", str(0),
                     "--name", save_dir.name,
                     "--project", self.opt.project,
                     "--device", str(tracking_subprocess_device),
                     "--source", dst_seq_path,
-                    "--exist-ok",
-                    "--save-txt",
+                    "--exists-ok",
+                    "--save",
                 ])
                 processes.append(p)
 
@@ -236,12 +236,13 @@ class Evaluator:
             args=[
                      sys.executable, val_tools_path / 'scripts' / 'run_mot_challenge.py',
                      "--GT_FOLDER", gt_folder,
-                     "--BENCHMARK", self.opt.benchmark,
-                     "--TRACKERS_TO_EVAL", self.opt.eval_existing if self.opt.eval_existing else self.opt.benchmark,
+                     "--BENCHMARK", "",
+                     "--TRACKERS_FOLDER", save_dir,
+                     "--TRACKERS_TO_EVAL", self.opt.eval_existing if self.opt.eval_existing else "labels",
                      "--SPLIT_TO_EVAL", "train",
                      "--METRICS", "HOTA", "CLEAR", "Identity",
                      "--USE_PARALLEL", "True",
-                     "--TRACKER_SUB_FOLDER", str(Path(*Path(MOT_results_folder).parts[-2:])),
+                     "--TRACKER_SUB_FOLDER", "",
                      "--NUM_PARALLEL_CORES", "4",
                      "--SKIP_SPLIT_FOL", "True",
                      "--SEQ_INFO"] + d,
@@ -255,7 +256,12 @@ class Evaluator:
         with open(save_dir / 'MOT_results.txt', 'w') as f:
             f.write(p.stdout)
         # copy tracking method config to exp folder
-        shutil.copyfile(opt.tracking_config, save_dir / opt.tracking_config.name)
+        tracking_config = \
+            Path('trackers') /\
+            opt.tracking_method /\
+            'configs' /\
+            (opt.tracking_method + '.yaml')
+        shutil.copyfile(tracking_config, save_dir / Path(tracking_config).name)
 
         return p.stdout
 
@@ -310,28 +316,22 @@ class Evaluator:
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
-    parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'lmbn_n_cuhk03_d.pt')
+    parser.add_argument('--yolo-model', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
+    parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort', help='strongsort, ocsort')
-    parser.add_argument('--tracking-config', type=Path, default=None)
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs' / 'val', help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--benchmark', type=str, default='MOT17', help='MOT16, MOT17, MOT20')
+    parser.add_argument('--exists-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
-    parser.add_argument('--conf-thres', type=float, default=0.45, help='confidence threshold')
+    parser.add_argument('--conf', type=float, default=0.45, help='confidence threshold')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--processes-per-device', type=int, default=2,
                         help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
 
     opt = parser.parse_args()
-    opt.tracking_config = ROOT / 'trackers' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
-    with open(opt.tracking_config, 'r') as f:
-        params = yaml.load(f, Loader=yaml.loader.SafeLoader)
-        opt.conf_thres = params[opt.tracking_method]['conf_thres']
-
     device = []
 
     for a in opt.device.split(','):
