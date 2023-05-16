@@ -52,8 +52,8 @@ def write_MOT_results(txt_path, results, frame_idx, i):
     i = torch.full((nr_dets, 1), i)
     mot = torch.cat([
         frame_idx,
-        results.boxes.id.unsqueeze(1),
-        ops.xyxy2ltwh(results.boxes.xyxy),
+        results.boxes.id.unsqueeze(1).to('cpu'),
+        ops.xyxy2ltwh(results.boxes.xyxy).to('cpu'),
         dont_care,
         i
     ], dim=1)
@@ -185,7 +185,7 @@ def run(
             # overwrite bbox results with tracker predictions
             if predictor.tracker_outputs[i].size != 0:
                 predictor.results[i].boxes = Boxes(
-                    boxes=torch.from_numpy(predictor.tracker_outputs[i]),
+                    boxes=torch.from_numpy(predictor.tracker_outputs[i]).to(dets.device),
                     orig_shape=im0.shape[:2],  # (height, width)
                 )
             
@@ -206,7 +206,7 @@ def run(
                         predictor.MOT_txt_path,
                         predictor.results[i],
                         frame_idx,
-                        i
+                        i,
                     )
 
             # display an image in a window using OpenCV imshow()
