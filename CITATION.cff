@@ -5,9 +5,9 @@ preferred-citation:
   authors:
   - family-names: Broström
     given-names: Mikel
-  title: "Real-time multi-object tracking and segmentation using Yolov8 with DeepOCSORT and OSNet"
+  title: "Real-time multi-object, segmentation and pose tracking using Yolov8 with DeepOCSORT and LightMBN"
   version: 8.0
   doi: https://zenodo.org/record/7629840
-  date-released: 2023-2
-  license: GPL-3.0
+  date-released: 2023-5
+  license: AGPL-3.0
   url: "https://github.com/mikel-brostrom/yolov8_tracking"
