@@ -1,4 +1,5 @@
 .vscode/
+env/
 
 # interpreter bytecode
 __pycache__/
@@ -24,3 +25,7 @@ val_utils/
 
 # interactive plots
 *.html
+
+# tf models
+*saved_model/
+tf_models/
