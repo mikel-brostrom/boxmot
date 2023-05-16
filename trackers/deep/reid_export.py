@@ -12,8 +12,8 @@ import torch.backends.cudnn as cudnn
 from torch.utils.mobile_optimizer import optimize_for_mobile
 import logging
 
-from .models import build_model
-from .reid_model_factory import get_model_name, load_pretrained_weights
+from trackers.deep.models import build_model
+from trackers.deep.reid_model_factory import get_model_name, load_pretrained_weights
 
 from ultralytics.yolo.utils.torch_utils import select_device
 from ultralytics.yolo.utils import LOGGER, colorstr, ops
