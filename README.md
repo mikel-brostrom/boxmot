@@ -32,7 +32,7 @@ Everything is designed with simplicity and flexibility in mind. We don't hyperfo
 ## Installation
 
 ```
-git clone --recurse-submodules https://github.com/mikel-brostrom/yolov8_tracking.git  # clone recursively
+git clone https://github.com/mikel-brostrom/yolov8_tracking.git
 cd yolov8_tracking
 pip install -r requirements.txt  # install dependencies
 ```
@@ -83,10 +83,10 @@ In inverse chronological order:
 <details>
 <summary>Custom object detection architecture</summary>
 
-The trackers provided in this repo can be used with other object detectors than Yolov8. Make sure that the output of your detector has the following format:
+The trackers provided in this repo can be used with other object detectors than Yolov8. Make sure that the input to the trackers is of the following format:
 
 ```bash
-(x1,y1, x2, y2, obj, cls0, cls1, ..., clsn)
+Nx6 (x, y, x, y, conf, cls)
 ```
 
 </details>
@@ -94,8 +94,9 @@ The trackers provided in this repo can be used with other object detectors than 
 ## Tracking
 
 ```bash
-$ python track.py --yolo-weights yolov8n.pt     # bboxes only
+$ python track.py --yolo-weights yolov8n.pt      # bboxes only
                                  yolov8n-seg.pt  # bboxes + segmentation masks
+                                 yolov8n-pose.pt # bboxes + pose estimation
 ```
 
 <details>
