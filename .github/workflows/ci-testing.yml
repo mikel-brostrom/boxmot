@@ -18,7 +18,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]  # Error: Container action is only supported on Linux
         python-version: [3.9]
-        model: ['yolov5n']  # models to test
+        model: ['yolov8n']  # models to test
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
