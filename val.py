@@ -201,7 +201,7 @@ class Evaluator:
                     shutil.move(str(src_seq_path), str(dst_seq_path))
 
                 p = subprocess.Popen([
-                    sys.executable, "track_v2.py",
+                    sys.executable, "track.py",
                     "--yolo-model", self.opt.yolo_weights,
                     "--reid-model", self.opt.reid_weights,
                     "--tracking-method", self.opt.tracking_method,
@@ -311,10 +311,9 @@ class Evaluator:
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-weights', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
-    parser.add_argument('--reid-weights', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
+    parser.add_argument('--yolo-model', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
+    parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort', help='strongsort, ocsort')
-    parser.add_argument('--tracking-config', type=Path, default=None)
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs' / 'val', help='save results to project/name')
     parser.add_argument('--exists-ok', action='store_true', help='existing project/name ok, do not increment')
@@ -328,11 +327,6 @@ def parse_opt():
                         help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
 
     opt = parser.parse_args()
-    opt.tracking_config = ROOT / 'trackers' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
-    with open(opt.tracking_config, 'r') as f:
-        params = yaml.load(f, Loader=yaml.loader.SafeLoader)
-        opt.conf_thres = params[opt.tracking_method]['conf_thres']
-
     device = []
 
     for a in opt.device.split(','):
