@@ -202,8 +202,8 @@ class Evaluator:
 
                 p = subprocess.Popen([
                     sys.executable, "track.py",
-                    "--yolo-model", self.opt.yolo_weights,
-                    "--reid-model", self.opt.reid_weights,
+                    "--yolo-model", self.opt.yolo_model,
+                    "--reid-model", self.opt.reid_model,
                     "--tracking-method", self.opt.tracking_method,
                     "--conf", str(self.opt.conf_thres),
                     "--imgsz", str(self.opt.imgsz[0]),
