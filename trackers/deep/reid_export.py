@@ -12,6 +12,15 @@ import torch.backends.cudnn as cudnn
 from torch.utils.mobile_optimizer import optimize_for_mobile
 import logging
 
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[0].parents[0].parents[0]  # root dir
+WEIGHTS = ROOT / 'weights'
+
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))  # add ROOT to PATH
+if str(ROOT / 'trackers') not in sys.path:
+    sys.path.append(str(ROOT / 'trackers'))  # add yolov5 ROOT to PATH
+
 from trackers.deep.models import build_model
 from trackers.deep.reid_model_factory import get_model_name, load_pretrained_weights
 
@@ -19,10 +28,6 @@ from ultralytics.yolo.utils.torch_utils import select_device
 from ultralytics.yolo.utils import LOGGER, colorstr, ops
 from ultralytics.yolo.utils.checks import check_requirements, check_version
 
-
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # root dir
-WEIGHTS = ROOT / 'weights'
 
 
 def file_size(path):
