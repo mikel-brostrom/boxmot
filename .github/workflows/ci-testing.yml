@@ -56,9 +56,9 @@ jobs:
           # BYTETRACK
           python track.py --tracking-method bytetrack --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           # EXPORT
-          python trackers/deep/reid_export.py --weights mobilenetv2_x1_4_dukemtmcreid.pt  # export deafults to torchscript
+          python trackers/deep/reid_export.py --weights weights/mobilenetv2_x1_4_dukemtmcreid.pt  # export deafults to torchscript
           # STRONGSORT w. EXPORTED REID MODEL
-          python track.py --reid-model mobilenetv2_x1_4_dukemtmcreid.torchscript --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python track.py --reid-model weights/mobilenetv2_x1_4_dukemtmcreid.torchscript --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           
           # TRACK WITH SEGMENTATIONS
           python track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
