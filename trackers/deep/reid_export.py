@@ -1,14 +1,5 @@
 import argparse
-
 import os
-
-# limit the number of cpus used by high performance libraries
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-
 import sys
 import numpy as np
 from pathlib import Path
@@ -19,24 +10,24 @@ import pandas as pd
 import subprocess
 import torch.backends.cudnn as cudnn
 from torch.utils.mobile_optimizer import optimize_for_mobile
+import logging
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0].parents[0]  # yolov5 strongsort root directory
+ROOT = FILE.parents[0].parents[0].parents[0]  # root dir
 WEIGHTS = ROOT / 'weights'
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
-if str(ROOT / 'yolov5') not in sys.path:
-    sys.path.append(str(ROOT / 'yolov5'))  # add yolov5 ROOT to PATH
+if str(ROOT / 'trackers') not in sys.path:
+    sys.path.append(str(ROOT / 'trackers'))  # add yolov5 ROOT to PATH
 
-ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+from trackers.deep.models import build_model
+from trackers.deep.reid_model_factory import get_model_name, load_pretrained_weights
 
-import logging
 from ultralytics.yolo.utils.torch_utils import select_device
-from yolov8.ultralytics.yolo.utils import LOGGER, colorstr, ops
-from yolov8.ultralytics.yolo.utils.checks import check_requirements, check_version
-from trackers.strongsort.deep.models import build_model
-from trackers.strongsort.deep.reid_model_factory import get_model_name, load_pretrained_weights
+from ultralytics.yolo.utils import LOGGER, colorstr, ops
+from ultralytics.yolo.utils.checks import check_requirements, check_version
+
 
 
 def file_size(path):
@@ -240,7 +231,7 @@ if __name__ == "__main__":
     parser.add_argument('--opset', type=int, default=12, help='ONNX: opset version')
     parser.add_argument('--workspace', type=int, default=4, help='TensorRT: workspace size (GB)')
     parser.add_argument('--verbose', action='store_true', help='TensorRT: verbose log')
-    parser.add_argument('--weights', nargs='+', type=str, default=WEIGHTS / 'osnet_x0_25_msmt17.pt', help='model.pt path(s)')
+    parser.add_argument('--weights', nargs='+', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt', help='model.pt path(s)')
     parser.add_argument('--half', action='store_true', help='FP16 half-precision export')
     parser.add_argument('--include',
                         nargs='+',
