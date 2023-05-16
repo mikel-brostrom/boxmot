@@ -256,7 +256,12 @@ class Evaluator:
         with open(save_dir / 'MOT_results.txt', 'w') as f:
             f.write(p.stdout)
         # copy tracking method config to exp folder
-        shutil.copyfile(opt.tracking_config, save_dir / opt.tracking_config.name)
+        tracking_config = \
+            Path('trackers') /\
+            opt.tracking_method /\
+            'configs' /\
+            (opt.tracking_method + '.yaml')
+        shutil.copyfile(tracking_config, save_dir / Path(tracking_config).name)
 
         return p.stdout
 
