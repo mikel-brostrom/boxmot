@@ -309,7 +309,7 @@ class BYTETracker(object):
             output.append(t.cls)
             output.append(t.score)
             outputs.append(output)
-
+        outputs = np.asarray(outputs)
         return outputs
 #track_id, class_id, conf
 
