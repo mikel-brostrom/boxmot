@@ -6,9 +6,9 @@ import gdown
 from os.path import exists as file_exists, join
 import torchvision.transforms as transforms
 
-from sort.nn_matching import NearestNeighborDistanceMetric
-from sort.detection import Detection
-from sort.tracker import Tracker
+from .sort.nn_matching import NearestNeighborDistanceMetric
+from .sort.detection import Detection
+from .sort.tracker import Tracker
 
 from trackers.deep.reid_multibackend import ReIDDetectMultiBackend
 
@@ -76,9 +76,8 @@ class StrongSORT(object):
             class_id = track.class_id
             conf = track.conf
             queue = track.q
-            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id, conf, queue], dtype=object))
-        if len(outputs) > 0:
-            outputs = np.stack(outputs, axis=0)
+            outputs.append(np.array([x1, y1, x2, y2, track_id, class_id, conf], dtype=np.float))
+        outputs = np.asarray(outputs)
         return outputs
 
     """
