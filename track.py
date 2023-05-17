@@ -185,6 +185,7 @@ def run(
             # overwrite bbox results with tracker predictions
             if predictor.tracker_outputs[i].size != 0:
                 predictor.results[i].boxes = Boxes(
+                    # xyxy, (track_id), conf, cls
                     boxes=torch.from_numpy(predictor.tracker_outputs[i]).to(dets.device),
                     orig_shape=im0.shape[:2],  # (height, width)
                 )
