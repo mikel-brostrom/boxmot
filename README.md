@@ -94,7 +94,7 @@ Nx6 (x, y, x, y, conf, cls)
 ## Tracking
 
 ```bash
-$ python track.py --yolo-weights yolov8n.pt      # bboxes only
+$ python track.py --yolo-model yolov8n.pt      # bboxes only
                                  yolov8n-seg.pt  # bboxes + segmentation masks
                                  yolov8n-pose.pt # bboxes + pose estimation
 ```
@@ -137,12 +137,12 @@ There is a clear trade-off between model inference speed and overall performance
 ```bash
 
 
-$ python track.py --source 0 --yolo-weights yolov8n.pt --img 640
-                                            yolov8s.tflite
-                                            yolov8m.pt
-                                            yolov8l.onnx 
-                                            yolov8x.pt --img 1280
-                                            ...
+$ python track.py --source 0 --yolo-model yolov8n.pt --img 640
+                                          yolov8s.tflite
+                                          yolov8m.pt
+                                          yolov8l.onnx 
+                                          yolov8x.pt --img 1280
+                                          ...
 ```
   
 </details>
@@ -153,12 +153,12 @@ $ python track.py --source 0 --yolo-weights yolov8n.pt --img 640
 Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/master/reid_export.py) script
 
 ```bash
-$ python track.py --source 0 --reid-weights lmbn_n_cuhk03_d.pt
-                                            osnet_x0_25_market1501.pt
-                                            mobilenetv2_x1_4_msmt17.engine
-                                            resnet50_msmt17.onnx
-                                            osnet_x1_0_msmt17.pt
-                                            ...
+$ python track.py --source 0 --reid-model lmbn_n_cuhk03_d.pt
+                                          osnet_x0_25_market1501.pt
+                                          mobilenetv2_x1_4_msmt17.engine
+                                          resnet50_msmt17.onnx
+                                          osnet_x1_0_msmt17.pt
+                                          ...
 ```
 
 </details>
@@ -171,7 +171,7 @@ By default the tracker tracks all MS COCO classes.
 If you want to track a subset of the classes that you model predicts, add their corresponding index after the classes flag,
 
 ```bash
-python track.py --source 0 --yolo-weights yolov8s.pt --classes 16 17  # COCO yolov8 model. Track cats and dogs, only
+python track.py --source 0 --yolo-model yolov8s.pt --classes 16 17  # COCO yolov8 model. Track cats and dogs, only
 ```
 
 [Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a Yolov8 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
