@@ -306,8 +306,8 @@ class BYTETracker(object):
             xyxy = np.squeeze(xyxy, axis=0)
             output.extend(xyxy)
             output.append(tid)
-            output.append(t.cls)
             output.append(t.score)
+            output.append(t.cls)
             outputs.append(output)
         outputs = np.asarray(outputs)
         return outputs
