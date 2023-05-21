@@ -21,8 +21,9 @@ from pathlib import Path
 from val import Evaluator
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # yolov5 strongsort root directory
-WEIGHTS = ROOT / 'weights'
+ROOT = FILE.parents[0].parents[0]  # examples absolute path
+EXAMPLES = FILE.parents[0]  # examples absolute path
+WEIGHTS = EXAMPLES_ROOT / 'weights'
 
 from ultralytics.yolo.utils import LOGGER
 from ultralytics.yolo.utils.checks import check_requirements, print_args
