@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from collections import deque
 
-from .matching import iou_distance, fuse_score, linear_assignment, embedding_distance
+from .matching import iou_distance, fuse_score, linear_assignment, embedding_distance, fuse_motion
 from .gmc import GMC
 from .basetrack import BaseTrack, TrackState
 from .kalman_filter import KalmanFilter
