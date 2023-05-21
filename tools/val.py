@@ -45,7 +45,7 @@ from ultralytics.yolo.utils.files import increment_path
 
 from torch.utils.tensorboard import SummaryWriter
 
-from track import run
+from .track import run
 
 
 class Evaluator:

@@ -21,8 +21,8 @@ if str(ROOT) not in sys.path:
 if str(ROOT / 'trackers') not in sys.path:
     sys.path.append(str(ROOT / 'trackers'))  # add yolov5 ROOT to PATH
 
-from trackers.deep.models import build_model
-from trackers.deep.reid_model_factory import get_model_name, load_pretrained_weights
+from boxmot.deep.models import build_model
+from boxmot.deep.reid_model_factory import get_model_name, load_pretrained_weights
 
 from ultralytics.yolo.utils.torch_utils import select_device
 from ultralytics.yolo.utils import LOGGER, colorstr, ops
