@@ -18,7 +18,6 @@ from ultralytics.yolo.data.utils import VID_FORMATS
 WEIGHTS = Path(SETTINGS['weights_dir'])
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # root dir
-print(ROOT)
 WEIGHTS = ROOT / 'weights'
 
 
