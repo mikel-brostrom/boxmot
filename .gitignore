@@ -33,3 +33,4 @@ tf_models/
 # distribution / packaging
 build/
 dist/
+*.egg-info/
