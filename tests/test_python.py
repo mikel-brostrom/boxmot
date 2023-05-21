@@ -30,7 +30,7 @@ def test_tracker_output():
                     [425, 281, 576, 472, 0.56, 65]])
     det = torch.from_numpy(det)
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)
+    assert output.shape == (2, 7)  # two inputs should give two outputs
 
 
 # def test_track():
