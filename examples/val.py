@@ -125,8 +125,8 @@ class Evaluator:
             seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
             seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
         elif opt.benchmark == 'MOT17-mini':
-            mot_seqs_path = Path('../assets') / self.opt.benchmark / self.opt.split
-            gt_folder = Path('../assets') / self.opt.benchmark / self.opt.split
+            mot_seqs_path = ROOT / 'assets' / self.opt.benchmark / self.opt.split
+            gt_folder = ROOT / 'assets' / self.opt.benchmark / self.opt.split
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
         else:
             # this is not the case for MOT16, MOT20 or your custom dataset
@@ -204,7 +204,7 @@ class Evaluator:
                     shutil.move(str(src_seq_path), str(dst_seq_path))
 
                 p = subprocess.Popen([
-                    sys.executable, "track.py",
+                    sys.executable, str(EXAMPLES_ROOT / "track.py"),
                     "--yolo-model", self.opt.yolo_model,
                     "--reid-model", self.opt.reid_model,
                     "--tracking-method", self.opt.tracking_method,
