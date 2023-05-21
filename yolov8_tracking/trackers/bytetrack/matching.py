@@ -4,7 +4,7 @@ import scipy
 import lap
 from scipy.spatial.distance import cdist
 
-from trackers.bytetrack import kalman_filter
+from .kalman_filter import chi2inv95
 import time
 
 def merge_matches(m1, m2, shape):
@@ -132,7 +132,7 @@ def gate_cost_matrix(kf, cost_matrix, tracks, detections, only_position=False):
     if cost_matrix.size == 0:
         return cost_matrix
     gating_dim = 2 if only_position else 4
-    gating_threshold = kalman_filter.chi2inv95[gating_dim]
+    gating_threshold = chi2inv95[gating_dim]
     measurements = np.asarray([det.to_xyah() for det in detections])
     for row, track in enumerate(tracks):
         gating_distance = kf.gating_distance(
@@ -145,7 +145,7 @@ def fuse_motion(kf, cost_matrix, tracks, detections, only_position=False, lambda
     if cost_matrix.size == 0:
         return cost_matrix
     gating_dim = 2 if only_position else 4
-    gating_threshold = kalman_filter.chi2inv95[gating_dim]
+    gating_threshold = chi2inv95[gating_dim]
     measurements = np.asarray([det.to_xyah() for det in detections])
     for row, track in enumerate(tracks):
         gating_distance = kf.gating_distance(

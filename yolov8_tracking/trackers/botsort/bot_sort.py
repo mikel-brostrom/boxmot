@@ -3,14 +3,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 from collections import deque
 
-from trackers.botsort import  matching
-from trackers.botsort.gmc import GMC
-from trackers.botsort.basetrack import BaseTrack, TrackState
-from trackers.botsort.kalman_filter import KalmanFilter
+from .matching import iou_distance, fuse_score, linear_assignment, embedding_distance
+from .gmc import GMC
+from .basetrack import BaseTrack, TrackState
+from .kalman_filter import KalmanFilter
 
 # from fast_reid.fast_reid_interfece import FastReIDInterface
 
-from trackers.deep.reid_multibackend import ReIDDetectMultiBackend
+from ..deep.reid_multibackend import ReIDDetectMultiBackend
 from ultralytics.yolo.utils.ops import xyxy2xywh, xywh2xyxy
 
 
@@ -356,7 +356,7 @@ class BoTSORT(object):
             # dists = matching.embedding_distance(strack_pool, detections)
             # dists[ious_dists_mask] = 1.0
     
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
+        matches, u_track, u_detection = linear_assignment(dists, thresh=self.match_thresh)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
@@ -390,8 +390,8 @@ class BoTSORT(object):
             detections_second = []
 
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-        dists = matching.iou_distance(r_tracked_stracks, detections_second)
-        matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
+        dists = iou_distance(r_tracked_stracks, detections_second)
+        matches, u_track, u_detection_second = linear_assignment(dists, thresh=0.5)
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
             det = detections_second[idet]
@@ -410,18 +410,18 @@ class BoTSORT(object):
 
         '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
         detections = [detections[i] for i in u_detection]
-        ious_dists = matching.iou_distance(unconfirmed, detections)
+        ious_dists = iou_distance(unconfirmed, detections)
         ious_dists_mask = (ious_dists > self.proximity_thresh)
         
-        ious_dists = matching.fuse_score(ious_dists, detections)
+        ious_dists = fuse_score(ious_dists, detections)
     
-        emb_dists = matching.embedding_distance(unconfirmed, detections) / 2.0
+        emb_dists = embedding_distance(unconfirmed, detections) / 2.0
         raw_emb_dists = emb_dists.copy()
         emb_dists[emb_dists > self.appearance_thresh] = 1.0
         emb_dists[ious_dists_mask] = 1.0
         dists = np.minimum(ious_dists, emb_dists)
     
-        matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
+        matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)
         for itracked, idet in matches:
             unconfirmed[itracked].update(detections[idet], self.frame_id)
             activated_starcks.append(unconfirmed[itracked])

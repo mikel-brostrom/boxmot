@@ -10,7 +10,7 @@ from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
 from .sort.tracker import Tracker
 
-from trackers.deep.reid_multibackend import ReIDDetectMultiBackend
+from ..deep.reid_multibackend import ReIDDetectMultiBackend
 
 from ultralytics.yolo.utils.ops import xyxy2xywh
 
