@@ -5,11 +5,12 @@ import torch
 import argparse
 import numpy as np
 import cv2
+from types import SimpleNamespace
 
 from trackers.multi_tracker_zoo import create_tracker
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
-from ultralytics.yolo.utils import LOGGER, SETTINGS, colorstr, ops, is_git_dir
+from ultralytics.yolo.utils import LOGGER, SETTINGS, colorstr, ops, is_git_dir, IterableSimpleNamespace
 from ultralytics.yolo.utils.checks import check_imgsz, print_args
 from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.engine.results import Boxes
@@ -59,73 +60,26 @@ def write_MOT_results(txt_path, results, frame_idx, i):
 
 
 @torch.no_grad()
-def run(
-    yolo_model=WEIGHTS / 'yolov8n.pt',  # model.pt path(s),
-    reid_model=WEIGHTS / 'osnet_x0_25_msmt17.pt',  # model.pt path,
-    tracking_method='strongsort',
-    source = '0',
-    imgsz = [640, 640],
-    save_dir=False,
-    vid_stride = 1,
-    verbose = True,
-    project = None,
-    exists_ok = False,
-    name = None,
-    save = True,
-    save_txt = True,
-    visualize=False,
-    plotted_img = False,
-    augment = False,
-    conf = 0.5,
-    device = '',
-    show = False,
-    half = True,
-    classes = None,
-    hide_label = False,
-    hide_conf = False,
-):
-    if source is None:
-        source = ROOT / 'assets' if is_git_dir() else 'https://ultralytics.com/images/bus.jpg'
-        LOGGER.warning(f"WARNING ⚠️ 'source' is missing. Using 'source={source}'.")
+def run(args):
     
-    model = YOLO(yolo_model)
+    model = YOLO(args['yolo_model'])
     overrides = model.overrides.copy()
     model.predictor = TASK_MAP[model.task][3](overrides=overrides, _callbacks=model.callbacks)
     
+    # extract task predictor
     predictor = model.predictor
 
-    # https://github.com/ultralytics/ultralytics/blob/main/ultralytics/yolo/engine/model.py
-    #model.predictor.setup_model(model=model.model, verbose=False)
-    predictor.args.reid_model = reid_model
-    predictor.args.tracking_method = tracking_method
-    predictor.args.conf = 0.5
-    predictor.args.project = project
-    predictor.args.name = name
-    predictor.args.show = show
-    predictor.args.conf = conf
-    predictor.args.half = half
-    predictor.args.classes = classes
-    predictor.args.imgsz = imgsz
-    predictor.args.vid_stride = vid_stride
-    predictor.args.save_txt = save_txt
-    predictor.args.save = save
-    predictor.args.hide_labels = hide_label
-    predictor.args.hide_conf = hide_conf
-    predictor.write_MOT_results = write_MOT_results
+    # combine default predictor args with custom, preferring custom
+    combined_args = {**predictor.args.__dict__, **args} 
+    predictor.args = IterableSimpleNamespace(**combined_args)
+
+    # setup source and model
     if not predictor.model:
         predictor.setup_model(model=model.model, verbose=False)
+    predictor.setup_source(predictor.args.source)
     
-    predictor.setup_source(source if source is not None else predictor.args.source)
-    
-    dataset = predictor.dataset
-    model = predictor.model
-    imgsz = check_imgsz(imgsz, stride=model.model.stride, min_dim=2)  # check image size
-    source_type = dataset.source_type
-    preprocess = predictor.preprocess
-    postprocess = predictor.postprocess
-    run_callbacks = predictor.run_callbacks
-    save_preds = predictor.save_preds
-    predictor.save_dir = increment_path(Path(predictor.args.project) / name, exist_ok=exists_ok)
+    predictor.args.imgsz = check_imgsz(predictor.args.imgsz, stride=model.model.stride, min_dim=2)  # check image size
+    predictor.save_dir = increment_path(Path(predictor.args.project) / predictor.args.name, exist_ok=predictor.args.exist_ok)
     
     # Check if save_dir/ label file exists
     if predictor.args.save or predictor.args.save_txt:
@@ -137,31 +91,31 @@ def run(
     predictor.seen, predictor.windows, predictor.batch, predictor.profilers = 0, [], None, (ops.Profile(), ops.Profile(), ops.Profile(), ops.Profile())
     predictor.add_callback('on_predict_start', on_predict_start)
     
-    run_callbacks('on_predict_start')
-    for frame_idx, batch in enumerate(dataset):
-        run_callbacks('on_predict_batch_start')
+    predictor.run_callbacks('on_predict_start')
+    for frame_idx, batch in enumerate(predictor.dataset):
+        predictor.run_callbacks('on_predict_batch_start')
         predictor.batch = batch
         path, im0s, vid_cap, s = batch
-        visualize = increment_path(save_dir / Path(path[0]).stem, exist_ok=True, mkdir=True) if visualize and (not source_type.tensor) else False
+        visualize = increment_path(save_dir / Path(path[0]).stem, exist_ok=True, mkdir=True) if predictor.args.visualize and (not predictor.dataset.source_type.tensor) else False
 
         # Preprocess
         with predictor.profilers[0]:
-            im = preprocess(im0s)
+            im = predictor.preprocess(im0s)
 
         # Inference
         with predictor.profilers[1]:
-            preds = model(im, augment=augment, visualize=visualize)
+            preds = predictor.model(im, augment=predictor.args.augment, visualize=predictor.args.visualize)
 
         # Postprocess
         with predictor.profilers[2]:
-            predictor.results = postprocess(preds, im, im0s)
-        run_callbacks('on_predict_postprocess_end')
+            predictor.results = predictor.postprocess(preds, im, im0s)
+        predictor.run_callbacks('on_predict_postprocess_end')
         
         # Visualize, save, write results
         n = len(im0s)
         for i in range(n):
             
-            if source_type.tensor:  # skip write, show and plot operations if input is raw tensor
+            if predictor.dataset.source_type.tensor:  # skip write, show and plot operations if input is raw tensor
                 continue
             p, im0 = path[i], im0s[i].copy()
             p = Path(p)
@@ -190,12 +144,12 @@ def run(
                 )
             
             # write inference results to a file or directory   
-            if verbose or save or save_txt or show:
+            if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show:
                 s += predictor.write_results(i, predictor.results, (p, im, im0))
                 predictor.txt_path = Path(predictor.txt_path)
                 
                 # write MOT specific results
-                if source.endswith(VID_FORMATS):
+                if predictor.args.source.endswith(VID_FORMATS):
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.stem
                 else:
                     # append folder name containing current img
@@ -210,17 +164,17 @@ def run(
                     )
 
             # display an image in a window using OpenCV imshow()
-            if show and plotted_img is not None:
+            if predictor.args.show and predictor.plotted_img is not None:
                 predictor.show(p.parent)
 
             # save video predictions
-            if save and plotted_img is not None:
+            if predictor.args.save and predictor.plotted_img is not None:
                 predictor.save_preds(vid_cap, i, str(predictor.save_dir / p.name))
 
-        run_callbacks('on_predict_batch_end')
+        predictor.run_callbacks('on_predict_batch_end')
 
         # print time (inference-only)
-        if verbose:
+        if predictor.args.verbose:
             LOGGER.info(f'{s}YOLO {predictor.profilers[1].dt * 1E3:.1f}ms, TRACKING {predictor.profilers[3].dt * 1E3:.1f}ms')
 
     # Release assets
@@ -231,13 +185,13 @@ def run(
     if verbose and predictor.seen:
         t = tuple(x.t / predictor.seen * 1E3 for x in predictor.profilers)  # speeds per image
         LOGGER.info(f'Speed: %.1fms preprocess, %.1fms inference, %.1fms postprocess, %.1fms tracking per image at shape '
-                    f'{(1, 3, *imgsz)}' % t)
+                    f'{(1, 3, *predictor.args.imgsz)}' % t)
     if save or predictor.args.save_txt or predictor.args.save_crop:
         nl = len(list(predictor.save_dir.glob('labels/*.txt')))  # number of labels
         s = f"\n{nl} label{'s' * (nl > 1)} saved to {predictor.save_dir / 'labels'}" if predictor.args.save_txt else ''
         LOGGER.info(f"Results saved to {colorstr('bold', predictor.save_dir)}{s}")
 
-    run_callbacks('on_predict_end')
+    predictor.run_callbacks('on_predict_end')
     
 
 def parse_opt():
@@ -255,7 +209,7 @@ def parse_opt():
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--project', default=ROOT / 'runs' / 'track', help='save results to project/name')
     parser.add_argument('--name', default='exp', help='save results to project/name')
-    parser.add_argument('--exists-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
     parser.add_argument('--hide-label', action='store_true', help='hide labels when show')
@@ -266,7 +220,7 @@ def parse_opt():
 
 
 def main(opt):
-    run(**vars(opt))
+    run(vars(opt))
 
 
 if __name__ == "__main__":
