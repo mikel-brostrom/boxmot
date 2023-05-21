@@ -156,7 +156,7 @@ def run(args):
                     # append folder name containing current img
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.name
                     
-                if predictor.tracker_outputs[i].size != 0:
+                if predictor.tracker_outputs[i].size != 0 and predictor.args.save_txt:
                     write_MOT_results(
                         predictor.MOT_txt_path,
                         predictor.results[i],
