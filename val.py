@@ -134,7 +134,12 @@ class Evaluator:
             # this is not the case for MOT16, MOT20 or your custom dataset
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
 
-        save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exists_ok)
+        if opt.eval_existing and (Path(opt.project) / opt.name).exists():
+            save_dir = Path(opt.project) / opt.name
+            if not (Path(opt.project) / opt.name).exists():
+                LOGGER.error(f'{save_dir} does not exist')
+        else:
+            save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exists_ok)
         MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
         (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
         return seq_paths, save_dir, MOT_results_folder, gt_folder
@@ -222,30 +227,23 @@ class Evaluator:
 
         print_args(vars(self.opt))
 
-        results = (save_dir.parent / self.opt.eval_existing / 'tracks' if self.opt.eval_existing else save_dir / 'tracks').glob('*.txt')
-        for src in results:
-            if self.opt.eval_existing:
-                dst = MOT_results_folder.parent.parent / self.opt.eval_existing / 'data' / Path(src.stem + '.txt')
-            else:
-                dst = MOT_results_folder / Path(src.stem + '.txt')
-            dst.parent.mkdir(parents=True, exist_ok=True)  # make
-            shutil.copyfile(src, dst)
         # run the evaluation on the generated txts
         d = [seq_path.parent.name for seq_path in seq_paths]
         p = subprocess.run(
             args=[
-                     sys.executable, val_tools_path / 'scripts' / 'run_mot_challenge.py',
-                     "--GT_FOLDER", gt_folder,
-                     "--BENCHMARK", "",
-                     "--TRACKERS_FOLDER", save_dir,
-                     "--TRACKERS_TO_EVAL", self.opt.eval_existing if self.opt.eval_existing else "labels",
-                     "--SPLIT_TO_EVAL", "train",
-                     "--METRICS", "HOTA", "CLEAR", "Identity",
-                     "--USE_PARALLEL", "True",
-                     "--TRACKER_SUB_FOLDER", "",
-                     "--NUM_PARALLEL_CORES", "4",
-                     "--SKIP_SPLIT_FOL", "True",
-                     "--SEQ_INFO"] + d,
+                sys.executable, val_tools_path / 'scripts' / 'run_mot_challenge.py',
+                "--GT_FOLDER", gt_folder,
+                "--BENCHMARK", "",
+                "--TRACKERS_FOLDER", save_dir,   # project/name
+                "--TRACKERS_TO_EVAL", "labels",  # project/name/labels
+                "--SPLIT_TO_EVAL", "train",
+                "--METRICS", "HOTA", "CLEAR", "Identity",
+                "--USE_PARALLEL", "True",
+                "--TRACKER_SUB_FOLDER", "",
+                "--NUM_PARALLEL_CORES", "4",
+                "--SKIP_SPLIT_FOL", "True",
+                "--SEQ_INFO"
+                ] + d,
             universal_newlines=True,
             stdout=subprocess.PIPE
         )
@@ -324,7 +322,7 @@ def parse_opt():
     parser.add_argument('--exists-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
-    parser.add_argument('--eval-existing', type=str, default='', help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
+    parser.add_argument('--eval-existing', action='store_true', help='evaluate existing results under project/name/labels')
     parser.add_argument('--conf', type=float, default=0.45, help='confidence threshold')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280], help='inference size h,w')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
