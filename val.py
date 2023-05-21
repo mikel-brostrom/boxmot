@@ -139,7 +139,7 @@ class Evaluator:
             if not (Path(opt.project) / opt.name).exists():
                 LOGGER.error(f'{save_dir} does not exist')
         else:
-            save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exists_ok)
+            save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)
         MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
         (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
         return seq_paths, save_dir, MOT_results_folder, gt_folder
@@ -214,10 +214,11 @@ class Evaluator:
                     "--imgsz", str(self.opt.imgsz[0]),
                     "--classes", str(0),
                     "--name", save_dir.name,
+                    "--save-txt",
                     "--project", self.opt.project,
                     "--device", str(tracking_subprocess_device),
                     "--source", dst_seq_path,
-                    "--exists-ok",
+                    "--exist-ok",
                     "--save",
                 ])
                 processes.append(p)
@@ -319,7 +320,7 @@ def parse_opt():
     parser.add_argument('--tracking-method', type=str, default='deepocsort', help='strongsort, ocsort')
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--project', default=ROOT / 'runs' / 'val', help='save results to project/name')
-    parser.add_argument('--exists-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', action='store_true', help='evaluate existing results under project/name/labels')
