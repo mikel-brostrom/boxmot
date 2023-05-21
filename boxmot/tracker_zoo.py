@@ -1,4 +1,15 @@
+from pathlib import Path
 from boxmot.strongsort.utils.parser import get_config
+
+
+def get_tracker_config(tracker_type):
+    tracking_config = \
+        Path('./boxmot') /\
+        tracker_type /\
+        'configs' /\
+        (tracker_type + '.yaml')
+    return tracking_config
+    
 
 def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
     
