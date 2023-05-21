@@ -84,7 +84,9 @@ def run(
     device = '',
     show = False,
     half = True,
-    classes = None
+    classes = None,
+    hide_label = False,
+    hide_conf = False,
 ):
     if source is None:
         source = ROOT / 'assets' if is_git_dir() else 'https://ultralytics.com/images/bus.jpg'
@@ -105,13 +107,16 @@ def run(
     predictor.args.conf = 0.5
     predictor.args.project = project
     predictor.args.name = name
+    predictor.args.show = show
     predictor.args.conf = conf
     predictor.args.half = half
     predictor.args.classes = classes
     predictor.args.imgsz = imgsz
     predictor.args.vid_stride = vid_stride
-    predictor.args.save_txt = True
-    predictor.args.save = True
+    predictor.args.save_txt = save_txt
+    predictor.args.save = save
+    predictor.args.hide_labels = hide_label
+    predictor.args.hide_conf = hide_conf
     predictor.write_MOT_results = write_MOT_results
     if not predictor.model:
         predictor.setup_model(model=model.model, verbose=False)
@@ -212,7 +217,7 @@ def run(
 
             # display an image in a window using OpenCV imshow()
             if show and plotted_img is not None:
-                predictor.show(p)
+                predictor.show(p.parent)
 
             # save video predictions
             if save and plotted_img is not None:
@@ -259,6 +264,8 @@ def parse_opt():
     parser.add_argument('--exists-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
+    parser.add_argument('--hide-label', action='store_true', help='hide labels when show')
+    parser.add_argument('--hide-conf', action='store_true', help='hide confidences when show')
     opt = parser.parse_args()
     print_args(vars(opt))
     return opt
