@@ -126,12 +126,12 @@ class Evaluator:
             # (DPM, FRCNN, SDP). Keep only sequences from  one of them
             seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
             seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
-        elif opt.benchmark == 'MOT16' or opt.benchmark == 'MOT20':
-            # this is not the case for MOT16, MOT20 or your custom dataset
-            seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
         elif opt.benchmark == 'MOT17-mini':
             mot_seqs_path = Path('./assets') / self.opt.benchmark / self.opt.split
             gt_folder = Path('./assets') / self.opt.benchmark / self.opt.split
+            seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
+        else:
+            # this is not the case for MOT16, MOT20 or your custom dataset
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
 
         save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exists_ok)
