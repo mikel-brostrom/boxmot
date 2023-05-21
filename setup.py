@@ -14,13 +14,13 @@ REQUIREMENTS = [f'{x.name}{x.specifier}' for x in pkg.parse_requirements((PARENT
 
 
 def get_version():
-    file = PARENT / 'yolov8_tracking/__init__.py'
+    file = PARENT / 'boxmot/__init__.py'
     version = re.search(r'__version__\s*=\s*[\'\"](.+?)[\'\"]', file.read_text(encoding='utf-8')).group(1)
     return version
 
 
 setup(
-    name='yolov8_tracking',  # name of pypi package
+    name='box-mot',  # name of pypi package
     version=get_version(),  # version of pypi package
     python_requires='>=3.7',
     license='AGPL-3.0',
