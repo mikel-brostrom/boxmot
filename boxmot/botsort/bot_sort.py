@@ -333,8 +333,8 @@ class BoTSORT(object):
         STrack.multi_gmc(unconfirmed, warp)
 
         # Associate with high score detection boxes
-        raw_emb_dists = matching.embedding_distance(strack_pool, detections)
-        dists = matching.fuse_motion(self.kalman_filter, raw_emb_dists, strack_pool, detections, only_position=False, lambda_=self.lambda_)
+        raw_emb_dists = embedding_distance(strack_pool, detections)
+        dists = fuse_motion(self.kalman_filter, raw_emb_dists, strack_pool, detections, only_position=False, lambda_=self.lambda_)
 
         # ious_dists = matching.iou_distance(strack_pool, detections)
         # ious_dists_mask = (ious_dists > self.proximity_thresh)
@@ -520,7 +520,7 @@ def sub_stracks(tlista, tlistb):
 
 
 def remove_duplicate_stracks(stracksa, stracksb):
-    pdist = matching.iou_distance(stracksa, stracksb)
+    pdist = iou_distance(stracksa, stracksb)
     pairs = np.where(pdist < 0.15)
     dupa, dupb = list(), list()
     for p, q in zip(*pairs):
