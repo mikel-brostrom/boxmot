@@ -1,6 +1,10 @@
 # pip install -r requirements.txt
 ultralytics==8.0.98
 
+gitpython
+tensorboard
+numpy==1.23.1  # otherwise issues with track eval
+
 # StrongSORT ------------------------------------------------------------------
 easydict
 
