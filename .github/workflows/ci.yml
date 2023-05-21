@@ -63,10 +63,10 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           # export
-          python trackers/deep/reid_export.py --weights weights/mobilenetv2_x1_4_dukemtmcreid.pt  # export deafults to torchscript
+          python boxmot/deep/reid_export.py --weights weights/mobilenetv2_x1_4_dukemtmcreid.pt  # export deafults to torchscript
           
           # strongsort w. exported reid model
-          python track.py --reid-model weights/mobilenetv2_x1_4_dukemtmcreid.torchscript --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python examples/track.py --reid-model weights/mobilenetv2_x1_4_dukemtmcreid.torchscript --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
       
       - name: Test tracking with seg models
         shell: bash  # for Windows compatibility
@@ -84,13 +84,13 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           # validation on a few MOT17 imges
-          python val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini
+          python examples/val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini
 
       - name: Test evolution on MOT17 subset
         shell: bash  # for Windows compatibility
         run: |
           # evolve a for a single set of parameters
-          python evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1
+          python examples/evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1
       
       - name: Pytest tests
         shell: bash  # for Windows compatibility
