@@ -36,9 +36,7 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           # If not importing this prior to installing requirements...
           # ImportError: lap requires numpy, please "pip install numpy". Workaround...
-          pip install numpy
-          pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
-          pip install requests
+          pip install -e '.[export]' --extra-index-url https://download.pytorch.org/whl/cpu
           python --version
           pip --version
           pip list
@@ -46,19 +44,19 @@ jobs:
       - name: Tests all tracking options
         run: |
           # deepocsort
-          python track.py --tracking-method deepocsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python examples/track.py --tracking-method deepocsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
 
           # botsort
-          python track.py --tracking-method botsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python examples/track.py --tracking-method botsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           
           # strongsort
-          python track.py --tracking-method strongsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python examples/track.py --tracking-method strongsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           
           # ocsort
-          python track.py --tracking-method ocsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python examples/track.py --tracking-method ocsort --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           
           # bytetrack
-          python track.py --tracking-method bytetrack --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python examples/track.py --tracking-method bytetrack --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
           
       - name: Tests tracker with exported reid model
         shell: bash  # for Windows compatibility
@@ -73,13 +71,13 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           # tracking with SEG models
-          python track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python examples/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
 
       - name: Test tracking with pose models
         shell: bash  # for Windows compatibility
         run: |
           # tracking with POSE models
-          python3 track.py --yolo-model yolov8n-pose.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+          python3 examples/track.py --yolo-model yolov8n-pose.pt --source ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
 
       - name: Test validation on MOT17 subset
         shell: bash  # for Windows compatibility
@@ -92,3 +90,7 @@ jobs:
         run: |
           # evolve a for a single set of parameters
           python evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1
+      
+      - name: Pytest tests
+        shell: bash  # for Windows compatibility
+        run: pytest tests
