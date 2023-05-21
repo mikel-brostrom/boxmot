@@ -34,7 +34,7 @@ def on_predict_start(predictor):
             predictor.args.tracking_method,
             predictor.args.tracking_config,
             predictor.args.reid_model,
-            predictor.args.device,
+            predictor.device,
             predictor.args.half
         )
         predictor.trackers.append(tracker)
@@ -88,7 +88,6 @@ def run(
         source = ROOT / 'assets' if is_git_dir() else 'https://ultralytics.com/images/bus.jpg'
         LOGGER.warning(f"WARNING ⚠️ 'source' is missing. Using 'source={source}'.")
     
-    print(yolo_model)
     model = YOLO(yolo_model)
     overrides = model.overrides.copy()
     model.predictor = TASK_MAP[model.task][3](overrides=overrides, _callbacks=model.callbacks)
@@ -97,7 +96,6 @@ def run(
 
     # https://github.com/ultralytics/ultralytics/blob/main/ultralytics/yolo/engine/model.py
     #model.predictor.setup_model(model=model.model, verbose=False)
-    
     predictor.args.reid_model = reid_model
     predictor.args.tracking_method = tracking_method
     predictor.args.conf = 0.5
