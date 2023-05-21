@@ -38,9 +38,6 @@ def on_predict_start(predictor):
             predictor.args.half
         )
         predictor.trackers.append(tracker)
-        # if hasattr(predictor.trackers[i], 'model'):
-        #     if hasattr(predictor.trackers[i].model, 'warmup'):
-        #         predictor.trackers[i].model.warmup()
                 
                 
 def write_MOT_results(txt_path, results, frame_idx, i):
@@ -226,7 +223,7 @@ def run(
 
         # print time (inference-only)
         if verbose:
-            LOGGER.info(f'{s}{predictor.profilers[1].dt * 1E3:.1f}ms')
+            LOGGER.info(f'{s}YOLO {predictor.profilers[1].dt * 1E3:.1f}ms, TRACKING {predictor.profilers[3].dt * 1E3:.1f}ms')
 
     # Release assets
     if isinstance(predictor.vid_writer[-1], cv2.VideoWriter):
