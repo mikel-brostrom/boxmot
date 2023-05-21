@@ -7,7 +7,7 @@ import numpy as np
 import cv2
 from types import SimpleNamespace
 
-from trackers.multi_tracker_zoo import create_tracker
+from boxmot.tracker_zoo import create_tracker
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
 from ultralytics.yolo.utils import LOGGER, SETTINGS, colorstr, ops, is_git_dir, IterableSimpleNamespace
@@ -18,7 +18,7 @@ from ultralytics.yolo.data.utils import VID_FORMATS
 
 WEIGHTS = Path(SETTINGS['weights_dir'])
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # root dir
+ROOT = FILE.parents[0].parents[0]  # root dir
 WEIGHTS = ROOT / 'weights'
 
 
@@ -27,7 +27,7 @@ def on_predict_start(predictor):
     predictor.tracker_outputs = [None] * predictor.dataset.bs
     predictor.args.tracking_config = \
         ROOT /\
-        Path('trackers') /\
+        'boxmot' /\
         opt.tracking_method /\
         'configs' /\
         (opt.tracking_method + '.yaml')
