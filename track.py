@@ -70,7 +70,8 @@ def run(args):
     predictor = model.predictor
 
     # combine default predictor args with custom, preferring custom
-    combined_args = {**predictor.args.__dict__, **args} 
+    combined_args = {**predictor.args.__dict__, **args}
+    # overwrite default args
     predictor.args = IterableSimpleNamespace(**combined_args)
 
     # setup source and model
@@ -182,11 +183,11 @@ def run(args):
         predictor.vid_writer[-1].release()  # release final video writer
 
     # Print results
-    if verbose and predictor.seen:
+    if predictor.args.verbose and predictor.seen:
         t = tuple(x.t / predictor.seen * 1E3 for x in predictor.profilers)  # speeds per image
         LOGGER.info(f'Speed: %.1fms preprocess, %.1fms inference, %.1fms postprocess, %.1fms tracking per image at shape '
                     f'{(1, 3, *predictor.args.imgsz)}' % t)
-    if save or predictor.args.save_txt or predictor.args.save_crop:
+    if predictor.args.save or predictor.args.save_txt or predictor.args.save_crop:
         nl = len(list(predictor.save_dir.glob('labels/*.txt')))  # number of labels
         s = f"\n{nl} label{'s' * (nl > 1)} saved to {predictor.save_dir / 'labels'}" if predictor.args.save_txt else ''
         LOGGER.info(f"Results saved to {colorstr('bold', predictor.save_dir)}{s}")
@@ -214,6 +215,7 @@ def parse_opt():
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
     parser.add_argument('--hide-label', action='store_true', help='hide labels when show')
     parser.add_argument('--hide-conf', action='store_true', help='hide confidences when show')
+    parser.add_argument('--save-txt', action='store_true', help='save tracking results in a txt file')
     opt = parser.parse_args()
     print_args(vars(opt))
     return opt
