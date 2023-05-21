@@ -150,7 +150,7 @@ def export_tflite(file, prefix=colorstr('TFLite:')):
         LOGGER.info(f'\n{prefix} export failure: {e}')
 
 
-def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose=False, prefix=colorstr('TensorRT:')):
+def export_engine(file, im, half, dynamic, simplify, workspace=4, verbose=False, prefix=colorstr('TensorRT:')):
     # YOLOv5 TensorRT export https://developer.nvidia.com/tensorrt
     try:
         assert im.device.type != 'cpu', 'export running on CPU but must be on GPU, i.e. `python export.py --device 0`'
@@ -161,18 +161,10 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
                 check_requirements(('nvidia-tensorrt',), cmds=('-U --index-url https://pypi.ngc.nvidia.com',))
             import tensorrt as trt
 
-        if trt.__version__[0] == '7':  # TensorRT 7 handling https://github.com/ultralytics/yolov5/issues/6012
-            grid = model.model[-1].anchor_grid
-            model.model[-1].anchor_grid = [a[..., :1, :1, :] for a in grid]
-            export_onnx(model, im, file, 12, dynamic, half, simplify)  # opset 12
-            model.model[-1].anchor_grid = grid
-        else:  # TensorRT >= 8
-            check_version(trt.__version__, '8.0.0', hard=True)  # require tensorrt>=8.0.0
-            export_onnx(model, im, file, 12, dynamic, half, simplify)  # opset 13
-        onnx = file.with_suffix('.onnx')
+        check_version(trt.__version__, '7.0.0', hard=True)  # require tensorrt>=8.0.0
 
         LOGGER.info(f'\n{prefix} starting export with TensorRT {trt.__version__}...')
-        assert onnx.exists(), f'failed to export ONNX file: {onnx}'
+        assert file.exists(), f'failed to export ONNX file: {onnx}'
         f = file.with_suffix('.engine')  # TensorRT engine file
         logger = trt.Logger(trt.Logger.INFO)
         if verbose:
@@ -283,12 +275,12 @@ if __name__ == "__main__":
     f = [''] * len(fmts)  # exported filenames
     if jit:
         f[0] = export_torchscript(model, im, args.weights, args.optimize)  # opset 12
-    if engine:  # TensorRT required before ONNX
-        f[1] = export_engine(model, im, args.weights, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
     if onnx:  # OpenVINO requires ONNX
-        f[2] = export_onnx(model, im, args.weights, args.opset, args.dynamic, args.half, args.simplify)  # opset 12
+        f[1] = export_onnx(model, im, args.weights, args.opset, args.dynamic, args.half, args.simplify)  # opset 12
+    if engine:  # TensorRT required before ONNX
+        f[2] = export_engine(f[1], im, args.weights, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
     if tflite:
-        export_tflite(f[2])
+        export_tflite(f[1])
     if openvino:
         f[3] = export_openvino(args.weights, args.half)
     
