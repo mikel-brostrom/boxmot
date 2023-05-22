@@ -39,8 +39,11 @@ cap = cv.VideoCapture(0)
 while True:
     ret, im = cap.read()
     ...
-    # dets: your model's nms:ed outputs of shape Nx6 (x, y, x, y, conf, cls)
-    # im: the original image (or the resized one fed to you model)
+    # dets: 
+    #  - your model's nms:ed outputs of shape Nx6 (x, y, x, y, conf, cls)
+    # im:
+    #  - the original image (for better ReID results)
+    #  - the downscaled one fed to you model
     tracker_outputs = tracker.update(dets.cpu(), im)  # --> (x, y, x, y, id, conf, cls)
     ...
 ```
