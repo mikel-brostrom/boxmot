@@ -24,6 +24,9 @@ ROOT = FILE.parents[0].parents[0].parents[0]  # root absolute path
 EXAMPLES = ROOT / 'examples'  # examples absolute path
 WEIGHTS = EXAMPLES / 'weights'  # weights absolute path
 
+print(WEIGHTS)
+print(EXAMPLES)
+
 
 def file_size(path):
     # Return file/dir size (MB)
@@ -226,7 +229,7 @@ if __name__ == "__main__":
     parser.add_argument('--opset', type=int, default=12, help='ONNX: opset version')
     parser.add_argument('--workspace', type=int, default=4, help='TensorRT: workspace size (GB)')
     parser.add_argument('--verbose', action='store_true', help='TensorRT: verbose log')
-    parser.add_argument('--weights', nargs='+', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt', help='model.pt path(s)')
+    parser.add_argument('--weights', type=Path, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt', help='model.pt path(s)')
     parser.add_argument('--half', action='store_true', help='FP16 half-precision export')
     parser.add_argument('--include',
                         nargs='+',
@@ -247,9 +250,8 @@ if __name__ == "__main__":
         assert args.device.type != 'cpu', '--half only compatible with GPU export, i.e. use --device 0'
         # assert not args.dynamic, '--half not compatible with --dynamic, i.e. use either --half or --dynamic but not both'
 
-    if type(args.weights) is list:
-        args.weights = Path(args.weights[0])
-
+    print(WEIGHTS)
+    print(args.weights)
     model = build_model(
         get_model_name(args.weights),
         num_classes=1,
