@@ -61,6 +61,8 @@ jobs:
           python examples/track.py --tracking-method bytetrack --source $IMG
           
       - name: Tests tracker with exported reid model
+        env:
+            IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
         shell: bash  # for Windows compatibility
         run: |
           # export
@@ -70,12 +72,16 @@ jobs:
           python examples/track.py --reid-model examples/weights/mobilenetv2_x1_4_dukemtmcreid.torchscript --source $IMG
       
       - name: Test tracking with seg models
+        env:
+            IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
         shell: bash  # for Windows compatibility
         run: |
           # tracking with SEG models
           python examples/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
 
       - name: Test tracking with pose models
+        env:
+          IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
         shell: bash  # for Windows compatibility
         run: |
           # tracking with POSE models
