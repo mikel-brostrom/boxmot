@@ -31,15 +31,17 @@ pip install boxmot
 
 ## Custom model usage
 
-```
+```python
 from boxmot import DeepOCSORT
 
 tracker = DeepOCSORT()
 cap = cv.VideoCapture(0)
 while True:
     ret, im = cap.read()
-    dets = your_model(im)  #nms'ed outputs of shape Nx6 (x, y, x, y, conf, cls)
-    tracker_outputs = tracker.update(dets.cpu().detach(), im)
+    ...
+    # dets are your model's nms:ed outputs of shape Nx6 (x, y, x, y, conf, cls)
+    tracker_outputs = tracker.update(dets.cpu(), im)
+    ...
 ```
 
 <details>
