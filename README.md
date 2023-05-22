@@ -48,13 +48,11 @@ while True:
 <details>
 <summary>Tutorials</summary>
 
-* [Yolov5 training (link to external repository)](https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data)&nbsp;
+* [Yolov8 training (link to external repository)](https://docs.ultralytics.com/modes/train/)&nbsp;
 * [Deep appearance descriptor training (link to external repository)](https://kaiyangzhou.github.io/deep-person-reid/user_guide.html)&nbsp;
-* [ReID model export to ONNX, OpenVINO, TensorRT and TorchScript](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/ReID-multi-framework-model-export)&nbsp;
-* [Evaluation on custom tracking dataset](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/How-to-evaluate-on-custom-tracking-dataset)&nbsp;
-* Inference acceleration with Nebullvm
-  * [Yolov5](https://colab.research.google.com/drive/1J6dl90-zOjNNtcwhw7Yuuxqg5oWp_YJa?usp=sharing)&nbsp;
-  * [ReID](https://colab.research.google.com/drive/1APUZ1ijCiQFBR9xD0gUvFUOC8yOJIvHm?usp=sharing)&nbsp;
+* [ReID model export to ONNX, OpenVINO, TensorRT and TorchScript](https://github.com/mikel-brostrom/yolov8_tracking/wiki/ReID-multi-framework-model-export)&nbsp;
+* [Evaluation on custom tracking dataset](https://github.com/mikel-brostrom/yolov8_tracking/wiki/How-to-evaluate-on-custom-tracking-dataset)&nbsp;
+* [ReID inference acceleration with Nebullvm](https://colab.research.google.com/drive/1APUZ1ijCiQFBR9xD0gUvFUOC8yOJIvHm?usp=sharing)&nbsp;
   
   </details>
   
