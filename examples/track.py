@@ -16,10 +16,10 @@ from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.engine.results import Boxes
 from ultralytics.yolo.data.utils import VID_FORMATS
 
-WEIGHTS = Path(SETTINGS['weights_dir'])
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0].parents[0]  # root dir
-WEIGHTS = ROOT / 'weights'
+ROOT = FILE.parents[0].parents[0]  # examples absolute path
+EXAMPLES = FILE.parents[0]  # examples absolute path
+WEIGHTS = EXAMPLES / 'weights'
 
 
 def on_predict_start(predictor):
