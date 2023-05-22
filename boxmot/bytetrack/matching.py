@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 import scipy
-import lap
 from scipy.spatial.distance import cdist
 
 from .kalman_filter import chi2inv95
