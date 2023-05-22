@@ -43,7 +43,7 @@ jobs:
         shell: bash
       - name: Tests all tracking options
         env:
-          IMG: './assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg'
+          IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
         run: |
           # deepocsort
           python examples/track.py --tracking-method deepocsort --source $IMG
