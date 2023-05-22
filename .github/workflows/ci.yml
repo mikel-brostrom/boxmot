@@ -34,9 +34,10 @@ jobs:
       - name: Install requirements
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install numpy
           # If not importing this prior to installing requirements...
           # ImportError: lap requires numpy, please "pip install numpy". Workaround...
+          pip install numpy
+          # now lap installation goes through
           pip install -e '.[export]' --extra-index-url https://download.pytorch.org/whl/cpu
           python --version
           pip --version
