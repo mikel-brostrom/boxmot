@@ -42,6 +42,7 @@ jobs:
           pip list
         shell: bash
       - name: Tests all tracking options
+        shell: bash  # for Windows compatibility
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
         run: |
