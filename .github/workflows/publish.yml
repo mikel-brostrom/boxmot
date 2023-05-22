@@ -35,4 +35,4 @@ jobs:
         env:
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: |
-          twine upload --repository-url https://test.pypi.org/legacy/ dist/* -u __token__ -p "$PYPI_TOKEN" --verbose
+          twine upload --repository-url https://test.pypi.org/legacy/ dist/* -u mike-b -p "$PYPI_TOKEN" --verbose
