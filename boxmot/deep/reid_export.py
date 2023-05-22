@@ -20,9 +20,9 @@ from ultralytics.yolo.utils import LOGGER, colorstr, ops
 from ultralytics.yolo.utils.checks import check_requirements, check_version
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0].parents[0]  # examples absolute path
-EXAMPLES = FILE.parents[0]  # examples absolute path
-WEIGHTS = EXAMPLES / 'weights'
+ROOT = FILE.parents[0].parents[0].parents[0]  # root absolute path
+EXAMPLES = ROOT / 'examples'  # examples absolute path
+WEIGHTS = EXAMPLES / 'weights'  # weights absolute path
 
 
 def file_size(path):
