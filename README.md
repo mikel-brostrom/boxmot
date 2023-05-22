@@ -41,7 +41,7 @@ while True:
     ...
     # dets: your model's nms:ed outputs of shape Nx6 (x, y, x, y, conf, cls)
     # im: the original image (or the resized one fed to you model)
-    tracker_outputs = tracker.update(dets.cpu(), im) --> (l, t, w, h id, conf, cls)
+    tracker_outputs = tracker.update(dets.cpu(), im)  # --> (l, t, w, h id, conf, cls)
     ...
 ```
 
