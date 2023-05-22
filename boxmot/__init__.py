@@ -1,4 +1,4 @@
-__version__ = '10.0'
+__version__ = '10.0.1'
 
 from pathlib import Path
 
