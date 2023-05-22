@@ -247,6 +247,9 @@ if __name__ == "__main__":
         assert args.device.type != 'cpu', '--half only compatible with GPU export, i.e. use --device 0'
         # assert not args.dynamic, '--half not compatible with --dynamic, i.e. use either --half or --dynamic but not both'
 
+    if type(args.weights) is list:
+        args.weights = Path(args.weights[0])
+
     model = build_model(
         get_model_name(args.weights),
         num_classes=1,
