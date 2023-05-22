@@ -74,8 +74,6 @@ pip install boxmot
 
 ## Yolov8 example
 
-Yup, Yolov8 started to support tracking functionality, if you aren't happy with the results we provide more alternatives here.
-
 <details>
 <summary>Click to expand!</summary>
 
