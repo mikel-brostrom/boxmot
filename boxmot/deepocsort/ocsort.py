@@ -7,7 +7,7 @@ from __future__ import print_function
 import numpy as np
 from .association import *
 from .cmc import CMCComputer
-from trackers.deep.reid_multibackend import ReIDDetectMultiBackend
+from ..deep.reid_multibackend import ReIDDetectMultiBackend
 from ultralytics.yolo.utils.ops import xyxy2xywh
 
 
