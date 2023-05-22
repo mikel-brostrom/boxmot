@@ -36,7 +36,7 @@ jobs:
           # ImportError: lap requires numpy, please "pip install numpy". Workaround...
           pip install numpy
           # now lap installation goes through
-          pip install -e '.[export]' --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install -e . pytest --extra-index-url https://download.pytorch.org/whl/cpu
           python --version
           pip --version
           pip list
