@@ -25,7 +25,10 @@ jobs:
           python -m pip install --upgrade pip wheel build twine
           pip install numpy
           pip install -e '.[dev]' --extra-index-url https://download.pytorch.org/whl/cpu
-      - name: Twine check
+      - name: Create source distribution
+        run: |
+          python setup.py sdist
+      - name: Twine check  # Checks whether the long description will render correctly on PyPI
         run: |
           twine check dist/*
       - name: Publish to PyPI
