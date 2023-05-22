@@ -125,10 +125,8 @@ def run(args):
             with predictor.profilers[3]:
                 # get raw bboxes tensor
                 dets = predictor.results[i].boxes.data
-                print(im0.shape)
-                # get predictions
+                # get tracker predictions
                 predictor.tracker_outputs[i] = predictor.trackers[i].update(dets.cpu().detach(), im0)
-                print(predictor.tracker_outputs[i].shape)
             predictor.results[i].speed = {
                 'preprocess': predictor.profilers[0].dt * 1E3 / n,
                 'inference': predictor.profilers[1].dt * 1E3 / n,
