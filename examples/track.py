@@ -16,6 +16,11 @@ from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.engine.results import Boxes
 from ultralytics.yolo.data.utils import VID_FORMATS
 
+from super_gradients.common.object_names import Models
+from super_gradients.training import models
+from super_gradients.training.models.detection_models.yolo_base import YoloPostPredictionCallback
+
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0].parents[0]  # repo root absolute path
 EXAMPLES = FILE.parents[0]  # examples absolute path
@@ -94,24 +99,37 @@ def run(args):
     predictor.add_callback('on_predict_start', on_predict_start)
     
     predictor.run_callbacks('on_predict_start')
+    model = models.get("yolox_s", pretrained_weights="coco").to("cuda:0")
     for frame_idx, batch in enumerate(predictor.dataset):
         predictor.run_callbacks('on_predict_batch_start')
         predictor.batch = batch
         path, im0s, vid_cap, s = batch
         visualize = increment_path(save_dir / Path(path[0]).stem, exist_ok=True, mkdir=True) if predictor.args.visualize and (not predictor.dataset.source_type.tensor) else False
 
+        print('im0s', im0s[0].shape)
         # Preprocess
         with predictor.profilers[0]:
             im = predictor.preprocess(im0s)
 
         # Inference
         with predictor.profilers[1]:
-            preds = predictor.model(im, augment=predictor.args.augment, visualize=predictor.args.visualize)
+            # im = torch.permute(im.squeeze(), (1,2,0))
+            # print(im.shape)
+            preds = model.predict(im0s[0], iou=0.5, conf=0.7)
+            preds = list(preds._images_prediction_lst)
+            print(preds[0].prediction.bboxes_xyxy)
+            preds = np.concatenate([
+                preds[0].prediction.bboxes_xyxy,
+                np.expand_dims(preds[0].prediction.confidence, axis=1),
+                np.expand_dims(preds[0].prediction.labels, axis=1),
+            ], axis=1)
+            print(preds.shape)
 
-        # Postprocess
-        with predictor.profilers[2]:
-            predictor.results = predictor.postprocess(preds, im, im0s)
-        predictor.run_callbacks('on_predict_postprocess_end')
+        # # Postprocess
+        # with predictor.profilers[2]:
+        #     predictor.results = predictor.postprocess(preds, im, im0s)
+        # predictor.run_callbacks('on_predict_postprocess_end')
+        predictor.results[i] = Boxes(boxes=np.array([1, 2, 3, 4, 5, 6]), orig_shape=(0,0))
         
         # Visualize, save, write results
         n = len(im0s)
@@ -124,24 +142,25 @@ def run(args):
             
             with predictor.profilers[3]:
                 # get raw bboxes tensor
-                dets = predictor.results[i].boxes.data
+                dets = preds
                 # get tracker predictions
-                predictor.tracker_outputs[i] = predictor.trackers[i].update(dets.cpu().detach(), im0)
-            predictor.results[i].speed = {
-                'preprocess': predictor.profilers[0].dt * 1E3 / n,
-                'inference': predictor.profilers[1].dt * 1E3 / n,
-                'postprocess': predictor.profilers[2].dt * 1E3 / n,
-                'tracking': predictor.profilers[3].dt * 1E3 / n
-            
-            }
+                predictor.tracker_outputs[i] = predictor.trackers[i].update(torch.from_numpy(dets), im0)
 
             # overwrite bbox results with tracker predictions
             if predictor.tracker_outputs[i].size != 0:
                 predictor.results[i].boxes = Boxes(
                     # xyxy, (track_id), conf, cls
-                    boxes=torch.from_numpy(predictor.tracker_outputs[i]).to(dets.device),
+                    boxes=torch.from_numpy(predictor.tracker_outputs[i]).to('cuda:0'),
                     orig_shape=im0.shape[:2],  # (height, width)
                 )
+                
+            predictor.results[i].speed = {
+                'preprocess': predictor.profilers[0].dt * 1E3 / n,
+                'inference': predictor.profilers[1].dt * 1E3 / n,
+                #'postprocess': predictor.profilers[2].dt * 1E3 / n,
+                'tracking': predictor.profilers[3].dt * 1E3 / n
+            
+            }
             
             # write inference results to a file or directory   
             if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show:
