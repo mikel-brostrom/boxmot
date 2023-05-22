@@ -3,7 +3,7 @@
 
 <div align="center">
   <p>
-  <img src="trackers/strongsort/results/track_all_seg_1280_025conf.gif" width="400"/>
+  <img src="boxmot/strongsort/results/track_all_seg_1280_025conf.gif" width="400"/>
   </p>
   <br>
   <div>
@@ -11,12 +11,6 @@
   <br>  
   <a href="https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
 <a href="https://doi.org/10.5281/zenodo.7629840"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.7629840.svg" alt="DOI"></a>
-
-
-    
-
-
-
   </div>
 </div>
 
@@ -32,9 +26,20 @@ Everything is designed with simplicity and flexibility in mind. We don't hyperfo
 ## Installation
 
 ```
-git clone https://github.com/mikel-brostrom/yolov8_tracking.git
-cd yolov8_tracking
-pip install -r requirements.txt  # install dependencies
+pip install boxmot
+```
+
+## Custom model usage
+
+```
+from boxmot import DeepOCSORT
+
+tracker = DeepOCSORT()
+cap = cv.VideoCapture(0)
+while True:
+    ret, im = cap.read()
+    dets = your_model(im)  #nms'ed outputs of shape Nx6 (x, y, x, y, conf, cls)
+    tracker_outputs = tracker.update(dets.cpu().detach(), im)
 ```
 
 <details>
