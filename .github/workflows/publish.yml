@@ -25,9 +25,13 @@ jobs:
           python -m pip install --upgrade pip wheel build twine
           pip install numpy
           pip install -e '.[dev]' --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Twine check
+        run: |
+          twine check dist/*
       - name: Publish to PyPI
         env:
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+          PYPI_USER: ${{ secrets.PYPI_USER }}
         run: |
           python setup.py sdist
-          twine upload dist/* -u __token__ -p $PYPI_TOKEN
+          twine upload --repository-url https://test.pypi.org/legacy/ dist/* -u $PYPI_USER -p $PYPI_TOKEN
