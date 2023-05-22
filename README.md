@@ -95,8 +95,8 @@ Nx6 (x, y, x, y, conf, cls)
 
 ```bash
 $ python track.py --yolo-model yolov8n.pt      # bboxes only
-                                 yolov8n-seg.pt  # bboxes + segmentation masks
-                                 yolov8n-pose.pt # bboxes + pose estimation
+                               yolov8n-seg.pt  # bboxes + segmentation masks
+                               yolov8n-pose.pt # bboxes + pose estimation
 ```
 
 <details>
