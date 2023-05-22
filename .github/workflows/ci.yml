@@ -23,14 +23,12 @@ jobs:
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
     steps:
-      # Check out the repository recursively, updated to v3
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      # Prepare environment with python 3.9
-      - uses: actions/setup-python@v4
+      
+      - uses: actions/checkout@v3  # Check out the repository
+      - uses: actions/setup-python@v4  # Prepare environment with python 3.9
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip' # caching pip dependencies
       - name: Install requirements
         run: |
           python -m pip install --upgrade pip setuptools wheel
