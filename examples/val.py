@@ -35,7 +35,7 @@ from track import run
 
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0].parents[0]  # examples absolute path
+ROOT = FILE.parents[0].parents[0]  # repo root absolute path
 EXAMPLES = FILE.parents[0]  # examples absolute path
 WEIGHTS = EXAMPLES / 'weights'
 
