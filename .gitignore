@@ -29,3 +29,8 @@ val_utils/
 # tf models
 *saved_model/
 tf_models/
+
+# distribution / packaging
+build/
+dist/
+*.egg-info/

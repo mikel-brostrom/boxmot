@@ -7,7 +7,7 @@ import numpy as np
 import cv2
 from types import SimpleNamespace
 
-from trackers.multi_tracker_zoo import create_tracker
+from boxmot.tracker_zoo import create_tracker
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
 from ultralytics.yolo.utils import LOGGER, SETTINGS, colorstr, ops, is_git_dir, IterableSimpleNamespace
@@ -16,17 +16,18 @@ from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.engine.results import Boxes
 from ultralytics.yolo.data.utils import VID_FORMATS
 
-WEIGHTS = Path(SETTINGS['weights_dir'])
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # root dir
-WEIGHTS = ROOT / 'weights'
+ROOT = FILE.parents[0].parents[0]  # repo root absolute path
+EXAMPLES = FILE.parents[0]  # examples absolute path
+WEIGHTS = EXAMPLES / 'weights'
 
 
 def on_predict_start(predictor):
     predictor.trackers = []
     predictor.tracker_outputs = [None] * predictor.dataset.bs
     predictor.args.tracking_config = \
-        Path('trackers') /\
+        ROOT /\
+        'boxmot' /\
         opt.tracking_method /\
         'configs' /\
         (opt.tracking_method + '.yaml')
@@ -124,10 +125,8 @@ def run(args):
             with predictor.profilers[3]:
                 # get raw bboxes tensor
                 dets = predictor.results[i].boxes.data
-                
-                # get predictions
+                # get tracker predictions
                 predictor.tracker_outputs[i] = predictor.trackers[i].update(dets.cpu().detach(), im0)
-            
             predictor.results[i].speed = {
                 'preprocess': predictor.profilers[0].dt * 1E3 / n,
                 'inference': predictor.profilers[1].dt * 1E3 / n,
