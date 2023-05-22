@@ -38,7 +38,7 @@ setup(
     install_requires=REQUIREMENTS,
     platforms=["linux", "windows"],
     classifiers=[
-        'Development Status :: Beta',
+        'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
         'Intended Audience :: Education',
         'Intended Audience :: Science/Research',
@@ -52,7 +52,8 @@ setup(
         'Topic :: Software Development',
         'Topic :: Scientific/Engineering',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
-        'Topic :: Scientific/Engineering :: Computer Vision',
+        'Topic :: Scientific/Engineering :: Image Recognition',
+        'Topic :: Scientific/Engineering :: Image Processing',
     ],
     keywords='machine-learning, deep-learning, vision, ML, DL, AI, YOLO',
 )
