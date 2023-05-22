@@ -36,4 +36,4 @@ jobs:
           PYPI_USER: ${{ secrets.PYPI_USER }}
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: |
-          twine upload --repository-url https://test.pypi.org/legacy/ dist/* -u "$PYPI_USER" -p "$PYPI_TOKEN --verbose
+          twine upload --repository-url https://test.pypi.org/legacy/ dist/* -u "$PYPI_USER" -p "$PYPI_TOKEN" --verbose
