@@ -72,6 +72,8 @@ Everything is designed with simplicity and flexibility in mind. We don't hyperfo
 pip install boxmot
 ```
 
+Grab a coffee, this may take a few minutes
+
 ## Yolov8 example
 
 <details>
