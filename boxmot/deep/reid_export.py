@@ -54,7 +54,7 @@ def export_torchscript(model, im, file, optimize, prefix=colorstr('TorchScript:'
     try:
         LOGGER.info(f'\n{prefix} starting export with torch {torch.__version__}...')
         f = file.with_suffix('.torchscript')
-
+        print(f)
         ts = torch.jit.trace(model, im, strict=False)
         if optimize:  # https://pytorch.org/tutorials/recipes/mobile_interpreter.html
             optimize_for_mobile(ts)._save_for_lite_interpreter(str(f))
@@ -246,9 +246,6 @@ if __name__ == "__main__":
     if args.half:
         assert args.device.type != 'cpu', '--half only compatible with GPU export, i.e. use --device 0'
         # assert not args.dynamic, '--half not compatible with --dynamic, i.e. use either --half or --dynamic but not both'
-
-    if type(args.weights) is list:
-        args.weights = Path(args.weights[0])
 
     model = build_model(
         get_model_name(args.weights),
