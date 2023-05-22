@@ -31,15 +31,18 @@ pip install boxmot
 
 ## Custom model usage
 
-```
+```python
 from boxmot import DeepOCSORT
 
 tracker = DeepOCSORT()
 cap = cv.VideoCapture(0)
 while True:
     ret, im = cap.read()
-    dets = your_model(im)  #nms'ed outputs of shape Nx6 (x, y, x, y, conf, cls)
-    tracker_outputs = tracker.update(dets.cpu().detach(), im)
+    ...
+    # dets: your model's nms:ed outputs of shape Nx6 (x, y, x, y, conf, cls)
+    # im: the original image (or the resized one fed to you model)
+    tracker_outputs = tracker.update(dets.cpu(), im)  # --> (x, y, x, y, id, conf, cls)
+    ...
 ```
 
 <details>
@@ -96,7 +99,10 @@ Nx6 (x, y, x, y, conf, cls)
 
 </details>
 
-## Tracking
+<details>
+<summary>Tracking with Yolov8</summary>
+  
+
 
 ```bash
 $ python track.py --yolo-model yolov8n.pt      # bboxes only
@@ -206,6 +212,8 @@ $ python evolve.py --tracking-method strongsort --benchmark MOT17 --n-trials 100
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
 
+</details>
+  
 </details>
 
 ## Contact 
