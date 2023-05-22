@@ -34,6 +34,5 @@ jobs:
       - name: Publish to PyPI
         env:
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-          PYPI_USER: ${{ secrets.PYPI_USER }}
         run: |
           twine upload --repository-url https://test.pypi.org/legacy/ dist/* -u __token__ -p $PYPI_TOKEN
