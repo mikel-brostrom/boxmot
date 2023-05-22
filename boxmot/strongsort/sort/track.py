@@ -1,7 +1,7 @@
 # vim: expandtab:ts=4:sw=4
 import cv2
 import numpy as np
-from trackers.strongsort.sort.kalman_filter import KalmanFilter
+from .kalman_filter import KalmanFilter
 from collections import deque
 
 

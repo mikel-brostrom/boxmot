@@ -1,31 +1,9 @@
 # pip install -r requirements.txt
 ultralytics==8.0.98
 
-# Base ----------------------------------------
 gitpython
-ipython  # interactive notebook
-matplotlib>=3.2.2
-numpy==1.23.1
-opencv-python>=4.1.1
-Pillow>=7.1.2
-psutil  # system resources
-PyYAML>=5.3.1
-requests>=2.23.0
-scipy>=1.4.1
-thop>=0.1.1  # FLOPs computation
-torch>=1.7.0  # see https://pytorch.org/get-started/locally (recommended)
-torchvision>=0.8.1
-tqdm>=4.64.0
-# protobuf<=3.20.1  # https://github.com/ultralytics/yolov5/issues/8012
-
-# Logging ---------------------------------------------------------------------
-tensorboard>=2.4.1
-# clearml>=1.2.0
-# comet
-
-# Plotting --------------------------------------------------------------------
-pandas>=1.1.4
-seaborn>=0.11.0
+tensorboard
+numpy==1.23.1  # otherwise issues with track eval
 
 # StrongSORT ------------------------------------------------------------------
 easydict
@@ -40,14 +18,16 @@ lap
 filterpy
 
 # Export ----------------------------------------------------------------------
-# onnx>=1.9.0               # ONNX export
-# onnx-simplifier>=0.4.1    # ONNX simplifier
-# nvidia-pyindex            # TensorRT export
-# nvidia-tensorrt           # TensorRT export
-# openvino-dev              # OpenVINO export
+# onnx>=1.12.0  # ONNX export
+# onnxsim>=0.4.1  # ONNX simplifier
+# nvidia-pyindex  # TensorRT export
+# nvidia-tensorrt  # TensorRT export
+# openvino-dev>=2022.3  # OpenVINO export
+# onnx2tf>=1.10.0
+
 
 # Hyperparam search -----------------------------------------------------------
 # optuna
-# plotly                    # for hp importance and pareto front plots
+# plotly  # for hp importance and pareto front plots
 # kaleido
 # joblib
