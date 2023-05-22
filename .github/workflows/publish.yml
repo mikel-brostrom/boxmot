@@ -27,12 +27,13 @@ jobs:
           pip install -e '.[dev]' --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Create source distribution
         run: |
-          python setup.py sdist
+          python setup.py sdist bdist_wheel
       - name: Twine check  # Checks whether the long description will render correctly on PyPI
         run: |
           twine check dist/*
       - name: Publish to PyPI
-        env:
+        uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
+        with:
+          repository-url: https://test.pypi.org/legacy/
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          twine upload --repository-url https://test.pypi.org/legacy/ dist/* -u mike-b -p "$PYPI_TOKEN" --verbose
+          user: __token__
