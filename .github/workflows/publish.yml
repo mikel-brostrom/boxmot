@@ -33,6 +33,7 @@ jobs:
           twine check dist/*
       - name: Publish to PyPI
         env:
-          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+          TWINE_USERNAME: ${{ secrets.PYPI_USER }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
         run: |
-          twine upload --repository-url https://test.pypi.org/legacy/ dist/* -u __token__ -p $PYPI_TOKEN
+          twine upload --repository-url https://test.pypi.org/legacy/ dist/*
