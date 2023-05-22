@@ -12,22 +12,20 @@ import torch.backends.cudnn as cudnn
 from torch.utils.mobile_optimizer import optimize_for_mobile
 import logging
 
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0].parents[0].parents[0]  # root dir
-WEIGHTS = ROOT / 'weights'
-
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))  # add ROOT to PATH
-if str(ROOT / 'trackers') not in sys.path:
-    sys.path.append(str(ROOT / 'trackers'))  # add yolov5 ROOT to PATH
-
-from trackers.deep.models import build_model
-from trackers.deep.reid_model_factory import get_model_name, load_pretrained_weights
+from boxmot.deep.models import build_model
+from boxmot.deep.reid_model_factory import get_model_name, load_pretrained_weights
 
 from ultralytics.yolo.utils.torch_utils import select_device
 from ultralytics.yolo.utils import LOGGER, colorstr, ops
 from ultralytics.yolo.utils.checks import check_requirements, check_version
 
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[0].parents[0].parents[0]  # root absolute path
+EXAMPLES = ROOT / 'examples'  # examples absolute path
+WEIGHTS = EXAMPLES / 'weights'  # weights absolute path
+
+print(WEIGHTS)
+print(EXAMPLES)
 
 
 def file_size(path):
@@ -59,7 +57,7 @@ def export_torchscript(model, im, file, optimize, prefix=colorstr('TorchScript:'
     try:
         LOGGER.info(f'\n{prefix} starting export with torch {torch.__version__}...')
         f = file.with_suffix('.torchscript')
-
+        print(f)
         ts = torch.jit.trace(model, im, strict=False)
         if optimize:  # https://pytorch.org/tutorials/recipes/mobile_interpreter.html
             optimize_for_mobile(ts)._save_for_lite_interpreter(str(f))
@@ -231,7 +229,7 @@ if __name__ == "__main__":
     parser.add_argument('--opset', type=int, default=12, help='ONNX: opset version')
     parser.add_argument('--workspace', type=int, default=4, help='TensorRT: workspace size (GB)')
     parser.add_argument('--verbose', action='store_true', help='TensorRT: verbose log')
-    parser.add_argument('--weights', nargs='+', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt', help='model.pt path(s)')
+    parser.add_argument('--weights', type=Path, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt', help='model.pt path(s)')
     parser.add_argument('--half', action='store_true', help='FP16 half-precision export')
     parser.add_argument('--include',
                         nargs='+',
@@ -252,9 +250,8 @@ if __name__ == "__main__":
         assert args.device.type != 'cpu', '--half only compatible with GPU export, i.e. use --device 0'
         # assert not args.dynamic, '--half not compatible with --dynamic, i.e. use either --half or --dynamic but not both'
 
-    if type(args.weights) is list:
-        args.weights = Path(args.weights[0])
-
+    print(WEIGHTS)
+    print(args.weights)
     model = build_model(
         get_model_name(args.weights),
         num_classes=1,
@@ -299,4 +296,3 @@ if __name__ == "__main__":
         LOGGER.info(f'\nExport complete ({time.time() - t:.1f}s)'
                     f"\nResults saved to {colorstr('bold', args.weights.parent.resolve())}"
                     f"\nVisualize:       https://netron.app")
-

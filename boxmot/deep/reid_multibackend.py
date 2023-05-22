@@ -14,9 +14,9 @@ from os.path import exists as file_exists
 
 from ultralytics.yolo.utils.checks import check_requirements, check_version
 from ultralytics.yolo.utils import LOGGER
-from trackers.deep.reid_model_factory import (show_downloadeable_models, get_model_url, get_model_name,
+from .reid_model_factory import (show_downloadeable_models, get_model_url, get_model_name,
                                                           download_url, load_pretrained_weights)
-from trackers.deep.models import build_model
+from .models import build_model
 
 
 def check_suffix(file='yolov5s.pt', suffix=('.pt',), msg=''):
