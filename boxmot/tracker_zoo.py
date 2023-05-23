@@ -77,7 +77,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
         return botsort
     elif tracker_type == 'deepocsort':
         from boxmot.deepocsort.ocsort import OCSort
-        botsort = OCSort(
+        deepocsort = OCSort(
             reid_weights,
             device,
             half,
@@ -89,7 +89,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
             asso_func=cfg.deepocsort.asso_func,
             inertia=cfg.deepocsort.inertia,
         )
-        return botsort
+        return deepocsort
     else:
         print('No such tracker')
         exit()
