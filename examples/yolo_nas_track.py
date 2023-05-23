@@ -13,13 +13,26 @@ from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 from ultralytics.yolo.utils import LOGGER, SETTINGS, colorstr, ops, is_git_dir, IterableSimpleNamespace
 from ultralytics.yolo.utils.checks import check_imgsz, print_args
 from ultralytics.yolo.utils.files import increment_path
-from ultralytics.yolo.engine.results import Boxes
+from ultralytics.yolo.engine.results import Boxes, Results
 from ultralytics.yolo.data.utils import VID_FORMATS
+
+from super_gradients.common.object_names import Models
+from super_gradients.training import models
+from super_gradients.training.models.detection_models.yolo_base import YoloPostPredictionCallback
+
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0].parents[0]  # repo root absolute path
 EXAMPLES = FILE.parents[0]  # examples absolute path
 WEIGHTS = EXAMPLES / 'weights'
+
+try:
+    import super_gradients  # for linear_assignment
+except (ImportError, AssertionError, AttributeError):
+    from ultralytics.yolo.utils.checks import check_requirements
+
+    check_requirements('super_gradients')  # install
+    import lap
 
 
 def on_predict_start(predictor):
@@ -94,23 +107,35 @@ def run(args):
     predictor.add_callback('on_predict_start', on_predict_start)
     
     predictor.run_callbacks('on_predict_start')
+    yolo_nas_model = models.get(Models.YOLO_NAS_S, pretrained_weights="coco").to("cuda:0")
     for frame_idx, batch in enumerate(predictor.dataset):
         predictor.run_callbacks('on_predict_batch_start')
         predictor.batch = batch
         path, im0s, vid_cap, s = batch
         visualize = increment_path(save_dir / Path(path[0]).stem, exist_ok=True, mkdir=True) if predictor.args.visualize and (not predictor.dataset.source_type.tensor) else False
 
+        print('im0s', im0s[0].shape)
         # Preprocess
         with predictor.profilers[0]:
             im = predictor.preprocess(im0s)
 
         # Inference
         with predictor.profilers[1]:
-            preds = predictor.model(im, augment=predictor.args.augment, visualize=predictor.args.visualize)
+            
+            prediction = next(iter(yolo_nas_model.predict(im0s, iou=0.5, conf=0.7))).prediction # Returns a generator of the batch, which here is 1
+            print(type(prediction))
+            preds = np.concatenate(
+                [
+                    prediction.bboxes_xyxy,
+                    prediction.confidence[:, np.newaxis],
+                    prediction.labels[:, np.newaxis]
+                ], axis=1
+            )
+            preds = torch.from_numpy(preds)
 
-        # Postprocess
+        # # Postprocess
         with predictor.profilers[2]:
-            predictor.results = predictor.postprocess(preds, im, im0s)
+            predictor.results = Results(path=path, boxes=preds, orig_img=im0s[0], names=model.names)
         predictor.run_callbacks('on_predict_postprocess_end')
         
         # Visualize, save, write results
@@ -126,7 +151,7 @@ def run(args):
                 # get raw bboxes tensor
                 dets = predictor.results[i].boxes.data
                 # get tracker predictions
-                predictor.tracker_outputs[i] = predictor.trackers[i].update(dets.cpu().detach(), im0)
+                predictor.tracker_outputs[i] = predictor.trackers[i].update(dets, im0)
             predictor.results[i].speed = {
                 'preprocess': predictor.profilers[0].dt * 1E3 / n,
                 'inference': predictor.profilers[1].dt * 1E3 / n,
