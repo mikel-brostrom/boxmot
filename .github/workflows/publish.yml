@@ -34,7 +34,7 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
         with:
-          repository_url: https://test.pypi.org/legacy/
+          #repository_url: https://test.pypi.org/legacy/
           password: ${{ secrets.PYPI_TOKEN }}
           user: __token__
           verbose: true
