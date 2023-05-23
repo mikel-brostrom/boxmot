@@ -128,7 +128,7 @@ def run(args):
                     prediction.labels[:, np.newaxis]
                 ], axis=1
             )
-            preds = torch.from_numpy(preds)
+            preds = torch.from_numpy(preds).int()
         predictor.results = [None]
         # # Postprocess
         with predictor.profilers[2]:
