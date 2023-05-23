@@ -1,6 +1,5 @@
 # Real-time multi-object, segmentation and pose tracking using Yolov8 with DeepOCSORT and LightMBN
 
-
 <div align="center">
   <p>
   <img src="boxmot/strongsort/results/track_all_seg_1280_025conf.gif" width="400"/>
@@ -8,6 +7,7 @@
   <br>
   <div>
   <a href="https://github.com/mikel-brostrom/Yolov5_DeepSort_Pytorch/actions"><img src="https://github.com/mikel-brostrom/Yolov5_DeepSort_Pytorch/workflows/CI%20CPU%20testing/badge.svg" alt="CI CPU testing"></a>
+  <a href="https://pepy.tech/project/boxmot"><img src="https://static.pepy.tech/personalized-badge/boxmot?period=month&units=international_system&left_color=grey&right_color=orange&left_text=Downloads"></a>
   <br>  
   <a href="https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
 <a href="https://doi.org/10.5281/zenodo.7629840"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.7629840.svg" alt="DOI"></a>
