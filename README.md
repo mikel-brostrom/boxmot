@@ -1,4 +1,4 @@
-# Real-time multi-object, segmentation and pose tracking using Yolov8 with DeepOCSORT and LightMBN
+# Real-time multi-object, segmentation and pose tracking using Yolov8 | Yolo-NAS with DeepOCSORT and LightMBN
 
 
 <div align="center">
@@ -129,8 +129,6 @@ $ python examples/track.py --source 0                               # webcam
 There is a clear trade-off between model inference speed and overall performance. In order to make it possible to fulfill your inference speed/accuracy needs you can select a Yolov5 family model for automatic download. These model can be further optimized for you needs by the [export.py](https://github.com/ultralytics/yolov5/blob/master/export.py) script
 
 ```bash
-
-
 $ python examples/track.py --source 0 --yolo-model yolov8n.pt --img 640
                                           yolov8s.tflite
                                           yolov8m.pt
@@ -198,6 +196,18 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 </details>
   
 </details>
+  
+## Yolo-NAS tracking
+  
+<details>
+<summary>Click to expand!</summary>
+  
+```bash
+$ python examples/yolo_nas_track.py --source 0
+```
+  
+</details>  
+
 
 ## Custom object detection model example
   
