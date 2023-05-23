@@ -75,7 +75,7 @@ pip install boxmot
 
 Grab a coffee, this may take a few minutes
 
-## Yolov8 example
+## Yolov8 tracking example
 
 <details>
 <summary>Click to expand!</summary>
@@ -197,7 +197,7 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
   
 </details>
   
-## Yolo-NAS tracking
+## Yolo-NAS tracking example
   
 <details>
 <summary>Click to expand!</summary>
