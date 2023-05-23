@@ -114,16 +114,13 @@ def run(args):
         path, im0s, vid_cap, s = batch
         visualize = increment_path(save_dir / Path(path[0]).stem, exist_ok=True, mkdir=True) if predictor.args.visualize and (not predictor.dataset.source_type.tensor) else False
 
-        print('im0s', im0s[0].shape)
         # Preprocess
         with predictor.profilers[0]:
             im = predictor.preprocess(im0s)
 
         # Inference
         with predictor.profilers[1]:
-            
             prediction = next(iter(yolo_nas_model.predict(im0s, iou=0.5, conf=0.7))).prediction # Returns a generator of the batch, which here is 1
-            print(type(prediction))
             preds = np.concatenate(
                 [
                     prediction.bboxes_xyxy,
