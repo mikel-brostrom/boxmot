@@ -27,7 +27,7 @@ body:
         - "Integrations"
         - "Other"
     validations:
-      required: false
+      required: true
 
   - type: textarea
     attributes:
@@ -49,7 +49,7 @@ body:
         - Python: 3.9.0
         - ...
     validations:
-      required: false
+      required: true
 
   - type: textarea
     attributes:
@@ -62,5 +62,5 @@ body:
         # Code to reproduce your issue here
         ```
     validations:
-      required: false
+      required: true
 

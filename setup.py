@@ -20,7 +20,7 @@ def get_version():
 
 
 setup(
-    name='box-mot',  # name of pypi package
+    name='boxmot',  # name of pypi package
     version=get_version(),  # version of pypi package
     python_requires='>=3.7',
     license='AGPL-3.0',
