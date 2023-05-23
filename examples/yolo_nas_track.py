@@ -120,7 +120,7 @@ def run(args):
 
         # Inference
         with predictor.profilers[1]:
-            prediction = next(iter(yolo_nas_model.predict(im0s, iou=0.5, conf=0.7))).prediction # Returns a generator of the batch, which here is 1
+            prediction = next(iter(yolo_nas_model.predict(im0s, iou=0.7, conf=0.3))).prediction # Returns a generator of the batch, which here is 1
             preds = np.concatenate(
                 [
                     prediction.bboxes_xyxy,
@@ -129,10 +129,10 @@ def run(args):
                 ], axis=1
             )
             preds = torch.from_numpy(preds)
-
+        predictor.results = [None]
         # # Postprocess
         with predictor.profilers[2]:
-            predictor.results = Results(path=path, boxes=preds, orig_img=im0s[0], names=model.names)
+            predictor.results[0] = Results(path=path, boxes=preds, orig_img=im0s[0], names=model.names)
         predictor.run_callbacks('on_predict_postprocess_end')
         
         # Visualize, save, write results
@@ -149,6 +149,8 @@ def run(args):
                 dets = predictor.results[i].boxes.data
                 # get tracker predictions
                 predictor.tracker_outputs[i] = predictor.trackers[i].update(dets, im0)
+                print(predictor.tracker_outputs[i].shape)
+                print(predictor.tracker_outputs[i])
             predictor.results[i].speed = {
                 'preprocess': predictor.profilers[0].dt * 1E3 / n,
                 'inference': predictor.profilers[1].dt * 1E3 / n,
