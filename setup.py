@@ -29,8 +29,8 @@ setup(
     long_description_content_type='text/markdown',
     url='https://github.com/mikel-brostrom/yolov8_tracking',
     project_urls={
-        'Bug Reports': 'https://github.com/mikel-brostrom/yolov8_tracking/issues',
-        'Source': 'https://github.com/mikel-brostrom/yolov8_tracking'},
+        'Bug Reports': 'https://github.com/mikel-brostrom/yolo_tracking/issues',
+        'Source': 'https://github.com/mikel-brostrom/yolo_tracking'},
     author='Mikel Brostrom',
     author_email='yolov5.deepsort.pytorch@gmail.com',
     packages=find_packages(),  # required
