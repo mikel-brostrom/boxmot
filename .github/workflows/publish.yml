@@ -2,7 +2,7 @@ name: Publish to PyPI
 
 on:
   push:
-    branches: [main, create-pip-package]
+    branches: [main]
   workflow_dispatch:
     inputs:
       pypi:
@@ -16,21 +16,64 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+
       - name: Set up Python environment
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip wheel build twine
           pip install numpy
           pip install -e '.[dev]' --extra-index-url https://download.pytorch.org/whl/cpu
+
       - name: Create source distribution
         run: |
           python setup.py sdist bdist_wheel
+        if: ${{ success() }}
+
       - name: Twine check  # Checks whether the long description will render correctly on PyPI
         run: |
           twine check dist/*
+        if: ${{ success() }}
+
+      - name: Get current package version
+        id: get_version
+        run: |
+          current_version=$(python -c "from your_package import __version__; print(__version__)")
+          echo "::set-output name=version::$current_version"
+        if: ${{ success() }}
+
+      - name: Increment package version
+        id: increment_version
+        run: |
+          current_version="${{ steps.get_version.outputs.version }}"
+          IFS='.' read -r -a version_parts <<< "$current_version"
+          ((version_parts[2]++))
+          new_version="${version_parts[0]}.${version_parts[1]}.${version_parts[2]}"
+          echo "::set-output name=new_version::$new_version"
+        if: ${{ success() }}
+
+      - name: Commit and push updated version
+        run: |
+          git add boxmot/__init__.py
+          git commit -m "Update package version"
+          git push
+        if: ${{ success() }}
+
+      - name: Create code release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.increment_version.outputs.new_version }}
+          release_name: Release v${{ steps.increment_version.outputs.new_version }}
+          draft: false
+          prerelease: false
+        if: ${{ success() }}
+      
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
         with:
@@ -38,3 +81,5 @@ jobs:
           password: ${{ secrets.PYPI_TOKEN }}
           user: __token__
           verbose: true
+
+        
