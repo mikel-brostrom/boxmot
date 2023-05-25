@@ -41,7 +41,7 @@ jobs:
           current_version="${{ steps.get_version.outputs.version }}"
           IFS='.' read -r -a version_parts <<< "$current_version"
           ((version_parts[2]++))
-          new_version=".${version_parts[0]}.${version_parts[1]}.${version_parts[2]}"
+          new_version="${version_parts[0]}.${version_parts[1]}.${version_parts[2]}"
           echo $new_version
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
         if: ${{ success() }}
@@ -77,6 +77,7 @@ jobs:
           password: ${{ secrets.PYPI_TOKEN }}
           user: __token__
           verbose: true
+        if: ${{ success() }}
 
       - name: Create code release
         id: create_release
