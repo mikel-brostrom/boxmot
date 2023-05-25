@@ -52,7 +52,14 @@ jobs:
           IFS='.' read -r -a version_parts <<< "$current_version"
           ((version_parts[2]++))
           new_version="${version_parts[0]}.${version_parts[1]}.${version_parts[2]}"
+          echo $new_version
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
+        if: ${{ success() }}
+
+      - name: Update package version
+        run: |
+          new_version="${{ steps.increment_version.outputs.new_version }}"
+          sed -i "s/__version__ = .*/__version__ = '$new_version'/" boxmot/__init__.py
         if: ${{ success() }}
 
       - name: Commit and push updated version
