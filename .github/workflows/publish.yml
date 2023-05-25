@@ -54,6 +54,7 @@ jobs:
 
       - name: Commit and push updated version
         run: |
+          git config --local user.email yolov5.deepsort.pytorch@gmail.com
           git config --local user.name mikel-brostrom
           git add boxmot/__init__.py
           git commit -m "Update package version from $current_version to $new_version"
