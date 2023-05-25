@@ -128,7 +128,6 @@ def run(args):
                 dets = predictor.results[i].boxes.data
                 # get tracker predictions
                 predictor.tracker_outputs[i] = predictor.trackers[i].update(dets.cpu().detach(), im0)
-                predictor.tracker_outputs[i] = predictor.tracker_outputs[i][predictor.tracker_outputs[i][:, 5].argsort()[::-1]]
             predictor.results[i].speed = {
                 'preprocess': predictor.profilers[0].dt * 1E3 / n,
                 'inference': predictor.profilers[1].dt * 1E3 / n,
@@ -136,20 +135,22 @@ def run(args):
                 'tracking': predictor.profilers[3].dt * 1E3 / n
             }
 
-            # filter boxes masks and pose results by tracking results
-            yolo_confs = predictor.results[i].boxes.conf.cpu().numpy()
-            tracker_confs = predictor.tracker_outputs[i][:, 5]
-            mask = np.in1d(yolo_confs, tracker_confs)
-            
-            if predictor.results[i].masks is not None:
-                predictor.results[i].masks = predictor.results[i].masks[mask]
-                predictor.results[i].boxes = predictor.results[i].boxes[mask]
-            elif predictor.results[i].keypoints is not None:
-                predictor.results[i].boxes = predictor.results[i].boxes[mask]
-                predictor.results[i].keypoints = predictor.results[i].keypoints[mask]
-
-            # overwrite bbox results with tracker predictions
             if predictor.tracker_outputs[i].size != 0:
+                
+                # filter boxes masks and pose results by tracking results
+                predictor.tracker_outputs[i] = predictor.tracker_outputs[i][predictor.tracker_outputs[i][:, 5].argsort()[::-1]]
+                yolo_confs = predictor.results[i].boxes.conf.cpu().numpy()
+                tracker_confs = predictor.tracker_outputs[i][:, 5]
+                mask = np.in1d(yolo_confs, tracker_confs)
+                
+                if predictor.results[i].masks is not None:
+                    predictor.results[i].masks = predictor.results[i].masks[mask]
+                    predictor.results[i].boxes = predictor.results[i].boxes[mask]
+                elif predictor.results[i].keypoints is not None:
+                    predictor.results[i].boxes = predictor.results[i].boxes[mask]
+                    predictor.results[i].keypoints = predictor.results[i].keypoints[mask]
+                
+                # overwrite bbox results with tracker predictions
                 predictor.results[i].boxes = Boxes(
                     # xyxy, (track_id), conf, cls
                     boxes=torch.from_numpy(predictor.tracker_outputs[i]).to(dets.device),
