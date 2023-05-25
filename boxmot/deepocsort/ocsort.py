@@ -104,6 +104,7 @@ class KalmanBoxTracker(object):
         else:
             from filterpy.kalman import KalmanFilter
         self.cls = cls
+        
         self.conf = bbox[-1]
         self.new_kf = new_kf
         if new_kf:
@@ -200,6 +201,7 @@ class KalmanBoxTracker(object):
         if bbox is not None:
             self.frozen = False
             self.cls = cls
+            self.conf = bbox[-1]
             if self.last_observation.sum() >= 0:  # no previous observation
                 previous_box = None
                 for dt in range(self.delta_t, 0, -1):
