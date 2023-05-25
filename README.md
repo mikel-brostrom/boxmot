@@ -216,8 +216,16 @@ $ python examples/yolo_nas_track.py --source 0
 
 ```python
 from boxmot import DeepOCSORT
+from pathlib import Path
 
-tracker = DeepOCSORT()
+
+tracker = DeepOCSORT(
+  model_weights=Path('mobilenetv2_x1_4_dukemtmcreid.pt'),  # which ReID model to use, when applicable
+  device='cuda:0',  # 'cpu', 'cuda:0', 'cuda:1', ... 'cuda:N'
+  fp16=True,  # wether to run the ReID model with half precision or not
+  det_thresh=0.2  # minimum valid detection confidence
+)
+  
 cap = cv.VideoCapture(0)
 while True:
     ret, im = cap.read()
