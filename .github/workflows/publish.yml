@@ -28,16 +28,6 @@ jobs:
           pip install numpy
           pip install -e '.[dev]' --extra-index-url https://download.pytorch.org/whl/cpu
 
-      - name: Create source distribution
-        run: |
-          python setup.py sdist bdist_wheel
-        if: ${{ success() }}
-
-      - name: Twine check  # Checks whether the long description will render correctly on PyPI
-        run: |
-          twine check dist/*
-        if: ${{ success() }}
-
       - name: Get current package version
         id: get_version
         run: |
@@ -51,7 +41,7 @@ jobs:
           current_version="${{ steps.get_version.outputs.version }}"
           IFS='.' read -r -a version_parts <<< "$current_version"
           ((version_parts[2]++))
-          new_version="${version_parts[0]}.${version_parts[1]}.${version_parts[2]}"
+          new_version=".${version_parts[0]}.${version_parts[1]}.${version_parts[2]}"
           echo $new_version
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
         if: ${{ success() }}
@@ -66,9 +56,27 @@ jobs:
         run: |
           git config --local user.name mikel-brostrom
           git add boxmot/__init__.py
-          git commit -m "Update package version"
+          git commit -m "Update package version from $current_version to $new_version"
           git push
         if: ${{ success() }}
+
+      - name: Create source distribution
+        run: |
+          python setup.py sdist bdist_wheel
+        if: ${{ success() }}
+
+      - name: Twine check  # Checks whether the long description will render correctly on PyPI
+        run: |
+          twine check dist/*
+        if: ${{ success() }}
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
+        with:
+          #repository_url: https://test.pypi.org/legacy/
+          password: ${{ secrets.PYPI_TOKEN }}
+          user: __token__
+          verbose: true
 
       - name: Create code release
         id: create_release
@@ -82,12 +90,6 @@ jobs:
           prerelease: false
         if: ${{ success() }}
       
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
-        with:
-          #repository_url: https://test.pypi.org/legacy/
-          password: ${{ secrets.PYPI_TOKEN }}
-          user: __token__
-          verbose: true
+      
 
         
