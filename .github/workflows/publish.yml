@@ -41,7 +41,7 @@ jobs:
       - name: Get current package version
         id: get_version
         run: |
-          current_version=$(python -c "from your_package import __version__; print(__version__)")
+          current_version=$(python -c "from boxmot import __version__; print(__version__)")
           echo "::set-output name=version::$current_version"
         if: ${{ success() }}
 
