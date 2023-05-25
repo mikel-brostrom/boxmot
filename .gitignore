@@ -34,3 +34,4 @@ tf_models/
 build/
 dist/
 *.egg-info/
+boxmot/
