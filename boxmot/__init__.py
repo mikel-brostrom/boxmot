@@ -12,10 +12,11 @@ from boxmot.tracker_zoo import create_tracker
 
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parent  # root directory
+ROOT = FILE.parents[1]  # root directory
 EXAMPLES = ROOT / 'examples'
 WEIGHTS = ROOT / 'examples' / 'weights'
 
 
+# allow simpler imports
 __all__ = '__version__', 'StrongSORT', 'OCSORT', 'BYTETracker', 'BoTSORT',\
-          'DeepOCSORT'  # allow simpler import
+          'DeepOCSORT', 'create_tracker', 'ReIDDetectMultiBackend'
