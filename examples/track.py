@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 from types import SimpleNamespace
 
+from boxmot import ROOT, EXAMPLES, WEIGHTS
 from boxmot.tracker_zoo import create_tracker
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
@@ -15,11 +16,6 @@ from ultralytics.yolo.utils.checks import check_imgsz, print_args
 from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.engine.results import Boxes
 from ultralytics.yolo.data.utils import VID_FORMATS
-
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0].parents[0]  # repo root absolute path
-EXAMPLES = FILE.parents[0]  # examples absolute path
-WEIGHTS = EXAMPLES / 'weights'
 
 
 def on_predict_start(predictor):

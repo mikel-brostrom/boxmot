@@ -20,14 +20,11 @@ import re
 from pathlib import Path
 from val import Evaluator
 
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0].parents[0]  # examples absolute path
-EXAMPLES = FILE.parents[0]  # examples absolute path
-WEIGHTS = EXAMPLES / 'weights'
+from track import run
+from boxmot import ROOT, EXAMPLES, WEIGHTS
 
 from ultralytics.yolo.utils import LOGGER
 from ultralytics.yolo.utils.checks import check_requirements, print_args
-from track import run
 
 
 class Objective(Evaluator):

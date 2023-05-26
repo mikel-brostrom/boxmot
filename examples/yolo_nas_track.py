@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 from types import SimpleNamespace
 
+from boxmot import ROOT, EXAMPLES, WEIGHTS
 from boxmot.tracker_zoo import create_tracker
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
@@ -21,18 +22,12 @@ from super_gradients.training import models
 from super_gradients.training.models.detection_models.yolo_base import YoloPostPredictionCallback
 
 
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0].parents[0]  # repo root absolute path
-EXAMPLES = FILE.parents[0]  # examples absolute path
-WEIGHTS = EXAMPLES / 'weights'
-
 try:
     import super_gradients  # for linear_assignment
 except (ImportError, AssertionError, AttributeError):
     from ultralytics.yolo.utils.checks import check_requirements
-
     check_requirements('super_gradients')  # install
-    import lap
+    import super_gradients
 
 
 def on_predict_start(predictor):

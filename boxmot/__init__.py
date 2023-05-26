@@ -8,14 +8,13 @@ from boxmot.bytetrack.byte_tracker import BYTETracker
 from boxmot.botsort.bot_sort import BoTSORT
 from boxmot.deepocsort.ocsort import OCSort as DeepOCSORT
 from boxmot.deep.reid_multibackend import ReIDDetectMultiBackend
-
-from boxmot.tracker_zoo import create_tracker, get_tracker_config
+from boxmot.tracker_zoo import create_tracker
 
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parent  # root directory
 EXAMPLES = ROOT / 'examples'
-WEIGHTS = ROOT / 'weights'
+WEIGHTS = ROOT / 'examples' / 'weights'
 
 
 __all__ = '__version__', 'StrongSORT', 'OCSORT', 'BYTETracker', 'BoTSORT',\

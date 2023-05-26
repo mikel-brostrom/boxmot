@@ -27,17 +27,13 @@ from tqdm import tqdm
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
+
+from boxmot import ROOT, EXAMPLES, WEIGHTS
+from track import run
+
 from ultralytics.yolo.utils import LOGGER
 from ultralytics.yolo.utils.checks import check_requirements, print_args
 from ultralytics.yolo.utils.files import increment_path
-
-from track import run
-
-
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0].parents[0]  # repo root absolute path
-EXAMPLES = FILE.parents[0]  # examples absolute path
-WEIGHTS = EXAMPLES / 'weights'
 
 
 class Evaluator:
