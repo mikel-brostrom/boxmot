@@ -1,10 +1,12 @@
 from pathlib import Path
+
+from boxmot import ROOT
 from boxmot.strongsort.utils.parser import get_config
 
 
 def get_tracker_config(tracker_type):
     tracking_config = \
-        Path('./boxmot') /\
+        ROOT /\
         tracker_type /\
         'configs' /\
         (tracker_type + '.yaml')
