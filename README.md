@@ -75,20 +75,23 @@ pip install boxmot
 
 Grab a coffee, this may take a few minutes
 
-## Yolov8 tracking example
+## Yolov8 | YOLO-NAS | YOLOX |  tracking examples
 
 <details>
 <summary>Click to expand!</summary>
 
 <details>
-<summary>Yolov8 model</summary>
+<summary>Yolo models</summary>
   
 
 
 ```bash
-$ python examples/track.py --yolo-model yolov8n.pt      # bboxes only
-                                        yolov8n-seg.pt  # bboxes + segmentation masks
-                                        yolov8n-pose.pt # bboxes + pose estimation
+$ python examples/track.py --yolo-model yolov8n       # bboxes only
+  python examples/track.py --yolo-model yolo_nas_s    # bboxes only
+  python examples/track.py --yolo-model yolox_n       # bboxes only
+                                        yolov8n-seg   # bboxes + segmentation masks
+                                        yolov8n-pose  # bboxes + pose estimation
+
 ```
   
   </details>
@@ -194,19 +197,7 @@ $ python examples/evolve.py --tracking-method strongsort --benchmark MOT17 --n-t
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
 
 </details>
-  
 </details>
-  
-## Yolo-NAS tracking example
-  
-<details>
-<summary>Click to expand!</summary>
-  
-```bash
-$ python examples/yolo_nas_track.py --source 0
-```
-  
-</details>  
 
 
 ## Custom object detection model example
