@@ -125,6 +125,8 @@ def run(args):
                 'tracking': predictor.profilers[3].dt * 1E3 / n
             }
 
+            # filter boxes masks and pose results by tracking results
+            model.filter_results(i, predictor)
             # overwrite bbox results with tracker predictions
             model.overwrite_results(i, im0.shape[:2], predictor)
             
