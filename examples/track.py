@@ -127,6 +127,8 @@ def run(args):
 
             # overwrite bbox results with tracker predictions
             model.overwrite_results(i, im0.shape[:2], predictor)
+            # filter boxes masks and pose results by tracking results
+            model.filter_results(i, predictor)
             
             # write inference results to a file or directory   
             if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show:
