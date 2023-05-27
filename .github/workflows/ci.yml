@@ -37,7 +37,6 @@ jobs:
           python --version
           pip --version
           pip list
-        shell: bash
       - name: Tests all tracking options
         shell: bash  # for Windows compatibility
         env:
