@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]   # skip windows-latest for now
+        os: [ubuntu-latest]   # skip windows-latest for
         python-version: [3.9]
         model: ['yolov8n', 'yolo_nas_s', yolox_n]  # yolo models to test
         tracking-methods: ['deepocsort', 'ocsort', 'botsort', 'strongsort', 'bytetrack']  # tracking methods to  test
@@ -43,11 +43,22 @@ jobs:
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
         run: |
-          # deepocsort for all supported yolo models
-          python examples/track.py --yolo-model ${{ matrix.model }} --tracking-method deepocsort --source $IMG
+          # deepocsort fro all supported yolo models
+          python examples/track.py --tracking-method deepocsort --source $IMG
+          python examples/track.py --yolo-model yolo_nas_s --tracking-method deepocsort --source $IMG
+          python examples/track.py --yolo-model yolox_n --tracking-method deepocsort --source $IMG
 
-          # test all trackers
-          python examples/track.py --yolo-model yolov8n --tracking-method ${{ matrix.tracking-methods }} --source $IMG
+          # botsort
+          python examples/track.py --tracking-method botsort --source $IMG
+          
+          # strongsort
+          python examples/track.py --tracking-method strongsort --source $IMG
+          
+          # ocsort
+          python examples/track.py --tracking-method ocsort --source $IMG
+          
+          # bytetrack
+          python examples/track.py --tracking-method bytetrack --source $IMG
           
       - name: Tests tracker with exported reid model
         env:
@@ -66,7 +77,7 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           # tracking with SEG models
-          python examples/track.py --yolo-model yolov8n-seg.pt --source $IMG
+          python examples/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
 
       - name: Test tracking with pose models
         env:
