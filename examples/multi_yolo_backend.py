@@ -7,7 +7,7 @@ from ultralytics.yolo.engine.results import Boxes, Results
 class MultiYolo():
     def __init__(self, model, device):
         self.device = device
-        self.model_name = str(model).lower()
+        self.model_name = str(model.stem).lower()
         if not (isinstance(model, str) or isinstance(model, Path)):
             self.model_name = 'yolov8'
             self.model = model
@@ -17,7 +17,7 @@ class MultiYolo():
             from super_gradients.training import models
             self.model_type = 'yolo_nas'
             self.model = models.get(
-                Models.YOLO_NAS_S,
+                self.model_name,
                 pretrained_weights="coco"
             ).to(self.device)
         elif 'yolox' in self.model_name:
@@ -26,7 +26,7 @@ class MultiYolo():
             from super_gradients.training import models
             self.model_type = 'yolox'
             self.model = models.get(
-                Models.YOLOX_S,
+                self.model_name,
                 pretrained_weights="coco"
             ).to(self.device)
         # already loaded
