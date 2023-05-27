@@ -30,24 +30,22 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip' # caching pip dependencies
       - name: Install requirements
+        shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          # If not importing this prior to installing requirements...
-          # ImportError: lap requires numpy, please "pip install numpy". Workaround...
-          pip install numpy
-          # now lap installation goes through
           pip install -e . pytest --extra-index-url https://download.pytorch.org/whl/cpu
           python --version
           pip --version
           pip list
-        shell: bash
       - name: Tests all tracking options
         shell: bash  # for Windows compatibility
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
         run: |
-          # deepocsort
+          # deepocsort fro all supported yolo models
           python examples/track.py --tracking-method deepocsort --source $IMG
+          python examples/track.py --yolo-model yolo_nas_s --tracking-method deepocsort --source $IMG
+          python examples/track.py --yolo-model yolox_n --tracking-method deepocsort --source $IMG
 
           # botsort
           python examples/track.py --tracking-method botsort --source $IMG
