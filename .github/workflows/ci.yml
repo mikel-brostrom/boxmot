@@ -49,7 +49,7 @@ jobs:
           # deepocsort fro all supported yolo models
           python examples/track.py --tracking-method deepocsort --source $IMG
           python examples/track.py --yolo-model yolo_nas_s --tracking-method deepocsort --source $IMG
-          python examples/track.py --yolo-model yolox_N --tracking-method deepocsort --source $IMG
+          python examples/track.py --yolo-model yolox_n --tracking-method deepocsort --source $IMG
 
           # botsort
           python examples/track.py --tracking-method botsort --source $IMG
