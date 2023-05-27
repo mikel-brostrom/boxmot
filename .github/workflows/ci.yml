@@ -17,9 +17,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: [3.9]
-        model: ['yolov8n', 'yolo_nas_s', yolox_n]  # yolo models to test
-        tracking-methods: ['deepocsort', 'ocsort', 'botsort', 'strongsort', 'bytetrack']  # tracking methods to  test
+        python-version: [3.7, 3.8, 3.9]
+        #model: ['yolov8n', 'yolo_nas_s', yolox_n]  # yolo models to test
+        #tracking-methods: ['deepocsort', 'ocsort', 'botsort', 'strongsort', 'bytetrack']  # tracking methods to  test
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
