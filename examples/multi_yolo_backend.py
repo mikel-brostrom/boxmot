@@ -7,10 +7,12 @@ from ultralytics.yolo.engine.results import Boxes, Results
 class MultiYolo():
     def __init__(self, model, device):
         self.device = device
-        self.model_name = str(model.stem).lower()
         if not (isinstance(model, str) or isinstance(model, Path)):
             self.model_name = 'yolov8'
             self.model = model
+        else:
+            self.model_name = str(model.stem).lower()
+
         if 'yolo_nas' in self.model_name:
             self.try_sg_import()
             from super_gradients.common.object_names import Models
