@@ -76,7 +76,7 @@ class MultiYolo():
                 orig_shape=im0_shape,  # (height, width)
             )
     
-    def filter_results(self, i, im0_shape, predictor):
+    def filter_results(self, i, predictor):
         if predictor.tracker_outputs[i].size != 0:
             # filter boxes masks and pose results by tracking results
             predictor.tracker_outputs[i] = predictor.tracker_outputs[i][predictor.tracker_outputs[i][:, 5].argsort()[::-1]]
