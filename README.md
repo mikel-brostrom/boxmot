@@ -75,7 +75,7 @@ pip install boxmot
 
 Grab a coffee, this may take a few minutes
 
-## Yolov8 | YOLO-NAS | YOLOX |  tracking examples
+## YOLOv8 | YOLO-NAS | YOLOX |  tracking examples
 
 <details>
 <summary>Click to expand!</summary>
