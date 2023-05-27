@@ -1,4 +1,4 @@
-# Real-time multi-object, segmentation and pose tracking using Yolov8 | Yolo-NAS with DeepOCSORT and LightMBN
+# Real-time multi-object, segmentation and pose tracking using Yolov8 | Yolo-NAS | YOLOX with DeepOCSORT and LightMBN
 
 
 <div align="center">
