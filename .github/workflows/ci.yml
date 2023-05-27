@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: [3.8, 3.9, 3.10]
+        python-version: ['3.8', '3.9', '3.10']
         #model: ['yolov8n', 'yolo_nas_s', yolox_n]  # yolo models to test
         #tracking-methods: ['deepocsort', 'ocsort', 'botsort', 'strongsort', 'bytetrack']  # tracking methods to  test
 
