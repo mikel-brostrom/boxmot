@@ -16,6 +16,9 @@ from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.engine.results import Boxes
 from ultralytics.yolo.data.utils import VID_FORMATS
 
+from multi_yolo_backend import MultiYolo
+from utils import write_MOT_results
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0].parents[0]  # repo root absolute path
 EXAMPLES = FILE.parents[0]  # examples absolute path
@@ -40,30 +43,12 @@ def on_predict_start(predictor):
             predictor.args.half
         )
         predictor.trackers.append(tracker)
-                
-                
-def write_MOT_results(txt_path, results, frame_idx, i):
-    nr_dets = len(results.boxes)
-    frame_idx = torch.full((1, 1), frame_idx + 1)
-    frame_idx = frame_idx.repeat(nr_dets, 1)
-    dont_care = torch.full((nr_dets, 3), -1)
-    i = torch.full((nr_dets, 1), i)
-    mot = torch.cat([
-        frame_idx,
-        results.boxes.id.unsqueeze(1).to('cpu'),
-        ops.xyxy2ltwh(results.boxes.xyxy).to('cpu'),
-        dont_care,
-        i
-    ], dim=1)
-
-    with open(str(txt_path) + '.txt', 'ab') as f:  # append binary mode
-        np.savetxt(f, mot.numpy(), fmt='%d')  # save as ints instead of scientific notation
 
 
 @torch.no_grad()
 def run(args):
     
-    model = YOLO(args['yolo_model'])
+    model = YOLO(args['yolo_model'] if 'v8' in str(args['yolo_model']) else 'yolov8n')
     overrides = model.overrides.copy()
     model.predictor = TASK_MAP[model.task][3](overrides=overrides, _callbacks=model.callbacks)
     
@@ -92,26 +77,31 @@ def run(args):
         predictor.done_warmup = True
     predictor.seen, predictor.windows, predictor.batch, predictor.profilers = 0, [], None, (ops.Profile(), ops.Profile(), ops.Profile(), ops.Profile())
     predictor.add_callback('on_predict_start', on_predict_start)
-    
     predictor.run_callbacks('on_predict_start')
+    model = MultiYolo(
+        model=model.predictor.model if 'v8' in str(args['yolo_model']) else args['yolo_model'],
+        device=predictor.device
+    )
     for frame_idx, batch in enumerate(predictor.dataset):
         predictor.run_callbacks('on_predict_batch_start')
         predictor.batch = batch
         path, im0s, vid_cap, s = batch
         visualize = increment_path(save_dir / Path(path[0]).stem, exist_ok=True, mkdir=True) if predictor.args.visualize and (not predictor.dataset.source_type.tensor) else False
 
+        n = len(im0s)
+        predictor.results = [None] * n
+        
         # Preprocess
         with predictor.profilers[0]:
             im = predictor.preprocess(im0s)
 
         # Inference
         with predictor.profilers[1]:
-            preds = predictor.model(im, augment=predictor.args.augment, visualize=predictor.args.visualize)
+            preds = model(im, im0s)
 
-
-        # Postprocess
+        # Postprocess moved to MultiYolo
         with predictor.profilers[2]:
-            predictor.results = predictor.postprocess(preds, im, im0s)
+            predictor.results = model.postprocess(path, preds, im, im0s, predictor)
         predictor.run_callbacks('on_predict_postprocess_end')
         
         # Visualize, save, write results
@@ -135,30 +125,8 @@ def run(args):
                 'tracking': predictor.profilers[3].dt * 1E3 / n
             }
 
-            if predictor.tracker_outputs[i].size != 0:
-                
-                # filter boxes masks and pose results by tracking results
-                predictor.tracker_outputs[i] = predictor.tracker_outputs[i][predictor.tracker_outputs[i][:, 5].argsort()[::-1]]
-                yolo_confs = predictor.results[i].boxes.conf.cpu().numpy()
-                tracker_confs = predictor.tracker_outputs[i][:, 5]
-                mask = np.in1d(yolo_confs, tracker_confs)
-                
-                if predictor.results[i].masks is not None:
-                    predictor.results[i].masks = predictor.results[i].masks[mask]
-                    predictor.results[i].boxes = predictor.results[i].boxes[mask]
-                elif predictor.results[i].keypoints is not None:
-                    predictor.results[i].boxes = predictor.results[i].boxes[mask]
-                    predictor.results[i].keypoints = predictor.results[i].keypoints[mask]
-                
-                # overwrite bbox results with tracker predictions
-                predictor.results[i].boxes = Boxes(
-                    # xyxy, (track_id), conf, cls
-                    boxes=torch.from_numpy(predictor.tracker_outputs[i]).to(dets.device),
-                    orig_shape=im0.shape[:2],  # (height, width)
-                )
-                
-                #len_boxes = len(predictor.results[i].boxes)
-                #predictor.results[i].masks = predictor.results[i].masks[0:len_boxes]
+            # overwrite bbox results with tracker predictions
+            model.overwrite_results(i, im0.shape[:2], predictor)
             
             # write inference results to a file or directory   
             if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show:
@@ -213,7 +181,7 @@ def run(args):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
+    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')  

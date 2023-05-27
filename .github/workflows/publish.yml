@@ -54,6 +54,8 @@ jobs:
 
       - name: Commit and push updated version
         run: |
+          current_version="${{ steps.get_version.outputs.version }}"
+          new_version="${{ steps.increment_version.outputs.new_version }}"
           git config --local user.email yolov5.deepsort.pytorch@gmail.com
           git config --local user.name mikel-brostrom
           git add boxmot/__init__.py
