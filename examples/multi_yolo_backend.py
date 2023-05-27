@@ -40,7 +40,7 @@ class MultiYolo():
             import super_gradients  # for linear_assignment
         except (ImportError, AssertionError, AttributeError):
             from ultralytics.yolo.utils.checks import check_requirements
-            check_requirements('super_gradients', cmds='--user')  # install
+            check_requirements('super-gradients', cmds='--user')  # install
             
     def __call__(self, im, im0s):
         if 'yolo_nas' in self.model_name or 'yolox' in self.model_name:
