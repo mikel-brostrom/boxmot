@@ -20,7 +20,7 @@
 
 This repo contains a collections of state-of-the-art multi-object trackers. Some of them are based on motion only, others on motion + appearance description. For the latter, state-of-the-art ReID model are downloaded automatically as well. Supported ones at the moment are: [DeepOCSORT](https://arxiv.org/abs/2302.11813) [LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [BoTSORT](https://arxiv.org/abs/2206.14651) [LightMBN](https://github.com/jixunbo/LightMBN)[](https://arxiv.org/pdf/2101.10774.pdf), [StrongSORT](https://github.com/dyhBUPT/StrongSORT)[](https://arxiv.org/abs/2202.13514) [LightMBN](https://github.com/jixunbo/LightMBN)[](https://arxiv.org/pdf/2101.10774.pdf), [OCSORT](https://github.com/noahcao/OC_SORT)[](https://arxiv.org/abs/2203.14360) and [ByteTrack](https://github.com/ifzhang/ByteTrack)[](https://arxiv.org/abs/2110.06864).
 
-We provide examples on how to use this package together with popular object detection models. Right now [Yolov8](https://github.com/ultralytics) and [Yolo-NAS](https://github.com/Deci-AI/super-gradients) are available. YOLOX coming soon.
+We provide examples on how to use this package together with popular object detection models. Right now [Yolov8](https://github.com/ultralytics), [Yolo-NAS](https://github.com/Deci-AI/super-gradients) and YOLOX are available.
 
 <details>
 <summary>Tutorials</summary>
@@ -69,11 +69,13 @@ Everything is designed with simplicity and flexibility in mind. We don't hyperfo
 
 ## Installation
 
+
 ```
 pip install boxmot
 ```
 
-Grab a coffee, this may take a few minutes
+in a [**Python>=3.8**](https://www.python.org/) environment with [**PyTorch>=1.7**](https://pytorch.org/get-started/locally/). Grab a coffee, this may take a few minutes.
+
 
 ## YOLOv8 | YOLO-NAS | YOLOX |  tracking examples
 
