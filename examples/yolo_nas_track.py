@@ -30,9 +30,8 @@ try:
     import super_gradients  # for linear_assignment
 except (ImportError, AssertionError, AttributeError):
     from ultralytics.yolo.utils.checks import check_requirements
-
     check_requirements('super_gradients')  # install
-    import lap
+    import super_gradients
 
 
 def on_predict_start(predictor):
@@ -128,7 +127,8 @@ def run(args):
                     prediction.labels[:, np.newaxis]
                 ], axis=1
             )
-            preds = torch.from_numpy(preds).int()
+            preds = torch.from_numpy(preds)
+            preds[:, 0:4] = preds[:, 0:4].int()
         predictor.results = [None]
         # # Postprocess
         with predictor.profilers[2]:
@@ -149,14 +149,11 @@ def run(args):
                 dets = predictor.results[i].boxes.data
                 # get tracker predictions
                 predictor.tracker_outputs[i] = predictor.trackers[i].update(dets, im0)
-                print(predictor.tracker_outputs[i].shape)
-                print(predictor.tracker_outputs[i])
             predictor.results[i].speed = {
                 'preprocess': predictor.profilers[0].dt * 1E3 / n,
                 'inference': predictor.profilers[1].dt * 1E3 / n,
                 'postprocess': predictor.profilers[2].dt * 1E3 / n,
                 'tracking': predictor.profilers[3].dt * 1E3 / n
-            
             }
 
             # overwrite bbox results with tracker predictions
