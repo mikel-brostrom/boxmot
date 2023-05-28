@@ -128,6 +128,7 @@ class StrongSORT(object):
         h = int(y2 - y1)
         return t, l, w, h
 
+    @torch.no_grad()
     def _get_features(self, bbox_xywh, ori_img):
         im_crops = []
         for box in bbox_xywh:

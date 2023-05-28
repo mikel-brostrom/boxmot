@@ -7,6 +7,7 @@ from .matching import iou_distance, fuse_score, linear_assignment, embedding_dis
 from .gmc import GMC
 from .basetrack import BaseTrack, TrackState
 from .kalman_filter import KalmanFilter
+import torch
 
 # from fast_reid.fast_reid_interfece import FastReIDInterface
 
@@ -263,6 +264,7 @@ class BoTSORT(object):
         self.proximity_thresh = proximity_thresh
         self.appearance_thresh = appearance_thresh
         self.match_thresh = match_thresh
+        print(device)
 
         self.model = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
 
@@ -482,6 +484,7 @@ class BoTSORT(object):
         y2 = min(int(y + h / 2), self.height - 1)
         return x1, y1, x2, y2
 
+    @torch.no_grad()
     def _get_features(self, bbox_xywh, ori_img):
         im_crops = []
         for box in bbox_xywh:
