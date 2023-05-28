@@ -264,7 +264,6 @@ class BoTSORT(object):
         self.proximity_thresh = proximity_thresh
         self.appearance_thresh = appearance_thresh
         self.match_thresh = match_thresh
-        print(device)
 
         self.model = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
 
