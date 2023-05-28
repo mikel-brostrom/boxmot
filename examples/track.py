@@ -80,7 +80,8 @@ def run(args):
     predictor.run_callbacks('on_predict_start')
     model = MultiYolo(
         model=model.predictor.model if 'v8' in str(args['yolo_model']) else args['yolo_model'],
-        device=predictor.device
+        device=predictor.device,
+        args=predictor.args
     )
     for frame_idx, batch in enumerate(predictor.dataset):
         predictor.run_callbacks('on_predict_batch_start')
@@ -189,6 +190,7 @@ def parse_opt():
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')  
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--conf', type=float, default=0.5, help='confidence threshold')
+    parser.add_argument('--iou', type=float, default=0.7, help='intersection over union (IoU) threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--show', action='store_true', help='display tracking video results')
     parser.add_argument('--save', action='store_true', help='save video tracking results')
