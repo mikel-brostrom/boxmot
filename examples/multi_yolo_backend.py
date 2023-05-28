@@ -5,7 +5,8 @@ from ultralytics.yolo.engine.results import Boxes, Results
 
 
 class MultiYolo():
-    def __init__(self, model, device):
+    def __init__(self, model, device, args):
+        self.args = args
         self.device = device
         if not (isinstance(model, str) or isinstance(model, Path)):
             self.model_name = 'yolov8'
@@ -44,7 +45,13 @@ class MultiYolo():
             
     def __call__(self, im, im0s):
         if 'yolo_nas' in self.model_name or 'yolox' in self.model_name:
-            prediction = next(iter(self.model.predict(im0s, iou=0.7, conf=0.4))).prediction # Returns a generator of the batch, which here is 1
+            print(self.args)
+            prediction = next(iter(
+                self.model.predict(im0s,
+                                   iou=self.args.iou,
+                                   conf=self.args.conf)
+                )
+            ).prediction # Returns a generator of the batch, which here is 1
             preds = np.concatenate(
                 [
                     prediction.bboxes_xyxy,
