@@ -3,7 +3,7 @@
 """
 from __future__ import print_function
 
-
+import torch
 import numpy as np
 from .association import *
 from .cmc import CMCComputer
@@ -528,6 +528,7 @@ class OCSort(object):
         y2 = min(int(y + h / 2), self.height - 1)
         return x1, y1, x2, y2
     
+    @torch.no_grad()
     def _get_features(self, bbox_xyxy, ori_img):
         im_crops = []
         for box in bbox_xyxy:
