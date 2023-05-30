@@ -45,7 +45,6 @@ class MultiYolo():
             
     def __call__(self, im, im0s):
         if 'yolo_nas' in self.model_name or 'yolox' in self.model_name:
-            print(self.args)
             prediction = next(iter(
                 self.model.predict(im0s,
                                    iou=self.args.iou,
