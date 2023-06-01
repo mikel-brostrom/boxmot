@@ -7,7 +7,7 @@ import torch
 import numpy as np
 from .association import *
 from .cmc import CMCComputer
-from ..deep.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.deep.reid_multibackend import ReIDDetectMultiBackend
 
 
 
