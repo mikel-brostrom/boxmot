@@ -13,10 +13,10 @@ from os.path import exists as file_exists
 
 
 from ultralytics.yolo.utils.checks import check_requirements, check_version
-from ultralytics.yolo.utils import LOGGER
-from .reid_model_factory import (show_downloadeable_models, get_model_url, get_model_name,
+from boxmot.utils import logger as LOGGER
+from boxmot.deep.reid_model_factory import (show_downloadeable_models, get_model_url, get_model_name,
                                                           download_url, load_pretrained_weights)
-from .models import build_model
+from boxmot.deep.models import build_model
 
 
 def check_suffix(file='yolov5s.pt', suffix=('.pt',), msg=''):
