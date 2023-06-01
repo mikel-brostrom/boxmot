@@ -10,9 +10,9 @@ from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.detection import Detection
 from .sort.tracker import Tracker
 
-from ..deep.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.deep.reid_multibackend import ReIDDetectMultiBackend
 
-from boxmot.utils import xyxy2xywh
+from boxmot.utils.ops import xyxy2xywh
 
 
 class StrongSORT(object):
