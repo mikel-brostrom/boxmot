@@ -1,6 +1,13 @@
+import torch
+import os
+import platform
+from boxmot import __version__
+from boxmot.utils import logger as LOGGER
+
+
 def select_device(device='', batch=0, newline=False, verbose=True):
     """Selects PyTorch Device. Options are device = None or 'cpu' or 0 or '0' or '0,1,2,3'."""
-    s = f'Ultralytics YOLOv{__version__} 🚀 Python-{platform.python_version()} torch-{torch.__version__} '
+    s = f'Yolo Tracking v{__version__} 🚀 Python-{platform.python_version()} torch-{torch.__version__} '
     device = str(device).lower()
     for remove in 'cuda:', 'none', '(', ')', '[', ']', "'", ' ':
         device = device.replace(remove, '')  # to string, 'cuda:0' -> '0' and '(0, 1)' -> '0,1'
@@ -12,7 +19,6 @@ def select_device(device='', batch=0, newline=False, verbose=True):
         visible = os.environ.get('CUDA_VISIBLE_DEVICES', None)
         os.environ['CUDA_VISIBLE_DEVICES'] = device  # set environment variable - must be before assert is_available()
         if not (torch.cuda.is_available() and torch.cuda.device_count() >= len(device.replace(',', ''))):
-            LOGGER.info(s)
             install = 'See https://pytorch.org/get-started/locally/ for up-to-date torch install instructions if no ' \
                       'CUDA devices are seen by torch.\n' if torch.cuda.device_count() == 0 else ''
             raise ValueError(f"Invalid CUDA 'device={device}' requested."
@@ -41,7 +47,7 @@ def select_device(device='', batch=0, newline=False, verbose=True):
     else:  # revert to CPU
         s += 'CPU\n'
         arg = 'cpu'
-
-    if verbose and RANK == -1:
-        LOGGER.info(s if newline else s.rstrip())
+        
+        
+    LOGGER.info(s)
     return torch.device(arg)
