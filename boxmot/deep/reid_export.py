@@ -17,7 +17,7 @@ tr = TestRequirements()
 from boxmot.deep.models import build_model
 from boxmot.deep.reid_model_factory import get_model_name, load_pretrained_weights
 from boxmot.utils import WEIGHTS, logger
-from ultralytics.yolo.utils.torch_utils import select_device
+from boxmot.utils.torch_utils import select_device
 
 
 def file_size(path):
@@ -71,7 +71,8 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
         logger.info(f'\nStarting export with onnx {onnx.__version__}...')
 
         if dynamic:
-            dynamic = {'images': {0: 'batch'}, 'output': {0: 'batch'}}  # input --> shape(1,3,640,640), output --> shape(1,25200,85)
+            # input --> shape(N,3,640,640), output --> shape(N, feature-size)
+            dynamic = {'images': {0: 'batch'}, 'output': {0: 'batch'}}
 
         torch.onnx.export(
             model.half() if fp16 else model.cpu(),
