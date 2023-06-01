@@ -8,6 +8,10 @@ import cv2
 from types import SimpleNamespace
 
 from boxmot.tracker_zoo import create_tracker
+from boxmot.utils.checks import TestRequirements
+tr = TestRequirements()
+tr.check_packages(('ultralytics',))  # install
+
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
 from ultralytics.yolo.utils import LOGGER, SETTINGS, colorstr, ops, is_git_dir, IterableSimpleNamespace
