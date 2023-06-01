@@ -4,13 +4,13 @@ torchvision>=0.8.1
 numpy==1.23.1           # otherwise issues with track eval
 loguru>=0.7.0
 opencv-python>=4.6.0
-PyYAML>=5.3.1
+PyYAML>=5.3.1           # read tracker configs
 pandas>=1.1.4           # export matrix
-gdown                   # gcloud model download
+gdown>=4.7.1            # google drive model download
 
 # tracker-specific packages ----------------------------------------------------
 
-filterpy # OCSORT
+filterpy=>1.4.5         # OCSORT & DeepOCSORT
 
 # Export ----------------------------------------------------------------------
 
