@@ -10,7 +10,7 @@ from .kalman_filter import KalmanFilter
 from .matching import iou_distance, fuse_score, linear_assignment
 from .basetrack import BaseTrack, TrackState
 
-from ultralytics.yolo.utils.ops import xywh2xyxy, xyxy2xywh
+from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):
