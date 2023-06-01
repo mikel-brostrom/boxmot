@@ -10,7 +10,7 @@ gdown>=4.7.1            # google drive model download
 
 # tracker-specific packages ----------------------------------------------------
 
-filterpy=>1.4.5         # OCSORT & DeepOCSORT
+filterpy>=1.4.5         # OCSORT & DeepOCSORT
 
 # Export ----------------------------------------------------------------------
 
