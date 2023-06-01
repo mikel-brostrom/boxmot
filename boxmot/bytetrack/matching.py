@@ -9,7 +9,7 @@ import pkg_resources
 
 from .kalman_filter import chi2inv95
 import time
-from boxmot.utils import TestRequirements
+from boxmot.utils.checks import TestRequirements
 
 try:
     import lap
