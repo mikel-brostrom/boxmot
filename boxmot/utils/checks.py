@@ -2,7 +2,7 @@ from pathlib import Path
 import subprocess
 import pkg_resources
 
-from . import REQUIREMENTS
+from boxmot.utils import REQUIREMENTS
 
 
 class TestRequirements():
