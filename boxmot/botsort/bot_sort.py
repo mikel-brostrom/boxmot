@@ -9,8 +9,8 @@ from .basetrack import BaseTrack, TrackState
 from .kalman_filter import KalmanFilter
 import torch
 
-from ..deep.reid_multibackend import ReIDDetectMultiBackend
-from boxmot.utils import xyxy2xywh, xywh2xyxy
+from boxmot.deep.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.utils.ops import xyxy2xywh, xywh2xyxy
 
 
 class STrack(BaseTrack):
