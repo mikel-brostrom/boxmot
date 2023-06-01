@@ -9,10 +9,8 @@ from .basetrack import BaseTrack, TrackState
 from .kalman_filter import KalmanFilter
 import torch
 
-# from fast_reid.fast_reid_interfece import FastReIDInterface
-
 from ..deep.reid_multibackend import ReIDDetectMultiBackend
-from ultralytics.yolo.utils.ops import xyxy2xywh, xywh2xyxy
+from boxmot.utils import xyxy2xywh, xywh2xyxy
 
 
 class STrack(BaseTrack):
