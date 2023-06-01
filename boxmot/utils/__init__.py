@@ -4,7 +4,7 @@ from pathlib import Path
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[2]  # root directory
 EXAMPLES = ROOT / 'examples'
-WEIGHTS = ROOT / 'weights'
+WEIGHTS = ROOT / 'examples' / 'weights'
 REQUIREMENTS = ROOT / 'requirements.txt'
 
 # global logger
