@@ -1,30 +1,29 @@
-# pip install -r requirements.txt
-ultralytics==8.0.98
+# base -------------------------------------------------------------------------
+torch>=1.7.0
+torchvision>=0.8.1
+numpy==1.23.1           # otherwise issues with track eval
+loguru>=0.7.0
+opencv-python>=4.6.0
+PyYAML>=5.3.1
+pandas>=1.1.4           # export matrix
+gdown                   # gcloud model download
 
-gitpython
-tensorboard
-numpy==1.23.1  # otherwise issues with track eval
+# tracker-specific packages ----------------------------------------------------
 
-# StrongSORT ------------------------------------------------------------------
-easydict
-
-# torchreid -------------------------------------------------------------------
-gdown
-
-# OCSORT ----------------------------------------------------------------------
-filterpy
+filterpy # OCSORT
 
 # Export ----------------------------------------------------------------------
-# onnx>=1.12.0  # ONNX export
-# onnxsim>=0.4.1  # ONNX simplifier
-# nvidia-pyindex  # TensorRT export
-# nvidia-tensorrt  # TensorRT export
-# openvino-dev>=2022.3  # OpenVINO export
-# onnx2tf>=1.10.0
 
+# onnx>=1.12.0          # ONNX export
+# onnxsim>=0.4.1        # ONNX simplifier
+# nvidia-pyindex        # TensorRT export
+# nvidia-tensorrt       # TensorRT export
+# openvino-dev>=2022.3  # OpenVINO export
+# onnx2tf>=1.10.0       # TFLite export
 
 # Hyperparam search -----------------------------------------------------------
-# optuna
-# plotly  # for hp importance and pareto front plots
+
+# optuna                # genetic algo
+# plotly                # hyper param importance and pareto front plots
 # kaleido
 # joblib
