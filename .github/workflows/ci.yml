@@ -79,13 +79,13 @@ jobs:
       #     # tracking with SEG models
       #     python examples/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
 
-      # - name: Test tracking with pose models
-      #   env:
-      #     IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
-      #   shell: bash  # for Windows compatibility
-      #   run: |
-      #     # tracking with POSE models
-      #     python3 examples/track.py --yolo-model yolov8n-pose.pt --source $IMG --imgsz 320
+      - name: Test tracking with pose models
+        env:
+          IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
+        shell: bash  # for Windows compatibility
+        run: |
+          # tracking with POSE models
+          python3 examples/track.py --yolo-model yolov8n.pt --source $IMG --imgsz 320
 
       # - name: Test validation on MOT17 subset
       #   shell: bash  # for Windows compatibility
