@@ -1,18 +1,14 @@
-# Trial number:      0
-# HOTA, MOTA, IDF1:  [58.899, 45.332, 64.646]
-deepocsort:
-  alpha_fixed_emb: 0.9122881591147693
-  asso_func: giou
-  aw_off: false
-  aw_param: 0.557644552531807
-  cmc_off: false
-  conf_thres: 0.3912975993275593
-  delta_t: 1
-  det_thresh: 0
-  embedding_off: false
-  inertia: 0.3941737016672115
-  iou_thresh: 0.22136877277096445
-  max_age: 50
-  min_hits: 1
-  new_kf_off: false
-  w_association_emb: 0.8475316645583285
+alpha_fixed_emb: 0.9217945107294758
+asso_func: iou
+aw_off: true
+aw_param: 0.431336052467765
+cmc_off: true
+delta_t: 3
+det_thresh: 0.1
+embedding_off: false
+inertia: 0.11282583500843651
+iou_thresh: 0.21251708690170096
+max_age: 40
+min_hits: 4
+new_kf_off: false
+w_association_emb: 0.5677451432405688
