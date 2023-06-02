@@ -18,7 +18,6 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
     with open(tracker_config, "r") as f:
         cfg = yaml.load(f.read(), Loader=yaml.FullLoader)
     cfg = SimpleNamespace(**cfg)  # easier dict acces by dot, instead of ['']
-    print(cfg)
     
     if tracker_type == 'strongsort':
         from boxmot.strongsort.strong_sort import StrongSORT
@@ -81,7 +80,6 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
         return botsort
     elif tracker_type == 'deepocsort':
         from boxmot.deepocsort.ocsort import OCSort
-        print(cfg)
         deepocsort = OCSort(
             reid_weights,
             device,
