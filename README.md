@@ -69,6 +69,8 @@ Everything is designed with simplicity and flexibility in mind. We don't hyperfo
 
 ## Installation
 
+Start with an environment with [**Python>=3.8**](https://www.python.org/) and [**PyTorch>=1.7**](https://pytorch.org/get-started/locally/).
+
 If you want to run the YOLOv8, YOLO-NAS or YOLOX examples:
 
 ```
@@ -81,8 +83,6 @@ If you only want to import the tracking modules:
 ```
 pip install boxmot
 ```
-
-in a [**Python>=3.8**](https://www.python.org/) environment with [**PyTorch>=1.7**](https://pytorch.org/get-started/locally/)
 
 
 ## YOLOv8 | YOLO-NAS | YOLOX |  tracking examples
