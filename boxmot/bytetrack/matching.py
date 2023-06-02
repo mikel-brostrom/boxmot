@@ -2,19 +2,23 @@ import cv2
 import numpy as np
 import scipy
 from scipy.spatial.distance import cdist
+from pathlib import Path
+import pkg_resources
+
+
 
 from .kalman_filter import chi2inv95
 import time
+from boxmot.utils.checks import TestRequirements
 
 try:
-    import lap  # for linear_assignment
-
-    assert lap.__version__  # verify package is not directory
-except (ImportError, AssertionError, AttributeError):
-    from ultralytics.yolo.utils.checks import check_requirements
-
-    check_requirements('lap>=0.4')  # install
     import lap
+except (ImportError, AssertionError, AttributeError):
+    tr = TestRequirements()
+    tr.check_requirements()
+    tr.check_packages(['lap>=0.4'])
+    import lap
+
 
 def merge_matches(m1, m2, shape):
     O,P,Q = shape
