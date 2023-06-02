@@ -1,6 +1,10 @@
 from pathlib import Path
 import numpy as np
 import torch
+
+from boxmot.utils.checks import TestRequirements
+tr = TestRequirements()
+
 from ultralytics.yolo.engine.results import Boxes, Results
 
 
@@ -40,8 +44,7 @@ class MultiYolo():
         try:
             import super_gradients  # for linear_assignment
         except (ImportError, AssertionError, AttributeError):
-            from ultralytics.yolo.utils.checks import check_requirements
-            check_requirements('super-gradients==3.1.1')  # install
+            tr.check_packages(('super-gradients==3.1.1',))  # install
             
     def __call__(self, im, im0s):
         if 'yolo_nas' in self.model_name or 'yolox' in self.model_name:
