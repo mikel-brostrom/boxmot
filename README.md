@@ -69,6 +69,14 @@ Everything is designed with simplicity and flexibility in mind. We don't hyperfo
 
 ## Installation
 
+If you want to run the YOLOv8, YOLO-NAS or YOLOX examples:
+
+```
+git clone https://github.com/mikel-brostrom/yolo_tracking.git
+pip install -v -e .
+```
+
+If you only want to import the tracking modules:
 
 ```
 pip install boxmot
