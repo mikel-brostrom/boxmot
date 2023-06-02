@@ -23,7 +23,7 @@ from val import Evaluator
 from boxmot.utils import ROOT, WEIGHTS
 from track import run
 
-from ultralytics.yolo.utils import LOGGER
+from boxmot.utils import logger
 from ultralytics.yolo.utils.checks import check_requirements, print_args
 
 
@@ -182,6 +182,7 @@ class Objective(Evaluator):
             }
                         
         # overwrite existing config for tracker
+        logger.info(f"Writing newly generated config for trial")
         with open(self.opt.tracking_config, 'w') as f:
             data = yaml.dump(d, f)   
     
@@ -216,11 +217,10 @@ def print_best_trial_metric_results(study, objectives):
     """
     for ob in enumerate(objectives):  
         trial_with_highest_ob = max(study.best_trials, key=lambda t: t.values[0])
-        print(f"Trial with highest {ob}: ")
-        print(f"\tnumber: {trial_with_highest_ob.number}")
-        print(f"\tparams: {trial_with_highest_ob.params}")
-        print(f"\tvalues: {trial_with_highest_ob.values}")
-
+        logger.info(f"Trial with highest {ob}: ")
+        logger.info(f"\tnumber: {trial_with_highest_ob.number}")
+        logger.info(f"\tvalues: {trial_with_highest_ob.values}")
+        logger.info(f"\tparams: {trial_with_highest_ob.params}")
     
     
 def save_plots(opt, study, objectives):
@@ -258,7 +258,7 @@ def write_best_HOTA_params_to_config(opt, study):
         None
     """
     trial_with_highest_HOTA = max(study.best_trials, key=lambda t: t.values[0])
-    d = {opt.tracking_method: trial_with_highest_HOTA.params}
+    d = trial_with_highest_HOTA.params
     with open(opt.tracking_config, 'w') as f:
         f.write(f'# Trial number:      {trial_with_highest_HOTA.number}\n')
         f.write(f'# HOTA, MOTA, IDF1:  {trial_with_highest_HOTA.values}\n')
@@ -335,7 +335,6 @@ if __name__ == "__main__":
         with open(opt.tracking_config, 'r') as f:
             params = yaml.load(f, Loader=yaml.loader.SafeLoader)
             study.enqueue_trial(params)
-            print(study.trials)
 
     continuous_study_save_cb = ContinuousStudySave(opt.tracking_method)
     study.optimize(Objective(opt), n_trials=opt.n_trials, callbacks=[continuous_study_save_cb])
