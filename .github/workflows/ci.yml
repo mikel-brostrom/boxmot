@@ -44,21 +44,21 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
         run: |
           # deepocsort fro all supported yolo models
-          python examples/track.py --tracking-method deepocsort --source $IMG
-          python examples/track.py --yolo-model yolo_nas_s --tracking-method deepocsort --source $IMG
-          python examples/track.py --yolo-model yolox_n --tracking-method deepocsort --source $IMG
+          python examples/track.py --tracking-method deepocsort --source $IMG --imgsz 320
+          python examples/track.py --yolo-model yolo_nas_s --tracking-method deepocsort --source $IMG --imgsz 320
+          python examples/track.py --yolo-model yolox_n --tracking-method deepocsort --source $IMG --imgsz 320
 
           # botsort
-          python examples/track.py --tracking-method botsort --source $IMG
+          python examples/track.py --tracking-method botsort --source $IMG --imgsz 320
           
           # strongsort
-          python examples/track.py --tracking-method strongsort --source $IMG
+          python examples/track.py --tracking-method strongsort --source $IMG --imgsz 320
           
           # ocsort
-          python examples/track.py --tracking-method ocsort --source $IMG
+          python examples/track.py --tracking-method ocsort --source $IMG --imgsz 320
           
           # bytetrack
-          python examples/track.py --tracking-method bytetrack --source $IMG
+          python examples/track.py --tracking-method bytetrack --source $IMG --imgsz 320
           
       - name: Tests tracker with exported reid model
         env:
@@ -69,7 +69,7 @@ jobs:
           python boxmot/deep/reid_export.py  # defaults to torchscript
           
           # strongsort w. exported reid model
-          python examples/track.py --reid-model examples/weights/mobilenetv2_x1_4_dukemtmcreid.torchscript --source $IMG
+          python examples/track.py --reid-model examples/weights/mobilenetv2_x1_4_dukemtmcreid.torchscript --source $IMG --imgsz 320
       
       - name: Test tracking with seg models
         env:
@@ -85,19 +85,19 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           # tracking with POSE models
-          python3 examples/track.py --yolo-model yolov8n-pose.pt --source $IMG
+          python3 examples/track.py --yolo-model weights/yolov8n.pt --source $IMG --imgsz 320
 
       - name: Test validation on MOT17 subset
         shell: bash  # for Windows compatibility
         run: |
           # validation on a few MOT17 imges
-          python examples/val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini
+          python examples/val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini --imgsz 320
 
       - name: Test evolution on MOT17 subset
         shell: bash  # for Windows compatibility
         run: |
           # evolve a for a single set of parameters
-          python examples/evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1
+          python examples/evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1 --imgsz 320
       
       - name: Pytest tests
         shell: bash  # for Windows compatibility
