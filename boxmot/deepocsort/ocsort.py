@@ -320,7 +320,7 @@ class OCSort(object):
         model_weights,
         device,
         fp16,
-        det_thresh,
+        det_thresh=0.3,
         max_age=30,
         min_hits=3,
         iou_threshold=0.3,
