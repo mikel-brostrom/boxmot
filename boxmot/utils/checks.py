@@ -3,6 +3,7 @@ import subprocess
 import pkg_resources
 
 from boxmot.utils import REQUIREMENTS
+from boxmot.utils import logger
 
 
 class TestRequirements():
@@ -23,9 +24,10 @@ class TestRequirements():
             except Exception as e:
                 s += f'"{r}" '
         if s:
-            print(f'\nMissing packages: {s}\nAtempting installation...')
+            logger.warning(f'\nMissing packages: {s}\nAtempting installation...')
             try:
                 subprocess.check_output(f'pip install --no-cache {s} {cmds}', shell=True, stderr=subprocess.STDOUT)
             except Exception as e:
-                print(e)
+                logger.error(e)
                 exit()
+            logger.info('All the missing packages where installed successfully')
