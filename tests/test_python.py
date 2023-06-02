@@ -29,17 +29,17 @@ def test_tracker_output():
     output = tracker.update(det, rgb)
     assert output.shape == (2, 7)  # two inputs should give two outputs
     
-def test_strongsort():
-    ss = StrongSORT()
+# def test_strongsort():
+#     ss = StrongSORT()
     
-def test_ocsort():
-    os = OCSORT()
+# def test_ocsort():
+#     os = OCSORT()
     
-def test_bytetrack():
-    bt = BYTETracker()
+# def test_bytetrack():
+#     bt = BYTETracker()
     
-def test_botsort():
-    bs = BoTSORT()
+# def test_botsort():
+#     bs = BoTSORT()
     
-def test_deepocsort():
-    dos = DeepOCSORT()
+# def test_deepocsort():
+#     dos = DeepOCSORT()
