@@ -82,7 +82,7 @@ If you only want to import the tracking modules:
 pip install boxmot
 ```
 
-in a [**Python>=3.8**](https://www.python.org/) environment with [**PyTorch>=1.7**](https://pytorch.org/get-started/locally/). Grab a coffee, this may take a few minutes.
+in a [**Python>=3.8**](https://www.python.org/) environment with [**PyTorch>=1.7**](https://pytorch.org/get-started/locally/)
 
 
 ## YOLOv8 | YOLO-NAS | YOLOX |  tracking examples
