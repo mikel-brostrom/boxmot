@@ -77,15 +77,15 @@ class Objective(Evaluator):
             max_unmatched_preds = trial.suggest_categorical("max_unmatched_preds", [0])
 
             d = {
-                'ecc': ecc,
-                'mc_lambda': mc_lambda,
-                'ema_alpha': ema_alpha,
-                'max_dist':  max_dist,
-                'max_iou_dist': max_iou_dist,
-                'max_unmatched_preds': max_unmatched_preds,
-                'max_age': max_age,
-                'n_init': n_init,
-                'nn_budget': nn_budget
+                    'ecc': ecc,
+                    'mc_lambda': mc_lambda,
+                    'ema_alpha': ema_alpha,
+                    'max_dist':  max_dist,
+                    'max_iou_dist': max_iou_dist,
+                    'max_unmatched_preds': max_unmatched_preds,
+                    'max_age': max_age,
+                    'n_init': n_init,
+                    'nn_budget': nn_budget
             }
                 
         elif self.opt.tracking_method == 'botsort':
@@ -101,15 +101,15 @@ class Objective(Evaluator):
             lambda_ = trial.suggest_float("lambda_", 0.97, 0.995)
 
             d = {
-                'track_high_thresh': track_high_thresh,
-                'new_track_thresh': new_track_thresh,
-                'track_buffer': track_buffer,
-                'match_thresh':  match_thresh,
-                'proximity_thresh': proximity_thresh,
-                'appearance_thresh': appearance_thresh,
-                'cmc_method': cmc_method,
-                'frame_rate': frame_rate,
-                'lambda_': lambda_
+                    'track_high_thresh': track_high_thresh,
+                    'new_track_thresh': new_track_thresh,
+                    'track_buffer': track_buffer,
+                    'match_thresh':  match_thresh,
+                    'proximity_thresh': proximity_thresh,
+                    'appearance_thresh': appearance_thresh,
+                    'cmc_method': cmc_method,
+                    'frame_rate': frame_rate,
+                    'lambda_': lambda_
             }
                 
         elif self.opt.tracking_method == 'bytetrack':
@@ -118,13 +118,12 @@ class Objective(Evaluator):
             track_buffer = trial.suggest_int("track_buffer", 10, 60, step=10)  
             match_thresh = trial.suggest_float("match_thresh", 0.7, 0.9)
             
-            d['bytetrack'] = \
-                {
+            d = {
                     'track_thresh': self.opt.conf,
                     'match_thresh': match_thresh,
                     'track_buffer': track_buffer,
                     'frame_rate': 30
-                }
+            }
                 
         elif self.opt.tracking_method == 'ocsort':
             
@@ -137,8 +136,7 @@ class Objective(Evaluator):
             inertia = trial.suggest_float("inertia", 0.1, 0.4)
             use_byte = trial.suggest_categorical("use_byte", [True, False])
             
-            d['ocsort'] = \
-                {
+            d = {
                     'det_thresh': det_thresh,
                     'max_age': max_age,
                     'min_hits': min_hits,
@@ -147,7 +145,7 @@ class Objective(Evaluator):
                     'asso_func': asso_func,
                     'inertia': inertia,
                     'use_byte': use_byte,
-                }
+            }
                 
         elif self.opt.tracking_method == 'deepocsort':
             
@@ -167,20 +165,20 @@ class Objective(Evaluator):
             new_kf_off = trial.suggest_categorical("new_kf_off", [True, False])
             
             d = {
-                'det_thresh': det_thresh,
-                'max_age': max_age,
-                'min_hits': min_hits,
-                'iou_thresh': iou_thresh,
-                'delta_t': delta_t,
-                'asso_func': asso_func,
-                'inertia': inertia,
-                'w_association_emb': w_association_emb,
-                'alpha_fixed_emb': alpha_fixed_emb,
-                'aw_param': aw_param,
-                'embedding_off': embedding_off,
-                'cmc_off': cmc_off,
-                'aw_off': aw_off,
-                'new_kf_off': new_kf_off
+                    'det_thresh': det_thresh,
+                    'max_age': max_age,
+                    'min_hits': min_hits,
+                    'iou_thresh': iou_thresh,
+                    'delta_t': delta_t,
+                    'asso_func': asso_func,
+                    'inertia': inertia,
+                    'w_association_emb': w_association_emb,
+                    'alpha_fixed_emb': alpha_fixed_emb,
+                    'aw_param': aw_param,
+                    'embedding_off': embedding_off,
+                    'cmc_off': cmc_off,
+                    'aw_off': aw_off,
+                    'new_kf_off': new_kf_off
             }
                         
         # overwrite existing config for tracker
