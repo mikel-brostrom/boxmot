@@ -13,8 +13,6 @@ from boxmot.deepocsort.ocsort import OCSort as DeepOCSORT
 from boxmot.tracker_zoo import create_tracker, get_tracker_config
 
 
-
-
 def test_tracker_output():
     tracker_conf = get_tracker_config('deepocsort')
     tracker = create_tracker(
@@ -30,7 +28,18 @@ def test_tracker_output():
     det = torch.from_numpy(det)
     output = tracker.update(det, rgb)
     assert output.shape == (2, 7)  # two inputs should give two outputs
-
-
-def test_track():
-    pass
+    
+def test_strongsort():
+    ss = StrongSORT()
+    
+def test_ocsort():
+    os = OCSORT()
+    
+def test_bytetrack():
+    bt = BYTETracker()
+    
+def test_botsort():
+    bs = BoTSORT()
+    
+def test_deepocsort():
+    dos = DeepOCSORT()
