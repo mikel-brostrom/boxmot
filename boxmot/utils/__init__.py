@@ -11,4 +11,5 @@ REQUIREMENTS = ROOT / 'requirements.txt'
 # global logger
 from loguru import logger
 logger.remove()
-logger.add(sys.stdout, colorize=True)
+# the POSIX standard specifies that stderr is the correct stream for “diagnostic output”
+logger.add(sys.stderr, colorize=True)
