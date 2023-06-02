@@ -87,11 +87,11 @@ jobs:
           # tracking with POSE models
           python3 examples/track.py --yolo-model weights/yolov8n.pt --source $IMG --imgsz 320
 
-      # - name: Test validation on MOT17 subset
-      #   shell: bash  # for Windows compatibility
-      #   run: |
-      #     # validation on a few MOT17 imges
-      #     python examples/val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini --imgsz 320
+      - name: Test validation on MOT17 subset
+        shell: bash  # for Windows compatibility
+        run: |
+          # validation on a few MOT17 imges
+          python examples/val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini --imgsz 320
 
       # - name: Test evolution on MOT17 subset
       #   shell: bash  # for Windows compatibility
