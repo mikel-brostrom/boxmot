@@ -30,4 +30,4 @@ class TestRequirements():
             except Exception as e:
                 logger.error(e)
                 exit()
-            logger.info('All the missing packages where installed successfully')
+            logger.info('All the missing packages were installed successfully')
