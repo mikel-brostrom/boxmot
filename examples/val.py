@@ -31,13 +31,8 @@ from ultralytics.yolo.utils import LOGGER
 from ultralytics.yolo.utils.checks import check_requirements, print_args
 from ultralytics.yolo.utils.files import increment_path
 
+from boxmot.utils import ROOT, WEIGHTS, EXAMPLES
 from track import run
-
-
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0].parents[0]  # repo root absolute path
-EXAMPLES = FILE.parents[0]  # examples absolute path
-WEIGHTS = EXAMPLES / 'weights'
 
 
 class Evaluator:
