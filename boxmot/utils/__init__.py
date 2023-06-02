@@ -11,4 +11,4 @@ REQUIREMENTS = ROOT / 'requirements.txt'
 # global logger
 from loguru import logger
 logger.remove()
-logger.add(sys.stdout, colorize=True)
+logger.add(sys.stderr, colorize=True)
