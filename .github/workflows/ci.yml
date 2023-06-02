@@ -85,7 +85,7 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           # tracking with POSE models
-          mkdir exaple/weights
+          mkdir example/weights
           python3 examples/track.py --yolo-model weights/yolov8n.pt --source $IMG --imgsz 320
 
       # - name: Test validation on MOT17 subset
