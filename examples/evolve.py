@@ -76,18 +76,17 @@ class Objective(Evaluator):
             nn_budget = trial.suggest_categorical("nn_budget", [100])
             max_unmatched_preds = trial.suggest_categorical("max_unmatched_preds", [0])
 
-            d['strongsort'] = \
-                {
-                    'ecc': ecc,
-                    'mc_lambda': mc_lambda,
-                    'ema_alpha': ema_alpha,
-                    'max_dist':  max_dist,
-                    'max_iou_dist': max_iou_dist,
-                    'max_unmatched_preds': max_unmatched_preds,
-                    'max_age': max_age,
-                    'n_init': n_init,
-                    'nn_budget': nn_budget
-                }
+            d = {
+                'ecc': ecc,
+                'mc_lambda': mc_lambda,
+                'ema_alpha': ema_alpha,
+                'max_dist':  max_dist,
+                'max_iou_dist': max_iou_dist,
+                'max_unmatched_preds': max_unmatched_preds,
+                'max_age': max_age,
+                'n_init': n_init,
+                'nn_budget': nn_budget
+            }
                 
         elif self.opt.tracking_method == 'botsort':
             
@@ -101,18 +100,17 @@ class Objective(Evaluator):
             frame_rate = trial.suggest_categorical("frame_rate", [30])
             lambda_ = trial.suggest_float("lambda_", 0.97, 0.995)
 
-            d['botsort'] = \
-                {
-                    'track_high_thresh': track_high_thresh,
-                    'new_track_thresh': new_track_thresh,
-                    'track_buffer': track_buffer,
-                    'match_thresh':  match_thresh,
-                    'proximity_thresh': proximity_thresh,
-                    'appearance_thresh': appearance_thresh,
-                    'cmc_method': cmc_method,
-                    'frame_rate': frame_rate,
-                    'lambda_': lambda_
-                }
+            d = {
+                'track_high_thresh': track_high_thresh,
+                'new_track_thresh': new_track_thresh,
+                'track_buffer': track_buffer,
+                'match_thresh':  match_thresh,
+                'proximity_thresh': proximity_thresh,
+                'appearance_thresh': appearance_thresh,
+                'cmc_method': cmc_method,
+                'frame_rate': frame_rate,
+                'lambda_': lambda_
+            }
                 
         elif self.opt.tracking_method == 'bytetrack':
 
@@ -168,23 +166,22 @@ class Objective(Evaluator):
             aw_off = trial.suggest_categorical("aw_off", [True, False])
             new_kf_off = trial.suggest_categorical("new_kf_off", [True, False])
             
-            d['deepocsort'] = \
-                {
-                    'det_thresh': det_thresh,
-                    'max_age': max_age,
-                    'min_hits': min_hits,
-                    'iou_thresh': iou_thresh,
-                    'delta_t': delta_t,
-                    'asso_func': asso_func,
-                    'inertia': inertia,
-                    'w_association_emb': w_association_emb,
-                    'alpha_fixed_emb': alpha_fixed_emb,
-                    'aw_param': aw_param,
-                    'embedding_off': embedding_off,
-                    'cmc_off': cmc_off,
-                    'aw_off': aw_off,
-                    'new_kf_off': new_kf_off
-                }
+            d = {
+                'det_thresh': det_thresh,
+                'max_age': max_age,
+                'min_hits': min_hits,
+                'iou_thresh': iou_thresh,
+                'delta_t': delta_t,
+                'asso_func': asso_func,
+                'inertia': inertia,
+                'w_association_emb': w_association_emb,
+                'alpha_fixed_emb': alpha_fixed_emb,
+                'aw_param': aw_param,
+                'embedding_off': embedding_off,
+                'cmc_off': cmc_off,
+                'aw_off': aw_off,
+                'new_kf_off': new_kf_off
+            }
                         
         # overwrite existing config for tracker
         with open(self.opt.tracking_config, 'w') as f:
@@ -339,7 +336,7 @@ if __name__ == "__main__":
         # first trial with params in yaml file, evolved for MOT17
         with open(opt.tracking_config, 'r') as f:
             params = yaml.load(f, Loader=yaml.loader.SafeLoader)
-            study.enqueue_trial(params[opt.tracking_config.stem])
+            study.enqueue_trial(params)
             print(study.trials)
 
     continuous_study_save_cb = ContinuousStudySave(opt.tracking_method)
