@@ -91,7 +91,7 @@ class Evaluator:
                                 zip_file.extract(member, val_tools_path / 'data')
                 LOGGER.info(f'{benchmark}.zip unzipped successfully')
             except Exception as e:
-                print(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
+                LOGGER.error(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
                 sys.exit()
 
     def eval_setup(self, opt, val_tools_path):
@@ -191,6 +191,8 @@ class Evaluator:
                 if not dst_seq_path.is_dir():
                     src_seq_path = seq_path
                     shutil.move(str(src_seq_path), str(dst_seq_path))
+                else:
+                    print('dfadf\n\n\n')
 
                 LOGGER.info(f"Staring evaluation process on {dst_seq_path}")
                 p = subprocess.Popen(
@@ -220,8 +222,8 @@ class Evaluator:
                 
                 # Check the return code of the subprocess
                 if p.returncode != 0:
-                    LOGGER.error("Subprocess failed with return code:", p.returncode)
                     LOGGER.error(stderr)
+                    LOGGER.error(stdout)
                     sys.exit(1)
                 else:
                     LOGGER.success(f"{dst_seq_path} evaluation succeeded")
@@ -257,10 +259,11 @@ class Evaluator:
 
         # Check the return code of the subprocess
         if p.returncode != 0:
-            LOGGER.error("Subprocess failed with return code:", p.returncode)
+            LOGGER.error(stderr)
+            LOGGER.error(stdout)
             sys.exit(1)
 
-        print(stdout)
+        LOGGER.info(stdout)
 
         # save MOT results in txt 
         with open(save_dir / 'MOT_results.txt', 'w') as f:
