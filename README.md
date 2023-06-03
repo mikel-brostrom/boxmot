@@ -85,10 +85,10 @@ pip install boxmot
 ```
 
 
-## YOLOv8 | YOLO-NAS | YOLOX |  tracking examples
+## YOLOv8 | YOLO-NAS | YOLOX examples
 
 <details>
-<summary>Click to expand!</summary>
+<summary>Tracking</summary>
 
 <details>
 <summary>Yolo models</summary>
@@ -194,8 +194,25 @@ python examples/track.py --source ... --save-txt
 
 </details>
 
+</details>
+  
 <details>
-<summary>Tracker hyperparameter tuning</summary>
+<summary>Evaluation</summary>
+
+Evaluate on standard MOT dataset or you custom one by
+
+```bash
+$ python3 examples/val.py --tracking-method deepocsort --benchmark MOT16
+                          --tracking-method ocsort     --benchmark MOT17
+                          --tracking-method strongsort --benchmark <your-custom-dataset> --objective HOTA # tune strongsort for maximizing HOTA on your custom tracking dataset
+```
+
+The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
+  
+</details>
+  
+<details>
+<summary>Evolution</summary>
 
 We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. By default the objectives are: HOTA, MOTA, IDF1. Run it by
 
@@ -205,8 +222,7 @@ $ python examples/evolve.py --tracking-method strongsort --benchmark MOT17 --n-t
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
-
-</details>
+  
 </details>
 
 
