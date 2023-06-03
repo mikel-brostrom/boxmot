@@ -27,7 +27,7 @@ from tqdm import tqdm
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
-from ultralytics.yolo.utils import LOGGER
+from boxmot.utils import logger as LOGGER
 from ultralytics.yolo.utils.checks import check_requirements, print_args
 from ultralytics.yolo.utils.files import increment_path
 
@@ -192,23 +192,39 @@ class Evaluator:
                     src_seq_path = seq_path
                     shutil.move(str(src_seq_path), str(dst_seq_path))
 
-                p = subprocess.Popen([
-                    sys.executable, str(EXAMPLES / "track.py"),
-                    "--yolo-model", self.opt.yolo_model,
-                    "--reid-model", self.opt.reid_model,
-                    "--tracking-method", self.opt.tracking_method,
-                    "--conf", str(self.opt.conf),
-                    "--imgsz", str(self.opt.imgsz[0]),
-                    "--classes", str(0),
-                    "--name", save_dir.name,
-                    "--save-txt",
-                    "--project", self.opt.project,
-                    "--device", str(tracking_subprocess_device),
-                    "--source", dst_seq_path,
-                    "--exist-ok",
-                    "--save",
-                ])
+                LOGGER.info(f"Staring evaluation process on {dst_seq_path}")
+                p = subprocess.Popen(
+                    args=[
+                        sys.executable, str(EXAMPLES / "track.py"),
+                        "--yolo-model", self.opt.yolo_model,
+                        "--reid-model", self.opt.reid_model,
+                        "--tracking-method", self.opt.tracking_method,
+                        "--conf", str(self.opt.conf),
+                        "--imgsz", str(self.opt.imgsz[0]),
+                        "--classes", str(0),
+                        "--name", save_dir.name,
+                        "--save-txt",
+                        "--project", self.opt.project,
+                        "--device", str(tracking_subprocess_device),
+                        "--source", dst_seq_path,
+                        "--exist-ok",
+                        "--save",
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
                 processes.append(p)
+                # Wait for the subprocess to complete and capture output
+                stdout, stderr = p.communicate()
+                
+                # Check the return code of the subprocess
+                if p.returncode != 0:
+                    LOGGER.error("Subprocess failed with return code:", p.returncode)
+                    LOGGER.error(stderr)
+                    sys.exit(1)
+                else:
+                    LOGGER.success(f"{dst_seq_path} evaluation succeeded")
 
             for p in processes:
                 p.wait()
@@ -217,7 +233,7 @@ class Evaluator:
 
         # run the evaluation on the generated txts
         d = [seq_path.parent.name for seq_path in seq_paths]
-        p = subprocess.run(
+        p = subprocess.Popen(
             args=[
                 sys.executable, val_tools_path / 'scripts' / 'run_mot_challenge.py',
                 "--GT_FOLDER", gt_folder,
@@ -232,15 +248,23 @@ class Evaluator:
                 "--SKIP_SPLIT_FOL", "True",
                 "--SEQ_INFO"
                 ] + d,
-            universal_newlines=True,
-            stdout=subprocess.PIPE
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
         )
+        # Wait for the subprocess to complete and capture output
+        stdout, stderr = p.communicate()
 
-        print(p.stdout)
+        # Check the return code of the subprocess
+        if p.returncode != 0:
+            LOGGER.error("Subprocess failed with return code:", p.returncode)
+            sys.exit(1)
+
+        print(stdout)
 
         # save MOT results in txt 
         with open(save_dir / 'MOT_results.txt', 'w') as f:
-            f.write(p.stdout)
+            f.write(stdout)
         # copy tracking method config to exp folder
         tracking_config = \
             ROOT /\
@@ -250,7 +274,7 @@ class Evaluator:
             (opt.tracking_method + '.yaml')
         shutil.copyfile(tracking_config, save_dir / Path(tracking_config).name)
 
-        return p.stdout
+        return stdout
 
     def parse_mot_results(self, results):
         """Extract the COMBINED HOTA, MOTA, IDF1 from the results generate by the
