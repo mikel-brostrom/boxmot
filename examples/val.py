@@ -191,8 +191,6 @@ class Evaluator:
                 if not dst_seq_path.is_dir():
                     src_seq_path = seq_path
                     shutil.move(str(src_seq_path), str(dst_seq_path))
-                else:
-                    print('dfadf\n\n\n')
 
                 LOGGER.info(f"Staring evaluation process on {dst_seq_path}")
                 p = subprocess.Popen(
