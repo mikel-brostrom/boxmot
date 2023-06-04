@@ -235,7 +235,7 @@ while True:
     # im   (numpy.ndarray):
     #  - the original hxwx3 image (for better ReID results)
     #  - the downscaled hxwx3 image fed to you model (faster)
-    tracker_outputs = tracker.update(dets.cpu(), im)  # --> (x, y, x, y, id, conf, cls)
+    tracker_outputs = tracker.update(dets, im)  # --> (x, y, x, y, id, conf, cls)
     ...
 ```
   
