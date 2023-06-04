@@ -221,10 +221,9 @@ from pathlib import Path
 
 
 tracker = DeepOCSORT(
-  model_weights=Path('mobilenetv2_x1_4_dukemtmcreid.pt'),  # which ReID model to use, when applicable
+  model_weights=Path('osnet_x0_25_msmt17.pt'),  # which ReID model to use, when applicable
   device='cuda:0',  # 'cpu', 'cuda:0', 'cuda:1', ... 'cuda:N'
   fp16=True,  # wether to run the ReID model with half precision or not
-  det_thresh=0.2  # minimum valid detection confidence
 )
   
 cap = cv.VideoCapture(0)
