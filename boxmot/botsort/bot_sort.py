@@ -275,13 +275,13 @@ class BoTSORT(object):
         removed_stracks = []
         
         xyxys = output_results[:, 0:4]
-        xywh = xyxy2xywh(xyxys.numpy())
+        xywh = xyxy2xywh(xyxys)
         confs = output_results[:, 4]
         clss = output_results[:, 5]
         
-        classes = clss.numpy()
-        xyxys = xyxys.numpy()
-        confs = confs.numpy()
+        classes = clss
+        xyxys = xyxys
+        confs = confs
 
         remain_inds = confs > self.track_high_thresh
         inds_low = confs > 0.1

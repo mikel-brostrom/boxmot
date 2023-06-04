@@ -211,9 +211,9 @@ class OCSort(object):
         confs = dets[:, 4]
         clss = dets[:, 5]
         
-        classes = clss.numpy()
-        xyxys = xyxys.numpy()
-        confs = confs.numpy()
+        classes = clss
+        xyxys = xyxys
+        confs = confs
 
         output_results = np.column_stack((xyxys, confs, classes))
         
