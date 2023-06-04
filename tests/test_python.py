@@ -32,7 +32,7 @@ def test_tracker_output():
 def test_strongsort_instantiation():
     ss = StrongSORT(
         model_weights=Path('osnet_x0_25_msmt17.pt'),
-        device='cuda:0',
+        device='cpu',
         fp16=True,
     )
 
