@@ -232,7 +232,7 @@ while True:
     ...
     # dets (numpy.ndarray): 
     #  - your model's nms:ed outputs of shape Nx6 (x, y, x, y, conf, cls)
-    # im (numpy.ndarray):
+    # im   (numpy.ndarray):
     #  - the original image (for better ReID results)
     #  - the downscaled one fed to you model (faster)
     tracker_outputs = tracker.update(dets.cpu(), im)  # --> (x, y, x, y, id, conf, cls)
