@@ -179,7 +179,7 @@ ASSO_FUNCS = {  "iou": iou_batch,
 
 
 class OCSort(object):
-    def __init__(self, det_thresh, max_age=30, min_hits=3, 
+    def __init__(self, det_thresh=0.2, max_age=30, min_hits=3, 
         iou_threshold=0.3, delta_t=3, asso_func="iou", inertia=0.2, use_byte=False):
         """
         Sets key parameters for SORT
