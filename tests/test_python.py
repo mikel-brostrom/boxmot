@@ -25,21 +25,39 @@ def test_tracker_output():
     rgb = np.random.randint(255, size=(640, 640, 3),dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
-    det = torch.from_numpy(det)
     output = tracker.update(det, rgb)
     assert output.shape == (2, 7)  # two inputs should give two outputs
+
+
+def test_strongsort_instantiation():
+    ss = StrongSORT(
+        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        device='cpu',
+        fp16=True,
+    )
+
+
+def test_botsort_instantiation():
+    bs = BoTSORT(
+        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        device='cpu',
+        fp16=True,
+    )
     
-# def test_strongsort():
-#     ss = StrongSORT()
+
+def test_deepocsort_instantiation():
+    dos = DeepOCSORT(
+        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        device='cpu',
+        fp16=True,
+    )
+
+
+def test_ocsort_instantiation():
+    os = OCSORT()
+
+
+def test_bytetrack_instantiation():
+    bt = BYTETracker()
     
-# def test_ocsort():
-#     os = OCSORT()
-    
-# def test_bytetrack():
-#     bt = BYTETracker()
-    
-# def test_botsort():
-#     bs = BoTSORT()
-    
-# def test_deepocsort():
-#     dos = DeepOCSORT()
+
