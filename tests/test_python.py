@@ -27,18 +27,37 @@ def test_tracker_output():
                     [425, 281, 576, 472, 0.56, 65]])
     output = tracker.update(det, rgb)
     assert output.shape == (2, 7)  # two inputs should give two outputs
+
+
+def test_strongsort_instantiation():
+    ss = StrongSORT(
+        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        device='cuda:0',
+        fp16=True,
+    )
+
+
+def test_botsort_instantiation():
+    bs = BoTSORT(
+        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        device='cpu',
+        fp16=True,
+    )
     
-# def test_strongsort():
-#     ss = StrongSORT()
+
+def test_deepocsort_instantiation():
+    dos = DeepOCSORT(
+        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        device='cpu',
+        fp16=True,
+    )
+
+
+def test_ocsort_instantiation():
+    os = OCSORT()
+
+
+def test_bytetrack_instantiation():
+    bt = BYTETracker()
     
-# def test_ocsort():
-#     os = OCSORT()
-    
-# def test_bytetrack():
-#     bt = BYTETracker()
-    
-# def test_botsort():
-#     bs = BoTSORT()
-    
-# def test_deepocsort():
-#     dos = DeepOCSORT()
+
