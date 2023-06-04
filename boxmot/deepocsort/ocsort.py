@@ -372,11 +372,11 @@ class OCSort(object):
         scores = dets[:, 4]
         clss = dets[:, 5]
         
-        classes = clss.numpy()
-        xyxys = xyxys.numpy()
-        scores = scores.numpy()
+        classes = clss
+        xyxys = xyxys
+        scores = scores
         
-        dets = dets[:, 0:6].numpy()
+        dets = dets[:, 0:6]
         remain_inds = scores > self.det_thresh
         dets = dets[remain_inds]
         self.height, self.width = img_numpy.shape[:2]

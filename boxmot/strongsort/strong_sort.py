@@ -44,9 +44,9 @@ class StrongSORT(object):
         confs = dets[:, 4]
         clss = dets[:, 5]
         
-        classes = clss.numpy()
-        xywhs = xyxy2xywh(xyxys.numpy())
-        confs = confs.numpy()
+        classes = clss
+        xywhs = xyxy2xywh(xyxys)
+        confs = confs
         self.height, self.width = ori_img.shape[:2]
         
         # generate detections

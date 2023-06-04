@@ -172,13 +172,13 @@ class BYTETracker(object):
         removed_stracks = []
 
         xyxys = dets[:, 0:4]
-        xywh = xyxy2xywh(xyxys.numpy())
+        xywh = xyxy2xywh(xyxys)
         confs = dets[:, 4]
         clss = dets[:, 5]
         
-        classes = clss.numpy()
-        xyxys = xyxys.numpy()
-        confs = confs.numpy()
+        classes = clss
+        xyxys = xyxys
+        confs = confs
 
         remain_inds = confs > self.track_thresh
         inds_low = confs > 0.1
