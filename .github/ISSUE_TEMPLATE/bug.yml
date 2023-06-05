@@ -1,6 +1,6 @@
 name: Bug
 # title: " "
-description: Report a Yolov8 Tracking bug
+description: Report a Yolo Tracking bug
 labels: [bug]
 body:
 
