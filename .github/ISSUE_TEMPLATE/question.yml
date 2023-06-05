@@ -1,5 +1,5 @@
 name: Question
-description: Ask a Yolov8 Tracking question
+description: Ask a Yolo Tracking question
 # title: " "
 labels: [question]
 body:
@@ -8,10 +8,10 @@ body:
     attributes:
       label: Search before asking
       description: >
-        Please search the [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) to see if a similar question already exists.
+        Please search the [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) to see if a similar question already exists.
       options:
         - label: >
-            I have searched the Yolov8 Tracking [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) and found no similar bug report.
+            I have searched the Yolov8 Tracking [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) and found no similar bug report.
           required: true
 
   - type: textarea
