@@ -6,6 +6,7 @@ from boxmot.utils.checks import TestRequirements
 tr = TestRequirements()
 
 from ultralytics.yolo.engine.results import Boxes, Results
+from boxmot.utils import logger as LOGGER
 
 
 class MultiYolo():
@@ -72,7 +73,7 @@ class MultiYolo():
                 visualize=False
             )
         else:
-            print('The Yolo model you selected is not available')
+            LOGGER.error('The Yolo model you selected is not available')
             exit()
         return preds
     
