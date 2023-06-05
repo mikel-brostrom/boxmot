@@ -10,12 +10,15 @@ from types import SimpleNamespace
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS
 from boxmot.utils.checks import TestRequirements
+from boxmot.utils import logger as LOGGER
+from boxmot.utils.torch_utils import select_device
+
 tr = TestRequirements()
 tr.check_packages(('ultralytics',))  # install
 
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
-from ultralytics.yolo.utils import LOGGER, SETTINGS, colorstr, ops, is_git_dir, IterableSimpleNamespace
+from ultralytics.yolo.utils import SETTINGS, colorstr, ops, is_git_dir, IterableSimpleNamespace
 from ultralytics.yolo.utils.checks import check_imgsz, print_args
 from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.engine.results import Boxes
@@ -59,6 +62,8 @@ def run(args):
     combined_args = {**predictor.args.__dict__, **args}
     # overwrite default args
     predictor.args = IterableSimpleNamespace(**combined_args)
+    predictor.args.device = select_device(args['device'])
+    LOGGER.info(args)
 
     # setup source and model
     if not predictor.model:
@@ -205,7 +210,6 @@ def parse_opt():
     parser.add_argument('--hide-conf', action='store_true', help='hide confidences when show')
     parser.add_argument('--save-txt', action='store_true', help='save tracking results in a txt file')
     opt = parser.parse_args()
-    print_args(vars(opt))
     return opt
 
 
