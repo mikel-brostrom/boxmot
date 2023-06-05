@@ -20,7 +20,7 @@ from boxmot.deep.reid_model_factory import (show_downloadeable_models, get_model
 from boxmot.deep.models import build_model
 
 
-def check_suffix(file='yolov5s.pt', suffix=('.pt',), msg=''):
+def check_suffix(file='osnet_x0_25_msmt17.pt', suffix=('.pt',), msg=''):
     # Check file(s) for acceptable suffix
     if file and suffix:
         if isinstance(suffix, str):
@@ -28,7 +28,10 @@ def check_suffix(file='yolov5s.pt', suffix=('.pt',), msg=''):
         for f in file if isinstance(file, (list, tuple)) else [file]:
             s = Path(f).suffix.lower()  # file suffix
             if len(s):
-                assert s in suffix, f"{msg}{f} acceptable suffix is {suffix}"
+                try:
+                    assert s in suffix
+                except AssertionError as err:
+                    LOGGER.error(f"{err}{f} acceptable suffix is {suffix}")
 
 
 class ReIDDetectMultiBackend(nn.Module):
@@ -62,7 +65,7 @@ class ReIDDetectMultiBackend(nn.Module):
             elif file_exists(w):
                 pass
             else:
-                print(f'No URL associated to the chosen StrongSORT weights ({w}). Choose between:')
+                LOGGER.error(f'No URL associated to the chosen StrongSORT weights ({w}). Choose between:')
                 show_downloadeable_models()
                 exit()
 
@@ -157,7 +160,7 @@ class ReIDDetectMultiBackend(nn.Module):
             # The function `get_tensor()` returns a copy of the tensor data.
             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
         else:
-            print('This model framework is not supported yet!')
+            LOGGER.error('This model framework is not supported yet!')
             exit()
         
         
@@ -217,7 +220,7 @@ class ReIDDetectMultiBackend(nn.Module):
             im_batch = im_batch.cpu().numpy()  # FP32
             features = self.executable_network([im_batch])[self.output_layer]
         else:
-            print('Framework not supported at the moment, we are working on it...')
+            LOGGER.error('Framework not supported at the moment, leave an enhancement suggestion')
             exit()
 
         if isinstance(features, (list, tuple)):
