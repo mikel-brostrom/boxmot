@@ -32,9 +32,9 @@ body:
         How would this feature be used, and who would use it?
         
   - type: checkboxes
-      attributes:
-        label: Are you willing to submit a PR?
-        description: >
-          (Optional) If you have a good understanding of this package and feel like contributing to it we will gladly review your [Pull Request](https://github.com/mikel-brostrom/yolo_tracking/pulls) (PR).
-        options:
-          - label: Yes I'd like to help by submitting a PR!
+    attributes:
+      label: Are you willing to submit a PR?
+      description: >
+        (Optional) If you have a good understanding of this package and feel like contributing to it we will gladly review your [Pull Request](https://github.com/mikel-brostrom/yolo_tracking/pulls) (PR).
+      options:
+        - label: Yes I'd like to help by submitting a PR!
