@@ -2,6 +2,7 @@ import torch
 import time
 import sys
 from collections import OrderedDict
+from boxmot.utils import logger as LOGGER
 
 
 __model_types = [
@@ -11,7 +12,7 @@ __model_types = [
 
 __trained_urls = {
 
-    # market1501 models ########################################################
+    # resnet50
     'resnet50_market1501.pt':
     'https://drive.google.com/uc?id=1dUUZ4rHDWohmsQXCRe2C_HbYkzz94iBV',
     'resnet50_dukemtmcreid.pt':
@@ -26,6 +27,7 @@ __trained_urls = {
     'resnet50_fc512_msmt17.pt':
     'https://drive.google.com/uc?id=1fDJLcz4O5wxNSUvImIIjoaIF9u1Rwaud',
 
+    # mlfn
     'mlfn_market1501.pt':
     'https://drive.google.com/uc?id=1wXcvhA_b1kpDfrt9s2Pma-MHxtj9pmvS',
     'mlfn_dukemtmcreid.pt':
@@ -33,6 +35,7 @@ __trained_urls = {
     'mlfn_msmt17.pt':
     'https://drive.google.com/uc?id=18JzsZlJb3Wm7irCbZbZ07TN4IFKvR6p-',
 
+    # hacnn
     'hacnn_market1501.pt':
     'https://drive.google.com/uc?id=1LRKIQduThwGxMDQMiVkTScBwR7WidmYF',
     'hacnn_dukemtmcreid.pt':
@@ -40,6 +43,7 @@ __trained_urls = {
     'hacnn_msmt17.pt':
     'https://drive.google.com/uc?id=1MsKRtPM5WJ3_Tk2xC0aGOO7pM3VaFDNZ',
 
+    # mobilenetv2
     'mobilenetv2_x1_0_market1501.pt':
     'https://drive.google.com/uc?id=18DgHC2ZJkjekVoqBWszD8_Xiikz-fewp',
     'mobilenetv2_x1_0_dukemtmcreid.pt':
@@ -54,6 +58,7 @@ __trained_urls = {
     'mobilenetv2_x1_4_msmt17.pt':
     'https://drive.google.com/uc?id=1ZY5P2Zgm-3RbDpbXM0kIBMPvspeNIbXz',
 
+    # osnet
     'osnet_x1_0_market1501.pt':
     'https://drive.google.com/uc?id=1vduhq5DpN2q1g4fYEZfPI17MJeh9qyrA',
     'osnet_x1_0_dukemtmcreid.pt':
@@ -82,7 +87,6 @@ __trained_urls = {
     'osnet_x0_25_msmt17.pt':
     'https://drive.google.com/uc?id=1sSwXSUlj4_tHZequ_iZ8w_Jh0VaRQMqF',
 
-    ####### market1501 models ##################################################
     'resnet50_msmt17.pt':
     'https://drive.google.com/uc?id=1yiBteqgIZoOeywE8AhGmEQl7FTVwrQmf',
     'osnet_x1_0_msmt17.pt':
@@ -94,11 +98,14 @@ __trained_urls = {
     'https://drive.google.com/uc?id=1DHgmb6XV4fwG3n-CnCM0zdL9nMsZ9_RF',
     'osnet_x0_25_msmt17.pt':
     'https://drive.google.com/uc?id=1Kkx2zW89jq_NETu4u42CFZTMVD5Hwm6e',
+    
+    # osnet_ain | osnet_ibn
     'osnet_ibn_x1_0_msmt17.pt':
     'https://drive.google.com/uc?id=1q3Sj2ii34NlfxA4LvmHdWO_75NDRmECJ',
     'osnet_ain_x1_0_msmt17.pt':
     'https://drive.google.com/uc?id=1SigwBE6mPdqiJMqhuIY4aqC7--5CsMal',
 
+    # lmbn
     'lmbn_n_duke.pt':
     'https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth',
     'lmbn_n_market.pt':
@@ -109,8 +116,8 @@ __trained_urls = {
 
 
 def show_downloadeable_models():
-    print('\nAvailable .pt ReID models for automatic download')
-    print(list(__trained_urls.keys()))
+    LOGGER.info('\nAvailable .pt ReID models for automatic download')
+    LOGGER.info(list(__trained_urls.keys()))
 
 
 def get_model_url(model):
@@ -142,8 +149,8 @@ def download_url(url, dst):
         dst (str): destination path.
     """
     from six.moves import urllib
-    print('* url="{}"'.format(url))
-    print('* destination="{}"'.format(dst))
+    LOGGER.info('* url="{}"'.format(url))
+    LOGGER.info('* destination="{}"'.format(dst))
 
     def _reporthook(count, block_size, total_size):
         global start_time
@@ -213,20 +220,18 @@ def load_pretrained_weights(model, weight_path):
         model.load_state_dict(model_dict)
 
         if len(matched_layers) == 0:
-            print(
-                'The pretrained weights "{}" cannot be loaded, '
+            LOGGER.warning(
+                f'The pretrained weights "{weight_path}" cannot be loaded, '
                 'please check the key names manually '
-                '(** ignored and continue **)'.format(weight_path)
+                '(** ignored and continue **)'
             )
         else:
-            print(
-                'Successfully loaded pretrained weights from "{}"'.
-                format(weight_path)
+            LOGGER.success(
+                f'Successfully loaded pretrained weights from "{weight_path}"'
             )
             if len(discarded_layers) > 0:
-                print(
-                    '** The following layers are discarded '
-                    'due to unmatched keys or layer size: {}'.
-                    format(discarded_layers)
+                LOGGER.warning(
+                    'The following layers are discarded '
+                    f'due to unmatched keys or layer size: {*discarded_layers,}'
                 )
 
