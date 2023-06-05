@@ -8,17 +8,17 @@ body:
     attributes:
       label: Search before asking
       description: >
-        Please search the [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolov8_tracking/discussions) to see if a similar question already exists.
+        Please search the [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolo_tracking/discussions) to see if a similar question already exists.
       options:
         - label: >
-            I have searched the Yolov8 Tracking [issues](https://github.com/mikel-brostrom/yolov8_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolov8_tracking/discussions) and found no similar questions.
+            I have searched the Yolov8 Tracking [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolo_tracking/discussions) and found no similar questions.
           required: true
 
   - type: dropdown
     attributes:
       label: Yolv8 Tracking Component
       description: |
-        Please select the part of Yolov8 Tracking where you found the bug.
+        Please select the part of Yolo Tracking where you found the bug.
       multiple: true
       options:
         - "Tracking"
@@ -41,12 +41,9 @@ body:
   - type: textarea
     attributes:
       label: Environment
-      description: Please specify the software and hardware you used to produce the bug.
+      description: Please specify the environment information you used to produce the bug.
       placeholder: |
-        - Ultralytics YOLOv8.0.23 🚀 Python-3.8.15 torch-1.11.0+cu102 CUDA:0 (Quadro P2000, 4032MiB)
-        - StrongSORT: osnet_x0_25
-        - OS: Ubuntu 20.04
-        - Python: 3.9.0
+        - Yolo Tracking v10.0.13 🚀 Python-3.8.16 torch-1.13.1+cu117 CUDA:0 (Quadro P2000, 4032MiB)
         - ...
     validations:
       required: true
@@ -55,8 +52,7 @@ body:
     attributes:
       label: Minimal Reproducible Example
       description: >
-        When asking a question, people will be better able to provide help if you provide code that they can easily understand and use to **reproduce** the problem.
-        This is referred to by community members as creating a [minimal reproducible example](https://stackoverflow.com/help/minimal-reproducible-example).
+        When asking a question, people will be better able to provide help if you provide code that they can easily understand and use to [**reproduce**](https://stackoverflow.com/help/minimal-reproducible-example) the problem.
       placeholder: |
         ```
         # Code to reproduce your issue here
