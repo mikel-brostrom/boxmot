@@ -191,7 +191,7 @@ class Evaluator:
                 if not dst_seq_path.is_dir():
                     src_seq_path = seq_path
                     shutil.move(str(src_seq_path), str(dst_seq_path))
-
+                
                 LOGGER.info(f"Staring evaluation process on {dst_seq_path}")
                 p = subprocess.Popen(
                     args=[
@@ -201,7 +201,7 @@ class Evaluator:
                         "--tracking-method", self.opt.tracking_method,
                         "--conf", str(self.opt.conf),
                         "--imgsz", str(self.opt.imgsz[0]),
-                        "--classes", str(0),
+                        "--classes", *self.opt.classes,
                         "--name", save_dir.name,
                         "--save-txt",
                         "--project", self.opt.project,
@@ -332,6 +332,7 @@ def parse_opt():
     parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort', help='strongsort, ocsort')
     parser.add_argument('--name', default='exp', help='save results to project/name')
+    parser.add_argument('--classes', nargs='+', type=str, default=['0'], help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--project', default=EXAMPLES / 'runs' / 'val', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
