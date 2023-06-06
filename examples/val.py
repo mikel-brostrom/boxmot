@@ -246,8 +246,8 @@ class Evaluator:
                 "--TRACKER_SUB_FOLDER", "",
                 "--NUM_PARALLEL_CORES", "4",
                 "--SKIP_SPLIT_FOL", "True",
-                "--SEQ_INFO"
-                ] + d,
+                "--SEQ_INFO", *d
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
