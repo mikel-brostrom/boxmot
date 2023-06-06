@@ -91,13 +91,13 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           # validation on a few MOT17 imges
-          python examples/val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini --imgsz 320
+          python examples/val.py --tracking-method deepocsort --yolo-model yolov8n.pt --benchmark MOT17-mini --imgsz 320 --conf 0.2
 
       - name: Test evolution on MOT17 subset
         shell: bash  # for Windows compatibility
         run: |
           # evolve a for a single set of parameters
-          python examples/evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1 --imgsz 320
+          python examples/evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1 --imgsz 320 --conf 0.2
       
       - name: Pytest tests
         shell: bash  # for Windows compatibility
