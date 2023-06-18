@@ -5,9 +5,11 @@ Mimic the structure of either of these datasets to evaluate on your custom one
 
 Usage:
 
-    $ python3 val.py --tracking-method strongsort --benchmark MOT16
-                     --tracking-method ocsort     --benchmark MOT17
-                     --tracking-method ocsort     --benchmark <your-custom-dataset>
+    $ python3 examples/val.py --benchmark MOT16
+                              --benchmark MOT17
+                              --benchmark <your-custom-dataset>
+                              --benchmark VEHICLE    --split test --conf 0.3      --classes 0 2 7 --eval-existing --name exp227
+                              --benchmark MOT17mini --conf 0.3   --eval-existing --name exp231
 """
 
 import os
@@ -53,20 +55,10 @@ class Evaluator:
         """
     def __init__(self, opts):
         self.opt = opts
-
-    def download_mot_eval_tools(self, val_tools_path):
-        """Download officail evaluation tools for MOT metrics
-        Args:
-            val_tools_path (pathlib.Path): path to the val tool folder destination
-        Returns:
-            None
-        """
-        val_tools_url = "https://github.com/JonathonLuiten/TrackEval"
-        try:
-            Repo.clone_from(val_tools_url, val_tools_path)
-            LOGGER.info('Official MOT evaluation repo downloaded')
-        except git.exc.GitError as err:
-            LOGGER.info('Eval repo already downloaded')
+        self.val_tools_path = EXAMPLES / 'val_utils'
+        self.seq_paths = None
+        self.save_dir = None
+        self.gt_folder = None
 
     def download_mot_dataset(self, val_tools_path, benchmark):
         """Download specific MOT dataset and unpack it
@@ -99,7 +91,7 @@ class Evaluator:
                 LOGGER.error(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
                 sys.exit()
 
-    def eval_setup(self, opt, val_tools_path):
+    def eval_setup(self):
         """Download specific MOT dataset and unpack it
 
         Args:
@@ -111,14 +103,14 @@ class Evaluator:
         """
 
         # set paths
-        gt_folder = val_tools_path / 'data' / self.opt.benchmark / self.opt.split
-        mot_seqs_path = val_tools_path / 'data' / opt.benchmark / opt.split
+        gt_folder = self.val_tools_path / 'data' / self.opt.benchmark / self.opt.split
+        mot_seqs_path = self.val_tools_path / 'data' / self.opt.benchmark / self.opt.split
         if opt.benchmark == 'MOT17':
             # each sequences is present 3 times, one for each detector
             # (DPM, FRCNN, SDP). Keep only sequences from  one of them
             seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
             seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
-        elif opt.benchmark == 'MOT17-mini':
+        elif opt.benchmark == 'MOT17mini':
             mot_seqs_path = ROOT / 'assets' / self.opt.benchmark / self.opt.split
             gt_folder = ROOT / 'assets' / self.opt.benchmark / self.opt.split
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
@@ -126,15 +118,16 @@ class Evaluator:
             # this is not the case for MOT16, MOT20 or your custom dataset
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
 
-        if opt.eval_existing and (Path(opt.project) / opt.name).exists():
-            save_dir = Path(opt.project) / opt.name
-            if not (Path(opt.project) / opt.name).exists():
+        if opt.eval_existing and (Path(self.opt.project) / self.opt.name).exists():
+            save_dir = Path(self.opt.project) / opt.name
+            if not (Path(self.opt.project) / self.opt.name).exists():
                 LOGGER.error(f'{save_dir} does not exist')
         else:
-            save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)
-        MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
-        (MOT_results_folder).mkdir(parents=True, exist_ok=True)  # make
-        return seq_paths, save_dir, MOT_results_folder, gt_folder
+            save_dir = increment_path(Path(self.opt.project) / self.opt.name, exist_ok=self.opt.exist_ok)
+
+        self.seq_paths = seq_paths
+        self.save_dir = save_dir
+        self.gt_folder = gt_folder
 
     def device_setup(self, opt, seq_paths):
         """Selects which devices (cuda:N, cpu) to run each sequence on
@@ -154,30 +147,93 @@ class Evaluator:
             opt.device = opt.device[:len(seq_paths)]
         free_devices = opt.device * opt.processes_per_device
         return free_devices
+    
+    def evaluate(self):
+        
+        gttxtfiles = list(self.gt_folder.glob('*/gt/gt.txt'))
+        # get sequences in the right order; strip letters, only sort by numbers
+        gttxtfiles.sort(key=lambda x: re.sub(r'[^0-9]*', "", str(x)))
+        tstxtfiles = [f for f in (self.save_dir / 'labels').glob('*.txt')]
+        
+        LOGGER.info(f"Found {len(gttxtfiles)} groundtruths and {len(tstxtfiles)} test files.")
+        if len(tstxtfiles) != len(gttxtfiles):
+            LOGGER.warning(f"The number of gt files and tracking results files differ.")
+            LOGGER.warning(f"Proceeding with the calculation of partial results")
+        LOGGER.info(f"Available LAP solvers {str(mm.lap.available_solvers)}")
+        LOGGER.info(f"Default LAP solver \'{mm.lap.default_solver}\'")
+        LOGGER.info(f'Loading files.')
+        
+        # load all data for all sequences
+        gt = OrderedDict([
+            (Path(f).parts[-3], mm.io.loadtxt(f, fmt='mot16', min_confidence=1)) 
+            for f in gttxtfiles
+        ])
+        ts = OrderedDict([
+            (os.path.splitext(Path(f).parts[-1])[0], mm.io.loadtxt(f, fmt='mot16'))
+            for f in tstxtfiles
+        ])
+        
+        # for each of the predicted classes  
+        for c in opt.classes:
+            
+            gt_temp = {}
+            ts_temp = {}
+        
+            # for each of the sequences in the dataset 
+            for seq_name in gt.keys():
 
-    def eval(self, opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, gt_folder, free_devices):
+                # in official MOT datasets, cls follows one-based indexing
+                if opt.benchmark in ['MOT16', 'MOT17', 'MOT17mini', 'MOT20']:
+                    gt_temp[seq_name] = gt[seq_name].loc[gt[seq_name]['ClassId'] == int(c) + 1]
+                else:
+                    gt_temp[seq_name] = gt[seq_name].loc[gt[seq_name]['ClassId'] == int(c)]
+                ts_temp[seq_name] = ts[seq_name].loc[ts[seq_name]['ClassId'] == int(c)]
+
+            LOGGER.info(f'Running metrics on: {list(gt.keys())} for class {c}')
+            mh = mm.metrics.create()
+            accs, names = compare_dataframes(gt_temp, ts_temp)
+
+            metrics = list(mm.metrics.motchallenge_metrics)
+
+            summary = mh.compute_many(accs, names=names, metrics=metrics, generate_overall=True)
+            LOGGER.success(f"\n{mm.io.render_summary(summary, formatters=mh.formatters, namemap=mm.io.motchallenge_metric_names)}")
+            
+        accs, names = compare_dataframes(gt, ts)
+
+        metrics = list(mm.metrics.motchallenge_metrics)
+
+        summary = mh.compute_many(accs, names=names, metrics=['mota', 'idf1'], generate_overall=True)
+        strsummary = mm.io.render_summary(summary, formatters=mh.formatters, namemap=mm.io.motchallenge_metric_names)
+        LOGGER.success(f"\n{strsummary}")
+
+        results = {
+            'MOTA': summary.loc['OVERALL', 'mota'],
+            'IDF1': summary.loc['OVERALL', 'idf1']
+        }
+        
+        return results
+
+
+    def generate_tracks(self):
         """Benchmark evaluation
         
         Runns each benchmark sequence on the selected device configuration and moves the results to
         a unique eval folder
 
         Args:
-            opt: the parsed script arguments
             seq_paths ([Path]): path to sequence folders in benchmark
             save_dir (Path): original tracking result destination
-            MOT_results_folder (Path): evaluation trackinf result destination
-            val_tools_path (pathlib.Path): path to destination folder of the downloaded MOT benchmark zip
-            free_devices: [str]
 
         Returns:
             (str): the complete evaluation results generated by "scripts/run_mot_challenge.py"
         """
+        
+        free_devices = self.device_setup(self.opt, self.seq_paths)
 
         if not self.opt.eval_existing:
             processes = []
 
             busy_devices = []
-            print(seq_paths)
             for i, seq_path in enumerate(seq_paths):
                 # spawn one subprocess per GPU in increasing order.
                 # When max devices are reached start at 0 again
@@ -235,37 +291,7 @@ class Evaluator:
             for p in processes:
                 p.wait()
 
-        seq_paths = [seq_path.parent / seq_path.parent.name for seq_path in seq_paths]
         print_args(vars(self.opt))
-
-
-        gttxtfiles = glob.glob(os.path.join(gt_folder, '*/gt/gt.txt'))
-        tstxtfiles = [f for f in glob.glob(os.path.join(save_dir / 'labels', '*.txt')) if os.path.basename(f).startswith(str(seq_path.parent.name))]
-        print(gttxtfiles)
-        print(tstxtfiles)
-        
-        LOGGER.info(f"Found {len(gttxtfiles)} groundtruths and {len(tstxtfiles)} test files.")
-        LOGGER.info(f"Available LAP solvers {str(mm.lap.available_solvers)}")
-        LOGGER.info(f"Default LAP solver \'{mm.lap.default_solver}\'")
-        LOGGER.info(f'Loading files.')
-        
-        gt = OrderedDict([(Path(f).parts[-3], mm.io.loadtxt(f, fmt='mot16', min_confidence=1)) for f in gttxtfiles])
-        ts = OrderedDict([(os.path.splitext(Path(f).parts[-1])[0], mm.io.loadtxt(f, fmt='mot16')) for f in tstxtfiles])
-
-        for c in opt.classes:
-            print(c)
-            ts['VEHICLE-01'] = ts['VEHICLE-01'].loc[ts['VEHICLE-01']['ClassId'] == c]
-            gt['VEHICLE-01'] = gt['VEHICLE-01'].loc[gt['VEHICLE-01']['ClassId'] == c]
-        
-            mh = mm.metrics.create()
-            accs, names = compare_dataframes(gt, ts)
-
-            metrics = list(mm.metrics.motchallenge_metrics)
-
-            LOGGER.info(f'Running metrics for class {c}')
-
-            summary = mh.compute_many(accs, names=names, metrics=metrics, generate_overall=True)
-            LOGGER.success(mm.io.render_summary(summary, formatters=mh.formatters, namemap=mm.io.motchallenge_metric_names))
 
 
     def run(self, opt):
@@ -280,24 +306,26 @@ class Evaluator:
         Returns:
             (str): the complete evaluation results generated by "scripts/run_mot_challenge.py"
         """
+
         e = Evaluator(opt)
-        val_tools_path = EXAMPLES / 'val_utils'
-        e.download_mot_eval_tools(val_tools_path)
-        if any(opt.benchmark == s for s in ['MOT16', 'MOT17', 'MOT20']):
+        
+        # download supported datasets
+        if opt.benchmark in ['MOT16', 'MOT17', 'MOT20']:
             e.download_mot_dataset(val_tools_path, opt.benchmark)
-        seq_paths, save_dir, MOT_results_folder, gt_folder = e.eval_setup(opt, val_tools_path)
-        free_devices = e.device_setup(opt, seq_paths)
-        results = e.eval(opt, seq_paths, save_dir, MOT_results_folder, val_tools_path, gt_folder, free_devices)
-        # extract main metric results: HOTA, MOTA, IDF1
-        combined_results = self.parse_mot_results(results)
+            
+        # generate necessary paths
+        e.eval_setup()
+        # generate txt files for each sequence
+        e.generate_tracks()
+        # evaluate these sequences
+        results = e.evaluate()
 
-        # log them with tensorboard
-        writer = SummaryWriter(save_dir)
-        writer.add_scalar('HOTA', combined_results['HOTA'])
-        writer.add_scalar('MOTA', combined_results['MOTA'])
-        writer.add_scalar('IDF1', combined_results['IDF1'])
+        # log MOTA and IDF1 on tensorboard
+        writer = SummaryWriter(self.save_dir)
+        writer.add_scalar('MOTA', results['MOTA'])
+        writer.add_scalar('IDF1', results['IDF1'])
 
-        return combined_results
+        return results
 
 
 def parse_opt():
@@ -309,7 +337,7 @@ def parse_opt():
     parser.add_argument('--classes', nargs='+', type=str, default=['0'], help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--project', default=EXAMPLES / 'runs' / 'val', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
+    parser.add_argument('--benchmark', type=str, default='MOT17mini', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', action='store_true', help='evaluate existing results under project/name/labels')
     parser.add_argument('--conf', type=float, default=0.45, help='confidence threshold')
