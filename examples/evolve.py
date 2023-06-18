@@ -48,7 +48,7 @@ class Objective(Evaluator):
     """
     def __init__(self, opts):  
         self.opt = opts
-        self.save_dir = save_dir
+        self.save_dir = None
                 
     def get_new_config(self, trial):
         """Overwrites the tracking config by newly generated hparams
