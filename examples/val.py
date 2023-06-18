@@ -13,16 +13,19 @@ Usage:
 import os
 import sys
 import torch
+import glob
 import subprocess
 from subprocess import Popen
 import argparse
 import git
 import re
 import yaml
+from collections import OrderedDict
 from git import Repo
 import zipfile
 from pathlib import Path
 import shutil
+import motmetrics as mm
 from tqdm import tqdm
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
@@ -33,6 +36,8 @@ from ultralytics.yolo.utils.files import increment_path
 
 from boxmot.utils import ROOT, WEIGHTS, EXAMPLES
 from track import run
+import motmetrics as mm
+from motmetrics.apps.eval_motchallenge import compare_dataframes
 
 
 class Evaluator:
@@ -172,6 +177,7 @@ class Evaluator:
             processes = []
 
             busy_devices = []
+            print(seq_paths)
             for i, seq_path in enumerate(seq_paths):
                 # spawn one subprocess per GPU in increasing order.
                 # When max devices are reached start at 0 again
@@ -229,70 +235,38 @@ class Evaluator:
             for p in processes:
                 p.wait()
 
+        seq_paths = [seq_path.parent / seq_path.parent.name for seq_path in seq_paths]
         print_args(vars(self.opt))
 
-        # run the evaluation on the generated txts
-        d = [seq_path.parent.name for seq_path in seq_paths]
-        p = subprocess.Popen(
-            args=[
-                sys.executable, val_tools_path / 'scripts' / 'run_mot_challenge.py',
-                "--GT_FOLDER", gt_folder,
-                "--BENCHMARK", "",
-                "--TRACKERS_FOLDER", save_dir,   # project/name
-                "--TRACKERS_TO_EVAL", "labels",  # project/name/labels
-                "--SPLIT_TO_EVAL", "train",
-                "--METRICS", "HOTA", "CLEAR", "Identity",
-                "--USE_PARALLEL", "True",
-                "--TRACKER_SUB_FOLDER", "",
-                "--NUM_PARALLEL_CORES", "4",
-                "--SKIP_SPLIT_FOL", "True",
-                "--SEQ_INFO", *d
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        # Wait for the subprocess to complete and capture output
-        stdout, stderr = p.communicate()
 
-        # Check the return code of the subprocess
-        if p.returncode != 0:
-            LOGGER.error(stderr)
-            LOGGER.error(stdout)
-            sys.exit(1)
+        gttxtfiles = glob.glob(os.path.join(gt_folder, '*/gt/gt.txt'))
+        tstxtfiles = [f for f in glob.glob(os.path.join(save_dir / 'labels', '*.txt')) if os.path.basename(f).startswith(str(seq_path.parent.name))]
+        print(gttxtfiles)
+        print(tstxtfiles)
+        
+        LOGGER.info(f"Found {len(gttxtfiles)} groundtruths and {len(tstxtfiles)} test files.")
+        LOGGER.info(f"Available LAP solvers {str(mm.lap.available_solvers)}")
+        LOGGER.info(f"Default LAP solver \'{mm.lap.default_solver}\'")
+        LOGGER.info(f'Loading files.')
+        
+        gt = OrderedDict([(Path(f).parts[-3], mm.io.loadtxt(f, fmt='mot16', min_confidence=1)) for f in gttxtfiles])
+        ts = OrderedDict([(os.path.splitext(Path(f).parts[-1])[0], mm.io.loadtxt(f, fmt='mot16')) for f in tstxtfiles])
 
-        LOGGER.info(stdout)
+        for c in opt.classes:
+            print(c)
+            ts['VEHICLE-01'] = ts['VEHICLE-01'].loc[ts['VEHICLE-01']['ClassId'] == c]
+            gt['VEHICLE-01'] = gt['VEHICLE-01'].loc[gt['VEHICLE-01']['ClassId'] == c]
+        
+            mh = mm.metrics.create()
+            accs, names = compare_dataframes(gt, ts)
 
-        # save MOT results in txt 
-        with open(save_dir / 'MOT_results.txt', 'w') as f:
-            f.write(stdout)
-        # copy tracking method config to exp folder
-        tracking_config = \
-            ROOT /\
-            'boxmot' /\
-            opt.tracking_method /\
-            'configs' /\
-            (opt.tracking_method + '.yaml')
-        shutil.copyfile(tracking_config, save_dir / Path(tracking_config).name)
+            metrics = list(mm.metrics.motchallenge_metrics)
 
-        return stdout
+            LOGGER.info(f'Running metrics for class {c}')
 
-    def parse_mot_results(self, results):
-        """Extract the COMBINED HOTA, MOTA, IDF1 from the results generate by the
-           run_mot_challenge.py script.
+            summary = mh.compute_many(accs, names=names, metrics=metrics, generate_overall=True)
+            LOGGER.success(mm.io.render_summary(summary, formatters=mh.formatters, namemap=mm.io.motchallenge_metric_names))
 
-        Args:
-            str: mot_results
-
-        Returns:
-            (dict): {'HOTA': x, 'MOTA':y, 'IDF1':z}
-        """
-        combined_results = results.split('COMBINED')[2:-1]
-        # robust way of getting first ints/float in string
-        combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
-        # pack everything in dict
-        combined_results = {key: value for key, value in zip(['HOTA', 'MOTA', 'IDF1'], combined_results)}
-        return combined_results
 
     def run(self, opt):
         """Download all needed resources for evaluation, setup and evaluate
