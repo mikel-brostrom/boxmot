@@ -96,8 +96,8 @@ jobs:
       - name: Test evolution on MOT17 subset
         shell: bash  # for Windows compatibility
         run: |
-          # evolve a for a single set of parameters
-          python examples/evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17mini --n-trials 1 --imgsz 320 --conf 0.2
+          # evolve a single set of parameters, HOTA cannot be calculated with motmetrics yet...
+          python examples/evolve.py --objectives MOTA,IDF1 --benchmark MOT17mini --n-trials 1 --imgsz 320 --conf 0.2
       
       - name: Pytest tests
         shell: bash  # for Windows compatibility
