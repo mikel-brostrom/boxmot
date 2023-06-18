@@ -60,7 +60,7 @@ class Evaluator:
         self.save_dir = None
         self.gt_folder = None
 
-    def download_mot_dataset(self, val_tools_path, benchmark):
+    def download_mot_dataset(self, benchmark):
         """Download specific MOT dataset and unpack it
         Args:
             val_tools_path (pathlib.Path): path to destination folder of the downloaded MOT benchmark zip
@@ -69,23 +69,23 @@ class Evaluator:
             None
         """
         url = 'https://motchallenge.net/data/' + benchmark + '.zip'
-        zip_dst = val_tools_path / (benchmark + '.zip')
-        if not (val_tools_path / 'data' / benchmark).exists():
+        zip_dst = self.val_tools_path / (benchmark + '.zip')
+        if not (self.val_tools_path / 'data' / benchmark).exists():
             os.system(f"curl -# -L {url} -o {zip_dst} -# --retry 3 -C -")
             LOGGER.info(f'{benchmark}.zip downloaded sucessfully')
 
             try:
-                with zipfile.ZipFile((val_tools_path / (benchmark + '.zip')), 'r') as zip_file:
+                with zipfile.ZipFile((self.val_tools_path / (benchmark + '.zip')), 'r') as zip_file:
                     if self.opt.benchmark == 'MOT16':
                         for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
-                            member_path = val_tools_path / 'data' / 'MOT16' / member
+                            member_path = self.val_tools_path / 'data' / 'MOT16' / member
                             if not member_path.exists() and not member_path.is_file():
-                                zip_file.extract(member, val_tools_path / 'data' / 'MOT16')
+                                zip_file.extract(member, self.val_tools_path / 'data' / 'MOT16')
                     else:
                         for member in tqdm(zip_file.namelist(), desc=f'Extracting {benchmark}'):
-                            member_path = val_tools_path / 'data' / member
+                            member_path = self.val_tools_path / 'data' / member
                             if not member_path.exists() and not member_path.is_file():
-                                zip_file.extract(member, val_tools_path / 'data')
+                                zip_file.extract(member, self.val_tools_path / 'data')
                 LOGGER.info(f'{benchmark}.zip unzipped successfully')
             except Exception as e:
                 LOGGER.error(f'{benchmark}.zip is corrupted. Try deleting the file and run the script again')
@@ -105,12 +105,12 @@ class Evaluator:
         # set paths
         gt_folder = self.val_tools_path / 'data' / self.opt.benchmark / self.opt.split
         mot_seqs_path = self.val_tools_path / 'data' / self.opt.benchmark / self.opt.split
-        if opt.benchmark == 'MOT17':
+        if self.opt.benchmark == 'MOT17':
             # each sequences is present 3 times, one for each detector
             # (DPM, FRCNN, SDP). Keep only sequences from  one of them
             seq_paths = sorted([str(p / 'img1') for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()])
             seq_paths = [Path(p) for p in seq_paths if 'FRCNN' in p]
-        elif opt.benchmark == 'MOT17mini':
+        elif self.opt.benchmark == 'MOT17mini':
             mot_seqs_path = ROOT / 'assets' / self.opt.benchmark / self.opt.split
             gt_folder = ROOT / 'assets' / self.opt.benchmark / self.opt.split
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
@@ -118,7 +118,7 @@ class Evaluator:
             # this is not the case for MOT16, MOT20 or your custom dataset
             seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir()]
 
-        if opt.eval_existing and (Path(self.opt.project) / self.opt.name).exists():
+        if self.opt.eval_existing and (Path(self.opt.project) / self.opt.name).exists():
             save_dir = Path(self.opt.project) / opt.name
             if not (Path(self.opt.project) / self.opt.name).exists():
                 LOGGER.error(f'{save_dir} does not exist')
@@ -197,13 +197,14 @@ class Evaluator:
 
             summary = mh.compute_many(accs, names=names, metrics=metrics, generate_overall=True)
             LOGGER.success(f"\n{mm.io.render_summary(summary, formatters=mh.formatters, namemap=mm.io.motchallenge_metric_names)}")
-            
+          
+        LOGGER.info(f'Running metrics on: {list(gt.keys())} for ALL classes')  
+        
         accs, names = compare_dataframes(gt, ts)
-
         metrics = list(mm.metrics.motchallenge_metrics)
-
         summary = mh.compute_many(accs, names=names, metrics=['mota', 'idf1'], generate_overall=True)
         strsummary = mm.io.render_summary(summary, formatters=mh.formatters, namemap=mm.io.motchallenge_metric_names)
+        
         LOGGER.success(f"\n{strsummary}")
 
         results = {
@@ -311,7 +312,7 @@ class Evaluator:
         
         # download supported datasets
         if opt.benchmark in ['MOT16', 'MOT17', 'MOT20']:
-            e.download_mot_dataset(val_tools_path, opt.benchmark)
+            e.download_mot_dataset(opt.benchmark)
             
         # generate necessary paths
         e.eval_setup()
