@@ -174,7 +174,7 @@ class Evaluator:
         ])
         
         # for each of the predicted classes  
-        for c in opt.classes:
+        for c in self.opt.classes:
             
             gt_temp = {}
             ts_temp = {}
