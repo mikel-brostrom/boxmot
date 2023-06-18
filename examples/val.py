@@ -235,7 +235,7 @@ class Evaluator:
             processes = []
 
             busy_devices = []
-            for i, seq_path in enumerate(seq_paths):
+            for i, seq_path in enumerate(self.seq_paths):
                 # spawn one subprocess per GPU in increasing order.
                 # When max devices are reached start at 0 again
                 if i > 0 and len(free_devices) == 0:
