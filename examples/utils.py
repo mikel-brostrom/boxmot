@@ -7,7 +7,6 @@ def write_MOT_results(txt_path, results, frame_idx, i):
     frame_idx = torch.full((1, 1), frame_idx + 1)
     frame_idx = frame_idx.repeat(nr_dets, 1)
     dont_care = torch.full((nr_dets, 1), -1)
-    i = torch.full((nr_dets, 1), i)
     mot = torch.cat([
         frame_idx,
         results.boxes.id.unsqueeze(1).to('cpu'),
@@ -18,4 +17,4 @@ def write_MOT_results(txt_path, results, frame_idx, i):
     ], dim=1)
 
     with open(str(txt_path) + '.txt', 'ab') as f:  # append binary mode
-        np.savetxt(f, mot.numpy(), fmt='%d')  # save as ints instead of scientific notation
+        np.savetxt(f, mot.numpy(), fmt='%d,%d,%d,%d,%d,%d,%f,%d,%d')  # save all as ints besides conf
