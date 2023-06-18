@@ -183,7 +183,7 @@ class Evaluator:
             for seq_name in gt.keys():
 
                 # in official MOT datasets, cls follows one-based indexing
-                if opt.benchmark in ['MOT16', 'MOT17', 'MOT17mini', 'MOT20']:
+                if self.opt.benchmark in ['MOT16', 'MOT17', 'MOT17mini', 'MOT20']:
                     gt_temp[seq_name] = gt[seq_name].loc[gt[seq_name]['ClassId'] == int(c) + 1]
                 else:
                     gt_temp[seq_name] = gt[seq_name].loc[gt[seq_name]['ClassId'] == int(c)]
