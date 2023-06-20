@@ -276,7 +276,7 @@ class Track:
             The associated detection.
         """
         self.conf = conf
-        self.class_id = class_id.int()
+        self.class_id = class_id.astype('int64')
         self.mean, self.covariance = self.kf.update(self.mean, self.covariance, detection.to_xyah(), detection.confidence)
 
         feature = detection.feature / np.linalg.norm(detection.feature)
