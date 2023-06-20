@@ -227,7 +227,7 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 ## Custom object detection model example
   
 <details>
-<summary>Click to exapand!</summary>
+<summary>Minimalistic</summary>
 
 ```python
 from boxmot import DeepOCSORT
@@ -253,6 +253,69 @@ while True:
     ...
 ```
   
+</details>
+
+
+<details>
+<summary>Complete</summary>
+  
+```python
+from boxmot import DeepOCSORT
+from pathlib import Path
+import cv2
+import numpy as np
+
+tracker = DeepOCSORT(
+    model_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
+    device='cuda:0',
+    fp16=True,
+)
+
+vid = cv2.VideoCapture(-1)
+while True:
+    ret, im = vid.read()
+    
+    dets = np.array([[144, 212, 578, 480, 0.82, 0],
+                    [425, 281, 576, 472, 0.56, 65]])
+    
+    ts = tracker.update(dets, im) # --> (x, y, x, y, id, conf, cls)
+
+    # print bboxes with their associated id, cls and conf
+    if ts.shape[0] != 0:
+        color = (0, 0, 255)  # BGR
+        thickness = 2
+        fontscale = 0.5
+        for t in ts:
+            im = cv2.rectangle(
+                im,
+                (int(t[0]), int(t[1])),
+                (int(t[2]), int(t[3])),
+                color,  
+                thickness
+            )
+            cv2.putText(
+                im,
+                f'id: {t[4]}, conf: {t[5]}, c: {t[6]}', (int(t[0]), int(t[1]-10)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                fontscale,
+                color,
+                thickness
+            )
+
+    # show
+    cv2.imshow('frame', im)
+
+    # break
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+    
+    
+# After the loop release the cap object
+vid.release()
+# Destroy all the windows
+cv2.destroyAllWindows()
+```
+
 </details>
   
 
