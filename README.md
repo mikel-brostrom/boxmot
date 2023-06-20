@@ -271,7 +271,11 @@ tracker = DeepOCSORT(
     fp16=True,
 )
 
-vid = cv2.VideoCapture(-1)
+vid = cv2.VideoCapture(0)
+color = (0, 0, 255)  # BGR
+thickness = 2
+fontscale = 0.5
+
 while True:
     ret, im = vid.read()
     
@@ -287,9 +291,6 @@ while True:
 
     # print bboxes with their associated id, cls and conf
     if ts.shape[0] != 0:
-        color = (0, 0, 255)  # BGR
-        thickness = 2
-        fontscale = 0.5
         for xyxy, id, conf, cls in zip(xyxys, ids, confs, clss):
             im = cv2.rectangle(
                 im,
