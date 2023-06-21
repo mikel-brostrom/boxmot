@@ -309,17 +309,14 @@ while True:
                 thickness
             )
 
-    # show
+    # show image with bboxes, ids, classes and confidences
     cv2.imshow('frame', im)
 
-    # break
+    # break on pressing q
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
     
-    
-# After the loop release the cap object
 vid.release()
-# Destroy all the windows
 cv2.destroyAllWindows()
 ```
 
