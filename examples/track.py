@@ -223,7 +223,6 @@ def parse_opt():
     parser.add_argument('--hide-conf', action='store_true', help='hide confidences when show')
     parser.add_argument('--save-txt', action='store_true', help='save tracking results in a txt file')
     parser.add_argument('--save-id-crops', action='store_true', help='save each crop to its respective id folder')
-    parser.add_argument('--save-txt', action='store_true', help='save detection results for each frame in separate txt files')
     parser.add_argument('--save-mot', action='store_true', help='save tracking results in a single txt file')
     opt = parser.parse_args()
     return opt
