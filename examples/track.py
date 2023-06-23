@@ -221,13 +221,10 @@ def parse_opt():
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
     parser.add_argument('--hide-label', action='store_true', help='hide labels when show')
     parser.add_argument('--hide-conf', action='store_true', help='hide confidences when show')
-<<<<<<< HEAD
     parser.add_argument('--save-txt', action='store_true', help='save tracking results in a txt file')
     parser.add_argument('--save-id-crops', action='store_true', help='save each crop to its respective id folder')
-=======
     parser.add_argument('--save-txt', action='store_true', help='save detection results for each frame in separate txt files')
     parser.add_argument('--save-mot', action='store_true', help='save tracking results in a single txt file')
->>>>>>> 5cb8eb4ea8b1ed5ae5c96d9ae17b109597742e64
     opt = parser.parse_args()
     return opt
 
