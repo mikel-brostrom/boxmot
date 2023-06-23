@@ -137,7 +137,7 @@ def run(args):
             model.overwrite_results(i, im0.shape[:2], predictor)
             
             # write inference results to a file or directory   
-            if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show:
+            if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show or predictor.args.save_mot:
                 s += predictor.write_results(i, predictor.results, (p, im, im0))
                 predictor.txt_path = Path(predictor.txt_path)
                 
@@ -149,6 +149,8 @@ def run(args):
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.name
                     
                 if predictor.tracker_outputs[i].size != 0 and predictor.args.save_mot:
+                    # needed if txt save is not activated, otherwise redundant
+                    predictor.MOT_txt_path.mkdir(parents=True, exist_ok=predictor.args.exist_ok)
                     write_MOT_results(
                         predictor.MOT_txt_path,
                         predictor.results[i],

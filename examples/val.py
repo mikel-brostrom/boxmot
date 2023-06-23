@@ -203,7 +203,7 @@ class Evaluator:
                         "--imgsz", str(self.opt.imgsz[0]),
                         "--classes", *self.opt.classes,
                         "--name", save_dir.name,
-                        "--save-txt",
+                        "--save-mot",
                         "--project", self.opt.project,
                         "--device", str(tracking_subprocess_device),
                         "--source", dst_seq_path,
