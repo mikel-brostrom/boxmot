@@ -165,7 +165,7 @@ def run(args):
                         save_one_box(
                             d.xyxy,
                             im0.copy(),
-                            file=predictor.save_dir / 'crops' / str(int(predictor.results[i].boxes.id.cpu().numpy().item())) / f'{p.stem}.jpg',
+                            file=predictor.save_dir / 'crops' / str(int(d.id.cpu().numpy().item())) / f'{p.stem}.jpg',
                             BGR=True
                         )
 
