@@ -165,6 +165,11 @@ class BYTETracker(object):
         self.kalman_filter = KalmanFilter()
 
     def update(self, dets, _):
+
+        assert isinstance(dets, np.ndarray), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
+        assert len(dets.shape) == 2, f"Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert dets.shape[1] == 6, f"Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
