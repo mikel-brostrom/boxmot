@@ -155,7 +155,7 @@ $ python examples/track.py --source 0 --yolo-model yolov8n.pt --img 640
 <details>
 <summary>Select ReID model</summary>
 
-Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/blob/master/reid_export.py) script
+Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/deep/reid_export.py) script
 
 ```bash
 $ python examples/track.py --source 0 --reid-model lmbn_n_cuhk03_d.pt
@@ -227,7 +227,7 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 ## Custom object detection model example
   
 <details>
-<summary>Click to exapand!</summary>
+<summary>Minimalistic</summary>
 
 ```python
 from boxmot import DeepOCSORT
@@ -253,6 +253,73 @@ while True:
     ...
 ```
   
+</details>
+
+
+<details>
+<summary>Complete</summary>
+  
+```python
+from boxmot import DeepOCSORT
+from pathlib import Path
+import cv2
+import numpy as np
+
+tracker = DeepOCSORT(
+    model_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
+    device='cuda:0',
+    fp16=True,
+)
+
+vid = cv2.VideoCapture(0)
+color = (0, 0, 255)  # BGR
+thickness = 2
+fontscale = 0.5
+
+while True:
+    ret, im = vid.read()
+    
+    dets = np.array([[144, 212, 578, 480, 0.82, 0],
+                    [425, 281, 576, 472, 0.56, 65]])
+    
+    ts = tracker.update(dets, im) # --> (x, y, x, y, id, conf, cls)
+    
+    xyxys = ts[:, 0:4].astype('int') # float64 to int
+    ids = ts[:, 4].astype('int') # float64 to int
+    confs = ts[:, 5]
+    clss = ts[:, 6]
+
+    # print bboxes with their associated id, cls and conf
+    if ts.shape[0] != 0:
+        for xyxy, id, conf, cls in zip(xyxys, ids, confs, clss):
+            im = cv2.rectangle(
+                im,
+                (xyxy[0], xyxy[1]),
+                (xyxy[2], xyxy[3]),
+                color,  
+                thickness
+            )
+            cv2.putText(
+                im,
+                f'id: {id}, conf: {conf}, c: {cls}',
+                (xyxy[0], xyxy[1]-10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                fontscale,
+                color,
+                thickness
+            )
+
+    # show image with bboxes, ids, classes and confidences
+    cv2.imshow('frame', im)
+
+    # break on pressing q
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+    
+vid.release()
+cv2.destroyAllWindows()
+```
+
 </details>
   
 

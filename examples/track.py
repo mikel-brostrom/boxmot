@@ -23,6 +23,7 @@ from ultralytics.yolo.utils.checks import check_imgsz, print_args
 from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.engine.results import Boxes
 from ultralytics.yolo.data.utils import VID_FORMATS
+from ultralytics.yolo.utils.plotting import save_one_box
 
 from multi_yolo_backend import MultiYolo
 from utils import write_MOT_results
@@ -137,7 +138,8 @@ def run(args):
             model.overwrite_results(i, im0.shape[:2], predictor)
             
             # write inference results to a file or directory   
-            if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show:
+            if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show or predict.args.save_id_crops:
+                
                 s += predictor.write_results(i, predictor.results, (p, im, im0))
                 predictor.txt_path = Path(predictor.txt_path)
                 
@@ -148,13 +150,24 @@ def run(args):
                     # append folder name containing current img
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.name
                     
-                if predictor.tracker_outputs[i].size != 0 and predictor.args.save_txt:
+                if predictor.tracker_outputs[i].size != 0 and predictor.args.save_mot:
+                    # needed if txt save is not activated, otherwise redundant
+                    predictor.MOT_txt_path.mkdir(parents=True, exist_ok=predictor.args.exist_ok)
                     write_MOT_results(
                         predictor.MOT_txt_path,
                         predictor.results[i],
                         frame_idx,
                         i,
                     )
+
+                if predictor.args.save_id_crops:
+                    for d in predictor.results[i].boxes:
+                        save_one_box(
+                            d.xyxy,
+                            im0.copy(),
+                            file=predictor.save_dir / 'crops' / str(int(d.cls.cpu().numpy().item())) / str(int(d.id.cpu().numpy().item())) / f'{p.stem}.jpg',
+                            BGR=True
+                        )
 
             # display an image in a window using OpenCV imshow()
             if predictor.args.show and predictor.plotted_img is not None:
@@ -209,6 +222,8 @@ def parse_opt():
     parser.add_argument('--hide-label', action='store_true', help='hide labels when show')
     parser.add_argument('--hide-conf', action='store_true', help='hide confidences when show')
     parser.add_argument('--save-txt', action='store_true', help='save tracking results in a txt file')
+    parser.add_argument('--save-id-crops', action='store_true', help='save each crop to its respective id folder')
+    parser.add_argument('--save-mot', action='store_true', help='save tracking results in a single txt file')
     opt = parser.parse_args()
     return opt
 
