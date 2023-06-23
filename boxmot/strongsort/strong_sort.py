@@ -38,7 +38,12 @@ class StrongSORT(object):
         self.tracker = Tracker(
             metric, max_iou_dist=max_iou_dist, max_age=max_age, n_init=n_init, max_unmatched_preds=max_unmatched_preds, mc_lambda=mc_lambda, ema_alpha=ema_alpha)
 
-    def update(self, dets,  ori_img):
+    def update(self, dets,  img):
+
+        assert isinstance(dets, np.ndarray), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
+        assert isinstance(img, np.ndarray), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
+        assert len(dets.shape) == 2, f"Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert dets.shape[1] == 6, f"Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
         
         xyxys = dets[:, 0:4]
         confs = dets[:, 4]
@@ -47,10 +52,10 @@ class StrongSORT(object):
         classes = clss
         xywhs = xyxy2xywh(xyxys)
         confs = confs
-        self.height, self.width = ori_img.shape[:2]
+        self.height, self.width = img.shape[:2]
         
         # generate detections
-        features = self._get_features(xywhs, ori_img)
+        features = self._get_features(xywhs, img)
         bbox_tlwh = self._xywh_to_tlwh(xywhs)
         detections = [Detection(bbox_tlwh[i], conf, features[i]) for i, conf in enumerate(
             confs)]
@@ -129,11 +134,11 @@ class StrongSORT(object):
         return t, l, w, h
 
     @torch.no_grad()
-    def _get_features(self, bbox_xywh, ori_img):
+    def _get_features(self, bbox_xywh, img):
         im_crops = []
         for box in bbox_xywh:
             x1, y1, x2, y2 = self._xywh_to_xyxy(box)
-            im = ori_img[y1:y2, x1:x2]
+            im = img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
             features = self.model(im_crops)
