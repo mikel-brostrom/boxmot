@@ -23,6 +23,7 @@ from ultralytics.yolo.utils.checks import check_imgsz, print_args
 from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.engine.results import Boxes
 from ultralytics.yolo.data.utils import VID_FORMATS
+from ultralytics.yolo.utils.plotting import save_one_box
 
 from multi_yolo_backend import MultiYolo
 from utils import write_MOT_results
@@ -155,6 +156,15 @@ def run(args):
                         frame_idx,
                         i,
                     )
+
+                if True:
+                    for xyxy in predictor.results[i].boxes:
+                        save_one_box(
+                            xyxy,
+                            im0.copy(),
+                            file=predictor.save_dir / 'crops' / str(predictor.results[i].boxes.id) / f'{p.stem}.jpg',
+                            BGR=True
+                        )
 
             # display an image in a window using OpenCV imshow()
             if predictor.args.show and predictor.plotted_img is not None:
