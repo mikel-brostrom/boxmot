@@ -267,7 +267,13 @@ class BoTSORT(object):
 
         self.gmc = GMC(method=cmc_method, verbose=[None,False])
 
-    def update(self, output_results, img):
+    def update(self, preds, img):
+
+        assert isinstance(dets, np.ndarray), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
+        assert isinstance(img, np.ndarray), f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
+        assert len(dets.shape) == 2, f"Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert dets.shape[1] == 6, f"Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
