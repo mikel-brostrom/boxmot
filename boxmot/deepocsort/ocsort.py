@@ -8,6 +8,7 @@ import numpy as np
 from .association import *
 from .cmc import CMCComputer
 from boxmot.deep.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.utils import logger as LOGGER
 
 
 
@@ -360,7 +361,7 @@ class OCSort(object):
         self.aw_off = aw_off
         self.new_kf_off = new_kf_off
 
-    def update(self, dets, img_numpy, tag='blub'):
+    def update(self, dets, img, tag='blub'):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -368,6 +369,12 @@ class OCSort(object):
         Returns the a similar array, where the last column is the object ID.
         NOTE: The number of objects returned may differ from the number of detections provided.
         """
+
+        assert isinstance(dets, np.ndarray), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
+        assert isinstance(img, np.ndarray), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
+        assert len(dets.shape) == 2, f"Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert dets.shape[1] == 6, f"Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+
         xyxys = dets[:, 0:4]
         scores = dets[:, 4]
         clss = dets[:, 5]
@@ -379,23 +386,20 @@ class OCSort(object):
         dets = dets[:, 0:6]
         remain_inds = scores > self.det_thresh
         dets = dets[remain_inds]
-        self.height, self.width = img_numpy.shape[:2]
+        self.height, self.width = img.shape[:2]
 
-        # Rescale
-        #scale = min(img_tensor.shape[2] / img_numpy.shape[0], img_tensor.shape[3] / img_numpy.shape[1])
-        #dets[:, :4] /= scale
 
         # Embedding
         if self.embedding_off or dets.shape[0] == 0:
             dets_embs = np.ones((dets.shape[0], 1))
         else:
             # (Ndets x X) [512, 1024, 2048]
-            #dets_embs = self.embedder.compute_embedding(img_numpy, dets[:, :4], tag)
-            dets_embs = self._get_features(dets[:, :4], img_numpy)
+            #dets_embs = self.embedder.compute_embedding(img, dets[:, :4], tag)
+            dets_embs = self._get_features(dets[:, :4], img)
 
         # CMC
         if not self.cmc_off:
-            transform = self.cmc.compute_affine(img_numpy, dets[:, :4], tag)
+            transform = self.cmc.compute_affine(img, dets[:, :4], tag)
             for trk in self.trackers:
                 trk.apply_affine_correction(transform)
 
