@@ -267,7 +267,7 @@ class BoTSORT(object):
 
         self.gmc = GMC(method=cmc_method, verbose=[None,False])
 
-    def update(self, preds, img):
+    def update(self, dets, img):
 
         assert isinstance(dets, np.ndarray), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
         assert isinstance(img, np.ndarray), f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
@@ -280,10 +280,10 @@ class BoTSORT(object):
         lost_stracks = []
         removed_stracks = []
         
-        xyxys = output_results[:, 0:4]
+        xyxys = dets[:, 0:4]
         xywh = xyxy2xywh(xyxys)
-        confs = output_results[:, 4]
-        clss = output_results[:, 5]
+        confs = dets[:, 4]
+        clss = dets[:, 5]
         
         classes = clss
         xyxys = xyxys
