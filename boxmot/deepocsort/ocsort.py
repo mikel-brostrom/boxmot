@@ -8,6 +8,7 @@ import numpy as np
 from .association import *
 from .cmc import CMCComputer
 from boxmot.deep.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.utils import logger as LOGGER
 
 
 
@@ -368,6 +369,12 @@ class OCSort(object):
         Returns the a similar array, where the last column is the object ID.
         NOTE: The number of objects returned may differ from the number of detections provided.
         """
+
+        assert isinstance(dets, np.ndarray), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
+        assert isinstance(img_numpy, np.ndarray), f"Unsupported 'img_numpy' input format '{type(img_numpy)}', valid format is np.ndarray"
+        assert len(dets.shape) == 2, f"Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert dets.shape[1] == 6, f"Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+
         xyxys = dets[:, 0:4]
         scores = dets[:, 4]
         clss = dets[:, 5]
