@@ -138,7 +138,8 @@ def run(args):
             model.overwrite_results(i, im0.shape[:2], predictor)
             
             # write inference results to a file or directory   
-            if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show:
+            if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show or predict.args.save_id_crops:
+                
                 s += predictor.write_results(i, predictor.results, (p, im, im0))
                 predictor.txt_path = Path(predictor.txt_path)
                 
@@ -157,12 +158,12 @@ def run(args):
                         i,
                     )
 
-                if True:
-                    for xyxy in predictor.results[i].boxes:
+                if predictor.args.save_id_crops:
+                    for d in predictor.results[i].boxes:
                         save_one_box(
-                            xyxy,
+                            d.xyxy,
                             im0.copy(),
-                            file=predictor.save_dir / 'crops' / str(predictor.results[i].boxes.id) / f'{p.stem}.jpg',
+                            file=predictor.save_dir / 'crops' / str(int(predictor.results[i].boxes.id.cpu().numpy().item())) / f'{p.stem}.jpg',
                             BGR=True
                         )
 
@@ -219,6 +220,7 @@ def parse_opt():
     parser.add_argument('--hide-label', action='store_true', help='hide labels when show')
     parser.add_argument('--hide-conf', action='store_true', help='hide confidences when show')
     parser.add_argument('--save-txt', action='store_true', help='save tracking results in a txt file')
+    parser.add_argument('--save-id-crops', action='store_true', help='save each crop to its respective id folder')
     opt = parser.parse_args()
     return opt
 
