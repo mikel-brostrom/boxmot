@@ -148,7 +148,7 @@ def run(args):
                     # append folder name containing current img
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.name
                     
-                if predictor.tracker_outputs[i].size != 0 and predictor.args.save_txt:
+                if predictor.tracker_outputs[i].size != 0 and predictor.args.save_mot:
                     write_MOT_results(
                         predictor.MOT_txt_path,
                         predictor.results[i],
@@ -208,7 +208,8 @@ def parse_opt():
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
     parser.add_argument('--hide-label', action='store_true', help='hide labels when show')
     parser.add_argument('--hide-conf', action='store_true', help='hide confidences when show')
-    parser.add_argument('--save-txt', action='store_true', help='save tracking results in a txt file')
+    parser.add_argument('--save-txt', action='store_true', help='save detection results for each frame in separate txt files')
+    parser.add_argument('--save-mot', action='store_true', help='save tracking results in a single txt file')
     opt = parser.parse_args()
     return opt
 
