@@ -11,12 +11,12 @@ body:
         Please search the [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolo_tracking/discussions) to see if a similar question already exists.
       options:
         - label: >
-            I have searched the Yolov8 Tracking [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolo_tracking/discussions) and found no similar questions.
+            I have searched the Yolo Tracking [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolo_tracking/discussions) and found no similar questions.
           required: true
 
   - type: dropdown
     attributes:
-      label: Yolv8 Tracking Component
+      label: Yolo Tracking Component
       description: |
         Please select the part of Yolo Tracking where you found the bug.
       multiple: true
