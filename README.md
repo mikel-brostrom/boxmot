@@ -262,7 +262,8 @@ fontscale = 0.5
 
 while True:
     ret, im = vid.read()
-    
+
+    # substitute by your object detector, output has to be N X (x, y, x, y, conf, cls)
     dets = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
     
