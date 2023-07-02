@@ -153,7 +153,6 @@ def run(args):
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.name
                     
                 if predictor.tracker_outputs[i].size != 0 and predictor.args.save_mot:
-                    # needed if txt save is not activated, otherwise redundant
                     write_MOT_results(
                         predictor.MOT_txt_path,
                         predictor.results[i],
