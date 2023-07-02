@@ -28,6 +28,8 @@ from ultralytics.yolo.utils.plotting import save_one_box
 from multi_yolo_backend import MultiYolo
 from utils import write_MOT_results
 
+from boxmot.utils import EXAMPLES
+
 
 def on_predict_start(predictor):
     predictor.trackers = []
@@ -152,7 +154,6 @@ def run(args):
                     
                 if predictor.tracker_outputs[i].size != 0 and predictor.args.save_mot:
                     # needed if txt save is not activated, otherwise redundant
-                    predictor.MOT_txt_path.mkdir(parents=True, exist_ok=predictor.args.exist_ok)
                     write_MOT_results(
                         predictor.MOT_txt_path,
                         predictor.results[i],
@@ -214,7 +215,7 @@ def parse_opt():
     parser.add_argument('--save', action='store_true', help='save video tracking results')
     # # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--project', default=ROOT / 'runs' / 'track', help='save results to project/name')
+    parser.add_argument('--project', default=EXAMPLES / 'runs' / 'track', help='save results to project/name')
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
