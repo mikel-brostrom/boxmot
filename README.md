@@ -137,22 +137,6 @@ $ python examples/track.py --source 0                               # webcam
 </details>
 
 <details>
-<summary>Select Yolov8 model</summary>
-
-There is a clear trade-off between model inference speed and overall performance. In order to make it possible to fulfill your inference speed/accuracy needs you can select a Yolov5 family model for automatic download. These model can be further optimized for you needs by the [export.py](https://github.com/ultralytics/yolov5/blob/master/export.py) script
-
-```bash
-$ python examples/track.py --source 0 --yolo-model yolov8n.pt --img 640
-                                          yolov8s.tflite
-                                          yolov8m.pt
-                                          yolov8l.onnx 
-                                          yolov8x.pt --img 1280
-                                          ...
-```
-  
-</details>
-
-<details>
 <summary>Select ReID model</summary>
 
 Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/deep/reid_export.py) script
@@ -186,10 +170,10 @@ python examples/track.py --source 0 --yolo-model yolov8s.pt --classes 16 17  # C
 <details>
 <summary>MOT compliant results</summary>
   
-Can be saved to your experiment folder `runs/track/<yolo_model>_<deep_sort_model>/` by 
+Can be saved to your experiment folder `runs/track/exp*/` by 
 
 ```bash
-python examples/track.py --source ... --save-txt
+python examples/track.py --source ... --save-mot
 ```
 
 </details>
