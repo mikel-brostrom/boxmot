@@ -1,13 +1,13 @@
 cff-version: 1.2.0
 preferred-citation:
   type: software
-  message: "If you use Yolov8 StrongSORT OSNet, please cite it as below."
+  message: "If you use Yolo Tracking, please cite it as below."
   authors:
   - family-names: Broström
     given-names: Mikel
-  title: "Real-time multi-object, segmentation and pose tracking using Yolov8 with DeepOCSORT and LightMBN"
-  version: 8.0
+  title: "BoxMOT: A collection of SOTA real-time, multi-object trackers for object detectors "
+  version: 10.0.15
   doi: https://zenodo.org/record/7629840
-  date-released: 2023-5
+  date-released: 2023-6
   license: AGPL-3.0
-  url: "https://github.com/mikel-brostrom/yolov8_tracking"
+  url: "https://github.com/mikel-brostrom/yolo_tracking"
