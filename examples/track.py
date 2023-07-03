@@ -3,9 +3,7 @@
 from pathlib import Path
 import torch
 import argparse
-import numpy as np
 import cv2
-from types import SimpleNamespace
 
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS
@@ -18,10 +16,9 @@ tr.check_packages(('ultralytics',))  # install
 
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
-from ultralytics.yolo.utils import SETTINGS, colorstr, ops, is_git_dir, IterableSimpleNamespace
-from ultralytics.yolo.utils.checks import check_imgsz, print_args
+from ultralytics.yolo.utils import colorstr, ops, IterableSimpleNamespace
+from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.files import increment_path
-from ultralytics.yolo.engine.results import Boxes
 from ultralytics.yolo.data.utils import VID_FORMATS
 from ultralytics.yolo.utils.plotting import save_one_box
 
