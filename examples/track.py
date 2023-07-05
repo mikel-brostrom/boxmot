@@ -53,7 +53,6 @@ def run(args):
     
     model = YOLO(args['yolo_model'] if 'v8' in str(args['yolo_model']) else 'yolov8n')
     overrides = model.overrides.copy()
-    overrides['classes'] = args['classes']  # Add override to filter classes for yolov8n models
     model.predictor = TASK_MAP[model.task][3](overrides=overrides, _callbacks=model.callbacks)
     
     # extract task predictor
