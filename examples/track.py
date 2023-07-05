@@ -3,9 +3,7 @@
 from pathlib import Path
 import torch
 import argparse
-import numpy as np
 import cv2
-from types import SimpleNamespace
 
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS
@@ -18,10 +16,9 @@ tr.check_packages(('ultralytics',))  # install
 
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
-from ultralytics.yolo.utils import SETTINGS, colorstr, ops, is_git_dir, IterableSimpleNamespace
-from ultralytics.yolo.utils.checks import check_imgsz, print_args
+from ultralytics.yolo.utils import colorstr, ops, IterableSimpleNamespace
+from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.files import increment_path
-from ultralytics.yolo.engine.results import Boxes
 from ultralytics.yolo.data.utils import VID_FORMATS
 from ultralytics.yolo.utils.plotting import save_one_box
 
@@ -95,7 +92,6 @@ def run(args):
         predictor.run_callbacks('on_predict_batch_start')
         predictor.batch = batch
         path, im0s, vid_cap, s = batch
-        visualize = increment_path(save_dir / Path(path[0]).stem, exist_ok=True, mkdir=True) if predictor.args.visualize and (not predictor.dataset.source_type.tensor) else False
 
         n = len(im0s)
         predictor.results = [None] * n
@@ -140,7 +136,7 @@ def run(args):
             model.overwrite_results(i, im0.shape[:2], predictor)
             
             # write inference results to a file or directory   
-            if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show or predict.args.save_id_crops:
+            if predictor.args.verbose or predictor.args.save or predictor.args.save_txt or predictor.args.show or predictor.args.save_id_crops:
                 
                 s += predictor.write_results(i, predictor.results, (p, im, im0))
                 predictor.txt_path = Path(predictor.txt_path)
