@@ -12,7 +12,7 @@ from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device
 
 tr = TestRequirements()
-tr.check_packages(('ultralytics',))  # install
+tr.check_packages(('ultralytics==8.0.124',))  # install
 
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
