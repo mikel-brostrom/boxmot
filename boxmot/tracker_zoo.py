@@ -51,6 +51,20 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half):
         )
         return ocsort
     
+    elif tracker_type == 'ocsort_mc':
+        from boxmot.ocsort_mc.ocsort_mc import OCSort
+        ocsort = OCSort(
+            det_thresh=cfg.det_thresh,
+            max_age=cfg.max_age,
+            min_hits=cfg.min_hits,
+            iou_threshold=cfg.iou_thresh,
+            delta_t=cfg.delta_t,
+            asso_func=cfg.asso_func,
+            inertia=cfg.inertia,
+            use_byte=cfg.use_byte,
+        )
+        return ocsort
+    
     elif tracker_type == 'bytetrack':
         from boxmot.bytetrack.byte_tracker import BYTETracker
         bytetracker = BYTETracker(
