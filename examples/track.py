@@ -215,12 +215,13 @@ def parse_opt():
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
-    parser.add_argument('--hide-label', action='store_true', help='hide labels when show')
-    parser.add_argument('--hide-conf', action='store_true', help='hide confidences when show')
+    parser.add_argument('--show-labels', action='store_false', help='hide labels when show')
+    parser.add_argument('--show-conf', action='store_false', help='hide confidences when show')
     parser.add_argument('--save-txt', action='store_true', help='save tracking results in a txt file')
     parser.add_argument('--save-id-crops', action='store_true', help='save each crop to its respective id folder')
     parser.add_argument('--save-mot', action='store_true', help='save tracking results in a single txt file')
     parser.add_argument('--line-width', default=None, type=int, help='The line width of the bounding boxes. If None, it is scaled to the image size.')
+    
     opt = parser.parse_args()
     return opt
 
