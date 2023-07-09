@@ -189,7 +189,7 @@ class ReIDDetectMultiBackend(nn.Module):
     @staticmethod
     def model_type(p='path/to/model.pt'):
         # Return model type from model path, i.e. path='path/to/model.onnx' -> type=onnx
-        from .reid_export import export_formats
+        from . import export_formats
         sf = list(export_formats().Suffix)  # export suffixes
         check_suffix(p, sf)  # checks
         types = [s in Path(p).name for s in sf]
