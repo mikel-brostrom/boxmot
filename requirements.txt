@@ -1,7 +1,6 @@
 # base -------------------------------------------------------------------------
 torch>=1.7.0
 torchvision>=0.8.1
-numpy==1.23.1           # otherwise issues with track eval
 loguru>=0.7.0
 opencv-python>=4.6.0
 PyYAML>=5.3.1           # read tracker configs
