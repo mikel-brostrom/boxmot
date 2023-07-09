@@ -41,7 +41,7 @@ class ByteTrackKalmanFilterAdapter(KalmanFilter):
         """
         mean_pos = measurement
         mean_vel = np.zeros_like(mean_pos)
-        self.X = np.r_[mean_pos, mean_vel]
+        self.x = (np.r_[mean_pos, mean_vel]).T
 
         std = [
             2 * self._std_weight_position * measurement[3],
@@ -54,7 +54,7 @@ class ByteTrackKalmanFilterAdapter(KalmanFilter):
             10 * self._std_weight_velocity * measurement[3]]
         self.P = np.diag(np.square(std))
 
-        return self.x, self.P
+        return self.x.T, self.P
 
     def predict(self, mean, covariance):
         """Run Kalman filter prediction step.
@@ -89,7 +89,7 @@ class ByteTrackKalmanFilterAdapter(KalmanFilter):
 
         super().predict(Q=motion_cov)
 
-        return self.X, self.P
+        return self.x.T, self.P
 
     def update(self, mean, covariance, measurement):
         """Run Kalman filter correction step.
@@ -111,7 +111,7 @@ class ByteTrackKalmanFilterAdapter(KalmanFilter):
             Returns the measurement-corrected state distribution.
 
         """
-        self.X = mean
+        self.x = mean.T
         self.P = covariance
 
         std = [
@@ -123,7 +123,7 @@ class ByteTrackKalmanFilterAdapter(KalmanFilter):
 
         super().update(measurement, R=innovation_cov)
 
-        return self.X, self.P
+        return self.x.T, self.P
 
     def multi_predict(self, mean, covariance):
         """Run Kalman filter prediction step (Vectorized version).
