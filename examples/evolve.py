@@ -279,7 +279,7 @@ def parse_opt():
     parser.add_argument('--objectives', type=str, default='HOTA,MOTA,IDF1', help='set of objective metrics: HOTA,MOTA,IDF1')
     
     opt = parser.parse_args()
-    opt.tracking_config = ROOT / 'boxmot' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
+    opt.tracking_config = ROOT / 'boxmot' / 'configs' / (opt.tracking_method + '.yaml')
     opt.objectives = opt.objectives.split(",")
 
     device = []
