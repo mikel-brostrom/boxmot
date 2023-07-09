@@ -8,10 +8,10 @@ import pandas as pd
 import subprocess
 from torch.utils.mobile_optimizer import optimize_for_mobile
 
-from .backbones import build_model
-from .reid_model_factory import get_model_name, load_pretrained_weights
-from ..utils import WEIGHTS, logger
-from ..utils.torch_utils import select_device
+from boxmot.appearance.backbones import build_model
+from boxmot.appearance.reid_model_factory import get_model_name, load_pretrained_weights
+from boxmot.utils import WEIGHTS, logger
+from boxmot.utils.torch_utils import select_device
 
 
 def file_size(path):
