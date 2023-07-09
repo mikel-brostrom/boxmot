@@ -31,7 +31,7 @@ def test_tracker_output():
 
 def test_strongsort_instantiation():
     ss = StrongSORT(
-        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
         fp16=True,
     )
@@ -39,7 +39,7 @@ def test_strongsort_instantiation():
 
 def test_botsort_instantiation():
     bs = BoTSORT(
-        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
         fp16=True,
     )
@@ -47,7 +47,7 @@ def test_botsort_instantiation():
 
 def test_deepocsort_instantiation():
     dos = DeepOCSORT(
-        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
         fp16=True,
     )
