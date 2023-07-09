@@ -1,8 +1,8 @@
 import torch
 import os
 import platform
-from boxmot import __version__
-from boxmot.utils import logger as LOGGER
+from .. import __version__
+from . import logger as LOGGER
 
 
 def select_device(device='', batch=0, newline=False, verbose=True):
