@@ -1,8 +1,11 @@
+# Trial number:      0
+# HOTA, MOTA, IDF1:  [27.884, 11.425, 21.545]
 alpha_fixed_emb: 0.9217945107294758
 asso_func: iou
 aw_off: true
 aw_param: 0.431336052467765
 cmc_off: true
+conf: 0.48508903612389126
 delta_t: 3
 det_thresh: 0
 embedding_off: false
