@@ -41,7 +41,7 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
         """
         mean_pos = measurement
         mean_vel = np.zeros_like(mean_pos)
-        self.X = np.r_[mean_pos, mean_vel]
+        self.x = np.r_[mean_pos, mean_vel]
 
         std = [
             2 * self._std_weight_position * measurement[0],   # the center point x
@@ -89,7 +89,7 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
 
         super().predict(Q=motion_cov)
 
-        return self.X, self.P
+        return self.x, self.P
 
     def update(self, mean, covariance, measurement, confidence=.0):
         """Run Kalman filter correction step.
@@ -113,7 +113,7 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
             Returns the measurement-corrected state distribution.
 
         """
-        self.X = mean
+        self.x = mean
         self.P = covariance
 
         std = [
@@ -127,7 +127,7 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
 
         super().update(measurement, R=innovation_cov)
 
-        return self.X, self.P
+        return self.x, self.P
 
     def gating_distance(self, measurements):
         """Compute gating distance between state distribution and measurements.

@@ -285,7 +285,16 @@ def compute_aw_max_metric(emb_cost, w_association_emb, bottom=0.5):
 
 
 def associate(
-    detections, trackers, iou_threshold, velocities, previous_obs, vdc_weight, emb_cost, w_assoc_emb, aw_off, aw_param
+    detections,
+    trackers,
+    iou_threshold,
+    velocities,
+    previous_obs,
+    vdc_weight,
+    emb_cost=None,
+    w_assoc_emb=None,
+    aw_off=None,
+    aw_param=None
 ):
     if len(trackers) == 0:
         return (
