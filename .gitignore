@@ -1,4 +1,5 @@
 .vscode/
+.venv/
 env/
 
 # interpreter bytecode
