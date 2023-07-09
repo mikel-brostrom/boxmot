@@ -37,7 +37,6 @@ def on_predict_start(predictor):
     predictor.args.tracking_config = \
         ROOT /\
         'boxmot' /\
-        opt.tracking_method /\
         'configs' /\
         (opt.tracking_method + '.yaml')
     for i in range(predictor.dataset.bs):
