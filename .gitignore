@@ -1,5 +1,6 @@
 .vscode/
 .venv/
+.eggs/
 env/
 
 # interpreter bytecode
