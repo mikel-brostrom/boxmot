@@ -3,8 +3,6 @@ import os
 from pathlib import Path
 import torch
 import time
-import platform
-import pandas as pd
 import subprocess
 from torch.utils.mobile_optimizer import optimize_for_mobile
 
