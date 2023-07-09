@@ -35,6 +35,7 @@ setup(
     author_email='yolov5.deepsort.pytorch@gmail.com',
     packages=find_packages(),  # required
     include_package_data=True,
+    setup_requires=['numpy==1.25.1'],
     install_requires=REQUIREMENTS,
     platforms=["linux", "windows"],
     classifiers=[
