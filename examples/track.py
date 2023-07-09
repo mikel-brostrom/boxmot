@@ -7,20 +7,23 @@ import cv2
 
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS
-from boxmot.utils.checks import TestRequirements
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device
 
-tr = TestRequirements()
-tr.check_packages(('ultralytics==8.0.124',))  # install
+try:
+    from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
-from ultralytics.yolo.engine.model import YOLO, TASK_MAP
+    from ultralytics.yolo.utils import colorstr, ops, IterableSimpleNamespace
+    from ultralytics.yolo.utils.checks import check_imgsz
+    from ultralytics.yolo.utils.files import increment_path
+    from ultralytics.yolo.data.utils import VID_FORMATS
+    from ultralytics.yolo.utils.plotting import save_one_box
+except ImportError:
+    LOGGER.error(
+        'Running track.py requires the following packages to be installed:\n'
+        '$ pip install ultralytics==8.0.124\n'
+    )
 
-from ultralytics.yolo.utils import colorstr, ops, IterableSimpleNamespace
-from ultralytics.yolo.utils.checks import check_imgsz
-from ultralytics.yolo.utils.files import increment_path
-from ultralytics.yolo.data.utils import VID_FORMATS
-from ultralytics.yolo.utils.plotting import save_one_box
 
 from multi_yolo_backend import MultiYolo
 from utils import write_MOT_results

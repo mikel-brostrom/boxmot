@@ -45,8 +45,11 @@ class MultiYolo():
     def try_sg_import(self):
         try:
             import super_gradients  # for linear_assignment
-        except (ImportError, AssertionError, AttributeError):
-            tr.check_packages(('super-gradients==3.1.1',))  # install
+        except ImportError:
+            LOGGER.error(
+                f'Running {self._class_} requires the following packages to be installed:\n'
+                '$ pip install super-gradients==3.1.1\n'
+            )
 
     def __call__(self, im, im0s):
         if 'yolo_nas' in self.model_name or 'yolox' in self.model_name:
