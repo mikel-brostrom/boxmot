@@ -4,7 +4,7 @@ aw_off: true
 aw_param: 0.431336052467765
 cmc_off: true
 delta_t: 3
-det_thresh: 0.1
+det_thresh: 0
 embedding_off: false
 inertia: 0.11282583500843651
 iou_thresh: 0.21251708690170096
