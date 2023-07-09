@@ -39,6 +39,11 @@ jobs:
           python --version
           pip --version
           pip list
+
+      - name: Pytest tests
+        shell: bash  # for Windows compatibility
+        run: pytest tests
+
       - name: Tests all tracking options
         shell: bash  # for Windows compatibility
         env:
@@ -99,7 +104,4 @@ jobs:
         run: |
           # evolve a for a single set of parameters
           python examples/evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1 --imgsz 320 --conf 0.2
-      
-      - name: Pytest tests
-        shell: bash  # for Windows compatibility
-        run: pytest tests
+
