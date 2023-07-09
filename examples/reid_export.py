@@ -8,6 +8,7 @@ import pandas as pd
 import subprocess
 from torch.utils.mobile_optimizer import optimize_for_mobile
 
+from boxmot.appearance import export_formats
 from boxmot.appearance.backbones import build_model
 from boxmot.appearance.reid_model_factory import get_model_name, load_pretrained_weights
 from boxmot.utils import WEIGHTS, logger
@@ -23,19 +24,6 @@ def file_size(path):
         return sum(f.stat().st_size for f in path.glob('**/*') if f.is_file()) / 1E6
     else:
         return 0.0
-
-
-def export_formats():
-    # yolo tracking export formats
-    x = [
-        ['PyTorch', '-', '.pt', True, True],
-        ['TorchScript', 'torchscript', '.torchscript', True, True],
-        ['ONNX', 'onnx', '.onnx', True, True],
-        ['OpenVINO', 'openvino', '_openvino_model', True, False],
-        ['TensorRT', 'engine', '.engine', False, True],
-        ['TensorFlow Lite', 'tflite', '.tflite', True, False],
-    ]
-    return pd.DataFrame(x, columns=['Format', 'Argument', 'Suffix', 'CPU', 'GPU'])
 
 
 def export_torchscript(model, im, file, optimize):
