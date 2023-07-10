@@ -6,13 +6,23 @@ import time
 import subprocess
 from torch.utils.mobile_optimizer import optimize_for_mobile
 
-from boxmot.appearance import export_formats
-from boxmot.appearance.backbones import build_model
-from boxmot.appearance.reid_model_factory import get_model_name, load_pretrained_weights
-from boxmot.utils import WEIGHTS, logger
-from boxmot.utils.torch_utils import select_device
+if __name__ == "__main__":
+    from boxmot.appearance import export_formats
+    from boxmot.appearance.backbones import build_model
+    from boxmot.appearance.reid_model_factory import get_model_name, load_pretrained_weights
+    from boxmot.utils import WEIGHTS, logger
+    from boxmot.utils.torch_utils import select_device
 
-from boxmot.utils.checks import TestRequirements
+    from boxmot.utils.checks import TestRequirements
+else:
+    from . import export_formats
+    from .backbones import build_model
+    from .reid_model_factory import get_model_name, load_pretrained_weights
+    from ..utils import WEIGHTS, logger
+    from ..utils.torch_utils import select_device
+
+    from ..utils.checks import TestRequirements
+
 __tr = TestRequirements()
 
 
