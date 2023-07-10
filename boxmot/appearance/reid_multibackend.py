@@ -17,6 +17,9 @@ from .reid_model_factory import (
 )
 from .backbones import build_model
 
+from ..utils.checks import TestRequirements
+__tr = TestRequirements()
+
 
 def check_suffix(file='osnet_x0_25_msmt17.pt', suffix=('.pt',), msg=''):
     # Check file(s) for acceptable suffix
@@ -88,31 +91,14 @@ class ReIDDetectMultiBackend(nn.Module):
         elif self.onnx:  # ONNX Runtime
             LOGGER.info(f'Loading {w} for ONNX Runtime inference...')
             cuda = torch.cuda.is_available() and device.type != 'cpu'
-            try:
-                import onnxruntime
-            except ImportError:
-                LOGGER.error(
-                    f'Running {self.__class__} with the specified ONNX weights\n{w.name}\n'
-                    'requires onnx pip packages to be installed!\n'
-                    (
-                        'For CPU:\n'
-                        '$ pip install onnx>=1.12.0 onnxruntime\n'
-                        'For GPU:\n'
-                        '$ pip install onnx>=1.12.0 onnxruntime-gpu\n'
-                    ) if cuda else '$ pip install onnx onnxruntime\n'
-                )
+            __tr.check_packages(['onnx', 'onnxruntime-gpu' if cuda else 'onnxruntime'])
+            import onnxruntime
             providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if cuda else ['CPUExecutionProvider']
             self.session = onnxruntime.InferenceSession(str(w), providers=providers)
         elif self.engine:  # TensorRT
             LOGGER.info(f'Loading {w} for TensorRT inference...')
-            try:
-                import tensorrt as trt  # https://developer.nvidia.com/nvidia-tensorrt-download
-            except ImportError:
-                LOGGER.error(
-                    f'Running {self.__class__} with the specified TensorRT weights\n{w.name}\n'
-                    'requires tensorrt pip package to be installed!\n'
-                    '$ pip install nvidia-tensorrt -U --index-url https://pypi.ngc.nvidia.com\n'
-                )
+            __tr.check_packages(('nvidia-tensorrt',))
+            import tensorrt as trt  # https://developer.nvidia.com/nvidia-tensorrt-download
             if device.type == 'cpu':
                 device = torch.device('cuda:0')
             Binding = namedtuple('Binding', ('name', 'dtype', 'shape', 'data', 'ptr'))
