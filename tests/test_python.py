@@ -5,11 +5,11 @@ import torch
 from pathlib import Path
 
 from boxmot.utils import WEIGHTS
-from boxmot.strongsort.strong_sort import StrongSORT
-from boxmot.ocsort.ocsort import OCSort as OCSORT
-from boxmot.bytetrack.byte_tracker import BYTETracker
-from boxmot.botsort.bot_sort import BoTSORT
-from boxmot.deepocsort.ocsort import OCSort as DeepOCSORT
+from boxmot.trackers import StrongSORT
+from boxmot.trackers import OCSort as OCSORT
+from boxmot.trackers import BYTETracker
+from boxmot.trackers import BoTSORT
+from boxmot.trackers import DeepOCSort as DeepOCSORT
 from boxmot.tracker_zoo import create_tracker, get_tracker_config
 
 
@@ -31,7 +31,7 @@ def test_tracker_output():
 
 def test_strongsort_instantiation():
     ss = StrongSORT(
-        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
         fp16=True,
     )
@@ -39,7 +39,7 @@ def test_strongsort_instantiation():
 
 def test_botsort_instantiation():
     bs = BoTSORT(
-        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
         fp16=True,
     )
@@ -47,7 +47,7 @@ def test_botsort_instantiation():
 
 def test_deepocsort_instantiation():
     dos = DeepOCSORT(
-        model_weights=Path('osnet_x0_25_msmt17.pt'),
+        model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
         fp16=True,
     )
