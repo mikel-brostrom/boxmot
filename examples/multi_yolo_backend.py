@@ -9,7 +9,6 @@ from boxmot.utils import WEIGHTS
 tr = TestRequirements()
 
 from ultralytics.yolo.engine.results import Boxes, Results
-from yolox.utils import postprocess
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.ops import xywh2xyxy
 
@@ -101,7 +100,7 @@ class MultiYolo():
             # SG models can generate negative values
             preds = torch.clip(preds, min=0)
         elif 'yolox' in self.model_name:
-
+            from yolox.utils import postprocess
             preds = self.model(im)
             preds = postprocess(
                 preds, 1, conf_thre=self.args.conf,
