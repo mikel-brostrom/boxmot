@@ -270,7 +270,6 @@ class Evaluator:
         tracking_config = \
             ROOT /\
             'boxmot' /\
-            opt.tracking_method /\
             'configs' /\
             (opt.tracking_method + '.yaml')
         shutil.copyfile(tracking_config, save_dir / Path(tracking_config).name)
