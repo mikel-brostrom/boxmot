@@ -74,7 +74,7 @@ class MultiYolo():
 
     def try_yolox_import(self):
         try:
-            import super_gradients  # for linear_assignment
+            import yolox  # for linear_assignment
         except (ImportError, AssertionError, AttributeError):
             tr.check_packages(('yolox==0.3.0',))  # install
 
