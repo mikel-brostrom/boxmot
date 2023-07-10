@@ -58,7 +58,10 @@ class MultiYolo():
                 quiet=False
             )
 
-            ckpt = torch.load(str(WEIGHTS / (self.model_name.replace("-", "_") + '.pth')))
+            ckpt = torch.load(
+                str(WEIGHTS / (self.model_name.replace("-", "_") + '.pth')),
+                map_location=torch.device('cpu')
+            )
             
             self.model.load_state_dict(ckpt["model"])
             self.model.to(self.device)
