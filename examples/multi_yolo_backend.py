@@ -5,6 +5,10 @@ import torch
 from ultralytics.yolo.engine.results import Boxes, Results
 from boxmot.utils import logger as LOGGER
 
+from boxmot.utils.checks import TestRequirements
+
+__tr = TestRequirements()
+
 
 class MultiYolo():
     def __init__(self, model, device, args):
@@ -41,11 +45,8 @@ class MultiYolo():
     def try_sg_import(self):
         try:
             import super_gradients  # for linear_assignment
-        except ImportError:
-            LOGGER.error(
-                f'Running {self._class_} requires the following packages to be installed:\n'
-                '$ pip install super-gradients==3.1.1\n'
-            )
+        except (ImportError, AssertionError, AttributeError):
+            __tr.check_packages(('super-gradients==3.1.1',))  # install
 
     def __call__(self, im, im0s):
         if 'yolo_nas' in self.model_name or 'yolox' in self.model_name:
