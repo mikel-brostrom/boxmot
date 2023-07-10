@@ -72,7 +72,7 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           # export
-          python examples/reid_export.py  # defaults to torchscript
+          python boxmot/appearance/reid_export.py  # defaults to torchscript
           
           # strongsort w. exported reid model
           python examples/track.py --reid-model examples/weights/mobilenetv2_x1_4_dukemtmcreid.torchscript --source $IMG --imgsz 320
