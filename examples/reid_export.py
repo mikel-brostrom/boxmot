@@ -12,6 +12,9 @@ from boxmot.appearance.reid_model_factory import get_model_name, load_pretrained
 from boxmot.utils import WEIGHTS, logger
 from boxmot.utils.torch_utils import select_device
 
+from boxmot.utils.checks import TestRequirements
+__tr = TestRequirements()
+
 
 def file_size(path):
     # Return file/dir size (MB)
@@ -44,13 +47,8 @@ def export_torchscript(model, im, file, optimize):
 def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
     # ONNX export
     try:
-        try:
-            import onnx
-        except ImportError:
-            logger.error(
-                'Running export_onnx(...) requires the following packages to be installed:\n'
-                '$ pip install onnx>=1.12.0\n'
-            )
+        __tr.check_packages(('onnx',))
+        import onnx
 
         f = file.with_suffix('.onnx')
         logger.info(f'\nStarting export with onnx {onnx.__version__}...')
@@ -79,19 +77,8 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
         if simplify:
             try:
                 cuda = torch.cuda.is_available()
-                try:
-                    import onnxsim
-                except ImportError:
-                    logger.error(
-                        'Running export_onnx(..., simplify=True) requires the following'
-                        ' packages to be installed:\n'
-                        (
-                            'For CPU:\n'
-                            '$ pip install onnxruntime onnx-simplifier>=0.4.1\n'
-                            'For GPU:\n'
-                            '$ pip install onnxruntime-gpu onnx-simplifier>=0.4.1\n'
-                        ) if cuda else '$ pip install onnx onnxruntime onnx-simplifier>=0.4.1\n'
-                    )
+                __tr.check_packages(('onnxruntime-gpu' if cuda else 'onnxruntime', 'onnx-simplifier>=0.4.1'))
+                import onnxsim
 
                 logger.info(f'simplifying with onnx-simplifier {onnxsim.__version__}...')
                 model_onnx, check = onnxsim.simplify(model_onnx)
@@ -106,15 +93,10 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
 
 
 def export_openvino(file, half):
-    try:
-        # requires openvino-dev: https://pypi.org/project/openvino-dev/
-        import openvino.runtime as ov  # noqa
-        from openvino.tools import mo  # noqa
-    except ImportError:
-        logger.error(
-            f'Running export_openvino(...) requires the following packages to be installed:\n'
-            '$ pip install openvino-dev>=2022.3\n'
-        )
+    __tr.check_packages(('openvino-dev',))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
+    import openvino.runtime as ov  # noqa
+    from openvino.tools import mo  # noqa
+
     f = str(file).replace(file.suffix, f'_openvino_model{os.sep}')
     f_onnx = file.with_suffix('.onnx')
     f_ov = str(Path(f) / file.with_suffix('.xml').name)
@@ -135,13 +117,9 @@ def export_openvino(file, half):
 
 def export_tflite(file):
     try:
-        try:
-            import onnx2tf
-        except ImportError:
-            logger.error(
-                f'Running export_tflite(...) requires the following packages to be installed:\n'
-                '$ pip install onnx2tf>=1.10.0 tensorflow onnx_graphsurgeon sng4onnx\n'
-            )
+        __tr.check_packages(('onnx2tf', 'tensorflow', 'onnx_graphsurgeon', 'sng4onnx'))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
+        import onnx2tf
+
         logger.info(f'\nStarting {file} export with onnx2tf {onnx2tf.__version__}')
         f = str(file).replace('.onnx', f'_saved_model{os.sep}')
         cmd = f"onnx2tf -i {file} -o {f} -nuo --non_verbose"
@@ -157,11 +135,10 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
         assert im.device.type != 'cpu', 'export running on CPU but must be on GPU, i.e. `python export.py --device 0`'
         try:
             import tensorrt as trt
-        except ImportError:
-            logger.error(
-                f'Running export_engine(...) requires the following packages to be installed:\n'
-                '$ pip install nvidia-tensorrt -U --index-url https://pypi.ngc.nvidia.com\n'
-            )
+        except Exception:
+            if platform.system() == 'Linux':
+                __tr.check_packages(['nvidia-tensorrt'], cmds=('-U --index-url https://pypi.ngc.nvidia.com',))
+            import tensorrt as trt
 
         export_onnx(model, im, file, 12, dynamic, half, simplify)  # opset 13
         onnx = file.with_suffix('.onnx')
