@@ -7,12 +7,12 @@ import cv2
 
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS
-from boxmot.utils.checks import TestRequirements
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device
 
-tr = TestRequirements()
-tr.check_packages(('ultralytics==8.0.124',))  # install
+from boxmot.utils.checks import TestRequirements
+__tr = TestRequirements()
+__tr.check_packages(('ultralytics==8.0.124',))  # install
 
 from ultralytics.yolo.engine.model import YOLO, TASK_MAP
 
@@ -34,7 +34,6 @@ def on_predict_start(predictor):
     predictor.args.tracking_config = \
         ROOT /\
         'boxmot' /\
-        opt.tracking_method /\
         'configs' /\
         (opt.tracking_method + '.yaml')
     for i in range(predictor.dataset.bs):

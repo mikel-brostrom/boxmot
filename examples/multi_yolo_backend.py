@@ -21,6 +21,10 @@ YOLOX_ZOO = {
     'yolox_x': 'https://drive.google.com/uc?id=1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5',
 }
 
+from boxmot.utils.checks import TestRequirements
+
+__tr = TestRequirements()
+
 
 class MultiYolo():
     def __init__(self, model, device, args):
@@ -73,7 +77,7 @@ class MultiYolo():
         try:
             import super_gradients  # for linear_assignment
         except (ImportError, AssertionError, AttributeError):
-            tr.check_packages(('super-gradients==3.1.1',))  # install
+            __tr.check_packages(('super-gradients==3.1.1',))  # install
 
     def try_yolox_import(self):
         try:
