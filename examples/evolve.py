@@ -11,21 +11,14 @@ Usage:
                         --tracking-method ocsort     --benchmark MOT16 --n-trials 1000
 """
 
-import os
-import sys
-import logging
 import argparse
 import yaml
-import re
-from pathlib import Path
 from val import Evaluator
 
 from boxmot.utils import ROOT, WEIGHTS
-from track import run
 
 from boxmot.utils import logger
 from ultralytics.yolo.utils.checks import check_requirements, print_args
-
 
 
 class Objective(Evaluator):
@@ -286,7 +279,7 @@ def parse_opt():
     parser.add_argument('--objectives', type=str, default='HOTA,MOTA,IDF1', help='set of objective metrics: HOTA,MOTA,IDF1')
     
     opt = parser.parse_args()
-    opt.tracking_config = ROOT / 'boxmot' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
+    opt.tracking_config = ROOT / 'boxmot' / 'configs' / (opt.tracking_method + '.yaml')
     opt.objectives = opt.objectives.split(",")
 
     device = []
