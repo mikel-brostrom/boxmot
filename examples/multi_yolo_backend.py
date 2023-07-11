@@ -21,10 +21,6 @@ YOLOX_ZOO = {
     'yolox_x': 'https://drive.google.com/uc?id=1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5',
 }
 
-from boxmot.utils.checks import TestRequirements
-
-__tr = TestRequirements()
-
 
 class MultiYolo():
     def __init__(self, model, device, args):
