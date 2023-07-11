@@ -110,26 +110,29 @@ class MultiYolo():
                 nms_thre=0.45, class_agnostic=True
             )[0]
 
-            # (x, y, x, y, conf, obj, cls) --> (x, y, x, y, conf, cls)
-            preds[:, 4] = preds[:, 4] * preds[:, 5]
-            preds = preds[:, [0, 1, 2, 3, 4, 6]]
+            if preds is None:
+                return torch.empty(0, 6)
+            else:
+                # (x, y, x, y, conf, obj, cls) --> (x, y, x, y, conf, cls)
+                preds[:, 4] = preds[:, 4] * preds[:, 5]
+                preds = preds[:, [0, 1, 2, 3, 4, 6]]
 
-            # calculate factor for predictions
-            im0_w = im0s[0].shape[1]
-            im0_h = im0s[0].shape[0]
-            im_w = im[0].shape[2]
-            im_h = im[0].shape[1]
-            w_r = im0_w / im_w
-            h_r = im0_h / im_h
+                # calculate factor for predictions
+                im0_w = im0s[0].shape[1]
+                im0_h = im0s[0].shape[0]
+                im_w = im[0].shape[2]
+                im_h = im[0].shape[1]
+                w_r = im0_w / im_w
+                h_r = im0_h / im_h
 
-            # scale to original image
-            preds[:, [0, 2]] = preds[:, [0, 2]] * w_r
-            preds[:, [1, 3]] = preds[:, [1, 3]] * h_r
+                # scale to original image
+                preds[:, [0, 2]] = preds[:, [0, 2]] * w_r
+                preds[:, [1, 3]] = preds[:, [1, 3]] * h_r
 
-            preds = torch.clip(preds, min=0)
+                preds = torch.clip(preds, min=0)
 
-            if self.args.classes:  # Filter boxes by classes
-                preds = preds[torch.isin(preds[:, 5].cpu(), torch.as_tensor(self.args.classes))]
+                if self.args.classes:  # Filter boxes by classes
+                    preds = preds[torch.isin(preds[:, 5].cpu(), torch.as_tensor(self.args.classes))]
 
         elif 'yolov8' in self.model_name:
             preds = self.model(
