@@ -5,13 +5,13 @@ import gdown
 
 from boxmot.utils.checks import TestRequirements
 from boxmot.utils import WEIGHTS
-
-tr = TestRequirements()
-
-from ultralytics.yolo.engine.results import Boxes, Results
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.ops import xywh2xyxy
 
+from ultralytics.yolo.engine.results import Boxes, Results
+
+
+tr = TestRequirements()
 
 YOLOX_ZOO = {
     'yolox_n': 'https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX',
