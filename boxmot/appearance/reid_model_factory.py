@@ -6,7 +6,7 @@ from ..utils import logger as LOGGER
 
 
 __model_types = [
-    'resnet50', 'mlfn', 'hacnn', 'mobilenetv2_x1_0', 'mobilenetv2_x1_4',
+    'resnet50', 'resnet101', 'mlfn', 'hacnn', 'mobilenetv2_x1_0', 'mobilenetv2_x1_4',
     'osnet_x1_0', 'osnet_x0_75', 'osnet_x0_5', 'osnet_x0_25',
     'osnet_ibn_x1_0', 'osnet_ain_x1_0', 'lmbn_n']
 
