@@ -60,4 +60,3 @@ def test_ocsort_instantiation():
 def test_bytetrack_instantiation():
     bt = BYTETracker()
     
-
