@@ -127,10 +127,9 @@ class MultiYolo():
             preds[:, [1, 3]] = preds[:, [1, 3]] * h_r
 
             preds = torch.clip(preds, min=0)
-            preds.detach().cpu().numpy()
 
             if self.args.classes:  # Filter boxes by classes
-                preds = preds[np.isin(preds[:, 5], self.args.classes)]
+                preds = preds[torch.isin(preds[:, 5].cpu(), torch.as_tensor(self.args.classes))]
 
         elif 'yolov8' in self.model_name:
             preds = self.model(
