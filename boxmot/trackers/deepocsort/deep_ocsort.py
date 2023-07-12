@@ -4,7 +4,7 @@
 
 import torch
 import numpy as np
-from ...motion.adapters import OCSortKalmanFilterAdapter
+from ...motion.deepocsort_kf import KalmanFilterNew
 from ...utils.association import *
 from ...utils.cmc import CameraMotionCompensation
 from ...appearance.reid_multibackend import ReIDDetectMultiBackend
@@ -102,7 +102,7 @@ class KalmanBoxTracker(object):
         self.conf = bbox[-1]
         self.new_kf = new_kf
         if new_kf:
-            self.kf = OCSortKalmanFilterAdapter(dim_x=8, dim_z=4)
+            self.kf = KalmanFilterNew(dim_x=8, dim_z=4)
             self.kf.F = np.array(
                 [
                     # x y w h x' y' w' h'
