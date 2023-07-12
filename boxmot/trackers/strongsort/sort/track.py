@@ -1,7 +1,7 @@
 # vim: expandtab:ts=4:sw=4
 import cv2
 import numpy as np
-from ....motion.adapters import StrongSortKalmanFilterAdapter
+from ....motion.strongsort_kf import KalmanFilter
 from collections import deque
 
 
@@ -88,7 +88,7 @@ class Track:
         self._n_init = n_init
         self._max_age = max_age
 
-        self.kf = StrongSortKalmanFilterAdapter()
+        self.kf = KalmanFilter()
         self.mean, self.covariance = self.kf.initiate(detection)
         
         # Initializing trajectory queue
