@@ -3,7 +3,7 @@
 """
 import numpy as np
 from ...utils.association import *
-from ...motion.adapters import OCSortKalmanFilterAdapter
+from ...motion.ocsort_kf import KalmanFilterNew
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -65,7 +65,7 @@ class KalmanBoxTracker(object):
 
         """
         # define constant velocity model
-        self.kf = OCSortKalmanFilterAdapter(dim_x=7, dim_z=4)
+        self.kf = KalmanFilterNew(dim_x=7, dim_z=4)
         self.kf.F = np.array([[1, 0, 0, 0, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0], [0, 0, 1, 0, 0, 0, 1], [
                             0, 0, 0, 1, 0, 0, 0],  [0, 0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 0, 1]])
         self.kf.H = np.array([[1, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0],
