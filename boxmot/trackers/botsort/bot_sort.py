@@ -336,28 +336,14 @@ class BoTSORT(object):
         STrack.multi_gmc(unconfirmed, warp)
 
         # Associate with high score detection boxes
-        raw_emb_dists = embedding_distance(strack_pool, detections)
-        dists = fuse_motion(self.kalman_filter, raw_emb_dists, strack_pool, detections, only_position=False, lambda_=self.lambda_)
+        ious_dists = iou_distance(strack_pool, detections)
+        ious_dists_mask = (ious_dists > self.proximity_thresh)
 
-        # ious_dists = matching.iou_distance(strack_pool, detections)
-        # ious_dists_mask = (ious_dists > self.proximity_thresh)
-
-        # ious_dists = matching.fuse_score(ious_dists, detections)
-
-        # emb_dists = matching.embedding_distance(strack_pool, detections) / 2.0
-        # raw_emb_dists = emb_dists.copy()
-        # emb_dists[emb_dists > self.appearance_thresh] = 1.0
-        # emb_dists[ious_dists_mask] = 1.0
-        # dists = np.minimum(ious_dists, emb_dists)
-
-            # Popular ReID method (JDE / FairMOT)
-            # raw_emb_dists = matching.embedding_distance(strack_pool, detections)
-            # dists = matching.fuse_motion(self.kalman_filter, raw_emb_dists, strack_pool, detections)
-            # emb_dists = dists
-
-            # IoU making ReID
-            # dists = matching.embedding_distance(strack_pool, detections)
-            # dists[ious_dists_mask] = 1.0
+        emb_dists = embedding_distance(strack_pool, detections) / 2.0
+        raw_emb_dists = emb_dists.copy()
+        emb_dists[emb_dists > self.appearance_thresh] = 1.0
+        emb_dists[ious_dists_mask] = 1.0
+        dists = np.minimum(ious_dists, emb_dists)
     
         matches, u_track, u_detection = linear_assignment(dists, thresh=self.match_thresh)
 
