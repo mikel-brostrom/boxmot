@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import scipy
 from scipy.spatial.distance import cdist
+import lap
 
 
 """

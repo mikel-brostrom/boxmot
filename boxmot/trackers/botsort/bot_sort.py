@@ -4,7 +4,7 @@ from collections import deque
 from ...utils.matching import iou_distance, fuse_score, linear_assignment, embedding_distance, fuse_motion
 from ...utils.gmc import GlobalMotionCompensation
 from .basetrack import BaseTrack, TrackState
-from ...motion.adapters import BotSortKalmanFilterAdapter
+from ...motion.botsort_kf import KalmanFilter
 import torch
 
 from ...appearance.reid_multibackend import ReIDDetectMultiBackend
@@ -12,12 +12,12 @@ from ...utils.ops import xyxy2xywh, xywh2xyxy
 
 
 class STrack(BaseTrack):
-    shared_kalman = BotSortKalmanFilterAdapter()
+    shared_kalman = KalmanFilter()
 
     def __init__(self, tlwh, score, cls, feat=None, feat_history=50):
 
         # wait activate
-        self._tlwh = np.asarray(tlwh, dtype=np.float32)
+        self._tlwh = np.asarray(tlwh, dtype=np.float)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
@@ -254,7 +254,7 @@ class BoTSORT(object):
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = BotSortKalmanFilterAdapter()
+        self.kalman_filter = KalmanFilter()
 
         # ReID module
         self.proximity_thresh = proximity_thresh
