@@ -18,7 +18,6 @@ from ultralytics.yolo.engine.results import Results
 
 class YoloNASStrategy(YoloStrategy):
     def __init__(self, model, device, args):
-        self.try_sg_import()
         self.args = args
 
         self.model = models.get(
