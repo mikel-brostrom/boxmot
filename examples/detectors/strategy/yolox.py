@@ -5,7 +5,12 @@ from .yolo_strategy import YoloStrategy
 
 from boxmot.utils import WEIGHTS
 from boxmot.utils.checks import TestRequirements
+
 tr = TestRequirements()
+try:
+    import yolox  # for linear_assignment
+except (ImportError, AssertionError, AttributeError):
+    tr.check_packages(('yolox==0.3.0',))  # install
 
 from yolox.utils import postprocess
 from yolox.exp import get_exp
@@ -100,9 +105,4 @@ class YoloXStrategy(YoloStrategy):
         )
         return predictor.results
 
-    def try_yolox_import(self):
-        try:
-            import yolox  # for linear_assignment
-        except (ImportError, AssertionError, AttributeError):
-            tr.check_packages(('yolox==0.3.0',))  # install
 
