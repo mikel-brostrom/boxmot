@@ -3,7 +3,12 @@ import numpy as np
 
 from .yolo_strategy import YoloStrategy
 from boxmot.utils.checks import TestRequirements
+
 tr = TestRequirements()
+try:
+    import super_gradients  # for linear_assignment
+except (ImportError, AssertionError, AttributeError):
+    tr.check_packages(('super-gradients==3.1.1',))  # install
 
 from super_gradients.common.object_names import Models
 from super_gradients.training import models
@@ -75,10 +80,3 @@ class YoloNASStrategy(YoloStrategy):
             names=predictor.model.names
         )
         return predictor.results
-
-    def try_sg_import(self):
-        try:
-            import super_gradients  # for linear_assignment
-        except (ImportError, AssertionError, AttributeError):
-            __tr.check_packages(('super-gradients==3.1.1',))  # install
-
