@@ -30,8 +30,6 @@ YOLOX_ZOO = {
 class YoloXStrategy(YoloStrategy):
     def __init__(self, model, device, args):
 
-        self.try_yolox_import()
-
         self.args = args
         self.has_run = False
 
