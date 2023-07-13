@@ -23,6 +23,8 @@ from ultralytics.yolo.data.utils import VID_FORMATS
 from ultralytics.yolo.utils.plotting import save_one_box
 
 from multi_yolo_backend import MultiYolo
+from detectors.yolo_processor import Yolo
+from detectors.strategy import find_yolo_engine
 from utils import write_MOT_results
 
 from boxmot.utils import EXAMPLES
@@ -81,12 +83,21 @@ def run(args):
         predictor.done_warmup = True
     predictor.seen, predictor.windows, predictor.batch, predictor.profilers = 0, [], None, (ops.Profile(), ops.Profile(), ops.Profile(), ops.Profile())
     predictor.add_callback('on_predict_start', on_predict_start)
-    predictor.run_callbacks('on_predict_start')
-    model = MultiYolo(
+    predictor.run_callbacks('on_predict_start') 
+
+    yolo_strategy = find_yolo_engine(args['yolo_model'])
+    yolo_strategy = yolo_strategy(
         model=model.predictor.model if 'v8' in str(args['yolo_model']) else args['yolo_model'],
         device=predictor.device,
         args=predictor.args
     )
+    model = Yolo(yolo_strategy)
+
+    # model = MultiYolo(
+    #     model=model.predictor.model if 'v8' in str(args['yolo_model']) else args['yolo_model'],
+    #     device=predictor.device,
+    #     args=predictor.args
+    # )
     for frame_idx, batch in enumerate(predictor.dataset):
         predictor.run_callbacks('on_predict_batch_start')
         predictor.batch = batch
@@ -101,7 +112,7 @@ def run(args):
 
         # Inference
         with predictor.profilers[1]:
-            preds = model(im, im0s)
+            preds = model.inference(im=im)
 
         # Postprocess moved to MultiYolo
         with predictor.profilers[2]:
