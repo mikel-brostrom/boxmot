@@ -22,7 +22,6 @@ from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.data.utils import VID_FORMATS
 from ultralytics.yolo.utils.plotting import save_one_box
 
-from multi_yolo_backend import MultiYolo
 from detectors.yolo_processor import Yolo
 from detectors.strategy import find_yolo_engine
 from utils import write_MOT_results
@@ -93,11 +92,6 @@ def run(args):
     )
     model = Yolo(yolo_strategy)
 
-    # model = MultiYolo(
-    #     model=model.predictor.model if 'v8' in str(args['yolo_model']) else args['yolo_model'],
-    #     device=predictor.device,
-    #     args=predictor.args
-    # )
     for frame_idx, batch in enumerate(predictor.dataset):
         predictor.run_callbacks('on_predict_batch_start')
         predictor.batch = batch
