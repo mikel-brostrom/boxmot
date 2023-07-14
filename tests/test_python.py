@@ -16,11 +16,12 @@ from boxmot.tracker_zoo import create_tracker, get_tracker_config
 def test_tracker_output():
     tracker_conf = get_tracker_config('deepocsort')
     tracker = create_tracker(
-        'deepocsort',
-        tracker_conf,
-        WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt',
-        'cpu',
-        False
+        tracker_type='deepocsort',
+        tracker_config=tracker_conf,
+        reid_weights=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt',
+        device='cpu',
+        half=False,
+        per_class=False
     )
     rgb = np.random.randint(255, size=(640, 640, 3),dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
