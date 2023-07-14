@@ -8,6 +8,7 @@ from ...motion.deepocsort_kf import KalmanFilterNew
 from ...utils.association import *
 from ...utils.cmc import CameraMotionCompensation
 from ...appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.utils import PerClassDecorator
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -315,6 +316,7 @@ class DeepOCSort(object):
         model_weights,
         device,
         fp16,
+        per_class=True,
         det_thresh=0.3,
         max_age=30,
         min_hits=3,
@@ -346,6 +348,7 @@ class DeepOCSort(object):
         self.w_association_emb = w_association_emb
         self.alpha_fixed_emb = alpha_fixed_emb
         self.aw_param = aw_param
+        self.per_class = per_class
         KalmanBoxTracker.count = 0
 
         self.embedder = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
@@ -355,6 +358,7 @@ class DeepOCSort(object):
         self.aw_off = aw_off
         self.new_kf_off = new_kf_off
 
+    @PerClassDecorator
     def update(self, dets, img, tag='blub'):
         """
         Params:
