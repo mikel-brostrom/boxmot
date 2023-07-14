@@ -5,6 +5,7 @@ import numpy as np
 import inspect
 from ...utils.association import *
 from ...motion.ocsort_kf import KalmanFilterNew
+from boxmot.utils import PerClassDecorator
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -171,47 +172,47 @@ ASSO_FUNCS = {  "iou": iou_batch,
                 "diou": diou_batch,
                 "ct_dist": ct_dist}
 
-class PerClassDecorator:
-    def __init__(self, method):
-        self.update = method
-        print(self.update)
-    def __get__(self, instance, owner):
-        def wrapper(*args, **kwargs):
-            modified_args = list(args)
-            dets = modified_args[0]
-            im = modified_args[1]
+# class PerClassDecorator:
+#     def __init__(self, method):
+#         self.update = method
+#         print(self.update)
+#     def __get__(self, instance, owner):
+#         def wrapper(*args, **kwargs):
+#             modified_args = list(args)
+#             dets = modified_args[0]
+#             im = modified_args[1]
 
-            # input one class of detections at a time in order to not mix them up
-            if instance.per_class is True and dets.size != 0:
-                dets_dict = {class_id: np.array([det for det in dets if det[5] == class_id]) for class_id in set(det[5] for det in dets)}
-                # get unique classes in predictions
-                detected_classes = set(dets_dict.keys())  
-                # get unque classes with active trackers
-                active_classes = set([tracker.cls for tracker in instance.trackers])
-                # get tracks that are both active and in the current detections
-                relevant_classes = active_classes.union(detected_classes)
+#             # input one class of detections at a time in order to not mix them up
+#             if instance.per_class is True and dets.size != 0:
+#                 dets_dict = {class_id: np.array([det for det in dets if det[5] == class_id]) for class_id in set(det[5] for det in dets)}
+#                 # get unique classes in predictions
+#                 detected_classes = set(dets_dict.keys())  
+#                 # get unque classes with active trackers
+#                 active_classes = set([tracker.cls for tracker in instance.trackers])
+#                 # get tracks that are both active and in the current detections
+#                 relevant_classes = active_classes.union(detected_classes)
                 
-                mc_dets = np.empty(shape=(0, 7))
-                for class_id in relevant_classes:
-                    modified_args[0] = np.array(dets_dict.get(int(class_id), np.empty((0, 6))))
-                    print(f'Feeding class {int(class_id)}: {modified_args[0].shape}')
-                    dets = self.update(instance, modified_args[0], im)
-                    if dets.size != 0:
-                        mc_dets = np.append(mc_dets, dets, axis=0)
-            else:
-                mc_dets = self.update(instance, dets, im)
-            print(f'Per class updates output: {mc_dets.shape}')
-            return mc_dets
-        return wrapper
+#                 mc_dets = np.empty(shape=(0, 7))
+#                 for class_id in relevant_classes:
+#                     modified_args[0] = np.array(dets_dict.get(int(class_id), np.empty((0, 6))))
+#                     print(f'Feeding class {int(class_id)}: {modified_args[0].shape}')
+#                     dets = self.update(instance, modified_args[0], im)
+#                     if dets.size != 0:
+#                         mc_dets = np.append(mc_dets, dets, axis=0)
+#             else:
+#                 mc_dets = self.update(instance, dets, im)
+#             print(f'Per class updates output: {mc_dets.shape}')
+#             return mc_dets
+#         return wrapper
 
 
 class OCSort(object):
-    def __init__(self, det_thresh=0.2, max_age=30, min_hits=3, 
-        iou_threshold=0.3, delta_t=3, asso_func="iou", inertia=0.2, use_byte=False, per_class=True):
+    def __init__(self, per_class=True, det_thresh=0.2, max_age=30, min_hits=3, 
+        iou_threshold=0.3, delta_t=3, asso_func="iou", inertia=0.2, use_byte=False):
         """
         Sets key parameters for SORT
         """
-        self.per_class = True
+        self.per_class = per_class
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold

@@ -42,7 +42,8 @@ def on_predict_start(predictor):
             predictor.args.tracking_config,
             predictor.args.reid_model,
             predictor.device,
-            predictor.args.half
+            predictor.args.half,
+            predictor.args.per_class
         )
         predictor.trackers.append(tracker)
 
@@ -220,6 +221,7 @@ def parse_opt():
     parser.add_argument('--save-id-crops', action='store_true', help='save each crop to its respective id folder')
     parser.add_argument('--save-mot', action='store_true', help='save tracking results in a single txt file')
     parser.add_argument('--line-width', default=None, type=int, help='The line width of the bounding boxes. If None, it is scaled to the image size.')
+    parser.add_argument('--per-class', action='store_true', help='not mix up classes when tracking')
     
     opt = parser.parse_args()
     return opt
