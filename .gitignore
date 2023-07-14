@@ -2,7 +2,7 @@
 .venv/
 .eggs/
 env/
-
+*.DS_Store
 # interpreter bytecode
 __pycache__/
 
