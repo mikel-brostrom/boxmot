@@ -18,7 +18,6 @@ logger.add(sys.stderr, colorize=True, level="INFO")
 class PerClassDecorator:
     def __init__(self, method):
         self.update = method
-        print(self.update)
     def __get__(self, instance, owner):
         def wrapper(*args, **kwargs):
             modified_args = list(args)
