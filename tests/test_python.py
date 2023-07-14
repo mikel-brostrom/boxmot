@@ -50,11 +50,14 @@ def test_deepocsort_instantiation():
         model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
         fp16=True,
+        per_class=False
     )
 
 
 def test_ocsort_instantiation():
-    os = OCSORT()
+    os = OCSORT(
+        per_class=False
+    )
 
 
 def test_bytetrack_instantiation():
