@@ -9,7 +9,6 @@ import torchvision
 import numpy as np
 
 
-
 class EmbeddingComputer:
     def __init__(self, dataset):
         self.model = None
