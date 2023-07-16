@@ -4,7 +4,7 @@
 import numpy as np
 import inspect
 from ...utils.association import *
-from ...motion.ocsort_kf import KalmanFilterNew
+from ...motion.adapters import OCSortKalmanFilterAdapter
 from boxmot.utils import PerClassDecorator
 
 
@@ -67,7 +67,7 @@ class KalmanBoxTracker(object):
 
         """
         # define constant velocity model
-        self.kf = KalmanFilterNew(dim_x=7, dim_z=4)
+        self.kf = OCSortKalmanFilterAdapter(dim_x=7, dim_z=4)
         self.kf.F = np.array([[1, 0, 0, 0, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0], [0, 0, 1, 0, 0, 0, 1], [
                             0, 0, 0, 1, 0, 0, 0],  [0, 0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 0, 1]])
         self.kf.H = np.array([[1, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0],
