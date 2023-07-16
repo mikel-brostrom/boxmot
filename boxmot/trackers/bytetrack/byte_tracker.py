@@ -1,16 +1,14 @@
 import numpy as np
 
-from ...motion.bytetrack_kf import KalmanFilter
+from ...motion.adapters import ByteTrackKalmanFilterAdapter
 from ...utils.matching import iou_distance, fuse_score, linear_assignment
 from .basetrack import BaseTrack, TrackState
 
 from ...utils.ops import xywh2xyxy, xyxy2xywh
 
-from boxmot.utils.checks import TestRequirements
-
 
 class STrack(BaseTrack):
-    shared_kalman = KalmanFilter()
+    shared_kalman = ByteTrackKalmanFilterAdapter()
     def __init__(self, tlwh, score, cls):
 
         # wait activate
@@ -158,15 +156,7 @@ class BYTETracker(object):
         self.det_thresh = track_thresh + 0.1
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilter()
-
-        try:
-            import lap
-        except (ImportError, AssertionError, AttributeError):
-            tr = TestRequirements()
-            tr.check_requirements()
-            tr.check_packages(['lap>=0.4'])
-            import lap
+        self.kalman_filter = ByteTrackKalmanFilterAdapter()
 
     def update(self, dets, _):
 
