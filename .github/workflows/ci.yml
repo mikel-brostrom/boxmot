@@ -10,6 +10,8 @@ on:
     branches: [master]
 
 env:
+  # Directory of PyPi package to be tested
+  PACKAGE_DIR: boxmot
   # Minimum acceptable test coverage
   # Increase as you add more tests to increase coverage
   COVERAGE_FAIL_UNDER: 37
@@ -48,7 +50,7 @@ jobs:
       - name: Pytest tests
         shell: bash  # for Windows compatibility
         run: |
-          pytest --cov=$(PROJECT_NAME) --cov-report=html -v tests
+          pytest --cov=$PACKAGE_DIR --cov-report=html -v tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
 
       - name: Tests all tracking options
