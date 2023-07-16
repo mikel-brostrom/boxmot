@@ -110,7 +110,10 @@ class CameraMotionCompensation:
         if self.prev_desc is None:
             self.prev_desc = [kp, desc]
             return A
-        if desc.shape[0] < self.minimum_features or self.prev_desc[1].shape[0] < self.minimum_features:
+        if (
+            desc.shape[0] < self.minimum_features
+            or self.prev_desc[1].shape[0] < self.minimum_features
+        ):
             return A
 
         bf = cv2.BFMatcher(cv2.NORM_L2)
@@ -121,7 +124,9 @@ class CameraMotionCompensation:
                 good.append(m)
 
         if len(good) > self.minimum_features:
-            src_pts = np.float32([self.prev_desc[0][m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+            src_pts = np.float32(
+                [self.prev_desc[0][m.queryIdx].pt for m in good]
+            ).reshape(-1, 1, 2)
             dst_pts = np.float32([kp[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
             A, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts, method=cv2.RANSAC)
         else:
@@ -145,7 +150,9 @@ class CameraMotionCompensation:
             self.prev_desc = keypoints
             return A
 
-        matched_kp, status, err = cv2.calcOpticalFlowPyrLK(self.prev_img, frame, self.prev_desc, None)
+        matched_kp, status, err = cv2.calcOpticalFlowPyrLK(
+            self.prev_img, frame, self.prev_desc, None
+        )
         matched_kp = matched_kp.reshape(-1, 2)
         status = status.reshape(-1)
         prev_points = self.prev_desc.reshape(-1, 2)
@@ -154,7 +161,9 @@ class CameraMotionCompensation:
 
         # Find rigid matrix
         if prev_points.shape[0] > self.minimum_features:
-            A, _ = cv2.estimateAffinePartial2D(prev_points, curr_points, method=cv2.RANSAC)
+            A, _ = cv2.estimateAffinePartial2D(
+                prev_points, curr_points, method=cv2.RANSAC
+            )
         else:
             print("Warning: not enough matching points")
         if A is None:

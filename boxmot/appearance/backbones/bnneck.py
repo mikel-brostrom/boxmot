@@ -1,5 +1,6 @@
 from torch import nn
 
+
 class BNNeck(nn.Module):
     def __init__(self, input_dim, class_num, return_f=False):
         super(BNNeck, self).__init__()
@@ -23,21 +24,21 @@ class BNNeck(nn.Module):
 
     def weights_init_kaiming(self, m):
         classname = m.__class__.__name__
-        if classname.find('Linear') != -1:
-            nn.init.kaiming_normal_(m.weight, a=0, mode='fan_out')
+        if classname.find("Linear") != -1:
+            nn.init.kaiming_normal_(m.weight, a=0, mode="fan_out")
             nn.init.constant_(m.bias, 0.0)
-        elif classname.find('Conv') != -1:
-            nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in')
+        elif classname.find("Conv") != -1:
+            nn.init.kaiming_normal_(m.weight, a=0, mode="fan_in")
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0.0)
-        elif classname.find('BatchNorm') != -1:
+        elif classname.find("BatchNorm") != -1:
             if m.affine:
                 nn.init.constant_(m.weight, 1.0)
                 nn.init.constant_(m.bias, 0.0)
 
     def weights_init_classifier(self, m):
         classname = m.__class__.__name__
-        if classname.find('Linear') != -1:
+        if classname.find("Linear") != -1:
             nn.init.normal_(m.weight, std=0.001)
             if m.bias:
                 nn.init.constant_(m.bias, 0.0)
@@ -50,8 +51,7 @@ class BNNeck3(nn.Module):
         # self.reduction = nn.Linear(input_dim, feat_dim)
         # self.bn = nn.BatchNorm1d(feat_dim)
 
-        self.reduction = nn.Conv2d(
-            input_dim, feat_dim, 1, bias=False)
+        self.reduction = nn.Conv2d(input_dim, feat_dim, 1, bias=False)
         self.bn = nn.BatchNorm1d(feat_dim)
 
         self.bn.bias.requires_grad_(False)
@@ -74,31 +74,42 @@ class BNNeck3(nn.Module):
 
     def weights_init_kaiming(self, m):
         classname = m.__class__.__name__
-        if classname.find('Linear') != -1:
-            nn.init.kaiming_normal_(m.weight, a=0, mode='fan_out')
+        if classname.find("Linear") != -1:
+            nn.init.kaiming_normal_(m.weight, a=0, mode="fan_out")
             nn.init.constant_(m.bias, 0.0)
-        elif classname.find('Conv') != -1:
-            nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in')
+        elif classname.find("Conv") != -1:
+            nn.init.kaiming_normal_(m.weight, a=0, mode="fan_in")
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0.0)
-        elif classname.find('BatchNorm') != -1:
+        elif classname.find("BatchNorm") != -1:
             if m.affine:
                 nn.init.constant_(m.weight, 1.0)
                 nn.init.constant_(m.bias, 0.0)
 
     def weights_init_classifier(self, m):
         classname = m.__class__.__name__
-        if classname.find('Linear') != -1:
+        if classname.find("Linear") != -1:
             nn.init.normal_(m.weight, std=0.001)
             if m.bias:
                 nn.init.constant_(m.bias, 0.0)
+
 
 # Defines the new fc layer and classification layer
 # |--Linear--|--bn--|--relu--|--Linear--|
 
 
 class ClassBlock(nn.Module):
-    def __init__(self, input_dim, class_num, droprate=0, relu=False, bnorm=True, num_bottleneck=512, linear=True, return_f=False):
+    def __init__(
+        self,
+        input_dim,
+        class_num,
+        droprate=0,
+        relu=False,
+        bnorm=True,
+        num_bottleneck=512,
+        linear=True,
+        return_f=False,
+    ):
         super(ClassBlock, self).__init__()
         self.return_f = return_f
         add_block = []
@@ -136,18 +147,18 @@ class ClassBlock(nn.Module):
     def weights_init_kaiming(self, m):
         classname = m.__class__.__name__
         # print(classname)
-        if classname.find('Conv') != -1:
+        if classname.find("Conv") != -1:
             # For old pytorch, you may use kaiming_normal.
-            nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
-        elif classname.find('Linear') != -1:
-            nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_out')
+            nn.init.kaiming_normal_(m.weight.data, a=0, mode="fan_in")
+        elif classname.find("Linear") != -1:
+            nn.init.kaiming_normal_(m.weight.data, a=0, mode="fan_out")
             nn.init.constant_(m.bias.data, 0.0)
-        elif classname.find('BatchNorm1d') != -1:
+        elif classname.find("BatchNorm1d") != -1:
             nn.init.normal_(m.weight.data, 1.0, 0.02)
             nn.init.constant_(m.bias.data, 0.0)
 
     def weights_init_classifier(self, m):
         classname = m.__class__.__name__
-        if classname.find('Linear') != -1:
+        if classname.find("Linear") != -1:
             nn.init.normal_(m.weight.data, std=0.001)
             nn.init.constant_(m.bias.data, 0.0)
