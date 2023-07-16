@@ -122,7 +122,7 @@ class GlobalMotionCompensation:
             (cc, H) = cv2.findTransformECC(
                 self.prevFrame, frame, H, self.warp_mode, self.criteria, None, 1
             )
-        except BaseException:
+        except:
             print("Warning: find transform failed. Set warp as identity")
 
         return H
