@@ -31,14 +31,12 @@ test-cov: test # Get a test coverage report with a PASS / FAIL verdict based on 
 
 
 check-formatting: setup # Check code formatting and fail if there are any formatting issues.
-	set -e
-	$(PIP) install flake8 black flake8-pylint flake8-docstrings Flake8-pyproject
+	$(PIP) install flake8 black flake8-pylint flake8-docstrings
 	$(PYTHON) -m flake8 boxmot/*
 	$(PYTHON) -m black --check boxmot/*
 
 fix-formatting: setup # Fix code formatting using autopep8 and black.
-	$(PIP) install autopep8 black
-	$(PYTHON) -m autopep8 boxmot/*
+	$(PIP) install black
 	$(PYTHON) -m black boxmot/*
 
 clean: # Removes the virtual environment and pycache directories.
