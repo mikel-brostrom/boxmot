@@ -1,5 +1,6 @@
 import numpy as np
-from ..kalman_filter import KalmanFilter, multi_predict
+from ..kalman_filter import KalmanFilter
+from ..kalman_filter import multi_predict as kf_multi_predict
 
 
 class BotSortKalmanFilterAdapter(KalmanFilter):
@@ -159,8 +160,8 @@ class BotSortKalmanFilterAdapter(KalmanFilter):
         sqr = np.square(np.r_[std_pos, std_vel]).T
 
         motion_cov = []
-        for i in range(len(self.x)):
+        for i in range(len(mean)):
             motion_cov.append(np.diag(sqr[i]))
         motion_cov = np.asarray(motion_cov)
 
-        return multi_predict(mean, covariance, Q=motion_cov)
+        return kf_multi_predict(mean, covariance, F=self.F, Q=motion_cov)

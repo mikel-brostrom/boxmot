@@ -23,7 +23,7 @@ $(VENV)/bin/activate: requirements.txt
 
 test: setup # Run tests found in the tests/ directory.
 	$(PIP) install pytest pytest-cov
-	$(PYTHON) -m pytest --cov=$(PROJECT_NAME) --cov-report=html tests
+	$(PYTHON) -m pytest --cov=$(PROJECT_NAME) --cov-report=html -v tests
 
 
 test-cov: test # Get a test coverage report with a PASS / FAIL verdict based on coverage percentage.

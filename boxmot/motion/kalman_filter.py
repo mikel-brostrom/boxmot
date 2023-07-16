@@ -1504,18 +1504,20 @@ def predict_steadystate(x, F=1, u=0, B=1):
     return x
 
 
-def multi_predict(self, x, P, Q=0):
-    """Run Kalman filter prediction step (Vectorized version).
+def multi_predict(x, P, F=1, Q=0):
+    """Run Kalman filter prediction step for N states (Vectorized version).
     Parameters
     ----------
     x : ndarray
-        The Nx8 dimensional mean matrix of the object states at the previous
+        The Nxm dimensional mean matrix of the object states at the previous
         time step.
     P : ndarray
-        The Nx8x8 dimensional covariance matrics of the object states at the
+        The Nxmxn dimensional covariance matrics of the object states at the
         previous time step.
+    F : ndarray
+        The mxn dimensional state transition matrix
     Q : ndarray
-        The Nx8x8 dimensional process noise matrices
+        The Nxmxn dimensional process noise matrices
     Returns
     -------
     (ndarray, ndarray)
@@ -1523,9 +1525,12 @@ def multi_predict(self, x, P, Q=0):
         state. Unobserved velocities are initialized to 0 mean.
     """
 
-    x = np.dot(x, self._motion_mat.T)
-    left = np.dot(self._motion_mat, P).transpose((1, 0, 2))
-    P = np.dot(left, self._motion_mat.T) + Q
+    if np.isscalar(F):
+        F = np.array(F)
+
+    x = np.dot(x, F.T)
+    left = np.dot(F, P).transpose((1, 0, 2))
+    P = np.dot(left, F.T) + Q
 
     return x, P
 
