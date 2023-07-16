@@ -3,6 +3,8 @@
 .eggs/
 env/
 *.DS_Store
+.coverage
+htmlcov/
 # interpreter bytecode
 __pycache__/
 
