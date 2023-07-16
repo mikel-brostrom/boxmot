@@ -189,9 +189,7 @@ def gate_cost_matrix(
     measurements = np.asarray([detections[i].to_xyah() for i in detection_indices])
     for row, track_idx in enumerate(track_indices):
         track = tracks[track_idx]
-        gating_distance = track.kf.gating_distance(
-            track.mean, track.covariance, measurements, only_position
-        )
+        gating_distance = track.kf.gating_distance(measurements, only_position)
         cost_matrix[row, gating_distance > gating_threshold] = gated_cost
         cost_matrix[row] = (
             mc_lambda * cost_matrix[row] + (1 - mc_lambda) * gating_distance
