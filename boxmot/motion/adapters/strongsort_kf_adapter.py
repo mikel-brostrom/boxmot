@@ -3,7 +3,6 @@ from ..kalman_filter import KalmanFilter
 
 
 class StrongSortKalmanFilterAdapter(KalmanFilter):
-
     ndim = 4
 
     def __init__(self, dt=1):
@@ -19,8 +18,8 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
         # Motion and observation uncertainty are chosen relative to the current
         # state estimate. These weights control the amount of uncertainty in
         # the model. This is a bit hacky.
-        self._std_weight_position = 1. / 20
-        self._std_weight_velocity = 1. / 160
+        self._std_weight_position = 1.0 / 20
+        self._std_weight_velocity = 1.0 / 160
 
     def initiate(self, measurement):
         """Create track from unassociated measurement.
@@ -44,14 +43,15 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
         self.x = np.r_[mean_pos, mean_vel]
 
         std = [
-            2 * self._std_weight_position * measurement[0],   # the center point x
-            2 * self._std_weight_position * measurement[1],   # the center point y
-            1 * measurement[2],                               # the ratio of width/height
-            2 * self._std_weight_position * measurement[3],   # the height
+            2 * self._std_weight_position * measurement[0],  # the center point x
+            2 * self._std_weight_position * measurement[1],  # the center point y
+            1 * measurement[2],  # the ratio of width/height
+            2 * self._std_weight_position * measurement[3],  # the height
             10 * self._std_weight_velocity * measurement[0],
             10 * self._std_weight_velocity * measurement[1],
             0.1 * measurement[2],
-            10 * self._std_weight_velocity * measurement[3]]
+            10 * self._std_weight_velocity * measurement[3],
+        ]
         self.P = np.diag(np.square(std))
 
         return self.x, self.P
@@ -79,19 +79,21 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
             self._std_weight_position * mean[0],
             self._std_weight_position * mean[1],
             1 * mean[2],
-            self._std_weight_position * mean[3]]
+            self._std_weight_position * mean[3],
+        ]
         std_vel = [
             self._std_weight_velocity * mean[0],
             self._std_weight_velocity * mean[1],
             0.1 * mean[2],
-            self._std_weight_velocity * mean[3]]
+            self._std_weight_velocity * mean[3],
+        ]
         motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
 
         super().predict(Q=motion_cov)
 
         return self.x, self.P
 
-    def update(self, mean, covariance, measurement, confidence=.0):
+    def update(self, mean, covariance, measurement, confidence=0.0):
         """Run Kalman filter correction step.
 
         Parameters
@@ -120,7 +122,8 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[3],
             1e-1,
-            self._std_weight_position * mean[3]]
+            self._std_weight_position * mean[3],
+        ]
         std = [(1 - confidence) * x for x in std]
 
         innovation_cov = np.diag(np.square(std))

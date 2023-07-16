@@ -3,12 +3,12 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-__all__ = ['MuDeep']
+__all__ = ["MuDeep"]
 
 
 class ConvBlock(nn.Module):
     """Basic convolutional block.
-    
+
     convolution + batch normalization + relu.
 
     Args:
@@ -159,7 +159,7 @@ class MuDeep(nn.Module):
         - ``mudeep``: Multiscale deep neural network.
     """
 
-    def __init__(self, num_classes, loss='softmax', **kwargs):
+    def __init__(self, num_classes, loss="softmax", **kwargs):
         super(MuDeep, self).__init__()
         self.loss = loss
 
@@ -198,9 +198,9 @@ class MuDeep(nn.Module):
         if not self.training:
             return x
 
-        if self.loss == 'softmax':
+        if self.loss == "softmax":
             return y
-        elif self.loss == 'triplet':
+        elif self.loss == "triplet":
             return y, x
         else:
-            raise KeyError('Unsupported loss: {}'.format(self.loss))
+            raise KeyError("Unsupported loss: {}".format(self.loss))
