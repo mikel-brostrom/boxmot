@@ -1,3 +1,8 @@
+###############################################################
+# Makefile for yolo_tracking
+# Install make, then run "make help" for usage
+###############################################################
+
 PROJECT_NAME = boxmot
 VENV = .venv
 PYTHON = $(VENV)/bin/python
