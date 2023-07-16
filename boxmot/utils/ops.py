@@ -18,6 +18,7 @@ def xyxy2xywh(x):
     y[..., 3] = x[..., 3] - x[..., 1]  # height
     return y
 
+
 def xywh2xyxy(x):
     """
     Convert bounding box coordinates from (x, y, width, height) format to (x1, y1, x2, y2) format where (x1, y1) is the

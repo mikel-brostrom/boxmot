@@ -32,9 +32,20 @@ class Tracker:
     tracks : List[Track]
         The list of active tracks at the current time step.
     """
+
     GATING_THRESHOLD = np.sqrt(chi2inv95[4])
 
-    def __init__(self, metric, max_iou_dist=0.9, max_age=30, max_unmatched_preds=7, n_init=3, _lambda=0, ema_alpha=0.9, mc_lambda=0.995):
+    def __init__(
+        self,
+        metric,
+        max_iou_dist=0.9,
+        max_age=30,
+        max_unmatched_preds=7,
+        n_init=3,
+        _lambda=0,
+        ema_alpha=0.9,
+        mc_lambda=0.995,
+    ):
         self.metric = metric
         self.max_iou_dist = max_iou_dist
         self.max_age = max_age
@@ -63,14 +74,15 @@ class Tracker:
     def camera_update(self, previous_img, current_img):
         for track in self.tracks:
             track.camera_update(previous_img, current_img)
-            
-    def pred_n_update_all_tracks(self):
-        """Perform predictions and updates for all tracks by its own predicted state.
 
-        """
+    def pred_n_update_all_tracks(self):
+        """Perform predictions and updates for all tracks by its own predicted state."""
         self.predict()
         for t in self.tracks:
-            if self.max_unmatched_preds != 0 and t.updates_wo_assignment < t.max_num_updates_wo_assignment:
+            if (
+                self.max_unmatched_preds != 0
+                and t.updates_wo_assignment < t.max_num_updates_wo_assignment
+            ):
                 bbox = t.to_tlwh()
                 t.update_kf(detection.to_xyah_ext(bbox))
 
@@ -84,20 +96,30 @@ class Tracker:
 
         """
         # Run matching cascade.
-        matches, unmatched_tracks, unmatched_detections = \
-            self._match(detections)
+        matches, unmatched_tracks, unmatched_detections = self._match(detections)
 
         # Update track set.
         for track_idx, detection_idx in matches:
             self.tracks[track_idx].update(
-                detections[detection_idx], classes[detection_idx], confidences[detection_idx])
+                detections[detection_idx],
+                classes[detection_idx],
+                confidences[detection_idx],
+            )
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
-            if self.max_unmatched_preds != 0 and self.tracks[track_idx].updates_wo_assignment < self.tracks[track_idx].max_num_updates_wo_assignment:
+            if (
+                self.max_unmatched_preds != 0
+                and self.tracks[track_idx].updates_wo_assignment
+                < self.tracks[track_idx].max_num_updates_wo_assignment
+            ):
                 bbox = self.tracks[track_idx].to_tlwh()
                 self.tracks[track_idx].update_kf(detection.to_xyah_ext(bbox))
         for detection_idx in unmatched_detections:
-            self._initiate_track(detections[detection_idx], classes[detection_idx].item(), confidences[detection_idx].item())
+            self._initiate_track(
+                detections[detection_idx],
+                classes[detection_idx].item(),
+                confidences[detection_idx].item(),
+            )
         self.tracks = [t for t in self.tracks if not t.is_deleted()]
 
         # Update distance metric.
@@ -108,7 +130,9 @@ class Tracker:
                 continue
             features += track.features
             targets += [track.track_id for _ in track.features]
-        self.metric.partial_fit(np.asarray(features), np.asarray(targets), active_targets)
+        self.metric.partial_fit(
+            np.asarray(features), np.asarray(targets), active_targets
+        )
 
     def _full_cost_metric(self, tracks, dets, track_indices, detection_indices):
         """
@@ -126,9 +150,10 @@ class Tracker:
         pos_cost = np.empty([len(track_indices), len(detection_indices)])
         msrs = np.asarray([dets[i].to_xyah() for i in detection_indices])
         for row, track_idx in enumerate(track_indices):
-            pos_cost[row, :] = np.sqrt(
-                tracks[track_idx].kf.gating_distance(msrs)
-            ) / self.GATING_THRESHOLD
+            pos_cost[row, :] = (
+                np.sqrt(tracks[track_idx].kf.gating_distance(msrs))
+                / self.GATING_THRESHOLD
+            )
         pos_gate = pos_cost > 1.0
         # Now Compute the Appearance-based Cost Matrix
         app_cost = self.metric.distance(
@@ -143,45 +168,76 @@ class Tracker:
         return cost_matrix
 
     def _match(self, detections):
-
         def gated_metric(tracks, dets, track_indices, detection_indices):
             features = np.array([dets[i].feature for i in detection_indices])
             targets = np.array([tracks[i].track_id for i in track_indices])
             cost_matrix = self.metric.distance(features, targets)
-            cost_matrix = linear_assignment.gate_cost_matrix(cost_matrix, tracks, dets, track_indices, detection_indices, self.mc_lambda)
+            cost_matrix = linear_assignment.gate_cost_matrix(
+                cost_matrix,
+                tracks,
+                dets,
+                track_indices,
+                detection_indices,
+                self.mc_lambda,
+            )
 
             return cost_matrix
 
         # Split track set into confirmed and unconfirmed tracks.
-        confirmed_tracks = [
-            i for i, t in enumerate(self.tracks) if t.is_confirmed()]
+        confirmed_tracks = [i for i, t in enumerate(self.tracks) if t.is_confirmed()]
         unconfirmed_tracks = [
-            i for i, t in enumerate(self.tracks) if not t.is_confirmed()]
+            i for i, t in enumerate(self.tracks) if not t.is_confirmed()
+        ]
 
         # Associate confirmed tracks using appearance features.
-        matches_a, unmatched_tracks_a, unmatched_detections = \
-            linear_assignment.matching_cascade(
-                gated_metric, self.metric.matching_threshold, self.max_age,
-                self.tracks, detections, confirmed_tracks)
+        (
+            matches_a,
+            unmatched_tracks_a,
+            unmatched_detections,
+        ) = linear_assignment.matching_cascade(
+            gated_metric,
+            self.metric.matching_threshold,
+            self.max_age,
+            self.tracks,
+            detections,
+            confirmed_tracks,
+        )
 
         # Associate remaining tracks together with unconfirmed tracks using IOU.
         iou_track_candidates = unconfirmed_tracks + [
-            k for k in unmatched_tracks_a if
-            self.tracks[k].time_since_update == 1]
+            k for k in unmatched_tracks_a if self.tracks[k].time_since_update == 1
+        ]
         unmatched_tracks_a = [
-            k for k in unmatched_tracks_a if
-            self.tracks[k].time_since_update != 1]
-        matches_b, unmatched_tracks_b, unmatched_detections = \
-            linear_assignment.min_cost_matching(
-                iou_matching.iou_cost, self.max_iou_dist, self.tracks,
-                detections, iou_track_candidates, unmatched_detections)
+            k for k in unmatched_tracks_a if self.tracks[k].time_since_update != 1
+        ]
+        (
+            matches_b,
+            unmatched_tracks_b,
+            unmatched_detections,
+        ) = linear_assignment.min_cost_matching(
+            iou_matching.iou_cost,
+            self.max_iou_dist,
+            self.tracks,
+            detections,
+            iou_track_candidates,
+            unmatched_detections,
+        )
 
         matches = matches_a + matches_b
         unmatched_tracks = list(set(unmatched_tracks_a + unmatched_tracks_b))
         return matches, unmatched_tracks, unmatched_detections
 
     def _initiate_track(self, detection, class_id, conf):
-        self.tracks.append(Track(
-            detection.to_xyah(), self._next_id, class_id, conf, self.n_init, self.max_age, self.ema_alpha,
-            detection.feature))
+        self.tracks.append(
+            Track(
+                detection.to_xyah(),
+                self._next_id,
+                class_id,
+                conf,
+                self.n_init,
+                self.max_age,
+                self.ema_alpha,
+                detection.feature,
+            )
+        )
         self._next_id += 1
