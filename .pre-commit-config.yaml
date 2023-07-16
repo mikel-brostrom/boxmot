@@ -3,6 +3,11 @@ repos:
     rev: 23.7.0
     hooks:
     -   id: black
+        args: [
+            --line-length=100
+            --skip-string-normalization
+        ]
+
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v2.3.0
     hooks:
