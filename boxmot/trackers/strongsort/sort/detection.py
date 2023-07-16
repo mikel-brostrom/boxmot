@@ -47,7 +47,8 @@ class Detection(object):
         ret[:2] += ret[2:] / 2
         ret[2] /= ret[3]
         return ret
-    
+
+
 def to_xyah_ext(bbox):
     """Convert bounding box to format `(center x, center y, aspect ratio,
     height)`, where the aspect ratio is `width / height`.
