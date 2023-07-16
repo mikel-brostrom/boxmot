@@ -4,7 +4,7 @@ from collections import deque
 from ...utils.matching import iou_distance, fuse_score, linear_assignment, embedding_distance, fuse_motion
 from ...utils.gmc import GlobalMotionCompensation
 from .basetrack import BaseTrack, TrackState
-from ...motion.botsort_kf import KalmanFilter
+from ...motion.adapters import BotSortKalmanFilterAdapter
 import torch
 
 from ...appearance.reid_multibackend import ReIDDetectMultiBackend
@@ -12,12 +12,12 @@ from ...utils.ops import xyxy2xywh, xywh2xyxy
 
 
 class STrack(BaseTrack):
-    shared_kalman = KalmanFilter()
+    shared_kalman = BotSortKalmanFilterAdapter()
 
     def __init__(self, tlwh, score, cls, feat=None, feat_history=50):
 
         # wait activate
-        self._tlwh = np.asarray(tlwh, dtype=np.float)
+        self._tlwh = np.asarray(tlwh, dtype=np.float32)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
@@ -254,7 +254,7 @@ class BoTSORT(object):
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilter()
+        self.kalman_filter = BotSortKalmanFilterAdapter()
 
         # ReID module
         self.proximity_thresh = proximity_thresh
@@ -336,14 +336,28 @@ class BoTSORT(object):
         STrack.multi_gmc(unconfirmed, warp)
 
         # Associate with high score detection boxes
-        ious_dists = iou_distance(strack_pool, detections)
-        ious_dists_mask = (ious_dists > self.proximity_thresh)
+        raw_emb_dists = embedding_distance(strack_pool, detections)
+        dists = fuse_motion(self.kalman_filter, raw_emb_dists, strack_pool, detections, only_position=False, lambda_=self.lambda_)
 
-        emb_dists = embedding_distance(strack_pool, detections) / 2.0
-        raw_emb_dists = emb_dists.copy()
-        emb_dists[emb_dists > self.appearance_thresh] = 1.0
-        emb_dists[ious_dists_mask] = 1.0
-        dists = np.minimum(ious_dists, emb_dists)
+        # ious_dists = matching.iou_distance(strack_pool, detections)
+        # ious_dists_mask = (ious_dists > self.proximity_thresh)
+
+        # ious_dists = matching.fuse_score(ious_dists, detections)
+
+        # emb_dists = matching.embedding_distance(strack_pool, detections) / 2.0
+        # raw_emb_dists = emb_dists.copy()
+        # emb_dists[emb_dists > self.appearance_thresh] = 1.0
+        # emb_dists[ious_dists_mask] = 1.0
+        # dists = np.minimum(ious_dists, emb_dists)
+
+            # Popular ReID method (JDE / FairMOT)
+            # raw_emb_dists = matching.embedding_distance(strack_pool, detections)
+            # dists = matching.fuse_motion(self.kalman_filter, raw_emb_dists, strack_pool, detections)
+            # emb_dists = dists
+
+            # IoU making ReID
+            # dists = matching.embedding_distance(strack_pool, detections)
+            # dists[ious_dists_mask] = 1.0
     
         matches, u_track, u_detection = linear_assignment(dists, thresh=self.match_thresh)
 
