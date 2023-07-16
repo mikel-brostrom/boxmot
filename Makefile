@@ -17,7 +17,8 @@ help: # Show help for each of the Makefile recipes.
 	@grep -E '^[a-zA-Z0-9 -]+:.*#'  Makefile | sort | while read -r l; do printf "\033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 2- -d'#')\n"; done
 
 
-setup: $(VENV)/bin/activate # Setup the virtual environment. Installs requirements.txt and boxmot.
+setup: $(VENV)/bin/activate # Setup the virtual environment and installs requirements.txt and boxmot. Also installs pre-commit hooks.
+	pre-commit install
 	echo "Setup done!"
 
 
