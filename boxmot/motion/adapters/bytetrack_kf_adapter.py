@@ -3,7 +3,6 @@ from ..kalman_filter import KalmanFilter, multi_predict
 
 
 class ByteTrackKalmanFilterAdapter(KalmanFilter):
-
     ndim = 4
 
     def __init__(self, dt=1):
@@ -19,8 +18,8 @@ class ByteTrackKalmanFilterAdapter(KalmanFilter):
         # Motion and observation uncertainty are chosen relative to the current
         # state estimate. These weights control the amount of uncertainty in
         # the model. This is a bit hacky.
-        self._std_weight_position = 1. / 20
-        self._std_weight_velocity = 1. / 160
+        self._std_weight_position = 1.0 / 20
+        self._std_weight_velocity = 1.0 / 160
 
     def initiate(self, measurement):
         """Create track from unassociated measurement.
@@ -51,7 +50,8 @@ class ByteTrackKalmanFilterAdapter(KalmanFilter):
             10 * self._std_weight_velocity * measurement[3],
             10 * self._std_weight_velocity * measurement[3],
             1e-5,
-            10 * self._std_weight_velocity * measurement[3]]
+            10 * self._std_weight_velocity * measurement[3],
+        ]
         self.P = np.diag(np.square(std))
 
         return self.x.T, self.P
@@ -79,12 +79,14 @@ class ByteTrackKalmanFilterAdapter(KalmanFilter):
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[3],
             1e-2,
-            self._std_weight_position * mean[3]]
+            self._std_weight_position * mean[3],
+        ]
         std_vel = [
             self._std_weight_velocity * mean[3],
             self._std_weight_velocity * mean[3],
             1e-5,
-            self._std_weight_velocity * mean[3]]
+            self._std_weight_velocity * mean[3],
+        ]
         motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
 
         super().predict(Q=motion_cov)
@@ -118,7 +120,8 @@ class ByteTrackKalmanFilterAdapter(KalmanFilter):
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[3],
             1e-1,
-            self._std_weight_position * mean[3]]
+            self._std_weight_position * mean[3],
+        ]
         innovation_cov = np.diag(np.square(std))
 
         super().update(measurement, R=innovation_cov)
@@ -145,16 +148,18 @@ class ByteTrackKalmanFilterAdapter(KalmanFilter):
             self._std_weight_position * mean[:, 3],
             self._std_weight_position * mean[:, 3],
             1e-2 * np.ones_like(mean[:, 3]),
-            self._std_weight_position * mean[:, 3]]
+            self._std_weight_position * mean[:, 3],
+        ]
         std_vel = [
             self._std_weight_velocity * mean[:, 3],
             self._std_weight_velocity * mean[:, 3],
             1e-5 * np.ones_like(mean[:, 3]),
-            self._std_weight_velocity * mean[:, 3]]
+            self._std_weight_velocity * mean[:, 3],
+        ]
         sqr = np.square(np.r_[std_pos, std_vel]).T
 
         motion_cov = []
-        for i in range(len(x)):
+        for i in range(len(self.x)):
             motion_cov.append(np.diag(sqr[i]))
         motion_cov = np.asarray(motion_cov)
 
