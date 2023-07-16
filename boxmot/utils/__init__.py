@@ -1,4 +1,3 @@
-from loguru import logger
 import sys
 import numpy as np
 from pathlib import Path
@@ -11,6 +10,8 @@ WEIGHTS = ROOT / "examples" / "weights"
 REQUIREMENTS = ROOT / "requirements.txt"
 
 # global logger
+from loguru import logger
+
 logger.remove()
 logger.add(sys.stderr, colorize=True, level="INFO")
 
