@@ -1,19 +1,45 @@
 import torch
 import math
 import random
-from torch.nn import Module, Sequential, Conv2d, ReLU, AdaptiveMaxPool2d, AdaptiveAvgPool2d, \
-    NLLLoss, BCELoss, CrossEntropyLoss, AvgPool2d, MaxPool2d, Parameter, Linear, Sigmoid, Softmax, Dropout, Embedding
+from torch.nn import (
+    Module,
+    Sequential,
+    Conv2d,
+    ReLU,
+    AdaptiveMaxPool2d,
+    AdaptiveAvgPool2d,
+    NLLLoss,
+    BCELoss,
+    CrossEntropyLoss,
+    AvgPool2d,
+    MaxPool2d,
+    Parameter,
+    Linear,
+    Sigmoid,
+    Softmax,
+    Dropout,
+    Embedding,
+)
 from torch.nn import functional as F
 from torch import nn
 
 torch_ver = torch.__version__[:3]
 
-__all__ = ['BatchDrop', 'BatchFeatureErase_Top', 'BatchRandomErasing',
-           'PAM_Module', 'CAM_Module', 'Dual_Module', 'SE_Module']
+__all__ = [
+    "BatchDrop",
+    "BatchFeatureErase_Top",
+    "BatchRandomErasing",
+    "PAM_Module",
+    "CAM_Module",
+    "Dual_Module",
+    "SE_Module",
+]
 
 
 class BatchRandomErasing(nn.Module):
-    def __init__(self, probability=0.5, sl=0.02, sh=0.4, r1=0.3, mean=[0.4914, 0.4822, 0.4465]):
+    def __init__(
+        self, probability=0.5, sl=0.02, sh=0.4, r1=0.3, mean=[0.4914, 0.4822, 0.4465]
+    ):
         super(BatchRandomErasing, self).__init__()
 
         self.probability = probability
@@ -24,12 +50,10 @@ class BatchRandomErasing(nn.Module):
 
     def forward(self, img):
         if self.training:
-
             if random.uniform(0, 1) > self.probability:
                 return img
 
             for attempt in range(100):
-
                 area = img.size()[2] * img.size()[3]
 
                 target_area = random.uniform(self.sl, self.sh) * area
@@ -42,11 +66,11 @@ class BatchRandomErasing(nn.Module):
                     x1 = random.randint(0, img.size()[2] - h)
                     y1 = random.randint(0, img.size()[3] - w)
                     if img.size()[1] == 3:
-                        img[:, 0, x1:x1 + h, y1:y1 + w] = self.mean[0]
-                        img[:, 1, x1:x1 + h, y1:y1 + w] = self.mean[1]
-                        img[:, 2, x1:x1 + h, y1:y1 + w] = self.mean[2]
+                        img[:, 0, x1 : x1 + h, y1 : y1 + w] = self.mean[0]
+                        img[:, 1, x1 : x1 + h, y1 : y1 + w] = self.mean[1]
+                        img[:, 2, x1 : x1 + h, y1 : y1 + w] = self.mean[2]
                     else:
-                        img[:, 0, x1:x1 + h, y1:y1 + w] = self.mean[0]
+                        img[:, 0, x1 : x1 + h, y1 : y1 + w] = self.mean[0]
                     return img
 
         return img
@@ -72,7 +96,7 @@ class BatchDrop(nn.Module):
             sx = random.randint(0, h - rh)
             sy = random.randint(0, w - rw)
             mask = x.new_ones(x.size())
-            mask[:, :, sx:sx + rh, sy:sy + rw] = 0
+            mask[:, :, sx : sx + rh, sy : sy + rw] = 0
             x = x * mask
         return x
 
@@ -124,7 +148,14 @@ class BatchFeatureErase_Top(nn.Module):
 
     """
 
-    def __init__(self, channels, bottleneck_type, h_ratio=0.33, w_ratio=1., double_bottleneck=False):
+    def __init__(
+        self,
+        channels,
+        bottleneck_type,
+        h_ratio=0.33,
+        w_ratio=1.0,
+        double_bottleneck=False,
+    ):
         super(BatchFeatureErase_Top, self).__init__()
 
         self.drop_batch_bottleneck = bottleneck_type(channels, 512)
@@ -148,14 +179,11 @@ class BatchFeatureErase_Top(nn.Module):
 
 
 class SE_Module(Module):
-
     def __init__(self, channels, reduction=4):
         super(SE_Module, self).__init__()
-        self.fc1 = Conv2d(channels, channels // reduction,
-                          kernel_size=1, padding=0)
+        self.fc1 = Conv2d(channels, channels // reduction, kernel_size=1, padding=0)
         self.relu = ReLU(inplace=True)
-        self.fc2 = Conv2d(channels // reduction, channels,
-                          kernel_size=1, padding=0)
+        self.fc2 = Conv2d(channels // reduction, channels, kernel_size=1, padding=0)
         self.sigmoid = Sigmoid()
 
     def forward(self, x):
@@ -168,7 +196,8 @@ class SE_Module(Module):
 
 
 class PAM_Module(Module):
-    """ Position attention module"""
+    """Position attention module"""
+
     # Ref from SAGAN
 
     def __init__(self, in_dim):
@@ -176,26 +205,28 @@ class PAM_Module(Module):
         self.chanel_in = in_dim
 
         self.query_conv = Conv2d(
-            in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+            in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1
+        )
         self.key_conv = Conv2d(
-            in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
-        self.value_conv = Conv2d(
-            in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+            in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1
+        )
+        self.value_conv = Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
         self.gamma = Parameter(torch.zeros(1))
 
         self.softmax = Softmax(dim=-1)
 
     def forward(self, x):
         """
-            inputs :
-                x : input feature maps( B X C X H X W)
-            returns :
-                out : attention value + input feature
-                attention: B X (HxW) X (HxW)
+        inputs :
+            x : input feature maps( B X C X H X W)
+        returns :
+            out : attention value + input feature
+            attention: B X (HxW) X (HxW)
         """
         m_batchsize, C, height, width = x.size()
-        proj_query = self.query_conv(x).view(
-            m_batchsize, -1, width * height).permute(0, 2, 1)
+        proj_query = (
+            self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
+        )
         proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
         energy = torch.bmm(proj_query, proj_key)
         attention = self.softmax(energy)
@@ -209,7 +240,7 @@ class PAM_Module(Module):
 
 
 class CAM_Module(Module):
-    """ Channel attention module"""
+    """Channel attention module"""
 
     def __init__(self, in_dim):
         super(CAM_Module, self).__init__()
@@ -220,19 +251,18 @@ class CAM_Module(Module):
 
     def forward(self, x):
         """
-            inputs :
-                x : input feature maps( B X C X H X W)
-            returns :
-                out : attention value + input feature
-                attention: B X C X C
+        inputs :
+            x : input feature maps( B X C X H X W)
+        returns :
+            out : attention value + input feature
+            attention: B X C X C
         """
         m_batchsize, C, height, width = x.size()
         proj_query = x.view(m_batchsize, C, -1)
         proj_key = x.view(m_batchsize, C, -1).permute(0, 2, 1)
         # proj_key = x.view(m_batchsize, C, -1).permute(0, 2, 1).contiguous()
         energy = torch.bmm(proj_query, proj_key)
-        energy_new = torch.max(
-            energy, -1, keepdim=True)[0].expand_as(energy) - energy
+        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy) - energy
         attention = self.softmax(energy_new)
         proj_value = x.view(m_batchsize, C, -1)
 
