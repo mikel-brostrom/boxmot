@@ -9,6 +9,7 @@ PYTHON = $(VENV)/bin/python
 PIP = $(VENV)/bin/pip
 
 COVERAGE_FAIL_UNDER = 80
+TARGETS = boxmot/*
 
 .PHONY: run clean help setup test test-cov
 
@@ -35,14 +36,14 @@ test-cov: test # Get a test coverage report with a PASS / FAIL verdict based on 
 	$(PYTHON) -m coverage report --fail-under=$(COVERAGE_FAIL_UNDER)
 
 
-check-formatting: setup # Check code formatting and fail if there are any formatting issues.
+check-formatting: setup # Check code formatting and fail if there are any formatting issues. Use "make check-formatting TARGETS=..." to specify specific directories or files.
 	$(PIP) install flake8 black flake8-pylint flake8-docstrings
-	$(PYTHON) -m flake8 boxmot/*
-	$(PYTHON) -m black --check boxmot/*
+	$(PYTHON) -m flake8 $(TARGETS)
+	$(PYTHON) -m black --check $(TARGETS)
 
-fix-formatting: setup # Fix code formatting using autopep8 and black.
+fix-formatting: setup # Fix code formatting using autopep8 and black. Use "make fix-formatting TARGETS=..." to specify specific directories or files.
 	$(PIP) install black
-	$(PYTHON) -m black boxmot/*
+	$(PYTHON) -m black $(TARGETS)
 
 clean: # Removes the virtual environment and pycache directories.
 	rm -rf __pycache__;
