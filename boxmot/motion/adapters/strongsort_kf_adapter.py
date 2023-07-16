@@ -1,4 +1,5 @@
 import numpy as np
+from filterpy.common import reshape_z
 from ..kalman_filter import KalmanFilter
 
 
@@ -132,7 +133,7 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
 
         return self.x, self.P
 
-    def gating_distance(self, measurements):
+    def gating_distance(self, measurements, only_position=False):
         """Compute gating distance between state distribution and measurements.
         A suitable distance threshold can be obtained from `chi2inv95`. If
         `only_position` is False, the chi-square distribution has 4 degrees of
@@ -143,6 +144,9 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
             An Nx4 dimensional matrix of N measurements, each in
             format (x, y, a, h) where (x, y) is the bounding box center
             position, a the aspect ratio, and h the height.
+        only_position : bool
+            Whether to use only the positional attributes of the track for
+            calculating the gating distance
         Returns
         -------
         ndarray
@@ -153,5 +157,11 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
 
         squared_maha = np.zeros((measurements.shape[0],))
         for i, measurement in enumerate(measurements):
-            squared_maha[i] = super().md_for_measurement(measurement)
+            if not only_position:
+                squared_maha[i] = super().md_for_measurement(measurement)
+            else:
+                z = reshape_z(z, self.dim_z, 2)
+                H = self.H[:2,:2]
+                y = z - np.dot(H, self.x[:2])
+                squared_maha[i] = np.sqrt(float(np.dot(np.dot(y.T, self.SI[:2,:2]), y)))
         return squared_maha
