@@ -8,6 +8,7 @@ from ...motion.adapters import OCSortKalmanFilterAdapter
 from ...utils.association import *
 from ...utils.cmc import CameraMotionCompensation
 from ...appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.utils import PerClassDecorator
 
 
 def k_previous_obs(observations, cur_age, k):
