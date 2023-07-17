@@ -5,10 +5,8 @@ from pathlib import Path
 import numpy as np
 from numpy.testing import assert_allclose
 
-from boxmot import BoTSORT, BYTETracker
-from boxmot import DeepOCSort as DeepOCSORT
-from boxmot import OCSort as OCSORT
-from boxmot import StrongSORT, create_tracker, get_tracker_config
+from boxmot import (OCSORT, BoTSORT, BYTETracker, DeepOCSORT, StrongSORT,
+                    create_tracker, get_tracker_config)
 from boxmot.utils import WEIGHTS
 
 
