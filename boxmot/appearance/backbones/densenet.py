@@ -1,9 +1,11 @@
 """
 Code source: https://github.com/pytorch/vision
 """
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
+
 import re
 from collections import OrderedDict
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F

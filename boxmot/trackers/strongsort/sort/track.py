@@ -1,8 +1,10 @@
 # vim: expandtab:ts=4:sw=4
+from collections import deque
+
 import cv2
 import numpy as np
+
 from ....motion.adapters import StrongSortKalmanFilterAdapter
-from collections import deque
 
 
 class TrackState:
@@ -222,7 +224,7 @@ class Track:
                 src_r, dst_r, warp_matrix, warp_mode, criteria, None, 1
             )
         except cv2.error as e:
-            print("ecc transform failed")
+            print(f"ecc transform failed: {e}")
             return None, None
 
         if scale is not None:

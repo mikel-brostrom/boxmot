@@ -1,5 +1,7 @@
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
+
 import warnings
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -427,10 +429,11 @@ def init_pretrained_weights(model, key=""):
 
     Layers that don't match with pretrained layers in name or size are kept unchanged.
     """
-    import os
     import errno
-    import gdown
+    import os
     from collections import OrderedDict
+
+    import gdown
 
     def _get_torch_home():
         ENV_TORCH_HOME = "TORCH_HOME"

@@ -1,4 +1,5 @@
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,7 +27,6 @@ Code imported from https://github.com/Cadene/pretrained-models.pytorch
 pretrained_settings = {
     "nasnetamobile": {
         "imagenet": {
-            # 'url': 'https://github.com/veronikayurchuk/pretrained-models.pytorch/releases/download/v1.0/nasnetmobile-7e03cead.pth.tar',
             "url": "http://data.lip6.fr/cadene/pretrainedmodels/nasnetamobile-7e03cead.pth",
             "input_space": "RGB",
             "input_size": [3, 224, 224],  # resize 256

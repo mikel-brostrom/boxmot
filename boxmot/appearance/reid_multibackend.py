@@ -1,23 +1,19 @@
-import torch.nn as nn
-import torch
-from pathlib import Path
-import numpy as np
-import torchvision.transforms as T
 from collections import OrderedDict, namedtuple
-import gdown
 from os.path import exists as file_exists
+from pathlib import Path
 
+import gdown
+import numpy as np
+import torch
+import torch.nn as nn
+import torchvision.transforms as T
 
 from ..utils import logger as LOGGER
-from .reid_model_factory import (
-    show_downloadable_models,
-    get_model_url,
-    get_model_name,
-    load_pretrained_weights,
-)
-from .backbones import build_model
-
 from ..utils.checks import TestRequirements
+from .backbones import build_model
+from .reid_model_factory import (get_model_name, get_model_url,
+                                 load_pretrained_weights,
+                                 show_downloadable_models)
 
 __tr = TestRequirements()
 
@@ -128,13 +124,13 @@ class ReIDDetectMultiBackend(nn.Module):
             self.context = self.model_.create_execution_context()
             self.bindings = OrderedDict()
             self.fp16 = False  # default updated below
-            dynamic = False
+            # dynamic = False
             for index in range(self.model_.num_bindings):
                 name = self.model_.get_binding_name(index)
                 dtype = trt.nptype(self.model_.get_binding_dtype(index))
                 if self.model_.binding_is_input(index):
                     if -1 in tuple(self.model_.get_binding_shape(index)):  # dynamic
-                        dynamic = True
+                        # dynamic = True
                         self.context.set_binding_shape(
                             index, tuple(self.model_.get_profile_shape(0, index)[2])
                         )
@@ -148,14 +144,14 @@ class ReIDDetectMultiBackend(nn.Module):
             self.binding_addrs = OrderedDict(
                 (n, d.ptr) for n, d in self.bindings.items()
             )
-            batch_size = self.bindings["images"].shape[
-                0
-            ]  # if dynamic, this is instead max batch size
+            # batch_size = self.bindings["images"].shape[
+            #     0
+            # ]  # if dynamic, this is instead max batch size
         elif self.xml:  # OpenVINO
             LOGGER.info(f"Loading {w} for OpenVINO inference...")
             try:
                 # requires openvino-dev: https://pypi.org/project/openvino-dev/
-                from openvino.runtime import Core, Layout, get_batch
+                from openvino.runtime import Core, Layout
             except ImportError:
                 LOGGER.error(
                     f"Running {self.__class__} with the specified OpenVINO weights\n{w.name}\n"
@@ -170,9 +166,9 @@ class ReIDDetectMultiBackend(nn.Module):
             network = ie.read_model(model=w, weights=Path(w).with_suffix(".bin"))
             if network.get_parameters()[0].get_layout().empty:
                 network.get_parameters()[0].set_layout(Layout("NCWH"))
-            batch_dim = get_batch(network)
-            if batch_dim.is_static:
-                batch_size = batch_dim.get_length()
+            # batch_dim = get_batch(network)
+            # if batch_dim.is_static:
+            #     batch_size = batch_dim.get_length()
             self.executable_network = ie.compile_model(
                 network, device_name="CPU"
             )  # device_name="MYRIAD" for Intel NCS2
@@ -180,15 +176,7 @@ class ReIDDetectMultiBackend(nn.Module):
 
         elif self.tflite:
             LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
-            try:  # https://coral.ai/docs/edgetpu/tflite-python/#update-existing-tf-lite-code-for-the-edge-tpu
-                from tflite_runtime.interpreter import Interpreter, load_delegate
-            except ImportError:
-                import tensorflow as tf
-
-                Interpreter, load_delegate = (
-                    tf.lite.Interpreter,
-                    tf.lite.experimental.load_delegate,
-                )
+            import tensorflow as tf
             self.interpreter = tf.lite.Interpreter(model_path=w)
             self.interpreter.allocate_tensors()
             # Get input and output tensors.
@@ -204,7 +192,7 @@ class ReIDDetectMultiBackend(nn.Module):
             self.interpreter.invoke()
 
             # The function `get_tensor()` returns a copy of the tensor data.
-            output_data = self.interpreter.get_tensor(self.output_details[0]["index"])
+            # output_data = self.interpreter.get_tensor(self.output_details[0]["index"])
         else:
             LOGGER.error("This model framework is not supported yet!")
             exit()

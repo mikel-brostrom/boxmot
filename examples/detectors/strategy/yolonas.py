@@ -1,19 +1,9 @@
-import torch
 import numpy as np
+import torch
+from super_gradients.training import models
+from ultralytics.yolo.engine.results import Results
 
 from .yolo_strategy import YoloStrategy
-from boxmot.utils.checks import TestRequirements
-
-tr = TestRequirements()
-try:
-    import super_gradients  # for linear_assignment
-except (ImportError, AssertionError, AttributeError):
-    tr.check_packages(('super-gradients==3.1.1',))  # install
-
-from super_gradients.common.object_names import Models
-from super_gradients.training import models
-
-from ultralytics.yolo.engine.results import Results
 
 
 class YoloNASStrategy(YoloStrategy):
@@ -26,7 +16,6 @@ class YoloNASStrategy(YoloStrategy):
         ).to(device)
 
         self.has_run = False
-        
 
     def inference(self, im):
 
@@ -34,11 +23,11 @@ class YoloNASStrategy(YoloStrategy):
         im = im[0].permute(1, 2, 0).cpu().numpy() * 255
 
         preds = next(iter(
-            self.model.predict(im,
-                                iou=self.args.iou,
-                                conf=self.args.conf)
-            )
-        ).prediction  # Returns a generator of the batch, which here is 1
+            self.model.predict(
+                im,
+                iou=self.args.iou,
+                conf=self.args.conf)
+        )).prediction  # Returns a generator of the batch, which here is 1
         preds = np.concatenate(
             [
                 preds.bboxes_xyxy,
@@ -54,7 +43,7 @@ class YoloNASStrategy(YoloStrategy):
         if not self.has_run:
             self.w_r, self.h_r = self.get_scaling_factors(im, im0s)
             self.has_run = True
-        
+
         # scale bboxes to original image
         preds[:, [0, 2]] = preds[:, [0, 2]] * self.w_r
         preds[:, [1, 3]] = preds[:, [1, 3]] * self.h_r
@@ -66,7 +55,7 @@ class YoloNASStrategy(YoloStrategy):
 
         if self.args.classes:  # Filter boxes by classes
             preds = preds[np.isin(preds[:, 5], self.args.classes)]
-    
+
         # postprocess is embedded in inference for yolonas
         preds = self.preds_to_yolov8_results(path, preds, im, im0s, predictor)
         return preds

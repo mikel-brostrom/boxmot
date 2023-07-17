@@ -2,13 +2,16 @@
     This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
 
-import torch
 import numpy as np
-from ...motion.adapters import OCSortKalmanFilterAdapter
-from ...utils.association import *
-from ...utils.cmc import CameraMotionCompensation
-from ...appearance.reid_multibackend import ReIDDetectMultiBackend
+import torch
+
+from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.motion.adapters import OCSortKalmanFilterAdapter
 from boxmot.utils import PerClassDecorator
+from boxmot.utils.association import (associate, associate_kitti, ciou_batch,
+                                      ct_dist, diou_batch, giou_batch,
+                                      iou_batch, linear_assignment)
+from boxmot.utils.cmc import CameraMotionCompensation
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -57,7 +60,7 @@ def convert_x_to_bbox(x, score=None):
     """
     w = np.sqrt(x[2] * x[3])
     h = x[2] / w
-    if score == None:
+    if score is None:
         return np.array([x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0]).reshape((1, 4))
     else:
         return np.array([x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0, score]).reshape((1, 5))
@@ -99,7 +102,7 @@ class KalmanBoxTracker(object):
         """
         # define constant velocity model
         self.cls = cls
-        
+
         self.conf = bbox[-1]
         self.new_kf = new_kf
         if new_kf:
@@ -172,9 +175,10 @@ class KalmanBoxTracker(object):
         self.hit_streak = 0
         self.age = 0
         """
-        NOTE: [-1,-1,-1,-1,-1] is a compromising placeholder for non-observation status, the same for the return of 
-        function k_previous_obs. It is ugly and I do not like it. But to support generate observation array in a 
-        fast and unified way, which you would see below k_observations = np.array([k_previous_obs(...]]), let's bear it for now.
+        NOTE: [-1,-1,-1,-1,-1] is a compromising placeholder for non-observation status, the same for the return of
+        function k_previous_obs. It is ugly and I do not like it. But to support generate observation array in a
+        fast and unified way, which you would see below k_observations = np.array([k_previous_obs(...]]),
+        let's bear it for now.
         """
         # Used for OCR
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
@@ -297,8 +301,8 @@ class KalmanBoxTracker(object):
 
 """
     We support multiple ways for association cost calculation, by default
-    we use IoU. GIoU may have better performance in some situations. We note 
-    that we hardly normalize the cost by all methods to (0,1) which may not be 
+    we use IoU. GIoU may have better performance in some situations. We note
+    that we hardly normalize the cost by all methods to (0,1) which may not be
     the best practice.
 """
 ASSO_FUNCS = {
@@ -363,38 +367,32 @@ class DeepOCSort(object):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
-        Requires: this method must be called once for each frame even with empty detections (use np.empty((0, 5)) for frames without detections).
+        Requires: this method must be called once for each frame even with empty detections
+        (use np.empty((0, 5)) for frames without detections).
         Returns the a similar array, where the last column is the object ID.
         NOTE: The number of objects returned may differ from the number of detections provided.
         """
 
-        assert isinstance(dets, np.ndarray), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
-        assert isinstance(img, np.ndarray), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
-        assert len(dets.shape) == 2, f"Unsupported 'dets' dimensions, valid number of dimensions is two"
-        assert dets.shape[1] == 6, f"Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        assert isinstance(dets, np.ndarray), f"Unsupported 'dets' input type '{type(dets)}', valid format is np.ndarray"
+        assert isinstance(img, np.ndarray), f"Unsupported 'img' input type '{type(img)}', valid format is np.ndarray"
+        assert len(dets.shape) == 2, "Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert dets.shape[1] == 6, "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         self.frame_count += 1
 
-        xyxys = dets[:, 0:4]
         scores = dets[:, 4]
-        clss = dets[:, 5]
-        
-        classes = clss
-        xyxys = xyxys
-        scores = scores
-        
+
         dets = dets[:, 0:6]
         remain_inds = scores > self.det_thresh
         dets = dets[remain_inds]
         self.height, self.width = img.shape[:2]
-
 
         # Embedding
         if self.embedding_off or dets.shape[0] == 0:
             dets_embs = np.ones((dets.shape[0], 1))
         else:
             # (Ndets x X) [512, 1024, 2048]
-            #dets_embs = self.embedder.compute_embedding(img, dets[:, :4], tag)
+            # dets_embs = self.embedder.compute_embedding(img, dets[:, :4], tag)
             dets_embs = self._get_features(dets[:, :4], img)
 
         # CMC
@@ -418,7 +416,7 @@ class DeepOCSort(object):
             trk[:] = [pos[0], pos[1], pos[2], pos[3], 0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
-            else:  
+            else:
                 trk_embs.append(self.trackers[t].get_emb())
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
 
@@ -499,7 +497,12 @@ class DeepOCSort(object):
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
             trk = KalmanBoxTracker(
-                dets[i, :5], dets[i, 5], delta_t=self.delta_t, emb=dets_embs[i], alpha=dets_alpha[i], new_kf=not self.new_kf_off
+                dets[i, :5],
+                dets[i, 5],
+                delta_t=self.delta_t,
+                emb=dets_embs[i],
+                alpha=dets_alpha[i],
+                new_kf=not self.new_kf_off
             )
             self.trackers.append(trk)
         i = len(self.trackers)
@@ -522,7 +525,7 @@ class DeepOCSort(object):
         if len(ret) > 0:
             return np.concatenate(ret)
         return np.empty((0, 5))
-    
+
     def _xywh_to_xyxy(self, bbox_xywh):
         x, y, w, h = bbox_xywh
         x1 = max(int(x - w / 2), 0)
@@ -530,7 +533,7 @@ class DeepOCSort(object):
         y1 = max(int(y - h / 2), 0)
         y2 = min(int(y + h / 2), self.height - 1)
         return x1, y1, x2, y2
-    
+
     @torch.no_grad()
     def _get_features(self, bbox_xyxy, ori_img):
         im_crops = []
@@ -542,7 +545,7 @@ class DeepOCSort(object):
             features = self.embedder(im_crops).cpu()
         else:
             features = np.array([])
-        
+
         return features
 
     def update_public(self, dets, cates, scores):

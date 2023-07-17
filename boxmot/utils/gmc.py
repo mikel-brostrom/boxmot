@@ -1,8 +1,8 @@
+import copy
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import copy
-import time
 
 
 class GlobalMotionCompensation:
@@ -122,8 +122,8 @@ class GlobalMotionCompensation:
             (cc, H) = cv2.findTransformECC(
                 self.prevFrame, frame, H, self.warp_mode, self.criteria, None, 1
             )
-        except:
-            print("Warning: find transform failed. Set warp as identity")
+        except Exception as e:
+            print(f"Warning: find transform failed. Set warp as identity. {e}")
 
         return H
 
@@ -146,13 +146,13 @@ class GlobalMotionCompensation:
         mask = np.zeros_like(frame)
         # mask[int(0.05 * height): int(0.95 * height), int(0.05 * width): int(0.95 * width)] = 255
         mask[
-            int(0.02 * height) : int(0.98 * height),
-            int(0.02 * width) : int(0.98 * width),
+            int(0.02 * height): int(0.98 * height),
+            int(0.02 * width): int(0.98 * width),
         ] = 255
         if detections is not None:
             for det in detections:
                 tlbr = (det[:4] / self.downscale).astype(np.int_)
-                mask[tlbr[1] : tlbr[3], tlbr[0] : tlbr[2]] = 0
+                mask[tlbr[1]: tlbr[3], tlbr[0]: tlbr[2]] = 0
 
         keypoints = self.detector.detect(frame, mask)
 
@@ -267,7 +267,6 @@ class GlobalMotionCompensation:
         return H
 
     def applySparseOptFlow(self, raw_frame, detections=None):
-        t0 = time.time()
 
         # Initialize
         height, width, _ = raw_frame.shape
@@ -330,8 +329,6 @@ class GlobalMotionCompensation:
         # Store to next iteration
         self.prevFrame = frame.copy()
         self.prevKeyPoints = copy.copy(keypoints)
-
-        t1 = time.time()
 
         # gmc_line = str(1000 * (t1 - t0)) + "\t" + str(H[0, 0]) + "\t" + str(H[0, 1]) + "\t" + str(
         #     H[0, 2]) + "\t" + str(H[1, 0]) + "\t" + str(H[1, 1]) + "\t" + str(H[1, 2]) + "\n"

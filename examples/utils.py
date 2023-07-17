@@ -1,6 +1,7 @@
-import torch
 import numpy as np
+import torch
 from ultralytics.yolo.utils import ops
+
 
 def write_MOT_results(txt_path, results, frame_idx, i):
     nr_dets = len(results.boxes)

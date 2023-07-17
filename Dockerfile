@@ -42,9 +42,9 @@ RUN git clone --recurse-submodules https://github.com/mikel-brostrom/Yolov5_Stro
 #       docker run -it --gpus all -d mikel-brostrom/yolov5_strongsort_osnet
 #
 #   - this will return a <container_id> number which makes it accessible. Access it by:
-#   
+#
 #       docker exec -it <container_id>
-# 
+#
 #   - When you are done with the container stop it by:
 #
 #       docker stop <container_id>
