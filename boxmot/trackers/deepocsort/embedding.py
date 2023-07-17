@@ -1,12 +1,10 @@
-import pdb
-from collections import OrderedDict
 import os
 import pickle
 
-import torch
 import cv2
-import torchvision
 import numpy as np
+import torch
+import torchvision
 
 
 class EmbeddingComputer:
@@ -57,13 +55,13 @@ class EmbeddingComputer:
         crops = []
         for p in results:
             if is_numpy:
-                crop = img[p[1] : p[3], p[0] : p[2]]
+                crop = img[p[1]: p[3], p[0]: p[2]]
                 crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
                 crop = cv2.resize(crop, self.crop_size, interpolation=cv2.INTER_LINEAR)
                 crop = torch.as_tensor(crop.astype("float32").transpose(2, 0, 1))
                 crop = crop.unsqueeze(0)
             else:
-                crop = img[:, :, p[1] : p[3], p[0] : p[2]]
+                crop = img[:, :, p[1]: p[3], p[0]: p[2]]
                 crop = torchvision.transforms.functional.resize(crop, self.crop_size)
 
             crops.append(crop)
@@ -94,20 +92,21 @@ class EmbeddingComputer:
         model.eval()
         model.cuda()
         """
-        if self.dataset == "mot17":
-            path = "external/weights/mot17_sbs_S50.pth"
-        elif self.dataset == "mot20":
-            path = "external/weights/mot20_sbs_S50.pth"
-        elif self.dataset == "dance":
-            path = None
-        else:
-            raise RuntimeError("Need the path for a new ReID model.")
 
-        model = FastReID(path)
-        model.eval()
-        model.cuda()
-        model.half()
-        self.model = model
+        # if self.dataset == "mot17":
+        #     path = "external/weights/mot17_sbs_S50.pth"
+        # elif self.dataset == "mot20":
+        #     path = "external/weights/mot20_sbs_S50.pth"
+        # elif self.dataset == "dance":
+        #     path = None
+        # else:
+        #     raise RuntimeError("Need the path for a new ReID model.")
+
+        # model = FastReID(path)
+        # model.eval()
+        # model.cuda()
+        # model.half()
+        # self.model = model
 
     def dump_cache(self):
         if self.cache_name:

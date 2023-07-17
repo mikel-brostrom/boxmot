@@ -1,27 +1,10 @@
-import torch
 import math
 import random
-from torch.nn import (
-    Module,
-    Sequential,
-    Conv2d,
-    ReLU,
-    AdaptiveMaxPool2d,
-    AdaptiveAvgPool2d,
-    NLLLoss,
-    BCELoss,
-    CrossEntropyLoss,
-    AvgPool2d,
-    MaxPool2d,
-    Parameter,
-    Linear,
-    Sigmoid,
-    Softmax,
-    Dropout,
-    Embedding,
-)
-from torch.nn import functional as F
+
+import torch
 from torch import nn
+from torch.nn import Conv2d, Module, Parameter, ReLU, Sigmoid, Softmax
+from torch.nn import functional as F
 
 torch_ver = torch.__version__[:3]
 
@@ -66,11 +49,11 @@ class BatchRandomErasing(nn.Module):
                     x1 = random.randint(0, img.size()[2] - h)
                     y1 = random.randint(0, img.size()[3] - w)
                     if img.size()[1] == 3:
-                        img[:, 0, x1 : x1 + h, y1 : y1 + w] = self.mean[0]
-                        img[:, 1, x1 : x1 + h, y1 : y1 + w] = self.mean[1]
-                        img[:, 2, x1 : x1 + h, y1 : y1 + w] = self.mean[2]
+                        img[:, 0, x1: x1 + h, y1: y1 + w] = self.mean[0]
+                        img[:, 1, x1: x1 + h, y1: y1 + w] = self.mean[1]
+                        img[:, 2, x1: x1 + h, y1: y1 + w] = self.mean[2]
                     else:
-                        img[:, 0, x1 : x1 + h, y1 : y1 + w] = self.mean[0]
+                        img[:, 0, x1: x1 + h, y1: y1 + w] = self.mean[0]
                     return img
 
         return img
@@ -96,7 +79,7 @@ class BatchDrop(nn.Module):
             sx = random.randint(0, h - rh)
             sy = random.randint(0, w - rw)
             mask = x.new_ones(x.size())
-            mask[:, :, sx : sx + rh, sy : sy + rw] = 0
+            mask[:, :, sx: sx + rh, sy: sy + rw] = 0
             x = x * mask
         return x
 

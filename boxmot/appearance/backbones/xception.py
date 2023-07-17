@@ -1,4 +1,5 @@
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
+
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
@@ -15,7 +16,7 @@ pretrained_settings = {
             "mean": [0.5, 0.5, 0.5],
             "std": [0.5, 0.5, 0.5],
             "num_classes": 1000,
-            "scale": 0.8975,  # The resize parameter of the validation transform should be 333, and make sure to center crop at 299x299
+            "scale": 0.8975,
         }
     }
 }

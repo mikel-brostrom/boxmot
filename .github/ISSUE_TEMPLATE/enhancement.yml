@@ -30,7 +30,7 @@ body:
         Describe the use case of your feature request. It will help us understand and prioritize the feature request.
       placeholder: |
         How would this feature be used, and who would use it?
-        
+
   - type: checkboxes
     attributes:
       label: Are you willing to submit a PR?

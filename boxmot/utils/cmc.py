@@ -1,5 +1,5 @@
-import pickle
 import os
+import pickle
 
 import cv2
 import numpy as np
@@ -72,7 +72,7 @@ class CameraMotionCompensation:
             bbox = np.round(bbox).astype(np.int32)
             bbox[bbox < 0] = 0
             for bb in bbox:
-                mask[bb[1] : bb[3], bb[0] : bb[2]] = 0
+                mask[bb[1]: bb[3], bb[0]: bb[2]] = 0
 
         A = self.comp_function(img, mask, tag)
         self.cache[tag] = A
@@ -111,8 +111,8 @@ class CameraMotionCompensation:
             self.prev_desc = [kp, desc]
             return A
         if (
-            desc.shape[0] < self.minimum_features
-            or self.prev_desc[1].shape[0] < self.minimum_features
+            desc.shape[0] < self.minimum_features or
+            self.prev_desc[1].shape[0] < self.minimum_features
         ):
             return A
 

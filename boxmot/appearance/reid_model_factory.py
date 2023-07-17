@@ -1,9 +1,10 @@
-import torch
-import time
 import sys
+import time
 from collections import OrderedDict
-from ..utils import logger as LOGGER
 
+import torch
+
+from ..utils import logger as LOGGER
 
 __model_types = [
     "resnet50",
@@ -20,6 +21,8 @@ __model_types = [
     "osnet_ain_x1_0",
     "lmbn_n",
 ]
+
+lmbn_loc = 'https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/'
 
 __trained_urls = {
     # resnet50
@@ -57,18 +60,13 @@ __trained_urls = {
     "osnet_x0_25_market1501.pt": "https://drive.google.com/uc?id=1z1UghYvOTtjx7kEoRfmqSMu-z62J6MAj",
     "osnet_x0_25_dukemtmcreid.pt": "https://drive.google.com/uc?id=1eumrtiXT4NOspjyEV4j8cHmlOaaCGk5l",
     "osnet_x0_25_msmt17.pt": "https://drive.google.com/uc?id=1sSwXSUlj4_tHZequ_iZ8w_Jh0VaRQMqF",
-    "resnet50_msmt17.pt": "https://drive.google.com/uc?id=1yiBteqgIZoOeywE8AhGmEQl7FTVwrQmf",
-    "osnet_x1_0_msmt17.pt": "https://drive.google.com/uc?id=1IosIFlLiulGIjwW3H8uMRmx3MzPwf86x",
-    "osnet_x0_75_msmt17.pt": "https://drive.google.com/uc?id=1fhjSS_7SUGCioIf2SWXaRGPqIY9j7-uw",
-    "osnet_x0_5_msmt17.pt": "https://drive.google.com/uc?id=1DHgmb6XV4fwG3n-CnCM0zdL9nMsZ9_RF",
-    "osnet_x0_25_msmt17.pt": "https://drive.google.com/uc?id=1Kkx2zW89jq_NETu4u42CFZTMVD5Hwm6e",
     # osnet_ain | osnet_ibn
     "osnet_ibn_x1_0_msmt17.pt": "https://drive.google.com/uc?id=1q3Sj2ii34NlfxA4LvmHdWO_75NDRmECJ",
     "osnet_ain_x1_0_msmt17.pt": "https://drive.google.com/uc?id=1SigwBE6mPdqiJMqhuIY4aqC7--5CsMal",
     # lmbn
-    "lmbn_n_duke.pt": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth",
-    "lmbn_n_market.pt": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_market.pth",
-    "lmbn_n_cuhk03_d.pt": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_cuhk03_d.pth",
+    "lmbn_n_duke.pt": lmbn_loc + "lmbn_n_duke.pth",
+    "lmbn_n_market.pt": lmbn_loc + "lmbn_n_market.pth",
+    "lmbn_n_cuhk03_d.pt": lmbn_loc + "lmbn_n_cuhk03_d.pth",
 }
 
 
@@ -141,8 +139,10 @@ def load_pretrained_weights(model, weight_path):
         weight_path (str): path to pretrained weights.
 
     Examples::
-        >>> from torchreid.utils import load_pretrained_weights
+        >>> from boxmot.appearance.backbones import build_model
+        >>> from boxmot.appearance.reid_model_factory import load_pretrained_weights
         >>> weight_path = 'log/my_model/model-best.pth.tar'
+        >>> model = build_model()
         >>> load_pretrained_weights(model, weight_path)
     """
 

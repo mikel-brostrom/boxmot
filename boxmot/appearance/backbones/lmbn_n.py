@@ -1,19 +1,11 @@
 import copy
+
 import torch
 from torch import nn
-from .osnet import osnet_x1_0, OSBlock
-from .attention import (
-    BatchDrop,
-    BatchFeatureErase_Top,
-    PAM_Module,
-    CAM_Module,
-    SE_Module,
-    Dual_Module,
-)
-from .bnneck import BNNeck, BNNeck3
-from torch.nn import functional as F
 
-from torch.autograd import Variable
+from .attention import BatchFeatureErase_Top
+from .bnneck import BNNeck, BNNeck3
+from .osnet import OSBlock, osnet_x1_0
 
 
 class LMBN_n(nn.Module):
@@ -93,10 +85,10 @@ class LMBN_n(nn.Module):
         if self.activation_map:
             _, _, h_par, _ = par.size()
 
-            fmap_p0 = par[:, :, : h_par // 2, :]
-            fmap_p1 = par[:, :, h_par // 2 :, :]
+            fmap_p0 = par[:, :, :h_par // 2, :]
+            fmap_p1 = par[:, :, h_par // 2:, :]
             fmap_c0 = cha[:, : self.chs, :, :]
-            fmap_c1 = cha[:, self.chs :, :, :]
+            fmap_c1 = cha[:, self.chs:, :, :]
             print("Generating activation maps...")
 
             return glo, glo_, fmap_c0, fmap_c1, fmap_p0, fmap_p1
@@ -119,7 +111,7 @@ class LMBN_n(nn.Module):
         ################
 
         c0 = cha[:, : self.chs, :, :]
-        c1 = cha[:, self.chs :, :, :]
+        c1 = cha[:, self.chs:, :, :]
         c0 = self.shared(c0)
         c1 = self.shared(c1)
         f_c0 = self.reduction_ch_0(c0)
@@ -176,16 +168,16 @@ if __name__ == "__main__":
     parser.add_argument("--w_ratio", type=float, default=1.0, help="")
 
     args = parser.parse_args()
-    net = MCMP_n(args)
+    # net = MCMP_n(args)
     # net.classifier = nn.Sequential()
     # print([p for p in net.parameters()])
     # a=filter(lambda p: p.requires_grad, net.parameters())
     # print(a)
 
-    print(net)
-    input = Variable(torch.FloatTensor(8, 3, 384, 128))
-    net.eval()
-    output = net(input)
-    print(output.shape)
+    # print(net)
+    # input = Variable(torch.FloatTensor(8, 3, 384, 128))
+    # net.eval()
+    # output = net(input)
+    # print(output.shape)
     print("net output size:")
     # print(len(output))

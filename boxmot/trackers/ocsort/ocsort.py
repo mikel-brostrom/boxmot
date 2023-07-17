@@ -2,9 +2,11 @@
     This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
 import numpy as np
-from ...utils.association import *
-from ...motion.adapters import OCSortKalmanFilterAdapter
-from boxmot.utils import PerClassDecorator
+
+from boxmot.motion.adapters import OCSortKalmanFilterAdapter
+from boxmot.utils.association import (associate, ciou_batch, ct_dist,
+                                      diou_batch, giou_batch, iou_batch,
+                                      linear_assignment)
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -113,7 +115,8 @@ class KalmanBoxTracker(object):
         """
         NOTE: [-1,-1,-1,-1,-1] is a compromising placeholder for non-observation status, the same for the return of
         function k_previous_obs. It is ugly and I do not like it. But to support generate observation array in a
-        fast and unified way, which you would see below k_observations = np.array([k_previous_obs(...]]), let's bear it for now.
+        fast and unified way, which you would see below k_observations = np.array([k_previous_obs(...]]),
+        let's bear it for now.
         """
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
         self.observations = dict()
@@ -195,39 +198,6 @@ ASSO_FUNCS = {
     "ct_dist": ct_dist,
 }
 
-# class PerClassDecorator:
-#     def __init__(self, method):
-#         self.update = method
-#         print(self.update)
-#     def __get__(self, instance, owner):
-#         def wrapper(*args, **kwargs):
-#             modified_args = list(args)
-#             dets = modified_args[0]
-#             im = modified_args[1]
-
-#             # input one class of detections at a time in order to not mix them up
-#             if instance.per_class is True and dets.size != 0:
-#                 dets_dict = {class_id: np.array([det for det in dets if det[5] == class_id]) for class_id in set(det[5] for det in dets)}
-#                 # get unique classes in predictions
-#                 detected_classes = set(dets_dict.keys())
-#                 # get unque classes with active trackers
-#                 active_classes = set([tracker.cls for tracker in instance.trackers])
-#                 # get tracks that are both active and in the current detections
-#                 relevant_classes = active_classes.union(detected_classes)
-
-#                 mc_dets = np.empty(shape=(0, 7))
-#                 for class_id in relevant_classes:
-#                     modified_args[0] = np.array(dets_dict.get(int(class_id), np.empty((0, 6))))
-#                     print(f'Feeding class {int(class_id)}: {modified_args[0].shape}')
-#                     dets = self.update(instance, modified_args[0], im)
-#                     if dets.size != 0:
-#                         mc_dets = np.append(mc_dets, dets, axis=0)
-#             else:
-#                 mc_dets = self.update(instance, dets, im)
-#             print(f'Per class updates output: {mc_dets.shape}')
-#             return mc_dets
-#         return wrapper
-
 
 class OCSort(object):
     def __init__(
@@ -261,7 +231,8 @@ class OCSort(object):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
-        Requires: this method must be called once for each frame even with empty detections (use np.empty((0, 5)) for frames without detections).
+        Requires: this method must be called once for each frame even with empty detections
+        (use np.empty((0, 5)) for frames without detections).
         Returns the a similar array, where the last column is the object ID.
         NOTE: The number of objects returned may differ from the number of detections provided.
         """
@@ -271,10 +242,10 @@ class OCSort(object):
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
         assert (
             len(dets.shape) == 2
-        ), f"Unsupported 'dets' dimensions, valid number of dimensions is two"
+        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
         assert (
             dets.shape[1] == 6
-        ), f"Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         self.frame_count += 1
 

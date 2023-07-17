@@ -1,9 +1,8 @@
-from pathlib import Path
 import subprocess
+
 import pkg_resources
 
-from boxmot.utils import REQUIREMENTS
-from boxmot.utils import logger
+from boxmot.utils import REQUIREMENTS, logger
 
 
 class TestRequirements:
@@ -21,7 +20,7 @@ class TestRequirements:
             try:
                 pkg_resources.require(r)
             except Exception as e:
-                s += f'"{r}" '
+                s += f'"{r}" {e}'
         if s:
             logger.warning(f"\nMissing packages: {s}\nAtempting installation...")
             try:
