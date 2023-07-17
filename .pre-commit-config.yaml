@@ -15,3 +15,11 @@ repos:
     -   id: end-of-file-fixer
     -   id: trailing-whitespace
     -   id: flake8
+
+-   repo: https://github.com/PyCQA/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+        args: [--max-line-length, '120', --exclude, archive, --ignore, 'E712,W504']
+        name: PEP8
+
