@@ -1,6 +1,4 @@
 from .yolo_strategy import YoloStrategy
-from boxmot.utils.checks import TestRequirements
-tr = TestRequirements()
 
 
 class Yolov8Strategy(YoloStrategy):
