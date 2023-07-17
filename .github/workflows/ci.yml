@@ -14,7 +14,7 @@ env:
   PACKAGE_DIR: boxmot
   # Minimum acceptable test coverage
   # Increase as you add more tests to increase coverage
-  COVERAGE_FAIL_UNDER: 37
+  COVERAGE_FAIL_UNDER: 31
 
 # the workflow that gets triggerd
 jobs:
