@@ -1,15 +1,25 @@
-from .yolox import YoloXStrategy
-from .yolov8 import Yolov8Strategy
-from .yolonas import YoloNASStrategy
+from boxmot.utils.checks import TestRequirements
+tr = TestRequirements()
 
-YOLO_SWITCH = {
-    'yolox': YoloXStrategy,
-    'yolov8': Yolov8Strategy,
-    'yolo_nas': YoloNASStrategy
-}
 
-def find_yolo_engine(yolo_model):
-    for key in YOLO_SWITCH.keys():
-        if key in str(yolo_model):
-            return YOLO_SWITCH[key]
-    
+def get_yolo_inferer(yolo_model):
+
+    if 'yolox' in str(yolo_model):
+        try:
+            import yolox  # for linear_assignment
+        except (ImportError, AssertionError, AttributeError):
+            tr.check_packages(('yolox==0.3.0',), cmds='--no-dependencies')
+            tr.check_packages(('tabulate',))  # needed dependency
+        from .yolox import YoloXStrategy
+        return YoloXStrategy
+    elif 'yolov8' in str(yolo_model):
+        # ultralytics already installed when running track.py
+        from .yolov8 import Yolov8Strategy
+        return Yolov8Strategy
+    elif 'yolo_nas' in str(yolo_model):
+        try:
+            import super_gradients  # for linear_assignment
+        except (ImportError, AssertionError, AttributeError):
+            tr.check_packages(('super-gradients==3.1.1',))  # install
+        from .yolonas import YoloNASStrategy
+        return YoloNASStrategy
