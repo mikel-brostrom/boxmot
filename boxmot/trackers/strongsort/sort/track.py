@@ -1,8 +1,10 @@
 # vim: expandtab:ts=4:sw=4
+from collections import deque
+
 import cv2
 import numpy as np
-from ....motion.strongsort_kf import KalmanFilter
-from collections import deque
+
+from ....motion.adapters import StrongSortKalmanFilterAdapter
 
 
 class TrackState:
@@ -67,8 +69,17 @@ class Track:
 
     """
 
-    def __init__(self, detection, track_id, class_id, conf, n_init, max_age, ema_alpha,
-                 feature=None):
+    def __init__(
+        self,
+        detection,
+        track_id,
+        class_id,
+        conf,
+        n_init,
+        max_age,
+        ema_alpha,
+        feature=None,
+    ):
         self.track_id = track_id
         self.class_id = int(class_id)
         self.hits = 1
@@ -88,9 +99,9 @@ class Track:
         self._n_init = n_init
         self._max_age = max_age
 
-        self.kf = KalmanFilter()
+        self.kf = StrongSortKalmanFilterAdapter()
         self.mean, self.covariance = self.kf.initiate(detection)
-        
+
         # Initializing trajectory queue
         self.q = deque(maxlen=25)
 
@@ -123,13 +134,20 @@ class Track:
         ret[2:] = ret[:2] + ret[2:]
         return ret
 
-
-    def ECC(self, src, dst, warp_mode = cv2.MOTION_EUCLIDEAN, eps = 1e-5,
-        max_iter = 100, scale = 0.1, align = False):
+    def ECC(
+        self,
+        src,
+        dst,
+        warp_mode=cv2.MOTION_EUCLIDEAN,
+        eps=1e-5,
+        max_iter=100,
+        scale=0.1,
+        align=False,
+    ):
         """Compute the warp matrix from src to dst.
         Parameters
         ----------
-        src : ndarray 
+        src : ndarray
             An NxM matrix of source img(BGR or Gray), it must be the same format as dst.
         dst : ndarray
             An NxM matrix of target img(BGR or Gray).
@@ -166,16 +184,24 @@ class Track:
         if scale is not None:
             if isinstance(scale, float) or isinstance(scale, int):
                 if scale != 1:
-                    src_r = cv2.resize(src, (0, 0), fx = scale, fy = scale,interpolation =  cv2.INTER_LINEAR)
-                    dst_r = cv2.resize(dst, (0, 0), fx = scale, fy = scale,interpolation =  cv2.INTER_LINEAR)
+                    src_r = cv2.resize(
+                        src, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR
+                    )
+                    dst_r = cv2.resize(
+                        dst, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR
+                    )
                     scale = [scale, scale]
                 else:
                     src_r, dst_r = src, dst
                     scale = None
             else:
                 if scale[0] != src.shape[1] and scale[1] != src.shape[0]:
-                    src_r = cv2.resize(src, (scale[0], scale[1]), interpolation = cv2.INTER_LINEAR)
-                    dst_r = cv2.resize(dst, (scale[0], scale[1]), interpolation=cv2.INTER_LINEAR)
+                    src_r = cv2.resize(
+                        src, (scale[0], scale[1]), interpolation=cv2.INTER_LINEAR
+                    )
+                    dst_r = cv2.resize(
+                        dst, (scale[0], scale[1]), interpolation=cv2.INTER_LINEAR
+                    )
                     scale = [scale[0] / src.shape[1], scale[1] / src.shape[0]]
                 else:
                     src_r, dst_r = src, dst
@@ -184,9 +210,9 @@ class Track:
             src_r, dst_r = src, dst
 
         # Define 2x3 or 3x3 matrices and initialize the matrix to identity
-        if warp_mode == cv2.MOTION_HOMOGRAPHY :
+        if warp_mode == cv2.MOTION_HOMOGRAPHY:
             warp_matrix = np.eye(3, 3, dtype=np.float32)
-        else :
+        else:
             warp_matrix = np.eye(2, 3, dtype=np.float32)
 
         # Define termination criteria
@@ -194,11 +220,13 @@ class Track:
 
         # Run the ECC algorithm. The results are stored in warp_matrix.
         try:
-            (cc, warp_matrix) = cv2.findTransformECC (src_r, dst_r, warp_matrix, warp_mode, criteria, None, 1)
+            (cc, warp_matrix) = cv2.findTransformECC(
+                src_r, dst_r, warp_matrix, warp_mode, criteria, None, 1
+            )
         except cv2.error as e:
-            print('ecc transform failed')
+            print(f"ecc transform failed: {e}")
             return None, None
-        
+
         if scale is not None:
             warp_matrix[0, 2] = warp_matrix[0, 2] / scale[0]
             warp_matrix[1, 2] = warp_matrix[1, 2] / scale[1]
@@ -207,14 +235,17 @@ class Track:
             sz = src.shape
             if warp_mode == cv2.MOTION_HOMOGRAPHY:
                 # Use warpPerspective for Homography
-                src_aligned = cv2.warpPerspective(src, warp_matrix, (sz[1],sz[0]), flags=cv2.INTER_LINEAR)
-            else :
+                src_aligned = cv2.warpPerspective(
+                    src, warp_matrix, (sz[1], sz[0]), flags=cv2.INTER_LINEAR
+                )
+            else:
                 # Use warpAffine for Translation, Euclidean and Affine
-                src_aligned = cv2.warpAffine(src, warp_matrix, (sz[1],sz[0]), flags=cv2.INTER_LINEAR)
+                src_aligned = cv2.warpAffine(
+                    src, warp_matrix, (sz[1], sz[0]), flags=cv2.INTER_LINEAR
+                )
             return warp_matrix, src_aligned
         else:
             return warp_matrix, None
-
 
     def get_matrix(self, matrix):
         eye = np.eye(3)
@@ -228,8 +259,8 @@ class Track:
         warp_matrix, src_aligned = self.ECC(previous_frame, next_frame)
         if warp_matrix is None and src_aligned is None:
             return
-        [a,b] = warp_matrix
-        warp_matrix=np.array([a,b,[0,0,1]])
+        [a, b] = warp_matrix
+        warp_matrix = np.array([a, b, [0, 0, 1]])
         warp_matrix = warp_matrix.tolist()
         matrix = self.get_matrix(warp_matrix)
 
@@ -239,7 +270,6 @@ class Track:
         w, h = x2_ - x1_, y2_ - y1_
         cx, cy = x1_ + w / 2, y1_ + h / 2
         self.mean[:4] = [cx, cy, w / h, h]
-
 
     def increment_age(self):
         self.age += 1
@@ -252,14 +282,16 @@ class Track:
         self.mean, self.covariance = self.kf.predict(self.mean, self.covariance)
         self.age += 1
         self.time_since_update += 1
-        
+
     def update_kf(self, bbox, confidence=0.5):
         self.updates_wo_assignment = self.updates_wo_assignment + 1
-        self.mean, self.covariance = self.kf.update(self.mean, self.covariance, bbox, confidence)
+        self.mean, self.covariance = self.kf.update(
+            self.mean, self.covariance, bbox, confidence
+        )
         tlbr = self.to_tlbr()
         x_c = int((tlbr[0] + tlbr[2]) / 2)
         y_c = int((tlbr[1] + tlbr[3]) / 2)
-        self.q.append(('predupdate', (x_c, y_c)))
+        self.q.append(("predupdate", (x_c, y_c)))
 
     def update(self, detection, class_id, conf):
         """Perform Kalman filter measurement update step and update the feature
@@ -270,12 +302,16 @@ class Track:
             The associated detection.
         """
         self.conf = conf
-        self.class_id = class_id.astype('int64')
-        self.mean, self.covariance = self.kf.update(self.mean, self.covariance, detection.to_xyah(), detection.confidence)
+        self.class_id = class_id.astype("int64")
+        self.mean, self.covariance = self.kf.update(
+            self.mean, self.covariance, detection.to_xyah(), detection.confidence
+        )
 
         feature = detection.feature / np.linalg.norm(detection.feature)
 
-        smooth_feat = self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
+        smooth_feat = (
+            self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
+        )
         smooth_feat /= np.linalg.norm(smooth_feat)
         self.features = [smooth_feat]
 
@@ -283,23 +319,21 @@ class Track:
         self.time_since_update = 0
         if self.state == TrackState.Tentative and self.hits >= self._n_init:
             self.state = TrackState.Confirmed
-        
+
         tlbr = self.to_tlbr()
         x_c = int((tlbr[0] + tlbr[2]) / 2)
         y_c = int((tlbr[1] + tlbr[3]) / 2)
-        self.q.append(('observationupdate', (x_c, y_c)))
+        self.q.append(("observationupdate", (x_c, y_c)))
 
     def mark_missed(self):
-        """Mark this track as missed (no association at the current time step).
-        """
+        """Mark this track as missed (no association at the current time step)."""
         if self.state == TrackState.Tentative:
             self.state = TrackState.Deleted
         elif self.time_since_update > self._max_age:
             self.state = TrackState.Deleted
 
     def is_tentative(self):
-        """Returns True if this track is tentative (unconfirmed).
-        """
+        """Returns True if this track is tentative (unconfirmed)."""
         return self.state == TrackState.Tentative
 
     def is_confirmed(self):

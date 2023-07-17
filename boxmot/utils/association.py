@@ -16,9 +16,9 @@ def iou_batch(bboxes1, bboxes2):
     h = np.maximum(0.0, yy2 - yy1)
     wh = w * h
     o = wh / (
-        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
-        - wh
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
+        (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) -
+        wh
     )
     return o
 
@@ -42,9 +42,9 @@ def giou_batch(bboxes1, bboxes2):
     h = np.maximum(0.0, yy2 - yy1)
     wh = w * h
     iou = wh / (
-        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
-        - wh
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
+        (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) -
+        wh
     )
 
     xxc1 = np.minimum(bboxes1[..., 0], bboxes2[..., 0])
@@ -80,9 +80,9 @@ def diou_batch(bboxes1, bboxes2):
     h = np.maximum(0.0, yy2 - yy1)
     wh = w * h
     iou = wh / (
-        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
-        - wh
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
+        (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) -
+        wh
     )
 
     centerx1 = (bboxes1[..., 0] + bboxes1[..., 2]) / 2.0
@@ -123,9 +123,9 @@ def ciou_batch(bboxes1, bboxes2):
     h = np.maximum(0.0, yy2 - yy1)
     wh = w * h
     iou = wh / (
-        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
-        - wh
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
+        (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) -
+        wh
     )
 
     centerx1 = (bboxes1[..., 0] + bboxes1[..., 2]) / 2.0
@@ -267,7 +267,9 @@ def compute_aw_max_metric(emb_cost, w_association_emb, bottom=0.5):
         if emb_cost[idx, inds[0]] == 0:
             row_weight = 0
         else:
-            row_weight = 1 - max((emb_cost[idx, inds[1]] / emb_cost[idx, inds[0]]) - bottom, 0) / (1 - bottom)
+            row_weight = 1 - max(
+                (emb_cost[idx, inds[1]] / emb_cost[idx, inds[0]]) - bottom, 0
+            ) / (1 - bottom)
         w_emb[idx] *= row_weight
 
     for idj in range(emb_cost.shape[1]):
@@ -278,7 +280,9 @@ def compute_aw_max_metric(emb_cost, w_association_emb, bottom=0.5):
         if emb_cost[inds[0], idj] == 0:
             col_weight = 0
         else:
-            col_weight = 1 - max((emb_cost[inds[1], idj] / emb_cost[inds[0], idj]) - bottom, 0) / (1 - bottom)
+            col_weight = 1 - max(
+                (emb_cost[inds[1], idj] / emb_cost[inds[0], idj]) - bottom, 0
+            ) / (1 - bottom)
         w_emb[:, idj] *= col_weight
 
     return w_emb * emb_cost
@@ -294,7 +298,7 @@ def associate(
     emb_cost=None,
     w_assoc_emb=None,
     aw_off=None,
-    aw_param=None
+    aw_param=None,
 ):
     if len(trackers) == 0:
         return (
@@ -335,7 +339,9 @@ def associate(
                 emb_cost = emb_cost.cpu().numpy()
                 emb_cost[iou_matrix <= 0] = 0
                 if not aw_off:
-                    emb_cost = compute_aw_max_metric(emb_cost, w_assoc_emb, bottom=aw_param)
+                    emb_cost = compute_aw_max_metric(
+                        emb_cost, w_assoc_emb, bottom=aw_param
+                    )
                 else:
                     emb_cost *= w_assoc_emb
 
@@ -369,7 +375,9 @@ def associate(
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
 
-def associate_kitti(detections, trackers, det_cates, iou_threshold, velocities, previous_obs, vdc_weight):
+def associate_kitti(
+    detections, trackers, det_cates, iou_threshold, velocities, previous_obs, vdc_weight
+):
     if len(trackers) == 0:
         return (
             np.empty((0, 2), dtype=int),
