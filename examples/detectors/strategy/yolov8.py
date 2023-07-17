@@ -12,4 +12,3 @@ class Yolov8Strategy(YoloStrategy):
     def postprocess(self, path, preds, im, im0s, predictor):
         postprocessed_preds = predictor.postprocess(preds, im, im0s)
         return postprocessed_preds
-
