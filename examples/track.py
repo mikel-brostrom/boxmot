@@ -23,7 +23,7 @@ from ultralytics.yolo.data.utils import VID_FORMATS
 from ultralytics.yolo.utils.plotting import save_one_box
 
 from detectors.yolo_processor import Yolo
-from detectors.strategy import find_yolo_engine
+from detectors.strategy import get_yolo_inferer
 from utils import write_MOT_results
 
 from boxmot.utils import EXAMPLES
@@ -85,7 +85,7 @@ def run(args):
     predictor.add_callback('on_predict_start', on_predict_start)
     predictor.run_callbacks('on_predict_start') 
 
-    yolo_strategy = find_yolo_engine(args['yolo_model'])
+    yolo_strategy = get_yolo_inferer(args['yolo_model'])
     yolo_strategy = yolo_strategy(
         model=model.predictor.model if 'v8' in str(args['yolo_model']) else args['yolo_model'],
         device=predictor.device,
