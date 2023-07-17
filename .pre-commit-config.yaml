@@ -4,7 +4,7 @@ repos:
     hooks:
     -   id: black
         args: [
-            --line-length=100
+            --line-length=100,
             --skip-string-normalization
         ]
 
