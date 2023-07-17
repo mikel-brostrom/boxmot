@@ -1,6 +1,7 @@
 import sys
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[2]  # root directory

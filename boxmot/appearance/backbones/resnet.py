@@ -1,7 +1,8 @@
 """
 Code source: https://github.com/pytorch/vision
 """
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
+
 import torch.utils.model_zoo as model_zoo
 from torch import nn
 

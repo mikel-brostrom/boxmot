@@ -1,6 +1,8 @@
-import torch
 import os
 import platform
+
+import torch
+
 from .. import __version__
 from . import logger as LOGGER
 
@@ -25,8 +27,8 @@ def select_device(device="", batch=0, newline=False, verbose=True):
             "CUDA_VISIBLE_DEVICES"
         ] = device  # set environment variable - must be before assert is_available()
         if not (
-            torch.cuda.is_available()
-            and torch.cuda.device_count() >= len(device.replace(",", ""))
+            torch.cuda.is_available() and
+            torch.cuda.device_count() >= len(device.replace(",", ""))
         ):
             install = (
                 "See https://pytorch.org/get-started/locally/ for up-to-date torch install instructions if no "
@@ -61,15 +63,6 @@ def select_device(device="", batch=0, newline=False, verbose=True):
             p = torch.cuda.get_device_properties(i)
             s += f"{'' if i == 0 else space}CUDA:{d} ({p.name}, {p.total_memory / (1 << 20):.0f}MiB)\n"  # bytes to MB
         arg = "cuda:0"
-    elif (
-        mps
-        and getattr(torch, "has_mps", False)
-        and torch.backends.mps.is_available()
-        and TORCH_2_0
-    ):
-        # Prefer MPS if available
-        s += "MPS\n"
-        arg = "mps"
     else:  # revert to CPU
         s += "CPU\n"
         arg = "cpu"

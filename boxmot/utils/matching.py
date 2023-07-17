@@ -1,9 +1,8 @@
-import torch
+import lap
 import numpy as np
 import scipy
+import torch
 from scipy.spatial.distance import cdist
-import lap
-
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -234,22 +233,20 @@ def bbox_ious(boxes, query_boxes):
         )
         for n in range(N):
             iw = (
-                min(boxes[n, 2], query_boxes[k, 2])
-                - max(boxes[n, 0], query_boxes[k, 0])
-                + 1
+                min(boxes[n, 2], query_boxes[k, 2]) -
+                max(boxes[n, 0], query_boxes[k, 0]) + 1
             )
             if iw > 0:
                 ih = (
-                    min(boxes[n, 3], query_boxes[k, 3])
-                    - max(boxes[n, 1], query_boxes[k, 1])
-                    + 1
+                    min(boxes[n, 3], query_boxes[k, 3]) -
+                    max(boxes[n, 1], query_boxes[k, 1]) + 1
                 )
                 if ih > 0:
                     ua = float(
-                        (boxes[n, 2] - boxes[n, 0] + 1)
-                        * (boxes[n, 3] - boxes[n, 1] + 1)
-                        + box_area
-                        - iw * ih
+                        (boxes[n, 2] - boxes[n, 0] + 1) *
+                        (boxes[n, 3] - boxes[n, 1] + 1) +
+                        box_area -
+                        iw * ih
                     )
                     overlaps[n, k] = iw * ih / ua
     return overlaps
@@ -388,7 +385,7 @@ class NearestNeighborDistanceMetric(object):
         for feature, target in zip(features, targets):
             self.samples.setdefault(target, []).append(feature)
             if self.budget is not None:
-                self.samples[target] = self.samples[target][-self.budget :]
+                self.samples[target] = self.samples[target][-self.budget:]
         self.samples = {k: self.samples[k] for k in active_targets}
 
     def distance(self, features, targets):

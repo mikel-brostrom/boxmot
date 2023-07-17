@@ -1,14 +1,12 @@
+import cv2
 import numpy as np
 import torch
-import cv2
-
-from ...utils.matching import NearestNeighborDistanceMetric
-from .sort.detection import Detection
-from .sort.tracker import Tracker
 
 from ...appearance.reid_multibackend import ReIDDetectMultiBackend
-
+from ...utils.matching import NearestNeighborDistanceMetric
 from ...utils.ops import xyxy2xywh
+from .sort.detection import Detection
+from .sort.tracker import Tracker
 
 
 class StrongSORT(object):
@@ -51,16 +49,15 @@ class StrongSORT(object):
         ), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
         assert (
             len(dets.shape) == 2
-        ), f"Unsupported 'dets' dimensions, valid number of dimensions is two"
+        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
         assert (
             dets.shape[1] == 6
-        ), f"Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         xyxys = dets[:, 0:4]
         confs = dets[:, 4]
         clss = dets[:, 5]
 
-        classes = clss
         xywhs = xyxy2xywh(xyxys)
         confs = confs
         self.height, self.width = img.shape[:2]
@@ -71,10 +68,6 @@ class StrongSORT(object):
         detections = [
             Detection(bbox_tlwh[i], conf, features[i]) for i, conf in enumerate(confs)
         ]
-
-        # run on non-maximum supression
-        boxes = np.array([d.tlwh for d in detections])
-        scores = np.array([d.confidence for d in detections])
 
         # update tracker
         self.tracker.predict()
@@ -92,7 +85,7 @@ class StrongSORT(object):
             track_id = track.track_id
             class_id = track.class_id
             conf = track.conf
-            queue = track.q
+            # queue = track.q
             outputs.append(
                 np.array([x1, y1, x2, y2, track_id, conf, class_id], dtype=np.float64)
             )

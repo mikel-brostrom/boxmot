@@ -1,10 +1,9 @@
 import numpy as np
 
 from ...motion.adapters import ByteTrackKalmanFilterAdapter
-from ...utils.matching import iou_distance, fuse_score, linear_assignment
-from .basetrack import BaseTrack, TrackState
-
+from ...utils.matching import fuse_score, iou_distance, linear_assignment
 from ...utils.ops import xywh2xyxy, xyxy2xywh
+from .basetrack import BaseTrack, TrackState
 
 
 class STrack(BaseTrack):
@@ -173,10 +172,10 @@ class BYTETracker(object):
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
         assert (
             len(dets.shape) == 2
-        ), f"Unsupported 'dets' dimensions, valid number of dimensions is two"
+        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
         assert (
             dets.shape[1] == 6
-        ), f"Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         self.frame_id += 1
         activated_starcks = []

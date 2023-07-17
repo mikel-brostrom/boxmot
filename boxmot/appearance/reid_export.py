@@ -1,30 +1,21 @@
 import argparse
 import os
-from pathlib import Path
-import torch
-import time
+import platform
 import subprocess
+import time
+from pathlib import Path
+
+import torch
 from torch.utils.mobile_optimizer import optimize_for_mobile
 
-if __name__ == "__main__":
-    from boxmot.appearance import export_formats
-    from boxmot.appearance.backbones import build_model
-    from boxmot.appearance.reid_model_factory import (
-        get_model_name,
-        load_pretrained_weights,
-    )
-    from boxmot.utils import WEIGHTS, logger
-    from boxmot.utils.torch_utils import select_device
-
-    from boxmot.utils.checks import TestRequirements
-else:
-    from . import export_formats
-    from .backbones import build_model
-    from .reid_model_factory import get_model_name, load_pretrained_weights
-    from ..utils import WEIGHTS, logger
-    from ..utils.torch_utils import select_device
-
-    from ..utils.checks import TestRequirements
+from boxmot.appearance import export_formats
+from boxmot.appearance.backbones import build_model
+from boxmot.appearance.reid_model_factory import (get_model_name,
+                                                  load_pretrained_weights)
+from boxmot.utils import WEIGHTS
+from boxmot.utils import logger as LOGGER
+from boxmot.utils.checks import TestRequirements
+from boxmot.utils.torch_utils import select_device
 
 __tr = TestRequirements()
 
@@ -42,7 +33,7 @@ def file_size(path):
 
 def export_torchscript(model, im, file, optimize):
     try:
-        logger.info(f"\nStarting export with torch {torch.__version__}...")
+        LOGGER.info(f"\nStarting export with torch {torch.__version__}...")
         f = file.with_suffix(".torchscript")
         print(f)
         ts = torch.jit.trace(model, im, strict=False)
@@ -51,10 +42,10 @@ def export_torchscript(model, im, file, optimize):
         else:
             ts.save(str(f))
 
-        logger.info(f"Export success, saved as {f} ({file_size(f):.1f} MB)")
+        LOGGER.info(f"Export success, saved as {f} ({file_size(f):.1f} MB)")
         return f
     except Exception as e:
-        logger.info(f"Export failure: {e}")
+        LOGGER.info(f"Export failure: {e}")
 
 
 def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
@@ -64,7 +55,7 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
         import onnx
 
         f = file.with_suffix(".onnx")
-        logger.info(f"\nStarting export with onnx {onnx.__version__}...")
+        LOGGER.info(f"\nStarting export with onnx {onnx.__version__}...")
 
         if dynamic:
             # input --> shape(N,3,640,640), output --> shape(N, feature-size)
@@ -98,18 +89,18 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
                 )
                 import onnxsim
 
-                logger.info(
+                LOGGER.info(
                     f"simplifying with onnx-simplifier {onnxsim.__version__}..."
                 )
                 model_onnx, check = onnxsim.simplify(model_onnx)
                 assert check, "assert check failed"
                 onnx.save(model_onnx, f)
             except Exception as e:
-                logger.info(f"simplifier failure: {e}")
-        logger.info(f"Export success, saved as {f} ({file_size(f):.1f} MB)")
+                LOGGER.info(f"simplifier failure: {e}")
+        LOGGER.info(f"Export success, saved as {f} ({file_size(f):.1f} MB)")
         return f
     except Exception as e:
-        logger.info(f"export failure: {e}")
+        LOGGER.info(f"export failure: {e}")
 
 
 def export_openvino(file, half):
@@ -123,8 +114,7 @@ def export_openvino(file, half):
     f_onnx = file.with_suffix(".onnx")
     f_ov = str(Path(f) / file.with_suffix(".xml").name)
     try:
-        logger.info(f"\nStarting export with openvino {ov.__version__}...")
-        # cmd = f"mo --input_model {file.with_suffix('.onnx')} --output_dir {f} --data_type {'FP16' if half else 'FP32'}"
+        LOGGER.info(f"\nStarting export with openvino {ov.__version__}...")
         # subprocess.check_output(cmd.split())  # export
         ov_model = mo.convert_model(
             f_onnx,
@@ -134,8 +124,8 @@ def export_openvino(file, half):
         )  # export
         ov.serialize(ov_model, f_ov)  # save
     except Exception as e:
-        logger.info(f"export failure: {e}")
-    logger.info(f"Export success, saved as {f_ov} ({file_size(f_ov):.1f} MB)")
+        LOGGER.info(f"export failure: {e}")
+    LOGGER.info(f"Export success, saved as {f_ov} ({file_size(f_ov):.1f} MB)")
     return f
 
 
@@ -146,14 +136,14 @@ def export_tflite(file):
         )  # requires openvino-dev: https://pypi.org/project/openvino-dev/
         import onnx2tf
 
-        logger.info(f"\nStarting {file} export with onnx2tf {onnx2tf.__version__}")
+        LOGGER.info(f"\nStarting {file} export with onnx2tf {onnx2tf.__version__}")
         f = str(file).replace(".onnx", f"_saved_model{os.sep}")
         cmd = f"onnx2tf -i {file} -o {f} -nuo --non_verbose"
         subprocess.check_output(cmd.split())  # export
-        logger.info(f"Export success, results saved in {f} ({file_size(f):.1f} MB)")
+        LOGGER.info(f"Export success, results saved in {f} ({file_size(f):.1f} MB)")
         return f
     except Exception as e:
-        logger.info(f"\nExport failure: {e}")
+        LOGGER.info(f"\nExport failure: {e}")
 
 
 def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose=False):
@@ -174,7 +164,7 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
         export_onnx(model, im, file, 12, dynamic, half, simplify)  # opset 13
         onnx = file.with_suffix(".onnx")
 
-        logger.info(f"\nStarting export with TensorRT {trt.__version__}...")
+        LOGGER.info(f"\nStarting export with TensorRT {trt.__version__}...")
         assert onnx.exists(), f"failed to export ONNX file: {onnx}"
         f = file.with_suffix(".engine")  # TensorRT engine file
         logger = trt.Logger(trt.Logger.INFO)
@@ -193,7 +183,7 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
 
         inputs = [network.get_input(i) for i in range(network.num_inputs)]
         outputs = [network.get_output(i) for i in range(network.num_outputs)]
-        logger.info(f"Network Description:")
+        logger.info("Network Description:")
         for inp in inputs:
             logger.info(
                 f'\tinput "{inp.name}" with shape {inp.shape} and dtype {inp.dtype}'
@@ -206,7 +196,7 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
         if dynamic:
             if im.shape[0] <= 1:
                 logger.warning(
-                    f"WARNING: --dynamic model requires maximum --batch-size argument"
+                    "WARNING: --dynamic model requires maximum --batch-size argument"
                 )
             profile = builder.create_optimization_profile()
             for inp in inputs:
@@ -293,7 +283,6 @@ if __name__ == "__main__":
         assert (
             args.device.type != "cpu"
         ), "--half only compatible with GPU export, i.e. use --device 0"
-        # assert not args.dynamic, '--half not compatible with --dynamic, i.e. use either --half or --dynamic but not both'
 
     model = build_model(
         get_model_name(args.weights),
@@ -308,7 +297,7 @@ if __name__ == "__main__":
 
     if args.optimize:
         assert (
-            device.type == "cpu"
+            args.device.type == "cpu"
         ), "--optimize not compatible with cuda devices, i.e. use --device cpu"
 
     # adapt input shapes for lmbn models
@@ -323,7 +312,7 @@ if __name__ == "__main__":
     if args.half:
         im, model = im.half(), model.half()  # to FP16
     shape = tuple((y[0] if isinstance(y, tuple) else y).shape)  # model output shape
-    logger.info(
+    LOGGER.info(
         f"\nStarting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)"
     )
 
@@ -354,7 +343,7 @@ if __name__ == "__main__":
     # Finish
     f = [str(x) for x in f if x]  # filter out '' and None
     if any(f):
-        logger.info(
+        LOGGER.info(
             f"\nExport complete ({time.time() - t:.1f}s)"
             f"\nResults saved to {args.weights.parent.resolve()}"
             f"\nVisualize:       https://netron.app"

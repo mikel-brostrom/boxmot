@@ -1,10 +1,10 @@
 # vim: expandtab:ts=4:sw=4
 from __future__ import absolute_import
+
 import numpy as np
+
 from ....utils.matching import chi2inv95
-from . import linear_assignment
-from . import iou_matching
-from . import detection
+from . import detection, iou_matching, linear_assignment
 from .track import Track
 
 
@@ -80,8 +80,8 @@ class Tracker:
         self.predict()
         for t in self.tracks:
             if (
-                self.max_unmatched_preds != 0
-                and t.updates_wo_assignment < t.max_num_updates_wo_assignment
+                self.max_unmatched_preds != 0 and
+                t.updates_wo_assignment < t.max_num_updates_wo_assignment
             ):
                 bbox = t.to_tlwh()
                 t.update_kf(detection.to_xyah_ext(bbox))
@@ -108,9 +108,9 @@ class Tracker:
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
             if (
-                self.max_unmatched_preds != 0
-                and self.tracks[track_idx].updates_wo_assignment
-                < self.tracks[track_idx].max_num_updates_wo_assignment
+                self.max_unmatched_preds != 0 and
+                self.tracks[track_idx].updates_wo_assignment <
+                self.tracks[track_idx].max_num_updates_wo_assignment
             ):
                 bbox = self.tracks[track_idx].to_tlwh()
                 self.tracks[track_idx].update_kf(detection.to_xyah_ext(bbox))
@@ -151,8 +151,8 @@ class Tracker:
         msrs = np.asarray([dets[i].to_xyah() for i in detection_indices])
         for row, track_idx in enumerate(track_indices):
             pos_cost[row, :] = (
-                np.sqrt(tracks[track_idx].kf.gating_distance(msrs))
-                / self.GATING_THRESHOLD
+                np.sqrt(tracks[track_idx].kf.gating_distance(msrs)) /
+                self.GATING_THRESHOLD
             )
         pos_gate = pos_cost > 1.0
         # Now Compute the Appearance-based Cost Matrix

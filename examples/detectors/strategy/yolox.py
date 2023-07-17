@@ -1,22 +1,12 @@
 import gdown
 import torch
-
-from .yolo_strategy import YoloStrategy
+from ultralytics.yolo.engine.results import Results
+from yolox.exp import get_exp
+from yolox.utils import postprocess
 
 from boxmot.utils import WEIGHTS
-from boxmot.utils.checks import TestRequirements
 
-tr = TestRequirements()
-try:
-    import yolox  # for linear_assignment
-except (ImportError, AssertionError, AttributeError):
-    tr.check_packages(('yolox==0.3.0',))  # install
-
-from yolox.utils import postprocess
-from yolox.exp import get_exp
-
-from ultralytics.yolo.engine.results import Results
-
+from .yolo_strategy import YoloStrategy
 
 YOLOX_ZOO = {
     'yolox_n': 'https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX',
@@ -53,7 +43,7 @@ class YoloXStrategy(YoloStrategy):
             str(WEIGHTS / (model + '.pth')),
             map_location=torch.device('cpu')
         )
-        
+
         self.model.load_state_dict(ckpt["model"])
         self.model.to(device)
 
@@ -102,5 +92,3 @@ class YoloXStrategy(YoloStrategy):
             names=predictor.model.names
         )
         return predictor.results
-
-
