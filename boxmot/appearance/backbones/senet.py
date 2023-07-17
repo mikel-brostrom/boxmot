@@ -176,13 +176,9 @@ class SEResNetBottleneck(Bottleneck):
 
     def __init__(self, inplanes, planes, groups, reduction, stride=1, downsample=None):
         super(SEResNetBottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(
-            inplanes, planes, kernel_size=1, bias=False, stride=stride
-        )
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False, stride=stride)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(
-            planes, planes, kernel_size=3, padding=1, groups=groups, bias=False
-        )
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1, groups=groups, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -324,9 +320,7 @@ class SENet(nn.Module):
             layer0_modules = [
                 (
                     "conv1",
-                    nn.Conv2d(
-                        3, inplanes, kernel_size=7, stride=2, padding=3, bias=False
-                    ),
+                    nn.Conv2d(3, inplanes, kernel_size=7, stride=2, padding=3, bias=False),
                 ),
                 ("bn1", nn.BatchNorm2d(inplanes)),
                 ("relu1", nn.ReLU(inplace=True)),
@@ -405,9 +399,7 @@ class SENet(nn.Module):
             )
 
         layers = []
-        layers.append(
-            block(self.inplanes, planes, groups, reduction, stride, downsample)
-        )
+        layers.append(block(self.inplanes, planes, groups, reduction, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, groups, reduction))
@@ -427,9 +419,9 @@ class SENet(nn.Module):
             self.feature_dim = input_dim
             return None
 
-        assert isinstance(
-            fc_dims, (list, tuple)
-        ), "fc_dims must be either list or tuple, but got {}".format(type(fc_dims))
+        assert isinstance(fc_dims, (list, tuple)), "fc_dims must be either list or tuple, but got {}".format(
+            type(fc_dims)
+        )
 
         layers = []
         for dim in fc_dims:
@@ -480,11 +472,7 @@ def init_pretrained_weights(model, model_url):
     """
     pretrain_dict = model_zoo.load_url(model_url)
     model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
+    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 

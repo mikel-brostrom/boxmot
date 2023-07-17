@@ -6,8 +6,7 @@ import torch
 from ...appearance.reid_multibackend import ReIDDetectMultiBackend
 from ...motion.adapters import BotSortKalmanFilterAdapter
 from ...utils.gmc import GlobalMotionCompensation
-from ...utils.matching import (embedding_distance, fuse_score,  # fuse_motion,
-                               iou_distance, linear_assignment)
+from ...utils.matching import embedding_distance, fuse_score, iou_distance, linear_assignment  # fuse_motion,
 from ...utils.ops import xywh2xyxy, xyxy2xywh
 from .basetrack import BaseTrack, TrackState
 
@@ -71,9 +70,7 @@ class STrack(BaseTrack):
             mean_state[6] = 0
             mean_state[7] = 0
 
-        self.mean, self.covariance = self.kalman_filter.predict(
-            mean_state, self.covariance
-        )
+        self.mean, self.covariance = self.kalman_filter.predict(mean_state, self.covariance)
 
     @staticmethod
     def multi_predict(stracks):
@@ -84,9 +81,7 @@ class STrack(BaseTrack):
                 if st.state != TrackState.Tracked:
                     multi_mean[i][6] = 0
                     multi_mean[i][7] = 0
-            multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(
-                multi_mean, multi_covariance
-            )
+            multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(multi_mean, multi_covariance)
             for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
                 stracks[i].mean = mean
                 stracks[i].covariance = cov
@@ -114,9 +109,7 @@ class STrack(BaseTrack):
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
 
-        self.mean, self.covariance = self.kalman_filter.initiate(
-            self.tlwh_to_xywh(self._tlwh)
-        )
+        self.mean, self.covariance = self.kalman_filter.initiate(self.tlwh_to_xywh(self._tlwh))
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
@@ -154,9 +147,7 @@ class STrack(BaseTrack):
 
         new_tlwh = new_track.tlwh
 
-        self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, self.tlwh_to_xywh(new_tlwh)
-        )
+        self.mean, self.covariance = self.kalman_filter.update(self.mean, self.covariance, self.tlwh_to_xywh(new_tlwh))
 
         if new_track.curr_feat is not None:
             self.update_features(new_track.curr_feat)
@@ -270,9 +261,7 @@ class BoTSORT(object):
         self.appearance_thresh = appearance_thresh
         self.match_thresh = match_thresh
 
-        self.model = ReIDDetectMultiBackend(
-            weights=model_weights, device=device, fp16=fp16
-        )
+        self.model = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
 
         self.gmc = GlobalMotionCompensation(method=cmc_method, verbose=[None, False])
 
@@ -283,12 +272,8 @@ class BoTSORT(object):
         assert isinstance(
             img, np.ndarray
         ), f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
-        assert (
-            len(dets.shape) == 2
-        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
-        assert (
-            dets.shape[1] == 6
-        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        assert len(dets.shape) == 2, "Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert dets.shape[1] == 6, "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         self.frame_id += 1
         activated_starcks = []
@@ -330,9 +315,7 @@ class BoTSORT(object):
 
             detections = [
                 STrack(xyxy, s, c, f.cpu().numpy())
-                for (xyxy, s, c, f) in zip(
-                    dets, scores_keep, classes_keep, features_keep
-                )
+                for (xyxy, s, c, f) in zip(dets, scores_keep, classes_keep, features_keep)
             ]
         else:
             detections = []
@@ -366,9 +349,7 @@ class BoTSORT(object):
         emb_dists[ious_dists_mask] = 1.0
         dists = np.minimum(ious_dists, emb_dists)
 
-        matches, u_track, u_detection = linear_assignment(
-            dists, thresh=self.match_thresh
-        )
+        matches, u_track, u_detection = linear_assignment(dists, thresh=self.match_thresh)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
@@ -397,17 +378,12 @@ class BoTSORT(object):
         if len(dets_second) > 0:
             """Detections"""
             detections_second = [
-                STrack(STrack.tlbr_to_tlwh(tlbr), s, c)
-                for (tlbr, s, c) in zip(dets_second, scores_second, clss_second)
+                STrack(STrack.tlbr_to_tlwh(tlbr), s, c) for (tlbr, s, c) in zip(dets_second, scores_second, clss_second)
             ]
         else:
             detections_second = []
 
-        r_tracked_stracks = [
-            strack_pool[i]
-            for i in u_track
-            if strack_pool[i].state == TrackState.Tracked
-        ]
+        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
         dists = iou_distance(r_tracked_stracks, detections_second)
         matches, u_track, u_detection_second = linear_assignment(dists, thresh=0.5)
         for itracked, idet in matches:
@@ -463,18 +439,14 @@ class BoTSORT(object):
                 removed_stracks.append(track)
 
         """ Merge """
-        self.tracked_stracks = [
-            t for t in self.tracked_stracks if t.state == TrackState.Tracked
-        ]
+        self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
         self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_starcks)
         self.tracked_stracks = joint_stracks(self.tracked_stracks, refind_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
-        self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(
-            self.tracked_stracks, self.lost_stracks
-        )
+        self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
 
         # output_stracks = [track for track in self.tracked_stracks if track.is_activated]
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]

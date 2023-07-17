@@ -317,11 +317,7 @@ class InceptionResNetV2(nn.Module):
         settings = pretrained_settings["inceptionresnetv2"]["imagenet"]
         pretrain_dict = model_zoo.load_url(settings["url"])
         model_dict = self.state_dict()
-        pretrain_dict = {
-            k: v
-            for k, v in pretrain_dict.items()
-            if k in model_dict and model_dict[k].size() == v.size()
-        }
+        pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
         model_dict.update(pretrain_dict)
         self.load_state_dict(model_dict)
 

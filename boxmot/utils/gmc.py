@@ -16,12 +16,8 @@ class GlobalMotionCompensation:
             self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
 
         elif self.method == "sift":
-            self.detector = cv2.SIFT_create(
-                nOctaveLayers=3, contrastThreshold=0.02, edgeThreshold=20
-            )
-            self.extractor = cv2.SIFT_create(
-                nOctaveLayers=3, contrastThreshold=0.02, edgeThreshold=20
-            )
+            self.detector = cv2.SIFT_create(nOctaveLayers=3, contrastThreshold=0.02, edgeThreshold=20)
+            self.extractor = cv2.SIFT_create(nOctaveLayers=3, contrastThreshold=0.02, edgeThreshold=20)
             self.matcher = cv2.BFMatcher(cv2.NORM_L2)
 
         elif self.method == "ecc":
@@ -63,9 +59,7 @@ class GlobalMotionCompensation:
             self.gmcFile = open(filePath + "/GMC-" + seqName + ".txt", "r")
 
             if self.gmcFile is None:
-                raise ValueError(
-                    "Error: Unable to open GMC file in directory:" + filePath
-                )
+                raise ValueError("Error: Unable to open GMC file in directory:" + filePath)
         elif self.method == "none" or self.method == "None":
             self.method = "none"
         else:
@@ -100,9 +94,7 @@ class GlobalMotionCompensation:
         # Downscale image (TODO: consider using pyramids)
         if self.downscale > 1.0:
             frame = cv2.GaussianBlur(frame, (3, 3), 1.5)
-            frame = cv2.resize(
-                frame, (width // self.downscale, height // self.downscale)
-            )
+            frame = cv2.resize(frame, (width // self.downscale, height // self.downscale))
             width = width // self.downscale
             height = height // self.downscale
 
@@ -119,9 +111,7 @@ class GlobalMotionCompensation:
         # Run the ECC algorithm. The results are stored in warp_matrix.
         # (cc, H) = cv2.findTransformECC(self.prevFrame, frame, H, self.warp_mode, self.criteria)
         try:
-            (cc, H) = cv2.findTransformECC(
-                self.prevFrame, frame, H, self.warp_mode, self.criteria, None, 1
-            )
+            (cc, H) = cv2.findTransformECC(self.prevFrame, frame, H, self.warp_mode, self.criteria, None, 1)
         except Exception as e:
             print(f"Warning: find transform failed. Set warp as identity. {e}")
 
@@ -136,9 +126,7 @@ class GlobalMotionCompensation:
         # Downscale image (TODO: consider using pyramids)
         if self.downscale > 1.0:
             # frame = cv2.GaussianBlur(frame, (3, 3), 1.5)
-            frame = cv2.resize(
-                frame, (width // self.downscale, height // self.downscale)
-            )
+            frame = cv2.resize(frame, (width // self.downscale, height // self.downscale))
             width = width // self.downscale
             height = height // self.downscale
 
@@ -146,13 +134,13 @@ class GlobalMotionCompensation:
         mask = np.zeros_like(frame)
         # mask[int(0.05 * height): int(0.95 * height), int(0.05 * width): int(0.95 * width)] = 255
         mask[
-            int(0.02 * height): int(0.98 * height),
-            int(0.02 * width): int(0.98 * width),
+            int(0.02 * height) : int(0.98 * height),
+            int(0.02 * width) : int(0.98 * width),
         ] = 255
         if detections is not None:
             for det in detections:
                 tlbr = (det[:4] / self.downscale).astype(np.int_)
-                mask[tlbr[1]: tlbr[3], tlbr[0]: tlbr[2]] = 0
+                mask[tlbr[1] : tlbr[3], tlbr[0] : tlbr[2]] = 0
 
         keypoints = self.detector.detect(frame, mask)
 
@@ -234,9 +222,7 @@ class GlobalMotionCompensation:
                 color = np.random.randint(0, 255, (3,))
                 color = (int(color[0]), int(color[1]), int(color[2]))
 
-                matches_img = cv2.line(
-                    matches_img, prev_pt, curr_pt, tuple(color), 1, cv2.LINE_AA
-                )
+                matches_img = cv2.line(matches_img, prev_pt, curr_pt, tuple(color), 1, cv2.LINE_AA)
                 matches_img = cv2.circle(matches_img, prev_pt, 2, tuple(color), -1)
                 matches_img = cv2.circle(matches_img, curr_pt, 2, tuple(color), -1)
 
@@ -245,12 +231,8 @@ class GlobalMotionCompensation:
             plt.show()
 
         # Find rigid matrix
-        if (np.size(prevPoints, 0) > 4) and (
-            np.size(prevPoints, 0) == np.size(prevPoints, 0)
-        ):
-            H, inliesrs = cv2.estimateAffinePartial2D(
-                prevPoints, currPoints, cv2.RANSAC
-            )
+        if (np.size(prevPoints, 0) > 4) and (np.size(prevPoints, 0) == np.size(prevPoints, 0)):
+            H, inliesrs = cv2.estimateAffinePartial2D(prevPoints, currPoints, cv2.RANSAC)
 
             # Handle downscale
             if self.downscale > 1.0:
@@ -267,7 +249,6 @@ class GlobalMotionCompensation:
         return H
 
     def applySparseOptFlow(self, raw_frame, detections=None):
-
         # Initialize
         height, width, _ = raw_frame.shape
         frame = cv2.cvtColor(raw_frame, cv2.COLOR_BGR2GRAY)
@@ -276,9 +257,7 @@ class GlobalMotionCompensation:
         # Downscale image
         if self.downscale > 1.0:
             # frame = cv2.GaussianBlur(frame, (3, 3), 1.5)
-            frame = cv2.resize(
-                frame, (width // self.downscale, height // self.downscale)
-            )
+            frame = cv2.resize(frame, (width // self.downscale, height // self.downscale))
 
         # find the keypoints
         keypoints = cv2.goodFeaturesToTrack(frame, mask=None, **self.feature_params)
@@ -295,9 +274,7 @@ class GlobalMotionCompensation:
             return H
 
         # find correspondences
-        matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
-            self.prevFrame, frame, self.prevKeyPoints, None
-        )
+        matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(self.prevFrame, frame, self.prevKeyPoints, None)
 
         # leave good correspondences only
         prevPoints = []
@@ -312,12 +289,8 @@ class GlobalMotionCompensation:
         currPoints = np.array(currPoints)
 
         # Find rigid matrix
-        if (np.size(prevPoints, 0) > 4) and (
-            np.size(prevPoints, 0) == np.size(prevPoints, 0)
-        ):
-            H, inliesrs = cv2.estimateAffinePartial2D(
-                prevPoints, currPoints, cv2.RANSAC
-            )
+        if (np.size(prevPoints, 0) > 4) and (np.size(prevPoints, 0) == np.size(prevPoints, 0)):
+            H, inliesrs = cv2.estimateAffinePartial2D(prevPoints, currPoints, cv2.RANSAC)
 
             # Handle downscale
             if self.downscale > 1.0:

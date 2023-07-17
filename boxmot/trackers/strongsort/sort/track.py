@@ -184,24 +184,16 @@ class Track:
         if scale is not None:
             if isinstance(scale, float) or isinstance(scale, int):
                 if scale != 1:
-                    src_r = cv2.resize(
-                        src, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR
-                    )
-                    dst_r = cv2.resize(
-                        dst, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR
-                    )
+                    src_r = cv2.resize(src, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+                    dst_r = cv2.resize(dst, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
                     scale = [scale, scale]
                 else:
                     src_r, dst_r = src, dst
                     scale = None
             else:
                 if scale[0] != src.shape[1] and scale[1] != src.shape[0]:
-                    src_r = cv2.resize(
-                        src, (scale[0], scale[1]), interpolation=cv2.INTER_LINEAR
-                    )
-                    dst_r = cv2.resize(
-                        dst, (scale[0], scale[1]), interpolation=cv2.INTER_LINEAR
-                    )
+                    src_r = cv2.resize(src, (scale[0], scale[1]), interpolation=cv2.INTER_LINEAR)
+                    dst_r = cv2.resize(dst, (scale[0], scale[1]), interpolation=cv2.INTER_LINEAR)
                     scale = [scale[0] / src.shape[1], scale[1] / src.shape[0]]
                 else:
                     src_r, dst_r = src, dst
@@ -220,9 +212,7 @@ class Track:
 
         # Run the ECC algorithm. The results are stored in warp_matrix.
         try:
-            (cc, warp_matrix) = cv2.findTransformECC(
-                src_r, dst_r, warp_matrix, warp_mode, criteria, None, 1
-            )
+            (cc, warp_matrix) = cv2.findTransformECC(src_r, dst_r, warp_matrix, warp_mode, criteria, None, 1)
         except cv2.error as e:
             print(f"ecc transform failed: {e}")
             return None, None
@@ -235,14 +225,10 @@ class Track:
             sz = src.shape
             if warp_mode == cv2.MOTION_HOMOGRAPHY:
                 # Use warpPerspective for Homography
-                src_aligned = cv2.warpPerspective(
-                    src, warp_matrix, (sz[1], sz[0]), flags=cv2.INTER_LINEAR
-                )
+                src_aligned = cv2.warpPerspective(src, warp_matrix, (sz[1], sz[0]), flags=cv2.INTER_LINEAR)
             else:
                 # Use warpAffine for Translation, Euclidean and Affine
-                src_aligned = cv2.warpAffine(
-                    src, warp_matrix, (sz[1], sz[0]), flags=cv2.INTER_LINEAR
-                )
+                src_aligned = cv2.warpAffine(src, warp_matrix, (sz[1], sz[0]), flags=cv2.INTER_LINEAR)
             return warp_matrix, src_aligned
         else:
             return warp_matrix, None
@@ -285,9 +271,7 @@ class Track:
 
     def update_kf(self, bbox, confidence=0.5):
         self.updates_wo_assignment = self.updates_wo_assignment + 1
-        self.mean, self.covariance = self.kf.update(
-            self.mean, self.covariance, bbox, confidence
-        )
+        self.mean, self.covariance = self.kf.update(self.mean, self.covariance, bbox, confidence)
         tlbr = self.to_tlbr()
         x_c = int((tlbr[0] + tlbr[2]) / 2)
         y_c = int((tlbr[1] + tlbr[3]) / 2)
@@ -309,9 +293,7 @@ class Track:
 
         feature = detection.feature / np.linalg.norm(detection.feature)
 
-        smooth_feat = (
-            self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
-        )
+        smooth_feat = self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
         smooth_feat /= np.linalg.norm(smooth_feat)
         self.features = [smooth_feat]
 

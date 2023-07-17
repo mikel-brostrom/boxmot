@@ -10,36 +10,24 @@ class YoloNASStrategy(YoloStrategy):
     def __init__(self, model, device, args):
         self.args = args
 
-        self.model = models.get(
-            str(model),
-            pretrained_weights="coco"
-        ).to(device)
+        self.model = models.get(str(model), pretrained_weights="coco").to(device)
 
         self.has_run = False
 
     def inference(self, im):
-
         # (1, 3, h, w) norm --> (h, w, 3) un-norm
         im = im[0].permute(1, 2, 0).cpu().numpy() * 255
 
-        preds = next(iter(
-            self.model.predict(
-                im,
-                iou=self.args.iou,
-                conf=self.args.conf)
-        )).prediction  # Returns a generator of the batch, which here is 1
+        preds = next(
+            iter(self.model.predict(im, iou=self.args.iou, conf=self.args.conf))
+        ).prediction  # Returns a generator of the batch, which here is 1
         preds = np.concatenate(
-            [
-                preds.bboxes_xyxy,
-                preds.confidence[:, np.newaxis],
-                preds.labels[:, np.newaxis]
-            ], axis=1
+            [preds.bboxes_xyxy, preds.confidence[:, np.newaxis], preds.labels[:, np.newaxis]], axis=1
         )
 
         return preds
 
     def postprocess(self, path, preds, im, im0s, predictor):
-
         if not self.has_run:
             self.w_r, self.h_r = self.get_scaling_factors(im, im0s)
             self.has_run = True
@@ -61,10 +49,5 @@ class YoloNASStrategy(YoloStrategy):
         return preds
 
     def preds_to_yolov8_results(self, path, preds, im, im0s, predictor):
-        predictor.results[0] = Results(
-            path=path,
-            boxes=preds,
-            orig_img=im0s[0],
-            names=predictor.model.names
-        )
+        predictor.results[0] = Results(path=path, boxes=preds, orig_img=im0s[0], names=predictor.model.names)
         return predictor.results

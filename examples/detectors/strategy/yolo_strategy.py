@@ -4,12 +4,11 @@ from ultralytics.yolo.engine.results import Boxes
 
 
 class YoloStrategy:
-
     def inference(self, im):
-        raise NotImplementedError('Subclasses must implement this method.')
+        raise NotImplementedError("Subclasses must implement this method.")
 
     def postprocess(self, preds):
-        raise NotImplementedError('Subclasses must implement this method.')
+        raise NotImplementedError("Subclasses must implement this method.")
 
     def filter_results(self, i, predictor):
         if predictor.tracker_outputs[i].size != 0:
@@ -39,7 +38,6 @@ class YoloStrategy:
             )
 
     def get_scaling_factors(self, im, im0s):
-
         # im to im0 factor for predictions
         im0_w = im0s[0].shape[1]
         im0_h = im0s[0].shape[0]

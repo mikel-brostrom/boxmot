@@ -225,26 +225,14 @@ class Inception_C(nn.Module):
         self.branch0 = BasicConv2d(1536, 256, kernel_size=1, stride=1)
 
         self.branch1_0 = BasicConv2d(1536, 384, kernel_size=1, stride=1)
-        self.branch1_1a = BasicConv2d(
-            384, 256, kernel_size=(1, 3), stride=1, padding=(0, 1)
-        )
-        self.branch1_1b = BasicConv2d(
-            384, 256, kernel_size=(3, 1), stride=1, padding=(1, 0)
-        )
+        self.branch1_1a = BasicConv2d(384, 256, kernel_size=(1, 3), stride=1, padding=(0, 1))
+        self.branch1_1b = BasicConv2d(384, 256, kernel_size=(3, 1), stride=1, padding=(1, 0))
 
         self.branch2_0 = BasicConv2d(1536, 384, kernel_size=1, stride=1)
-        self.branch2_1 = BasicConv2d(
-            384, 448, kernel_size=(3, 1), stride=1, padding=(1, 0)
-        )
-        self.branch2_2 = BasicConv2d(
-            448, 512, kernel_size=(1, 3), stride=1, padding=(0, 1)
-        )
-        self.branch2_3a = BasicConv2d(
-            512, 256, kernel_size=(1, 3), stride=1, padding=(0, 1)
-        )
-        self.branch2_3b = BasicConv2d(
-            512, 256, kernel_size=(3, 1), stride=1, padding=(1, 0)
-        )
+        self.branch2_1 = BasicConv2d(384, 448, kernel_size=(3, 1), stride=1, padding=(1, 0))
+        self.branch2_2 = BasicConv2d(448, 512, kernel_size=(1, 3), stride=1, padding=(0, 1))
+        self.branch2_3a = BasicConv2d(512, 256, kernel_size=(1, 3), stride=1, padding=(0, 1))
+        self.branch2_3b = BasicConv2d(512, 256, kernel_size=(3, 1), stride=1, padding=(1, 0))
 
         self.branch3 = nn.Sequential(
             nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False),
@@ -339,11 +327,7 @@ def init_pretrained_weights(model, model_url):
     """
     pretrain_dict = model_zoo.load_url(model_url)
     model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
+    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 

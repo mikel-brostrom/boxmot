@@ -50,13 +50,9 @@ class InvertedResidual(nn.Module):
 
         if self.stride > 1:
             self.branch1 = nn.Sequential(
-                self.depthwise_conv(
-                    inp, inp, kernel_size=3, stride=self.stride, padding=1
-                ),
+                self.depthwise_conv(inp, inp, kernel_size=3, stride=self.stride, padding=1),
                 nn.BatchNorm2d(inp),
-                nn.Conv2d(
-                    inp, branch_features, kernel_size=1, stride=1, padding=0, bias=False
-                ),
+                nn.Conv2d(inp, branch_features, kernel_size=1, stride=1, padding=0, bias=False),
                 nn.BatchNorm2d(branch_features),
                 nn.ReLU(inplace=True),
             )
@@ -121,9 +117,7 @@ class ShuffleNetV2(nn.Module):
         - ``shufflenet_v2_x2_0``: ShuffleNetV2 x2.0.
     """
 
-    def __init__(
-        self, num_classes, loss, stages_repeats, stages_out_channels, **kwargs
-    ):
+    def __init__(self, num_classes, loss, stages_repeats, stages_out_channels, **kwargs):
         super(ShuffleNetV2, self).__init__()
         self.loss = loss
 
@@ -145,9 +139,7 @@ class ShuffleNetV2(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         stage_names = ["stage{}".format(i) for i in [2, 3, 4]]
-        for name, repeats, output_channels in zip(
-            stage_names, stages_repeats, self._stage_out_channels[1:]
-        ):
+        for name, repeats, output_channels in zip(stage_names, stages_repeats, self._stage_out_channels[1:]):
             seq = [InvertedResidual(input_channels, output_channels, 2)]
             for i in range(repeats - 1):
                 seq.append(InvertedResidual(output_channels, output_channels, 1))
@@ -203,46 +195,34 @@ def init_pretrained_weights(model, model_url):
         return
     pretrain_dict = model_zoo.load_url(model_url)
     model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
+    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 
 
 def shufflenet_v2_x0_5(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ShuffleNetV2(
-        num_classes, loss, [4, 8, 4], [24, 48, 96, 192, 1024], **kwargs
-    )
+    model = ShuffleNetV2(num_classes, loss, [4, 8, 4], [24, 48, 96, 192, 1024], **kwargs)
     if pretrained:
         init_pretrained_weights(model, model_urls["shufflenetv2_x0.5"])
     return model
 
 
 def shufflenet_v2_x1_0(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ShuffleNetV2(
-        num_classes, loss, [4, 8, 4], [24, 116, 232, 464, 1024], **kwargs
-    )
+    model = ShuffleNetV2(num_classes, loss, [4, 8, 4], [24, 116, 232, 464, 1024], **kwargs)
     if pretrained:
         init_pretrained_weights(model, model_urls["shufflenetv2_x1.0"])
     return model
 
 
 def shufflenet_v2_x1_5(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ShuffleNetV2(
-        num_classes, loss, [4, 8, 4], [24, 176, 352, 704, 1024], **kwargs
-    )
+    model = ShuffleNetV2(num_classes, loss, [4, 8, 4], [24, 176, 352, 704, 1024], **kwargs)
     if pretrained:
         init_pretrained_weights(model, model_urls["shufflenetv2_x1.5"])
     return model
 
 
 def shufflenet_v2_x2_0(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ShuffleNetV2(
-        num_classes, loss, [4, 8, 4], [24, 244, 488, 976, 2048], **kwargs
-    )
+    model = ShuffleNetV2(num_classes, loss, [4, 8, 4], [24, 244, 488, 976, 2048], **kwargs)
     if pretrained:
         init_pretrained_weights(model, model_urls["shufflenetv2_x2.0"])
     return model

@@ -8,9 +8,16 @@ import torch
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.adapters import OCSortKalmanFilterAdapter
 from boxmot.utils import PerClassDecorator
-from boxmot.utils.association import (associate, associate_kitti, ciou_batch,
-                                      ct_dist, diou_batch, giou_batch,
-                                      iou_batch, linear_assignment)
+from boxmot.utils.association import (
+    associate,
+    associate_kitti,
+    ciou_batch,
+    ct_dist,
+    diou_batch,
+    giou_batch,
+    iou_batch,
+    linear_assignment,
+)
 from boxmot.utils.cmc import CameraMotionCompensation
 
 
@@ -335,7 +342,7 @@ class DeepOCSort(object):
         cmc_off=False,
         aw_off=False,
         new_kf_off=False,
-        **kwargs
+        **kwargs,
     ):
         """
         Sets key parameters for SORT
@@ -363,7 +370,7 @@ class DeepOCSort(object):
         self.new_kf_off = new_kf_off
 
     @PerClassDecorator
-    def update(self, dets, img, tag='blub'):
+    def update(self, dets, img, tag="blub"):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -502,7 +509,7 @@ class DeepOCSort(object):
                 delta_t=self.delta_t,
                 emb=dets_embs[i],
                 alpha=dets_alpha[i],
-                new_kf=not self.new_kf_off
+                new_kf=not self.new_kf_off,
             )
             self.trackers.append(trk)
         i = len(self.trackers)

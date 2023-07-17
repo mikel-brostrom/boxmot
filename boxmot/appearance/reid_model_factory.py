@@ -22,7 +22,7 @@ __model_types = [
     "lmbn_n",
 ]
 
-lmbn_loc = 'https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/'
+lmbn_loc = "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/"
 
 __trained_urls = {
     # resnet50
@@ -118,8 +118,7 @@ def download_url(url, dst):
         speed = int(progress_size / (1024 * duration))
         percent = int(count * block_size * 100 / total_size)
         sys.stdout.write(
-            "\r...%d%%, %d MB, %d KB/s, %d seconds passed"
-            % (percent, progress_size / (1024 * 1024), speed, duration)
+            "\r...%d%%, %d MB, %d KB/s, %d seconds passed" % (percent, progress_size / (1024 * 1024), speed, duration)
         )
         sys.stdout.flush()
 
@@ -184,11 +183,8 @@ def load_pretrained_weights(model, weight_path):
                 "(** ignored and continue **)"
             )
         else:
-            LOGGER.success(
-                f'Successfully loaded pretrained weights from "{weight_path}"'
-            )
+            LOGGER.success(f'Successfully loaded pretrained weights from "{weight_path}"')
             if len(discarded_layers) > 0:
                 LOGGER.warning(
-                    "The following layers are discarded "
-                    f"due to unmatched keys or layer size: {*discarded_layers,}"
+                    "The following layers are discarded " f"due to unmatched keys or layer size: {*discarded_layers,}"
                 )

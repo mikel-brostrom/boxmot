@@ -3,15 +3,9 @@ from __future__ import absolute_import
 from boxmot.appearance.backbones.hacnn import HACNN
 from boxmot.appearance.backbones.lmbn_n import LMBN_n
 from boxmot.appearance.backbones.mlfn import mlfn
-from boxmot.appearance.backbones.mobilenetv2 import (mobilenetv2_x1_0,
-                                                     mobilenetv2_x1_4)
-from boxmot.appearance.backbones.osnet import (osnet_ibn_x1_0, osnet_x0_5,
-                                               osnet_x0_25, osnet_x0_75,
-                                               osnet_x1_0)
-from boxmot.appearance.backbones.osnet_ain import (osnet_ain_x0_5,
-                                                   osnet_ain_x0_25,
-                                                   osnet_ain_x0_75,
-                                                   osnet_ain_x1_0)
+from boxmot.appearance.backbones.mobilenetv2 import mobilenetv2_x1_0, mobilenetv2_x1_4
+from boxmot.appearance.backbones.osnet import osnet_ibn_x1_0, osnet_x0_5, osnet_x0_25, osnet_x0_75, osnet_x1_0
+from boxmot.appearance.backbones.osnet_ain import osnet_ain_x0_5, osnet_ain_x0_25, osnet_ain_x0_75, osnet_ain_x1_0
 from boxmot.appearance.backbones.resnet import resnet50, resnet101
 
 __model_factory = {
@@ -68,6 +62,4 @@ def build_model(name, num_classes, loss="softmax", pretrained=True, use_gpu=True
     avai_models = list(__model_factory.keys())
     if name not in avai_models:
         raise KeyError("Unknown model: {}. Must be one of {}".format(name, avai_models))
-    return __model_factory[name](
-        num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu
-    )
+    return __model_factory[name](num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu)

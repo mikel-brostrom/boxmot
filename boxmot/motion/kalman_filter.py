@@ -401,12 +401,8 @@ class KalmanFilter(object):
                 self.attr_saved["x"] = big_m @ self.attr_saved["x"]
                 self.attr_saved["x"][:2] += t
                 self.attr_saved["P"] = big_m @ self.attr_saved["P"] @ big_m.T
-                self.attr_saved["last_measurement"][:2] = (
-                    m @ self.attr_saved["last_measurement"][:2] + t
-                )
-                self.attr_saved["last_measurement"][2:] = (
-                    m @ self.attr_saved["last_measurement"][2:]
-                )
+                self.attr_saved["last_measurement"][:2] = m @ self.attr_saved["last_measurement"][:2] + t
+                self.attr_saved["last_measurement"][2:] = m @ self.attr_saved["last_measurement"][2:]
         else:
             # scale = np.linalg.norm(m[:, 0])
             self.x[:2] = m @ self.x[:2] + t
@@ -431,9 +427,7 @@ class KalmanFilter(object):
                 # self.attr_saved["P"][2, 2] *= 2 * scale
                 # self.attr_saved["P"][6, 6] *= 2 * scale
 
-                self.attr_saved["last_measurement"][:2] = (
-                    m @ self.attr_saved["last_measurement"][:2] + t
-                )
+                self.attr_saved["last_measurement"][:2] = m @ self.attr_saved["last_measurement"][:2] + t
                 # self.attr_saved["last_measurement"][2] *= scale
 
     def unfreeze(self):
@@ -1201,14 +1195,10 @@ class KalmanFilter(object):
         x = self.x
         P = self.P
 
-        assert x.ndim == 1 or x.ndim == 2, "x must have one or two dimensions, but has {}".format(
-            x.ndim
-        )
+        assert x.ndim == 1 or x.ndim == 2, "x must have one or two dimensions, but has {}".format(x.ndim)
 
         if x.ndim == 1:
-            assert x.shape[0] == self.dim_x, "Shape of x must be ({},{}), but is {}".format(
-                self.dim_x, 1, x.shape
-            )
+            assert x.shape[0] == self.dim_x, "Shape of x must be ({},{}), but is {}".format(self.dim_x, 1, x.shape)
         else:
             assert x.shape == (
                 self.dim_x,
@@ -1230,13 +1220,9 @@ class KalmanFilter(object):
             self.dim_x,
         ), "Shape of F must be ({},{}), but is {}".format(self.dim_x, self.dim_x, F.shape)
 
-        assert np.ndim(H) == 2, "Shape of H must be (dim_z, {}), but is {}".format(
-            P.shape[0], shape(H)
-        )
+        assert np.ndim(H) == 2, "Shape of H must be (dim_z, {}), but is {}".format(P.shape[0], shape(H))
 
-        assert H.shape[1] == P.shape[0], "Shape of H must be (dim_z, {}), but is {}".format(
-            P.shape[0], H.shape
-        )
+        assert H.shape[1] == P.shape[0], "Shape of H must be (dim_z, {}), but is {}".format(P.shape[0], H.shape)
 
         # shape of R must be the same as HPH'
         hph_shape = (H.shape[0], H.shape[0])
@@ -1250,9 +1236,7 @@ class KalmanFilter(object):
                 (1, 1),
             ], "R must be scalar or one element array, but is shaped {}".format(r_shape)
         else:
-            assert r_shape == hph_shape, "shape of R should be {} but it is {}".format(
-                hph_shape, r_shape
-            )
+            assert r_shape == hph_shape, "shape of R should be {} but it is {}".format(hph_shape, r_shape)
 
         if z is not None:
             z_shape = shape(z)
@@ -1277,9 +1261,9 @@ class KalmanFilter(object):
             ), "shape of z should be {}, not {} for the given H".format(shape(Hx), z_shape)
 
         if np.ndim(Hx) > 1 and shape(Hx) != (1, 1):
-            assert (
-                shape(Hx) == z_shape
-            ), "shape of z should be {} for the given H, but it is {}".format(shape(Hx), z_shape)
+            assert shape(Hx) == z_shape, "shape of z should be {} for the given H, but it is {}".format(
+                shape(Hx), z_shape
+            )
 
 
 def update(x, P, z, R, H=None, return_all=False):

@@ -79,10 +79,7 @@ class Tracker:
         """Perform predictions and updates for all tracks by its own predicted state."""
         self.predict()
         for t in self.tracks:
-            if (
-                self.max_unmatched_preds != 0 and
-                t.updates_wo_assignment < t.max_num_updates_wo_assignment
-            ):
+            if self.max_unmatched_preds != 0 and t.updates_wo_assignment < t.max_num_updates_wo_assignment:
                 bbox = t.to_tlwh()
                 t.update_kf(detection.to_xyah_ext(bbox))
 
@@ -108,9 +105,8 @@ class Tracker:
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
             if (
-                self.max_unmatched_preds != 0 and
-                self.tracks[track_idx].updates_wo_assignment <
-                self.tracks[track_idx].max_num_updates_wo_assignment
+                self.max_unmatched_preds != 0
+                and self.tracks[track_idx].updates_wo_assignment < self.tracks[track_idx].max_num_updates_wo_assignment
             ):
                 bbox = self.tracks[track_idx].to_tlwh()
                 self.tracks[track_idx].update_kf(detection.to_xyah_ext(bbox))
@@ -130,9 +126,7 @@ class Tracker:
                 continue
             features += track.features
             targets += [track.track_id for _ in track.features]
-        self.metric.partial_fit(
-            np.asarray(features), np.asarray(targets), active_targets
-        )
+        self.metric.partial_fit(np.asarray(features), np.asarray(targets), active_targets)
 
     def _full_cost_metric(self, tracks, dets, track_indices, detection_indices):
         """
@@ -150,10 +144,7 @@ class Tracker:
         pos_cost = np.empty([len(track_indices), len(detection_indices)])
         msrs = np.asarray([dets[i].to_xyah() for i in detection_indices])
         for row, track_idx in enumerate(track_indices):
-            pos_cost[row, :] = (
-                np.sqrt(tracks[track_idx].kf.gating_distance(msrs)) /
-                self.GATING_THRESHOLD
-            )
+            pos_cost[row, :] = np.sqrt(tracks[track_idx].kf.gating_distance(msrs)) / self.GATING_THRESHOLD
         pos_gate = pos_cost > 1.0
         # Now Compute the Appearance-based Cost Matrix
         app_cost = self.metric.distance(
@@ -185,9 +176,7 @@ class Tracker:
 
         # Split track set into confirmed and unconfirmed tracks.
         confirmed_tracks = [i for i, t in enumerate(self.tracks) if t.is_confirmed()]
-        unconfirmed_tracks = [
-            i for i, t in enumerate(self.tracks) if not t.is_confirmed()
-        ]
+        unconfirmed_tracks = [i for i, t in enumerate(self.tracks) if not t.is_confirmed()]
 
         # Associate confirmed tracks using appearance features.
         (
@@ -207,9 +196,7 @@ class Tracker:
         iou_track_candidates = unconfirmed_tracks + [
             k for k in unmatched_tracks_a if self.tracks[k].time_since_update == 1
         ]
-        unmatched_tracks_a = [
-            k for k in unmatched_tracks_a if self.tracks[k].time_since_update != 1
-        ]
+        unmatched_tracks_a = [k for k in unmatched_tracks_a if self.tracks[k].time_since_update != 1]
         (
             matches_b,
             unmatched_tracks_b,

@@ -20,9 +20,7 @@ model_urls = {
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
-    return nn.Conv2d(
-        in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
-    )
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -84,13 +82,9 @@ class Bottleneck(nn.Module):
             self.bn1 = IBN(planes)
         else:
             self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(
-            planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
-        )
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(
-            planes, planes * self.expansion, kernel_size=1, bias=False
-        )
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -128,16 +122,7 @@ class ResNet(nn.Module):
           Capacities via IBN-Net. ECCV 2018.
     """
 
-    def __init__(
-        self,
-        block,
-        layers,
-        num_classes=1000,
-        loss="softmax",
-        fc_dims=None,
-        dropout_p=None,
-        **kwargs
-    ):
+    def __init__(self, block, layers, num_classes=1000, loss="softmax", fc_dims=None, dropout_p=None, **kwargs):
         scale = 64
         self.inplanes = scale
         super(ResNet, self).__init__()
@@ -153,9 +138,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, scale * 4, layers[2], stride=2)
         self.layer4 = self._make_layer(block, scale * 8, layers[3], stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = self._construct_fc_layer(
-            fc_dims, scale * 8 * block.expansion, dropout_p
-        )
+        self.fc = self._construct_fc_layer(fc_dims, scale * 8 * block.expansion, dropout_p)
         self.classifier = nn.Linear(self.feature_dim, num_classes)
 
         for m in self.modules():
@@ -206,9 +189,9 @@ class ResNet(nn.Module):
             self.feature_dim = input_dim
             return None
 
-        assert isinstance(
-            fc_dims, (list, tuple)
-        ), "fc_dims must be either list or tuple, but got {}".format(type(fc_dims))
+        assert isinstance(fc_dims, (list, tuple)), "fc_dims must be either list or tuple, but got {}".format(
+            type(fc_dims)
+        )
 
         layers = []
         for dim in fc_dims:
@@ -258,19 +241,13 @@ def init_pretrained_weights(model, model_url):
     """
     pretrain_dict = model_zoo.load_url(model_url)
     model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
+    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 
 
 def resnet50_ibn_a(num_classes, loss="softmax", pretrained=False, **kwargs):
-    model = ResNet(
-        Bottleneck, [3, 4, 6, 3], num_classes=num_classes, loss=loss, **kwargs
-    )
+    model = ResNet(Bottleneck, [3, 4, 6, 3], num_classes=num_classes, loss=loss, **kwargs)
     if pretrained:
         init_pretrained_weights(model, model_urls["resnet50"])
     return model

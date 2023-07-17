@@ -4,9 +4,15 @@
 import numpy as np
 
 from boxmot.motion.adapters import OCSortKalmanFilterAdapter
-from boxmot.utils.association import (associate, ciou_batch, ct_dist,
-                                      diou_batch, giou_batch, iou_batch,
-                                      linear_assignment)
+from boxmot.utils.association import (
+    associate,
+    ciou_batch,
+    ct_dist,
+    diou_batch,
+    giou_batch,
+    iou_batch,
+    linear_assignment,
+)
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -43,13 +49,9 @@ def convert_x_to_bbox(x, score=None):
     w = np.sqrt(x[2] * x[3])
     h = x[2] / w
     if score is None:
-        return np.array(
-            [x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0]
-        ).reshape((1, 4))
+        return np.array([x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0]).reshape((1, 4))
     else:
-        return np.array(
-            [x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0, score]
-        ).reshape((1, 5))
+        return np.array([x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0, score]).reshape((1, 5))
 
 
 def speed_direction(bbox1, bbox2):
@@ -95,9 +97,7 @@ class KalmanBoxTracker(object):
         )
 
         self.kf.R[2:, 2:] *= 10.0
-        self.kf.P[
-            4:, 4:
-        ] *= 1000.0  # give high uncertainty to the unobservable initial velocities
+        self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
         self.kf.P *= 10.0
         self.kf.Q[-1, -1] *= 0.01
         self.kf.Q[4:, 4:] *= 0.01
@@ -240,12 +240,8 @@ class OCSort(object):
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
-        assert (
-            len(dets.shape) == 2
-        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
-        assert (
-            dets.shape[1] == 6
-        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        assert len(dets.shape) == 2, "Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert dets.shape[1] == 6, "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         self.frame_count += 1
 
@@ -261,9 +257,7 @@ class OCSort(object):
 
         inds_low = confs > 0.1
         inds_high = confs < self.det_thresh
-        inds_second = np.logical_and(
-            inds_low, inds_high
-        )  # self.det_thresh > score > 0.1, for second matching
+        inds_second = np.logical_and(inds_low, inds_high)  # self.det_thresh > score > 0.1, for second matching
         dets_second = output_results[inds_second]  # detections for second matching
         remain_inds = confs > self.det_thresh
         dets = output_results[remain_inds]
@@ -281,19 +275,9 @@ class OCSort(object):
         for t in reversed(to_del):
             self.trackers.pop(t)
 
-        velocities = np.array(
-            [
-                trk.velocity if trk.velocity is not None else np.array((0, 0))
-                for trk in self.trackers
-            ]
-        )
+        velocities = np.array([trk.velocity if trk.velocity is not None else np.array((0, 0)) for trk in self.trackers])
         last_boxes = np.array([trk.last_observation for trk in self.trackers])
-        k_observations = np.array(
-            [
-                k_previous_obs(trk.observations, trk.age, self.delta_t)
-                for trk in self.trackers
-            ]
-        )
+        k_observations = np.array([k_previous_obs(trk.observations, trk.age, self.delta_t) for trk in self.trackers])
 
         """
             First round of association
@@ -310,9 +294,7 @@ class OCSort(object):
         # BYTE association
         if self.use_byte and len(dets_second) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
-            iou_left = self.asso_func(
-                dets_second, u_trks
-            )  # iou between low score detections and unmatched tracks
+            iou_left = self.asso_func(dets_second, u_trks)  # iou between low score detections and unmatched tracks
             iou_left = np.array(iou_left)
             if iou_left.max() > self.iou_threshold:
                 """
@@ -326,13 +308,9 @@ class OCSort(object):
                     det_ind, trk_ind = m[0], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.iou_threshold:
                         continue
-                    self.trackers[trk_ind].update(
-                        dets_second[det_ind, :5], dets_second[det_ind, 5]
-                    )
+                    self.trackers[trk_ind].update(dets_second[det_ind, :5], dets_second[det_ind, 5])
                     to_remove_trk_indices.append(trk_ind)
-                unmatched_trks = np.setdiff1d(
-                    unmatched_trks, np.array(to_remove_trk_indices)
-                )
+                unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]
@@ -355,12 +333,8 @@ class OCSort(object):
                     self.trackers[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
-                unmatched_dets = np.setdiff1d(
-                    unmatched_dets, np.array(to_remove_det_indices)
-                )
-                unmatched_trks = np.setdiff1d(
-                    unmatched_trks, np.array(to_remove_trk_indices)
-                )
+                unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
+                unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
             self.trackers[m].update(None, None)
@@ -379,15 +353,9 @@ class OCSort(object):
                 we didn't notice significant difference here
                 """
                 d = trk.last_observation[:4]
-            if (trk.time_since_update < 1) and (
-                trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
-            ):
+            if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
                 # +1 as MOT benchmark requires positive
-                ret.append(
-                    np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls])).reshape(
-                        1, -1
-                    )
-                )
+                ret.append(np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls])).reshape(1, -1))
             i -= 1
             # remove dead tracklet
             if trk.time_since_update > self.max_age:

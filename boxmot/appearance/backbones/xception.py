@@ -66,9 +66,7 @@ class Block(nn.Module):
         super(Block, self).__init__()
 
         if out_filters != in_filters or strides != 1:
-            self.skip = nn.Conv2d(
-                in_filters, out_filters, 1, stride=strides, bias=False
-            )
+            self.skip = nn.Conv2d(in_filters, out_filters, 1, stride=strides, bias=False)
             self.skipbn = nn.BatchNorm2d(out_filters)
         else:
             self.skip = None
@@ -79,28 +77,18 @@ class Block(nn.Module):
         filters = in_filters
         if grow_first:
             rep.append(self.relu)
-            rep.append(
-                SeparableConv2d(
-                    in_filters, out_filters, 3, stride=1, padding=1, bias=False
-                )
-            )
+            rep.append(SeparableConv2d(in_filters, out_filters, 3, stride=1, padding=1, bias=False))
             rep.append(nn.BatchNorm2d(out_filters))
             filters = out_filters
 
         for i in range(reps - 1):
             rep.append(self.relu)
-            rep.append(
-                SeparableConv2d(filters, filters, 3, stride=1, padding=1, bias=False)
-            )
+            rep.append(SeparableConv2d(filters, filters, 3, stride=1, padding=1, bias=False))
             rep.append(nn.BatchNorm2d(filters))
 
         if not grow_first:
             rep.append(self.relu)
-            rep.append(
-                SeparableConv2d(
-                    in_filters, out_filters, 3, stride=1, padding=1, bias=False
-                )
-            )
+            rep.append(SeparableConv2d(in_filters, out_filters, 3, stride=1, padding=1, bias=False))
             rep.append(nn.BatchNorm2d(out_filters))
 
         if not start_with_relu:
@@ -187,9 +175,9 @@ class Xception(nn.Module):
             self.feature_dim = input_dim
             return None
 
-        assert isinstance(
-            fc_dims, (list, tuple)
-        ), "fc_dims must be either list or tuple, but got {}".format(type(fc_dims))
+        assert isinstance(fc_dims, (list, tuple)), "fc_dims must be either list or tuple, but got {}".format(
+            type(fc_dims)
+        )
 
         layers = []
         for dim in fc_dims:
@@ -280,11 +268,7 @@ def init_pretrained_weights(model, model_url):
     """
     pretrain_dict = model_zoo.load_url(model_url)
     model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
+    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 

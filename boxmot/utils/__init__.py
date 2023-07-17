@@ -42,12 +42,8 @@ class PerClassDecorator:
 
                 mc_dets = np.empty(shape=(0, 7))
                 for class_id in relevant_classes:
-                    modified_args[0] = np.array(
-                        dets_dict.get(int(class_id), np.empty((0, 6)))
-                    )
-                    logger.debug(
-                        f"Feeding class {int(class_id)}: {modified_args[0].shape}"
-                    )
+                    modified_args[0] = np.array(dets_dict.get(int(class_id), np.empty((0, 6))))
+                    logger.debug(f"Feeding class {int(class_id)}: {modified_args[0].shape}")
                     dets = self.update(instance, modified_args[0], im)
                     if dets.size != 0:
                         mc_dets = np.append(mc_dets, dets, axis=0)

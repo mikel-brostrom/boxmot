@@ -10,8 +10,7 @@ from torch.utils.mobile_optimizer import optimize_for_mobile
 
 from boxmot.appearance import export_formats
 from boxmot.appearance.backbones import build_model
-from boxmot.appearance.reid_model_factory import (get_model_name,
-                                                  load_pretrained_weights)
+from boxmot.appearance.reid_model_factory import get_model_name, load_pretrained_weights
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import TestRequirements
@@ -89,9 +88,7 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
                 )
                 import onnxsim
 
-                LOGGER.info(
-                    f"simplifying with onnx-simplifier {onnxsim.__version__}..."
-                )
+                LOGGER.info(f"simplifying with onnx-simplifier {onnxsim.__version__}...")
                 model_onnx, check = onnxsim.simplify(model_onnx)
                 assert check, "assert check failed"
                 onnx.save(model_onnx, f)
@@ -104,9 +101,7 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
 
 
 def export_openvino(file, half):
-    __tr.check_packages(
-        ("openvino-dev",)
-    )  # requires openvino-dev: https://pypi.org/project/openvino-dev/
+    __tr.check_packages(("openvino-dev",))  # requires openvino-dev: https://pypi.org/project/openvino-dev/
     import openvino.runtime as ov  # noqa
     from openvino.tools import mo  # noqa
 
@@ -148,9 +143,7 @@ def export_tflite(file):
 
 def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose=False):
     try:
-        assert (
-            im.device.type != "cpu"
-        ), "export running on CPU but must be on GPU, i.e. `python export.py --device 0`"
+        assert im.device.type != "cpu", "export running on CPU but must be on GPU, i.e. `python export.py --device 0`"
         try:
             import tensorrt as trt
         except Exception:
@@ -185,19 +178,13 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
         outputs = [network.get_output(i) for i in range(network.num_outputs)]
         logger.info("Network Description:")
         for inp in inputs:
-            logger.info(
-                f'\tinput "{inp.name}" with shape {inp.shape} and dtype {inp.dtype}'
-            )
+            logger.info(f'\tinput "{inp.name}" with shape {inp.shape} and dtype {inp.dtype}')
         for out in outputs:
-            logger.info(
-                f'\toutput "{out.name}" with shape {out.shape} and dtype {out.dtype}'
-            )
+            logger.info(f'\toutput "{out.name}" with shape {out.shape} and dtype {out.dtype}')
 
         if dynamic:
             if im.shape[0] <= 1:
-                logger.warning(
-                    "WARNING: --dynamic model requires maximum --batch-size argument"
-                )
+                logger.warning("WARNING: --dynamic model requires maximum --batch-size argument")
             profile = builder.create_optimization_profile()
             for inp in inputs:
                 if half:
@@ -210,9 +197,7 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
                 )
             config.add_optimization_profile(profile)
 
-        logger.info(
-            f"Building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine in {f}"
-        )
+        logger.info(f"Building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine in {f}")
         if builder.platform_has_fast_fp16 and half:
             config.set_flag(trt.BuilderFlag.FP16)
             config.default_device_type = trt.DeviceType.GPU
@@ -236,20 +221,12 @@ if __name__ == "__main__":
         default=[256, 128],
         help="image (h, w)",
     )
-    parser.add_argument(
-        "--device", default="cpu", help="cuda device, i.e. 0 or 0,1,2,3 or cpu"
-    )
-    parser.add_argument(
-        "--optimize", action="store_true", help="TorchScript: optimize for mobile"
-    )
-    parser.add_argument(
-        "--dynamic", action="store_true", help="ONNX/TF/TensorRT: dynamic axes"
-    )
+    parser.add_argument("--device", default="cpu", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
+    parser.add_argument("--optimize", action="store_true", help="TorchScript: optimize for mobile")
+    parser.add_argument("--dynamic", action="store_true", help="ONNX/TF/TensorRT: dynamic axes")
     parser.add_argument("--simplify", action="store_true", help="ONNX: simplify model")
     parser.add_argument("--opset", type=int, default=12, help="ONNX: opset version")
-    parser.add_argument(
-        "--workspace", type=int, default=4, help="TensorRT: workspace size (GB)"
-    )
+    parser.add_argument("--workspace", type=int, default=4, help="TensorRT: workspace size (GB)")
     parser.add_argument("--verbose", action="store_true", help="TensorRT: verbose log")
     parser.add_argument(
         "--weights",
@@ -257,9 +234,7 @@ if __name__ == "__main__":
         default=WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt",
         help="model.pt path(s)",
     )
-    parser.add_argument(
-        "--half", action="store_true", help="FP16 half-precision export"
-    )
+    parser.add_argument("--half", action="store_true", help="FP16 half-precision export")
     parser.add_argument(
         "--include",
         nargs="+",
@@ -273,32 +248,24 @@ if __name__ == "__main__":
     include = [x.lower() for x in args.include]  # to lowercase
     fmts = tuple(export_formats()["Argument"][1:])  # --include arguments
     flags = [x in include for x in fmts]
-    assert sum(flags) == len(
-        include
-    ), f"ERROR: Invalid --include {include}, valid --include arguments are {fmts}"
+    assert sum(flags) == len(include), f"ERROR: Invalid --include {include}, valid --include arguments are {fmts}"
     jit, onnx, openvino, engine, tflite = flags  # export booleans
 
     args.device = select_device(args.device)
     if args.half:
-        assert (
-            args.device.type != "cpu"
-        ), "--half only compatible with GPU export, i.e. use --device 0"
+        assert args.device.type != "cpu", "--half only compatible with GPU export, i.e. use --device 0"
 
     model = build_model(
         get_model_name(args.weights),
         num_classes=1,
-        pretrained=not (
-            args.weights and args.weights.is_file() and args.weights.suffix == ".pt"
-        ),
+        pretrained=not (args.weights and args.weights.is_file() and args.weights.suffix == ".pt"),
         use_gpu=args.device,
     ).to(args.device)
     load_pretrained_weights(model, args.weights)
     model.eval()
 
     if args.optimize:
-        assert (
-            args.device.type == "cpu"
-        ), "--optimize not compatible with cuda devices, i.e. use --device cpu"
+        assert args.device.type == "cpu", "--optimize not compatible with cuda devices, i.e. use --device cpu"
 
     # adapt input shapes for lmbn models
     if "lmbn" in str(args.weights):
@@ -312,9 +279,7 @@ if __name__ == "__main__":
     if args.half:
         im, model = im.half(), model.half()  # to FP16
     shape = tuple((y[0] if isinstance(y, tuple) else y).shape)  # model output shape
-    LOGGER.info(
-        f"\nStarting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)"
-    )
+    LOGGER.info(f"\nStarting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)")
 
     # Exports
     f = [""] * len(fmts)  # exported filenames
@@ -332,9 +297,7 @@ if __name__ == "__main__":
             args.verbose,
         )
     if onnx:  # OpenVINO requires ONNX
-        f[2] = export_onnx(
-            model, im, args.weights, args.opset, args.dynamic, args.half, args.simplify
-        )  # opset 12
+        f[2] = export_onnx(model, im, args.weights, args.opset, args.dynamic, args.half, args.simplify)  # opset 12
     if tflite:
         export_tflite(f[2])
     if openvino:

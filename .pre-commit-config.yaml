@@ -13,14 +13,10 @@ repos:
       - id: requirements-txt-fixer # sorts entries in requirements.txt.
       - id: trailing-whitespace # trims trailing whitespace.
 
--   repo: https://github.com/PyCQA/flake8
-    rev: 6.0.0
+-   repo: https://github.com/psf/black
+    rev: 23.7.0
     hooks:
-      - id: flake8
-        name: PEP8
-
--   repo: https://github.com/PyCQA/isort
-    rev: 5.12.0
-    hooks:
-      - id: isort
-        name: Sort imports
+    -   id: black
+        args: [
+            --line-length=120
+        ]

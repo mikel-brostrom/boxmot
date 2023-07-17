@@ -101,9 +101,7 @@ class SpatialAttn(nn.Module):
         # 3-by-3 conv
         x = self.conv1(x)
         # bilinear resizing
-        x = F.upsample(
-            x, (x.size(2) * 2, x.size(3) * 2), mode="bilinear", align_corners=True
-        )
+        x = F.upsample(x, (x.size(2) * 2, x.size(3) * 2), mode="bilinear", align_corners=True)
         # scaling conv
         x = self.conv2(x)
         return x
@@ -159,9 +157,7 @@ class HardAttn(nn.Module):
 
     def init_params(self):
         self.fc.weight.data.zero_()
-        self.fc.bias.data.copy_(
-            torch.tensor([0, -0.75, 0, -0.25, 0, 0.25, 0, 0.75], dtype=torch.float)
-        )
+        self.fc.bias.data.copy_(torch.tensor([0, -0.75, 0, -0.25, 0, 0.25, 0, 0.75], dtype=torch.float))
 
     def forward(self, x):
         # squeeze operation (global average pooling)
@@ -294,9 +290,7 @@ class HACNN(nn.Module):
     def forward(self, x):
         assert (
             x.size(2) == 160 and x.size(3) == 64
-        ), "Input size does not match, expected (160, 64) but got ({}, {})".format(
-            x.size(2), x.size(3)
-        )
+        ), "Input size does not match, expected (160, 64) but got ({}, {})".format(x.size(2), x.size(3))
         x = self.conv(x)
 
         # ============== Block 1 ==============
@@ -311,9 +305,7 @@ class HACNN(nn.Module):
                 x1_theta_i = x1_theta[:, region_idx, :]
                 x1_theta_i = self.transform_theta(x1_theta_i, region_idx)
                 x1_trans_i = self.stn(x, x1_theta_i)
-                x1_trans_i = F.upsample(
-                    x1_trans_i, (24, 28), mode="bilinear", align_corners=True
-                )
+                x1_trans_i = F.upsample(x1_trans_i, (24, 28), mode="bilinear", align_corners=True)
                 x1_local_i = self.local_conv1(x1_trans_i)
                 x1_local_list.append(x1_local_i)
 
@@ -330,9 +322,7 @@ class HACNN(nn.Module):
                 x2_theta_i = x2_theta[:, region_idx, :]
                 x2_theta_i = self.transform_theta(x2_theta_i, region_idx)
                 x2_trans_i = self.stn(x1_out, x2_theta_i)
-                x2_trans_i = F.upsample(
-                    x2_trans_i, (12, 14), mode="bilinear", align_corners=True
-                )
+                x2_trans_i = F.upsample(x2_trans_i, (12, 14), mode="bilinear", align_corners=True)
                 x2_local_i = x2_trans_i + x1_local_list[region_idx]
                 x2_local_i = self.local_conv2(x2_local_i)
                 x2_local_list.append(x2_local_i)
@@ -350,27 +340,21 @@ class HACNN(nn.Module):
                 x3_theta_i = x3_theta[:, region_idx, :]
                 x3_theta_i = self.transform_theta(x3_theta_i, region_idx)
                 x3_trans_i = self.stn(x2_out, x3_theta_i)
-                x3_trans_i = F.upsample(
-                    x3_trans_i, (6, 7), mode="bilinear", align_corners=True
-                )
+                x3_trans_i = F.upsample(x3_trans_i, (6, 7), mode="bilinear", align_corners=True)
                 x3_local_i = x3_trans_i + x2_local_list[region_idx]
                 x3_local_i = self.local_conv3(x3_local_i)
                 x3_local_list.append(x3_local_i)
 
         # ============== Feature generation ==============
         # global branch
-        x_global = F.avg_pool2d(x3_out, x3_out.size()[2:]).view(
-            x3_out.size(0), x3_out.size(1)
-        )
+        x_global = F.avg_pool2d(x3_out, x3_out.size()[2:]).view(x3_out.size(0), x3_out.size(1))
         x_global = self.fc_global(x_global)
         # local branch
         if self.learn_region:
             x_local_list = []
             for region_idx in range(4):
                 x_local_i = x3_local_list[region_idx]
-                x_local_i = F.avg_pool2d(x_local_i, x_local_i.size()[2:]).view(
-                    x_local_i.size(0), -1
-                )
+                x_local_i = F.avg_pool2d(x_local_i, x_local_i.size()[2:]).view(x_local_i.size(0), -1)
                 x_local_list.append(x_local_i)
             x_local = torch.cat(x_local_list, 1)
             x_local = self.fc_local(x_local)

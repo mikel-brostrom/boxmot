@@ -24,9 +24,7 @@ class StrongSORT(object):
         mc_lambda=0.995,
         ema_alpha=0.9,
     ):
-        self.model = ReIDDetectMultiBackend(
-            weights=model_weights, device=device, fp16=fp16
-        )
+        self.model = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
 
         self.max_dist = max_dist
         metric = NearestNeighborDistanceMetric("cosine", self.max_dist, nn_budget)
@@ -44,15 +42,9 @@ class StrongSORT(object):
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
-        assert isinstance(
-            img, np.ndarray
-        ), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
-        assert (
-            len(dets.shape) == 2
-        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
-        assert (
-            dets.shape[1] == 6
-        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        assert isinstance(img, np.ndarray), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
+        assert len(dets.shape) == 2, "Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert dets.shape[1] == 6, "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         xyxys = dets[:, 0:4]
         confs = dets[:, 4]
@@ -65,9 +57,7 @@ class StrongSORT(object):
         # generate detections
         features = self._get_features(xywhs, img)
         bbox_tlwh = self._xywh_to_tlwh(xywhs)
-        detections = [
-            Detection(bbox_tlwh[i], conf, features[i]) for i, conf in enumerate(confs)
-        ]
+        detections = [Detection(bbox_tlwh[i], conf, features[i]) for i, conf in enumerate(confs)]
 
         # update tracker
         self.tracker.predict()
@@ -86,9 +76,7 @@ class StrongSORT(object):
             class_id = track.class_id
             conf = track.conf
             # queue = track.q
-            outputs.append(
-                np.array([x1, y1, x2, y2, track_id, conf, class_id], dtype=np.float64)
-            )
+            outputs.append(np.array([x1, y1, x2, y2, track_id, conf, class_id], dtype=np.float64))
         outputs = np.asarray(outputs)
         return outputs
 

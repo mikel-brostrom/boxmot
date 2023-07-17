@@ -7,6 +7,13 @@ from boxmot.trackers.deepocsort.deep_ocsort import DeepOCSort as DeepOCSORT
 from boxmot.trackers.ocsort.ocsort import OCSort as OCSORT
 from boxmot.trackers.strongsort.strong_sort import StrongSORT
 
-__all__ = ("__version__",
-           "StrongSORT", "OCSORT", "BYTETracker", "BoTSORT", "DeepOCSORT",
-           "create_tracker", "get_tracker_config")
+__all__ = (
+    "__version__",
+    "StrongSORT",
+    "OCSORT",
+    "BYTETracker",
+    "BoTSORT",
+    "DeepOCSORT",
+    "create_tracker",
+    "get_tracker_config",
+)

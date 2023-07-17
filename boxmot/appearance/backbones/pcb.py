@@ -17,9 +17,7 @@ model_urls = {
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(
-        in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
-    )
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -61,13 +59,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(
-            planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
-        )
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(
-            planes, planes * self.expansion, kernel_size=1, bias=False
-        )
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -100,9 +94,7 @@ class DimReduceLayer(nn.Module):
     def __init__(self, in_channels, out_channels, nonlinear):
         super(DimReduceLayer, self).__init__()
         layers = []
-        layers.append(
-            nn.Conv2d(in_channels, out_channels, 1, stride=1, padding=0, bias=False)
-        )
+        layers.append(nn.Conv2d(in_channels, out_channels, 1, stride=1, padding=0, bias=False))
         layers.append(nn.BatchNorm2d(out_channels))
 
         if nonlinear == "relu":
@@ -128,17 +120,7 @@ class PCB(nn.Module):
         - ``pcb_p6``: PCB with 6-part strips.
     """
 
-    def __init__(
-        self,
-        num_classes,
-        loss,
-        block,
-        layers,
-        parts=6,
-        reduced_dim=256,
-        nonlinear="relu",
-        **kwargs
-    ):
+    def __init__(self, num_classes, loss, block, layers, parts=6, reduced_dim=256, nonlinear="relu", **kwargs):
         self.inplanes = 64
         super(PCB, self).__init__()
         self.loss = loss
@@ -158,13 +140,9 @@ class PCB(nn.Module):
         # pcb layers
         self.parts_avgpool = nn.AdaptiveAvgPool2d((self.parts, 1))
         self.dropout = nn.Dropout(p=0.5)
-        self.conv5 = DimReduceLayer(
-            512 * block.expansion, reduced_dim, nonlinear=nonlinear
-        )
+        self.conv5 = DimReduceLayer(512 * block.expansion, reduced_dim, nonlinear=nonlinear)
         self.feature_dim = reduced_dim
-        self.classifier = nn.ModuleList(
-            [nn.Linear(self.feature_dim, num_classes) for _ in range(self.parts)]
-        )
+        self.classifier = nn.ModuleList([nn.Linear(self.feature_dim, num_classes) for _ in range(self.parts)])
 
         self._init_params()
 
@@ -252,11 +230,7 @@ def init_pretrained_weights(model, model_url):
     """
     pretrain_dict = model_zoo.load_url(model_url)
     model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
+    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 

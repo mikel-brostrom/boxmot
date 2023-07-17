@@ -18,15 +18,11 @@ class LMBN_n(nn.Module):
 
         osnet = osnet_x1_0(pretrained=True)
 
-        self.backone = nn.Sequential(
-            osnet.conv1, osnet.maxpool, osnet.conv2, osnet.conv3[0]
-        )
+        self.backone = nn.Sequential(osnet.conv1, osnet.maxpool, osnet.conv2, osnet.conv3[0])
 
         conv3 = osnet.conv3[1:]
 
-        self.global_branch = nn.Sequential(
-            copy.deepcopy(conv3), copy.deepcopy(osnet.conv4), copy.deepcopy(osnet.conv5)
-        )
+        self.global_branch = nn.Sequential(copy.deepcopy(conv3), copy.deepcopy(osnet.conv4), copy.deepcopy(osnet.conv5))
 
         self.partial_branch = nn.Sequential(
             copy.deepcopy(conv3), copy.deepcopy(osnet.conv4), copy.deepcopy(osnet.conv5)
@@ -48,9 +44,7 @@ class LMBN_n(nn.Module):
         self.reduction_3 = copy.deepcopy(reduction)
         self.reduction_4 = copy.deepcopy(reduction)
 
-        self.shared = nn.Sequential(
-            nn.Conv2d(self.chs, 512, 1, bias=False), nn.BatchNorm2d(512), nn.ReLU(True)
-        )
+        self.shared = nn.Sequential(nn.Conv2d(self.chs, 512, 1, bias=False), nn.BatchNorm2d(512), nn.ReLU(True))
         self.weights_init_kaiming(self.shared)
 
         self.reduction_ch_0 = BNNeck(512, num_classes, return_f=True)
@@ -85,10 +79,10 @@ class LMBN_n(nn.Module):
         if self.activation_map:
             _, _, h_par, _ = par.size()
 
-            fmap_p0 = par[:, :, :h_par // 2, :]
-            fmap_p1 = par[:, :, h_par // 2:, :]
+            fmap_p0 = par[:, :, : h_par // 2, :]
+            fmap_p1 = par[:, :, h_par // 2 :, :]
             fmap_c0 = cha[:, : self.chs, :, :]
-            fmap_c1 = cha[:, self.chs:, :, :]
+            fmap_c1 = cha[:, self.chs :, :, :]
             print("Generating activation maps...")
 
             return glo, glo_, fmap_c0, fmap_c1, fmap_p0, fmap_p1
@@ -111,7 +105,7 @@ class LMBN_n(nn.Module):
         ################
 
         c0 = cha[:, : self.chs, :, :]
-        c1 = cha[:, self.chs:, :, :]
+        c1 = cha[:, self.chs :, :, :]
         c0 = self.shared(c0)
         c1 = self.shared(c1)
         f_c0 = self.reduction_ch_0(c0)

@@ -9,23 +9,22 @@ from boxmot.utils import WEIGHTS
 from .yolo_strategy import YoloStrategy
 
 YOLOX_ZOO = {
-    'yolox_n': 'https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX',
-    'yolox_s': 'https://drive.google.com/uc?id=1uSmhXzyV1Zvb4TJJCzpsZOIcw7CCJLxj',
-    'yolox_m': 'https://drive.google.com/uc?id=11Zb0NN_Uu7JwUd9e6Nk8o2_EUfxWqsun',
-    'yolox_l': 'https://drive.google.com/uc?id=1XwfUuCBF4IgWBWK2H7oOhQgEj9Mrb3rz',
-    'yolox_x': 'https://drive.google.com/uc?id=1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5',
+    "yolox_n": "https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX",
+    "yolox_s": "https://drive.google.com/uc?id=1uSmhXzyV1Zvb4TJJCzpsZOIcw7CCJLxj",
+    "yolox_m": "https://drive.google.com/uc?id=11Zb0NN_Uu7JwUd9e6Nk8o2_EUfxWqsun",
+    "yolox_l": "https://drive.google.com/uc?id=1XwfUuCBF4IgWBWK2H7oOhQgEj9Mrb3rz",
+    "yolox_x": "https://drive.google.com/uc?id=1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5",
 }
 
 
 class YoloXStrategy(YoloStrategy):
     def __init__(self, model, device, args):
-
         self.args = args
         self.has_run = False
 
         model = str(model)
-        if model == 'yolox_n':
-            exp = get_exp(None, 'yolox_nano')
+        if model == "yolox_n":
+            exp = get_exp(None, "yolox_nano")
         else:
             exp = get_exp(None, model)
         exp.num_classes = 1  # bytetrack yolox models
@@ -33,16 +32,9 @@ class YoloXStrategy(YoloStrategy):
         self.model = exp.get_model()
         self.model.eval()
 
-        gdown.download(
-            url=YOLOX_ZOO[model],
-            output=str(WEIGHTS / (model + '.pth')),
-            quiet=False
-        )
+        gdown.download(url=YOLOX_ZOO[model], output=str(WEIGHTS / (model + ".pth")), quiet=False)
 
-        ckpt = torch.load(
-            str(WEIGHTS / (model + '.pth')),
-            map_location=torch.device('cpu')
-        )
+        ckpt = torch.load(str(WEIGHTS / (model + ".pth")), map_location=torch.device("cpu"))
 
         self.model.load_state_dict(ckpt["model"])
         self.model.to(device)
@@ -52,15 +44,11 @@ class YoloXStrategy(YoloStrategy):
         return preds
 
     def postprocess(self, path, preds, im, im0s, predictor):
-
         if not self.has_run:
             self.w_r, self.h_r = self.get_scaling_factors(im, im0s)
             self.has_run = True
 
-        preds = postprocess(
-            preds, 1, conf_thre=self.args.conf,
-            nms_thre=0.45, class_agnostic=True
-        )[0]
+        preds = postprocess(preds, 1, conf_thre=self.args.conf, nms_thre=0.45, class_agnostic=True)[0]
 
         if preds is None:
             preds = torch.empty(0, 6)
@@ -85,10 +73,5 @@ class YoloXStrategy(YoloStrategy):
         return preds
 
     def preds_to_yolov8_results(self, path, preds, im, im0s, predictor):
-        predictor.results[0] = Results(
-            path=path,
-            boxes=preds,
-            orig_img=im0s[0],
-            names=predictor.model.names
-        )
+        predictor.results[0] = Results(path=path, boxes=preds, orig_img=im0s[0], names=predictor.model.names)
         return predictor.results

@@ -60,9 +60,7 @@ class _DenseLayer(nn.Sequential):
     def forward(self, x):
         new_features = super(_DenseLayer, self).forward(x)
         if self.drop_rate > 0:
-            new_features = F.dropout(
-                new_features, p=self.drop_rate, training=self.training
-            )
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return torch.cat([x, new_features], 1)
 
 
@@ -70,9 +68,7 @@ class _DenseBlock(nn.Sequential):
     def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(
-                num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate
-            )
+            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
             self.add_module("denselayer%d" % (i + 1), layer)
 
 
@@ -190,9 +186,9 @@ class DenseNet(nn.Module):
             self.feature_dim = input_dim
             return None
 
-        assert isinstance(
-            fc_dims, (list, tuple)
-        ), "fc_dims must be either list or tuple, but got {}".format(type(fc_dims))
+        assert isinstance(fc_dims, (list, tuple)), "fc_dims must be either list or tuple, but got {}".format(
+            type(fc_dims)
+        )
 
         layers = []
         for dim in fc_dims:
@@ -268,11 +264,7 @@ def init_pretrained_weights(model, model_url):
             del pretrain_dict[key]
 
     model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
+    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 

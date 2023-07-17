@@ -31,9 +31,7 @@ class ChannelShuffle(nn.Module):
 
 
 class Bottleneck(nn.Module):
-    def __init__(
-        self, in_channels, out_channels, stride, num_groups, group_conv1x1=True
-    ):
+    def __init__(self, in_channels, out_channels, stride, num_groups, group_conv1x1=True):
         super(Bottleneck, self).__init__()
         assert stride in [1, 2], "Warning: stride must be either 1 or 2"
         self.stride = stride
@@ -42,9 +40,7 @@ class Bottleneck(nn.Module):
             out_channels -= in_channels
         # group conv is not applied to first conv1x1 at stage 2
         num_groups_conv1x1 = num_groups if group_conv1x1 else 1
-        self.conv1 = nn.Conv2d(
-            in_channels, mid_channels, 1, groups=num_groups_conv1x1, bias=False
-        )
+        self.conv1 = nn.Conv2d(in_channels, mid_channels, 1, groups=num_groups_conv1x1, bias=False)
         self.bn1 = nn.BatchNorm2d(mid_channels)
         self.shuffle1 = ChannelShuffle(num_groups)
         self.conv2 = nn.Conv2d(
@@ -57,9 +53,7 @@ class Bottleneck(nn.Module):
             bias=False,
         )
         self.bn2 = nn.BatchNorm2d(mid_channels)
-        self.conv3 = nn.Conv2d(
-            mid_channels, out_channels, 1, groups=num_groups, bias=False
-        )
+        self.conv3 = nn.Conv2d(mid_channels, out_channels, 1, groups=num_groups, bias=False)
         self.bn3 = nn.BatchNorm2d(out_channels)
         if stride == 2:
             self.shortcut = nn.AvgPool2d(3, stride=2, padding=1)
@@ -164,11 +158,7 @@ def init_pretrained_weights(model, model_url):
     """
     pretrain_dict = model_zoo.load_url(model_url)
     model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
+    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 
@@ -180,8 +170,6 @@ def shufflenet(num_classes, loss="softmax", pretrained=True, **kwargs):
         import warnings
 
         warnings.warn(
-            "The imagenet pretrained weights need to be manually downloaded from {}".format(
-                model_urls["imagenet"]
-            )
+            "The imagenet pretrained weights need to be manually downloaded from {}".format(model_urls["imagenet"])
         )
     return model

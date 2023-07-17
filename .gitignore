@@ -13,12 +13,7 @@ runs/
 videos/
 
 # Downloaded weights
-weights/*.pt
-weights/*.torchscript
-weights/*.onnx
-weights/*_openvino_model
-weights/*.engine
-weights/*.tflite
+examples/weights/*
 
 # evaluation tools folder
 val_utils/

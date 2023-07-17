@@ -11,9 +11,7 @@ import torchvision.transforms as T
 from ..utils import logger as LOGGER
 from ..utils.checks import TestRequirements
 from .backbones import build_model
-from .reid_model_factory import (get_model_name, get_model_url,
-                                 load_pretrained_weights,
-                                 show_downloadable_models)
+from .reid_model_factory import get_model_name, get_model_url, load_pretrained_weights, show_downloadable_models
 
 __tr = TestRequirements()
 
@@ -34,9 +32,7 @@ def check_suffix(file="osnet_x0_25_msmt17.pt", suffix=(".pt",), msg=""):
 
 class ReIDDetectMultiBackend(nn.Module):
     # ReID models MultiBackend class for python inference on various backends
-    def __init__(
-        self, weights="osnet_x0_25_msmt17.pt", device=torch.device("cpu"), fp16=False
-    ):
+    def __init__(self, weights="osnet_x0_25_msmt17.pt", device=torch.device("cpu"), fp16=False):
         super().__init__()
 
         w = weights[0] if isinstance(weights, list) else weights
@@ -74,9 +70,7 @@ class ReIDDetectMultiBackend(nn.Module):
             elif file_exists(w):
                 pass
             else:
-                LOGGER.error(
-                    f"No URL associated to the chosen StrongSORT weights ({w}). Choose between:"
-                )
+                LOGGER.error(f"No URL associated to the chosen StrongSORT weights ({w}). Choose between:")
                 show_downloadable_models()
                 exit()
 
@@ -104,11 +98,7 @@ class ReIDDetectMultiBackend(nn.Module):
             __tr.check_packages(["onnx", "onnxruntime-gpu" if cuda else "onnxruntime"])
             import onnxruntime
 
-            providers = (
-                ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                if cuda
-                else ["CPUExecutionProvider"]
-            )
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if cuda else ["CPUExecutionProvider"]
             self.session = onnxruntime.InferenceSession(str(w), providers=providers)
         elif self.engine:  # TensorRT
             LOGGER.info(f"Loading {w} for TensorRT inference...")
@@ -131,19 +121,13 @@ class ReIDDetectMultiBackend(nn.Module):
                 if self.model_.binding_is_input(index):
                     if -1 in tuple(self.model_.get_binding_shape(index)):  # dynamic
                         # dynamic = True
-                        self.context.set_binding_shape(
-                            index, tuple(self.model_.get_profile_shape(0, index)[2])
-                        )
+                        self.context.set_binding_shape(index, tuple(self.model_.get_profile_shape(0, index)[2]))
                     if dtype == np.float16:
                         self.fp16 = True
                 shape = tuple(self.context.get_binding_shape(index))
                 im = torch.from_numpy(np.empty(shape, dtype=dtype)).to(device)
-                self.bindings[name] = Binding(
-                    name, dtype, shape, im, int(im.data_ptr())
-                )
-            self.binding_addrs = OrderedDict(
-                (n, d.ptr) for n, d in self.bindings.items()
-            )
+                self.bindings[name] = Binding(name, dtype, shape, im, int(im.data_ptr()))
+            self.binding_addrs = OrderedDict((n, d.ptr) for n, d in self.bindings.items())
             # batch_size = self.bindings["images"].shape[
             #     0
             # ]  # if dynamic, this is instead max batch size
@@ -160,9 +144,7 @@ class ReIDDetectMultiBackend(nn.Module):
                 )
             ie = Core()
             if not Path(w).is_file():  # if not *.xml
-                w = next(
-                    Path(w).glob("*.xml")
-                )  # get *.xml file from *_openvino_model dir
+                w = next(Path(w).glob("*.xml"))  # get *.xml file from *_openvino_model dir
             network = ie.read_model(model=w, weights=Path(w).with_suffix(".bin"))
             if network.get_parameters()[0].get_layout().empty:
                 network.get_parameters()[0].set_layout(Layout("NCWH"))
@@ -177,6 +159,7 @@ class ReIDDetectMultiBackend(nn.Module):
         elif self.tflite:
             LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
             import tensorflow as tf
+
             self.interpreter = tf.lite.Interpreter(model_path=w)
             self.interpreter.allocate_tensors()
             # Get input and output tensors.
@@ -184,9 +167,7 @@ class ReIDDetectMultiBackend(nn.Module):
             self.output_details = self.interpreter.get_output_details()
 
             # Test model on random input data.
-            input_data = np.array(
-                np.random.random_sample((1, 256, 128, 3)), dtype=np.float32
-            )
+            input_data = np.array(np.random.random_sample((1, 256, 128, 3)), dtype=np.float32)
             self.interpreter.set_tensor(self.input_details[0]["index"], input_data)
 
             self.interpreter.invoke()
@@ -241,18 +222,10 @@ class ReIDDetectMultiBackend(nn.Module):
             )[0]
         elif self.engine:  # TensorRT
             if True and im_batch.shape != self.bindings["images"].shape:
-                i_in, i_out = (
-                    self.model_.get_binding_index(x) for x in ("images", "output")
-                )
-                self.context.set_binding_shape(
-                    i_in, im_batch.shape
-                )  # reshape if dynamic
-                self.bindings["images"] = self.bindings["images"]._replace(
-                    shape=im_batch.shape
-                )
-                self.bindings["output"].data.resize_(
-                    tuple(self.context.get_binding_shape(i_out))
-                )
+                i_in, i_out = (self.model_.get_binding_index(x) for x in ("images", "output"))
+                self.context.set_binding_shape(i_in, im_batch.shape)  # reshape if dynamic
+                self.bindings["images"] = self.bindings["images"]._replace(shape=im_batch.shape)
+                self.bindings["output"].data.resize_(tuple(self.context.get_binding_shape(i_out)))
             s = self.bindings["images"].shape
             assert (
                 im_batch.shape == s
@@ -264,17 +237,11 @@ class ReIDDetectMultiBackend(nn.Module):
             im_batch = im_batch.cpu().numpy()  # FP32
             features = self.executable_network([im_batch])[self.output_layer]
         else:
-            LOGGER.error(
-                "Framework not supported at the moment, leave an enhancement suggestion"
-            )
+            LOGGER.error("Framework not supported at the moment, leave an enhancement suggestion")
             exit()
 
         if isinstance(features, (list, tuple)):
-            return (
-                self.from_numpy(features[0])
-                if len(features) == 1
-                else [self.from_numpy(x) for x in features]
-            )
+            return self.from_numpy(features[0]) if len(features) == 1 else [self.from_numpy(x) for x in features]
         else:
             return self.from_numpy(features)
 
