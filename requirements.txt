@@ -1,18 +1,20 @@
-# base -------------------------------------------------------------------------
-torch>=1.7.0
-torchvision>=0.8.1
-numpy==1.23.1           # otherwise issues with track eval
-loguru>=0.7.0
-opencv-python>=4.6.0
-PyYAML>=5.3.1           # read tracker configs
-pandas>=1.1.4           # export matrix
-gdown>=4.7.1            # google drive model download
-GitPython>=3.1.0        # track eval cloning
-lapx>=0.5.2
 
 # tracker-specific packages ----------------------------------------------------
 
 filterpy>=1.4.5         # OCSORT & DeepOCSORT
+gdown>=4.7.1            # google drive model download
+GitPython>=3.1.0        # track eval cloning
+lapx>=0.5.2
+loguru>=0.7.0
+numpy==1.23.1           # otherwise issues with track eval
+opencv-python>=4.6.0
+pandas>=1.1.4           # export matrix
+pre-commit>=3.3.3
+PyYAML>=5.3.1           # read tracker configs
+tensorboard>=2.13.0
+# base -------------------------------------------------------------------------
+torch>=1.7.0
+torchvision>=0.8.1
 
 # Export ----------------------------------------------------------------------
 

@@ -1,8 +1,6 @@
-from pathlib import Path
 import numpy as np
 import torch
-
-from ultralytics.yolo.engine.results import Boxes, Results
+from ultralytics.yolo.engine.results import Boxes
 
 
 class YoloStrategy:
@@ -16,7 +14,8 @@ class YoloStrategy:
     def filter_results(self, i, predictor):
         if predictor.tracker_outputs[i].size != 0:
             # filter boxes masks and pose results by tracking results
-            predictor.tracker_outputs[i] = predictor.tracker_outputs[i][predictor.tracker_outputs[i][:, 5].argsort()[::-1]]
+            sorted_confs = predictor.tracker_outputs[i][:, 5].argsort()[::-1]
+            predictor.tracker_outputs[i] = predictor.tracker_outputs[i][sorted_confs]
             yolo_confs = predictor.results[i].boxes.conf.cpu().numpy()
             tracker_confs = predictor.tracker_outputs[i][:, 5]
             mask = np.in1d(yolo_confs, tracker_confs)
