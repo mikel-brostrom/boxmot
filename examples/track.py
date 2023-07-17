@@ -15,7 +15,7 @@ from boxmot.utils.torch_utils import select_device
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics==8.0.124',))  # install
 
-from detectors.strategy import find_yolo_engine
+from detectors.strategy import get_yolo_inferer
 from detectors.yolo_processor import Yolo
 from ultralytics.yolo.data.utils import VID_FORMATS
 from ultralytics.yolo.engine.model import TASK_MAP, YOLO
@@ -94,7 +94,7 @@ def run(args):
     predictor.add_callback('on_predict_start', on_predict_start)
     predictor.run_callbacks('on_predict_start')
 
-    yolo_strategy = find_yolo_engine(args['yolo_model'])
+    yolo_strategy = get_yolo_inferer(args['yolo_model'])
     yolo_strategy = yolo_strategy(
         model=model.predictor.model if 'v8' in str(args['yolo_model']) else args['yolo_model'],
         device=predictor.device,
