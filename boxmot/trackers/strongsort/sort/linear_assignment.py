@@ -1,9 +1,10 @@
 # vim: expandtab:ts=4:sw=4
 from __future__ import absolute_import
+
 import numpy as np
 from scipy.optimize import linear_sum_assignment
-from ....utils.matching import chi2inv95
 
+from ....utils.matching import chi2inv95
 
 INFTY_COST = 1e5
 

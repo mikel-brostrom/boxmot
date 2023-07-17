@@ -1,20 +1,15 @@
-import numpy as np
 from collections import deque
 
-from ...utils.matching import (
-    iou_distance,
-    fuse_score,
-    linear_assignment,
-    embedding_distance,
-    fuse_motion,
-)
-from ...utils.gmc import GlobalMotionCompensation
-from .basetrack import BaseTrack, TrackState
-from ...motion.adapters import BotSortKalmanFilterAdapter
+import numpy as np
 import torch
 
 from ...appearance.reid_multibackend import ReIDDetectMultiBackend
-from ...utils.ops import xyxy2xywh, xywh2xyxy
+from ...motion.adapters import BotSortKalmanFilterAdapter
+from ...utils.gmc import GlobalMotionCompensation
+from ...utils.matching import (embedding_distance, fuse_score,  # fuse_motion,
+                               iou_distance, linear_assignment)
+from ...utils.ops import xywh2xyxy, xyxy2xywh
+from .basetrack import BaseTrack, TrackState
 
 
 class STrack(BaseTrack):
@@ -290,10 +285,10 @@ class BoTSORT(object):
         ), f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
         assert (
             len(dets.shape) == 2
-        ), f"Unsupported 'dets' dimensions, valid number of dimensions is two"
+        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
         assert (
             dets.shape[1] == 6
-        ), f"Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         self.frame_id += 1
         activated_starcks = []
@@ -367,7 +362,6 @@ class BoTSORT(object):
         ious_dists_mask = ious_dists > self.proximity_thresh
 
         emb_dists = embedding_distance(strack_pool, detections) / 2.0
-        raw_emb_dists = emb_dists.copy()
         emb_dists[emb_dists > self.appearance_thresh] = 1.0
         emb_dists[ious_dists_mask] = 1.0
         dists = np.minimum(ious_dists, emb_dists)
@@ -440,7 +434,6 @@ class BoTSORT(object):
         ious_dists = fuse_score(ious_dists, detections)
 
         emb_dists = embedding_distance(unconfirmed, detections) / 2.0
-        raw_emb_dists = emb_dists.copy()
         emb_dists[emb_dists > self.appearance_thresh] = 1.0
         emb_dists[ious_dists_mask] = 1.0
         dists = np.minimum(ious_dists, emb_dists)

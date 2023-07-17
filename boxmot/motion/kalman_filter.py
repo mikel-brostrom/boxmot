@@ -96,14 +96,15 @@ Copyright 2014-2018 Roger R Labbe Jr.
 
 from __future__ import absolute_import, division
 
-from sys import float_info
 from copy import deepcopy
-from math import log, exp, sqrt
+from math import exp, log, sqrt
+from sys import float_info
+
 import numpy as np
-from numpy import dot, zeros, eye, isscalar, shape
 import numpy.linalg as linalg
-from filterpy.stats import logpdf
 from filterpy.common import pretty_str, reshape_z
+from filterpy.stats import logpdf
+from numpy import dot, eye, isscalar, shape, zeros
 
 
 class KalmanFilter(object):
@@ -407,7 +408,7 @@ class KalmanFilter(object):
                     m @ self.attr_saved["last_measurement"][2:]
                 )
         else:
-            scale = np.linalg.norm(m[:, 0])
+            # scale = np.linalg.norm(m[:, 0])
             self.x[:2] = m @ self.x[:2] + t
             self.x[4:6] = m @ self.x[4:6]
             # self.x[2] *= scale
@@ -426,9 +427,7 @@ class KalmanFilter(object):
                 # self.attr_saved["x"][6] *= scale
 
                 self.attr_saved["P"][:2, :2] = m @ self.attr_saved["P"][:2, :2] @ m.T
-                self.attr_saved["P"][4:6, 4:6] = (
-                    m @ self.attr_saved["P"][4:6, 4:6] @ m.T
-                )
+                self.attr_saved["P"][4:6, 4:6] = m @ self.attr_saved["P"][4:6, 4:6] @ m.T
                 # self.attr_saved["P"][2, 2] *= 2 * scale
                 # self.attr_saved["P"][6, 6] *= 2 * scale
 
@@ -635,20 +634,20 @@ class KalmanFilter(object):
             otherwise it must be convertible to a column vector.
         Examples
         --------
-        >>> cv = kinematic_kf(dim=3, order=2) # 3D const velocity filter
-        >>> # let filter converge on representative data, then save k and P
-        >>> for i in range(100):
-        >>>     cv.predict()
-        >>>     cv.update([i, i, i])
-        >>> saved_k = np.copy(cv.K)
-        >>> saved_P = np.copy(cv.P)
+        cv = KalmanFilter(dim=3, order=2) # 3D const velocity filter
+        # let filter converge on representative data, then save k and P
+        for i in range(100):
+            cv.predict()
+            cv.update([i, i, i])
+            saved_K = np.copy(cv.K)
+            saved_P = np.copy(cv.P)
         later on:
-        >>> cv = kinematic_kf(dim=3, order=2) # 3D const velocity filter
-        >>> cv.K = np.copy(saved_K)
-        >>> cv.P = np.copy(saved_P)
-        >>> for i in range(100):
-        >>>     cv.predict_steadystate()
-        >>>     cv.update_steadystate([i, i, i])
+            cv = KalmanFilter(dim=3, order=2) # 3D const velocity filter
+            cv.K = np.copy(saved_K)
+            cv.P = np.copy(saved_P)
+            for i in range(100):
+                cv.predict_steadystate()
+                cv.update_steadystate([i, i, i])
         """
 
         # set to None to force recompute
@@ -701,7 +700,8 @@ class KalmanFilter(object):
             one call, otherwise  self.H will be used.
         References
         ----------
-        .. [1] Bulut, Y. (2011). Applied Kalman filter theory (Doctoral dissertation, Northeastern University).
+        .. [1] Bulut, Y. (2011). Applied Kalman filter theory
+               (Doctoral dissertation, Northeastern University).
                http://people.duke.edu/~hpgavin/SystemID/References/Balut-KalmanFilter-PhD-NEU-2011.pdf
         """
 
@@ -1201,14 +1201,14 @@ class KalmanFilter(object):
         x = self.x
         P = self.P
 
-        assert (
-            x.ndim == 1 or x.ndim == 2
-        ), "x must have one or two dimensions, but has {}".format(x.ndim)
+        assert x.ndim == 1 or x.ndim == 2, "x must have one or two dimensions, but has {}".format(
+            x.ndim
+        )
 
         if x.ndim == 1:
-            assert (
-                x.shape[0] == self.dim_x
-            ), "Shape of x must be ({},{}), but is {}".format(self.dim_x, 1, x.shape)
+            assert x.shape[0] == self.dim_x, "Shape of x must be ({},{}), but is {}".format(
+                self.dim_x, 1, x.shape
+            )
         else:
             assert x.shape == (
                 self.dim_x,
@@ -1218,31 +1218,25 @@ class KalmanFilter(object):
         assert P.shape == (
             self.dim_x,
             self.dim_x,
-        ), "Shape of P must be ({},{}), but is {}".format(
-            self.dim_x, self.dim_x, P.shape
-        )
+        ), "Shape of P must be ({},{}), but is {}".format(self.dim_x, self.dim_x, P.shape)
 
         assert Q.shape == (
             self.dim_x,
             self.dim_x,
-        ), "Shape of Q must be ({},{}), but is {}".format(
-            self.dim_x, self.dim_x, P.shape
-        )
+        ), "Shape of Q must be ({},{}), but is {}".format(self.dim_x, self.dim_x, P.shape)
 
         assert F.shape == (
             self.dim_x,
             self.dim_x,
-        ), "Shape of F must be ({},{}), but is {}".format(
-            self.dim_x, self.dim_x, F.shape
-        )
+        ), "Shape of F must be ({},{}), but is {}".format(self.dim_x, self.dim_x, F.shape)
 
         assert np.ndim(H) == 2, "Shape of H must be (dim_z, {}), but is {}".format(
             P.shape[0], shape(H)
         )
 
-        assert (
-            H.shape[1] == P.shape[0]
-        ), "Shape of H must be (dim_z, {}), but is {}".format(P.shape[0], H.shape)
+        assert H.shape[1] == P.shape[0], "Shape of H must be (dim_z, {}), but is {}".format(
+            P.shape[0], H.shape
+        )
 
         # shape of R must be the same as HPH'
         hph_shape = (H.shape[0], H.shape[0])
@@ -1272,28 +1266,20 @@ class KalmanFilter(object):
             assert Hx.ndim == 1 or shape(Hx) == (
                 1,
                 1,
-            ), "shape of z should be {}, not {} for the given H".format(
-                shape(Hx), z_shape
-            )
+            ), "shape of z should be {}, not {} for the given H".format(shape(Hx), z_shape)
 
         elif shape(Hx) == (1,):
-            assert z_shape[0] == 1, "Shape of z must be {} for the given H".format(
-                shape(Hx)
-            )
+            assert z_shape[0] == 1, "Shape of z must be {} for the given H".format(shape(Hx))
 
         else:
             assert z_shape == shape(Hx) or (
                 len(z_shape) == 1 and shape(Hx) == (z_shape[0], 1)
-            ), "shape of z should be {}, not {} for the given H".format(
-                shape(Hx), z_shape
-            )
+            ), "shape of z should be {}, not {} for the given H".format(shape(Hx), z_shape)
 
         if np.ndim(Hx) > 1 and shape(Hx) != (1, 1):
             assert (
                 shape(Hx) == z_shape
-            ), "shape of z should be {} for the given H, but it is {}".format(
-                shape(Hx), z_shape
-            )
+            ), "shape of z should be {} for the given H, but it is {}".format(shape(Hx), z_shape)
 
 
 def update(x, P, z, R, H=None, return_all=False):
@@ -1409,8 +1395,6 @@ def update_steadystate(x, z, K, H=None):
     This can handle either the multidimensional or unidimensional case. If
     all parameters are floats instead of arrays the filter will still work,
     and return floats for x, P as the result.
-    >>> update_steadystate(1, 2, 1)  # univariate
-    >>> update_steadystate(x, P, z, H)
     """
 
     if z is None:
@@ -1535,9 +1519,7 @@ def multi_predict(x, P, F=1, Q=0):
     return x, P
 
 
-def batch_filter(
-    x, P, zs, Fs, Qs, Hs, Rs, Bs=None, us=None, update_first=False, saver=None
-):
+def batch_filter(x, P, zs, Fs, Qs, Hs, Rs, Bs=None, us=None, update_first=False, saver=None):
     """
     Batch processes a sequences of measurements.
     Parameters

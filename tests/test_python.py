@@ -1,20 +1,20 @@
 # pytest tests/test_python.py
 
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 from numpy.testing import assert_allclose
 
-from boxmot.utils import WEIGHTS
-from boxmot.trackers import StrongSORT
-from boxmot.trackers import OCSort as OCSORT
-from boxmot.trackers import BYTETracker
-from boxmot.trackers import BoTSORT
-from boxmot.trackers import DeepOCSort as DeepOCSORT
 from boxmot.tracker_zoo import create_tracker, get_tracker_config
+from boxmot.trackers import BoTSORT, BYTETracker
+from boxmot.trackers import DeepOCSort as DeepOCSORT
+from boxmot.trackers import OCSort as OCSORT
+from boxmot.trackers import StrongSORT
+from boxmot.utils import WEIGHTS
 
 
 def test_strongsort_instantiation():
-    ss = StrongSORT(
+    StrongSORT(
         model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
         fp16=True,
@@ -22,15 +22,15 @@ def test_strongsort_instantiation():
 
 
 def test_botsort_instantiation():
-    bs = BoTSORT(
+    BoTSORT(
         model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
         fp16=True,
     )
-    
+
 
 def test_deepocsort_instantiation():
-    dos = DeepOCSORT(
+    DeepOCSORT(
         model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
         fp16=True,
@@ -39,14 +39,14 @@ def test_deepocsort_instantiation():
 
 
 def test_ocsort_instantiation():
-    os = OCSORT(
+    OCSORT(
         per_class=False
     )
 
 
 def test_bytetrack_instantiation():
-    bt = BYTETracker()
-    
+    BYTETracker()
+
 
 def test_deepocsort_output():
     tracker_conf = get_tracker_config('deepocsort')
@@ -58,7 +58,7 @@ def test_deepocsort_output():
         half=False,
         per_class=False
     )
-    rgb = np.random.randint(255, size=(640, 640, 3),dtype=np.uint8)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
     output = tracker.update(det, rgb)
@@ -103,7 +103,7 @@ def test_ocsort_output():
         half=False,
         per_class=False
     )
-    rgb = np.random.randint(255, size=(640, 640, 3),dtype=np.uint8)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
     output = tracker.update(det, rgb)
@@ -148,7 +148,7 @@ def test_botsort_output():
         half=False,
         per_class=False
     )
-    rgb = np.random.randint(255, size=(640, 640, 3),dtype=np.uint8)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
     output = tracker.update(det, rgb)
@@ -171,7 +171,7 @@ def test_bytetrack_output():
         half=False,
         per_class=False
     )
-    rgb = np.random.randint(255, size=(640, 640, 3),dtype=np.uint8)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.86, 65]])
     output = tracker.update(det, rgb)
@@ -195,7 +195,7 @@ def test_strongsort_output():
         per_class=False
     )
     tracker.n_init = 2
-    rgb = np.random.randint(255, size=(640, 640, 3),dtype=np.uint8)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
     output = tracker.update(det, rgb)

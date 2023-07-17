@@ -1,4 +1,5 @@
 import numpy as np
+
 from ..kalman_filter import KalmanFilter
 from ..kalman_filter import multi_predict as kf_multi_predict
 

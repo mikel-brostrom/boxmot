@@ -1,5 +1,6 @@
 import numpy as np
 from filterpy.common import reshape_z
+
 from ..kalman_filter import KalmanFilter
 
 
@@ -160,8 +161,9 @@ class StrongSortKalmanFilterAdapter(KalmanFilter):
             if not only_position:
                 squared_maha[i] = super().md_for_measurement(measurement)
             else:
-                z = reshape_z(z, self.dim_z, 2)
-                H = self.H[:2,:2]
+                # TODO (henriksod): Needs to be tested!
+                z = reshape_z(measurements, self.dim_z, 2)
+                H = self.H[:2, :2]
                 y = z - np.dot(H, self.x[:2])
-                squared_maha[i] = np.sqrt(float(np.dot(np.dot(y.T, self.SI[:2,:2]), y)))
+                squared_maha[i] = np.sqrt(float(np.dot(np.dot(y.T, self.SI[:2, :2]), y)))
         return squared_maha
