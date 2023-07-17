@@ -1,5 +1,5 @@
-import torch
 import numpy as np
+import torch
 
 
 def xyxy2xywh(x):
@@ -17,6 +17,7 @@ def xyxy2xywh(x):
     y[..., 2] = x[..., 2] - x[..., 0]  # width
     y[..., 3] = x[..., 3] - x[..., 1]  # height
     return y
+
 
 def xywh2xyxy(x):
     """

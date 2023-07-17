@@ -9,6 +9,13 @@ on:
     # pull request where master is target
     branches: [master]
 
+env:
+  # Directory of PyPi package to be tested
+  PACKAGE_DIR: boxmot
+  # Minimum acceptable test coverage
+  # Increase as you add more tests to increase coverage
+  COVERAGE_FAIL_UNDER: 31
+
 # the workflow that gets triggerd
 jobs:
   build:
@@ -24,7 +31,7 @@ jobs:
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
     steps:
-      
+
       - uses: actions/checkout@v3  # Check out the repository
       - uses: actions/setup-python@v4  # Prepare environment with python 3.9
         with:
@@ -34,14 +41,16 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e . pytest --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install -e . pytest pytest-cov --extra-index-url https://download.pytorch.org/whl/cpu
           python --version
           pip --version
           pip list
 
       - name: Pytest tests
         shell: bash  # for Windows compatibility
-        run: pytest tests
+        run: |
+          pytest --cov=$PACKAGE_DIR --cov-report=html -v tests
+          coverage report --fail-under=$COVERAGE_FAIL_UNDER
 
       - name: Tests all tracking options
         shell: bash  # for Windows compatibility
@@ -55,16 +64,16 @@ jobs:
 
           # botsort
           python examples/track.py --tracking-method botsort --source $IMG --imgsz 320
-          
+
           # strongsort
           python examples/track.py --tracking-method strongsort --source $IMG --imgsz 320
-          
+
           # ocsort
           python examples/track.py --tracking-method ocsort --source $IMG --imgsz 320
-          
+
           # bytetrack
           python examples/track.py --tracking-method bytetrack --source $IMG --imgsz 320
-          
+
       - name: Tests tracker with exported reid model
         env:
             IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
@@ -72,10 +81,10 @@ jobs:
         run: |
           # export
           python boxmot/appearance/reid_export.py  # defaults to torchscript
-          
+
           # strongsort w. exported reid model
           python examples/track.py --reid-model examples/weights/mobilenetv2_x1_4_dukemtmcreid.torchscript --source $IMG --imgsz 320
-      
+
       - name: Test tracking with seg models
         env:
             IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/MOT17-05-FRCNN/000001.jpg
@@ -103,4 +112,3 @@ jobs:
         run: |
           # evolve a for a single set of parameters
           python examples/evolve.py --objectives HOTA,MOTA,IDF1 --benchmark MOT17-mini --n-trials 1 --imgsz 320 --conf 0.2
-
