@@ -17,7 +17,7 @@ import yaml
 from ultralytics.yolo.utils.checks import check_requirements, print_args
 from val import Evaluator
 
-from boxmot.utils import ROOT, WEIGHTS, logger
+from boxmot.utils import ROOT, EXAMPLES, WEIGHTS, logger
 
 
 class Objective(Evaluator):
@@ -191,6 +191,7 @@ class Objective(Evaluator):
         # generate new set of params
         self.get_new_config(trial)
         # run trial, get HOTA, MOTA, IDF1 COMBINED results
+        print(self.opt)
         results = self.run(self.opt)
         # extract objective results of current trial
         combined_results = [results.get(key) for key in self.opt.objectives]
@@ -265,7 +266,7 @@ def parse_opt():
                         help='strongsort, ocsort, bytetrack, deepocsort, botsort')
     parser.add_argument('--name', default='exp',
                         help='save results to project/name')
-    parser.add_argument('--project', default=ROOT / 'runs' / 'evolve',
+    parser.add_argument('--project', default=EXAMPLES / 'runs' / 'evolve',
                         help='save results to project/name')
     parser.add_argument('--classes', nargs='+', type=str, default=['0'],
                         help='filter by class: --classes 0, or --classes 0 2 3')
