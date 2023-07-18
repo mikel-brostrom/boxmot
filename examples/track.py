@@ -160,8 +160,12 @@ def run(args):
                 # write MOT specific results
                 if predictor.args.source.endswith(VID_FORMATS):
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.stem
+                # mot txt called the same as the parent name to perform inference on
+                elif 'MOT16' or 'MOT17' or 'MOT20' in predictor.args.source:
+                    predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.parent.name
+                # mot txt called the same as the parent name to perform inference on
                 else:
-                    # append folder name containing current img
+                    
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.name
 
                 if predictor.tracker_outputs[i].size != 0 and predictor.args.save_mot:
