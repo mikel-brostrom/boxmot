@@ -19,7 +19,7 @@
 
 ## Introduction
 
-This repo contains a collections of pluggable state-of-the-art multi-object trackers for object detectors. We provide examples on how to use this package together with popular object detection models such as; [Yolov8](https://github.com/ultralytics), [Yolo-NAS](https://github.com/Deci-AI/super-gradients) and [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX).
+This repo contains a collections of pluggable state-of-the-art multi-object trackers for object detectors. We provide examples on how to use this package together with popular object detection models such as: [Yolov8](https://github.com/ultralytics), [Yolo-NAS](https://github.com/Deci-AI/super-gradients) and [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX).
 
 <details>
 <summary>Supported tracking methods</summary>
