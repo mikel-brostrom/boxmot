@@ -19,9 +19,15 @@
 
 ## Introduction
 
-This repo contains a collections of state-of-the-art multi-object trackers. Supported ones at the moment are: [DeepOCSORT](https://arxiv.org/abs/2302.11813) , [BoTSORT](https://arxiv.org/abs/2206.14651) , [StrongSORT](https://github.com/dyhBUPT/StrongSORT)[](https://arxiv.org/abs/2202.13514), [OCSORT](https://github.com/noahcao/OC_SORT)[](https://arxiv.org/abs/2203.14360) and [ByteTrack](https://github.com/ifzhang/ByteTrack)[](https://arxiv.org/abs/2110.06864). DeepOCSORT, BoTSORT and StrongSORT are based on motion + appearance description; OCSORT and ByteTrack are based on motion only. For the methods using appearance description, lightweight state-of-the-art ReID models ([LightMBN](https://github.com/jixunbo/LightMBN)[](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://github.com/KaiyangZhou/deep-person-reid)[](https://arxiv.org/abs/1905.00953) and more) are downloaded automatically as well.
+This repo contains a collections of pluggable state-of-the-art multi-object trackers for object detectors. We provide examples on how to use this package together with popular object detection models such as: [Yolov8](https://github.com/ultralytics), [Yolo-NAS](https://github.com/Deci-AI/super-gradients) and [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX).
 
-We provide examples on how to use this package together with popular object detection models. Right now [Yolov8](https://github.com/ultralytics), [Yolo-NAS](https://github.com/Deci-AI/super-gradients) and [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) are available.
+<details>
+<summary>Supported tracking methods</summary>
+
+[DeepOCSORT](https://arxiv.org/abs/2302.11813) , [BoTSORT](https://arxiv.org/abs/2206.14651) , [StrongSORT](https://github.com/dyhBUPT/StrongSORT)[](https://arxiv.org/abs/2202.13514), [OCSORT](https://github.com/noahcao/OC_SORT)[](https://arxiv.org/abs/2203.14360) and [ByteTrack](https://github.com/ifzhang/ByteTrack)[](https://arxiv.org/abs/2110.06864). DeepOCSORT, BoTSORT and StrongSORT are based on motion + appearance description; OCSORT and ByteTrack are based on motion only. For the methods using appearance description, lightweight state-of-the-art ReID models ([LightMBN](https://github.com/jixunbo/LightMBN)[](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://github.com/KaiyangZhou/deep-person-reid)[](https://arxiv.org/abs/1905.00953) and more) are downloaded automatically as well.
+
+
+</details>
 
 <details>
 <summary>Tutorials</summary>

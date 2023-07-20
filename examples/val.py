@@ -171,6 +171,7 @@ class Evaluator:
             processes = []
 
             busy_devices = []
+            print(seq_paths)
             for i, seq_path in enumerate(seq_paths):
                 # spawn one subprocess per GPU in increasing order.
                 # When max devices are reached start at 0 again
@@ -185,13 +186,7 @@ class Evaluator:
                 tracking_subprocess_device = free_devices.pop(0)
                 busy_devices.append(tracking_subprocess_device)
 
-                dst_seq_path = seq_path.parent / seq_path.parent.name
-
-                if not dst_seq_path.is_dir():
-                    src_seq_path = seq_path
-                    shutil.move(str(src_seq_path), str(dst_seq_path))
-
-                LOGGER.info(f"Staring evaluation process on {dst_seq_path}")
+                LOGGER.info(f"Staring evaluation process on {seq_path}")
                 p = subprocess.Popen(
                     args=[
                         sys.executable, str(EXAMPLES / "track.py"),
@@ -205,28 +200,19 @@ class Evaluator:
                         "--save-mot",
                         "--project", self.opt.project,
                         "--device", str(tracking_subprocess_device),
-                        "--source", dst_seq_path,
+                        "--source", seq_path,
                         "--exist-ok",
                         "--save",
                     ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
                 )
                 processes.append(p)
                 # Wait for the subprocess to complete and capture output
-                stdout, stderr = p.communicate()
-
-                # Check the return code of the subprocess
-                if p.returncode != 0:
-                    LOGGER.error(stderr)
-                    LOGGER.error(stdout)
-                    sys.exit(1)
-                else:
-                    LOGGER.success(f"{dst_seq_path} evaluation succeeded")
+                
 
             for p in processes:
                 p.wait()
+                
+            LOGGER.success(f"Evaluation succeeded")
 
         print_args(vars(self.opt))
 
@@ -352,7 +338,6 @@ def parse_opt():
                         help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--processes-per-device', type=int, default=2,
                         help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
-
     opt = parser.parse_args()
     device = []
 
