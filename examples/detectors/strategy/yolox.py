@@ -36,12 +36,12 @@ class YoloXStrategy(YoloStrategy):
 
         gdown.download(
             url=YOLOX_ZOO[model],
-            output=str(WEIGHTS / (model + '.pth')),
+            output=str(WEIGHTS / (model + '.pt')),
             quiet=False
         )
 
         ckpt = torch.load(
-            str(WEIGHTS / (model + '.pth')),
+            str(WEIGHTS / (model + '.pt')),
             map_location=torch.device('cpu')
         )
 
