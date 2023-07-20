@@ -3,6 +3,7 @@ import torch
 from ultralytics.yolo.engine.results import Results
 from yolox.exp import get_exp
 from yolox.utils import postprocess
+from yolox.utils.model_utils import fuse_model
 
 from boxmot.utils import WEIGHTS
 
@@ -45,6 +46,7 @@ class YoloXStrategy(YoloStrategy):
         )
 
         self.model.load_state_dict(ckpt["model"])
+        self.model = fuse_model(self.model)
         self.model.to(device)
 
     def inference(self, im):
