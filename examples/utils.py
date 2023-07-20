@@ -19,7 +19,7 @@ def write_MOT_results(txt_path, results, frame_idx, i):
     ], dim=1)
 
     # create parent folder
-    txt_path.parent.mkdir(parents=False, exist_ok=True)
+    txt_path.parent.mkdir(parents=True, exist_ok=True)
     # create mot txt file
     txt_path.with_suffix('.txt').touch(exist_ok=True)
 
