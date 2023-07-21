@@ -172,7 +172,7 @@ class ORBStrategy(CMCInterface):
         currPoints = np.array(currPoints)
 
         # Draw the keypoint matches on the output image
-        if True:
+        if False:
             self.prevFrame[:, :][mask == True] = 0  # noqa:E712
             matches_img = np.hstack((self.prevFrame, frame))
             matches_img = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2BGR)
