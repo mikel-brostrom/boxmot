@@ -7,7 +7,7 @@ import numpy as np
 from boxmot.motion.cmc.cmc_interface import CMCInterface
 
 
-class ORBStrategy(CMCInterface):
+class SparseOptFlowStrategy(CMCInterface):
 
     def __init__(
         self,
@@ -61,6 +61,7 @@ class ORBStrategy(CMCInterface):
         self.extractor = cv2.ORB_create(nfeatures=5)
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
         self.initializedFirstFrame = False
+        self.prevFrame = None
 
     def preprocess(self, img):
 
@@ -82,145 +83,83 @@ class ORBStrategy(CMCInterface):
 
     def apply(self, curr_img, detections):
 
-        curr_img = self.preprocess(curr_img)
-
-        frame = curr_img
-
-        h, w = curr_img.shape
-
-        # Initialize
-        height, width = frame.shape
         H = np.eye(2, 3)
 
+        if self.prevFrame is None:
+            self.prevFrame = curr_img
+            return H
+
+        height, width, _ = curr_img.shape
+        frame = self.preprocess(curr_img)
+
         # find the keypoints
-        mask = np.zeros_like(frame)
-        # mask[int(0.05 * height): int(0.95 * height), int(0.05 * width): int(0.95 * width)] = 255
-
-        mask[int(0.02 * height): int(0.98 * height), int(0.02 * width): int(0.98 * width)] = 0
-        if detections is not None:
-            for det in detections:
-                tlbr = np.multiply(det, self.scale).astype(int)
-                mask[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]] = 255
-
-        # cv2.imshow('prev_img_aligned', mask)
-        # cv2.waitKey(0)
-
-        keypoints = self.detector.detect(frame, mask)
-
-        # compute the descriptors
-        keypoints, descriptors = self.extractor.compute(frame, keypoints)
+        keypoints = cv2.goodFeaturesToTrack(
+            frame,
+            mask=None,
+            maxCorners=1000,
+            qualityLevel=0.01,
+            minDistance=1,
+            blockSize=3,
+            useHarrisDetector=False,
+            k=0.04
+        )
 
         # Handle first frame
         if not self.initializedFirstFrame:
             # Initialize data
-            self.prevDetections = detections.copy()
             self.prevFrame = frame.copy()
             self.prevKeyPoints = copy.copy(keypoints)
-            self.prevDescriptors = copy.copy(descriptors)
 
             # Initialization done
             self.initializedFirstFrame = True
 
             return H
 
-        # Match descriptors.
-        knnMatches = self.matcher.knnMatch(self.prevDescriptors, descriptors, 2)
+        # find correspondences
+        matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
+            self.prevFrame, frame, self.prevKeyPoints, None
+        )
 
-        # Filtered matches based on smallest spatial distance
-        matches = []
-        spatialDistances = []
-
-        maxSpatialDistance = 0.25 * np.array([width, height])
-
-        # Handle empty matches case
-        if len(knnMatches) == 0:
-            # Store to next iteration
-            self.prevFrame = frame.copy()
-            self.prevKeyPoints = copy.copy(keypoints)
-            self.prevDescriptors = copy.copy(descriptors)
-
-            return H
-
-        for m, n in knnMatches:
-            if m.distance < 0.9 * n.distance:
-                prevKeyPointLocation = self.prevKeyPoints[m.queryIdx].pt
-                currKeyPointLocation = keypoints[m.trainIdx].pt
-
-                spatialDistance = (prevKeyPointLocation[0] - currKeyPointLocation[0],
-                                   prevKeyPointLocation[1] - currKeyPointLocation[1])
-
-                if (np.abs(spatialDistance[0]) < maxSpatialDistance[0]) and \
-                        (np.abs(spatialDistance[1]) < maxSpatialDistance[1]):
-                    spatialDistances.append(spatialDistance)
-                    matches.append(m)
-
-        meanSpatialDistances = np.mean(spatialDistances, 0)
-        stdSpatialDistances = np.std(spatialDistances, 0)
-
-        inliesrs = (spatialDistances - meanSpatialDistances) < 2.5 * stdSpatialDistances
-
-        goodMatches = []
+        # leave good correspondences only
         prevPoints = []
         currPoints = []
-        for i in range(len(matches)):
-            if inliesrs[i, 0] and inliesrs[i, 1]:
-                goodMatches.append(matches[i])
-                prevPoints.append(self.prevKeyPoints[matches[i].queryIdx].pt)
-                currPoints.append(keypoints[matches[i].trainIdx].pt)
+
+        for i in range(len(status)):
+            if status[i]:
+                prevPoints.append(self.prevKeyPoints[i])
+                currPoints.append(matchedKeypoints[i])
 
         prevPoints = np.array(prevPoints)
         currPoints = np.array(currPoints)
 
-        # Draw the keypoint matches on the output image
-        if False:
-            self.prevFrame[:, :][mask == True] = 0  # noqa:E712
-            matches_img = np.hstack((self.prevFrame, frame))
-            matches_img = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2BGR)
+        # Find rigid matrix
+        if (np.size(prevPoints, 0) > 4) and (
+            np.size(prevPoints, 0) == np.size(prevPoints, 0)
+        ):
+            H, inliesrs = cv2.estimateAffinePartial2D(
+                prevPoints, currPoints, cv2.RANSAC
+            )
 
-            W = np.size(self.prevFrame, 1)
-            for m in goodMatches:
-                prev_pt = np.array(self.prevKeyPoints[m.queryIdx].pt, dtype=np.int_)
-                curr_pt = np.array(keypoints[m.trainIdx].pt, dtype=np.int_)
-                curr_pt[0] += W
-                color = np.random.randint(0, 255, (3,))
-                color = (int(color[0]), int(color[1]), int(color[2]))
-                matches_img = cv2.line(matches_img, prev_pt, curr_pt, tuple(color), 1, cv2.LINE_AA)
-                matches_img = cv2.circle(matches_img, prev_pt, 2, tuple(color), -1)
-                matches_img = cv2.circle(matches_img, curr_pt, 2, tuple(color), -1)
-            for det in detections:
-                det = np.multiply(det, self.scale).astype(int)
-                start = (det[0] + w, det[1])
-                end = (det[2] + w, det[3])
-                matches_img = cv2.rectangle(matches_img, start, end, (0, 0, 255), 2)
-            for det in self.prevDetections:
-                det = np.multiply(det, self.scale).astype(int)
-                start = (det[0], det[1])
-                end = (det[2], det[3])
-                matches_img = cv2.rectangle(matches_img, start, end, (0, 0, 255), 2)
-        else:
-            matches_img = None
-
-        # find rigid matrix
-        if (np.size(prevPoints, 0) > 4) and (np.size(prevPoints, 0) == np.size(prevPoints, 0)):
-            H, inliesrs = cv2.estimateAffinePartial2D(prevPoints, currPoints, cv2.RANSAC)
-
-            # upscale warp matrix to original images size
-            if self.scale < 1.0:
+            # Handle downscale
+            if self.scale < 1:
                 H[0, 2] /= self.scale
                 H[1, 2] /= self.scale
         else:
-            print('Warning: not enough matching points')
+            print("Warning: not enough matching points")
 
         # Store to next iteration
         self.prevFrame = frame.copy()
         self.prevKeyPoints = copy.copy(keypoints)
-        self.prevDescriptors = copy.copy(descriptors)
 
-        return H, matches_img
+        # gmc_line = str(1000 * (t1 - t0)) + "\t" + str(H[0, 0]) + "\t" + str(H[0, 1]) + "\t" + str(
+        #     H[0, 2]) + "\t" + str(H[1, 0]) + "\t" + str(H[1, 1]) + "\t" + str(H[1, 2]) + "\n"
+        # self.gmc_file.write(gmc_line)
+
+        return H
 
 
 def main():
-    orb = ORBStrategy(scale=0.1, align=True, grayscale=True)
+    sof = SparseOptFlowStrategy(scale=0.1, align=True, grayscale=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
     curr_dets = np.array(
@@ -257,9 +196,9 @@ def main():
          [1.2190e+03, 4.4176e+02, 1.2414e+03, 4.9038e+02]]
     )
 
-    warp_matrix, matches_img = orb.apply(prev_img, prev_dets)
+    warp_matrix, matches_img = sof.apply(prev_img, prev_dets)
     start = time.process_time()
-    warp_matrix, matches_img = orb.apply(curr_img, curr_dets)
+    warp_matrix, matches_img = sof.apply(curr_img, curr_dets)
     end = time.process_time()
     print('Total time', end - start)
 
