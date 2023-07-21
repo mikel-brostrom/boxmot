@@ -39,6 +39,7 @@ class StrongSORT(object):
             mc_lambda=mc_lambda,
             ema_alpha=ema_alpha,
         )
+        self.previous_img = None
 
     def update(self, dets, img):
         assert isinstance(
@@ -53,6 +54,9 @@ class StrongSORT(object):
         assert (
             dets.shape[1] == 6
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+
+        self.tracker.camera_update(previous_img=self.previous_img, current_img=img)
+        self.previous_img = img
 
         xyxys = dets[:, 0:4]
         confs = dets[:, 4]
