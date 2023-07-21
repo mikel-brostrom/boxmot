@@ -15,8 +15,7 @@ from boxmot.utils.torch_utils import select_device
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics==8.0.124',))  # install
 
-from detectors.strategy import get_yolo_inferer
-from detectors.yolo_processor import Yolo
+from detectors import get_yolo_inferer
 from ultralytics.yolo.data.utils import VID_FORMATS
 from ultralytics.yolo.engine.model import TASK_MAP, YOLO
 from ultralytics.yolo.utils import IterableSimpleNamespace, colorstr, ops
@@ -94,13 +93,14 @@ def run(args):
     predictor.add_callback('on_predict_start', on_predict_start)
     predictor.run_callbacks('on_predict_start')
 
-    yolo_strategy = get_yolo_inferer(args['yolo_model'])
-    yolo_strategy = yolo_strategy(
+    # get yolo class based on model name
+    Yolo = get_yolo_inferer(args['yolo_model'])
+    # initialize class
+    model = Yolo(
         model=model.predictor.model if 'v8' in str(args['yolo_model']) else args['yolo_model'],
         device=predictor.device,
         args=predictor.args
     )
-    model = Yolo(yolo_strategy)
 
     for frame_idx, batch in enumerate(predictor.dataset):
         predictor.run_callbacks('on_predict_batch_start')
@@ -165,7 +165,7 @@ def run(args):
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.parent.name
                 # mot txt called the same as the parent name to perform inference on
                 else:
-                    
+
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.name
 
                 if predictor.tracker_outputs[i].size != 0 and predictor.args.save_mot:
