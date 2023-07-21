@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from ultralytics.yolo.engine.results import Boxes
+from ultralytics.yolo.engine.results import Boxes, Results
 
 
 class YoloStrategy:
@@ -49,3 +49,12 @@ class YoloStrategy:
         h_r = im0_h / im_h
 
         return w_r, h_r
+
+    def preds_to_yolov8_results(self, path, preds, im, im0s, predictor):
+        predictor.results[0] = Results(
+            path=path,
+            boxes=preds,
+            orig_img=im0s[0],
+            names=predictor.model.names
+        )
+        return predictor.results

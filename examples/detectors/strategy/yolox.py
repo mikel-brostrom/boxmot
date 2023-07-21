@@ -1,6 +1,5 @@
 import gdown
 import torch
-from ultralytics.yolo.engine.results import Results
 from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
@@ -85,12 +84,3 @@ class YoloXStrategy(YoloStrategy):
         preds = self.preds_to_yolov8_results(path, preds, im, im0s, predictor)
 
         return preds
-
-    def preds_to_yolov8_results(self, path, preds, im, im0s, predictor):
-        predictor.results[0] = Results(
-            path=path,
-            boxes=preds,
-            orig_img=im0s[0],
-            names=predictor.model.names
-        )
-        return predictor.results
