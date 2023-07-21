@@ -15,7 +15,7 @@ from boxmot.utils.torch_utils import select_device
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics==8.0.124',))  # install
 
-from detectors.strategy import get_yolo_inferer
+from detectors import get_yolo_inferer
 from ultralytics.yolo.data.utils import VID_FORMATS
 from ultralytics.yolo.engine.model import TASK_MAP, YOLO
 from ultralytics.yolo.utils import IterableSimpleNamespace, colorstr, ops
