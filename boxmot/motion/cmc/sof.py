@@ -196,17 +196,12 @@ def main():
          [1.2190e+03, 4.4176e+02, 1.2414e+03, 4.9038e+02]]
     )
 
-    warp_matrix, matches_img = sof.apply(prev_img, prev_dets)
+    warp_matrix = sof.apply(prev_img, prev_dets)
     start = time.process_time()
-    warp_matrix, matches_img = sof.apply(curr_img, curr_dets)
+    warp_matrix = sof.apply(curr_img, curr_dets)
     end = time.process_time()
     print('Total time', end - start)
-
-    # prev_img_aligned = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2RGB)
-    if matches_img is not None:
-        print(warp_matrix.shape, matches_img.shape)
-        cv2.imshow('prev_img_aligned', matches_img)
-        cv2.waitKey(0)
+    print(warp_matrix.shape)
 
 
 if __name__ == "__main__":
