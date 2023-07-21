@@ -6,7 +6,7 @@ from yolox.utils.model_utils import fuse_model
 
 from boxmot.utils import WEIGHTS
 
-from .yolo_strategy import YoloStrategy
+from .yolo_interface import YoloInterface
 
 YOLOX_ZOO = {
     'yolox_n': 'https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX',
@@ -17,7 +17,7 @@ YOLOX_ZOO = {
 }
 
 
-class YoloXStrategy(YoloStrategy):
+class YoloXStrategy(YoloInterface):
     def __init__(self, model, device, args):
 
         self.args = args
