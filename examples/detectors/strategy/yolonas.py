@@ -2,10 +2,10 @@ import numpy as np
 import torch
 from super_gradients.training import models
 
-from .yolo_strategy import YoloStrategy
+from .yolo_interface import YoloInterface
 
 
-class YoloNASStrategy(YoloStrategy):
+class YoloNASStrategy(YoloInterface):
     def __init__(self, model, device, args):
         self.args = args
 
