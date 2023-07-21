@@ -3,7 +3,7 @@ import torch
 from ultralytics.yolo.engine.results import Boxes, Results
 
 
-class YoloStrategy:
+class YoloInterface:
 
     def inference(self, im):
         raise NotImplementedError('Subclasses must implement this method.')
