@@ -255,8 +255,11 @@ class Track:
         else:
             return eye
 
-    def camera_update(self, previous_frame, next_frame):
-        warp_matrix, src_aligned = self.ECC(previous_frame, next_frame)
+    def camera_update(self, previous_frame, next_frame, ecc_results=None):
+        if ecc_results is None:
+            warp_matrix, src_aligned = self.ECC(previous_frame, next_frame)
+        else:
+            warp_matrix, src_aligned = ecc_results
         if warp_matrix is None and src_aligned is None:
             return
         [a, b] = warp_matrix
