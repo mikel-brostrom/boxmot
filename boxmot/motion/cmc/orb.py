@@ -96,11 +96,11 @@ class ORBStrategy(CMCInterface):
         mask = np.zeros_like(frame)
         # mask[int(0.05 * height): int(0.95 * height), int(0.05 * width): int(0.95 * width)] = 255
 
-        mask[int(0.02 * height): int(0.98 * height), int(0.02 * width): int(0.98 * width)] = 0
+        mask[int(0.02 * height): int(0.98 * height), int(0.02 * width): int(0.98 * width)] = 255
         if detections is not None:
             for det in detections:
                 tlbr = np.multiply(det, self.scale).astype(int)
-                mask[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]] = 255
+                mask[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]] = 0
 
         # cv2.imshow('prev_img_aligned', mask)
         # cv2.waitKey(0)
@@ -172,7 +172,7 @@ class ORBStrategy(CMCInterface):
         currPoints = np.array(currPoints)
 
         # Draw the keypoint matches on the output image
-        if False:
+        if True:
             self.prevFrame[:, :][mask == True] = 0  # noqa:E712
             matches_img = np.hstack((self.prevFrame, frame))
             matches_img = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2BGR)
@@ -216,7 +216,7 @@ class ORBStrategy(CMCInterface):
         self.prevKeyPoints = copy.copy(keypoints)
         self.prevDescriptors = copy.copy(descriptors)
 
-        return H, matches_img
+        return H
 
 
 def main():
