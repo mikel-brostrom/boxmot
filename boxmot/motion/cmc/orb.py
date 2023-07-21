@@ -58,9 +58,10 @@ class ORBStrategy(CMCInterface):
             self.warp_matrix = np.eye(2, 3, dtype=np.float32)
 
         self.detector = cv2.FastFeatureDetector_create(threshold=20)
-        self.extractor = cv2.ORB_create(nfeatures=5)
+        self.extractor = cv2.ORB_create()
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
-        self.initializedFirstFrame = False
+
+        self.prev_img = None
 
     def preprocess(self, img):
 
@@ -111,10 +112,11 @@ class ORBStrategy(CMCInterface):
         keypoints, descriptors = self.extractor.compute(frame, keypoints)
 
         # Handle first frame
-        if not self.initializedFirstFrame:
+        if self.prev_img is None:
             # Initialize data
             self.prevDetections = detections.copy()
             self.prevFrame = frame.copy()
+            self.prev_img = frame.copy()
             self.prevKeyPoints = copy.copy(keypoints)
             self.prevDescriptors = copy.copy(descriptors)
 
