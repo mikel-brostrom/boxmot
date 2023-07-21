@@ -262,6 +262,7 @@ def main():
     warp_matrix, matches_img = orb.apply(curr_img, curr_dets)
     end = time.process_time()
     print('Total time', end - start)
+    print(warp_matrix.shape)
 
     # prev_img_aligned = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2RGB)
     if matches_img is not None:

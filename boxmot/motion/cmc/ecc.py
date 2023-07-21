@@ -99,32 +99,33 @@ class ECCStrategy(CMCInterface):
             warp_matrix[0, 2] /= self.scale
             warp_matrix[1, 2] /= self.scale
 
-        if self.align:
-            h, w = self.prev_img.shape
-            if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
-                # Use warpPerspective for Homography
-                prev_img_aligned = cv2.warpPerspective(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
-            else:
-                # Use warpAffine for Translation, Euclidean and Affine
-                prev_img_aligned = cv2.warpAffine(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
-        else:
-            prev_img_aligned = None
+        # if self.align:
+        #     h, w = self.prev_img.shape
+        #     if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
+        #         # Use warpPerspective for Homography
+        #         prev_img_aligned = cv2.warpPerspective(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
+        #     else:
+        #         # Use warpAffine for Translation, Euclidean and Affine
+        #         prev_img_aligned = cv2.warpAffine(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
+        # else:
+        #     prev_img_aligned = None
 
         self.prev_img = curr_img
 
-        return warp_matrix, prev_img_aligned
+        return warp_matrix  # , prev_img_aligned
 
 
 def main():
-    ecc = ECCStrategy(scale=0.1, align=True, grayscale=True)
+    ecc = ECCStrategy(scale=0.1, align=False, grayscale=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
 
     start = time.process_time()
-    warp_matrix, prev_img_aligned = ecc.apply(prev_img)
-    warp_matrix, prev_img_aligned = ecc.apply(curr_img)
+    warp_matrix, prev_img_aligned = ecc.apply(prev_img, None)
+    warp_matrix, prev_img_aligned = ecc.apply(curr_img, None)
     end = time.process_time()
     print('Total time', end - start)
+    print(warp_matrix.shape)
 
     # prev_img_aligned = cv2.cvtColor(prev_img_aligned, cv2.COLOR_GRAY2RGB)
     # cv2.imshow('curr_img', curr_img)
