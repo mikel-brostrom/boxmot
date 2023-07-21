@@ -73,7 +73,7 @@ class Tracker:
 
     def camera_update(self, previous_img, current_img):
         if len(self.tracks) > 0:
-            warp_matrix, src_aligned = self.ECC(previous_frame, next_frame)
+            warp_matrix, src_aligned = self.tracks[0].ECC(previous_frame, next_frame)
         for track in self.tracks:
             track.camera_update(previous_img, current_img, ecc_results=(warp_matrix, src_aligned))
 
