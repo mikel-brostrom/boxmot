@@ -72,8 +72,10 @@ class Tracker:
             track.mark_missed()
 
     def camera_update(self, previous_img, current_img):
+        if len(self.tracks) > 0:
+            warp_matrix, src_aligned = self.tracks[0].ECC(previous_frame, next_frame)
         for track in self.tracks:
-            track.camera_update(previous_img, current_img)
+            track.camera_update(previous_img, current_img, ecc_results=(warp_matrix, src_aligned))
 
     def pred_n_update_all_tracks(self):
         """Perform predictions and updates for all tracks by its own predicted state."""
