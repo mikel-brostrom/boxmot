@@ -17,7 +17,7 @@ import yaml
 from ultralytics.yolo.utils.checks import check_requirements, print_args
 from val import Evaluator
 
-from boxmot.utils import ROOT, EXAMPLES, WEIGHTS, logger
+from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, logger
 
 
 class Objective(Evaluator):
@@ -261,7 +261,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-model', type=str, default=WEIGHTS / 'yolov8n.pt',
                         help='model.pt path(s)')
-    parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'lmbn_n_cuhk03_d.pt')
+    parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='strongsort, ocsort, bytetrack, deepocsort, botsort')
     parser.add_argument('--name', default='exp',
