@@ -11,51 +11,41 @@ class ORB(CMCInterface):
 
     def __init__(
         self,
-        warp_mode=cv2.MOTION_EUCLIDEAN,
-        eps=1e-5,
-        max_iter=100,
+        feature_detector_threshold=20,
+        matcher_norm_type=cv2.NORM_HAMMING,
         scale=0.1,
-        align=False,
         grayscale=True
     ):
         """Compute the warp matrix from src to dst.
 
         Parameters
         ----------
-        warp_mode: opencv flag
-            translation: cv2.MOTION_TRANSLATION
-            rotated and shifted: cv2.MOTION_EUCLIDEAN
-            affine(shift,rotated,shear): cv2.MOTION_AFFINE
-            homography(3d): cv2.MOTION_HOMOGRAPHY
-        eps: float
-            the threshold of the increment in the correlation coefficient between two iterations
-        max_iter: int
-            the number of iterations.
-        scale: float or [int, int]
+        matcher_norm_type: opencv flag
+            NORM_L1, NORM_L2, NORM_HAMMING, NORM_HAMMING2. L1 and L2 norms are preferable
+            choices for SIFT and SURF descriptors, NORM_HAMMING should be used with
+            ORB, BRISK and BRIEF, NORM_HAMMING2 should be used with ORB when WTA_K==3 or 4
+        feature_detector_threshold: int
+            the threshold for feature extraction
+        scale: float
             scale_ratio: float
-            scale_size: [W, H]
-        align: bool
-            whether to warp affine or perspective transforms to the source image
         grayscale: bool
             whether to transform 3 channel RGB to single channel grayscale for faster computations
 
         Returns
         -------
         warp matrix : ndarray
-            Returns the warp matrix from src to dst.
-            if motion models is homography, the warp matrix will be 3x3, otherwise 2x3
-        src_aligned: ndarray
-            aligned source image of gray
+            Returns the warp matrix from the matching keypoint in the previous image to the current
+            warp matrix is always 2x3
         """
         self.grayscale = grayscale
         self.scale = scale
 
-        self.detector = cv2.FastFeatureDetector_create(threshold=20)
+        self.detector = cv2.FastFeatureDetector_create(threshold=feature_detector_threshold)
         self.extractor = cv2.ORB_create()
-        self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+        self.matcher = cv2.BFMatcher(matcher_norm_type)
 
         self.prev_img = None
-        self.default_affine = np.eye(2, 3)
+        self.default_warp_matrix = np.eye(2, 3)
 
     def preprocess(self, img):
 
@@ -75,74 +65,64 @@ class ORB(CMCInterface):
 
         return img
 
-    def apply(self, curr_img, detections):
+    def apply(self, img, dets):
 
-        curr_img = self.preprocess(curr_img)
-        h, w = curr_img.shape
+        img = self.preprocess(img)
+        h, w = img.shape
 
-        # Initialize
-        height, width = curr_img.shape
+        # generate dynamic object maks
+        mask = self.generate_mask(img, dets, self.scale)
 
-        # find the keypoints
-        mask = np.zeros_like(curr_img)
-
-        mask[int(0.02 * h): int(0.98 * h), int(0.02 * w): int(0.98 * w)] = 255
-        if detections is not None:
-            for det in detections:
-                tlbr = np.multiply(det, self.scale).astype(int)
-                mask[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]] = 0
-
-        keypoints = self.detector.detect(curr_img, mask)
+        # find static keypoints
+        keypoints = self.detector.detect(img, mask)
 
         # compute the descriptors
-        keypoints, descriptors = self.extractor.compute(curr_img, keypoints)
+        keypoints, descriptors = self.extractor.compute(img, keypoints)
 
-        # Handle first frame
+        # handle first frame
         if self.prev_img is None:
             # Initialize data
-            self.prevDetections = detections.copy()
-            self.prevFrame = curr_img.copy()
-            self.prev_img = curr_img.copy()
-            self.prevKeyPoints = copy.copy(keypoints)
-            self.prevDescriptors = copy.copy(descriptors)
+            self.prev_dets = dets.copy()
+            self.prev_img = img.copy()
+            self.prev_keypoints = copy.copy(keypoints)
+            self.prev_descriptors = copy.copy(descriptors)
 
-            return self.default_affine
+            return self.default_warp_matrix
 
         # Match descriptors.
-        knnMatches = self.matcher.knnMatch(self.prevDescriptors, descriptors, 2)
-
-        # Filtered matches based on smallest spatial distance
-        matches = []
-        spatialDistances = []
-
-        maxSpatialDistance = 0.25 * np.array([width, height])
+        knnMatches = self.matcher.knnMatch(self.prev_descriptors, descriptors, k=2)
 
         # Handle empty matches case
         if len(knnMatches) == 0:
             # Store to next iteration
-            self.prevFrame = curr_img.copy()
-            self.prevKeyPoints = copy.copy(keypoints)
-            self.prevDescriptors = copy.copy(descriptors)
+            self.prev_img = img.copy()
+            self.prev_keypoints = copy.copy(keypoints)
+            self.prev_descriptors = copy.copy(descriptors)
 
-            return self.default_affine
+            return self.default_warp_matrix
+
+        # filtered matches based on smallest spatial distance
+        matches = []
+        spatial_distances = []
+        max_spatial_distance = 0.25 * np.array([w, h])
 
         for m, n in knnMatches:
             if m.distance < 0.9 * n.distance:
-                prevKeyPointLocation = self.prevKeyPoints[m.queryIdx].pt
+                prevKeyPointLocation = self.prev_keypoints[m.queryIdx].pt
                 currKeyPointLocation = keypoints[m.trainIdx].pt
 
-                spatialDistance = (prevKeyPointLocation[0] - currKeyPointLocation[0],
-                                   prevKeyPointLocation[1] - currKeyPointLocation[1])
+                spatial_distance = (prevKeyPointLocation[0] - currKeyPointLocation[0],
+                                    prevKeyPointLocation[1] - currKeyPointLocation[1])
 
-                if (np.abs(spatialDistance[0]) < maxSpatialDistance[0]) and \
-                        (np.abs(spatialDistance[1]) < maxSpatialDistance[1]):
-                    spatialDistances.append(spatialDistance)
+                if (np.abs(spatial_distance[0]) < max_spatial_distance[0]) and \
+                        (np.abs(spatial_distance[1]) < max_spatial_distance[1]):
+                    spatial_distances.append(spatial_distance)
                     matches.append(m)
 
-        meanSpatialDistances = np.mean(spatialDistances, 0)
-        stdSpatialDistances = np.std(spatialDistances, 0)
+        mean_spatial_distances = np.mean(spatial_distances, 0)
+        std_spatial_distances = np.std(spatial_distances, 0)
 
-        inliesrs = (spatialDistances - meanSpatialDistances) < 2.5 * stdSpatialDistances
+        inliesrs = (spatial_distances - mean_spatial_distances) < 2.5 * std_spatial_distances
 
         goodMatches = []
         prevPoints = []
@@ -150,7 +130,7 @@ class ORB(CMCInterface):
         for i in range(len(matches)):
             if inliesrs[i, 0] and inliesrs[i, 1]:
                 goodMatches.append(matches[i])
-                prevPoints.append(self.prevKeyPoints[matches[i].queryIdx].pt)
+                prevPoints.append(self.prev_keypoints[matches[i].queryIdx].pt)
                 currPoints.append(keypoints[matches[i].trainIdx].pt)
 
         prevPoints = np.array(prevPoints)
@@ -158,32 +138,32 @@ class ORB(CMCInterface):
 
         # Draw the keypoint matches on the output image
         if False:
-            self.prevFrame[:, :][mask == True] = 0  # noqa:E712
-            matches_img = np.hstack((self.prevFrame, curr_img))
-            matches_img = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2BGR)
+            self.prev_img[:, :][mask == True] = 0  # noqa:E712
+            self.matches_img = np.hstack((self.prev_img, img))
+            self.matches_img = cv2.cvtColor(self.matches_img, cv2.COLOR_GRAY2BGR)
 
-            W = np.size(self.prevFrame, 1)
+            W = np.size(self.prev_img, 1)
             for m in goodMatches:
-                prev_pt = np.array(self.prevKeyPoints[m.queryIdx].pt, dtype=np.int_)
+                prev_pt = np.array(self.prev_keypoints[m.queryIdx].pt, dtype=np.int_)
                 curr_pt = np.array(keypoints[m.trainIdx].pt, dtype=np.int_)
                 curr_pt[0] += W
                 color = np.random.randint(0, 255, (3,))
                 color = (int(color[0]), int(color[1]), int(color[2]))
-                matches_img = cv2.line(matches_img, prev_pt, curr_pt, tuple(color), 1, cv2.LINE_AA)
-                matches_img = cv2.circle(matches_img, prev_pt, 2, tuple(color), -1)
-                matches_img = cv2.circle(matches_img, curr_pt, 2, tuple(color), -1)
-            for det in detections:
+                self.matches_img = cv2.line(self.matches_img, prev_pt, curr_pt, tuple(color), 1, cv2.LINE_AA)
+                self.matches_img = cv2.circle(self.matches_img, prev_pt, 2, tuple(color), -1)
+                self.matches_img = cv2.circle(self.matches_img, curr_pt, 2, tuple(color), -1)
+            for det in dets:
                 det = np.multiply(det, self.scale).astype(int)
                 start = (det[0] + w, det[1])
                 end = (det[2] + w, det[3])
-                matches_img = cv2.rectangle(matches_img, start, end, (0, 0, 255), 2)
-            for det in self.prevDetections:
+                self.matches_img = cv2.rectangle(self.matches_img, start, end, (0, 0, 255), 2)
+            for det in self.prev_dets:
                 det = np.multiply(det, self.scale).astype(int)
                 start = (det[0], det[1])
                 end = (det[2], det[3])
-                matches_img = cv2.rectangle(matches_img, start, end, (0, 0, 255), 2)
+                self.matches_img = cv2.rectangle(self.matches_img, start, end, (0, 0, 255), 2)
         else:
-            matches_img = None
+            self.matches_img = None
 
         # find rigid matrix
         if (np.size(prevPoints, 0) > 4) and (np.size(prevPoints, 0) == np.size(prevPoints, 0)):
@@ -197,15 +177,15 @@ class ORB(CMCInterface):
             print('Warning: not enough matching points')
 
         # Store to next iteration
-        self.prevFrame = curr_img.copy()
-        self.prevKeyPoints = copy.copy(keypoints)
-        self.prevDescriptors = copy.copy(descriptors)
+        self.prev_img = img.copy()
+        self.prev_keypoints = copy.copy(keypoints)
+        self.prev_descriptors = copy.copy(descriptors)
 
         return H
 
 
 def main():
-    orb = ORB(scale=0.1, align=True, grayscale=True)
+    orb = ORB(scale=0.5, grayscale=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
     curr_dets = np.array(
@@ -247,12 +227,10 @@ def main():
     warp_matrix, matches_img = orb.apply(curr_img, curr_dets)
     end = time.process_time()
     print('Total time', end - start)
-    print(warp_matrix.shape)
 
     # prev_img_aligned = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2RGB)
-    if matches_img is not None:
-        print(warp_matrix.shape, matches_img.shape)
-        cv2.imshow('prev_img_aligned', matches_img)
+    if orb.matches_img is not None:
+        cv2.imshow('prev_img_aligned', orb.matches_img)
         cv2.waitKey(0)
 
 
