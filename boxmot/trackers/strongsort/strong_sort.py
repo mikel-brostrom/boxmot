@@ -2,11 +2,11 @@ import cv2
 import numpy as np
 import torch
 
-from ...appearance.reid_multibackend import ReIDDetectMultiBackend
-from ...utils.matching import NearestNeighborDistanceMetric
-from ...utils.ops import xyxy2xywh
-from .sort.detection import Detection
-from .sort.tracker import Tracker
+from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.trackers.strongsort.sort.detection import Detection
+from boxmot.trackers.strongsort.sort.tracker import Tracker
+from boxmot.utils.matching import NearestNeighborDistanceMetric
+from boxmot.utils.ops import xyxy2xywh
 
 
 class StrongSORT(object):
@@ -55,7 +55,7 @@ class StrongSORT(object):
             dets.shape[1] == 6
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
-        self.tracker.camera_update(previous_img=self.previous_img, current_img=img)
+        self.tracker.camera_update(curr_img=img)
         self.previous_img = img
 
         xyxys = dets[:, 0:4]

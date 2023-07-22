@@ -3,6 +3,8 @@ from __future__ import absolute_import
 
 import numpy as np
 
+from boxmot.motion.cmc.ecc import ECC
+
 from ....utils.matching import chi2inv95
 from . import detection, iou_matching, linear_assignment
 from .track import Track
@@ -57,6 +59,7 @@ class Tracker:
 
         self.tracks = []
         self._next_id = 1
+        self.ecc = ECC()
 
     def predict(self):
         """Propagate track state distributions one time step forward.
@@ -71,11 +74,11 @@ class Tracker:
             track.increment_age()
             track.mark_missed()
 
-    def camera_update(self, previous_img, current_img):
+    def camera_update(self, curr_img):
         if len(self.tracks) > 0:
-            warp_matrix, src_aligned = self.tracks[0].ECC(previous_img, current_img)
+            warp_matrix = self.ecc.apply(curr_img=curr_img, dets=None)
         for track in self.tracks:
-            track.camera_update(previous_img, current_img, ecc_results=(warp_matrix, src_aligned))
+            track.camera_update(warp_matrix)
 
     def pred_n_update_all_tracks(self):
         """Perform predictions and updates for all tracks by its own predicted state."""
