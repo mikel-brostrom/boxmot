@@ -356,6 +356,7 @@ class DeepOCSort(object):
         KalmanBoxTracker.count = 0
 
         self.embedder = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
+        # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = get_cmc_method('sof')()
         self.embedding_off = embedding_off
         self.cmc_off = cmc_off
@@ -363,7 +364,7 @@ class DeepOCSort(object):
         self.new_kf_off = new_kf_off
 
     @PerClassDecorator
-    def update(self, dets, img, tag='blub'):
+    def update(self, dets, img):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
