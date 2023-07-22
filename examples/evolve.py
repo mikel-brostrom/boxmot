@@ -17,7 +17,7 @@ import yaml
 from ultralytics.yolo.utils.checks import check_requirements, print_args
 from val import Evaluator
 
-from boxmot.utils import ROOT, EXAMPLES, WEIGHTS, logger
+from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, logger
 
 
 class Objective(Evaluator):
