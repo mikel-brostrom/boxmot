@@ -1,3 +1,4 @@
+import copy
 import time
 
 import cv2
@@ -56,13 +57,14 @@ class SIFT(CMCInterface):
         else:
             self.warp_matrix = np.eye(2, 3, dtype=np.float32)
 
-        self.detector = cv2.FastFeatureDetector_create(threshold=20)
-        self.extractor = cv2.ORB_create()
-        self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+        self.detector = cv2.SIFT_create(nOctaveLayers=3, contrastThreshold=0.02, edgeThreshold=20)
+        self.extractor = cv2.SIFT_create(nOctaveLayers=3, contrastThreshold=0.02, edgeThreshold=20)
+        self.matcher = cv2.BFMatcher(cv2.NORM_L2)
 
         self.prev_img = None
         self.minimum_features = 10
         self.prev_desc = None
+        self.default_warp_matrix = np.eye(2, 3)
 
     def preprocess(self, img):
 
@@ -82,59 +84,123 @@ class SIFT(CMCInterface):
 
         return img
 
-    def apply(self, curr_img, detections):
+    def apply(self, img, dets):
 
-        curr_img = self.preprocess(curr_img)
+        img = self.preprocess(img)
+        h, w = img.shape
 
-        frame = curr_img
+        # generate dynamic object maks
+        mask = self.generate_mask(img, dets, self.scale)
 
-        h, w = curr_img.shape
+        # find static keypoints
+        keypoints = self.detector.detect(img, mask)
 
-        # Initialize
-        height, width = frame.shape
-        A = np.eye(2, 3)
+        # compute the descriptors
+        keypoints, descriptors = self.extractor.compute(img, keypoints)
 
-        # find the keypoints
-        mask = np.zeros_like(frame)
-        # mask[int(0.05 * height): int(0.95 * height), int(0.05 * width): int(0.95 * width)] = 255
+        # handle first frame
+        if self.prev_img is None:
+            # Initialize data
+            self.prev_dets = dets.copy()
+            self.prev_img = img.copy()
+            self.prev_keypoints = copy.copy(keypoints)
+            self.prev_descriptors = copy.copy(descriptors)
 
-        mask[int(0.02 * height): int(0.98 * height), int(0.02 * width): int(0.98 * width)] = 255
-        if detections is not None:
-            for det in detections:
-                tlbr = np.multiply(det, self.scale).astype(int)
-                mask[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]] = 0
+            return self.default_warp_matrix
 
-        A = np.eye(2, 3)
-        detector = cv2.SIFT_create()
-        kp, desc = detector.detectAndCompute(frame, mask)
-        if self.prev_desc is None:
-            self.prev_desc = [kp, desc]
-            return A
-        if desc.shape[0] < self.minimum_features or self.prev_desc[1].shape[0] < self.minimum_features:
-            return A
+        # Match descriptors.
+        knnMatches = self.matcher.knnMatch(self.prev_descriptors, descriptors, k=2)
 
-        bf = cv2.BFMatcher(cv2.NORM_L2)
-        matches = bf.knnMatch(self.prev_desc[1], desc, k=2)
-        good = []
-        for m, n in matches:
-            if m.distance < 0.7 * n.distance:
-                good.append(m)
+        # Handle empty matches case
+        if len(knnMatches) == 0:
+            # Store to next iteration
+            self.prev_img = img.copy()
+            self.prev_keypoints = copy.copy(keypoints)
+            self.prev_descriptors = copy.copy(descriptors)
 
-        if len(good) > self.minimum_features:
-            src_pts = np.float32([self.prev_desc[0][m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
-            dst_pts = np.float32([kp[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
-            A, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts, method=cv2.RANSAC)
+            return self.default_warp_matrix
+
+        # filtered matches based on smallest spatial distance
+        matches = []
+        spatial_distances = []
+        max_spatial_distance = 0.25 * np.array([w, h])
+
+        for m, n in knnMatches:
+            if m.distance < 0.9 * n.distance:
+                prevKeyPointLocation = self.prev_keypoints[m.queryIdx].pt
+                currKeyPointLocation = keypoints[m.trainIdx].pt
+
+                spatial_distance = (prevKeyPointLocation[0] - currKeyPointLocation[0],
+                                    prevKeyPointLocation[1] - currKeyPointLocation[1])
+
+                if (np.abs(spatial_distance[0]) < max_spatial_distance[0]) and \
+                        (np.abs(spatial_distance[1]) < max_spatial_distance[1]):
+                    spatial_distances.append(spatial_distance)
+                    matches.append(m)
+
+        mean_spatial_distances = np.mean(spatial_distances, 0)
+        std_spatial_distances = np.std(spatial_distances, 0)
+
+        inliesrs = (spatial_distances - mean_spatial_distances) < 2.5 * std_spatial_distances
+
+        goodMatches = []
+        prevPoints = []
+        currPoints = []
+        for i in range(len(matches)):
+            if inliesrs[i, 0] and inliesrs[i, 1]:
+                goodMatches.append(matches[i])
+                prevPoints.append(self.prev_keypoints[matches[i].queryIdx].pt)
+                currPoints.append(keypoints[matches[i].trainIdx].pt)
+
+        prevPoints = np.array(prevPoints)
+        currPoints = np.array(currPoints)
+
+        # Draw the keypoint matches on the output image
+        if False:
+            self.prev_img[:, :][mask == True] = 0  # noqa:E712
+            self.matches_img = np.hstack((self.prev_img, img))
+            self.matches_img = cv2.cvtColor(self.matches_img, cv2.COLOR_GRAY2BGR)
+
+            W = np.size(self.prev_img, 1)
+            for m in goodMatches:
+                prev_pt = np.array(self.prev_keypoints[m.queryIdx].pt, dtype=np.int_)
+                curr_pt = np.array(keypoints[m.trainIdx].pt, dtype=np.int_)
+                curr_pt[0] += W
+                color = np.random.randint(0, 255, (3,))
+                color = (int(color[0]), int(color[1]), int(color[2]))
+                self.matches_img = cv2.line(self.matches_img, prev_pt, curr_pt, tuple(color), 1, cv2.LINE_AA)
+                self.matches_img = cv2.circle(self.matches_img, prev_pt, 2, tuple(color), -1)
+                self.matches_img = cv2.circle(self.matches_img, curr_pt, 2, tuple(color), -1)
+            for det in dets:
+                det = np.multiply(det, self.scale).astype(int)
+                start = (det[0] + w, det[1])
+                end = (det[2] + w, det[3])
+                self.matches_img = cv2.rectangle(self.matches_img, start, end, (0, 0, 255), 2)
+            for det in self.prev_dets:
+                det = np.multiply(det, self.scale).astype(int)
+                start = (det[0], det[1])
+                end = (det[2], det[3])
+                self.matches_img = cv2.rectangle(self.matches_img, start, end, (0, 0, 255), 2)
+        else:
+            self.matches_img = None
+
+        # find rigid matrix
+        if (np.size(prevPoints, 0) > 4) and (np.size(prevPoints, 0) == np.size(prevPoints, 0)):
+            H, inliesrs = cv2.estimateAffinePartial2D(prevPoints, currPoints, cv2.RANSAC)
+
             # upscale warp matrix to original images size
             if self.scale < 1.0:
-                A[0, 2] /= self.scale
-                A[1, 2] /= self.scale
+                H[0, 2] /= self.scale
+                H[1, 2] /= self.scale
         else:
-            print("Warning: not enough matching points")
-        if A is None:
-            A = np.eye(2, 3)
+            print('Warning: not enough matching points')
 
-        self.prev_desc = [kp, desc]
-        return A
+        # Store to next iteration
+        self.prev_img = img.copy()
+        self.prev_keypoints = copy.copy(keypoints)
+        self.prev_descriptors = copy.copy(descriptors)
+
+        return H
 
 
 def main():
