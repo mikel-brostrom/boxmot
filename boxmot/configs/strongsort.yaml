@@ -7,4 +7,4 @@ max_unmatched_preds: 0
 mc_lambda: 0.995
 n_init: 3
 nn_budget: 100
-conf_thres: 0
+conf_thres: 0.5122620708221085
