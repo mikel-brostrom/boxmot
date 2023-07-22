@@ -3,13 +3,13 @@ from collections import deque
 import numpy as np
 import torch
 
-from ...appearance.reid_multibackend import ReIDDetectMultiBackend
-from ...motion.adapters import BotSortKalmanFilterAdapter
-from ...utils.gmc import GlobalMotionCompensation
-from ...utils.matching import (embedding_distance, fuse_score,  # fuse_motion,
-                               iou_distance, linear_assignment)
-from ...utils.ops import xywh2xyxy, xyxy2xywh
-from .basetrack import BaseTrack, TrackState
+from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.motion.adapters import BotSortKalmanFilterAdapter
+from boxmot.motion.cmc.sof import SparseOptFlow
+from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
+from boxmot.utils.matching import (embedding_distance, fuse_score,
+                                   iou_distance, linear_assignment)
+from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):
@@ -274,7 +274,7 @@ class BoTSORT(object):
             weights=model_weights, device=device, fp16=fp16
         )
 
-        self.gmc = GlobalMotionCompensation(method=cmc_method, verbose=[None, False])
+        self.cmc = SparseOptFlow()
 
     def update(self, dets, img):
         assert isinstance(
@@ -353,7 +353,7 @@ class BoTSORT(object):
         STrack.multi_predict(strack_pool)
 
         # Fix camera motion
-        warp = self.gmc.apply(img, dets)
+        warp = self.cmc.apply(img, dets)
         STrack.multi_gmc(strack_pool, warp)
         STrack.multi_gmc(unconfirmed, warp)
 
