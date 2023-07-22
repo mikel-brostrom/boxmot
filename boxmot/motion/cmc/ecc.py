@@ -6,7 +6,7 @@ import numpy as np
 from boxmot.motion.cmc.cmc_interface import CMCInterface
 
 
-class ECCStrategy(CMCInterface):
+class ECC(CMCInterface):
 
     def __init__(
         self,
@@ -116,7 +116,7 @@ class ECCStrategy(CMCInterface):
 
 
 def main():
-    ecc = ECCStrategy(scale=0.1, align=False, grayscale=True)
+    ecc = ECC(scale=0.1, align=False, grayscale=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
 
