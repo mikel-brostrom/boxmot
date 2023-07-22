@@ -7,7 +7,7 @@ import numpy as np
 from boxmot.motion.cmc.cmc_interface import CMCInterface
 
 
-class SparseOptFlowStrategy(CMCInterface):
+class SparseOptFlow(CMCInterface):
 
     def __init__(
         self,
@@ -85,18 +85,25 @@ class SparseOptFlowStrategy(CMCInterface):
 
         H = np.eye(2, 3)
 
-        if self.prevFrame is None:
-            self.prevFrame = curr_img
-            return H
-
-        height, width, _ = curr_img.shape
         frame = self.preprocess(curr_img)
+
+        h, w = frame.shape
+
+        # find the keypoints
+        mask = np.zeros_like(frame)
+        # mask[int(0.05 * height): int(0.95 * height), int(0.05 * width): int(0.95 * width)] = 255
+
+        mask[int(0.02 * h): int(0.98 * h), int(0.02 * w): int(0.98 * w)] = 255
+        if detections is not None:
+            for det in detections:
+                tlbr = np.multiply(det, self.scale).astype(int)
+                mask[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]] = 0
 
         # find the keypoints
         keypoints = cv2.goodFeaturesToTrack(
             frame,
-            mask=None,
-            maxCorners=1000,
+            mask=mask,
+            maxCorners=3000,
             qualityLevel=0.01,
             minDistance=1,
             blockSize=3,
@@ -105,7 +112,7 @@ class SparseOptFlowStrategy(CMCInterface):
         )
 
         # Handle first frame
-        if not self.initializedFirstFrame:
+        if self.prevFrame is None:
             # Initialize data
             self.prevFrame = frame.copy()
             self.prevKeyPoints = copy.copy(keypoints)
@@ -115,7 +122,7 @@ class SparseOptFlowStrategy(CMCInterface):
 
             return H
 
-        # find correspondences
+        # sparse otical flow for sparse features using Lucas-Kanade with pyramids
         matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
             self.prevFrame, frame, self.prevKeyPoints, None
         )
@@ -151,15 +158,11 @@ class SparseOptFlowStrategy(CMCInterface):
         self.prevFrame = frame.copy()
         self.prevKeyPoints = copy.copy(keypoints)
 
-        # gmc_line = str(1000 * (t1 - t0)) + "\t" + str(H[0, 0]) + "\t" + str(H[0, 1]) + "\t" + str(
-        #     H[0, 2]) + "\t" + str(H[1, 0]) + "\t" + str(H[1, 1]) + "\t" + str(H[1, 2]) + "\n"
-        # self.gmc_file.write(gmc_line)
-
         return H
 
 
 def main():
-    sof = SparseOptFlowStrategy(scale=0.1, align=True, grayscale=True)
+    sof = SparseOptFlow(scale=0.1, align=True, grayscale=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
     curr_dets = np.array(
