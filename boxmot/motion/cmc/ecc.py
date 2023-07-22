@@ -76,7 +76,7 @@ class ECC(CMCInterface):
 
         return img
 
-    def apply(self, curr_img, _):
+    def apply(self, curr_img, dets):
 
         if self.prev_img is None:
             self.prev_img = self.preprocess(curr_img)
