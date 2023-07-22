@@ -1,4 +1,3 @@
-import copy
 import time
 
 import cv2
@@ -7,7 +6,7 @@ import numpy as np
 from boxmot.motion.cmc.cmc_interface import CMCInterface
 
 
-class ORB(CMCInterface):
+class SIFT(CMCInterface):
 
     def __init__(
         self,
@@ -62,6 +61,8 @@ class ORB(CMCInterface):
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
 
         self.prev_img = None
+        self.minimum_features = 10
+        self.prev_desc = None
 
     def preprocess(self, img):
 
@@ -91,7 +92,7 @@ class ORB(CMCInterface):
 
         # Initialize
         height, width = frame.shape
-        H = np.eye(2, 3)
+        A = np.eye(2, 3)
 
         # find the keypoints
         mask = np.zeros_like(frame)
@@ -103,126 +104,41 @@ class ORB(CMCInterface):
                 tlbr = np.multiply(det, self.scale).astype(int)
                 mask[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]] = 0
 
-        # cv2.imshow('prev_img_aligned', mask)
-        # cv2.waitKey(0)
+        A = np.eye(2, 3)
+        detector = cv2.SIFT_create()
+        kp, desc = detector.detectAndCompute(frame, mask)
+        if self.prev_desc is None:
+            self.prev_desc = [kp, desc]
+            return A
+        if desc.shape[0] < self.minimum_features or self.prev_desc[1].shape[0] < self.minimum_features:
+            return A
 
-        keypoints = self.detector.detect(frame, mask)
+        bf = cv2.BFMatcher(cv2.NORM_L2)
+        matches = bf.knnMatch(self.prev_desc[1], desc, k=2)
+        good = []
+        for m, n in matches:
+            if m.distance < 0.7 * n.distance:
+                good.append(m)
 
-        # compute the descriptors
-        keypoints, descriptors = self.extractor.compute(frame, keypoints)
-
-        # Handle first frame
-        if self.prev_img is None:
-            # Initialize data
-            self.prevDetections = detections.copy()
-            self.prevFrame = frame.copy()
-            self.prev_img = frame.copy()
-            self.prevKeyPoints = copy.copy(keypoints)
-            self.prevDescriptors = copy.copy(descriptors)
-
-            # Initialization done
-            self.initializedFirstFrame = True
-
-            return H
-
-        # Match descriptors.
-        knnMatches = self.matcher.knnMatch(self.prevDescriptors, descriptors, 2)
-
-        # Filtered matches based on smallest spatial distance
-        matches = []
-        spatialDistances = []
-
-        maxSpatialDistance = 0.25 * np.array([width, height])
-
-        # Handle empty matches case
-        if len(knnMatches) == 0:
-            # Store to next iteration
-            self.prevFrame = frame.copy()
-            self.prevKeyPoints = copy.copy(keypoints)
-            self.prevDescriptors = copy.copy(descriptors)
-
-            return H
-
-        for m, n in knnMatches:
-            if m.distance < 0.9 * n.distance:
-                prevKeyPointLocation = self.prevKeyPoints[m.queryIdx].pt
-                currKeyPointLocation = keypoints[m.trainIdx].pt
-
-                spatialDistance = (prevKeyPointLocation[0] - currKeyPointLocation[0],
-                                   prevKeyPointLocation[1] - currKeyPointLocation[1])
-
-                if (np.abs(spatialDistance[0]) < maxSpatialDistance[0]) and \
-                        (np.abs(spatialDistance[1]) < maxSpatialDistance[1]):
-                    spatialDistances.append(spatialDistance)
-                    matches.append(m)
-
-        meanSpatialDistances = np.mean(spatialDistances, 0)
-        stdSpatialDistances = np.std(spatialDistances, 0)
-
-        inliesrs = (spatialDistances - meanSpatialDistances) < 2.5 * stdSpatialDistances
-
-        goodMatches = []
-        prevPoints = []
-        currPoints = []
-        for i in range(len(matches)):
-            if inliesrs[i, 0] and inliesrs[i, 1]:
-                goodMatches.append(matches[i])
-                prevPoints.append(self.prevKeyPoints[matches[i].queryIdx].pt)
-                currPoints.append(keypoints[matches[i].trainIdx].pt)
-
-        prevPoints = np.array(prevPoints)
-        currPoints = np.array(currPoints)
-
-        # Draw the keypoint matches on the output image
-        if False:
-            self.prevFrame[:, :][mask == True] = 0  # noqa:E712
-            matches_img = np.hstack((self.prevFrame, frame))
-            matches_img = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2BGR)
-
-            W = np.size(self.prevFrame, 1)
-            for m in goodMatches:
-                prev_pt = np.array(self.prevKeyPoints[m.queryIdx].pt, dtype=np.int_)
-                curr_pt = np.array(keypoints[m.trainIdx].pt, dtype=np.int_)
-                curr_pt[0] += W
-                color = np.random.randint(0, 255, (3,))
-                color = (int(color[0]), int(color[1]), int(color[2]))
-                matches_img = cv2.line(matches_img, prev_pt, curr_pt, tuple(color), 1, cv2.LINE_AA)
-                matches_img = cv2.circle(matches_img, prev_pt, 2, tuple(color), -1)
-                matches_img = cv2.circle(matches_img, curr_pt, 2, tuple(color), -1)
-            for det in detections:
-                det = np.multiply(det, self.scale).astype(int)
-                start = (det[0] + w, det[1])
-                end = (det[2] + w, det[3])
-                matches_img = cv2.rectangle(matches_img, start, end, (0, 0, 255), 2)
-            for det in self.prevDetections:
-                det = np.multiply(det, self.scale).astype(int)
-                start = (det[0], det[1])
-                end = (det[2], det[3])
-                matches_img = cv2.rectangle(matches_img, start, end, (0, 0, 255), 2)
-        else:
-            matches_img = None
-
-        # find rigid matrix
-        if (np.size(prevPoints, 0) > 4) and (np.size(prevPoints, 0) == np.size(prevPoints, 0)):
-            H, inliesrs = cv2.estimateAffinePartial2D(prevPoints, currPoints, cv2.RANSAC)
-
+        if len(good) > self.minimum_features:
+            src_pts = np.float32([self.prev_desc[0][m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+            dst_pts = np.float32([kp[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+            A, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts, method=cv2.RANSAC)
             # upscale warp matrix to original images size
             if self.scale < 1.0:
-                H[0, 2] /= self.scale
-                H[1, 2] /= self.scale
+                A[0, 2] /= self.scale
+                A[1, 2] /= self.scale
         else:
-            print('Warning: not enough matching points')
+            print("Warning: not enough matching points")
+        if A is None:
+            A = np.eye(2, 3)
 
-        # Store to next iteration
-        self.prevFrame = frame.copy()
-        self.prevKeyPoints = copy.copy(keypoints)
-        self.prevDescriptors = copy.copy(descriptors)
-
-        return H
+        self.prev_desc = [kp, desc]
+        return A
 
 
 def main():
-    orb = ORB(scale=0.1, align=True, grayscale=True)
+    orb = SIFT(scale=0.1, align=True, grayscale=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
     curr_dets = np.array(
