@@ -47,21 +47,15 @@ class ORB(CMCInterface):
         src_aligned: ndarray
             aligned source image of gray
         """
-        self.align = align
         self.grayscale = grayscale
         self.scale = scale
-        self.warp_mode = warp_mode
-        self.termination_criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, max_iter, eps)
-        if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
-            self.warp_matrix = np.eye(3, 3, dtype=np.float32)
-        else:
-            self.warp_matrix = np.eye(2, 3, dtype=np.float32)
 
         self.detector = cv2.FastFeatureDetector_create(threshold=20)
         self.extractor = cv2.ORB_create()
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
 
         self.prev_img = None
+        self.default_affine = np.eye(2, 3)
 
     def preprocess(self, img):
 
@@ -84,46 +78,35 @@ class ORB(CMCInterface):
     def apply(self, curr_img, detections):
 
         curr_img = self.preprocess(curr_img)
-
-        frame = curr_img
-
         h, w = curr_img.shape
 
         # Initialize
-        height, width = frame.shape
-        H = np.eye(2, 3)
+        height, width = curr_img.shape
 
         # find the keypoints
-        mask = np.zeros_like(frame)
-        # mask[int(0.05 * height): int(0.95 * height), int(0.05 * width): int(0.95 * width)] = 255
+        mask = np.zeros_like(curr_img)
 
-        mask[int(0.02 * height): int(0.98 * height), int(0.02 * width): int(0.98 * width)] = 255
+        mask[int(0.02 * h): int(0.98 * h), int(0.02 * w): int(0.98 * w)] = 255
         if detections is not None:
             for det in detections:
                 tlbr = np.multiply(det, self.scale).astype(int)
                 mask[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]] = 0
 
-        # cv2.imshow('prev_img_aligned', mask)
-        # cv2.waitKey(0)
-
-        keypoints = self.detector.detect(frame, mask)
+        keypoints = self.detector.detect(curr_img, mask)
 
         # compute the descriptors
-        keypoints, descriptors = self.extractor.compute(frame, keypoints)
+        keypoints, descriptors = self.extractor.compute(curr_img, keypoints)
 
         # Handle first frame
         if self.prev_img is None:
             # Initialize data
             self.prevDetections = detections.copy()
-            self.prevFrame = frame.copy()
-            self.prev_img = frame.copy()
+            self.prevFrame = curr_img.copy()
+            self.prev_img = curr_img.copy()
             self.prevKeyPoints = copy.copy(keypoints)
             self.prevDescriptors = copy.copy(descriptors)
 
-            # Initialization done
-            self.initializedFirstFrame = True
-
-            return H
+            return self.default_affine
 
         # Match descriptors.
         knnMatches = self.matcher.knnMatch(self.prevDescriptors, descriptors, 2)
@@ -137,11 +120,11 @@ class ORB(CMCInterface):
         # Handle empty matches case
         if len(knnMatches) == 0:
             # Store to next iteration
-            self.prevFrame = frame.copy()
+            self.prevFrame = curr_img.copy()
             self.prevKeyPoints = copy.copy(keypoints)
             self.prevDescriptors = copy.copy(descriptors)
 
-            return H
+            return self.default_affine
 
         for m, n in knnMatches:
             if m.distance < 0.9 * n.distance:
@@ -176,7 +159,7 @@ class ORB(CMCInterface):
         # Draw the keypoint matches on the output image
         if False:
             self.prevFrame[:, :][mask == True] = 0  # noqa:E712
-            matches_img = np.hstack((self.prevFrame, frame))
+            matches_img = np.hstack((self.prevFrame, curr_img))
             matches_img = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2BGR)
 
             W = np.size(self.prevFrame, 1)
@@ -214,7 +197,7 @@ class ORB(CMCInterface):
             print('Warning: not enough matching points')
 
         # Store to next iteration
-        self.prevFrame = frame.copy()
+        self.prevFrame = curr_img.copy()
         self.prevKeyPoints = copy.copy(keypoints)
         self.prevDescriptors = copy.copy(descriptors)
 
