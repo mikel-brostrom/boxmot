@@ -207,12 +207,11 @@ class Evaluator:
                 )
                 processes.append(p)
                 # Wait for the subprocess to complete and capture output
-                
 
             for p in processes:
                 p.wait()
-                
-            LOGGER.success(f"Evaluation succeeded")
+
+            LOGGER.success("Evaluation succeeded")
 
         print_args(vars(self.opt))
 
