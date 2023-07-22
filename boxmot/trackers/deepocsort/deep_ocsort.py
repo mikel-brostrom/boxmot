@@ -7,11 +7,11 @@ import torch
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.adapters import OCSortKalmanFilterAdapter
+from boxmot.motion.cmc import get_cmc_method
 from boxmot.utils import PerClassDecorator
 from boxmot.utils.association import (associate, associate_kitti, ciou_batch,
                                       ct_dist, diou_batch, giou_batch,
                                       iou_batch, linear_assignment)
-from boxmot.utils.cmc import CameraMotionCompensation
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -356,7 +356,7 @@ class DeepOCSort(object):
         KalmanBoxTracker.count = 0
 
         self.embedder = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
-        self.cmc = CameraMotionCompensation()
+        self.cmc = get_cmc_method('sof')()
         self.embedding_off = embedding_off
         self.cmc_off = cmc_off
         self.aw_off = aw_off
@@ -397,7 +397,7 @@ class DeepOCSort(object):
 
         # CMC
         if not self.cmc_off:
-            transform = self.cmc.compute_affine(img, dets[:, :4], tag)
+            transform = self.cmc.apply(img, dets[:, :4])
             for trk in self.trackers:
                 trk.apply_affine_correction(transform)
 
