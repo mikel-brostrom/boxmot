@@ -120,22 +120,22 @@ def main():
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
 
+    warp_matrix = ecc.apply(prev_img, None)
+    warp_matrix = ecc.apply(curr_img, None)
+
     start = time.process_time()
-    warp_matrix, prev_img_aligned = ecc.apply(prev_img, None)
-    warp_matrix, prev_img_aligned = ecc.apply(curr_img, None)
+    for i in range(0, 100):
+        warp_matrix = ecc.apply(curr_img, None)
     end = time.process_time()
     print('Total time', end - start)
     print(warp_matrix.shape)
 
-    # prev_img_aligned = cv2.cvtColor(prev_img_aligned, cv2.COLOR_GRAY2RGB)
+    # curr_img = ecc.preprocess(curr_img)
+    # prev_img = ecc.preprocess(prev_img)
     # cv2.imshow('curr_img', curr_img)
     # cv2.imshow('prev_img', prev_img)
-    curr_img = ecc.preprocess(curr_img)
-    prev_img = ecc.preprocess(prev_img)
-    cv2.imshow('curr_img', curr_img)
-    cv2.imshow('prev_img', prev_img)
-    cv2.imshow('prev_img_aligned', prev_img_aligned)
-    cv2.waitKey(0)
+    # cv2.imshow('prev_img_aligned', prev_img_aligned)
+    # cv2.waitKey(0)
 
 
 if __name__ == "__main__":

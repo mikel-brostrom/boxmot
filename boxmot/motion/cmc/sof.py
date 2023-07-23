@@ -200,8 +200,11 @@ def main():
     )
 
     warp_matrix = sof.apply(prev_img, prev_dets)
-    start = time.process_time()
     warp_matrix = sof.apply(curr_img, curr_dets)
+
+    start = time.process_time()
+    for i in range(0, 100):
+        warp_matrix = sof.apply(curr_img, curr_dets)
     end = time.process_time()
     print('Total time', end - start)
     print(warp_matrix.shape)
