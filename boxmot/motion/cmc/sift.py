@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 
 from boxmot.motion.cmc.cmc_interface import CMCInterface
+from boxmot.utils import BOXMOT
 
 
 class SIFT(CMCInterface):
@@ -15,8 +16,8 @@ class SIFT(CMCInterface):
         eps=1e-5,
         max_iter=100,
         scale=0.1,
-        align=False,
-        grayscale=True
+        grayscale=True,
+        draw_keypoint_matches=False
     ):
         """Compute the warp matrix from src to dst.
 
@@ -47,7 +48,6 @@ class SIFT(CMCInterface):
         src_aligned: ndarray
             aligned source image of gray
         """
-        self.align = align
         self.grayscale = grayscale
         self.scale = scale
         self.warp_mode = warp_mode
@@ -64,7 +64,7 @@ class SIFT(CMCInterface):
         self.prev_img = None
         self.minimum_features = 10
         self.prev_desc = None
-        self.default_warp_matrix = np.eye(2, 3)
+        self.draw_keypoint_matches = draw_keypoint_matches
 
     def preprocess(self, img):
 
@@ -86,6 +86,8 @@ class SIFT(CMCInterface):
 
     def apply(self, img, dets):
 
+        H = np.eye(2, 3)
+
         img = self.preprocess(img)
         h, w = img.shape
 
@@ -106,7 +108,7 @@ class SIFT(CMCInterface):
             self.prev_keypoints = copy.copy(keypoints)
             self.prev_descriptors = copy.copy(descriptors)
 
-            return self.default_warp_matrix
+            return H
 
         # Match descriptors.
         knnMatches = self.matcher.knnMatch(self.prev_descriptors, descriptors, k=2)
@@ -118,7 +120,7 @@ class SIFT(CMCInterface):
             self.prev_keypoints = copy.copy(keypoints)
             self.prev_descriptors = copy.copy(descriptors)
 
-            return self.default_warp_matrix
+            return H
 
         # filtered matches based on smallest spatial distance
         matches = []
@@ -156,7 +158,7 @@ class SIFT(CMCInterface):
         currPoints = np.array(currPoints)
 
         # Draw the keypoint matches on the output image
-        if False:
+        if self.draw_keypoint_matches:
             self.prev_img[:, :][mask == True] = 0  # noqa:E712
             self.matches_img = np.hstack((self.prev_img, img))
             self.matches_img = cv2.cvtColor(self.matches_img, cv2.COLOR_GRAY2BGR)
@@ -204,7 +206,7 @@ class SIFT(CMCInterface):
 
 
 def main():
-    orb = SIFT(scale=0.1, align=True, grayscale=True)
+    sift = SIFT(scale=0.1, grayscale=True, draw_keypoint_matches=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
     curr_dets = np.array(
@@ -241,18 +243,22 @@ def main():
          [1.2190e+03, 4.4176e+02, 1.2414e+03, 4.9038e+02]]
     )
 
-    warp_matrix, matches_img = orb.apply(prev_img, prev_dets)
+    warp_matrix = sift.apply(prev_img, prev_dets)
+    warp_matrix = sift.apply(curr_img, curr_dets)
+
     start = time.process_time()
-    warp_matrix, matches_img = orb.apply(curr_img, curr_dets)
+    for i in range(0, 100):
+        warp_matrix = sift.apply(curr_img, curr_dets)
     end = time.process_time()
+
     print('Total time', end - start)
     print(warp_matrix.shape)
 
     # prev_img_aligned = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2RGB)
-    if matches_img is not None:
-        print(warp_matrix.shape, matches_img.shape)
-        cv2.imshow('prev_img_aligned', matches_img)
+    if sift.matches_img is not None:
+        cv2.imshow('prev_img_aligned', sift.matches_img)
         cv2.waitKey(0)
+        cv2.imwrite(str(BOXMOT / 'motion/cmc/sift_matches.jpg'), sift.matches_img)
 
 
 if __name__ == "__main__":

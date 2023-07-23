@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 
 from boxmot.motion.cmc.cmc_interface import CMCInterface
+from boxmot.utils import BOXMOT
 
 
 class ORB(CMCInterface):
@@ -14,7 +15,8 @@ class ORB(CMCInterface):
         feature_detector_threshold=20,
         matcher_norm_type=cv2.NORM_HAMMING,
         scale=0.1,
-        grayscale=True
+        grayscale=True,
+        draw_keypoint_matches=False
     ):
         """Compute the warp matrix from src to dst.
 
@@ -45,7 +47,7 @@ class ORB(CMCInterface):
         self.matcher = cv2.BFMatcher(matcher_norm_type)
 
         self.prev_img = None
-        self.default_warp_matrix = np.eye(2, 3)
+        self.draw_keypoint_matches = draw_keypoint_matches
 
     def preprocess(self, img):
 
@@ -67,6 +69,8 @@ class ORB(CMCInterface):
 
     def apply(self, img, dets):
 
+        H = np.eye(2, 3)
+
         img = self.preprocess(img)
         h, w = img.shape
 
@@ -87,7 +91,7 @@ class ORB(CMCInterface):
             self.prev_keypoints = copy.copy(keypoints)
             self.prev_descriptors = copy.copy(descriptors)
 
-            return self.default_warp_matrix
+            return H
 
         # Match descriptors.
         knnMatches = self.matcher.knnMatch(self.prev_descriptors, descriptors, k=2)
@@ -99,7 +103,7 @@ class ORB(CMCInterface):
             self.prev_keypoints = copy.copy(keypoints)
             self.prev_descriptors = copy.copy(descriptors)
 
-            return self.default_warp_matrix
+            return H
 
         # filtered matches based on smallest spatial distance
         matches = []
@@ -136,8 +140,8 @@ class ORB(CMCInterface):
         prevPoints = np.array(prevPoints)
         currPoints = np.array(currPoints)
 
-        # Draw the keypoint matches on the output image
-        if False:
+        # draw keypoint matches on the output image
+        if self.draw_keypoint_matches:
             self.prev_img[:, :][mask == True] = 0  # noqa:E712
             self.matches_img = np.hstack((self.prev_img, img))
             self.matches_img = cv2.cvtColor(self.matches_img, cv2.COLOR_GRAY2BGR)
@@ -185,7 +189,7 @@ class ORB(CMCInterface):
 
 
 def main():
-    orb = ORB(scale=0.5, grayscale=True)
+    orb = ORB(scale=0.1, grayscale=True, draw_keypoint_matches=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
     curr_dets = np.array(
@@ -222,16 +226,19 @@ def main():
          [1.2190e+03, 4.4176e+02, 1.2414e+03, 4.9038e+02]]
     )
 
-    warp_matrix, matches_img = orb.apply(prev_img, prev_dets)
-    start = time.process_time()
-    warp_matrix, matches_img = orb.apply(curr_img, curr_dets)
-    end = time.process_time()
-    print('Total time', end - start)
-
-    # prev_img_aligned = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2RGB)
+    warp_matrix = orb.apply(prev_img, prev_dets)
+    warp_matrix = orb.apply(curr_img, curr_dets)
     if orb.matches_img is not None:
         cv2.imshow('prev_img_aligned', orb.matches_img)
         cv2.waitKey(0)
+        cv2.imwrite(str(BOXMOT / 'motion/cmc/orb_matches.jpg'), orb.matches_img)
+
+    start = time.process_time()
+    for i in range(0, 100):
+        warp_matrix = orb.apply(curr_img, curr_dets)
+    end = time.process_time()
+    print('Total time', end - start)
+    print(warp_matrix.shape)
 
 
 if __name__ == "__main__":
