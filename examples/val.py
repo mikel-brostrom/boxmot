@@ -171,7 +171,7 @@ class Evaluator:
             processes = []
 
             busy_devices = []
-            print(seq_paths)
+
             for i, seq_path in enumerate(seq_paths):
                 # spawn one subprocess per GPU in increasing order.
                 # When max devices are reached start at 0 again
@@ -214,6 +214,10 @@ class Evaluator:
             LOGGER.success("Evaluation succeeded")
 
         print_args(vars(self.opt))
+
+        if opt.gsi:
+            from boxmot.postprocessing.gsi import gsi_interpolation
+            gsi_interpolation(mot_results_folder=save_dir / 'labels')
 
         # run the evaluation on the generated txts
         d = [seq_path.parent.name for seq_path in seq_paths]
@@ -323,6 +327,8 @@ def parse_opt():
                         help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true',
                         help='existing project/name ok, do not increment')
+    parser.add_argument('--gsi', action='store_true',
+                        help='apply gsi to results')
     parser.add_argument('--benchmark', type=str, default='MOT17-mini',
                         help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train',
