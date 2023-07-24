@@ -204,10 +204,11 @@ def main():
 
     start = time.process_time()
     for i in range(0, 100):
+        warp_matrix = sof.apply(prev_img, prev_dets)
         warp_matrix = sof.apply(curr_img, curr_dets)
     end = time.process_time()
     print('Total time', end - start)
-    print(warp_matrix.shape)
+    print(warp_matrix)
 
 
 if __name__ == "__main__":

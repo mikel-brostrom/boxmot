@@ -248,11 +248,12 @@ def main():
 
     start = time.process_time()
     for i in range(0, 100):
+        warp_matrix = sift.apply(prev_img, prev_dets)
         warp_matrix = sift.apply(curr_img, curr_dets)
     end = time.process_time()
 
     print('Total time', end - start)
-    print(warp_matrix.shape)
+    print(warp_matrix)
 
     # prev_img_aligned = cv2.cvtColor(matches_img, cv2.COLOR_GRAY2RGB)
     if sift.matches_img is not None:
