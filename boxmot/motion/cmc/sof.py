@@ -75,27 +75,20 @@ class SparseOptFlow(CMCInterface):
 
         return img
 
-    def apply(self, curr_img, detections):
+    def apply(self, img, dets):
 
         H = np.eye(2, 3)
 
-        frame = self.preprocess(curr_img)
+        img = self.preprocess(img)
 
-        h, w = frame.shape
+        h, w = img.shape
 
-        # find the keypoints
-        mask = np.zeros_like(frame)
-        # mask[int(0.05 * height): int(0.95 * height), int(0.05 * width): int(0.95 * width)] = 255
-
-        mask[int(0.02 * h): int(0.98 * h), int(0.02 * w): int(0.98 * w)] = 255
-        if detections is not None:
-            for det in detections:
-                tlbr = np.multiply(det, self.scale).astype(int)
-                mask[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]] = 0
+        # generate dynamic object maks
+        mask = self.generate_mask(img, dets, self.scale)
 
         # find the keypoints
         keypoints = cv2.goodFeaturesToTrack(
-            frame,
+            img,
             mask=mask,
             maxCorners=3000,
             qualityLevel=0.01,
@@ -108,7 +101,7 @@ class SparseOptFlow(CMCInterface):
         # Handle first frame
         if self.prev_img is None:
             # Initialize data
-            self.prev_img = frame.copy()
+            self.prev_img = img.copy()
             self.prevKeyPoints = copy.copy(keypoints)
 
             # Initialization done
@@ -118,7 +111,7 @@ class SparseOptFlow(CMCInterface):
 
         # sparse otical flow for sparse features using Lucas-Kanade with pyramids
         matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
-            self.prev_img, frame, self.prevKeyPoints, None
+            self.prev_img, img, self.prevKeyPoints, None
         )
 
         # leave good correspondences only
@@ -153,7 +146,7 @@ class SparseOptFlow(CMCInterface):
             print("Warning: not enough matching points")
 
         # Store to next iteration
-        self.prev_img = frame.copy()
+        self.prev_img = img.copy()
         self.prevKeyPoints = copy.copy(keypoints)
 
         return H

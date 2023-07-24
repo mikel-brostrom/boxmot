@@ -8,7 +8,6 @@ from boxmot.utils import BOXMOT
 
 
 class ECC(CMCInterface):
-
     def __init__(
         self,
         warp_mode=cv2.MOTION_EUCLIDEAN,
@@ -124,11 +123,11 @@ def main():
     warp_matrix = ecc.apply(prev_img, None)
     warp_matrix = ecc.apply(curr_img, None)
 
-    start = time.clock()
+    start = time.process_time()
     for i in range(0, 100):
         warp_matrix = ecc.apply(prev_img, None)
         warp_matrix = ecc.apply(curr_img, None)
-    end = time.clock()
+    end = time.process_time()
     print('Total time', end - start)
     print(warp_matrix)
 
