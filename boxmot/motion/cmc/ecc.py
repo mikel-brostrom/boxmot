@@ -137,7 +137,7 @@ def main():
         weighted_img = cv2.addWeighted(curr_img, 0.5, ecc.prev_img_aligned, 0.5, 0)
         cv2.imshow('prev_img_aligned', weighted_img)
         cv2.waitKey(0)
-        cv2.imwrite(str(BOXMOT / 'motion/cmc/orb_aligned.jpg'), weighted_img)
+        cv2.imwrite(str(BOXMOT / 'motion/cmc/ecc_aligned.jpg'), weighted_img)
 
 
 if __name__ == "__main__":
