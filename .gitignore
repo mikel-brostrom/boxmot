@@ -45,3 +45,6 @@ tf_models/
 build/
 dist/
 *.egg-info/
+
+# cmc debug images
+boxmot/motion/cmc/*.jpg
