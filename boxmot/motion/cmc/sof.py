@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 
 from boxmot.motion.cmc.cmc_interface import CMCInterface
+from boxmot.utils import BOXMOT
 
 
 class SparseOptFlow(CMCInterface):
@@ -50,18 +51,11 @@ class SparseOptFlow(CMCInterface):
         self.align = align
         self.grayscale = grayscale
         self.scale = scale
-        self.warp_mode = warp_mode
-        self.termination_criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, max_iter, eps)
-        if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
-            self.warp_matrix = np.eye(3, 3, dtype=np.float32)
-        else:
-            self.warp_matrix = np.eye(2, 3, dtype=np.float32)
+        self.prev_img = None
 
         self.detector = cv2.FastFeatureDetector_create(threshold=20)
         self.extractor = cv2.ORB_create(nfeatures=5)
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
-        self.initializedFirstFrame = False
-        self.prevFrame = None
 
     def preprocess(self, img):
 
@@ -112,9 +106,9 @@ class SparseOptFlow(CMCInterface):
         )
 
         # Handle first frame
-        if self.prevFrame is None:
+        if self.prev_img is None:
             # Initialize data
-            self.prevFrame = frame.copy()
+            self.prev_img = frame.copy()
             self.prevKeyPoints = copy.copy(keypoints)
 
             # Initialization done
@@ -124,7 +118,7 @@ class SparseOptFlow(CMCInterface):
 
         # sparse otical flow for sparse features using Lucas-Kanade with pyramids
         matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
-            self.prevFrame, frame, self.prevKeyPoints, None
+            self.prev_img, frame, self.prevKeyPoints, None
         )
 
         # leave good correspondences only
@@ -151,18 +145,22 @@ class SparseOptFlow(CMCInterface):
             if self.scale < 1:
                 H[0, 2] /= self.scale
                 H[1, 2] /= self.scale
+
+            if self.align:
+                self.prev_img_aligned = cv2.warpAffine(self.prev_img, H, (w, h), flags=cv2.INTER_LINEAR)
+
         else:
             print("Warning: not enough matching points")
 
         # Store to next iteration
-        self.prevFrame = frame.copy()
+        self.prev_img = frame.copy()
         self.prevKeyPoints = copy.copy(keypoints)
 
         return H
 
 
 def main():
-    sof = SparseOptFlow(scale=0.1, align=True, grayscale=True)
+    sof = SparseOptFlow(scale=0.5, align=True, grayscale=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
     curr_dets = np.array(
@@ -209,6 +207,14 @@ def main():
     end = time.process_time()
     print('Total time', end - start)
     print(warp_matrix)
+
+    if sof.prev_img_aligned is not None:
+        curr_img = sof.preprocess(curr_img)
+        prev_img = sof.preprocess(prev_img)
+        weighted_img = cv2.addWeighted(curr_img, 0.5, sof.prev_img_aligned, 0.5, 0)
+        cv2.imshow('prev_img_aligned', weighted_img)
+        cv2.waitKey(0)
+        cv2.imwrite(str(BOXMOT / 'motion/cmc/orb_aligned.jpg'), weighted_img)
 
 
 if __name__ == "__main__":
