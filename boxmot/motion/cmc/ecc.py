@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from boxmot.motion.cmc.cmc_interface import CMCInterface
+from boxmot.utils import BOXMOT
 
 
 class ECC(CMCInterface):
@@ -99,16 +100,16 @@ class ECC(CMCInterface):
             warp_matrix[0, 2] /= self.scale
             warp_matrix[1, 2] /= self.scale
 
-        # if self.align:
-        #     h, w = self.prev_img.shape
-        #     if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
-        #         # Use warpPerspective for Homography
-        #         prev_img_aligned = cv2.warpPerspective(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
-        #     else:
-        #         # Use warpAffine for Translation, Euclidean and Affine
-        #         prev_img_aligned = cv2.warpAffine(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
-        # else:
-        #     prev_img_aligned = None
+        if self.align:
+            h, w = self.prev_img.shape
+            if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
+                # Use warpPerspective for Homography
+                self.prev_img_aligned = cv2.warpPerspective(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
+            else:
+                # Use warpAffine for Translation, Euclidean and Affine
+                self.prev_img_aligned = cv2.warpAffine(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
+        else:
+            self.prev_img_aligned = None
 
         self.prev_img = curr_img
 
@@ -116,27 +117,28 @@ class ECC(CMCInterface):
 
 
 def main():
-    ecc = ECC(scale=0.1, align=False, grayscale=True)
+    ecc = ECC(scale=0.5, align=True, grayscale=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
 
     warp_matrix = ecc.apply(prev_img, None)
     warp_matrix = ecc.apply(curr_img, None)
 
-    start = time.process_time()
+    start = time.clock()
     for i in range(0, 100):
         warp_matrix = ecc.apply(prev_img, None)
         warp_matrix = ecc.apply(curr_img, None)
-    end = time.process_time()
+    end = time.clock()
     print('Total time', end - start)
     print(warp_matrix)
 
-    # curr_img = ecc.preprocess(curr_img)
-    # prev_img = ecc.preprocess(prev_img)
-    # cv2.imshow('curr_img', curr_img)
-    # cv2.imshow('prev_img', prev_img)
-    # cv2.imshow('prev_img_aligned', prev_img_aligned)
-    # cv2.waitKey(0)
+    if ecc.prev_img_aligned is not None:
+        curr_img = ecc.preprocess(curr_img)
+        prev_img = ecc.preprocess(prev_img)
+        weighted_img = cv2.addWeighted(curr_img, 0.5, ecc.prev_img_aligned, 0.5, 0)
+        cv2.imshow('prev_img_aligned', weighted_img)
+        cv2.waitKey(0)
+        cv2.imwrite(str(BOXMOT / 'motion/cmc/orb_aligned.jpg'), weighted_img)
 
 
 if __name__ == "__main__":

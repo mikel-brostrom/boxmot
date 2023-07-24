@@ -16,7 +16,8 @@ class ORB(CMCInterface):
         matcher_norm_type=cv2.NORM_HAMMING,
         scale=0.1,
         grayscale=True,
-        draw_keypoint_matches=False
+        draw_keypoint_matches=False,
+        align=False
     ):
         """Compute the warp matrix from src to dst.
 
@@ -48,6 +49,7 @@ class ORB(CMCInterface):
 
         self.prev_img = None
         self.draw_keypoint_matches = draw_keypoint_matches
+        self.align = align
 
     def preprocess(self, img):
 
@@ -177,6 +179,9 @@ class ORB(CMCInterface):
             if self.scale < 1.0:
                 H[0, 2] /= self.scale
                 H[1, 2] /= self.scale
+
+            if self.align:
+                self.prev_img_aligned = cv2.warpAffine(self.prev_img, H, (w, h), flags=cv2.INTER_LINEAR)
         else:
             print('Warning: not enough matching points')
 
@@ -189,7 +194,7 @@ class ORB(CMCInterface):
 
 
 def main():
-    orb = ORB(scale=0.1, grayscale=True, draw_keypoint_matches=True)
+    orb = ORB(scale=0.5, align=True, grayscale=True, draw_keypoint_matches=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
     curr_dets = np.array(
@@ -228,10 +233,6 @@ def main():
 
     warp_matrix = orb.apply(prev_img, prev_dets)
     warp_matrix = orb.apply(curr_img, curr_dets)
-    if orb.matches_img is not None:
-        cv2.imshow('prev_img_aligned', orb.matches_img)
-        cv2.waitKey(0)
-        cv2.imwrite(str(BOXMOT / 'motion/cmc/orb_matches.jpg'), orb.matches_img)
 
     start = time.process_time()
     for i in range(0, 100):
@@ -240,6 +241,14 @@ def main():
     end = time.process_time()
     print('Total time', end - start)
     print(warp_matrix)
+
+    if orb.prev_img_aligned is not None:
+        curr_img = orb.preprocess(curr_img)
+        prev_img = orb.preprocess(prev_img)
+        weighted_img = cv2.addWeighted(curr_img, 0.5, orb.prev_img_aligned, 0.5, 0)
+        cv2.imshow('prev_img_aligned', weighted_img)
+        cv2.waitKey(0)
+        cv2.imwrite(str(BOXMOT / 'motion/cmc/orb_aligned.jpg'), weighted_img)
 
 
 if __name__ == "__main__":
