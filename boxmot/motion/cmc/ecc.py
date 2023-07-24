@@ -125,10 +125,11 @@ def main():
 
     start = time.process_time()
     for i in range(0, 100):
+        warp_matrix = ecc.apply(prev_img, None)
         warp_matrix = ecc.apply(curr_img, None)
     end = time.process_time()
     print('Total time', end - start)
-    print(warp_matrix.shape)
+    print(warp_matrix)
 
     # curr_img = ecc.preprocess(curr_img)
     # prev_img = ecc.preprocess(prev_img)
