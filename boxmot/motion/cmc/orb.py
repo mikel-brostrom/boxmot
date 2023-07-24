@@ -194,7 +194,7 @@ class ORB(CMCInterface):
 
 
 def main():
-    orb = ORB(scale=0.5, align=True, grayscale=True, draw_keypoint_matches=True)
+    orb = ORB(scale=0.5, align=True, grayscale=True, draw_keypoint_matches=False)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
     curr_dets = np.array(
