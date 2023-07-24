@@ -109,47 +109,53 @@ class SparseOptFlow(CMCInterface):
 
             return H
 
-        # sparse otical flow for sparse features using Lucas-Kanade with pyramids
-        matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
-            self.prev_img, img, self.prevKeyPoints, None
-        )
+        if keypoints is not None and self.prevKeyPoints is not None:
 
-        # leave good correspondences only
-        prevPoints = []
-        currPoints = []
-
-        for i in range(len(status)):
-            if status[i]:
-                prevPoints.append(self.prevKeyPoints[i])
-                currPoints.append(matchedKeypoints[i])
-
-        prevPoints = np.array(prevPoints)
-        currPoints = np.array(currPoints)
-
-        # Find rigid matrix
-        if (np.size(prevPoints, 0) > 4) and (
-            np.size(prevPoints, 0) == np.size(prevPoints, 0)
-        ):
-            H, inliesrs = cv2.estimateAffinePartial2D(
-                prevPoints, currPoints, cv2.RANSAC
+            # sparse otical flow for sparse features using Lucas-Kanade with pyramids
+            matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
+                self.prev_img, img, self.prevKeyPoints, None
             )
 
-            # Handle downscale
-            if self.scale < 1:
-                H[0, 2] /= self.scale
-                H[1, 2] /= self.scale
+            # leave good correspondences only
+            prevPoints = []
+            currPoints = []
 
-            if self.align:
-                self.prev_img_aligned = cv2.warpAffine(self.prev_img, H, (w, h), flags=cv2.INTER_LINEAR)
+            for i in range(len(status)):
+                if status[i]:
+                    prevPoints.append(self.prevKeyPoints[i])
+                    currPoints.append(matchedKeypoints[i])
+
+            prevPoints = np.array(prevPoints)
+            currPoints = np.array(currPoints)
+
+            # Find rigid matrix
+            if (np.size(prevPoints, 0) > 4) and (
+                np.size(prevPoints, 0) == np.size(prevPoints, 0)
+            ):
+                H, inliesrs = cv2.estimateAffinePartial2D(
+                    prevPoints, currPoints, cv2.RANSAC
+                )
+
+                # Handle downscale
+                if self.scale < 1:
+                    H[0, 2] /= self.scale
+                    H[1, 2] /= self.scale
+
+                if self.align:
+                    self.prev_img_aligned = cv2.warpAffine(self.prev_img, H, (w, h), flags=cv2.INTER_LINEAR)
+
+            else:
+                print("Warning: not enough matching points")
+
+            # Store to next iteration
+            self.prev_img = img.copy()
+            self.prevKeyPoints = copy.copy(keypoints)
+
+            return H
 
         else:
-            print("Warning: not enough matching points")
 
-        # Store to next iteration
-        self.prev_img = img.copy()
-        self.prevKeyPoints = copy.copy(keypoints)
-
-        return H
+            return H
 
 
 def main():
