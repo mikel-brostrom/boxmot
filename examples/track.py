@@ -5,6 +5,8 @@ from pathlib import Path
 
 import cv2
 import torch
+import json
+import datetime
 
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS
@@ -23,6 +25,7 @@ from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.utils.plotting import save_one_box
 from utils import write_MOT_results
+from utils import write_MOT_results_json
 
 from boxmot.utils import EXAMPLES
 
@@ -169,12 +172,25 @@ def run(args):
                     predictor.MOT_txt_path = predictor.txt_path.parent / p.parent.name
 
                 if predictor.tracker_outputs[i].size != 0 and predictor.args.save_mot:
+                    print("Confidence scores before write_MOT_results: ", predictor.results[i].boxes.conf)
                     write_MOT_results(
                         predictor.MOT_txt_path,
                         predictor.results[i],
                         frame_idx,
                         i,
                     )
+                    
+                if predictor.tracker_outputs[i].size != 0 and predictor.args.save_mot_JSON:
+                    print("Confidence scores before write_MOT_JSON_results: ", predictor.results[i].boxes.conf)
+                    write_MOT_results_json(
+                        predictor.MOT_txt_path,
+                        predictor.results[i],
+                        frame_idx,
+                        im0s[i].copy(),  # the original image
+                        predictor.save_dir,
+                        path[i]  # the path for the image
+                    )
+
 
                 if predictor.args.save_id_crops:
                     for d in predictor.results[i].boxes:
@@ -262,6 +278,8 @@ def parse_opt():
                         help='save each crop to its respective id folder')
     parser.add_argument('--save-mot', action='store_true',
                         help='save tracking results in a single txt file')
+    parser.add_argument('--save-mot-JSON', action='store_true',
+                        help='save tracking results in JSON txt file')
     parser.add_argument('--line-width', default=None, type=int,
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')
     parser.add_argument('--per-class', action='store_true',

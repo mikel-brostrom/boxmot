@@ -83,16 +83,21 @@ class ECC(CMCInterface):
             return self.warp_matrix
 
         curr_img = self.preprocess(curr_img)
-
-        (ret_val, warp_matrix) = cv2.findTransformECC(
-            self.prev_img,  # already processed
-            curr_img,
-            self.warp_matrix,
-            self.warp_mode,
-            self.termination_criteria,
-            None,
-            1
-        )
+        
+        try: 
+            (ret_val, warp_matrix) = cv2.findTransformECC(
+                self.prev_img,  # already processed
+                curr_img,
+                self.warp_matrix,
+                self.warp_mode,
+                self.termination_criteria,
+                None,
+                1
+            )
+        except cv2.error as e:
+            print("ECC failed to find a transform, skipping frame.")
+             # You can either return the previous warp_matrix or a identity matrix depending on your need
+            return self.warp_matrix
 
         # upscale warp matrix to original images size
         if self.scale < 1:
