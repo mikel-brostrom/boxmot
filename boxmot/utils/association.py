@@ -3,30 +3,6 @@ import numpy as np
 from boxmot.utils.iou import iou_batch
 
 
-def ct_dist(bboxes1, bboxes2):
-    """
-    Measure the center distance between two sets of bounding boxes,
-    this is a coarse implementation, we don't recommend using it only
-    for association, which can be unstable and sensitive to frame rate
-    and object speed.
-    """
-    bboxes2 = np.expand_dims(bboxes2, 0)
-    bboxes1 = np.expand_dims(bboxes1, 1)
-
-    centerx1 = (bboxes1[..., 0] + bboxes1[..., 2]) / 2.0
-    centery1 = (bboxes1[..., 1] + bboxes1[..., 3]) / 2.0
-    centerx2 = (bboxes2[..., 0] + bboxes2[..., 2]) / 2.0
-    centery2 = (bboxes2[..., 1] + bboxes2[..., 3]) / 2.0
-
-    ct_dist2 = (centerx1 - centerx2) ** 2 + (centery1 - centery2) ** 2
-
-    ct_dist = np.sqrt(ct_dist2)
-
-    # The linear rescaling is a naive version and needs more study
-    ct_dist = ct_dist / ct_dist.max()
-    return ct_dist.max() - ct_dist  # resize to (0,1)
-
-
 def speed_direction_batch(dets, tracks):
     tracks = tracks[..., np.newaxis]
     CX1, CY1 = (dets[:, 0] + dets[:, 2]) / 2.0, (dets[:, 1] + dets[:, 3]) / 2.0
