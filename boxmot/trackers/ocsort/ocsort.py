@@ -4,9 +4,9 @@
 import numpy as np
 
 from boxmot.motion.kalman_filters.adapters import OCSortKalmanFilterAdapter
-from boxmot.utils.association import (associate, ciou_batch, ct_dist,
-                                      diou_batch, giou_batch, iou_batch,
-                                      linear_assignment)
+from boxmot.utils.association import associate, ct_dist, linear_assignment
+from boxmot.utils.iou import (ciou_batch, diou_batch, get_asso_func,
+                              giou_batch, iou_batch)
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -222,7 +222,7 @@ class OCSort(object):
         self.frame_count = 0
         self.det_thresh = det_thresh
         self.delta_t = delta_t
-        self.asso_func = ASSO_FUNCS[asso_func]
+        self.asso_func = get_asso_func(asso_func)
         self.inertia = inertia
         self.use_byte = use_byte
         KalmanBoxTracker.count = 0
