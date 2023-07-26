@@ -115,6 +115,15 @@ class SparseOptFlow(CMCInterface):
                 self.prev_keypoints = keypoints.copy()
                 return H
 
+        # sparse otical flow for sparse features using Lucas-Kanade with pyramids
+        try:
+            matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
+                self.prev_img, img, self.prev_keypoints, None
+            )
+        except Exception as e:
+            LOGGER.warning(f'calcOpticalFlowPyrLK failed: {e}')
+            return H
+
         # calculate new positions of the keypoints between the previous frame (self.prev_img)
         # and the current frame (img) using sparse optical flow (Lucas-Kanade with pyramids)
         next_keypoints, status, err = cv2.calcOpticalFlowPyrLK(
