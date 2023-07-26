@@ -6,6 +6,7 @@ import numpy as np
 
 from boxmot.motion.cmc.cmc_interface import CMCInterface
 from boxmot.utils import BOXMOT
+from boxmot.utils import logger as LOGGER
 
 
 class SparseOptFlow(CMCInterface):
@@ -110,9 +111,13 @@ class SparseOptFlow(CMCInterface):
             return H
 
         # sparse otical flow for sparse features using Lucas-Kanade with pyramids
-        matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
-            self.prev_img, img, self.prevKeyPoints, None
-        )
+        try:
+            matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
+                self.prev_img, img, self.prevKeyPoints, None
+            )
+        except Exception as e:
+            LOGGER.warning(f'calcOpticalFlowPyrLK failed: {e}')
+            return H
 
         # leave good correspondences only
         prevPoints = []
