@@ -4,9 +4,8 @@
 import numpy as np
 
 from boxmot.motion.kalman_filters.adapters import OCSortKalmanFilterAdapter
-from boxmot.utils.association import (associate, ciou_batch, ct_dist,
-                                      diou_batch, giou_batch, iou_batch,
-                                      linear_assignment)
+from boxmot.utils.association import associate, linear_assignment
+from boxmot.utils.iou import get_asso_func
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -184,21 +183,6 @@ class KalmanBoxTracker(object):
         return convert_x_to_bbox(self.kf.x)
 
 
-"""
-    We support multiple ways for association cost calculation, by default
-    we use IoU. GIoU may have better performance in some situations. We note
-    that we hardly normalize the cost by all methods to (0,1) which may not be
-    the best practice.
-"""
-ASSO_FUNCS = {
-    "iou": iou_batch,
-    "giou": giou_batch,
-    "ciou": ciou_batch,
-    "diou": diou_batch,
-    "ct_dist": ct_dist,
-}
-
-
 class OCSort(object):
     def __init__(
         self,
@@ -222,7 +206,7 @@ class OCSort(object):
         self.frame_count = 0
         self.det_thresh = det_thresh
         self.delta_t = delta_t
-        self.asso_func = ASSO_FUNCS[asso_func]
+        self.asso_func = get_asso_func(asso_func)
         self.inertia = inertia
         self.use_byte = use_byte
         KalmanBoxTracker.count = 0
