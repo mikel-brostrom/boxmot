@@ -4,8 +4,8 @@ import numpy as np
 import torch
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
-from boxmot.motion.adapters import BotSortKalmanFilterAdapter
 from boxmot.motion.cmc.sof import SparseOptFlow
+from boxmot.motion.kalman_filters.adapters import BotSortKalmanFilterAdapter
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment)

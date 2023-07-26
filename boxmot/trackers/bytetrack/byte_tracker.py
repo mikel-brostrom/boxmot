@@ -1,9 +1,9 @@
 import numpy as np
 
-from ...motion.adapters import ByteTrackKalmanFilterAdapter
-from ...utils.matching import fuse_score, iou_distance, linear_assignment
-from ...utils.ops import xywh2xyxy, xyxy2xywh
-from .basetrack import BaseTrack, TrackState
+from boxmot.motion.kalman_filters.adapters import ByteTrackKalmanFilterAdapter
+from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
+from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
+from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):
