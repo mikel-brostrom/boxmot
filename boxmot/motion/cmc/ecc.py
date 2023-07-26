@@ -5,6 +5,7 @@ import numpy as np
 
 from boxmot.motion.cmc.cmc_interface import CMCInterface
 from boxmot.utils import BOXMOT
+from boxmot.utils import logger as LOGGER
 
 
 class ECC(CMCInterface):
@@ -51,11 +52,6 @@ class ECC(CMCInterface):
         self.scale = scale
         self.warp_mode = warp_mode
         self.termination_criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, max_iter, eps)
-        if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
-            self.warp_matrix = np.eye(3, 3, dtype=np.float32)
-        else:
-            self.warp_matrix = np.eye(2, 3, dtype=np.float32)
-
         self.prev_img = None
 
     def preprocess(self, img):
@@ -78,21 +74,30 @@ class ECC(CMCInterface):
 
     def apply(self, curr_img, dets):
 
+        if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
+            warp_matrix = np.eye(3, 3, dtype=np.float32)
+        else:
+            warp_matrix = np.eye(2, 3, dtype=np.float32)
+
         if self.prev_img is None:
             self.prev_img = self.preprocess(curr_img)
-            return self.warp_matrix
+            return warp_matrix
 
         curr_img = self.preprocess(curr_img)
 
-        (ret_val, warp_matrix) = cv2.findTransformECC(
-            self.prev_img,  # already processed
-            curr_img,
-            self.warp_matrix,
-            self.warp_mode,
-            self.termination_criteria,
-            None,
-            1
-        )
+        try:
+            (ret_val, warp_matrix) = cv2.findTransformECC(
+                self.prev_img,  # already processed
+                curr_img,
+                warp_matrix,
+                self.warp_mode,
+                self.termination_criteria,
+                None,
+                1
+            )
+        except Exception as e:
+            LOGGER.warning(f'Affine matrix could not be generated: {e}. Returning identity')
+            return warp_matrix
 
         # upscale warp matrix to original images size
         if self.scale < 1:
