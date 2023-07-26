@@ -1,10 +1,3 @@
-"""
-@Author: Du Yunhao
-@Filename: GSI.py
-@Contact: dyh_bupt@163.com
-@Time: 2022/3/1 9:18
-@Discription: Gaussian-smoothed interpolation
-"""
 from pathlib import Path
 
 import numpy as np
@@ -12,8 +5,8 @@ from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.gaussian_process.kernels import RBF
 
 
+# 线性插值
 def LinearInterpolation(input_, interval):
-    print(input_)
     input_ = input_[np.lexsort([input_[:, 0], input_[:, 1]])]  # 按ID和帧排序
     output_ = input_.copy()
     '''线性插值'''
@@ -34,13 +27,13 @@ def LinearInterpolation(input_, interval):
     return output_
 
 
+# 高斯平滑
 def GaussianSmooth(input_, tau):
     output_ = list()
     ids = set(input_[:, 1])
     for id_ in ids:
         tracks = input_[input_[:, 1] == id_]
         len_scale = np.clip(tau * np.log(tau ** 3 / len(tracks)), tau ** -1, tau ** 2)
-        print(len_scale)
         gpr = GPR(RBF(len_scale, 'fixed'))
         t = tracks[:, 0].reshape(-1, 1)
         x = tracks[:, 2].reshape(-1, 1)
@@ -55,26 +48,27 @@ def GaussianSmooth(input_, tau):
         ww = gpr.predict(t)[0]
         gpr.fit(t, h)
         hh = gpr.predict(t)[0]
-        print('t', t[0])
-        print('id_', id_)
-        print('xx', xx)
         output_.extend([
-            [int(t[0][0]), int(id_), int(xx), int(yy), int(ww), int(hh), 1, -1, -1] for i in range(len(t))
+            [int(t[0]), int(id_), int(xx), int(yy), int(ww), int(hh), 1, -1, -1] for i in range(len(t))
         ])
     return output_
 
 
-def gsi_interpolation(mot_results_folder=Path('examples/runs/val/exp50/labels'), interval=20, tau=10):
+def gsi_interpolation(mot_results_folder=Path('examples/runs/val/exp80/labels'), interval=20, tau=10):
     tracking_results_files = mot_results_folder.glob('MOT*FRCNN.txt')
     for p in tracking_results_files:
         print(f"Processing: {p}")
-        tracking_results = np.loadtxt(p, delimiter=' ')
+        tracking_results = np.loadtxt(p, dtype=int, delimiter=' ')
+        # tracking_results = tracking_results[tracking_results[:, 0].argsort(kind='mergesort')]
+        tracking_results = tracking_results[tracking_results[:, 1].argsort()]  # sort by month
+        tracking_results = tracking_results[tracking_results[:, 0].argsort(kind='mergesort')]
+        print(tracking_results)
+
         li = LinearInterpolation(tracking_results, interval)
         gsi = GaussianSmooth(li, tau)
-
-        # print(gsi)
-        print(f"Saving: {p.parent / (p.stem + 'proc.txt')}")
-        np.savetxt(p.parent / (p.stem + 'proc.txt'), gsi, fmt='%d %d %d %d %d %d %d %d %d')
+        print(gsi)
+        print(f"Overwriteing results by GSI results: {p}")
+        # np.savetxt(p, gsi, fmt='%d %d %d %d %d %d %d %d %d')
 
 
 gsi_interpolation()
