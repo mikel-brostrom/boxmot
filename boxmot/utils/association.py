@@ -326,7 +326,7 @@ def associate(
     angle_diff_cost = angle_diff_cost.T
     angle_diff_cost = angle_diff_cost * scores
 
-    if min(iou_matrix.shape) > 0:
+    if min(iou_matrix.shape):
         a = (iou_matrix > iou_threshold).astype(np.int32)
         if a.sum(1).max() == 1 and a.sum(0).max() == 1:
             matched_indices = np.stack(np.where(a), axis=1)
@@ -343,10 +343,10 @@ def associate(
 
             final_cost = -(iou_matrix + angle_diff_cost + emb_cost)
             matched_indices = linear_assignment(final_cost)
-    else:
-        matched_indices = np.empty(shape=(0, 2))
+            if matched_indices.size == 0:
+                matched_indices = np.empty(shape=(0, 2))
 
-    if matched_indices.size == 0:
+    else:
         matched_indices = np.empty(shape=(0, 2))
 
     unmatched_detections = []
