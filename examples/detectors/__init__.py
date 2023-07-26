@@ -12,7 +12,7 @@ def get_yolo_inferer(yolo_model):
         except (ImportError, AssertionError, AttributeError):
             tr.check_packages(('yolox==0.3.0',), cmds='--no-dependencies')
             tr.check_packages(('tabulate',))  # needed dependency
-            tr.check_packages(('htop',))  # needed dependency
+            tr.check_packages(('thop',))  # needed dependency
         from .yolox import YoloXStrategy
         return YoloXStrategy
     elif 'yolov8' in str(yolo_model):

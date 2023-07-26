@@ -1,10 +1,11 @@
-import copy
 import time
 
 import cv2
 import numpy as np
 
 from boxmot.motion.cmc.cmc_interface import CMCInterface
+from boxmot.utils import BOXMOT
+from boxmot.utils import logger as LOGGER
 
 
 class SparseOptFlow(CMCInterface):
@@ -16,7 +17,8 @@ class SparseOptFlow(CMCInterface):
         max_iter=100,
         scale=0.1,
         align=False,
-        grayscale=True
+        grayscale=True,
+        draw_optical_flow=False
     ):
         """Compute the warp matrix from src to dst.
 
@@ -50,18 +52,12 @@ class SparseOptFlow(CMCInterface):
         self.align = align
         self.grayscale = grayscale
         self.scale = scale
-        self.warp_mode = warp_mode
-        self.termination_criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, max_iter, eps)
-        if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
-            self.warp_matrix = np.eye(3, 3, dtype=np.float32)
-        else:
-            self.warp_matrix = np.eye(2, 3, dtype=np.float32)
+        self.prev_img = None
+        self.draw_optical_flow = draw_optical_flow
 
         self.detector = cv2.FastFeatureDetector_create(threshold=20)
         self.extractor = cv2.ORB_create(nfeatures=5)
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
-        self.initializedFirstFrame = False
-        self.prevFrame = None
 
     def preprocess(self, img):
 
@@ -81,88 +77,101 @@ class SparseOptFlow(CMCInterface):
 
         return img
 
-    def apply(self, curr_img, detections):
+    def apply(self, img, dets):
 
         H = np.eye(2, 3)
 
-        frame = self.preprocess(curr_img)
+        img = self.preprocess(img)
 
-        h, w = frame.shape
+        h, w = img.shape
 
-        # find the keypoints
-        mask = np.zeros_like(frame)
-        # mask[int(0.05 * height): int(0.95 * height), int(0.05 * width): int(0.95 * width)] = 255
+        # Lucas-Kanade is based on a local motion constancy assumption,
+        # where nearby pixels have the same displacement direction. Hence, it is better to discard
+        # dynamic object for feature extraction from static objects
+        mask = self.generate_mask(img, dets, self.scale)
 
-        mask[int(0.02 * h): int(0.98 * h), int(0.02 * w): int(0.98 * w)] = 255
-        if detections is not None:
-            for det in detections:
-                tlbr = np.multiply(det, self.scale).astype(int)
-                mask[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]] = 0
+        # handle first frame
+        if self.prev_img is None:
 
-        # find the keypoints
-        keypoints = cv2.goodFeaturesToTrack(
-            frame,
-            mask=mask,
-            maxCorners=3000,
-            qualityLevel=0.01,
-            minDistance=1,
-            blockSize=3,
-            useHarrisDetector=False,
-            k=0.04
-        )
-
-        # Handle first frame
-        if self.prevFrame is None:
-            # Initialize data
-            self.prevFrame = frame.copy()
-            self.prevKeyPoints = copy.copy(keypoints)
-
-            # Initialization done
-            self.initializedFirstFrame = True
-
-            return H
-
-        # sparse otical flow for sparse features using Lucas-Kanade with pyramids
-        matchedKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
-            self.prevFrame, frame, self.prevKeyPoints, None
-        )
-
-        # leave good correspondences only
-        prevPoints = []
-        currPoints = []
-
-        for i in range(len(status)):
-            if status[i]:
-                prevPoints.append(self.prevKeyPoints[i])
-                currPoints.append(matchedKeypoints[i])
-
-        prevPoints = np.array(prevPoints)
-        currPoints = np.array(currPoints)
-
-        # Find rigid matrix
-        if (np.size(prevPoints, 0) > 4) and (
-            np.size(prevPoints, 0) == np.size(prevPoints, 0)
-        ):
-            H, inliesrs = cv2.estimateAffinePartial2D(
-                prevPoints, currPoints, cv2.RANSAC
+            # find keypoints in first frame
+            keypoints = cv2.goodFeaturesToTrack(
+                img,
+                mask=mask,
+                maxCorners=3000,
+                qualityLevel=0.01,
+                minDistance=1,
+                blockSize=3,
+                useHarrisDetector=False,
+                k=0.04
             )
 
-            # Handle downscale
-            if self.scale < 1:
-                H[0, 2] /= self.scale
-                H[1, 2] /= self.scale
-        else:
-            print("Warning: not enough matching points")
+            # if image lacks distinctive features, ignore this frame and try to initialize again
+            if keypoints is None:
+                return H
+            # initialize first frame
+            else:
+                # Initialize data
+                self.prev_img = img.copy()
+                self.prev_keypoints = keypoints.copy()
+                return H
 
-        # Store to next iteration
-        self.prevFrame = frame.copy()
-        self.prevKeyPoints = copy.copy(keypoints)
+        # calculate new positions of the keypoints between the previous frame (self.prev_img)
+        # and the current frame (img) using sparse optical flow (Lucas-Kanade with pyramids)
+        next_keypoints, status, err = cv2.calcOpticalFlowPyrLK(
+            self.prev_img, img, self.prev_keypoints, None
+        )
+
+        # for simplicity, if no keypoints are found, we discard the frame
+        if next_keypoints is None:
+            return H
+
+        # keep points that were successfully matched
+        self.prev_keypoints = self.prev_keypoints[status == 1].reshape(-1, 1, 2)
+        next_keypoints = next_keypoints[status == 1].reshape(-1, 1, 2)
+
+        # get affine matrix
+        try:
+            H, _ = cv2.estimateAffinePartial2D(
+                self.prev_keypoints, next_keypoints, cv2.RANSAC
+            )
+        except Exception as e:
+            LOGGER.warning(f'Affine matrix could not be generated: {e}')
+            return H
+
+        if self.draw_optical_flow:
+            self.warped_img = cv2.warpAffine(self.prev_img, H, (w, h), flags=cv2.INTER_LINEAR)
+            self.mask = np.zeros_like(img)
+            for i, (new, old) in enumerate(zip(next_keypoints, self.prev_keypoints)):
+                a, b = new.ravel()
+                c, d = old.ravel()
+                self.mask = cv2.line(
+                    img=self.mask,
+                    pt1=tuple(np.int32([a, b])),
+                    pt2=tuple(np.int32([c, d])),
+                    color=(255, 255, 255),
+                    thickness=1
+                )
+                self.mask = cv2.circle(
+                    img=self.mask,
+                    center=tuple(np.int32([a, b])),
+                    radius=1,
+                    color=(255, 255, 255),
+                    thickness=2)
+
+        # store to next iteration
+        self.prev_img = img.copy()
+        self.prevKeyPoints = next_keypoints.copy()
+
+        # handle downscale
+        if self.scale < 1:
+            H[0, 2] /= self.scale
+            H[1, 2] /= self.scale
 
         return H
 
 
 def main():
-    sof = SparseOptFlow(scale=0.1, align=True, grayscale=True)
+    sof = SparseOptFlow(scale=0.25, align=True, grayscale=True, draw_optical_flow=True)
     curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
     prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
     curr_dets = np.array(
@@ -200,11 +209,28 @@ def main():
     )
 
     warp_matrix = sof.apply(prev_img, prev_dets)
-    start = time.process_time()
     warp_matrix = sof.apply(curr_img, curr_dets)
+
+    start = time.process_time()
+    for i in range(0, 100):
+        warp_matrix = sof.apply(prev_img, prev_dets)
+        warp_matrix = sof.apply(curr_img, curr_dets)
     end = time.process_time()
     print('Total time', end - start)
-    print(warp_matrix.shape)
+    print(warp_matrix)
+
+    if sof.warped_img is not None:
+        curr_img = sof.preprocess(curr_img)
+        prev_img = sof.preprocess(prev_img)
+
+        warped = cv2.addWeighted(sof.warped_img, 0.5, sof.mask, 0.5, 0)
+        warped = cv2.addWeighted(warped, 0.5, curr_img, 0.5, 0)
+
+        # Display the frame with keypoints and optical flow tracks
+        cv2.imshow('Optical Flow', warped)
+        cv2.waitKey(0)
+
+        cv2.imwrite(str(BOXMOT / 'motion/cmc/sof_aligned.jpg'), warped)
 
 
 if __name__ == "__main__":

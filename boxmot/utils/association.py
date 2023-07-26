@@ -198,14 +198,12 @@ def speed_direction_batch(dets, tracks):
 def linear_assignment(cost_matrix):
     try:
         import lap
-
         _, x, y = lap.lapjv(cost_matrix, extend_cost=True)
         return np.array([[y[i], i] for i in x if i >= 0])  #
     except ImportError:
         from scipy.optimize import linear_sum_assignment
-
         x, y = linear_sum_assignment(cost_matrix)
-        return np.array(list(zip(x, y)))
+        return np.array([list(zip(x, y))])
 
 
 def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3):
@@ -328,7 +326,7 @@ def associate(
     angle_diff_cost = angle_diff_cost.T
     angle_diff_cost = angle_diff_cost * scores
 
-    if min(iou_matrix.shape) > 0:
+    if min(iou_matrix.shape):
         a = (iou_matrix > iou_threshold).astype(np.int32)
         if a.sum(1).max() == 1 and a.sum(0).max() == 1:
             matched_indices = np.stack(np.where(a), axis=1)
@@ -336,17 +334,18 @@ def associate(
             if emb_cost is None:
                 emb_cost = 0
             else:
-                emb_cost = emb_cost.cpu().numpy()
+                emb_cost = emb_cost.numpy()
                 emb_cost[iou_matrix <= 0] = 0
                 if not aw_off:
-                    emb_cost = compute_aw_max_metric(
-                        emb_cost, w_assoc_emb, bottom=aw_param
-                    )
+                    emb_cost = compute_aw_max_metric(emb_cost, w_assoc_emb, bottom=aw_param)
                 else:
                     emb_cost *= w_assoc_emb
 
             final_cost = -(iou_matrix + angle_diff_cost + emb_cost)
             matched_indices = linear_assignment(final_cost)
+            if matched_indices.size == 0:
+                matched_indices = np.empty(shape=(0, 2))
+
     else:
         matched_indices = np.empty(shape=(0, 2))
 
