@@ -334,6 +334,7 @@ def associate(
             if emb_cost is None:
                 emb_cost = 0
             else:
+                emb_cost = emb_cost.numpy()
                 emb_cost[iou_matrix <= 0] = 0
                 if not aw_off:
                     emb_cost = compute_aw_max_metric(emb_cost, w_assoc_emb, bottom=aw_param)
@@ -343,6 +344,9 @@ def associate(
             final_cost = -(iou_matrix + angle_diff_cost + emb_cost)
             matched_indices = linear_assignment(final_cost)
     else:
+        matched_indices = np.empty(shape=(0, 2))
+
+    if matched_indices.size == 0:
         matched_indices = np.empty(shape=(0, 2))
 
     unmatched_detections = []
