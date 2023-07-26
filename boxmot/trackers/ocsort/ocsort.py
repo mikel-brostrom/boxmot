@@ -3,7 +3,7 @@
 """
 import numpy as np
 
-from boxmot.motion.adapters import OCSortKalmanFilterAdapter
+from boxmot.motion.kalman_filters.adapters import OCSortKalmanFilterAdapter
 from boxmot.utils.association import (associate, ciou_batch, ct_dist,
                                       diou_batch, giou_batch, iou_batch,
                                       linear_assignment)

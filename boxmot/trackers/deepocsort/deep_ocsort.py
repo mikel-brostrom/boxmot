@@ -6,8 +6,8 @@ import numpy as np
 import torch
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
-from boxmot.motion.adapters import OCSortKalmanFilterAdapter
 from boxmot.motion.cmc import get_cmc_method
+from boxmot.motion.kalman_filters.adapters import OCSortKalmanFilterAdapter
 from boxmot.utils import PerClassDecorator
 from boxmot.utils.association import (associate, associate_kitti, ciou_batch,
                                       ct_dist, diou_batch, giou_batch,
