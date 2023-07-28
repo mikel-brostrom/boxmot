@@ -188,7 +188,8 @@ def run(args):
                         frame_idx,
                         im0s[i].copy(),  # the original image
                         predictor.save_dir,
-                        path[i]  # the path for the image
+                        path[i],  # the path for the image
+                        serialize_image=args['serialize_image']
                     )
 
 
@@ -284,6 +285,12 @@ def parse_opt():
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')
     parser.add_argument('--per-class', action='store_true',
                         help='not mix up classes when tracking')
+    
+    # Serialize image
+    parser.add_argument('--serialize-image', dest='serialize_image', action='store_true', help='Serialize and store images in JSON.')
+    parser.add_argument('--no-serialize-image', dest='serialize_image', action='store_false', help='Do not serialize images, store paths only.')
+    parser.set_defaults(serialize_image=False)
+
 
     opt = parser.parse_args()
     return opt

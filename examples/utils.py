@@ -4,14 +4,12 @@ import torch
 from ultralytics.yolo.utils import ops
 import json
 import datetime
-from PIL import Image
 import base64
-import cv2
 from ultralytics.yolo.utils.plotting import save_one_box
 
 from pathlib import Path
 
-def write_MOT_results_json(txt_path, results, frame_idx, img, save_dir, img_path):
+def write_MOT_results_json(txt_path, results, frame_idx, img, save_dir, img_path, serialize_image=False):
     # Ensure img_path is a string
     if not isinstance(img_path, str):
         img_path = str(img_path)
@@ -46,30 +44,35 @@ def write_MOT_results_json(txt_path, results, frame_idx, img, save_dir, img_path
             bbox_tensor = bbox_tensor.unsqueeze(0)
 
         # Save the image crop
+        crop_path = save_dir / 'crops' / img_path.stem / f"{frame_idx[0][0]}_{results.boxes.id[j]}.jpg"
         save_one_box(bbox_tensor, img,
-                     file=(save_dir / 'crops' / img_path.stem / f"{frame_idx[0][0]}_{results.boxes.id[j]}"),
+                     file=crop_path,
                      BGR=True)
-        
+
         # Get the path to the saved crop
-        crop_path = str(save_dir / 'crops' / img_path.stem / f"{frame_idx[0][0]}_{results.boxes.id[j]}.jpg")
+        crop_path_str = str(crop_path)
+
+        # Either save the path to the image or its serialized version
+        if serialize_image:
+            # Read the image and convert it to a byte array
+            with open(crop_path, 'rb') as f:
+                image_data = f.read()
+            image_serialized = base64.b64encode(image_data).decode('utf-8')
+            image_to_save = image_serialized
+        else:
+            image_to_save = crop_path_str
         
         mot = {
             "id": results.boxes.id[j].item(),
             "bbox": ops.xyxy2ltwh(bbox_tensor).squeeze().tolist(),  # Remove the extra dimension after processing
             "timestamp": datetime.datetime.now().isoformat(),
-            "crop_path": crop_path,
+            "image_data": image_to_save,
         }
         mot_results.append(mot)
 
     # write to json file
     with open(json_file, "w") as f:
         json.dump(mot_results, f, indent=4)
-
-
-
-
-
-
 
 
 def write_MOT_results(txt_path, results, frame_idx, i):
