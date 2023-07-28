@@ -4,7 +4,7 @@ from collections import OrderedDict
 
 import torch
 
-from ..utils import logger as LOGGER
+from boxmot.utils import logger as LOGGER
 
 __model_types = [
     "resnet50",
@@ -20,6 +20,7 @@ __model_types = [
     "osnet_ibn_x1_0",
     "osnet_ain_x1_0",
     "lmbn_n",
+    "clip",
 ]
 
 lmbn_loc = 'https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/'
@@ -67,6 +68,8 @@ __trained_urls = {
     "lmbn_n_duke.pt": lmbn_loc + "lmbn_n_duke.pth",
     "lmbn_n_market.pt": lmbn_loc + "lmbn_n_market.pth",
     "lmbn_n_cuhk03_d.pt": lmbn_loc + "lmbn_n_cuhk03_d.pth",
+    # clip
+    "clip_market1501.pt": "https://drive.google.com/uc?id=1BVaZo93kOksYLjFNH3Gf7JxIbPlWSkcO"
 }
 
 
