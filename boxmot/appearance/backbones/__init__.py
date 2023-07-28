@@ -71,7 +71,7 @@ def build_model(name, num_classes, loss="softmax", pretrained=True, use_gpu=True
     if name not in avai_models:
         raise KeyError("Unknown model: {}. Must be one of {}".format(name, avai_models))
     if 'clip' in name:
-        from boxmot.appearance.backbones.clip.config import cfg
+        from boxmot.appearance.backbones.clip.config.defaults import _C as cfg
         return __model_factory[name](cfg, num_class=751, camera_num=2, view_num=1)
     return __model_factory[name](
         num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu
