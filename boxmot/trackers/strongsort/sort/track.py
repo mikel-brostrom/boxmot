@@ -3,7 +3,7 @@ from collections import deque
 
 import numpy as np
 
-from ....motion.adapters import StrongSortKalmanFilterAdapter
+from ....motion.kalman_filters.adapters import StrongSortKalmanFilterAdapter
 
 
 class TrackState:
