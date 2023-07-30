@@ -2,6 +2,8 @@
 # tracker-specific packages ----------------------------------------------------
 
 filterpy>=1.4.5         # OCSORT & DeepOCSORT
+
+ftfy>=6.1.1
 gdown>=4.7.1            # google drive model download
 GitPython>=3.1.0        # track eval cloning
 lapx>=0.5.4
