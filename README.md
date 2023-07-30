@@ -1,5 +1,4 @@
-# Real-time multi-object, segmentation and pose tracking using Yolov8 | Yolo-NAS | YOLOX with DeepOCSORT and LightMBN
-
+# BoxMOT: pluggable SOTA tracking modules for object detectors. Yolov8, YoloX, YoloNAS supported.
 
 <div align="center">
   <p>
