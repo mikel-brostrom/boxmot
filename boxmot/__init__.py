@@ -1,5 +1,6 @@
 __version__ = '10.0.17'
 
+from boxmot.postprocessing.gsi import gsi
 from boxmot.tracker_zoo import create_tracker, get_tracker_config
 from boxmot.trackers.botsort.bot_sort import BoTSORT
 from boxmot.trackers.bytetrack.byte_tracker import BYTETracker
@@ -9,4 +10,4 @@ from boxmot.trackers.strongsort.strong_sort import StrongSORT
 
 __all__ = ("__version__",
            "StrongSORT", "OCSORT", "BYTETracker", "BoTSORT", "DeepOCSORT",
-           "create_tracker", "get_tracker_config")
+           "create_tracker", "get_tracker_config", "gsi")
