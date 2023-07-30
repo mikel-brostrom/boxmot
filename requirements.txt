@@ -11,6 +11,8 @@ opencv-python>=4.6.0
 pandas>=1.1.4           # export matrix
 pre-commit>=3.3.3
 PyYAML>=5.3.1           # read tracker configs
+
+scikit-learn>=1.3.0     # gsi
 tensorboard>=2.13.0
 # base -------------------------------------------------------------------------
 torch>=1.7.0
