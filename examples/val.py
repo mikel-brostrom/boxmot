@@ -216,8 +216,9 @@ class Evaluator:
         print_args(vars(self.opt))
 
         if opt.gsi:
-            from boxmot.postprocessing.gsi import gsi_interpolation
-            gsi_interpolation(mot_results_folder=save_dir / 'labels')
+            # apply gaussian-smoothed interpolation
+            from boxmot.postprocessing.gsi import gsi
+            gsi(mot_results_folder=save_dir / 'labels')
 
         # run the evaluation on the generated txts
         d = [seq_path.parent.name for seq_path in seq_paths]
