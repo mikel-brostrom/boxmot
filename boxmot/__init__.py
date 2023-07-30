@@ -1,4 +1,4 @@
-__version__ = "10.0.16"
+__version__ = '10.0.17'
 
 from boxmot.tracker_zoo import create_tracker, get_tracker_config
 from boxmot.trackers.botsort.bot_sort import BoTSORT
