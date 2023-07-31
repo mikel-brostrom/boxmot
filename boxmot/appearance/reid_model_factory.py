@@ -4,7 +4,7 @@ from collections import OrderedDict
 
 import torch
 
-from ..utils import logger as LOGGER
+from boxmot.utils import logger as LOGGER
 
 __model_types = [
     "resnet50",
@@ -20,6 +20,7 @@ __model_types = [
     "osnet_ibn_x1_0",
     "osnet_ain_x1_0",
     "lmbn_n",
+    "clip",
 ]
 
 lmbn_loc = 'https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/'
@@ -67,6 +68,11 @@ __trained_urls = {
     "lmbn_n_duke.pt": lmbn_loc + "lmbn_n_duke.pth",
     "lmbn_n_market.pt": lmbn_loc + "lmbn_n_market.pth",
     "lmbn_n_cuhk03_d.pt": lmbn_loc + "lmbn_n_cuhk03_d.pth",
+    # clip
+    "clip_market1501.pt": "https://drive.google.com/uc?id=1GnyAVeNOg3Yug1KBBWMKKbT2x43O5Ch7",
+    "clip_duke.pt": "https://drive.google.com/uc?id=1ldjSkj-7pXAWmx8on5x0EftlCaolU4dY",
+    "clip_veri.pt": "https://drive.google.com/uc?id=1RyfHdOBI2pan_wIGSim5-l6cM4S2WN8e",
+    "clip_vehicleid.pt": "https://drive.google.com/uc?id=1RyfHdOBI2pan_wIGSim5-l6cM4S2WN8e"
 }
 
 
@@ -160,6 +166,18 @@ def load_pretrained_weights(model, weight_path):
 
     if "lmbn" in str(weight_path):
         model.load_state_dict(model_dict, strict=True)
+    elif "clip" in str(weight_path):
+        def forward_override(self, x: torch.Tensor, cv_emb=None, old_forward=None):
+            _, image_features, image_features_proj = old_forward(x, cv_emb)
+            return torch.cat([image_features[:, 0], image_features_proj[:, 0]], dim=1)
+        # print('model.load_param(str(weight_path))', str(weight_path))
+        model.load_param(str(weight_path))
+        model = model.image_encoder
+        # old_forward = model.forward
+        # model.forward = lambda *args, **kwargs: forward_override(model, old_forward=old_forward, *args, **kwargs)
+        LOGGER.success(
+            f'Successfully loaded pretrained weights from "{weight_path}"'
+        )
     else:
         new_state_dict = OrderedDict()
         matched_layers, discarded_layers = [], []
