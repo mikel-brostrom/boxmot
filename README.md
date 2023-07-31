@@ -1,4 +1,4 @@
-# BoxMOT: pluggable SOTA tracking modules for object detectors. Yolov8, YoloX, YoloNAS supported.
+# BoxMOT: pluggable SOTA tracking modules for object detectors. Yolov8, YoloX, YoloNAS supported. SOTA CLIP-ReID models available!!
 
 <div align="center">
   <p>
@@ -23,7 +23,13 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 <details>
 <summary>Supported tracking methods</summary>
 
-[DeepOCSORT](https://arxiv.org/abs/2302.11813) , [BoTSORT](https://arxiv.org/abs/2206.14651) , [StrongSORT](https://github.com/dyhBUPT/StrongSORT)[](https://arxiv.org/abs/2202.13514), [OCSORT](https://github.com/noahcao/OC_SORT)[](https://arxiv.org/abs/2203.14360) and [ByteTrack](https://github.com/ifzhang/ByteTrack)[](https://arxiv.org/abs/2110.06864). DeepOCSORT, BoTSORT and StrongSORT are based on motion + appearance description; OCSORT and ByteTrack are based on motion only. For the methods using appearance description, lightweight state-of-the-art ReID models ([LightMBN](https://github.com/jixunbo/LightMBN)[](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://github.com/KaiyangZhou/deep-person-reid)[](https://arxiv.org/abs/1905.00953) and more) are downloaded automatically as well.
+|                             Motion only                                                |             Motion + appearance                 |
+|----------|----------|
+| [OCSORT](https://github.com/noahcao/OC_SORT)[](https://arxiv.org/abs/2203.14360)       | [DeepOCSORT](https://arxiv.org/abs/2302.11813)  |
+| [ByteTrack](https://github.com/ifzhang/ByteTrack)[](https://arxiv.org/abs/2110.06864)  | [BoTSORT](https://arxiv.org/abs/2206.14651) |
+|                                                                                        | [StrongSORT](https://github.com/dyhBUPT/StrongSORT)[](https://arxiv.org/abs/2202.13514)  |
+
+For the methods using appearance description, both heavy ([CLIPReID](https://github.com/Syliz517/CLIP-ReID)[](https://arxiv.org/pdf/2211.13977.pdf) and lightweight state-of-the-art ReID models ([LightMBN](https://github.com/jixunbo/LightMBN)[](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://github.com/KaiyangZhou/deep-person-reid)[](https://arxiv.org/abs/1905.00953) and more) are downloaded automatically.
 
 
 </details>
@@ -148,11 +154,13 @@ $ python examples/track.py --source 0                               # webcam
 Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/deep/reid_export.py) script
 
 ```bash
-$ python examples/track.py --source 0 --reid-model lmbn_n_cuhk03_d.pt
+$ python examples/track.py --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightweight
                                                    osnet_x0_25_market1501.pt
                                                    mobilenetv2_x1_4_msmt17.engine
                                                    resnet50_msmt17.onnx
                                                    osnet_x1_0_msmt17.pt
+                                                   clip_market1501.pt               # heavy
+                                                   clip_vehicleid.pt
                                                    ...
 ```
 
