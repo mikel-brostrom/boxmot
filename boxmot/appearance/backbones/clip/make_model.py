@@ -123,7 +123,7 @@ class build_transformer(nn.Module):
                 return torch.cat([img_feature, img_feature_proj], dim=1)
 
     def load_param(self, trained_path):
-        param_dict = torch.load('/home/mikel.brostrom/CLIP-ReID/Market1501_clipreid_ViT-B-16_60.pth')
+        param_dict = torch.load(trained_path)
         for i in self.state_dict():
             self.state_dict()[i.replace('module.', '')].copy_(param_dict[i])
         # print('Loading pretrained model from {}'.format('/home/mikel.brostrom/yolo_tracking/clip_market1501.pt'))
