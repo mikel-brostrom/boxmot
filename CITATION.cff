@@ -6,7 +6,7 @@ preferred-citation:
   - family-names: Broström
     given-names: Mikel
   title: "BoxMOT: A collection of SOTA real-time, multi-object trackers for object detectors "
-  version: 10.0.17
+  version: 10.0.18
   doi: https://zenodo.org/record/7629840
   date-released: 2023-6
   license: AGPL-3.0
