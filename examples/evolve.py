@@ -280,8 +280,10 @@ def parse_opt():
                         help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
     parser.add_argument('--conf', type=float, default=0.45,
                         help='confidence threshold')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[1280],
+    parser.add_argument('--imgsz', '--img-size', nargs='+', type=int, default=[1280],
                         help='inference size h,w')
+    parser.add_argument('--gsi', action='store_true',
+                        help='apply gsi to results')
     parser.add_argument('--device', default='',
                         help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--n-trials', type=int, default=10,
