@@ -48,7 +48,19 @@ class YoloInterface:
         w_r = im0_w / im_w
         h_r = im0_h / im_h
 
-        return w_r, h_r
+        return im_w, im_h, w_r, h_r
+
+    def scale_and_clip(self, preds, im_w, im_h, w_r, h_r):
+        # scale bboxes to original image
+        preds[:, [0, 2]] = preds[:, [0, 2]] * self.w_r
+        preds[:, [1, 3]] = preds[:, [1, 3]] * self.h_r
+
+        preds = torch.from_numpy(preds)
+
+        preds[:, [0, 2]] = torch.clip(preds[:, [0, 2]], min=0, max=im_w)
+        preds[:, [1, 3]] = torch.clip(preds[:, [1, 3]], min=0, max=im_h)
+
+        return preds
 
     def preds_to_yolov8_results(self, path, preds, im, im0s, predictor):
         predictor.results[0] = Results(
