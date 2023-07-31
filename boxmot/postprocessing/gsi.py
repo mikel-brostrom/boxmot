@@ -70,4 +70,9 @@ def gsi(mot_results_folder=Path('examples/runs/val/exp87/labels'), interval=20, 
             print('No tracking result in {p}. Skipping...')
 
 
-gsi()
+def main():
+    gsi()
+
+
+if __name__ == "__main__":
+    main()
