@@ -20,16 +20,20 @@
 
 This repo contains a collections of pluggable state-of-the-art multi-object trackers for object detectors. We provide examples on how to use this package together with popular object detection models such as: [Yolov8](https://github.com/ultralytics), [Yolo-NAS](https://github.com/Deci-AI/super-gradients) and [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX).
 
+
+
 <details>
 <summary>Supported tracking methods</summary>
 
-|                             Motion only                                                |             Motion + appearance                 |
-|----------|----------|
-| [OCSORT](https://github.com/noahcao/OC_SORT)[](https://arxiv.org/abs/2203.14360)       | [DeepOCSORT](https://arxiv.org/abs/2302.11813)  |
-| [ByteTrack](https://github.com/ifzhang/ByteTrack)[](https://arxiv.org/abs/2110.06864)  | [BoTSORT](https://arxiv.org/abs/2206.14651) |
-|                                                                                        | [StrongSORT](https://github.com/dyhBUPT/StrongSORT)[](https://arxiv.org/abs/2202.13514)  |
+| Trackers | HOTA↑ | MOTA↑ | IDF1↑ |
+| -------- | ----- | ----- | ----- |
+| [OCSORT](https://github.com/noahcao/OC_SORT)[](https://arxiv.org/abs/2203.14360) | | | |
+| [ByteTrack](https://github.com/ifzhang/ByteTrack)[](https://arxiv.org/abs/2110.06864) | | | |
+| [DeepOCSORT](https://arxiv.org/abs/2302.11813) | | | |
+| [BoTSORT](https://arxiv.org/abs/2206.14651) | | | |
+| [StrongSORT](https://github.com/dyhBUPT/StrongSORT) | | | |
 
-For the methods using appearance description, both heavy ([CLIPReID](https://github.com/Syliz517/CLIP-ReID)[](https://arxiv.org/pdf/2211.13977.pdf) and lightweight state-of-the-art ReID models ([LightMBN](https://github.com/jixunbo/LightMBN)[](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://github.com/KaiyangZhou/deep-person-reid)[](https://arxiv.org/abs/1905.00953) and more) are downloaded automatically.
+For the methods using appearance description, both heavy ([CLIPReID](https://github.com/Syliz517/CLIP-ReID)[](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight state-of-the-art ReID models ([LightMBN](https://github.com/jixunbo/LightMBN)[](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://github.com/KaiyangZhou/deep-person-reid)[](https://arxiv.org/abs/1905.00953) and more) are downloaded automatically.
 
 
 </details>
