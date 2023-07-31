@@ -7,7 +7,7 @@ from numpy.testing import assert_allclose
 
 from boxmot import (OCSORT, BoTSORT, BYTETracker, DeepOCSORT, StrongSORT,
                     create_tracker, get_tracker_config)
-from boxmot.postprocessing import gaussian_smooth, linear_interpolation
+from boxmot.postprocessing.gsi import gaussian_smooth, linear_interpolation
 from boxmot.utils import WEIGHTS
 
 
