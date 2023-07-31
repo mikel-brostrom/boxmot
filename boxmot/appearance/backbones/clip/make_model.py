@@ -124,18 +124,16 @@ class build_transformer(nn.Module):
                 return torch.cat([img_feature, img_feature_proj], dim=1)
 
     def load_param(self, trained_path):
-        print(f'loading\n\n\n{trained_path}')
         param_dict = torch.load('/home/mikel.brostrom/CLIP-ReID/Market1501_clipreid_ViT-B-16_60.pth')
         for i in self.state_dict():
-            print(i)
             self.state_dict()[i.replace('module.', '')].copy_(param_dict[i])
-        print('Loading pretrained model from {}'.format('/home/mikel.brostrom/yolo_tracking/clip_market1501.pt'))
+        # print('Loading pretrained model from {}'.format('/home/mikel.brostrom/yolo_tracking/clip_market1501.pt'))
 
     def load_param_finetune(self, model_path):
         param_dict = torch.load(model_path)
         for i in param_dict:
             self.state_dict()[i].copy_(param_dict[i])
-        print('Loading pretrained model for finetuning from {}'.format(model_path))
+        # print('Loading pretrained model for finetuning from {}'.format(model_path))
 
 
 def make_model(cfg, num_class, camera_num, view_num):
