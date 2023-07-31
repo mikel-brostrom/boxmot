@@ -58,7 +58,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
         run: |
           # deepocsort fro all supported yolo models
-          python examples/track.py --tracking-method deepocsort --source $IMG --imgsz 320
+          python examples/track.py --tracking-method deepocsort --source $IMG --imgsz 320 --reid-model examples/weights/clip_market1501.pt
           python examples/track.py --yolo-model yolo_nas_s --tracking-method deepocsort --source $IMG --imgsz 320
           python examples/track.py --yolo-model yolox_n --tracking-method deepocsort --source $IMG --imgsz 320
 

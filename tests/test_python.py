@@ -7,6 +7,7 @@ from numpy.testing import assert_allclose
 
 from boxmot import (OCSORT, BoTSORT, BYTETracker, DeepOCSORT, StrongSORT,
                     create_tracker, get_tracker_config)
+from boxmot.postprocessing.gsi import gaussian_smooth, linear_interpolation
 from boxmot.utils import WEIGHTS
 
 
@@ -205,3 +206,12 @@ def test_strongsort_output():
     assert output.shape == (2, 7)  # two inputs should give two outputs
     output = np.delete(output, 4, axis=1)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
+
+
+def test_gsi():
+    tracking_results = np.array([
+        [1, 1, 1475, 419, 75, 169, 0, 0, -1],
+        [2, 1, 1475, 419, 75, 169, 0, 0, -1],
+    ])
+    li = linear_interpolation(tracking_results, interval=20)
+    gaussian_smooth(li, tau=10)
