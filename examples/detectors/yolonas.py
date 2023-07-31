@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 from super_gradients.training import models
 
 from .yolo_interface import YoloInterface
@@ -40,17 +39,11 @@ class YoloNASStrategy(YoloInterface):
     def postprocess(self, path, preds, im, im0s, predictor):
 
         if not self.has_run:
-            self.w_r, self.h_r = self.get_scaling_factors(im, im0s)
+            self.im_w, self.im_h, self.w_r, self.h_r = self.get_scaling_factors(im, im0s)
             self.has_run = True
 
-        # scale bboxes to original image
-        preds[:, [0, 2]] = preds[:, [0, 2]] * self.w_r
-        preds[:, [1, 3]] = preds[:, [1, 3]] * self.h_r
-
-        preds = torch.from_numpy(preds)
-
-        # SG models can generate negative values
-        preds = torch.clip(preds, min=0)
+        # scale from im to im0, clip to min=0 and max=im_h or im_w
+        preds = self.scale_and_clip(preds, self.im_w, self.im_h, self.w_r, self.h_r)
 
         if self.args.classes:  # Filter boxes by classes
             preds = preds[np.isin(preds[:, 5], self.args.classes)]

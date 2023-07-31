@@ -55,7 +55,7 @@ class YoloXStrategy(YoloInterface):
     def postprocess(self, path, preds, im, im0s, predictor):
 
         if not self.has_run:
-            self.w_r, self.h_r = self.get_scaling_factors(im, im0s)
+            self.im_w, self.im_h, self.w_r, self.h_r = self.get_scaling_factors(im, im0s)
             self.has_run = True
 
         preds = postprocess(
@@ -70,12 +70,8 @@ class YoloXStrategy(YoloInterface):
             preds[:, 4] = preds[:, 4] * preds[:, 5]
             preds = preds[:, [0, 1, 2, 3, 4, 6]]
 
-            # scale bboxes to original image
-            preds[:, [0, 2]] = preds[:, [0, 2]] * self.w_r
-            preds[:, [1, 3]] = preds[:, [1, 3]] * self.h_r
-
-            # everything under zero to zero
-            preds = torch.clip(preds, min=0)
+            # scale from im to im0, clip to min=0 and max=im_h or im_w
+            preds = self.scale_and_clip(preds, self.im_w, self.im_h, self.w_r, self.h_r)
 
             # filter boxes by classes
             if self.args.classes:
