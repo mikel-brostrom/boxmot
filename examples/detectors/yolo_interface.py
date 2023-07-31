@@ -55,7 +55,8 @@ class YoloInterface:
         preds[:, [0, 2]] = preds[:, [0, 2]] * self.w_r
         preds[:, [1, 3]] = preds[:, [1, 3]] * self.h_r
 
-        preds = torch.from_numpy(preds)
+        if not isinstance(preds, (torch.Tensor)):
+            preds = torch.from_numpy(preds)
 
         preds[:, [0, 2]] = torch.clip(preds[:, [0, 2]], min=0, max=im_w)
         preds[:, [1, 3]] = torch.clip(preds[:, [1, 3]], min=0, max=im_h)
