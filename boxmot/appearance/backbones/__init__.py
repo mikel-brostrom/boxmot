@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+from boxmot.appearance.backbones.clip.make_model import make_model
 from boxmot.appearance.backbones.hacnn import HACNN
 from boxmot.appearance.backbones.lmbn_n import LMBN_n
 from boxmot.appearance.backbones.mlfn import mlfn
@@ -33,6 +34,7 @@ __model_factory = {
     "osnet_ain_x0_5": osnet_ain_x0_5,
     "osnet_ain_x0_25": osnet_ain_x0_25,
     "lmbn_n": LMBN_n,
+    "clip": make_model,
 }
 
 
@@ -68,6 +70,9 @@ def build_model(name, num_classes, loss="softmax", pretrained=True, use_gpu=True
     avai_models = list(__model_factory.keys())
     if name not in avai_models:
         raise KeyError("Unknown model: {}. Must be one of {}".format(name, avai_models))
+    if 'clip' in name:
+        from boxmot.appearance.backbones.clip.config.defaults import _C as cfg
+        return __model_factory[name](cfg, num_class=751, camera_num=2, view_num=1)
     return __model_factory[name](
         num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu
     )

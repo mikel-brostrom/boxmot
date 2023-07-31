@@ -8,12 +8,13 @@ import torch
 import torch.nn as nn
 import torchvision.transforms as T
 
-from ..utils import logger as LOGGER
-from ..utils.checks import TestRequirements
-from .backbones import build_model
-from .reid_model_factory import (get_model_name, get_model_url,
-                                 load_pretrained_weights,
-                                 show_downloadable_models)
+from boxmot.appearance.backbones import build_model
+from boxmot.appearance.reid_model_factory import (get_model_name,
+                                                  get_model_url,
+                                                  load_pretrained_weights,
+                                                  show_downloadable_models)
+from boxmot.utils import logger as LOGGER
+from boxmot.utils.checks import TestRequirements
 
 __tr = TestRequirements()
 
