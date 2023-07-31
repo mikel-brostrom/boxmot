@@ -123,7 +123,6 @@ class build_transformer(nn.Module):
                 return torch.cat([img_feature, img_feature_proj], dim=1)
 
     def load_param(self, trained_path):
-        print(trained_path)
         param_dict = torch.load(trained_path, map_location=torch.device("cpu"))
         for i in self.state_dict():
             self.state_dict()[i.replace('module.', '')].copy_(param_dict[i])
