@@ -170,11 +170,14 @@ def load_pretrained_weights(model, weight_path):
         def forward_override(self, x: torch.Tensor, cv_emb=None, old_forward=None):
             _, image_features, image_features_proj = old_forward(x, cv_emb)
             return torch.cat([image_features[:, 0], image_features_proj[:, 0]], dim=1)
-        print('model.load_param(str(weight_path))', str(weight_path))
+        # print('model.load_param(str(weight_path))', str(weight_path))
         model.load_param(str(weight_path))
         model = model.image_encoder
         # old_forward = model.forward
         # model.forward = lambda *args, **kwargs: forward_override(model, old_forward=old_forward, *args, **kwargs)
+        LOGGER.success(
+            f'Successfully loaded pretrained weights from "{weight_path}"'
+        )
     else:
         new_state_dict = OrderedDict()
         matched_layers, discarded_layers = [], []
