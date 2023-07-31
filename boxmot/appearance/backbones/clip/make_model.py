@@ -65,7 +65,6 @@ class build_transformer(nn.Module):
         self.w_resolution = int((cfg.INPUT.SIZE_TRAIN[1] - 16) // cfg.MODEL.STRIDE_SIZE[1] + 1)
         self.vision_stride_size = cfg.MODEL.STRIDE_SIZE[0]
         clip_model = load_clip_to_cpu(self.model_name, self.h_resolution, self.w_resolution, self.vision_stride_size)
-        clip_model.to("cuda")
 
         self.image_encoder = clip_model.visual
 
@@ -124,7 +123,7 @@ class build_transformer(nn.Module):
                 return torch.cat([img_feature, img_feature_proj], dim=1)
 
     def load_param(self, trained_path):
-        param_dict = torch.load('/home/mikel.brostrom/CLIP-ReID/Market1501_clipreid_ViT-B-16_60.pth')
+        param_dict = torch.load(trained_path, map_location=torch.device("cpu"))
         for i in self.state_dict():
             self.state_dict()[i.replace('module.', '')].copy_(param_dict[i])
         # print('Loading pretrained model from {}'.format('/home/mikel.brostrom/yolo_tracking/clip_market1501.pt'))
