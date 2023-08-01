@@ -41,7 +41,7 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e . pytest pytest-cov --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install -e .[yolo] pytest pytest-cov --extra-index-url https://download.pytorch.org/whl/cpu
           python --version
           pip --version
           pip list
