@@ -1,3 +1,4 @@
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import TestRequirements
 
 tr = TestRequirements()
@@ -27,3 +28,7 @@ def get_yolo_inferer(yolo_model):
             tr.check_packages(('super-gradients==3.1.1',))  # install
         from .yolonas import YoloNASStrategy
         return YoloNASStrategy
+    else:
+        LOGGER.error('Failed to infer inference mode from yolo model name')
+        LOGGER.error('Your model name has to contain either yolox, yolo_nas or yolov8')
+        exit()
