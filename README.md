@@ -91,7 +91,8 @@ If you want to run the YOLOv8, YOLO-NAS or YOLOX examples:
 
 ```
 git clone https://github.com/mikel-brostrom/yolo_tracking.git
-pip install -v -e .
+pip install -v -e .  # install boxmot reqs
+pip install -e .[yolo] --no-deps  # install yolo reqs, pip install -e ".[yolo]" if zsh
 ```
 
 but if you only want to import the tracking modules you can simply:
@@ -99,7 +100,6 @@ but if you only want to import the tracking modules you can simply:
 ```
 pip install boxmot
 ```
-
 
 ## YOLOv8 | YOLO-NAS | YOLOX examples
 
