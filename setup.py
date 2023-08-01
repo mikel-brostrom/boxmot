@@ -41,6 +41,7 @@ setup(
             'pytest',
             'pytest-cov',
             'coverage',
+            'pre-commit'
         ],
         'export': [
             'onnx>=1.12.0  ',  # ONNX export
