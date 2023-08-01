@@ -22,7 +22,7 @@ def get_version():
 setup(
     name='boxmot',  # name of pypi package
     version=get_version(),  # version of pypi package
-    python_requires='>=3.7',
+    python_requires='>=3.8',
     license='AGPL-3.0',
     description=('SOTA tracking methods for detection, segmentation and pose estimation models.'),
     long_description=README,
@@ -36,6 +36,26 @@ setup(
     packages=find_packages(),  # required
     include_package_data=True,
     install_requires=REQUIREMENTS,
+    extras_require={
+        'dev': [
+            'pytest',
+            'pytest-cov',
+            'coverage',
+        ],
+        'export': [
+            'onnx>=1.12.0  ',  # ONNX export
+            'onnxsim>=0.4.1 ',  # ONNX simplifier
+            'nvidia-pyindex',  # TensorRT export
+            'nvidia-tensorrt',  # TensorRT export
+            'openvino-dev>=2022.3',  # OpenVINO export
+            'onnx2tf>=1.10.0'  # TFLite export
+        ],
+        'evolve': [
+            'optuna',  # ONNX export
+            'plotly',  # ONNX simplifier
+            'kaleido',  # TensorRT export
+            'joblib',  # TensorRT export
+        ], },
     platforms=["linux", "windows"],
     classifiers=[
         'Development Status :: 3 - Alpha',

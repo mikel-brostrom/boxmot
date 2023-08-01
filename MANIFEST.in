@@ -1,0 +1,7 @@
+include requirements.txt
+include LICENSE
+include setup.py
+include /home/mikel.brostrom/yolo_tracking/boxmot/appearance/backbones/clip/clip/bpe_simple_vocab_16e6.txt.gz
+include /home/mikel.brostrom/yolo_tracking/assets/MOT17-mini/train/MOT17-02-FRCNN
+recursive-include boxmot *.yaml
+recursive-exclude __pycache__ *
