@@ -1,4 +1,4 @@
-__version__ = '10.0.23'
+__version__ = '10.0.24'
 
 from boxmot.postprocessing.gsi import gsi
 from boxmot.tracker_zoo import create_tracker, get_tracker_config
