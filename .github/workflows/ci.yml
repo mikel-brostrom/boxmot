@@ -42,7 +42,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install -e . pytest pytest-cov --extra-index-url https://download.pytorch.org/whl/cpu
-          pip install -e .[yolo]
+          pip install -e .[yolo] --no-deps
           python --version
           pip --version
           pip list
