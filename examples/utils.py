@@ -3,7 +3,7 @@ import torch
 from ultralytics.yolo.utils import ops
 
 
-def write_MOT_results(txt_path, results, frame_idx, i):
+def write_mot_results(txt_path, results, frame_idx, i):
     nr_dets = len(results.boxes)
     frame_idx = torch.full((1, 1), frame_idx + 1)
     frame_idx = frame_idx.repeat(nr_dets, 1)
