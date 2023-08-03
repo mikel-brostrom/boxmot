@@ -128,7 +128,7 @@ def parse_opt():
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
-    parser.add_argument('--source', type=str, default='/home/mikel.brostrom/Downloads/test.avi',
+    parser.add_argument('--source', type=str, default='0',
                         help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
                         help='inference size h,w')
@@ -167,7 +167,7 @@ def parse_opt():
                         help='save tracking results in a single txt file')
     parser.add_argument('--line-width', default=None, type=int,
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')
-    parser.add_argument('--per-class', action='store_true',
+    parser.add_argument('--per-class', default=False, action='store_true',
                         help='not mix up classes when tracking')
     parser.add_argument('--verbose', default=True, action='store_true',
                         help='print results per frame')
