@@ -17,7 +17,7 @@ class StrongSORT(object):
         fp16,
         max_dist=0.2,
         max_iou_dist=0.7,
-        max_age=70,
+        max_age=30,
         max_unmatched_preds=7,
         n_init=3,
         nn_budget=100,
