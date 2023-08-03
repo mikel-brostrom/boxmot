@@ -3,12 +3,11 @@ import torch
 from ultralytics.yolo.utils import ops
 
 
-def write_mot_results(txt_path, results, frame_idx, i):
+def write_mot_results(txt_path, results, frame_idx):
     nr_dets = len(results.boxes)
     frame_idx = torch.full((1, 1), frame_idx + 1)
     frame_idx = frame_idx.repeat(nr_dets, 1)
     dont_care = torch.full((nr_dets, 1), -1)
-    i = torch.full((nr_dets, 1), i)
     mot = torch.cat([
         frame_idx,
         results.boxes.id.unsqueeze(1).to('cpu'),
