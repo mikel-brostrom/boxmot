@@ -146,6 +146,9 @@ class SparseOptFlow(CMCInterface):
         except Exception as e:
             LOGGER.warning(f'Affine matrix could not be generated: {e}')
             return H
+        finally:
+            if H is None:
+                return np.eye(2, 3)
 
         if self.draw_optical_flow:
             self.warped_img = cv2.warpAffine(self.prev_img, H, (w, h), flags=cv2.INTER_LINEAR)
