@@ -2,7 +2,7 @@ import gdown
 import torch
 from ultralytics.models.yolo.detect.predict import DetectionPredictor
 from ultralytics.utils import ops
-from ultralytics.yolo.engine.results import Results
+from ultralytics.yolo.results import Results
 from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model

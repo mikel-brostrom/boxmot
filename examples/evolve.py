@@ -14,7 +14,7 @@ Usage:
 import argparse
 
 import yaml
-from ultralytics.yolo.utils.checks import check_requirements, print_args
+from ultralytics.utils.checks import check_requirements, print_args
 from val import Evaluator
 
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, logger
