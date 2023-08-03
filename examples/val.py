@@ -202,7 +202,6 @@ class Evaluator:
                         "--device", str(tracking_subprocess_device),
                         "--source", seq_path,
                         "--exist-ok",
-                        "--save",
                     ],
                 )
                 processes.append(p)
