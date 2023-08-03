@@ -218,7 +218,7 @@ class Evaluator:
         if opt.gsi:
             # apply gaussian-smoothed interpolation
             from boxmot.postprocessing.gsi import gsi
-            gsi(mot_results_folder=save_dir / 'labels')
+            gsi(mot_results_folder=save_dir / 'mot')
 
         # run the evaluation on the generated txts
         d = [seq_path.parent.name for seq_path in seq_paths]
@@ -228,7 +228,7 @@ class Evaluator:
                 "--GT_FOLDER", gt_folder,
                 "--BENCHMARK", "",
                 "--TRACKERS_FOLDER", save_dir,   # project/name
-                "--TRACKERS_TO_EVAL", "labels",  # project/name/labels
+                "--TRACKERS_TO_EVAL", "mot",  # project/name/mot
                 "--SPLIT_TO_EVAL", "train",
                 "--METRICS", "HOTA", "CLEAR", "Identity",
                 "--USE_PARALLEL", "True",
@@ -335,7 +335,7 @@ def parse_opt():
     parser.add_argument('--split', type=str, default='train',
                         help='existing project/name ok, do not increment')
     parser.add_argument('--eval-existing', action='store_true',
-                        help='evaluate existing results under project/name/labels')
+                        help='evaluate existing results under project/name/mot')
     parser.add_argument('--conf', type=float, default=0.45,
                         help='confidence threshold')
     parser.add_argument('--imgsz', '--img-size', nargs='+', type=int, default=[1280],
