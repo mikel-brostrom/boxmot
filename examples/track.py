@@ -60,14 +60,16 @@ def run(args):
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
 
-    # replace yolov8 model
-    m = get_yolo_inferer(args.yolo_model)
-    model = m(
-        model='yolox_n',
-        device=yolo.predictor.device,
-        args=yolo.predictor.args
-    )
-    yolo.predictor.model = model
+    if 'yolov8' not in str(args.yolo_model):
+
+        # replace yolov8 model
+        m = get_yolo_inferer(args.yolo_model)
+        model = m(
+            model=args.yolo_model,
+            device=yolo.predictor.device,
+            args=yolo.predictor.args
+        )
+        yolo.predictor.model = model
 
     for frame_idx, r in enumerate(results):
         if len(r.boxes.data) != 0:
@@ -99,12 +101,13 @@ def run(args):
                         BGR=True
                     )
 
-    print(f'MOT results saved to {yolo.predictor.mot_txt_path}')
+    if args.save_mot:
+        print(f'MOT results saved to {yolo.predictor.mot_txt_path}')
 
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolox_n', help='model.pt path(s)')
+    parser.add_argument('--yolo-model', type=Path, default='yolov8n', help='model.pt path(s)')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
