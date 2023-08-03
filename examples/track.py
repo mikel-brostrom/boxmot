@@ -3,13 +3,19 @@ from functools import partial
 from pathlib import Path
 
 import torch
+
+from boxmot import DeepOCSORT
+from boxmot.utils import EXAMPLES, ROOT, WEIGHTS
+from boxmot.utils.checks import TestRequirements
+from examples.detectors import get_yolo_inferer
+
+__tr = TestRequirements()
+__tr.check_packages(('git+https://github.com/mikel-brostrom/ultralytics.git',))  # install
+
 from ultralytics import YOLO
 from ultralytics.yolo.data.utils import VID_FORMATS
 from ultralytics.yolo.utils.plotting import save_one_box
 
-from boxmot import DeepOCSORT
-from boxmot.utils import EXAMPLES, ROOT, WEIGHTS
-from examples.detectors import get_yolo_inferer
 from examples.utils import write_mot_results
 
 
