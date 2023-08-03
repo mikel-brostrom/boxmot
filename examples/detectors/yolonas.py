@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from super_gradients.training import models
 from ultralytics.utils import ops
-from ultralytics.yolo.engine.results import Results
+from ultralytics.engine.results import Results
 
 from .yolo_interface import YoloInterface
 

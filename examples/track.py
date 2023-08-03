@@ -13,8 +13,8 @@ __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 from ultralytics import YOLO
-from ultralytics.yolo.data.utils import VID_FORMATS
-from ultralytics.yolo.utils.plotting import save_one_box
+from ultralytics.data.utils import VID_FORMATS
+from ultralytics.utils.plotting import save_one_box
 
 from examples.utils import write_mot_results
 
