@@ -54,7 +54,6 @@ def run(args):
     yolo = YOLO(
         'yolov8n.pt',
     )
-    print(yolo.__dict__.keys())
 
     results = yolo.track(
         source=args.source,
