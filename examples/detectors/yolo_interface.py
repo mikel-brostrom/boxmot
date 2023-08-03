@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from ultralytics.yolo.engine.results import Boxes, Results
+from ultralytics.yolo.engine.results import Results
 
 
 class YoloInterface:
@@ -29,22 +29,13 @@ class YoloInterface:
         else:
             pass
 
-    def overwrite_results(self, i, im0_shape, predictor):
-        # overwrite bbox results with tracker predictions
-        if predictor.tracker_outputs[i].size != 0:
-            predictor.results[i].boxes = Boxes(
-                # xyxy, (track_id), conf, cls
-                boxes=torch.from_numpy(predictor.tracker_outputs[i]).to(predictor.device),
-                orig_shape=im0_shape,  # (height, width)
-            )
-
-    def get_scaling_factors(self, im, im0s):
+    def get_scaling_factors(self, im, im0):
 
         # im to im0 factor for predictions
-        im0_w = im0s[0].shape[1]
-        im0_h = im0s[0].shape[0]
-        im_w = im[0].shape[2]
-        im_h = im[0].shape[1]
+        im0_w = im0.shape[1]
+        im0_h = im0.shape[0]
+        im_w = im.shape[2]
+        im_h = im.shape[1]
         w_r = im0_w / im_w
         h_r = im0_h / im_h
 
@@ -63,11 +54,10 @@ class YoloInterface:
 
         return preds
 
-    def preds_to_yolov8_results(self, path, preds, im, im0s, predictor):
-        predictor.results[0] = Results(
+    def preds_to_yolov8_results(self, path, preds, im, im0s, names):
+        return Results(
             path=path,
             boxes=preds,
             orig_img=im0s[0],
-            names=predictor.model.names
+            names=names
         )
-        return predictor.results
