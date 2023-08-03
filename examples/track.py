@@ -4,13 +4,13 @@ from pathlib import Path
 
 import torch
 
-from boxmot import DeepOCSORT
+from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS
 from boxmot.utils.checks import TestRequirements
 from examples.detectors import get_yolo_inferer
 
 __tr = TestRequirements()
-__tr.check_packages(('git+https://github.com/mikel-brostrom/ultralytics.git',))  # install
+__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 from ultralytics import YOLO
 from ultralytics.yolo.data.utils import VID_FORMATS
@@ -27,18 +27,20 @@ def on_predict_start(predictor, persist=False):
         predictor (object): The predictor object to initialize trackers for.
         persist (bool, optional): Whether to persist the trackers if they already exist. Defaults to False.
     """
-    predictor.args.tracking_config = \
+    tracking_config = \
         ROOT /\
         'boxmot' /\
         'configs' /\
-        'deepocsort.yaml'
+        (predictor.custom_args.tracking_method + '.yaml')
     trackers = []
     for i in range(predictor.dataset.bs):
-        tracker = DeepOCSORT(
-            model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
-            device=predictor.device,
-            fp16=False,
-            per_class=False
+        tracker = create_tracker(
+            predictor.custom_args.tracking_method,
+            tracking_config,
+            predictor.custom_args.reid_model,
+            predictor.device,
+            predictor.custom_args.half,
+            predictor.custom_args.per_class
         )
         trackers.append(tracker)
 
@@ -83,6 +85,7 @@ def run(args):
     yolo.predictor.args.name = args.name
     yolo.predictor.args.exist_ok = args.exist_ok
     yolo.predictor.args.classes = args.classes
+    yolo.predictor.custom_args = args
 
     for frame_idx, r in enumerate(results):
         if len(r.boxes.data) != 0:
@@ -98,7 +101,6 @@ def run(args):
                 write_mot_results(
                     yolo.predictor.mot_txt_path,
                     r,
-                    frame_idx,
                     frame_idx,
                 )
 
