@@ -87,7 +87,8 @@ def run(args):
     yolo.predictor.custom_args = args
 
     for frame_idx, r in enumerate(results):
-        if len(r.boxes.data) != 0:
+
+        if r.boxes.data.shape[1] == 7:
 
             if yolo.predictor.source_type.webcam or args.source.endswith(VID_FORMATS):
                 p = yolo.predictor.save_dir / 'mot' / (args.source + '.txt')
