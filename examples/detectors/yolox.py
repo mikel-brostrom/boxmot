@@ -76,11 +76,7 @@ class YoloXStrategy(DetectionPredictor, YoloInterface):
         self.model = fuse_model(self.model)
         self.model.to(device)
 
-    # def __call__(self, im, augment, visualize):
-    #     print(im)
-
     def __call__(self, im, augment, visualize):
-        print('YOLOX inference', im.shape)
         preds = self.model(im)
         return preds
 
@@ -88,20 +84,9 @@ class YoloXStrategy(DetectionPredictor, YoloInterface):
         pass
 
     def postprocess(self, path, preds, im, im0s):
-        # print('YOLOX postprocess', len(im0s))
-        # print('YOLOX postprocess', len(im))
-        # print('YOLOX postprocess', preds.shape)
+
         results = []
         for i, pred in enumerate(preds):
-            # if not self.has_run:
-            #     self.im_w, self.im_h, self.w_r, self.h_r = self.get_scaling_factors(im[i], im0s[i])
-            #     self.has_run = True
-            # self.im0_w = im0s[i].shape[1]
-            # self.im0_h = im0s[i].shape[0]
-            # self.im_w = im[i].shape[2]
-            # self.im_h = im[i].shape[1]
-            # self.w_r = self.im0_w / self.im_w
-            # self.h_r = self.im0_h / self.im_h
 
             pred = postprocess(
                 pred.unsqueeze(0),  # YOLOX postprocessor expects 3D arary
@@ -121,17 +106,10 @@ class YoloXStrategy(DetectionPredictor, YoloInterface):
                 )
                 results.append(r)
             else:
-                # print('YOLOX postprocess', pred)
-                # print('YOLOX postprocess', pred)
-
                 # (x, y, x, y, conf, obj, cls) --> (x, y, x, y, conf, cls)
                 pred[:, 4] = pred[:, 4] * pred[:, 5]
                 pred = pred[:, [0, 1, 2, 3, 4, 6]]
 
-                # scale from im to im0, clip to min=0 and max=im_h or im_w
-                # pred = self.scale_and_clip(pred, self.im_w, self.im_h, self.w_r, self.h_r)
-                print('im.shape', im.shape)
-                print('im0s[i].shape', im0s[i].shape)
                 pred[:, :4] = ops.scale_boxes(im.shape[2:], pred[:, :4], im0s[i].shape)
 
                 # filter boxes by classes

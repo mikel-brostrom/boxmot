@@ -44,19 +44,18 @@ def run(args):
     yolo = YOLO(
         'yolov8n.pt',
     )
-    # print(yolo.__dict__)
 
     results = yolo.track(
         source=args.source,
-        conf=0.3,
-        iou=0.5,
-        show=True,
+        conf=args.conf,
+        iou=args.iou,
+        show=args.show,
         stream=True,
-        device=0,
-        show_conf=False,
-        show_labels=True,
-        save=True,
-        verbose=False
+        device=args.device,
+        show_conf=args.show_conf,
+        show_labels=args.show_labels,
+        save=args.save,
+        verbose=args.verbose
     )
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
@@ -150,6 +149,8 @@ def parse_opt():
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')
     parser.add_argument('--per-class', action='store_true',
                         help='not mix up classes when tracking')
+    parser.add_argument('--verbose', default=True, action='store_true',
+                        help='print results per frame')
 
     opt = parser.parse_args()
     return opt
