@@ -35,7 +35,9 @@ def on_predict_start(predictor, persist=False):
             per_class=False
         )
         trackers.append(tracker)
+
     predictor.trackers = trackers
+    predictor.save_dir = predictor.get_save_dir()
 
 
 @torch.no_grad()
@@ -44,6 +46,7 @@ def run(args):
     yolo = YOLO(
         'yolov8n.pt',
     )
+    print(yolo.__dict__.keys())
 
     results = yolo.track(
         source=args.source,
@@ -61,7 +64,6 @@ def run(args):
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
 
     if 'yolov8' not in str(args.yolo_model):
-
         # replace yolov8 model
         m = get_yolo_inferer(args.yolo_model)
         model = m(
@@ -71,13 +73,20 @@ def run(args):
         )
         yolo.predictor.model = model
 
+    yolo.predictor.args.project = args.project
+    yolo.predictor.args.name = args.name
+    yolo.predictor.args.exist_ok = args.exist_ok
+    yolo.predictor.args.classes = args.classes
+
     for frame_idx, r in enumerate(results):
         if len(r.boxes.data) != 0:
 
             if yolo.predictor.source_type.webcam or args.source.endswith(VID_FORMATS):
-                yolo.predictor.mot_txt_path = yolo.predictor.save_dir / (args.source + '.txt')
+                p = yolo.predictor.save_dir / 'mot' / (args.source + '.txt')
+                yolo.predictor.mot_txt_path = p
             elif 'MOT16' or 'MOT17' or 'MOT20' in args.source:
-                yolo.predictor.mot_txt_path = yolo.predictor.save_dir / (Path(args.source).parent.name + '.txt')
+                p = yolo.predictor.save_dir / 'mot' / (Path(args.source).parent.name + '.txt')
+                yolo.predictor.mot_txt_path = p
 
             if args.save_mot:
                 write_mot_results(
