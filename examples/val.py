@@ -23,8 +23,8 @@ import git
 from git import Repo
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from ultralytics.yolo.utils.checks import check_requirements, print_args
-from ultralytics.yolo.utils.files import increment_path
+from ultralytics.utils.checks import check_requirements, print_args
+from ultralytics.utils.files import increment_path
 
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS
 from boxmot.utils import logger as LOGGER
