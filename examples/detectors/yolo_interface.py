@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from ultralytics.yolo.engine.results import Results
+from ultralytics.engine.results import Results
 
 
 class YoloInterface:
