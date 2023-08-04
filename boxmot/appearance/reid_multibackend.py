@@ -105,7 +105,7 @@ class ReIDDetectMultiBackend(nn.Module):
             __tr.check_packages(
                 (
                     "onnx",
-                    "onnxruntime-gpu" if cuda else "onnxruntime"
+                    "onnxruntime-gpu" if cuda else "onnxruntime",
                 ),
             )
             import onnxruntime
