@@ -58,12 +58,12 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
         LOGGER.info(f"\nStarting export with onnx {onnx.__version__}...")
 
         if dynamic:
-            # input --> shape(N,3,640,640), output --> shape(N, feature-size)
+            # input --> shape(N, 3, h, w), output --> shape(N, feat_size)
             dynamic = {"images": {0: "batch"}, "output": {0: "batch"}}
 
         torch.onnx.export(
-            model.half() if fp16 else model.cpu(),
-            im.half() if fp16 else im.cpu(),
+            model.cpu() if dynamic else model,  # --dynamic only compatible with cpu
+            im.cpu() if dynamic else im,
             f,
             verbose=False,
             opset_version=opset,
@@ -132,13 +132,15 @@ def export_openvino(file, half):
 def export_tflite(file):
     try:
         __tr.check_packages(
-            ("onnx2tf", "tensorflow", "onnx_graphsurgeon", "sng4onnx")
+            ("onnx2tf", "tensorflow", "onnx_graphsurgeon", "sng4onnx"),
+            cmds='--extra-index-url https://pypi.ngc.nvidia.com'
         )  # requires openvino-dev: https://pypi.org/project/openvino-dev/
         import onnx2tf
 
         LOGGER.info(f"\nStarting {file} export with onnx2tf {onnx2tf.__version__}")
         f = str(file).replace(".onnx", f"_saved_model{os.sep}")
-        cmd = f"onnx2tf -i {file} -o {f} -nuo --non_verbose"
+        cmd = f"onnx2tf -i {file} -o {f} -osd -coion --non_verbose"
+        print(cmd.split())
         subprocess.check_output(cmd.split())  # export
         LOGGER.info(f"Export success, results saved in {f} ({file_size(f):.1f} MB)")
         return f
@@ -304,7 +306,7 @@ if __name__ == "__main__":
     if "lmbn" in str(args.weights):
         args.imgsz = (384, 128)
 
-    im = torch.zeros(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(
+    im = torch.empty(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(
         args.device
     )  # image size(1,3,640,480) BCHW iDetection
     for _ in range(2):

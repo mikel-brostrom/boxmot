@@ -16,7 +16,7 @@ from boxmot.appearance.reid_model_factory import (get_model_name,
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import TestRequirements
 
-__tr = TestRequirements()
+tr = TestRequirements()
 
 
 def check_suffix(file="osnet_x0_25_msmt17.pt", suffix=(".pt",), msg=""):
@@ -48,9 +48,7 @@ class ReIDDetectMultiBackend(nn.Module):
             self.xml,
             self.engine,
             self.tflite,
-        ) = self.model_type(
-            w
-        )  # get backend
+        ) = self.model_type(w)  # get backend
         self.fp16 = fp16
         self.fp16 &= self.pt or self.jit or self.engine  # FP16
 
@@ -65,6 +63,8 @@ class ReIDDetectMultiBackend(nn.Module):
         self.transforms += [T.Normalize(mean=self.pixel_mean, std=self.pixel_std)]
         self.preprocess = T.Compose(self.transforms)
         self.to_pil = T.ToPILImage()
+
+        self.nhwc = self.tflite  # activate bhwc --> bcwh
 
         model_name = get_model_name(w)
 
@@ -102,7 +102,7 @@ class ReIDDetectMultiBackend(nn.Module):
         elif self.onnx:  # ONNX Runtime
             LOGGER.info(f"Loading {w} for ONNX Runtime inference...")
             cuda = torch.cuda.is_available() and device.type != "cpu"
-            __tr.check_packages(["onnx", "onnxruntime-gpu" if cuda else "onnxruntime"])
+            tr.check_packages(("onnx", "onnxruntime-gpu" if cuda else "onnxruntime", ))
             import onnxruntime
 
             providers = (
@@ -113,7 +113,7 @@ class ReIDDetectMultiBackend(nn.Module):
             self.session = onnxruntime.InferenceSession(str(w), providers=providers)
         elif self.engine:  # TensorRT
             LOGGER.info(f"Loading {w} for TensorRT inference...")
-            __tr.check_packages(("nvidia-tensorrt",))
+            tr.check_packages(("nvidia-tensorrt",))
             import tensorrt as trt  # https://developer.nvidia.com/nvidia-tensorrt-download
 
             if device.type == "cpu":
@@ -177,23 +177,17 @@ class ReIDDetectMultiBackend(nn.Module):
 
         elif self.tflite:
             LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
+
             import tensorflow as tf
-            self.interpreter = tf.lite.Interpreter(model_path=w)
-            self.interpreter.allocate_tensors()
-            # Get input and output tensors.
-            self.input_details = self.interpreter.get_input_details()
-            self.output_details = self.interpreter.get_output_details()
-
-            # Test model on random input data.
-            input_data = np.array(
-                np.random.random_sample((1, 256, 128, 3)), dtype=np.float32
-            )
-            self.interpreter.set_tensor(self.input_details[0]["index"], input_data)
-
-            self.interpreter.invoke()
-
-            # The function `get_tensor()` returns a copy of the tensor data.
-            # output_data = self.interpreter.get_tensor(self.output_details[0]["index"])
+            interpreter = tf.lite.Interpreter(model_path=str(w))
+            print(interpreter.get_signature_list())
+            self.tf_lite_model = interpreter.get_signature_runner()
+            inputs = {
+                'images': np.ones([5, 256, 128, 3], dtype=np.float32),
+            }
+            tf_lite_output = self.tf_lite_model(**inputs)
+            print(f"[TFLite] Model Predictions shape: {tf_lite_output['output'].shape}")
+            print("[TFLite] Model Predictions:")
         else:
             LOGGER.error("This model framework is not supported yet!")
             exit()
@@ -228,6 +222,10 @@ class ReIDDetectMultiBackend(nn.Module):
         if self.fp16 and im_batch.dtype != torch.float16:
             im_batch = im_batch.half()
 
+        # torch BCHW to numpy BHWC
+        if self.nhwc:
+            im_batch = im_batch.permute(0, 2, 3, 1)
+
         # batch processing
         features = []
         if self.pt:
@@ -240,6 +238,12 @@ class ReIDDetectMultiBackend(nn.Module):
                 [self.session.get_outputs()[0].name],
                 {self.session.get_inputs()[0].name: im_batch},
             )[0]
+        elif self.tflite:
+            print(im_batch.shape)
+            im_batch = im_batch.cpu().numpy()
+            features = self.tf_lite_model(im_batch)
+            print(features)
+
         elif self.engine:  # TensorRT
             if True and im_batch.shape != self.bindings["images"].shape:
                 i_in, i_out = (
