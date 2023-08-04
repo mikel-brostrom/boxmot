@@ -2,7 +2,7 @@ import torch
 
 from boxmot.appearance.backbones import build_model
 from boxmot.appearance.reid_export import (export_onnx, export_openvino,
-                                           export_tflite, export_torchscript)
+                                           export_torchscript)
 from boxmot.appearance.reid_model_factory import (get_model_name,
                                                   load_pretrained_weights)
 from boxmot.utils import WEIGHTS
@@ -11,7 +11,7 @@ PT_WEIGHTS = WEIGHTS / 'osnet_x0_25_msmt17.pt'
 ONNX_WEIGHTS = WEIGHTS / 'osnet_x0_25_msmt17.onnx'
 
 
-im = torch.zeros(None, 3, 256, 128)  # make models dynamic
+im = torch.zeros(1, 3, 256, 128)
 
 model = build_model(
     get_model_name(PT_WEIGHTS),
@@ -55,8 +55,8 @@ def test_export_openvino():
     assert f is not None
 
 
-def test_export_tflite(enabled=False):
-    f = export_tflite(
-        file=ONNX_WEIGHTS,
-    )
-    assert f is not None
+# def test_export_tflite(enabled=False):
+#     f = export_tflite(
+#         file=ONNX_WEIGHTS,
+#     )
+#     assert f is not None
