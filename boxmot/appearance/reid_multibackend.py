@@ -187,18 +187,8 @@ class ReIDDetectMultiBackend(nn.Module):
             self.interpreter.allocate_tensors()
             # Get input and output tensors.
             self.input_details = self.interpreter.get_input_details()
+            print(self.input_details)
             self.output_details = self.interpreter.get_output_details()
-
-            # Test model on random input data.
-            input_data = np.array(
-                np.random.random_sample((1, 256, 128, 3)), dtype=np.float32
-            )
-            self.interpreter.set_tensor(self.input_details[0]["index"], input_data)
-
-            self.interpreter.invoke()
-
-            # The function `get_tensor()` returns a copy of the tensor data.
-            # output_data = self.interpreter.get_tensor(self.output_details[0]["index"])
         else:
             LOGGER.error("This model framework is not supported yet!")
             exit()
@@ -250,6 +240,7 @@ class ReIDDetectMultiBackend(nn.Module):
                 {self.session.get_inputs()[0].name: im_batch},
             )[0]
         elif self.tflite:
+            print(im_batch.shape)
             im_batch = im_batch.cpu().numpy()
             details = self.input_details[0]
             self.interpreter.set_tensor(details['index'], im_batch)
