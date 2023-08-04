@@ -177,18 +177,17 @@ class ReIDDetectMultiBackend(nn.Module):
 
         elif self.tflite:
             LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
-            try:
-                from tflite_runtime.interpreter import Interpreter
-            except ImportError:
-                import tensorflow as tf
-                Interpreter = tf.lite.Interpreter
 
-            self.interpreter = Interpreter(model_path=str(w))  # load TFLite model
-            self.interpreter.allocate_tensors()
-            # Get input and output tensors.
-            self.input_details = self.interpreter.get_input_details()
-            print(self.input_details)
-            self.output_details = self.interpreter.get_output_details()
+            import tensorflow as tf
+            interpreter = tf.lite.Interpreter(model_path=str(w))
+            print(interpreter.get_signature_list())
+            self.tf_lite_model = interpreter.get_signature_runner()
+            inputs = {
+                'images': np.ones([5, 256, 128, 3], dtype=np.float32),
+            }
+            tf_lite_output = self.tf_lite_model(**inputs)
+            print(f"[TFLite] Model Predictions shape: {tf_lite_output['output'].shape}")
+            print("[TFLite] Model Predictions:")
         else:
             LOGGER.error("This model framework is not supported yet!")
             exit()
@@ -242,13 +241,9 @@ class ReIDDetectMultiBackend(nn.Module):
         elif self.tflite:
             print(im_batch.shape)
             im_batch = im_batch.cpu().numpy()
-            details = self.input_details[0]
-            self.interpreter.set_tensor(details['index'], im_batch)
-            self.interpreter.invoke()
-            features = []
-            for output in self.output_details:
-                x = self.interpreter.get_tensor(output['index'])
-                features.append(x)
+            features = self.tf_lite_model(im_batch)
+            print(features)
+
         elif self.engine:  # TensorRT
             if True and im_batch.shape != self.bindings["images"].shape:
                 i_in, i_out = (
