@@ -11,7 +11,7 @@ PT_WEIGHTS = WEIGHTS / 'osnet_x0_25_msmt17.pt'
 ONNX_WEIGHTS = WEIGHTS / 'osnet_x0_25_msmt17.onnx'
 
 
-im = torch.zeros(1, 3, 256, 128)
+im = torch.zeros(None, 3, 256, 128)  # make models dynamic
 
 model = build_model(
     get_model_name(PT_WEIGHTS),
