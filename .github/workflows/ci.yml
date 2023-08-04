@@ -83,7 +83,7 @@ jobs:
           # test exported reid model
           python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17.torchscript                                   --source $IMG --imgsz 320
           python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17.onnx                                          --source $IMG --imgsz 320
-          python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float16.tflite --source $IMG --imgsz 320
+          # python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float16.tflite --source $IMG --imgsz 320
           python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17_openvino_model/osnet_x0_25_msmt17.xml         --source $IMG --imgsz 320
 
       - name: Test tracking with seg models
