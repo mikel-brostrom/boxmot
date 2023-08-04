@@ -252,10 +252,6 @@ class ReIDDetectMultiBackend(nn.Module):
         elif self.tflite:
             im_batch = im_batch.cpu().numpy()
             details = self.input_details[0]
-            # integer = details['dtype'] in (np.int8, np.int16)  # is TFLite quantized int8 or int16 model
-            # if integer:
-            #     scale, zero_point = details['quantization']
-            #     im = (im / scale + zero_point).astype(details['dtype'])  # de-scale
             self.interpreter.set_tensor(details['index'], im_batch)
             self.interpreter.invoke()
             features = []
