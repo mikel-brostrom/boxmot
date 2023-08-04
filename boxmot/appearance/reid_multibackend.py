@@ -64,6 +64,8 @@ class ReIDDetectMultiBackend(nn.Module):
         self.preprocess = T.Compose(self.transforms)
         self.to_pil = T.ToPILImage()
 
+        self.nhwc = self.tflite  # activate bhwc --> bcwh
+
         model_name = get_model_name(w)
 
         if w.suffix == ".pt":
@@ -175,8 +177,13 @@ class ReIDDetectMultiBackend(nn.Module):
 
         elif self.tflite:
             LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
-            import tensorflow as tf
-            self.interpreter = tf.lite.Interpreter(model_path=w)
+            try:
+                from tflite_runtime.interpreter import Interpreter
+            except ImportError:
+                import tensorflow as tf
+                Interpreter = tf.lite.Interpreter
+
+            self.interpreter = Interpreter(model_path=str(w))  # load TFLite model
             self.interpreter.allocate_tensors()
             # Get input and output tensors.
             self.input_details = self.interpreter.get_input_details()
@@ -226,6 +233,10 @@ class ReIDDetectMultiBackend(nn.Module):
         if self.fp16 and im_batch.dtype != torch.float16:
             im_batch = im_batch.half()
 
+        # torch BCHW to numpy BHWC
+        if self.nhwc:
+            im_batch = im_batch.permute(0, 2, 3, 1)
+
         # batch processing
         features = []
         if self.pt:
@@ -238,6 +249,19 @@ class ReIDDetectMultiBackend(nn.Module):
                 [self.session.get_outputs()[0].name],
                 {self.session.get_inputs()[0].name: im_batch},
             )[0]
+        elif self.tflite:
+            im_batch = im_batch.cpu().numpy()
+            details = self.input_details[0]
+            # integer = details['dtype'] in (np.int8, np.int16)  # is TFLite quantized int8 or int16 model
+            # if integer:
+            #     scale, zero_point = details['quantization']
+            #     im = (im / scale + zero_point).astype(details['dtype'])  # de-scale
+            self.interpreter.set_tensor(details['index'], im_batch)
+            self.interpreter.invoke()
+            features = []
+            for output in self.output_details:
+                x = self.interpreter.get_tensor(output['index'])
+                features.append(x)
         elif self.engine:  # TensorRT
             if True and im_batch.shape != self.bindings["images"].shape:
                 i_in, i_out = (
