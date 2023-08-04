@@ -132,7 +132,8 @@ def export_openvino(file, half):
 def export_tflite(file):
     try:
         __tr.check_packages(
-            ("onnx2tf", "tensorflow", "onnx_graphsurgeon", "sng4onnx")
+            ("onnx2tf", "tensorflow", "onnx_graphsurgeon", "sng4onnx"),
+            cmds='--extra-index-url https://pypi.ngc.nvidia.com'
         )  # requires openvino-dev: https://pypi.org/project/openvino-dev/
         import onnx2tf
 
