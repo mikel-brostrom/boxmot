@@ -139,7 +139,7 @@ def export_tflite(file):
 
         LOGGER.info(f"\nStarting {file} export with onnx2tf {onnx2tf.__version__}")
         f = str(file).replace(".onnx", f"_saved_model{os.sep}")
-        cmd = f"onnx2tf -i {file} -o {f} -nuo --non_verbose"
+        cmd = f"onnx2tf -i {file} -o {f} -nuo --non_verbose -b 10"
         print(cmd.split())
         subprocess.check_output(cmd.split())  # export
         LOGGER.info(f"Export success, results saved in {f} ({file_size(f):.1f} MB)")
