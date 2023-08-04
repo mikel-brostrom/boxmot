@@ -2,7 +2,7 @@ import torch
 
 from boxmot.appearance.backbones import build_model
 from boxmot.appearance.reid_export import (export_onnx, export_openvino,
-                                           export_torchscript)
+                                           export_tflite, export_torchscript)
 from boxmot.appearance.reid_model_factory import (get_model_name,
                                                   load_pretrained_weights)
 from boxmot.utils import WEIGHTS
@@ -55,8 +55,8 @@ def test_export_openvino():
     assert f is not None
 
 
-# def test_export_tflite(enabled=False):
-#     f = export_tflite(
-#         file=ONNX_WEIGHTS,
-#     )
-#     assert f is not None
+def test_export_tflite(enabled=False):
+    f = export_tflite(
+        file=ONNX_WEIGHTS,
+    )
+    assert f is not None
