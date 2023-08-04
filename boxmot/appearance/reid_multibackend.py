@@ -167,9 +167,6 @@ class ReIDDetectMultiBackend(nn.Module):
             network = ie.read_model(model=w, weights=Path(w).with_suffix(".bin"))
             if network.get_parameters()[0].get_layout().empty:
                 network.get_parameters()[0].set_layout(Layout("NCWH"))
-            # batch_dim = get_batch(network)
-            # if batch_dim.is_static:
-            #     batch_size = batch_dim.get_length()
             self.executable_network = ie.compile_model(
                 network, device_name="CPU"
             )  # device_name="MYRIAD" for Intel NCS2
@@ -177,17 +174,13 @@ class ReIDDetectMultiBackend(nn.Module):
 
         elif self.tflite:
             LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
-
             import tensorflow as tf
             interpreter = tf.lite.Interpreter(model_path=str(w))
-            print(interpreter.get_signature_list())
-            self.tf_lite_model = interpreter.get_signature_runner()
-            inputs = {
-                'images': np.ones([5, 256, 128, 3], dtype=np.float32),
-            }
-            tf_lite_output = self.tf_lite_model(**inputs)
-            print(f"[TFLite] Model Predictions shape: {tf_lite_output['output'].shape}")
-            print("[TFLite] Model Predictions:")
+            try:
+                self.tf_lite_model = interpreter.get_signature_runner()
+            except Exception as e:
+                LOGGER.error(f'{e}. If SignatureDef error. Export you model with the official onn2tf docker')
+                exit()
         else:
             LOGGER.error("This model framework is not supported yet!")
             exit()
@@ -239,10 +232,12 @@ class ReIDDetectMultiBackend(nn.Module):
                 {self.session.get_inputs()[0].name: im_batch},
             )[0]
         elif self.tflite:
-            print(im_batch.shape)
             im_batch = im_batch.cpu().numpy()
-            features = self.tf_lite_model(im_batch)
-            print(features)
+            inputs = {
+                'images': im_batch,
+            }
+            tf_lite_output = self.tf_lite_model(**inputs)
+            features = tf_lite_output['output']
 
         elif self.engine:  # TensorRT
             if True and im_batch.shape != self.bindings["images"].shape:
