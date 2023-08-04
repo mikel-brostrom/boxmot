@@ -16,7 +16,7 @@ from boxmot.appearance.reid_model_factory import (get_model_name,
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import TestRequirements
 
-__tr = TestRequirements()
+tr = TestRequirements()
 
 
 def check_suffix(file="osnet_x0_25_msmt17.pt", suffix=(".pt",), msg=""):
@@ -48,9 +48,7 @@ class ReIDDetectMultiBackend(nn.Module):
             self.xml,
             self.engine,
             self.tflite,
-        ) = self.model_type(
-            w
-        )  # get backend
+        ) = self.model_type(w)  # get backend
         self.fp16 = fp16
         self.fp16 &= self.pt or self.jit or self.engine  # FP16
 
@@ -102,7 +100,7 @@ class ReIDDetectMultiBackend(nn.Module):
         elif self.onnx:  # ONNX Runtime
             LOGGER.info(f"Loading {w} for ONNX Runtime inference...")
             cuda = torch.cuda.is_available() and device.type != "cpu"
-            __tr.check_packages(("onnx", "onnxruntime-gpu" if cuda else "onnxruntime", ))
+            tr.check_packages(("onnx", "onnxruntime-gpu" if cuda else "onnxruntime", ))
             import onnxruntime
 
             providers = (
@@ -113,7 +111,7 @@ class ReIDDetectMultiBackend(nn.Module):
             self.session = onnxruntime.InferenceSession(str(w), providers=providers)
         elif self.engine:  # TensorRT
             LOGGER.info(f"Loading {w} for TensorRT inference...")
-            __tr.check_packages(("nvidia-tensorrt",))
+            tr.check_packages(("nvidia-tensorrt",))
             import tensorrt as trt  # https://developer.nvidia.com/nvidia-tensorrt-download
 
             if device.type == "cpu":
