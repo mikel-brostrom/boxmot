@@ -49,7 +49,9 @@ setup(
             'nvidia-pyindex',  # TensorRT export
             'nvidia-tensorrt',  # TensorRT export
             'openvino-dev>=2022.3',  # OpenVINO export
-            'onnx2tf>=1.10.0'  # TFLite export
+            'onnx2tf>=1.10.0',  # TFLite export
+            'onnx_graphsurgeon',  # TFLite export
+            'sng4onnx',  # TFLite export
         ],
         'evolve': [
             'optuna',  # ONNX export
