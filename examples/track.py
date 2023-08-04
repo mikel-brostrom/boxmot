@@ -4,6 +4,7 @@ from pathlib import Path
 
 import torch
 
+from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS
 from boxmot.utils.checks import TestRequirements
@@ -27,6 +28,10 @@ def on_predict_start(predictor, persist=False):
         predictor (object): The predictor object to initialize trackers for.
         persist (bool, optional): Whether to persist the trackers if they already exist. Defaults to False.
     """
+
+    assert predictor.custom_args.tracking_method in TRACKERS, \
+        f"'{predictor.custom_args.tracking_method}' is not supported. Supported ones are {TRACKERS}"
+
     tracking_config = \
         ROOT /\
         'boxmot' /\
