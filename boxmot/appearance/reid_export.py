@@ -62,8 +62,8 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
             dynamic = {"images": {0: "batch"}, "output": {0: "batch"}}
 
         torch.onnx.export(
-            model.half() if fp16 else model.cpu(),
-            im.half() if fp16 else im.cpu(),
+            model.cpu() if dynamic else model,  # --dynamic only compatible with cpu
+            im.cpu() if dynamic else im,
             f,
             verbose=False,
             opset_version=opset,
@@ -228,7 +228,7 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ReID export")
-    parser.add_argument("--batch-size", type=int, default=1, help="batch size")
+    parser.add_argument("--batch-size", type=int, default=None, help="batch size")
     parser.add_argument(
         "--imgsz",
         "--img",
