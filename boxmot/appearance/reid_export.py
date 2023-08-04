@@ -139,7 +139,7 @@ def export_tflite(file):
 
         LOGGER.info(f"\nStarting {file} export with onnx2tf {onnx2tf.__version__}")
         f = str(file).replace(".onnx", f"_saved_model{os.sep}")
-        cmd = f"onnx2tf -i {file} -o {f} -nuo --non_verbose -b 1"
+        cmd = f"onnx2tf -i {file} -o {f} -osd -coion --non_verbose"
         print(cmd.split())
         subprocess.check_output(cmd.split())  # export
         LOGGER.info(f"Export success, results saved in {f} ({file_size(f):.1f} MB)")
@@ -228,7 +228,7 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ReID export")
-    parser.add_argument("--batch-size", type=int, default=None, help="batch size")
+    parser.add_argument("--batch-size", type=int, default=1, help="batch size")
     parser.add_argument(
         "--imgsz",
         "--img",
@@ -306,7 +306,7 @@ if __name__ == "__main__":
     if "lmbn" in str(args.weights):
         args.imgsz = (384, 128)
 
-    im = torch.zeros(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(
+    im = torch.empty(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(
         args.device
     )  # image size(1,3,640,480) BCHW iDetection
     for _ in range(2):
