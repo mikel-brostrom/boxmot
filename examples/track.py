@@ -125,7 +125,7 @@ def run(args):
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-model', type=Path, default='yolov8n', help='model.pt path(s)')
-    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
+    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0',
