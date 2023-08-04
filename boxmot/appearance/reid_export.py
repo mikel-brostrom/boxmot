@@ -58,7 +58,7 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
         LOGGER.info(f"\nStarting export with onnx {onnx.__version__}...")
 
         if dynamic:
-            # input --> shape(N,3,640,640), output --> shape(N, feature-size)
+            # input --> shape(N, 3, h, w), output --> shape(N, feat_size)
             dynamic = {"images": {0: "batch"}, "output": {0: "batch"}}
 
         torch.onnx.export(
@@ -139,7 +139,7 @@ def export_tflite(file):
 
         LOGGER.info(f"\nStarting {file} export with onnx2tf {onnx2tf.__version__}")
         f = str(file).replace(".onnx", f"_saved_model{os.sep}")
-        cmd = f"onnx2tf -i {file} -o {f} -nuo --non_verbose -b 4"
+        cmd = f"onnx2tf -i {file} -o {f} -nuo --non_verbose -b 1"
         print(cmd.split())
         subprocess.check_output(cmd.split())  # export
         LOGGER.info(f"Export success, results saved in {f} ({file_size(f):.1f} MB)")
