@@ -79,10 +79,10 @@ jobs:
             IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
         shell: bash  # for Windows compatibility
         run: |
-          wget https://github.com/PINTO0309/onnx2tf/releases/download/1.7.3/flatc.tar.gz \
-          && tar -zxvf flatc.tar.gz \
-          && sudo chmod +x flatc \
-          && sudo mv flatc /usr/bin/
+          wget https://github.com/PINTO0309/onnx2tf/releases/download/1.7.3/flatc.tar.gz
+          tar -zxvf flatc.tar.gz
+          sudo chmod +x flatc
+          sudo mv flatc /usr/bin/
 
           # test exported reid model
           python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17.torchscript                                   --source $IMG --imgsz 320
