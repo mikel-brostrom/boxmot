@@ -1,4 +1,3 @@
-
 from collections import OrderedDict, namedtuple
 from os.path import exists as file_exists
 from pathlib import Path
