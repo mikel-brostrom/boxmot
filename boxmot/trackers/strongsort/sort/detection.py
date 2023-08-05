@@ -1,5 +1,5 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
-# vim: expandtab:ts=4:sw=4
+
 import numpy as np
 
 
