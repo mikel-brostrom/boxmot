@@ -1,3 +1,4 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 """
 Code imported from https://github.com/Cadene/pretrained-models.pytorch
 """
