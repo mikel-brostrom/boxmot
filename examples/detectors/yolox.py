@@ -1,8 +1,9 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 import gdown
 import torch
+from ultralytics.engine.results import Results
 from ultralytics.models.yolo.detect.predict import DetectionPredictor
 from ultralytics.utils import ops
-from ultralytics.engine.results import Results
 from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model

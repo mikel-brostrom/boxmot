@@ -1,3 +1,4 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 __version__ = '10.0.27'
 
 from boxmot.postprocessing.gsi import gsi
