@@ -3,7 +3,7 @@ from __future__ import absolute_import
 
 from boxmot.appearance.backbones.clip.make_model import make_model
 from boxmot.appearance.backbones.hacnn import HACNN
-from boxmot.appearance.backbones.lmbn_n import LMBN_n
+from boxmot.appearance.backbones.lmbn.lmbn_n import LMBN_n
 from boxmot.appearance.backbones.mlfn import mlfn
 from boxmot.appearance.backbones.mobilenetv2 import (mobilenetv2_x1_0,
                                                      mobilenetv2_x1_4)
