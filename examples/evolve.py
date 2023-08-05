@@ -1,4 +1,5 @@
-#  Yolov5_StrongSORT_OSNet, GPL-3.0 license
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 """
 Evolve hyperparameters for the specific selected tracking method and a specific dataset.
 The best set of hyperparameters is written to the config file of the selected tracker

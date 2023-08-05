@@ -1,4 +1,5 @@
-#  Yolov5_StrongSORT_OSNet, GPL-3.0 license
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 """
 Evaluate on the benchmark of your choice. MOT16, 17 and 20 are donwloaded and unpackaged automatically when selected.
 Mimic the structure of either of these datasets to evaluate on your custom one
@@ -20,6 +21,7 @@ import zipfile
 from pathlib import Path
 
 from boxmot.utils.checks import TestRequirements
+
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 

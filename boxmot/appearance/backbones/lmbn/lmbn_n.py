@@ -1,11 +1,13 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 import copy
 
 import torch
 from torch import nn
 
-from .attention import BatchFeatureErase_Top
-from .bnneck import BNNeck, BNNeck3
-from .osnet import OSBlock, osnet_x1_0
+from boxmot.appearance.backbones.lmbn.attention import BatchFeatureErase_Top
+from boxmot.appearance.backbones.lmbn.bnneck import BNNeck, BNNeck3
+from boxmot.appearance.backbones.osnet import OSBlock, osnet_x1_0
 
 
 class LMBN_n(nn.Module):

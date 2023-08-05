@@ -1,4 +1,5 @@
-# vim: expandtab:ts=4:sw=4
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 from __future__ import absolute_import
 
 import numpy as np
