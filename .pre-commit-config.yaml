@@ -36,4 +36,3 @@ repos:
       args:
         - --license-filepath
         - assets/file_banner.txt
-        - --use-current-year
