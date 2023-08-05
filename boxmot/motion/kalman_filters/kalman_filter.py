@@ -1,7 +1,4 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
-# -*- coding: utf-8 -*-
-# pylint: disable=invalid-name, too-many-arguments, too-many-branches,
-# pylint: disable=too-many-locals, too-many-instance-attributes, too-many-lines
 
 """
 This module implements the linear Kalman filter in both an object
