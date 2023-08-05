@@ -33,5 +33,5 @@ repos:
       files: \.groovy$
       args:
         - --license-filepath
-        - LICENSE
+        - assets/file_banner.py
         - --use-current-year
