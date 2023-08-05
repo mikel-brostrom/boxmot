@@ -1,4 +1,3 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 from .yolo_interface import YoloInterface
 
 
