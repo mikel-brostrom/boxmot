@@ -1,4 +1,5 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 from __future__ import absolute_import
 
 from boxmot.appearance.backbones.clip.make_model import make_model
