@@ -1,3 +1,5 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 import argparse
 from functools import partial
 from pathlib import Path
