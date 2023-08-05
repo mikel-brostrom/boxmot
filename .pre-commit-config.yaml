@@ -1,3 +1,5 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
@@ -30,8 +32,8 @@ repos:
   rev: v1.5.3
   hooks:
     - id: insert-license
-      files: \.groovy$
+      files: ./*
       args:
         - --license-filepath
-        - assets/file_banner.py
+        - assets/file_banner.txt
         - --use-current-year
