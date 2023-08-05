@@ -1,3 +1,4 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 import gzip
 import html
 from functools import lru_cache

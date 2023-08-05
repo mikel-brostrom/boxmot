@@ -1,3 +1,4 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 #  Yolov5_StrongSORT_OSNet, GPL-3.0 license
 """
 Evolve hyperparameters for the specific selected tracking method and a specific dataset.

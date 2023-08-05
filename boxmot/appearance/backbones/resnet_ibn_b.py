@@ -1,3 +1,4 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 """
 Credit to https://github.com/XingangPan/IBN-Net.
 """

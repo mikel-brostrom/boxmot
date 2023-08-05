@@ -1,3 +1,4 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 from collections import OrderedDict, namedtuple
 from os.path import exists as file_exists
 from pathlib import Path
