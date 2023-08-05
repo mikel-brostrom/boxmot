@@ -1,3 +1,5 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 from boxmot.motion.cmc.ecc import ECC
 from boxmot.motion.cmc.orb import ORB
 from boxmot.motion.cmc.sift import SIFT
