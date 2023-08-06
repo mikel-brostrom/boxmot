@@ -231,9 +231,12 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 <summary>Minimalistic</summary>
 
 ```python
-from boxmot import DeepOCSORT
-from pathlib import Path
+import cv2
 import numpy as np
+from pathlib import Path
+
+from boxmot import DeepOCSORT
+
 
 tracker = DeepOCSORT(
     model_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
@@ -260,10 +263,12 @@ while True:
 <summary>Complete</summary>
 
 ```python
-from boxmot import DeepOCSORT
-from pathlib import Path
 import cv2
 import numpy as np
+from pathlib import Path
+
+from boxmot import DeepOCSORT
+
 
 tracker = DeepOCSORT(
     model_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
