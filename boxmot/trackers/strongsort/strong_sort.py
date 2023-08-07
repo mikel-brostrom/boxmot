@@ -93,9 +93,6 @@ class StrongSORT(object):
         outputs = np.asarray(outputs)
         return outputs
 
-    def increment_ages(self):
-        self.tracker.increment_ages()
-
     @torch.no_grad()
     def _get_features(self, xyxys, img):
         im_crops = []
