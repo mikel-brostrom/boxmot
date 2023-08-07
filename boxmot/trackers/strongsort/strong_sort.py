@@ -68,7 +68,7 @@ class StrongSORT(object):
 
         tlwh = xyxy2tlwh(xyxy)
         detections = [
-            Detection(tlwh[i], conf, features[i]) for i, conf in enumerate(confs)
+            Detection(a, b, c) for a, b, c in zip(tlwh, confs, features)
         ]
 
         # update tracker
