@@ -132,14 +132,6 @@ class Track:
         ret[2:] = ret[:2] + ret[2:]
         return ret
 
-    def get_matrix(self, matrix):
-        eye = np.eye(3)
-        dist = np.linalg.norm(eye - matrix)
-        if dist < 100:
-            return matrix
-        else:
-            return eye
-
     def camera_update(self, warp_matrix):
         if warp_matrix is None:
             return
