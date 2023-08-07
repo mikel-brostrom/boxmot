@@ -133,16 +133,12 @@ class Track:
         return ret
 
     def camera_update(self, warp_matrix):
-        if warp_matrix is None:
-            return
         [a, b] = warp_matrix
         warp_matrix = np.array([a, b, [0, 0, 1]])
         warp_matrix = warp_matrix.tolist()
-        matrix = self.get_matrix(warp_matrix)
-
         x1, y1, x2, y2 = self.to_tlbr()
-        x1_, y1_, _ = matrix @ np.array([x1, y1, 1]).T
-        x2_, y2_, _ = matrix @ np.array([x2, y2, 1]).T
+        x1_, y1_, _ = warp_matrix @ np.array([x1, y1, 1]).T
+        x2_, y2_, _ = warp_matrix @ np.array([x2, y2, 1]).T
         w, h = x2_ - x1_, y2_ - y1_
         cx, cy = x1_ + w / 2, y1_ + h / 2
         self.mean[:4] = [cx, cy, w / h, h]
