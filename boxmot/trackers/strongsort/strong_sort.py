@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.tracker import Tracker
 from boxmot.utils.matching import NearestNeighborDistanceMetric
@@ -38,6 +39,7 @@ class StrongSORT(object):
             mc_lambda=mc_lambda,
             ema_alpha=ema_alpha,
         )
+        self.cmc = get_cmc_method('ecc')()
 
     def update(self, dets, img):
         assert isinstance(
@@ -53,7 +55,10 @@ class StrongSORT(object):
             dets.shape[1] == 6
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
-        self.tracker.camera_update(curr_img=img)
+        warp_matrix = self.cmc.apply(img, dets[:, :4])
+        for track in self.tracker.tracks:
+            track.camera_update(warp_matrix)
+
         self.previous_img = img
 
         xyxy = dets[:, 0:4]
