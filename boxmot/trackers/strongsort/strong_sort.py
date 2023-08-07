@@ -20,7 +20,7 @@ class StrongSORT(object):
         max_dist=0.2,
         max_iou_dist=0.7,
         max_age=30,
-        n_init=0,
+        n_init=1,
         nn_budget=100,
         mc_lambda=0.995,
         ema_alpha=0.9,
