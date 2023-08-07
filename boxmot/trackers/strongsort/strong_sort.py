@@ -8,7 +8,7 @@ from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.tracker import Tracker
 from boxmot.utils.matching import NearestNeighborDistanceMetric
-from boxmot.utils.ops import tlwh2xyxy, xywh2tlwh, xyxy2xywh
+from boxmot.utils.ops import tlwh2xyxy, xyxy2tlwh
 
 
 class StrongSORT(object):
@@ -56,18 +56,16 @@ class StrongSORT(object):
         self.tracker.camera_update(curr_img=img)
         self.previous_img = img
 
-        xyxys = dets[:, 0:4]
+        xyxy = dets[:, 0:4]
         confs = dets[:, 4]
         clss = dets[:, 5]
 
-        xywhs = xyxy2xywh(xyxys)
-        self.height, self.width = img.shape[:2]
+        # extract appearance information for each detection
+        features = self._get_features(xyxy, img)
 
-        # generate detections
-        features = self._get_features(xyxys, img)
-        bbox_tlwh = xywh2tlwh(xywhs)
+        tlwh = xyxy2tlwh(xyxy)
         detections = [
-            Detection(bbox_tlwh[i], conf, features[i]) for i, conf in enumerate(confs)
+            Detection(tlwh[i], conf, features[i]) for i, conf in enumerate(confs)
         ]
 
         # update tracker
@@ -86,7 +84,7 @@ class StrongSORT(object):
             track_id = track.track_id
             class_id = track.class_id
             conf = track.conf
-            # queue = track.q
+
             outputs.append(
                 np.array([x1, y1, x2, y2, track_id, conf, class_id], dtype=np.float64)
             )
