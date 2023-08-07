@@ -4,7 +4,7 @@ from collections import deque
 
 import numpy as np
 
-from ....motion.kalman_filters.adapters import StrongSortKalmanFilterAdapter
+from boxmot.motion.kalman_filters.adapters import StrongSortKalmanFilterAdapter
 
 
 class TrackState:
@@ -85,8 +85,6 @@ class Track:
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
-        self.max_num_updates_wo_assignment = 7
-        self.updates_wo_assignment = 0
         self.ema_alpha = ema_alpha
 
         self.state = TrackState.Tentative
@@ -134,25 +132,13 @@ class Track:
         ret[2:] = ret[:2] + ret[2:]
         return ret
 
-    def get_matrix(self, matrix):
-        eye = np.eye(3)
-        dist = np.linalg.norm(eye - matrix)
-        if dist < 100:
-            return matrix
-        else:
-            return eye
-
     def camera_update(self, warp_matrix):
-        if warp_matrix is None:
-            return
         [a, b] = warp_matrix
         warp_matrix = np.array([a, b, [0, 0, 1]])
         warp_matrix = warp_matrix.tolist()
-        matrix = self.get_matrix(warp_matrix)
-
         x1, y1, x2, y2 = self.to_tlbr()
-        x1_, y1_, _ = matrix @ np.array([x1, y1, 1]).T
-        x2_, y2_, _ = matrix @ np.array([x2, y2, 1]).T
+        x1_, y1_, _ = warp_matrix @ np.array([x1, y1, 1]).T
+        x2_, y2_, _ = warp_matrix @ np.array([x2, y2, 1]).T
         w, h = x2_ - x1_, y2_ - y1_
         cx, cy = x1_ + w / 2, y1_ + h / 2
         self.mean[:4] = [cx, cy, w / h, h]
@@ -169,16 +155,6 @@ class Track:
         self.age += 1
         self.time_since_update += 1
 
-    def update_kf(self, bbox, confidence=0.5):
-        self.updates_wo_assignment = self.updates_wo_assignment + 1
-        self.mean, self.covariance = self.kf.update(
-            self.mean, self.covariance, bbox, confidence
-        )
-        tlbr = self.to_tlbr()
-        x_c = int((tlbr[0] + tlbr[2]) / 2)
-        y_c = int((tlbr[1] + tlbr[3]) / 2)
-        self.q.append(("predupdate", (x_c, y_c)))
-
     def update(self, detection, class_id, conf):
         """Perform Kalman filter measurement update step and update the feature
         cache.
@@ -188,7 +164,7 @@ class Track:
             The associated detection.
         """
         self.conf = conf
-        self.class_id = class_id.astype("int64")
+        self.class_id = class_id.astype("int")
         self.mean, self.covariance = self.kf.update(
             self.mean, self.covariance, detection.to_xyah(), detection.confidence
         )
@@ -205,11 +181,6 @@ class Track:
         self.time_since_update = 0
         if self.state == TrackState.Tentative and self.hits >= self._n_init:
             self.state = TrackState.Confirmed
-
-        tlbr = self.to_tlbr()
-        x_c = int((tlbr[0] + tlbr[2]) / 2)
-        y_c = int((tlbr[1] + tlbr[3]) / 2)
-        self.q.append(("observationupdate", (x_c, y_c)))
 
     def mark_missed(self):
         """Mark this track as missed (no association at the current time step)."""

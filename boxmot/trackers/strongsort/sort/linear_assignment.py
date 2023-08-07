@@ -127,11 +127,7 @@ def matching_cascade(
 
     unmatched_detections = detection_indices
     matches = []
-    track_indices_l = [
-        k
-        for k in track_indices
-        # if tracks[k].time_since_update == 1 + level
-    ]
+    track_indices_l = [k for k in track_indices]
     matches_l, _, unmatched_detections = min_cost_matching(
         distance_metric,
         max_distance,
@@ -186,8 +182,7 @@ def gate_cost_matrix(
     ndarray
         Returns the modified cost matrix.
     """
-    gating_dim = 2 if only_position else 4
-    gating_threshold = chi2inv95[gating_dim]
+    gating_threshold = chi2inv95[4]
     measurements = np.asarray([detections[i].to_xyah() for i in detection_indices])
     for row, track_idx in enumerate(track_indices):
         track = tracks[track_idx]
