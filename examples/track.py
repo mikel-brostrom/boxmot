@@ -49,6 +49,7 @@ def on_predict_start(predictor, persist=False):
             predictor.custom_args.half,
             predictor.custom_args.per_class
         )
+        # motion only modeles do not have
         if hasattr(tracker, 'model'):
             tracker.model.warmup()
         trackers.append(tracker)
