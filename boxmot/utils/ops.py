@@ -69,3 +69,16 @@ def tlwh2xyxy(x):
     y[..., 2] = x[..., 0] + x[..., 2]
     y[..., 3] = x[..., 1] + x[..., 3]
     return y
+
+
+def xyxy2tlwh(x):
+    """
+    Convert bounding box coordinates from (t, l ,w ,h) format to (t, l, w, h) format where (t, l) is the
+    top-left corner and (w, h) is width and height.
+    """
+    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y[..., 0] = x[..., 0]
+    y[..., 1] = x[..., 1]
+    y[..., 2] = x[..., 2] - x[..., 0]
+    y[..., 3] = x[..., 3] - x[..., 1]
+    return y
