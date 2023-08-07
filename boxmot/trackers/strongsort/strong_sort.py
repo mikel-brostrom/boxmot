@@ -9,7 +9,7 @@ from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.tracker import Tracker
 from boxmot.utils.matching import NearestNeighborDistanceMetric
-from boxmot.utils.ops import tlwh2xyxy, xyxy2tlwh
+from boxmot.utils.ops import xyxy2tlwh
 
 
 class StrongSORT(object):
@@ -59,8 +59,6 @@ class StrongSORT(object):
         for track in self.tracker.tracks:
             track.camera_update(warp_matrix)
 
-        self.previous_img = img
-
         xyxy = dets[:, 0:4]
         confs = dets[:, 4]
         clss = dets[:, 5]
@@ -83,8 +81,7 @@ class StrongSORT(object):
             if not track.is_confirmed() or track.time_since_update > 1:
                 continue
 
-            tlwh = track.to_tlwh()
-            x1, y1, x2, y2 = tlwh2xyxy(tlwh)
+            x1, y1, x2, y2 = track.to_tlbr()
 
             track_id = track.track_id
             class_id = track.class_id
