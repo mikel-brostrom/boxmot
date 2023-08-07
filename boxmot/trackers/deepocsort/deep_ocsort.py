@@ -341,7 +341,7 @@ class DeepOCSort(object):
         self.per_class = per_class
         KalmanBoxTracker.count = 0
 
-        self.embedder = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
+        self.model = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = get_cmc_method('sof')()
         self.embedding_off = embedding_off
@@ -528,7 +528,7 @@ class DeepOCSort(object):
             im = ori_img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
-            features = self.embedder(im_crops).cpu()
+            features = self.model(im_crops).cpu()
         else:
             features = np.array([])
 

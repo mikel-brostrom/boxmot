@@ -4,11 +4,10 @@ from __future__ import absolute_import
 
 import numpy as np
 
-from boxmot.motion.cmc.ecc import ECC
-
-from ....utils.matching import chi2inv95
-from . import detection, iou_matching, linear_assignment
-from .track import Track
+from boxmot.motion.cmc import get_cmc_method
+from boxmot.trackers.strongsort.sort import iou_matching, linear_assignment
+from boxmot.trackers.strongsort.sort.track import Track
+from boxmot.utils.matching import chi2inv95
 
 
 class Tracker:
@@ -43,7 +42,6 @@ class Tracker:
         metric,
         max_iou_dist=0.9,
         max_age=30,
-        max_unmatched_preds=7,
         n_init=3,
         _lambda=0,
         ema_alpha=0.9,
@@ -56,11 +54,10 @@ class Tracker:
         self._lambda = _lambda
         self.ema_alpha = ema_alpha
         self.mc_lambda = mc_lambda
-        self.max_unmatched_preds = max_unmatched_preds
 
         self.tracks = []
         self._next_id = 1
-        self.ecc = ECC()
+        self.cmc = get_cmc_method('ecc')()
 
     def predict(self):
         """Propagate track state distributions one time step forward.
@@ -74,23 +71,6 @@ class Tracker:
         for track in self.tracks:
             track.increment_age()
             track.mark_missed()
-
-    def camera_update(self, curr_img):
-        if len(self.tracks) > 0:
-            warp_matrix = self.ecc.apply(curr_img=curr_img, dets=None)
-        for track in self.tracks:
-            track.camera_update(warp_matrix)
-
-    def pred_n_update_all_tracks(self):
-        """Perform predictions and updates for all tracks by its own predicted state."""
-        self.predict()
-        for t in self.tracks:
-            if (
-                self.max_unmatched_preds != 0 and
-                t.updates_wo_assignment < t.max_num_updates_wo_assignment
-            ):
-                bbox = t.to_tlwh()
-                t.update_kf(detection.to_xyah_ext(bbox))
 
     def update(self, detections, classes, confidences):
         """Perform measurement update and track management.
@@ -113,13 +93,6 @@ class Tracker:
             )
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
-            if (
-                self.max_unmatched_preds != 0 and
-                self.tracks[track_idx].updates_wo_assignment <
-                self.tracks[track_idx].max_num_updates_wo_assignment
-            ):
-                bbox = self.tracks[track_idx].to_tlwh()
-                self.tracks[track_idx].update_kf(detection.to_xyah_ext(bbox))
         for detection_idx in unmatched_detections:
             self._initiate_track(
                 detections[detection_idx],
@@ -140,39 +113,6 @@ class Tracker:
             np.asarray(features), np.asarray(targets), active_targets
         )
 
-    def _full_cost_metric(self, tracks, dets, track_indices, detection_indices):
-        """
-        This implements the full lambda-based cost-metric. However, in doing so, it disregards
-        the possibility to gate the position only which is provided by
-        linear_assignment.gate_cost_matrix(). Instead, I gate by everything.
-        Note that the Mahalanobis distance is itself an unnormalised metric. Given the cosine
-        distance being normalised, we employ a quick and dirty normalisation based on the
-        threshold: that is, we divide the positional-cost by the gating threshold, thus ensuring
-        that the valid values range 0-1.
-        Note also that the authors work with the squared distance. I also sqrt this, so that it
-        is more intuitive in terms of values.
-        """
-        # Compute First the Position-based Cost Matrix
-        pos_cost = np.empty([len(track_indices), len(detection_indices)])
-        msrs = np.asarray([dets[i].to_xyah() for i in detection_indices])
-        for row, track_idx in enumerate(track_indices):
-            pos_cost[row, :] = (
-                np.sqrt(tracks[track_idx].kf.gating_distance(msrs)) /
-                self.GATING_THRESHOLD
-            )
-        pos_gate = pos_cost > 1.0
-        # Now Compute the Appearance-based Cost Matrix
-        app_cost = self.metric.distance(
-            np.array([dets[i].feature for i in detection_indices]),
-            np.array([tracks[i].track_id for i in track_indices]),
-        )
-        app_gate = app_cost > self.metric.matching_threshold
-        # Now combine and threshold
-        cost_matrix = self._lambda * pos_cost + (1 - self._lambda) * app_cost
-        cost_matrix[np.logical_or(pos_gate, app_gate)] = linear_assignment.INFTY_COST
-        # Return Matrix
-        return cost_matrix
-
     def _match(self, detections):
         def gated_metric(tracks, dets, track_indices, detection_indices):
             features = np.array([dets[i].feature for i in detection_indices])
@@ -191,16 +131,10 @@ class Tracker:
 
         # Split track set into confirmed and unconfirmed tracks.
         confirmed_tracks = [i for i, t in enumerate(self.tracks) if t.is_confirmed()]
-        unconfirmed_tracks = [
-            i for i, t in enumerate(self.tracks) if not t.is_confirmed()
-        ]
+        unconfirmed_tracks = [i for i, t in enumerate(self.tracks) if not t.is_confirmed()]
 
         # Associate confirmed tracks using appearance features.
-        (
-            matches_a,
-            unmatched_tracks_a,
-            unmatched_detections,
-        ) = linear_assignment.matching_cascade(
+        matches_a, unmatched_tracks_a, unmatched_detections = linear_assignment.matching_cascade(
             gated_metric,
             self.metric.matching_threshold,
             self.max_age,
@@ -216,11 +150,8 @@ class Tracker:
         unmatched_tracks_a = [
             k for k in unmatched_tracks_a if self.tracks[k].time_since_update != 1
         ]
-        (
-            matches_b,
-            unmatched_tracks_b,
-            unmatched_detections,
-        ) = linear_assignment.min_cost_matching(
+
+        matches_b, unmatched_tracks_b, unmatched_detections = linear_assignment.min_cost_matching(
             iou_matching.iou_cost,
             self.max_iou_dist,
             self.tracks,
