@@ -72,12 +72,6 @@ class Tracker:
             track.increment_age()
             track.mark_missed()
 
-    def camera_update(self, curr_img):
-        if len(self.tracks) > 0:
-            warp_matrix = self.cmc.apply(curr_img=curr_img, dets=None)
-        for track in self.tracks:
-            track.camera_update(warp_matrix)
-
     def update(self, detections, classes, confidences):
         """Perform measurement update and track management.
 
