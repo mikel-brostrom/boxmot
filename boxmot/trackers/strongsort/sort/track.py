@@ -4,7 +4,7 @@ from collections import deque
 
 import numpy as np
 
-from ....motion.kalman_filters.adapters import StrongSortKalmanFilterAdapter
+from boxmot.motion.kalman_filters.adapters import StrongSortKalmanFilterAdapter
 
 
 class TrackState:
@@ -85,8 +85,6 @@ class Track:
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
-        self.max_num_updates_wo_assignment = 7
-        self.updates_wo_assignment = 0
         self.ema_alpha = ema_alpha
 
         self.state = TrackState.Tentative
@@ -170,14 +168,9 @@ class Track:
         self.time_since_update += 1
 
     def update_kf(self, bbox, confidence=0.5):
-        self.updates_wo_assignment = self.updates_wo_assignment + 1
         self.mean, self.covariance = self.kf.update(
             self.mean, self.covariance, bbox, confidence
         )
-        tlbr = self.to_tlbr()
-        x_c = int((tlbr[0] + tlbr[2]) / 2)
-        y_c = int((tlbr[1] + tlbr[3]) / 2)
-        self.q.append(("predupdate", (x_c, y_c)))
 
     def update(self, detection, class_id, conf):
         """Perform Kalman filter measurement update step and update the feature
@@ -188,7 +181,7 @@ class Track:
             The associated detection.
         """
         self.conf = conf
-        self.class_id = class_id.astype("int64")
+        self.class_id = class_id.astype("int")
         self.mean, self.covariance = self.kf.update(
             self.mean, self.covariance, detection.to_xyah(), detection.confidence
         )
@@ -205,11 +198,6 @@ class Track:
         self.time_since_update = 0
         if self.state == TrackState.Tentative and self.hits >= self._n_init:
             self.state = TrackState.Confirmed
-
-        tlbr = self.to_tlbr()
-        x_c = int((tlbr[0] + tlbr[2]) / 2)
-        y_c = int((tlbr[1] + tlbr[3]) / 2)
-        self.q.append(("observationupdate", (x_c, y_c)))
 
     def mark_missed(self):
         """Mark this track as missed (no association at the current time step)."""
