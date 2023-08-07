@@ -1,6 +1,5 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-import cv2
 import numpy as np
 import torch
 
@@ -55,13 +54,14 @@ class StrongSORT(object):
             dets.shape[1] == 6
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
-        warp_matrix = self.cmc.apply(img, dets[:, :4])
-        for track in self.tracker.tracks:
-            track.camera_update(warp_matrix)
-
         xyxy = dets[:, 0:4]
         confs = dets[:, 4]
         clss = dets[:, 5]
+
+        if len(self.tracker.tracks) >= 1:
+            warp_matrix = self.cmc.apply(img, xyxy)
+            for track in self.tracker.tracks:
+                track.camera_update(warp_matrix)
 
         # extract appearance information for each detection
         features = self._get_features(xyxy, img)
@@ -108,12 +108,3 @@ class StrongSORT(object):
         else:
             features = np.array([])
         return features
-
-    def trajectory(self, im0, q, color):
-        # Add rectangle to image (PIL-only)
-        for i, p in enumerate(q):
-            thickness = int(np.sqrt(float(i + 1)) * 1.5)
-            if p[0] == "observationupdate":
-                cv2.circle(im0, p[1], 2, color=color, thickness=thickness)
-            else:
-                cv2.circle(im0, p[1], 2, color=(255, 255, 255), thickness=thickness)
