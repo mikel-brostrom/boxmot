@@ -1,9 +1,12 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 import argparse
 from functools import partial
 from pathlib import Path
 
 import torch
 
+from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS
 from boxmot.utils.checks import TestRequirements
@@ -27,6 +30,10 @@ def on_predict_start(predictor, persist=False):
         predictor (object): The predictor object to initialize trackers for.
         persist (bool, optional): Whether to persist the trackers if they already exist. Defaults to False.
     """
+
+    assert predictor.custom_args.tracking_method in TRACKERS, \
+        f"'{predictor.custom_args.tracking_method}' is not supported. Supported ones are {TRACKERS}"
+
     tracking_config = \
         ROOT /\
         'boxmot' /\
@@ -125,7 +132,7 @@ def run(args):
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-model', type=Path, default='yolov8n', help='model.pt path(s)')
-    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
+    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0',

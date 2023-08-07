@@ -1,3 +1,5 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
@@ -25,3 +27,12 @@ repos:
     hooks:
       - id: isort
         name: Sort imports
+
+- repo: https://github.com/Lucas-C/pre-commit-hooks
+  rev: v1.5.3
+  hooks:
+    - id: insert-license
+      files: .*\.py$
+      args:
+        - --license-filepath
+        - assets/file_banner.txt

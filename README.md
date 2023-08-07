@@ -231,27 +231,29 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 <summary>Minimalistic</summary>
 
 ```python
-from boxmot import DeepOCSORT
+import cv2
+import numpy as np
 from pathlib import Path
+
+from boxmot import DeepOCSORT
 
 
 tracker = DeepOCSORT(
-  model_weights=Path('osnet_x0_25_msmt17.pt'),  # which ReID model to use
-  device='cuda:0',  # 'cpu', 'cuda:0', 'cuda:1', ... 'cuda:N'
-  fp16=True,  # wether to run the ReID model with half precision or not
+    model_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
+    device='cuda:0',
+    fp16=False,
 )
 
-cap = cv.VideoCapture(0)
+vid = cv2.VideoCapture(0)
+
 while True:
-    ret, im = cap.read()
-    ...
-    # dets (numpy.ndarray):
-    #  - your model's nms:ed outputs of shape Nx6 (x, y, x, y, conf, cls)
-    # im   (numpy.ndarray):
-    #  - the original hxwx3 image (for better ReID results)
-    #  - the downscaled hxwx3 image fed to you model (faster)
-    tracker_outputs = tracker.update(dets, im)  # --> (x, y, x, y, id, conf, cls)
-    ...
+    ret, im = vid.read()
+
+    # substitute by your object detector, output has to be N X (x, y, x, y, conf, cls)
+    dets = np.array([[144, 212, 578, 480, 0.82, 0],
+                    [425, 281, 576, 472, 0.56, 65]])
+
+    tracks = tracker.update(dets, im) # --> (x, y, x, y, id, conf, cls)
 ```
 
 </details>
@@ -261,10 +263,12 @@ while True:
 <summary>Complete</summary>
 
 ```python
-from boxmot import DeepOCSORT
-from pathlib import Path
 import cv2
 import numpy as np
+from pathlib import Path
+
+from boxmot import DeepOCSORT
+
 
 tracker = DeepOCSORT(
     model_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
@@ -284,12 +288,12 @@ while True:
     dets = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
 
-    ts = tracker.update(dets, im) # --> (x, y, x, y, id, conf, cls)
+    tracks = tracker.update(dets, im) # --> (x, y, x, y, id, conf, cls)
 
-    xyxys = ts[:, 0:4].astype('int') # float64 to int
-    ids = ts[:, 4].astype('int') # float64 to int
-    confs = ts[:, 5]
-    clss = ts[:, 6]
+    xyxys = tracks[:, 0:4].astype('int') # float64 to int
+    ids = tracks[:, 4].astype('int') # float64 to int
+    confs = tracks[:, 5]
+    clss = tracks[:, 6]
 
     # print bboxes with their associated id, cls and conf
     if ts.shape[0] != 0:
