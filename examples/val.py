@@ -1,4 +1,5 @@
-#  Yolov5_StrongSORT_OSNet, GPL-3.0 license
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 """
 Evaluate on the benchmark of your choice. MOT16, 17 and 20 are donwloaded and unpackaged automatically when selected.
 Mimic the structure of either of these datasets to evaluate on your custom one
@@ -18,6 +19,11 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+
+from boxmot.utils.checks import TestRequirements
+
+__tr = TestRequirements()
+__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 import git
 from git import Repo
@@ -316,7 +322,7 @@ class Evaluator:
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-model', type=str, default=WEIGHTS / 'yolov8n.pt', help='model.pt path(s)')
-    parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt')
+    parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='strongsort, ocsort')
     parser.add_argument('--name', default='exp',
