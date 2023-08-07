@@ -49,6 +49,7 @@ def on_predict_start(predictor, persist=False):
             predictor.custom_args.half,
             predictor.custom_args.per_class
         )
+        tracker.model.warmup()
         trackers.append(tracker)
 
     predictor.trackers = trackers
