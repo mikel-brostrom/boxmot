@@ -155,11 +155,6 @@ class Track:
         self.age += 1
         self.time_since_update += 1
 
-    def update_kf(self, bbox, confidence=0.5):
-        self.mean, self.covariance = self.kf.update(
-            self.mean, self.covariance, bbox, confidence
-        )
-
     def update(self, detection, class_id, conf):
         """Perform Kalman filter measurement update step and update the feature
         cache.
