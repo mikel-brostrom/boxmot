@@ -203,12 +203,13 @@ class Evaluator:
                         "--imgsz", str(self.opt.imgsz[0]),
                         "--classes", *self.opt.classes,
                         "--name", save_dir.name,
+                        "--save" if self.opt.save else ""
                         "--save-mot",
                         "--project", self.opt.project,
                         "--device", str(tracking_subprocess_device),
                         "--source", seq_path,
                         "--exist-ok",
-                    ] + ["--save" if self.opt.save else None],
+                    ],
                 )
                 processes.append(p)
                 # Wait for the subprocess to complete and capture output
