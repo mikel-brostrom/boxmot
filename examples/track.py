@@ -8,7 +8,7 @@ import torch
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import EXAMPLES, ROOT, WEIGHTS
+from boxmot.utils import ROOT, WEIGHTS
 from boxmot.utils.checks import TestRequirements
 from examples.detectors import get_yolo_inferer
 
@@ -55,7 +55,9 @@ def on_predict_start(predictor, persist=False):
         trackers.append(tracker)
 
     predictor.trackers = trackers
-    predictor.save_dir = predictor.get_save_dir()
+    # predictor.get_save_dir().mkdir()
+    # predictor.save_dir = predictor.get_save_dir()
+    # print(predictor.save_dir)
 
 
 @torch.no_grad()
@@ -75,7 +77,11 @@ def run(args):
         show_conf=args.show_conf,
         show_labels=args.show_labels,
         save=args.save,
-        verbose=args.verbose
+        verbose=args.verbose,
+        exist_ok=args.exist_ok,
+        project=args.project,
+        name=args.name,
+        classes=args.classes
     )
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
@@ -90,10 +96,10 @@ def run(args):
         )
         yolo.predictor.model = model
 
-    yolo.predictor.args.project = args.project
-    yolo.predictor.args.name = args.name
-    yolo.predictor.args.exist_ok = args.exist_ok
-    yolo.predictor.args.classes = args.classes
+    # yolo.predictor.args.project = args.project
+    # yolo.predictor.args.name = args.name
+    # yolo.predictor.args.exist_ok = args.exist_ok
+    # yolo.predictor.args.classes = args.classes
     yolo.predictor.custom_args = args
 
     for frame_idx, r in enumerate(results):
@@ -155,7 +161,7 @@ def parse_opt():
     # # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int,
                         help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--project', default=EXAMPLES / 'runs' / 'track',
+    parser.add_argument('--project', default=ROOT / 'runs' / 'track',
                         help='save results to project/name')
     parser.add_argument('--name', default='exp',
                         help='save results to project/name')
