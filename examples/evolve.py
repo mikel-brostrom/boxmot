@@ -291,6 +291,8 @@ def parse_opt():
                         help='nr of trials for evolution')
     parser.add_argument('--resume', action='store_true',
                         help='resume hparam search')
+    parser.add_argument('--save', action='store_true',
+                        help='save video tracking results')
     parser.add_argument('--processes-per-device', type=int, default=2,
                         help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
     parser.add_argument('--objectives', type=str, default='HOTA,MOTA,IDF1',
