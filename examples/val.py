@@ -128,7 +128,7 @@ class Evaluator:
             if not (Path(opt.project) / opt.name).exists():
                 LOGGER.error(f'{save_dir} does not exist')
         else:
-            save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)
+            save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=False)
         MOT_results_folder = (
             val_tools_path / 'data' / 'trackers' /
             'mot_challenge' / opt.benchmark / save_dir.name / 'data'
@@ -203,6 +203,7 @@ class Evaluator:
                         "--imgsz", str(self.opt.imgsz[0]),
                         "--classes", *self.opt.classes,
                         "--name", save_dir.name,
+                        "--save" if self.opt.save else ""
                         "--save-mot",
                         "--project", self.opt.project,
                         "--device", str(tracking_subprocess_device),
@@ -329,7 +330,7 @@ def parse_opt():
                         help='save results to project/name')
     parser.add_argument('--classes', nargs='+', type=str, default=['0'],
                         help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--project', default=EXAMPLES / 'runs' / 'val',
+    parser.add_argument('--project', default=ROOT / 'runs' / 'val',
                         help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true',
                         help='existing project/name ok, do not increment')
@@ -347,6 +348,8 @@ def parse_opt():
                         help='inference size h,w')
     parser.add_argument('--device', default='',
                         help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+    parser.add_argument('--save', action='store_true',
+                        help='save video tracking results')
     parser.add_argument('--processes-per-device', type=int, default=2,
                         help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
     opt = parser.parse_args()
