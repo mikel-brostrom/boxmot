@@ -55,9 +55,6 @@ def on_predict_start(predictor, persist=False):
         trackers.append(tracker)
 
     predictor.trackers = trackers
-    # predictor.get_save_dir().mkdir()
-    # predictor.save_dir = predictor.get_save_dir()
-    # print(predictor.save_dir)
 
 
 @torch.no_grad()
@@ -96,10 +93,7 @@ def run(args):
         )
         yolo.predictor.model = model
 
-    # yolo.predictor.args.project = args.project
-    # yolo.predictor.args.name = args.name
-    # yolo.predictor.args.exist_ok = args.exist_ok
-    # yolo.predictor.args.classes = args.classes
+    # store custom args in predictor
     yolo.predictor.custom_args = args
 
     for frame_idx, r in enumerate(results):
