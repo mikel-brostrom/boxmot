@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from boxmot.appearance.backbones import build_model
+from boxmot.appearance.backbones import build_model, get_nr_classes
 from boxmot.appearance.reid_model_factory import (get_model_name,
                                                   get_model_url,
                                                   load_pretrained_weights,
@@ -74,7 +74,7 @@ class ReIDDetectMultiBackend(nn.Module):
         # Build model
         self.model = build_model(
             model_name,
-            num_classes=1,
+            num_classes=get_nr_classes(w),
             pretrained=not (w and w.is_file()),
             use_gpu=device,
         )
