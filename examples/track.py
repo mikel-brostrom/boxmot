@@ -61,7 +61,7 @@ def on_predict_start(predictor, persist=False):
 def run(args):
 
     yolo = YOLO(
-        args.yolo_model if 'yolov8' in args.yolo_model else 'yolov8n.pt',
+        args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
     )
 
     results = yolo.track(
