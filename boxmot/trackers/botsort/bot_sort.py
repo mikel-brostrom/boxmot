@@ -3,7 +3,6 @@
 from collections import deque
 
 import numpy as np
-import torch
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc.sof import SparseOptFlow
@@ -325,7 +324,8 @@ class BoTSORT(object):
         self.height, self.width = img.shape[:2]
 
         """Extract embeddings """
-        features_keep = self._get_features(dets, img)
+        features_keep = self.model.get_features(dets, img)
+        dets[:, :4], img
 
         if len(dets) > 0:
             """Detections"""
@@ -504,19 +504,6 @@ class BoTSORT(object):
         y1 = max(int(y - h / 2), 0)
         y2 = min(int(y + h / 2), self.height - 1)
         return x1, y1, x2, y2
-
-    @torch.no_grad()
-    def _get_features(self, bbox_xywh, ori_img):
-        im_crops = []
-        for box in bbox_xywh:
-            x1, y1, x2, y2 = self._xywh_to_xyxy(box)
-            im = ori_img[y1:y2, x1:x2]
-            im_crops.append(im)
-        if im_crops:
-            features = self.model(im_crops)
-        else:
-            features = np.array([])
-        return features
 
 
 def joint_stracks(tlista, tlistb):
