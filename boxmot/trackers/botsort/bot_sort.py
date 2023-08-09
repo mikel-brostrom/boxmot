@@ -324,14 +324,14 @@ class BoTSORT(object):
         self.height, self.width = img.shape[:2]
 
         """Extract embeddings """
-        features_keep = self.model.get_features(dets, img)
+        features_keep = self.model.get_features(xyxys[remain_inds], img)
         dets[:, :4], img
 
         if len(dets) > 0:
             """Detections"""
 
             detections = [
-                STrack(xyxy, s, c, f.cpu().numpy())
+                STrack(xyxy, s, c, f)
                 for (xyxy, s, c, f) in zip(
                     dets, scores_keep, classes_keep, features_keep
                 )
