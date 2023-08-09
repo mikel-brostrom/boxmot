@@ -1,7 +1,6 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import numpy as np
-import torch
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc import get_cmc_method
@@ -64,7 +63,7 @@ class StrongSORT(object):
                 track.camera_update(warp_matrix)
 
         # extract appearance information for each detection
-        features = self._get_features(xyxy, img)
+        features = self.model.get_features(xyxy, img)
 
         tlwh = xyxy2tlwh(xyxy)
         detections = [
@@ -92,16 +91,3 @@ class StrongSORT(object):
             )
         outputs = np.asarray(outputs)
         return outputs
-
-    @torch.no_grad()
-    def _get_features(self, xyxys, img):
-        im_crops = []
-        for box in xyxys:
-            x1, y1, x2, y2 = box.astype('int')
-            im = img[y1:y2, x1:x2]
-            im_crops.append(im)
-        if im_crops:
-            features = self.model(im_crops)
-        else:
-            features = np.array([])
-        return features
