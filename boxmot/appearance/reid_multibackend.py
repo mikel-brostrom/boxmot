@@ -4,11 +4,11 @@ from collections import OrderedDict, namedtuple
 from os.path import exists as file_exists
 from pathlib import Path
 
+import cv2
 import gdown
 import numpy as np
 import torch
 import torch.nn as nn
-import torchvision.transforms as T
 
 from boxmot.appearance.backbones import build_model
 from boxmot.appearance.reid_model_factory import (get_model_name,
@@ -53,19 +53,8 @@ class ReIDDetectMultiBackend(nn.Module):
         ) = self.model_type(w)  # get backend
         self.fp16 = fp16
         self.fp16 &= self.pt or self.jit or self.engine  # FP16
-
-        # Build transform functions
         self.device = device
         self.image_size = (256, 128)
-        self.pixel_mean = [0.485, 0.456, 0.406]
-        self.pixel_std = [0.229, 0.224, 0.225]
-        self.transforms = []
-        self.transforms += [T.Resize(self.image_size)]
-        self.transforms += [T.ToTensor()]
-        self.transforms += [T.Normalize(mean=self.pixel_mean, std=self.pixel_std)]
-        self.preprocess = T.Compose(self.transforms)
-        self.to_pil = T.ToPILImage()
-
         self.nhwc = self.tflite  # activate bhwc --> bcwh
 
         model_name = get_model_name(w)
@@ -197,21 +186,39 @@ class ReIDDetectMultiBackend(nn.Module):
         types = [s in Path(p).name for s in sf]
         return types
 
-    def _preprocess(self, im_batch):
-        images = []
-        for element in im_batch:
-            image = self.to_pil(element)
-            image = self.preprocess(image)
-            images.append(image)
+    def preprocess(self, xyxys, img):
+        crops = []
+        # dets are of different sizes so batch preprocessing is not possible
+        for box in xyxys:
+            x1, y1, x2, y2 = box.astype('int')
+            crop = img[y1:y2, x1:x2]
 
-        images = torch.stack(images, dim=0)
-        images = images.to(self.device)
+            # resize
+            crop = cv2.resize(
+                crop,
+                self.image_size,
+                interpolation=cv2.INTER_LINEAR,
+            )
+            # (cv2) BGR 2 (PIL) RGB. The ReID models have been trained with this channel order
+            crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
 
-        return images
+            # normalization
+            crop = crop / 255
+
+            # standardization (RGB channel order)
+            crop = crop - np.array([0.485, 0.456, 0.406])
+            crop = crop / np.array([0.229, 0.224, 0.225])
+
+            crop = torch.from_numpy(crop).float()
+            crops.append(crop)
+
+        crops = torch.stack(crops, dim=0)
+        crops = torch.permute(crops, (0, 3, 1, 2))
+        crops = crops.to(dtype=torch.half if self.fp16 else torch.float, device=self.device)
+
+        return crops
 
     def forward(self, im_batch):
-        # preprocess batch
-        im_batch = self._preprocess(im_batch)
 
         # batch to half
         if self.fp16 and im_batch.dtype != torch.float16:
@@ -273,18 +280,26 @@ class ReIDDetectMultiBackend(nn.Module):
 
         if isinstance(features, (list, tuple)):
             return (
-                self.from_numpy(features[0])
-                if len(features) == 1
-                else [self.from_numpy(x) for x in features]
+                self.to_numpy(features[0]) if len(features) == 1 else [self.to_numpy(x) for x in features]
             )
         else:
-            return self.from_numpy(features)
+            return self.to_numpy(features)
 
-    def from_numpy(self, x):
-        return torch.from_numpy(x).to(self.device) if isinstance(x, np.ndarray) else x
+    def to_numpy(self, x):
+        return x.cpu().numpy() if isinstance(x, torch.Tensor) else x
 
     def warmup(self, imgsz=[(256, 128, 3)]):
         # warmup model by running inference once
         if self.device.type != "cpu":
-            im = [np.empty(*imgsz).astype(np.uint8)]  # input
+            im = np.random.randint(0, 255, *imgsz, dtype=np.uint8)
+            im = self.preprocess(xyxys=np.array([[0, 0, 128, 256]]), img=im)
             self.forward(im)  # warmup
+
+    @torch.no_grad()
+    def get_features(self, xyxys, img):
+        if xyxys.size != 0:
+            crops = self.preprocess(xyxys, img)
+            features = self.forward(crops)
+        else:
+            features = np.array([])
+        return features
