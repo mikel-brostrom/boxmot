@@ -213,7 +213,7 @@ class ReIDDetectMultiBackend(nn.Module):
             crops.append(crop)
 
         crops = torch.stack(crops, dim=0)
-        crops = torch.permute(crops, (0, 3, 1, 2))
+        crops = torch.permute(crops, (0, 3, 1, 2))  # (b, h, w, c) --> (b, c, h, w)
         crops = crops.to(dtype=torch.half if self.fp16 else torch.float, device=self.device)
 
         return crops
