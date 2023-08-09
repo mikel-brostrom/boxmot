@@ -5,7 +5,6 @@
 """
 
 import numpy as np
-import torch
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc import get_cmc_method
@@ -240,7 +239,7 @@ class KalmanBoxTracker(object):
         self.emb /= np.linalg.norm(self.emb)
 
     def get_emb(self):
-        return self.emb.cpu()
+        return self.emb
 
     def apply_affine_correction(self, affine):
         m = affine[:, :2]
@@ -379,7 +378,7 @@ class DeepOCSort(object):
         else:
             # (Ndets x X) [512, 1024, 2048]
             # dets_embs = self.embedder.compute_embedding(img, dets[:, :4], tag)
-            dets_embs = self._get_features(dets[:, :4], img)
+            dets_embs = self.model.get_features(dets[:, :4], img)
 
         # CMC
         if not self.cmc_off:
@@ -519,17 +518,3 @@ class DeepOCSort(object):
         y1 = max(int(y - h / 2), 0)
         y2 = min(int(y + h / 2), self.height - 1)
         return x1, y1, x2, y2
-
-    @torch.no_grad()
-    def _get_features(self, bbox_xyxy, ori_img):
-        im_crops = []
-        for box in bbox_xyxy:
-            x1, y1, x2, y2 = box.astype(int)
-            im = ori_img[y1:y2, x1:x2]
-            im_crops.append(im)
-        if im_crops:
-            features = self.model(im_crops).cpu()
-        else:
-            features = np.array([])
-
-        return features
