@@ -30,7 +30,7 @@ class Detection(object):
     def __init__(self, tlwh, confidence, feature):
         self.tlwh = np.asarray(tlwh, dtype=np.float32)
         self.confidence = float(confidence)
-        self.feature = np.asarray(feature.cpu(), dtype=np.float32)
+        self.feature = feature
 
     def to_xyah(self):
         """Convert bounding box to format `(center x, center y, aspect ratio,
