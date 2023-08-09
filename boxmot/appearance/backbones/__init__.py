@@ -54,7 +54,11 @@ def show_avai_models():
 
 
 def get_nr_classes(weigths):
-    num_classes = [value for key, value in NR_CLASSES_DICT.items() if key in str(weigths.name)][0]
+    num_classes = [value for key, value in NR_CLASSES_DICT.items() if key in str(weigths.name)]
+    if len(num_classes) == 0:
+        num_classes = 1
+    else:
+        num_classes = num_classes[0]
     return num_classes
 
 
