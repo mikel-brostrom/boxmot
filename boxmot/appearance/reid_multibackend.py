@@ -54,7 +54,6 @@ class ReIDDetectMultiBackend(nn.Module):
         self.fp16 = fp16
         self.fp16 &= self.pt or self.jit or self.engine  # FP16
         self.device = device
-        self.image_size = (256, 128)
         self.nhwc = self.tflite  # activate bhwc --> bcwh
 
         model_name = get_model_name(w)
@@ -192,13 +191,13 @@ class ReIDDetectMultiBackend(nn.Module):
         for box in xyxys:
             x1, y1, x2, y2 = box.astype('int')
             crop = img[y1:y2, x1:x2]
-
             # resize
             crop = cv2.resize(
                 crop,
-                self.image_size,
+                (128, 256),  # from (x, y) to (128, 256) | (w, h)
                 interpolation=cv2.INTER_LINEAR,
             )
+
             # (cv2) BGR 2 (PIL) RGB. The ReID models have been trained with this channel order
             crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
 
@@ -213,7 +212,7 @@ class ReIDDetectMultiBackend(nn.Module):
             crops.append(crop)
 
         crops = torch.stack(crops, dim=0)
-        crops = torch.permute(crops, (0, 3, 1, 2))  # (b, h, w, c) --> (b, c, h, w)
+        crops = torch.permute(crops, (0, 3, 1, 2))
         crops = crops.to(dtype=torch.half if self.fp16 else torch.float, device=self.device)
 
         return crops
