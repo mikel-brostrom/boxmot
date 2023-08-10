@@ -2,10 +2,12 @@
 
 import numpy as np
 import torch
+from super_gradients.common.object_names import Models
 from super_gradients.training import models
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
 
+from boxmot.utils import logger as LOGGER
 from examples.detectors.yolo_interface import YoloInterface
 
 
@@ -36,10 +38,22 @@ class YoloNASStrategy(YoloInterface):
     def __init__(self, model, device, args):
         self.args = args
 
-        self.model = models.get(
-            str(model),
-            pretrained_weights="coco"
-        ).to(device)
+        avail_models = [x.lower() for x in list(Models.__dict__.keys())]
+        model_type = self.get_model_from_weigths(avail_models, model)
+
+        LOGGER.info(f'Loading {model_type} with {str(model)}')
+        if not model.exists() and model.stem == model_type:
+            LOGGER.info('Downloading pretrained weights...')
+            self.model = models.get(
+                model_type,
+                pretrained_weights="coco"
+            ).to(device)
+        else:
+            self.model = models.get(
+                model_type,
+                num_classes=-1,  # set your num classes
+                checkpoint_path=str(model)
+            ).to(device)
 
         self.device = device
 
