@@ -13,6 +13,7 @@ from yolox.utils.model_utils import fuse_model
 
 from examples.detectors.yolo_interface import YoloInterface
 
+# default model weigths for these model names
 YOLOX_ZOO = {
     'yolox_n.pt': 'https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX',
     'yolox_s.pt': 'https://drive.google.com/uc?id=1uSmhXzyV1Zvb4TJJCzpsZOIcw7CCJLxj',
