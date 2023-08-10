@@ -135,8 +135,10 @@ def run(args):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default='yolov8n', help='model.pt path(s)')
-    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
+    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolov8n',
+                        help='yolo model path')
+    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+                        help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0',
@@ -153,7 +155,7 @@ def parse_opt():
                         help='display tracking video results')
     parser.add_argument('--save', action='store_true',
                         help='save video tracking results')
-    # # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
+    # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int,
                         help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--project', default=ROOT / 'runs' / 'track',
