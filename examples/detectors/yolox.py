@@ -11,9 +11,7 @@ from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
-from boxmot.utils import WEIGHTS
-
-from .yolo_interface import YoloInterface
+from examples.detectors.yolo_interface import YoloInterface
 
 YOLOX_ZOO = {
     'yolox_n.pt': 'https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX',
@@ -54,34 +52,42 @@ class YoloXStrategy(DetectionPredictor, YoloInterface):
         self.pt = False
         self.stride = 32  # max stride in YOLOX
 
-        # one of: 'yolox_n', 'yolox_s', 'yolox_m', 'yolox_l', 'yolox_x'
-        model_type = str([Path(key).with_suffix('') for key in YOLOX_ZOO.keys() if key in str(model)][0])
+        # model_type one of: 'yolox_n', 'yolox_s', 'yolox_m', 'yolox_l', 'yolox_x'
+        for key in YOLOX_ZOO.keys():
+            if Path(key).stem in str(model.name):
+                model_type = str(Path(key).with_suffix(''))
+                break
+
         if model_type == 'yolox_n':
             exp = get_exp(None, 'yolox_nano')
         else:
             exp = get_exp(None, model_type)
-        # needed for bytetrack yolox people models, update with your custom model needs
-        exp.num_classes = 1
-
-        self.model = exp.get_model()
-        self.model.eval()
-
+        # download crowdhuman bytetrack models
         if not model.exists() and model.stem == model_type:
             gdown.download(
-                url=YOLOX_ZOO[model_type],
-                output=str(WEIGHTS / model.name),
+                url=YOLOX_ZOO[model_type + '.pt'],
+                output=str(model),
                 quiet=False
             )
+            # needed for bytetrack yolox people models
+            # update with your custom model needs
+            exp.num_classes = 1
+        elif model.stem == model_type:
+            exp.num_classes = 1
 
         ckpt = torch.load(
             str(model),
             map_location=torch.device('cpu')
         )
 
+        self.model = exp.get_model()
+        self.model.eval()
         self.model.load_state_dict(ckpt["model"])
         self.model = fuse_model(self.model)
         self.model.to(device)
+        self.model.eval()
 
+    @torch.no_grad()
     def __call__(self, im, augment, visualize):
         preds = self.model(im)
         return preds
