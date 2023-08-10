@@ -6,7 +6,7 @@ from super_gradients.training import models
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
 
-from examples.yolo_interface import YoloInterface
+from examples.detectors.yolo_interface import YoloInterface
 
 
 class YoloNASStrategy(YoloInterface):
