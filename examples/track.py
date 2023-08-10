@@ -78,7 +78,8 @@ def run(args):
         exist_ok=args.exist_ok,
         project=args.project,
         name=args.name,
-        classes=args.classes
+        classes=args.classes,
+        imgsz=args.imgsz
     )
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
