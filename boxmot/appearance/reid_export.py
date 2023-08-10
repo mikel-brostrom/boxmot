@@ -11,7 +11,7 @@ import torch
 from torch.utils.mobile_optimizer import optimize_for_mobile
 
 from boxmot.appearance import export_formats
-from boxmot.appearance.backbones import build_model
+from boxmot.appearance.backbones import build_model, get_nr_classes
 from boxmot.appearance.reid_model_factory import (get_model_name,
                                                   load_pretrained_weights)
 from boxmot.utils import WEIGHTS
@@ -290,7 +290,7 @@ if __name__ == "__main__":
 
     model = build_model(
         get_model_name(args.weights),
-        num_classes=1,
+        num_classes=get_nr_classes(args.weights),
         pretrained=not (
             args.weights and args.weights.is_file() and args.weights.suffix == ".pt"
         ),

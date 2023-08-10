@@ -61,7 +61,7 @@ def on_predict_start(predictor, persist=False):
 def run(args):
 
     yolo = YOLO(
-        'yolov8n.pt',
+        args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
     )
 
     results = yolo.track(
@@ -78,7 +78,8 @@ def run(args):
         exist_ok=args.exist_ok,
         project=args.project,
         name=args.name,
-        classes=args.classes
+        classes=args.classes,
+        imgsz=args.imgsz
     )
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
