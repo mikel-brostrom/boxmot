@@ -6,7 +6,7 @@ from super_gradients.training import models
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
 
-from .yolo_interface import YoloInterface
+from examples.yolo_interface import YoloInterface
 
 
 class YoloNASStrategy(YoloInterface):
@@ -41,18 +41,21 @@ class YoloNASStrategy(YoloInterface):
             pretrained_weights="coco"
         ).to(device)
 
-        self.has_run = False
+        self.device = device
 
+    @torch.no_grad()
     def __call__(self, im, augment, visualize):
 
-        preds = next(iter(
-            self.model.predict(
-                # (1, 3, h, w) norm --> (h, w, 3) un-norm
-                im[0].permute(1, 2, 0).cpu().numpy() * 255,
-                iou=self.args.iou,
-                conf=self.args.conf
-            )
-        )).prediction  # Returns a generator of the batch, which here is 1
+        im = im[0].permute(1, 2, 0).cpu().numpy() * 255
+
+        with torch.no_grad():
+            preds = self.model.predict(
+                im,
+                iou=0.5,
+                conf=0.7,
+                fuse_model=False
+            )[0].prediction
+
         preds = np.concatenate(
             [
                 preds.bboxes_xyxy,
@@ -61,29 +64,36 @@ class YoloNASStrategy(YoloInterface):
             ], axis=1
         )
 
+        preds = torch.from_numpy(preds).unsqueeze(0)
+
         return preds
 
     def warmup(self, imgsz):
         pass
 
     def postprocess(self, path, preds, im, im0s):
-        preds = torch.from_numpy(preds).unsqueeze(0)
+
         results = []
         for i, pred in enumerate(preds):
 
-            # scale from im to im0
-            pred[:, :4] = ops.scale_boxes(im.shape[2:], pred[:, :4], im0s[i].shape)
+            if pred is None:
+                pred = torch.empty((0, 6))
+                r = Results(
+                    path=path,
+                    boxes=pred,
+                    orig_img=im0s[i],
+                    names=self.names
+                )
+                results.append(r)
+            else:
 
-            if self.args.classes:  # Filter boxes by classes
-                pred = pred[np.isin(pred[:, 5], self.args.classes)]
+                pred[:, :4] = ops.scale_boxes(im.shape[2:], pred[:, :4], im0s[i].shape)
 
-            r = Results(
-                path=path,
-                boxes=pred,
-                orig_img=im0s[i],
-                names=self.names
-            )
-
+                r = Results(
+                    path=path,
+                    boxes=pred,
+                    orig_img=im0s[i],
+                    names=self.names
+                )
             results.append(r)
-
         return results
