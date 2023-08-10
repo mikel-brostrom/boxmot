@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
+from pathlib import Path
+
 import gdown
 import torch
 from ultralytics.engine.results import Results
@@ -9,16 +11,15 @@ from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
-from boxmot.utils import WEIGHTS
+from examples.detectors.yolo_interface import YoloInterface
 
-from .yolo_interface import YoloInterface
-
+# default model weigths for these model names
 YOLOX_ZOO = {
-    'yolox_n': 'https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX',
-    'yolox_s': 'https://drive.google.com/uc?id=1uSmhXzyV1Zvb4TJJCzpsZOIcw7CCJLxj',
-    'yolox_m': 'https://drive.google.com/uc?id=11Zb0NN_Uu7JwUd9e6Nk8o2_EUfxWqsun',
-    'yolox_l': 'https://drive.google.com/uc?id=1XwfUuCBF4IgWBWK2H7oOhQgEj9Mrb3rz',
-    'yolox_x': 'https://drive.google.com/uc?id=1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5',
+    'yolox_n.pt': 'https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX',
+    'yolox_s.pt': 'https://drive.google.com/uc?id=1uSmhXzyV1Zvb4TJJCzpsZOIcw7CCJLxj',
+    'yolox_m.pt': 'https://drive.google.com/uc?id=11Zb0NN_Uu7JwUd9e6Nk8o2_EUfxWqsun',
+    'yolox_l.pt': 'https://drive.google.com/uc?id=1XwfUuCBF4IgWBWK2H7oOhQgEj9Mrb3rz',
+    'yolox_x.pt': 'https://drive.google.com/uc?id=1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5',
 }
 
 
@@ -49,35 +50,45 @@ class YoloXStrategy(DetectionPredictor, YoloInterface):
     def __init__(self, model, device, args):
 
         self.args = args
-        self.has_run = False
         self.pt = False
         self.stride = 32  # max stride in YOLOX
 
-        model = str(model)
-        if model == 'yolox_n':
+        # model_type one of: 'yolox_n', 'yolox_s', 'yolox_m', 'yolox_l', 'yolox_x'
+        for key in YOLOX_ZOO.keys():
+            if Path(key).stem in str(model.name):
+                model_type = str(Path(key).with_suffix(''))
+                break
+
+        if model_type == 'yolox_n':
             exp = get_exp(None, 'yolox_nano')
         else:
-            exp = get_exp(None, model)
-        exp.num_classes = 1  # bytetrack yolox models
-
-        self.model = exp.get_model()
-        self.model.eval()
-
-        gdown.download(
-            url=YOLOX_ZOO[model],
-            output=str(WEIGHTS / (model + '.pt')),
-            quiet=False
-        )
+            exp = get_exp(None, model_type)
+        # download crowdhuman bytetrack models
+        if not model.exists() and model.stem == model_type:
+            gdown.download(
+                url=YOLOX_ZOO[model_type + '.pt'],
+                output=str(model),
+                quiet=False
+            )
+            # needed for bytetrack yolox people models
+            # update with your custom model needs
+            exp.num_classes = 1
+        elif model.stem == model_type:
+            exp.num_classes = 1
 
         ckpt = torch.load(
-            str(WEIGHTS / (model + '.pt')),
+            str(model),
             map_location=torch.device('cpu')
         )
 
+        self.model = exp.get_model()
+        self.model.eval()
         self.model.load_state_dict(ckpt["model"])
         self.model = fuse_model(self.model)
         self.model.to(device)
+        self.model.eval()
 
+    @torch.no_grad()
     def __call__(self, im, augment, visualize):
         preds = self.model(im)
         return preds
