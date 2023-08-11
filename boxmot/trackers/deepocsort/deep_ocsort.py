@@ -95,17 +95,20 @@ class KalmanBoxTracker(object):
 
     count = 0
 
-    def __init__(self, bbox, cls, det_ind, delta_t=3, emb=None, alpha=0, new_kf=False):
+    def __init__(self, det, delta_t=3, emb=None, alpha=0, new_kf=False):
         """
         Initialises a tracker using initial bounding box.
 
         """
         # define constant velocity model
-        self.cls = cls
 
-        self.conf = bbox[-1]
         self.new_kf = new_kf
-        self.det_ind = det_ind
+        print('KalmanBoxTracker', det)
+        bbox = det[0:5]
+        self.conf = det[4]
+        self.cls = det[5]
+        self.det_ind = det[6]
+
         if new_kf:
             self.kf = OCSortKalmanFilterAdapter(dim_x=8, dim_z=4)
             self.kf.F = np.array(
@@ -194,14 +197,18 @@ class KalmanBoxTracker(object):
 
         self.frozen = False
 
-    def update(self, bbox, cls, det_ind):
+    def update(self, det):
         """
         Updates the state vector with observed bbox.
         """
-        if bbox is not None:
+
+        if det is not None:
+            bbox = det[0:5]
+            self.conf = det[4]
+            self.cls = det[5]
+            self.det_ind = det[6]
             self.frozen = False
-            self.cls = cls
-            self.conf = bbox[-1]
+
             if self.last_observation.sum() >= 0:  # no previous observation
                 previous_box = None
                 for dt in range(self.delta_t, 0, -1):
@@ -232,7 +239,7 @@ class KalmanBoxTracker(object):
             else:
                 self.kf.update(self.bbox_to_z_func(bbox))
         else:
-            self.kf.update(bbox)
+            self.kf.update(det)
             self.frozen = True
 
     def update_emb(self, emb, alpha=0.9):
@@ -339,7 +346,7 @@ class DeepOCSort(object):
         self.alpha_fixed_emb = alpha_fixed_emb
         self.aw_param = aw_param
         self.per_class = per_class
-        KalmanBoxTracker.count = 0
+        KalmanBoxTracker.count = 1
 
         self.model = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
@@ -439,7 +446,7 @@ class DeepOCSort(object):
             self.aw_param,
         )
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :5], dets[m[0], 5], dets[m[0], 6])
+            self.trackers[m[1]].update(dets[m[0], :])
             self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
 
         """
@@ -451,6 +458,7 @@ class DeepOCSort(object):
             left_trks = last_boxes[unmatched_trks]
             left_trks_embs = trk_embs[unmatched_trks]
 
+            print('left_dets.shape, left_trks.shape', left_dets.shape, left_trks.shape)
             iou_left = self.asso_func(left_dets, left_trks)
             # TODO: is better without this
             emb_cost_left = left_dets_embs @ left_trks_embs.T
@@ -470,7 +478,7 @@ class DeepOCSort(object):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.iou_threshold:
                         continue
-                    self.trackers[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5], dets[det_ind, 6])
+                    self.trackers[trk_ind].update(dets[det_ind, :])
                     self.trackers[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
@@ -478,14 +486,12 @@ class DeepOCSort(object):
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
-            self.trackers[m].update(None, None, None)
+            self.trackers[m].update(None)
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
             trk = KalmanBoxTracker(
-                dets[i, :5],
-                dets[i, 5],
-                dets[i, 6],
+                dets[i],
                 delta_t=self.delta_t,
                 emb=dets_embs[i],
                 alpha=dets_alpha[i],
@@ -504,19 +510,11 @@ class DeepOCSort(object):
                 d = trk.last_observation[:4]
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
                 # +1 as MOT benchmark requires positive
-                ret.append(np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])).reshape(1, -1))
+                ret.append(np.concatenate((d, [trk.id], [trk.conf], [trk.cls], [trk.det_ind])).reshape(1, -1))
             i -= 1
             # remove dead tracklet
             if trk.time_since_update > self.max_age:
                 self.trackers.pop(i)
         if len(ret) > 0:
             return np.concatenate(ret)
-        return np.empty((0, 5))
-
-    def _xywh_to_xyxy(self, bbox_xywh):
-        x, y, w, h = bbox_xywh
-        x1 = max(int(x - w / 2), 0)
-        x2 = min(int(x + w / 2), self.width - 1)
-        y1 = max(int(y - h / 2), 0)
-        y2 = min(int(y + h / 2), self.height - 1)
-        return x1, y1, x2, y2
+        return ret

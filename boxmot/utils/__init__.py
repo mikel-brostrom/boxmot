@@ -53,9 +53,10 @@ class PerClassDecorator:
                     dets = self.update(instance, modified_args[0], im)
                     if dets.size != 0:
                         mc_dets = np.append(mc_dets, dets, axis=0)
+                logger.debug(f"Per class updates output: {mc_dets.shape}")
             else:
                 mc_dets = self.update(instance, dets, im)
-            logger.debug(f"Per class updates output: {mc_dets.shape}")
+
             return mc_dets
 
         return wrapper
