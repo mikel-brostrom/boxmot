@@ -95,7 +95,7 @@ class KalmanBoxTracker(object):
 
     count = 0
 
-    def __init__(self, bbox, cls, delta_t=3, emb=None, alpha=0, new_kf=False):
+    def __init__(self, bbox, cls, det_ind, delta_t=3, emb=None, alpha=0, new_kf=False):
         """
         Initialises a tracker using initial bounding box.
 
@@ -105,6 +105,7 @@ class KalmanBoxTracker(object):
 
         self.conf = bbox[-1]
         self.new_kf = new_kf
+        self.det_ind = det_ind
         if new_kf:
             self.kf = OCSortKalmanFilterAdapter(dim_x=8, dim_z=4)
             self.kf.F = np.array(
@@ -193,7 +194,7 @@ class KalmanBoxTracker(object):
 
         self.frozen = False
 
-    def update(self, bbox, cls):
+    def update(self, bbox, cls, det_ind):
         """
         Updates the state vector with observed bbox.
         """
@@ -364,15 +365,15 @@ class DeepOCSort(object):
         assert dets.shape[1] == 6, "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         self.frame_count += 1
-
-        scores = dets[:, 4]
-
-        dets = dets[:, 0:6]
-        remain_inds = scores > self.det_thresh
-        dets = dets[remain_inds]
         self.height, self.width = img.shape[:2]
 
-        # Embedding
+        scores = dets[:, 4]
+        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
+        assert dets.shape[1] == 7
+        remain_inds = scores > self.det_thresh
+        dets = dets[remain_inds]
+
+        # appearance descriptor extraction
         if self.embedding_off or dets.shape[0] == 0:
             dets_embs = np.ones((dets.shape[0], 1))
         else:
@@ -438,7 +439,7 @@ class DeepOCSort(object):
             self.aw_param,
         )
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :5], dets[m[0], 5])
+            self.trackers[m[1]].update(dets[m[0], :5], dets[m[0], 5], dets[m[0], 6])
             self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
 
         """
@@ -469,7 +470,7 @@ class DeepOCSort(object):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.iou_threshold:
                         continue
-                    self.trackers[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5])
+                    self.trackers[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5], dets[det_ind, 6])
                     self.trackers[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
@@ -477,13 +478,14 @@ class DeepOCSort(object):
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
-            self.trackers[m].update(None, None)
+            self.trackers[m].update(None, None, None)
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
             trk = KalmanBoxTracker(
                 dets[i, :5],
                 dets[i, 5],
+                dets[i, 6],
                 delta_t=self.delta_t,
                 emb=dets_embs[i],
                 alpha=dets_alpha[i],
@@ -502,7 +504,7 @@ class DeepOCSort(object):
                 d = trk.last_observation[:4]
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
                 # +1 as MOT benchmark requires positive
-                ret.append(np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls])).reshape(1, -1))
+                ret.append(np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])).reshape(1, -1))
             i -= 1
             # remove dead tracklet
             if trk.time_since_update > self.max_age:
