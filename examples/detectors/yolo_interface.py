@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
+from pathlib import Path
+
 import numpy as np
 import torch
 from ultralytics.engine.results import Results
@@ -63,3 +65,11 @@ class YoloInterface:
             orig_img=im0s[0],
             names=names
         )
+
+    def get_model_from_weigths(self, l, model):
+        model_type = None
+        for key in l:
+            if Path(key).stem in str(model.name):
+                model_type = str(Path(key).with_suffix(''))
+                break
+        return model_type
