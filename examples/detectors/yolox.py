@@ -1,16 +1,14 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-from pathlib import Path
-
 import gdown
 import torch
 from ultralytics.engine.results import Results
-from ultralytics.models.yolo.detect.predict import DetectionPredictor
 from ultralytics.utils import ops
 from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
+from boxmot.utils import logger as LOGGER
 from examples.detectors.yolo_interface import YoloInterface
 
 # default model weigths for these model names
@@ -23,7 +21,7 @@ YOLOX_ZOO = {
 }
 
 
-class YoloXStrategy(DetectionPredictor, YoloInterface):
+class YoloXStrategy(YoloInterface):
     pt = False
     stride = 32
     fp16 = False
@@ -54,17 +52,18 @@ class YoloXStrategy(DetectionPredictor, YoloInterface):
         self.stride = 32  # max stride in YOLOX
 
         # model_type one of: 'yolox_n', 'yolox_s', 'yolox_m', 'yolox_l', 'yolox_x'
-        for key in YOLOX_ZOO.keys():
-            if Path(key).stem in str(model.name):
-                model_type = str(Path(key).with_suffix(''))
-                break
+        model_type = self.get_model_from_weigths(YOLOX_ZOO.keys(), model)
 
         if model_type == 'yolox_n':
             exp = get_exp(None, 'yolox_nano')
         else:
             exp = get_exp(None, model_type)
+
+        LOGGER.info(f'Loading {model_type} with {str(model)}')
+
         # download crowdhuman bytetrack models
         if not model.exists() and model.stem == model_type:
+            LOGGER.info('Downloading pretrained weights...')
             gdown.download(
                 url=YOLOX_ZOO[model_type + '.pt'],
                 output=str(model),
