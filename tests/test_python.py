@@ -64,7 +64,7 @@ def test_deepocsort_output():
     output = tracker.update(det, rgb)
     # Works since frame count is less than min hits (1 <= 2)
     assert output.shape == (2, 8)  # two inputs should give two outputs
-    output = np.flip(np.delete(output, 4, axis=1), axis=0)
+    output = np.flip(np.delete(output, [4, 7], axis=1), axis=0)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
     # Instantiate new tracker and ensure minimum number of hits works
