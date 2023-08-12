@@ -16,18 +16,18 @@ from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 class STrack(BaseTrack):
     shared_kalman = BotSortKalmanFilterAdapter()
 
-    def __init__(self, tlwh, score, cls, feat=None, feat_history=50):
+    def __init__(self, det, feat=None, feat_history=50):
         # wait activate
-        self._tlwh = np.asarray(tlwh, dtype=np.float32)
+        self._tlwh = det[0:4]
+        self.score = det[4]
+        self.cls = det[5]
+        self.det_ind = det[6]
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
-
-        self.cls = -1
         self.cls_hist = []  # (cls id, freq)
-        self.update_cls(cls, score)
+        self.update_cls(self.cls, self.score)
 
-        self.score = score
         self.tracklet_len = 0
 
         self.smooth_feat = None
@@ -113,7 +113,7 @@ class STrack(BaseTrack):
     def activate(self, kalman_filter, frame_id):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
-        self.track_id = self.next_id()
+        self.id = self.next_id()
 
         self.mean, self.covariance = self.kalman_filter.initiate(
             self.tlwh_to_xywh(self._tlwh)
@@ -137,8 +137,10 @@ class STrack(BaseTrack):
         self.is_activated = True
         self.frame_id = frame_id
         if new_id:
-            self.track_id = self.next_id()
+            self.id = self.next_id()
         self.score = new_track.score
+        self.cls = new_track.cls
+        self.det_ind = new_track.det_ind
 
         self.update_cls(new_track.cls, new_track.score)
 
@@ -166,6 +168,8 @@ class STrack(BaseTrack):
         self.is_activated = True
 
         self.score = new_track.score
+        self.cls = new_track.cls
+        self.det_ind = new_track.det_ind
         self.update_cls(new_track.cls, new_track.score)
 
     @property
@@ -232,7 +236,7 @@ class STrack(BaseTrack):
         return ret
 
     def __repr__(self):
-        return "OT_{}_({}-{})".format(self.track_id, self.start_frame, self.end_frame)
+        return "OT_{}_({}-{})".format(self.id, self.start_frame, self.end_frame)
 
 
 class BoTSORT(object):
@@ -291,6 +295,7 @@ class BoTSORT(object):
             dets.shape[1] == 6
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
+        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -298,13 +303,8 @@ class BoTSORT(object):
         removed_stracks = []
 
         xyxys = dets[:, 0:4]
-        xywh = xyxy2xywh(xyxys)
+        dets = xyxy2xywh(dets)
         confs = dets[:, 4]
-        clss = dets[:, 5]
-
-        classes = clss
-        xyxys = xyxys
-        confs = confs
 
         remain_inds = confs > self.track_high_thresh
         inds_low = confs > 0.1
@@ -312,30 +312,17 @@ class BoTSORT(object):
 
         inds_second = np.logical_and(inds_low, inds_high)
 
-        dets_second = xywh[inds_second]
-        dets = xywh[remain_inds]
-
-        scores_keep = confs[remain_inds]
-        scores_second = confs[inds_second]
-
-        classes_keep = classes[remain_inds]
-        clss_second = classes[inds_second]
+        dets = dets[remain_inds]
+        dets_second = dets[inds_second]
 
         self.height, self.width = img.shape[:2]
 
         """Extract embeddings """
         features_keep = self.model.get_features(xyxys[remain_inds], img)
-        dets[:, :4], img
 
         if len(dets) > 0:
             """Detections"""
-
-            detections = [
-                STrack(xyxy, s, c, f)
-                for (xyxy, s, c, f) in zip(
-                    dets, scores_keep, classes_keep, features_keep
-                )
-            ]
+            detections = [STrack(det, f) for (det, f) in zip(dets, features_keep)]
         else:
             detections = []
 
@@ -398,10 +385,7 @@ class BoTSORT(object):
         # association the untrack to the low score detections
         if len(dets_second) > 0:
             """Detections"""
-            detections_second = [
-                STrack(STrack.tlbr_to_tlwh(tlbr), s, c)
-                for (tlbr, s, c) in zip(dets_second, scores_second, clss_second)
-            ]
+            detections_second = [STrack(det_second) for det_second in dets_second]
         else:
             detections_second = []
 
@@ -483,37 +467,28 @@ class BoTSORT(object):
         outputs = []
         for t in output_stracks:
             output = []
-            tlwh = t.tlwh
-            tid = t.track_id
-            tlwh = np.expand_dims(tlwh, axis=0)
+            tlwh = np.expand_dims(t.tlwh, axis=0)
             xyxy = xywh2xyxy(tlwh)
             xyxy = np.squeeze(xyxy, axis=0)
             output.extend(xyxy)
-            output.append(tid)
+            output.append(t.id)
             output.append(t.score)
             output.append(t.cls)
+            output.append(t.det_ind)
             outputs.append(output)
 
         outputs = np.asarray(outputs)
         return outputs
-
-    def _xywh_to_xyxy(self, bbox_xywh):
-        x, y, w, h = bbox_xywh
-        x1 = max(int(x - w / 2), 0)
-        x2 = min(int(x + w / 2), self.width - 1)
-        y1 = max(int(y - h / 2), 0)
-        y2 = min(int(y + h / 2), self.height - 1)
-        return x1, y1, x2, y2
 
 
 def joint_stracks(tlista, tlistb):
     exists = {}
     res = []
     for t in tlista:
-        exists[t.track_id] = 1
+        exists[t.id] = 1
         res.append(t)
     for t in tlistb:
-        tid = t.track_id
+        tid = t.id
         if not exists.get(tid, 0):
             exists[tid] = 1
             res.append(t)
@@ -523,9 +498,9 @@ def joint_stracks(tlista, tlistb):
 def sub_stracks(tlista, tlistb):
     stracks = {}
     for t in tlista:
-        stracks[t.track_id] = t
+        stracks[t.id] = t
     for t in tlistb:
-        tid = t.track_id
+        tid = t.id
         if stracks.get(tid, 0):
             del stracks[tid]
     return list(stracks.values())
