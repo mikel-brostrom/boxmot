@@ -253,7 +253,7 @@ while True:
     dets = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
 
-    tracks = tracker.update(dets, im) # --> (x, y, x, y, id, conf, cls)
+    tracks = tracker.update(dets, im) # --> (x, y, x, y, id, conf, cls, ind)
 ```
 
 </details>
@@ -284,16 +284,22 @@ fontscale = 0.5
 while True:
     ret, im = vid.read()
 
-    # substitute by your object detector, output has to be N X (x, y, x, y, conf, cls)
+    # substitute by your object detector, input to tracker has to be N X (x, y, x, y, conf, cls)
     dets = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
 
-    tracks = tracker.update(dets, im) # --> (x, y, x, y, id, conf, cls)
+    tracks = tracker.update(dets, im) # --> (x, y, x, y, id, conf, cls, ind)
 
     xyxys = tracks[:, 0:4].astype('int') # float64 to int
     ids = tracks[:, 4].astype('int') # float64 to int
     confs = tracks[:, 5]
     clss = tracks[:, 6]
+    ind = tracks[:, 7]
+
+    # in case you have segmentations or poses alongside with your detections you can use
+    # the ind variable in order to identify which track is associated to each seg or pose by:
+    # segs = segs[ind]
+    # poses = poses[ind]
 
     # print bboxes with their associated id, cls and conf
     if ts.shape[0] != 0:
