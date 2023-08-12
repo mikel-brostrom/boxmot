@@ -63,8 +63,8 @@ def test_deepocsort_output():
                     [425, 281, 576, 472, 0.56, 65]])
     output = tracker.update(det, rgb)
     # Works since frame count is less than min hits (1 <= 2)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
-    output = np.flip(np.delete(output, 4, axis=1), axis=0)
+    assert output.shape == (2, 8)  # two inputs should give two outputs
+    output = np.flip(np.delete(output, [4, 7], axis=1), axis=0)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
     # Instantiate new tracker and ensure minimum number of hits works
@@ -86,10 +86,10 @@ def test_deepocsort_output():
     output = tracker.update(det, rgb)
     assert output.size == 0
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
+    assert output.shape == (2, 8)  # two inputs should give two outputs
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
-    output = np.flip(np.delete(output, 4, axis=1), axis=0)
+    assert output.shape == (2, 8)  # two inputs should give two outputs
+    output = np.flip(np.delete(output, [4, 7], axis=1), axis=0)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
 
@@ -108,8 +108,8 @@ def test_ocsort_output():
                     [425, 281, 576, 472, 0.56, 65]])
     output = tracker.update(det, rgb)
     # Works since frame count is less than min hits (1 <= 2)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
-    output = np.flip(np.delete(output, 4, axis=1), axis=0)
+    assert output.shape == (2, 8)  # two inputs should give two outputs
+    output = np.flip(np.delete(output, [4, 7], axis=1), axis=0)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
     # Instantiate new tracker and ensure minimum number of hits works
@@ -131,10 +131,10 @@ def test_ocsort_output():
     output = tracker.update(det, rgb)
     assert output.size == 0
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
+    assert output.shape == (2, 8)  # two inputs should give two outputs
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
-    output = np.flip(np.delete(output, 4, axis=1), axis=0)
+    assert output.shape == (2, 8)  # two inputs should give two outputs
+    output = np.flip(np.delete(output, [4, 7], axis=1), axis=0)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
 
@@ -152,12 +152,12 @@ def test_botsort_output():
     det = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
+    assert output.shape == (2, 8)  # two inputs should give two outputs
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
+    assert output.shape == (2, 8)  # two inputs should give two outputs
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
-    output = np.delete(output, 4, axis=1)
+    assert output.shape == (2, 8)  # two inputs should give two outputs
+    output = np.delete(output, [4, 7], axis=1)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
 
@@ -175,12 +175,12 @@ def test_bytetrack_output():
     det = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.86, 65]])
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
+    assert output.shape == (2, 8)  # two inputs should give two outputs
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
+    assert output.shape == (2, 8)  # two inputs should give two outputs
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
-    output = np.delete(output, 4, axis=1)
+    assert output.shape == (2, 8)  # two inputs should give two outputs
+    output = np.delete(output, [4, 7], axis=1)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
 
@@ -201,10 +201,10 @@ def test_strongsort_output():
     output = tracker.update(det, rgb)
     assert output.size == 0
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
+    assert output.shape == (2, 8)  # two inputs should give two outputs
     output = tracker.update(det, rgb)
-    assert output.shape == (2, 7)  # two inputs should give two outputs
-    output = np.delete(output, 4, axis=1)
+    assert output.shape == (2, 8)  # two inputs should give two outputs
+    output = np.delete(output, [4, 7], axis=1)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
 

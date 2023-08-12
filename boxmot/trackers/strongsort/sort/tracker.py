@@ -72,7 +72,7 @@ class Tracker:
             track.increment_age()
             track.mark_missed()
 
-    def update(self, detections, classes, confidences):
+    def update(self, detections):
         """Perform measurement update and track management.
 
         Parameters
@@ -86,37 +86,29 @@ class Tracker:
 
         # Update track set.
         for track_idx, detection_idx in matches:
-            self.tracks[track_idx].update(
-                detections[detection_idx],
-                classes[detection_idx],
-                confidences[detection_idx],
-            )
+            self.tracks[track_idx].update(detections[detection_idx])
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
         for detection_idx in unmatched_detections:
-            self._initiate_track(
-                detections[detection_idx],
-                classes[detection_idx].item(),
-                confidences[detection_idx].item(),
-            )
+            self._initiate_track(detections[detection_idx])
         self.tracks = [t for t in self.tracks if not t.is_deleted()]
 
         # Update distance metric.
-        active_targets = [t.track_id for t in self.tracks if t.is_confirmed()]
+        active_targets = [t.id for t in self.tracks if t.is_confirmed()]
         features, targets = [], []
         for track in self.tracks:
             if not track.is_confirmed():
                 continue
             features += track.features
-            targets += [track.track_id for _ in track.features]
+            targets += [track.id for _ in track.features]
         self.metric.partial_fit(
             np.asarray(features), np.asarray(targets), active_targets
         )
 
     def _match(self, detections):
         def gated_metric(tracks, dets, track_indices, detection_indices):
-            features = np.array([dets[i].feature for i in detection_indices])
-            targets = np.array([tracks[i].track_id for i in track_indices])
+            features = np.array([dets[i].feat for i in detection_indices])
+            targets = np.array([tracks[i].id for i in track_indices])
             cost_matrix = self.metric.distance(features, targets)
             cost_matrix = linear_assignment.gate_cost_matrix(
                 cost_matrix,
@@ -164,17 +156,14 @@ class Tracker:
         unmatched_tracks = list(set(unmatched_tracks_a + unmatched_tracks_b))
         return matches, unmatched_tracks, unmatched_detections
 
-    def _initiate_track(self, detection, class_id, conf):
+    def _initiate_track(self, detection):
         self.tracks.append(
             Track(
-                detection.to_xyah(),
+                detection,
                 self._next_id,
-                class_id,
-                conf,
                 self.n_init,
                 self.max_age,
                 self.ema_alpha,
-                detection.feature,
             )
         )
         self._next_id += 1
