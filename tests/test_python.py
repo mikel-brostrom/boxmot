@@ -157,7 +157,7 @@ def test_botsort_output():
     assert output.shape == (2, 8)  # two inputs should give two outputs
     output = tracker.update(det, rgb)
     assert output.shape == (2, 8)  # two inputs should give two outputs
-    output = np.delete(output, [4, 6], axis=1)
+    output = np.delete(output, [4, 7], axis=1)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
 
@@ -180,7 +180,7 @@ def test_bytetrack_output():
     assert output.shape == (2, 8)  # two inputs should give two outputs
     output = tracker.update(det, rgb)
     assert output.shape == (2, 8)  # two inputs should give two outputs
-    output = np.delete(output, [4, 6], axis=1)
+    output = np.delete(output, [4, 7], axis=1)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
 
@@ -204,7 +204,7 @@ def test_strongsort_output():
     assert output.shape == (2, 8)  # two inputs should give two outputs
     output = tracker.update(det, rgb)
     assert output.shape == (2, 8)  # two inputs should give two outputs
-    output = np.delete(output, [4, 6], axis=1)
+    output = np.delete(output, [4, 7], axis=1)
     assert_allclose(det, output, atol=1, rtol=7e-3, verbose=True)
 
 
