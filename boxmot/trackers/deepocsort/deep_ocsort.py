@@ -103,7 +103,6 @@ class KalmanBoxTracker(object):
         # define constant velocity model
 
         self.new_kf = new_kf
-        print('KalmanBoxTracker', det)
         bbox = det[0:5]
         self.conf = det[4]
         self.cls = det[5]
