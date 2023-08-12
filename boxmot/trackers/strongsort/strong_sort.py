@@ -53,9 +53,11 @@ class StrongSORT(object):
             dets.shape[1] == 6
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
+        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         xyxy = dets[:, 0:4]
         confs = dets[:, 4]
         clss = dets[:, 5]
+        det_ind = dets[:, 6]
 
         if len(self.tracker.tracks) >= 1:
             warp_matrix = self.cmc.apply(img, xyxy)
@@ -67,27 +69,31 @@ class StrongSORT(object):
 
         tlwh = xyxy2tlwh(xyxy)
         detections = [
-            Detection(a, b, c) for a, b, c in zip(tlwh, confs, features)
+            Detection(box, conf, cls, det_ind, feat) for
+            box, conf, cls, det_ind, feat in
+            zip(tlwh, confs, clss, det_ind, features)
         ]
 
         # update tracker
         self.tracker.predict()
-        self.tracker.update(detections, clss, confs)
+        self.tracker.update(detections)
 
         # output bbox identities
         outputs = []
         for track in self.tracker.tracks:
-            if not track.is_confirmed() or track.time_since_update > 1:
+            if not track.is_confirmed() or track.time_since_update >= 1:
                 continue
 
             x1, y1, x2, y2 = track.to_tlbr()
 
-            track_id = track.track_id
-            class_id = track.class_id
+            id = track.id
             conf = track.conf
+            cls = track.cls
+            det_ind = track.det_ind
 
             outputs.append(
-                np.array([x1, y1, x2, y2, track_id, conf, class_id], dtype=np.float64)
+                np.concatenate(([x1, y1, x2, y2], [id], [conf], [cls], [det_ind])).reshape(1, -1)
             )
-        outputs = np.asarray(outputs)
-        return outputs
+        if len(outputs) > 0:
+            return np.concatenate(outputs)
+        return np.array([])

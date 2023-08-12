@@ -11,16 +11,16 @@ from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 class STrack(BaseTrack):
     shared_kalman = ByteTrackKalmanFilterAdapter()
 
-    def __init__(self, tlwh, score, cls):
+    def __init__(self, det):
         # wait activate
-        self._tlwh = np.asarray(tlwh, dtype=np.float32)
+        self._tlwh = det[0:4]
+        self.score = det[4]
+        self.cls = det[5]
+        self.det_ind = det[6]
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
-
-        self.score = score
         self.tracklet_len = 0
-        self.cls = cls
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -73,6 +73,7 @@ class STrack(BaseTrack):
             self.track_id = self.next_id()
         self.score = new_track.score
         self.cls = new_track.cls
+        self.det_ind = new_track.det_ind
 
     def update(self, new_track, frame_id):
         """
@@ -94,6 +95,8 @@ class STrack(BaseTrack):
         self.is_activated = True
 
         self.score = new_track.score
+        self.cls = new_track.cls
+        self.det_ind = new_track.det_ind
 
     @property
     # @jit(nopython=True)
@@ -179,40 +182,29 @@ class BYTETracker(object):
             dets.shape[1] == 6
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
+        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
         lost_stracks = []
         removed_stracks = []
 
-        xyxys = dets[:, 0:4]
-        xywh = xyxy2xywh(xyxys)
+        dets = xyxy2xywh(dets)
         confs = dets[:, 4]
-        clss = dets[:, 5]
-
-        classes = clss
-        xyxys = xyxys
-        confs = confs
 
         remain_inds = confs > self.track_thresh
+
         inds_low = confs > 0.1
         inds_high = confs < self.track_thresh
-
         inds_second = np.logical_and(inds_low, inds_high)
 
-        dets_second = xywh[inds_second]
-        dets = xywh[remain_inds]
-
-        scores_keep = confs[remain_inds]
-        scores_second = confs[inds_second]
-
-        clss_keep = classes[remain_inds]
-        clss_second = classes[inds_second]
+        dets_second = dets[inds_second]
+        dets = dets[remain_inds]
 
         if len(dets) > 0:
             """Detections"""
             detections = [
-                STrack(xyxy, s, c) for (xyxy, s, c) in zip(dets, scores_keep, clss_keep)
+                STrack(det) for det in dets
             ]
         else:
             detections = []
@@ -251,10 +243,7 @@ class BYTETracker(object):
         # association the untrack to the low score detections
         if len(dets_second) > 0:
             """Detections"""
-            detections_second = [
-                STrack(xywh, s, c)
-                for (xywh, s, c) in zip(dets_second, scores_second, clss_second)
-            ]
+            detections_second = [STrack(det_second) for det_second in dets_second]
         else:
             detections_second = []
         r_tracked_stracks = [
@@ -335,6 +324,7 @@ class BYTETracker(object):
             output.append(tid)
             output.append(t.score)
             output.append(t.cls)
+            output.append(t.det_ind)
             outputs.append(output)
         outputs = np.asarray(outputs)
         return outputs

@@ -1,8 +1,5 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-import numpy as np
-
-
 class Detection(object):
     """
     This class represents a bounding box detection in a single image.
@@ -27,10 +24,12 @@ class Detection(object):
 
     """
 
-    def __init__(self, tlwh, confidence, feature):
-        self.tlwh = np.asarray(tlwh, dtype=np.float32)
-        self.confidence = float(confidence)
-        self.feature = feature
+    def __init__(self, tlwh, conf, cls, det_ind, feat):
+        self.tlwh = tlwh
+        self.conf = conf
+        self.cls = cls
+        self.det_ind = det_ind
+        self.feat = feat
 
     def to_xyah(self):
         """Convert bounding box to format `(center x, center y, aspect ratio,

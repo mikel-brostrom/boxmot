@@ -68,12 +68,13 @@ class KalmanBoxTracker(object):
 
     count = 0
 
-    def __init__(self, bbox, cls, delta_t=3):
+    def __init__(self, bbox, cls, det_ind, delta_t=3):
         """
         Initialises a tracker using initial bounding box.
 
         """
         # define constant velocity model
+        self.det_ind = det_ind
         self.kf = OCSortKalmanFilterAdapter(dim_x=7, dim_z=4)
         self.kf.F = np.array(
             [
@@ -125,11 +126,11 @@ class KalmanBoxTracker(object):
         self.velocity = None
         self.delta_t = delta_t
 
-    def update(self, bbox, cls):
+    def update(self, bbox, cls, det_ind):
         """
         Updates the state vector with observed bbox.
         """
-
+        self.det_ind = det_ind
         if bbox is not None:
             self.conf = bbox[-1]
             self.cls = cls
@@ -235,24 +236,17 @@ class OCSort(object):
 
         self.frame_count += 1
 
-        xyxys = dets[:, 0:4]
+        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         confs = dets[:, 4]
-        clss = dets[:, 5]
-
-        classes = clss
-        xyxys = xyxys
-        confs = confs
-
-        output_results = np.column_stack((xyxys, confs, classes))
 
         inds_low = confs > 0.1
         inds_high = confs < self.det_thresh
         inds_second = np.logical_and(
             inds_low, inds_high
         )  # self.det_thresh > score > 0.1, for second matching
-        dets_second = output_results[inds_second]  # detections for second matching
+        dets_second = dets[inds_second]  # detections for second matching
         remain_inds = confs > self.det_thresh
-        dets = output_results[remain_inds]
+        dets = dets[remain_inds]
 
         # get predicted locations from existing trackers.
         trks = np.zeros((len(self.trackers), 5))
@@ -288,7 +282,7 @@ class OCSort(object):
             dets, trks, self.iou_threshold, velocities, k_observations, self.inertia
         )
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :5], dets[m[0], 5])
+            self.trackers[m[1]].update(dets[m[0], :5], dets[m[0], 5], dets[m[0], 6])
 
         """
             Second round of associaton by OCR
@@ -349,11 +343,11 @@ class OCSort(object):
                 )
 
         for m in unmatched_trks:
-            self.trackers[m].update(None, None)
+            self.trackers[m].update(None, None, None)
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], delta_t=self.delta_t)
+            trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t)
             self.trackers.append(trk)
         i = len(self.trackers)
         for trk in reversed(self.trackers):
@@ -370,7 +364,7 @@ class OCSort(object):
             ):
                 # +1 as MOT benchmark requires positive
                 ret.append(
-                    np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls])).reshape(
+                    np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])).reshape(
                         1, -1
                     )
                 )
