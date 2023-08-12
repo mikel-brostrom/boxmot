@@ -516,4 +516,4 @@ class DeepOCSort(object):
                 self.trackers.pop(i)
         if len(ret) > 0:
             return np.concatenate(ret)
-        return ret
+        return np.array([])
