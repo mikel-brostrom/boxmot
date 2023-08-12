@@ -23,7 +23,7 @@ from pathlib import Path
 from boxmot.utils.checks import TestRequirements
 
 __tr = TestRequirements()
-__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
+__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git@det-ind', ))  # install
 
 import git
 from git import Repo
