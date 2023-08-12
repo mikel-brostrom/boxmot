@@ -1,7 +1,5 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-from collections import deque
-
 import numpy as np
 
 from boxmot.motion.kalman_filters.adapters import StrongSortKalmanFilterAdapter
@@ -72,16 +70,16 @@ class Track:
     def __init__(
         self,
         detection,
-        track_id,
-        class_id,
-        conf,
+        id,
         n_init,
         max_age,
         ema_alpha,
-        feature=None,
     ):
-        self.track_id = track_id
-        self.class_id = int(class_id)
+        self.id = id
+        self.bbox = detection.to_xyah()
+        self.conf = detection.conf
+        self.cls = detection.cls
+        self.det_ind = detection.det_ind
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
@@ -89,19 +87,15 @@ class Track:
 
         self.state = TrackState.Tentative
         self.features = []
-        if feature is not None:
-            feature /= np.linalg.norm(feature)
-            self.features.append(feature)
+        if detection.feat is not None:
+            detection.feat /= np.linalg.norm(detection.feat)
+            self.features.append(detection.feat)
 
-        self.conf = conf
         self._n_init = n_init
         self._max_age = max_age
 
         self.kf = StrongSortKalmanFilterAdapter()
-        self.mean, self.covariance = self.kf.initiate(detection)
-
-        # Initializing trajectory queue
-        self.q = deque(maxlen=25)
+        self.mean, self.covariance = self.kf.initiate(self.bbox)
 
     def to_tlwh(self):
         """Get current position in bounding box format `(top left x, top left y,
@@ -155,7 +149,7 @@ class Track:
         self.age += 1
         self.time_since_update += 1
 
-    def update(self, detection, class_id, conf):
+    def update(self, detection):
         """Perform Kalman filter measurement update step and update the feature
         cache.
         Parameters
@@ -163,13 +157,15 @@ class Track:
         detection : Detection
             The associated detection.
         """
-        self.conf = conf
-        self.class_id = class_id.astype("int")
+        self.bbox = detection.to_xyah()
+        self.conf = detection.conf
+        self.cls = detection.cls
+        self.det_ind = detection.det_ind
         self.mean, self.covariance = self.kf.update(
-            self.mean, self.covariance, detection.to_xyah(), detection.confidence
+            self.mean, self.covariance, self.bbox, self.conf
         )
 
-        feature = detection.feature / np.linalg.norm(detection.feature)
+        feature = detection.feat / np.linalg.norm(detection.feat)
 
         smooth_feat = (
             self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
