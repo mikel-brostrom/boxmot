@@ -303,7 +303,7 @@ while True:
     # you can then zip them together: zip(tracks, poses)
 
     # print bboxes with their associated id, cls and conf
-    if ts.shape[0] != 0:
+    if tracks.shape[0] != 0:
         for xyxy, id, conf, cls in zip(xyxys, ids, confs, clss):
             im = cv2.rectangle(
                 im,
