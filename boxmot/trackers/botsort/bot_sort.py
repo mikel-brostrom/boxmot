@@ -184,7 +184,7 @@ class STrack(BaseTrack):
         return ret
 
     @property
-    def tlbr(self):
+    def xyxy(self):
         """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
         `(top left, bottom right)`.
         """
