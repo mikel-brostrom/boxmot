@@ -307,7 +307,7 @@ class OCSort(object):
                     if iou_left[m[0], m[1]] < self.iou_threshold:
                         continue
                     self.trackers[trk_ind].update(
-                        dets_second[det_ind, :5], dets_second[det_ind, 5]
+                        dets_second[det_ind, :5], dets_second[det_ind, 5], dets_second[det_ind, 6]
                     )
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_trks = np.setdiff1d(
@@ -332,7 +332,7 @@ class OCSort(object):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.iou_threshold:
                         continue
-                    self.trackers[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5])
+                    self.trackers[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5], dets[det_ind, 6])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_dets = np.setdiff1d(
