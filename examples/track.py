@@ -13,7 +13,7 @@ from boxmot.utils.checks import TestRequirements
 from examples.detectors import get_yolo_inferer
 
 __tr = TestRequirements()
-__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git@det-ind', ))  # install
+__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 from ultralytics import YOLO
 from ultralytics.data.utils import VID_FORMATS
