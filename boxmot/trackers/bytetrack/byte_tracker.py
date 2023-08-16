@@ -5,7 +5,7 @@ import numpy as np
 from boxmot.motion.kalman_filters.adapters import ByteTrackKalmanFilterAdapter
 from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
-from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
+from boxmot.utils.ops import tlwh2xyah, xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):
@@ -13,7 +13,8 @@ class STrack(BaseTrack):
 
     def __init__(self, det):
         # wait activate
-        self._tlwh = det[0:4]
+        self.xywh = det[0:4]  # (xc, yc, w, h)
+        self.xyah = tlwh2xyah(det[0:4])
         self.score = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
@@ -49,9 +50,7 @@ class STrack(BaseTrack):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
-        self.mean, self.covariance = self.kalman_filter.initiate(
-            self.tlwh_to_xyah(self._tlwh)
-        )
+        self.mean, self.covariance = self.kalman_filter.initiate(self.xyah)
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
@@ -63,7 +62,7 @@ class STrack(BaseTrack):
 
     def re_activate(self, new_track, frame_id, new_id=False):
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, self.tlwh_to_xyah(new_track.tlwh)
+            self.mean, self.covariance, new_track.xyah
         )
         self.tracklet_len = 0
         self.state = TrackState.Tracked
@@ -87,9 +86,8 @@ class STrack(BaseTrack):
         self.tracklet_len += 1
         # self.cls = cls
 
-        new_tlwh = new_track.tlwh
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh)
+            self.mean, self.covariance, new_track.xyah
         )
         self.state = TrackState.Tracked
         self.is_activated = True
@@ -99,58 +97,18 @@ class STrack(BaseTrack):
         self.det_ind = new_track.det_ind
 
     @property
-    # @jit(nopython=True)
-    def tlwh(self):
-        """Get current position in bounding box format `(top left x, top left y,
-        width, height)`.
-        """
-        if self.mean is None:
-            return self._tlwh.copy()
-        ret = self.mean[:4].copy()
-        ret[2] *= ret[3]
-        ret[:2] -= ret[2:] / 2
-        return ret
-
-    @property
-    # @jit(nopython=True)
-    def tlbr(self):
+    def xyxy(self):
         """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
         `(top left, bottom right)`.
         """
-        ret = self.tlwh.copy()
-        ret[2:] += ret[:2]
+        if self.mean is None:
+            ret = self.xywh.copy()
+        else:
+            ret = self.mean[:4].copy()  # (xc, yc, a, h)
+            ret[2] *= ret[3]  # (xc, yc, a, h) --> (xc, yc, w, h)
+            ret[:2] -= ret[2:] / 2  # (xc, yc, w, h) --> (t, l, w, h)
+        ret = xywh2xyxy(ret)
         return ret
-
-    @staticmethod
-    # @jit(nopython=True)
-    def tlwh_to_xyah(tlwh):
-        """Convert bounding box to format `(center x, center y, aspect ratio,
-        height)`, where the aspect ratio is `width / height`.
-        """
-        ret = np.asarray(tlwh).copy()
-        ret[:2] += ret[2:] / 2
-        ret[2] /= ret[3]
-        return ret
-
-    def to_xyah(self):
-        return self.tlwh_to_xyah(self.tlwh)
-
-    @staticmethod
-    # @jit(nopython=True)
-    def tlbr_to_tlwh(tlbr):
-        ret = np.asarray(tlbr).copy()
-        ret[2:] -= ret[:2]
-        return ret
-
-    @staticmethod
-    # @jit(nopython=True)
-    def tlwh_to_tlbr(tlwh):
-        ret = np.asarray(tlwh).copy()
-        ret[2:] += ret[:2]
-        return ret
-
-    def __repr__(self):
-        return "OT_{}_({}-{})".format(self.track_id, self.start_frame, self.end_frame)
 
 
 class BYTETracker(object):
@@ -183,13 +141,12 @@ class BYTETracker(object):
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
+        dets = xyxy2xywh(dets)
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
         lost_stracks = []
         removed_stracks = []
-
-        dets = xyxy2xywh(dets)
         confs = dets[:, 4]
 
         remain_inds = confs > self.track_thresh
@@ -315,13 +272,8 @@ class BYTETracker(object):
         outputs = []
         for t in output_stracks:
             output = []
-            tlwh = t.tlwh
-            tid = t.track_id
-            tlwh = np.expand_dims(tlwh, axis=0)
-            xyxy = xywh2xyxy(tlwh)
-            xyxy = np.squeeze(xyxy, axis=0)
-            output.extend(xyxy)
-            output.append(tid)
+            output.extend(t.xyxy)
+            output.append(t.track_id)
             output.append(t.score)
             output.append(t.cls)
             output.append(t.det_ind)
