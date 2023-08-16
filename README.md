@@ -293,16 +293,17 @@ while True:
     xyxys = tracks[:, 0:4].astype('int') # float64 to int
     ids = tracks[:, 4].astype('int') # float64 to int
     confs = tracks[:, 5]
-    clss = tracks[:, 6]
-    ind = tracks[:, 7]
+    clss = tracks[:, 6].astype('int') # float64 to int
+    inds = tracks[:, 7].astype('int') # float64 to int
 
     # in case you have segmentations or poses alongside with your detections you can use
     # the ind variable in order to identify which track is associated to each seg or pose by:
-    # segs = segs[ind]
-    # poses = poses[ind]
+    # segs = segs[inds]
+    # poses = poses[inds]
+    # you can then zip them together: zip(tracks, poses)
 
     # print bboxes with their associated id, cls and conf
-    if ts.shape[0] != 0:
+    if tracks.shape[0] != 0:
         for xyxy, id, conf, cls in zip(xyxys, ids, confs, clss):
             im = cv2.rectangle(
                 im,
