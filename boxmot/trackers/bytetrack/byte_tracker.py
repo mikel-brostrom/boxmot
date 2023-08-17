@@ -5,7 +5,7 @@ import numpy as np
 from boxmot.motion.kalman_filters.adapters import ByteTrackKalmanFilterAdapter
 from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
-from boxmot.utils.ops import tlwh2xyah, xywh2xyxy, xyxy2xywh
+from boxmot.utils.ops import tlwh2xyah, tlwh2xyxy, xywh2tlwh, xyxy2xywh
 
 
 class STrack(BaseTrack):
@@ -13,8 +13,9 @@ class STrack(BaseTrack):
 
     def __init__(self, det):
         # wait activate
-        self.xywh = det[0:4]  # (xc, yc, w, h)
-        self.xyah = tlwh2xyah(det[0:4])
+        self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
+        self.tlwh = xywh2tlwh(self.xywh)  # (xc, yc, w, h) --> (t, l, w, h)
+        self.xyah = tlwh2xyah(self.tlwh)
         self.score = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
@@ -102,12 +103,12 @@ class STrack(BaseTrack):
         `(top left, bottom right)`.
         """
         if self.mean is None:
-            ret = self.xywh.copy()  # (xc, yc, w, h)
+            ret = self.tlwh.copy()  # (t, l, w, h)
         else:
-            ret = self.mean[:4].copy()
-            ret[2] *= ret[3]
-            ret[:2] -= ret[2:] / 2  # (xc, yc, w, h)
-        ret = xywh2xyxy(ret)
+            ret = self.mean[:4].copy()  # (xc, yc, a, h)
+            ret[2] *= ret[3]  # (xc, yc, a, h)  ->  (xc, yc, w, h)
+            ret = xywh2tlwh(ret)  # (xc, yc, w, h) --> (t, l, w, h)
+        ret = tlwh2xyxy(ret)
         return ret
 
 
@@ -141,7 +142,6 @@ class BYTETracker(object):
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
-        dets = xyxy2xywh(dets)
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
