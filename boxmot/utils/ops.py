@@ -95,3 +95,58 @@ def tlwh2xyah(x):
     y[..., 2] = x[..., 2] / x[..., 3]
     y[..., 3] = x[..., 3]
     return y
+
+
+def xyah2tlbr(x):
+    """
+    Convert bounding box coordinates from (xc, yc ,a ,h), where the aspect ratio is `width / height`
+    to (t, l, w, h)`
+    """
+    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y[..., 2] = x[..., 2] * x[..., 3]  # (xc, yc, w, h)
+    y[..., 0] = x[..., 0] - (x[..., 2] / 2)  # xc --> t
+    y[..., 1] = x[..., 1] - (x[..., 3] / 2)  # yc --> l
+    y[..., 2] = x[..., 0] + x[..., 2]
+    y[..., 3] = x[..., 1] + x[..., 3]
+    return y
+
+
+def tlwh2tlbr(x):
+    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y[..., 0] = x[..., 0]
+    y[..., 1] = x[..., 1]
+    y[..., 2] = x[..., 0] + x[..., 2]
+    y[..., 3] = x[..., 1] + x[..., 3]
+    return y
+
+
+def tlbr2tlwh(x):
+    """
+    """
+    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y[..., 0] = x[..., 0]
+    y[..., 1] = x[..., 1]
+    y[..., 2] = x[..., 2] - x[..., 0]
+    y[..., 3] = x[..., 3] + x[..., 1]
+    return y
+
+
+def tlbr2xyah(x):
+    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y[..., 0] = x[..., 0] + (x[..., 2] / 2)  # t --> xc
+    y[..., 1] = x[..., 1] + (x[..., 3] / 2)  # l --> yc
+    y[..., 2] = x[..., 2] / x[..., 3]  # w --> a
+    y[..., 3] = x[..., 3] - x[..., 1]
+    return y
+
+
+def xyah2tlwh(x):
+    """
+    Convert bounding box coordinates from (xc, yc ,a ,h), where the aspect ratio is `width / height`
+    to (t, l, w, h)`
+    """
+    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y[..., 2] = x[..., 2] * x[..., 3]  # (xc, yc, w, h)
+    y[..., 0] = x[..., 0] - (x[..., 2] / 2)  # xc --> t
+    y[..., 1] = x[..., 1] - (x[..., 3] / 2)  # yc --> l
+    return y
