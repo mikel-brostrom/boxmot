@@ -403,14 +403,10 @@ class BoTSORT(object):
             self.tracked_stracks, self.lost_stracks
         )
 
-        # output_stracks = [track for track in self.tracked_stracks if track.is_activated]
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
         outputs = []
         for t in output_stracks:
             output = []
-            # xywh = np.expand_dims(t._xywh, axis=0)
-            # xyxy = xywh2xyxy(xywh)
-            # xyxy = np.squeeze(xyxy, axis=0)
             output.extend(t.xyxy)
             output.append(t.id)
             output.append(t.score)
