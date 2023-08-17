@@ -42,7 +42,7 @@ class PerClassDecorator:
                 # get tracks that are both active and in the current detections
                 relevant_classes = active_classes.union(detected_classes)
 
-                mc_dets = np.empty(shape=(0, 7))
+                mc_dets = np.empty(shape=(0, 8))
                 for class_id in relevant_classes:
                     modified_args[0] = np.array(
                         dets_dict.get(int(class_id), np.empty((0, 6)))
@@ -56,7 +56,6 @@ class PerClassDecorator:
                 logger.debug(f"Per class updates output: {mc_dets.shape}")
             else:
                 mc_dets = self.update(instance, dets, im)
-
             return mc_dets
 
         return wrapper
