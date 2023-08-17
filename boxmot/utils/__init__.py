@@ -56,7 +56,6 @@ class PerClassDecorator:
                 logger.debug(f"Per class updates output: {mc_dets.shape}")
             else:
                 mc_dets = self.update(instance, dets, im)
-            print('mc_dets.shape', mc_dets.shape)
             return mc_dets
 
         return wrapper
