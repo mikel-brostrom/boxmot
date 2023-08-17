@@ -10,7 +10,7 @@ from boxmot.motion.kalman_filters.adapters import BotSortKalmanFilterAdapter
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment)
-from boxmot.utils.ops import xywh2tlwh, xywh2xyxy, xyxy2xywh
+from boxmot.utils.ops import xywh2tlwh, xyxy2xywh
 
 
 class STrack(BaseTrack):
@@ -18,7 +18,7 @@ class STrack(BaseTrack):
 
     def __init__(self, det, feat=None, feat_history=50):
         # wait activate
-        self.xywh = det[0:4]
+        self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         self.tlwh = xywh2tlwh(self.xywh)
         self.score = det[4]
         self.cls = det[5]
@@ -116,7 +116,7 @@ class STrack(BaseTrack):
         self.kalman_filter = kalman_filter
         self.id = self.next_id()
 
-        self.mean, self.covariance = self.kalman_filter.initiate(self.tlwh)
+        self.mean, self.covariance = self.kalman_filter.initiate(self.xywh)
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
@@ -127,7 +127,7 @@ class STrack(BaseTrack):
 
     def re_activate(self, new_track, frame_id, new_id=False):
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.tlwh
+            self.mean, self.covariance, new_track.xywh
         )
         if new_track.curr_feat is not None:
             self.update_features(new_track.curr_feat)
@@ -155,7 +155,7 @@ class STrack(BaseTrack):
         self.tracklet_len += 1
 
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.tlwh
+            self.mean, self.covariance, new_track.xywh
         )
 
         if new_track.curr_feat is not None:
@@ -170,12 +170,12 @@ class STrack(BaseTrack):
         self.update_cls(new_track.cls, new_track.score)
 
     @property
-    def _xywh(self):
+    def _tlwh(self):
         """Get current position in bounding box format `(top left x, top left y,
         width, height)`.
         """
         if self.mean is None:
-            ret = self.xywh.copy()
+            ret = self.tlwh.copy()
         else:
             ret = self.mean[:4].copy()
             ret[:2] -= ret[2:] / 2  # (xc, yc, w, h) --> (t, l, w, h)
@@ -186,17 +186,8 @@ class STrack(BaseTrack):
         """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
         `(top left, bottom right)`.
         """
-        ret = self._xywh.copy()
+        ret = self._tlwh.copy()
         ret[2:] += ret[:2]
-        return ret
-
-    @staticmethod
-    def xywh_to_tlwh(tlwh):
-        """Convert bounding box to format `(center x, center y, width,
-        height)`.
-        """
-        ret = np.asarray(tlwh).copy()
-        ret[:2] += ret[2:] / 2
         return ret
 
 
@@ -264,7 +255,6 @@ class BoTSORT(object):
         removed_stracks = []
 
         xyxys = dets[:, 0:4]
-        dets = xyxy2xywh(dets)  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         confs = dets[:, 4]
 
         remain_inds = confs > self.track_high_thresh
@@ -428,10 +418,10 @@ class BoTSORT(object):
         outputs = []
         for t in output_stracks:
             output = []
-            xywh = np.expand_dims(t._xywh, axis=0)
-            xyxy = xywh2xyxy(xywh)
-            xyxy = np.squeeze(xyxy, axis=0)
-            output.extend(xyxy)
+            # xywh = np.expand_dims(t._xywh, axis=0)
+            # xyxy = xywh2xyxy(xywh)
+            # xyxy = np.squeeze(xyxy, axis=0)
+            output.extend(t.xyxy)
             output.append(t.id)
             output.append(t.score)
             output.append(t.cls)
