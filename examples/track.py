@@ -72,6 +72,7 @@ def run(args):
         stream=True,
         device=args.device,
         show_conf=args.show_conf,
+        save_txt=args.save_txt,
         show_labels=args.show_labels,
         save=args.save,
         verbose=args.verbose,
@@ -79,7 +80,8 @@ def run(args):
         project=args.project,
         name=args.name,
         classes=args.classes,
-        imgsz=args.imgsz
+        imgsz=args.imgsz,
+        vid_stride=args.vid_stride
     )
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
@@ -184,6 +186,8 @@ def parse_opt():
                         help='not mix up classes when tracking')
     parser.add_argument('--verbose', default=True, action='store_true',
                         help='print results per frame')
+    parser.add_argument('--vid_stride', default=1, type=int,
+                        help='video frame-rate stride')
 
     opt = parser.parse_args()
     return opt
