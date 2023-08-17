@@ -10,7 +10,7 @@ from boxmot.motion.kalman_filters.adapters import BotSortKalmanFilterAdapter
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment)
-from boxmot.utils.ops import tlwh2xyxy, xywh2tlwh, xyxy2xywh
+from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):
@@ -19,7 +19,6 @@ class STrack(BaseTrack):
     def __init__(self, det, feat=None, feat_history=50):
         # wait activate
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
-        self.tlwh = xywh2tlwh(self.xywh)  # (xc, yc, w, h) --> (t, l, w, h)
         self.score = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
@@ -175,11 +174,10 @@ class STrack(BaseTrack):
         `(top left, bottom right)`.
         """
         if self.mean is None:
-            ret = self.tlwh.copy()
+            ret = self.xywh.copy()  # (xc, yc, w, h)
         else:
             ret = self.mean[:4].copy()  # kf (xc, yc, w, h)
-            ret = xywh2tlwh(ret)  # (xc, yc, w, h) --> (t, l, w, h)
-        ret = tlwh2xyxy(ret)
+        ret = xywh2xyxy(ret)
         return ret
 
 
