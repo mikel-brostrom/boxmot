@@ -311,19 +311,6 @@ class BoTSORT(object):
                 refind_stracks.append(track)
 
         """ Step 3: Second association, with low score detection boxes"""
-        # if len(scores):
-        #     inds_high = scores < self.track_high_thresh
-        #     inds_low = scores > self.track_low_thresh
-        #     inds_second = np.logical_and(inds_low, inds_high)
-        #     dets_second = bboxes[inds_second]
-        #     scores_second = scores[inds_second]
-        #     classes_second = classes[inds_second]
-        # else:
-        #     dets_second = []
-        #     scores_second = []
-        #     classes_second = []
-
-        # association the untrack to the low score detections
         if len(dets_second) > 0:
             """Detections"""
             detections_second = [STrack(det_second) for det_second in dets_second]
