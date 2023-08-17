@@ -320,7 +320,7 @@ class DeepOCSort(object):
         delta_t=3,
         asso_func="iou",
         inertia=0.2,
-        w_association_emb=0.75,
+        w_association_emb=0.5,
         alpha_fixed_emb=0.95,
         aw_param=0.5,
         embedding_off=False,
