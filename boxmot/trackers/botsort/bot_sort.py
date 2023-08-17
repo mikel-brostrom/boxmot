@@ -10,7 +10,7 @@ from boxmot.motion.kalman_filters.adapters import BotSortKalmanFilterAdapter
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment)
-from boxmot.utils.ops import xywh2tlwh, xyxy2xywh
+from boxmot.utils.ops import tlwh2xyxy, xywh2tlwh, xyxy2xywh
 
 
 class STrack(BaseTrack):
@@ -19,7 +19,7 @@ class STrack(BaseTrack):
     def __init__(self, det, feat=None, feat_history=50):
         # wait activate
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
-        self.tlwh = xywh2tlwh(self.xywh)
+        self.tlwh = xywh2tlwh(self.xywh)  # (xc, yc, w, h) --> (t, l, w, h)
         self.score = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
@@ -170,24 +170,16 @@ class STrack(BaseTrack):
         self.update_cls(new_track.cls, new_track.score)
 
     @property
-    def _tlwh(self):
-        """Get current position in bounding box format `(top left x, top left y,
-        width, height)`.
-        """
-        if self.mean is None:
-            ret = self.tlwh.copy()
-        else:
-            ret = self.mean[:4].copy()
-            ret[:2] -= ret[2:] / 2  # (xc, yc, w, h) --> (t, l, w, h)
-        return ret
-
-    @property
     def xyxy(self):
         """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
         `(top left, bottom right)`.
         """
-        ret = self._tlwh.copy()
-        ret[2:] += ret[:2]
+        if self.mean is None:
+            ret = self.tlwh.copy()
+        else:
+            ret = self.mean[:4].copy()  # kf (xc, yc, w, h)
+            ret = xywh2tlwh(ret)  # (xc, yc, w, h) --> (t, l, w, h)
+        ret = tlwh2xyxy(ret)
         return ret
 
 
