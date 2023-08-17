@@ -5,7 +5,7 @@ import numpy as np
 from boxmot.motion.kalman_filters.adapters import ByteTrackKalmanFilterAdapter
 from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
-from boxmot.utils.ops import tlwh2xyah, tlwh2xyxy, xywh2tlwh, xyxy2xywh
+from boxmot.utils.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):
@@ -103,12 +103,11 @@ class STrack(BaseTrack):
         `(top left, bottom right)`.
         """
         if self.mean is None:
-            ret = self.tlwh.copy()  # (t, l, w, h)
+            ret = self.xywh.copy()  # (t, l, w, h)
         else:
             ret = self.mean[:4].copy()  # (xc, yc, a, h)
             ret[2] *= ret[3]  # (xc, yc, a, h)  ->  (xc, yc, w, h)
-            ret = xywh2tlwh(ret)  # (xc, yc, w, h) --> (t, l, w, h)
-        ret = tlwh2xyxy(ret)
+        ret = xywh2xyxy(ret)
         return ret
 
 
