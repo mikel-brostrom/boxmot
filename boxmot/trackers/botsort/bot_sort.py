@@ -18,7 +18,7 @@ class STrack(BaseTrack):
 
     def __init__(self, det, feat=None, feat_history=50):
         # wait activate
-        self._tlwh = det[0:4]
+        self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         self.score = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
@@ -115,9 +115,7 @@ class STrack(BaseTrack):
         self.kalman_filter = kalman_filter
         self.id = self.next_id()
 
-        self.mean, self.covariance = self.kalman_filter.initiate(
-            self.tlwh_to_xywh(self._tlwh)
-        )
+        self.mean, self.covariance = self.kalman_filter.initiate(self.xywh)
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
@@ -128,7 +126,7 @@ class STrack(BaseTrack):
 
     def re_activate(self, new_track, frame_id, new_id=False):
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, self.tlwh_to_xywh(new_track.tlwh)
+            self.mean, self.covariance, new_track.xywh
         )
         if new_track.curr_feat is not None:
             self.update_features(new_track.curr_feat)
@@ -155,10 +153,8 @@ class STrack(BaseTrack):
         self.frame_id = frame_id
         self.tracklet_len += 1
 
-        new_tlwh = new_track.tlwh
-
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, self.tlwh_to_xywh(new_tlwh)
+            self.mean, self.covariance, new_track.xywh
         )
 
         if new_track.curr_feat is not None:
@@ -173,70 +169,16 @@ class STrack(BaseTrack):
         self.update_cls(new_track.cls, new_track.score)
 
     @property
-    def tlwh(self):
-        """Get current position in bounding box format `(top left x, top left y,
-        width, height)`.
-        """
-        if self.mean is None:
-            return self._tlwh.copy()
-        ret = self.mean[:4].copy()
-        ret[:2] -= ret[2:] / 2
-        return ret
-
-    @property
     def xyxy(self):
         """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
         `(top left, bottom right)`.
         """
-        ret = self.tlwh.copy()
-        ret[2:] += ret[:2]
+        if self.mean is None:
+            ret = self.xywh.copy()  # (xc, yc, w, h)
+        else:
+            ret = self.mean[:4].copy()  # kf (xc, yc, w, h)
+        ret = xywh2xyxy(ret)
         return ret
-
-    @property
-    def xywh(self):
-        """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
-        `(top left, bottom right)`.
-        """
-        ret = self.tlwh.copy()
-        ret[:2] += ret[2:] / 2.0
-        return ret
-
-    @staticmethod
-    def tlwh_to_xyah(tlwh):
-        """Convert bounding box to format `(center x, center y, aspect ratio,
-        height)`, where the aspect ratio is `width / height`.
-        """
-        ret = np.asarray(tlwh).copy()
-        ret[:2] += ret[2:] / 2
-        ret[2] /= ret[3]
-        return ret
-
-    @staticmethod
-    def tlwh_to_xywh(tlwh):
-        """Convert bounding box to format `(center x, center y, width,
-        height)`.
-        """
-        ret = np.asarray(tlwh).copy()
-        ret[:2] += ret[2:] / 2
-        return ret
-
-    def to_xywh(self):
-        return self.tlwh_to_xywh(self.tlwh)
-
-    @staticmethod
-    def tlbr_to_tlwh(tlbr):
-        ret = np.asarray(tlbr).copy()
-        ret[2:] -= ret[:2]
-        return ret
-
-    @staticmethod
-    def tlwh_to_tlbr(tlwh):
-        ret = np.asarray(tlwh).copy()
-        ret[2:] += ret[:2]
-        return ret
-
-    def __repr__(self):
-        return "OT_{}_({}-{})".format(self.id, self.start_frame, self.end_frame)
 
 
 class BoTSORT(object):
@@ -303,7 +245,6 @@ class BoTSORT(object):
         removed_stracks = []
 
         xyxys = dets[:, 0:4]
-        dets = xyxy2xywh(dets)
         confs = dets[:, 4]
 
         remain_inds = confs > self.track_high_thresh
@@ -467,10 +408,10 @@ class BoTSORT(object):
         outputs = []
         for t in output_stracks:
             output = []
-            tlwh = np.expand_dims(t.tlwh, axis=0)
-            xyxy = xywh2xyxy(tlwh)
-            xyxy = np.squeeze(xyxy, axis=0)
-            output.extend(xyxy)
+            # xywh = np.expand_dims(t._xywh, axis=0)
+            # xyxy = xywh2xyxy(xywh)
+            # xyxy = np.squeeze(xyxy, axis=0)
+            output.extend(t.xyxy)
             output.append(t.id)
             output.append(t.score)
             output.append(t.cls)
