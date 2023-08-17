@@ -103,10 +103,10 @@ class STrack(BaseTrack):
         `(top left, bottom right)`.
         """
         if self.mean is None:
-            ret = self.xywh.copy()  # (t, l, w, h)
+            ret = self.xywh.copy()  # (xc, yc, w, h)
         else:
-            ret = self.mean[:4].copy()  # (xc, yc, a, h)
-            ret[2] *= ret[3]  # (xc, yc, a, h)  ->  (xc, yc, w, h)
+            ret = self.mean[:4].copy()  # kf (xc, yc, a, h)
+            ret[2] *= ret[3]  # (xc, yc, a, h)  -->  (xc, yc, w, h)
         ret = xywh2xyxy(ret)
         return ret
 
