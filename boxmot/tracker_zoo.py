@@ -97,6 +97,22 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             inertia=cfg.inertia,
         )
         return deepocsort
+    elif tracker_type == 'hybridsort':
+        from boxmot.trackers.hybridsort.hybridsort import HybridSORT
+
+        hybridsort = HybridSORT(
+            reid_weights,
+            device,
+            half,
+            det_thresh=cfg.det_thresh,
+            max_age=cfg.max_age,
+            min_hits=cfg.min_hits,
+            iou_threshold=cfg.iou_thresh,
+            delta_t=cfg.delta_t,
+            asso_func=cfg.asso_func,
+            inertia=cfg.inertia,
+        )
+        return hybridsort
     else:
         print('No such tracker')
         exit()
