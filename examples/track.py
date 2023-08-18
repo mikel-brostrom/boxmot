@@ -81,7 +81,8 @@ def run(args):
         name=args.name,
         classes=args.classes,
         imgsz=args.imgsz,
-        vid_stride=args.vid_stride
+        vid_stride=args.vid_stride,
+        line_width=args.line_width
     )
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
