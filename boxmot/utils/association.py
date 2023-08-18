@@ -505,3 +505,16 @@ def cal_score_dif_batch(bboxes1, bboxes2):
     score1 = bboxes1[..., 4]
 
     return (abs(score2 - score1))
+
+
+def cal_score_dif_batch_two_score(bboxes1, bboxes2):
+    """
+    From SORT: Computes IOU between two bboxes in the form [x1,y1,x2,y2]
+    """
+    bboxes2 = np.expand_dims(bboxes2, 0)
+    bboxes1 = np.expand_dims(bboxes1, 1)
+
+    score2 = bboxes2[..., 5]
+    score1 = bboxes1[..., 4]
+
+    return (abs(score2 - score1))
