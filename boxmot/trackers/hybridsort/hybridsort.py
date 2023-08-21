@@ -112,6 +112,8 @@ class KalmanBoxTracker(object):
     def __init__(
         self,
         bbox,
+        cls,
+        det_ind,
         temp_feat,
         delta_t=3,
         orig=False,
@@ -165,8 +167,8 @@ class KalmanBoxTracker(object):
         self.hit_streak = 0
         self.age = 0
         self.conf = bbox[4]
-        # self.cls = bbox[5]
-        # self.det_ind = bbox[6]
+        self.cls = cls
+        self.det_ind = det_ind
         self.adapfs = False
         """
         NOTE: [-1,-1,-1,-1,-1] is a compromising placeholder for non-observation status, the same for the return of
@@ -229,7 +231,7 @@ class KalmanBoxTracker(object):
         # cx, cy = x1_ + w / 2, y1_ + h / 2
         self.kf.x[:5] = convert_bbox_to_z([x1_, y1_, x2_, y2_, s])
 
-    def update(self, bbox, id_feature, update_feature=True):
+    def update(self, bbox, cls, det_ind, id_feature, update_feature=True):
         """
         Updates the state vector with observed bbox.
         """
@@ -238,10 +240,9 @@ class KalmanBoxTracker(object):
         velocity_lb = None
         velocity_rb = None
         if bbox is not None:
-            print('kf update', bbox.shape)
-            self.conf = bbox[4]
-            # self.cls = bbox[5]
-            # self.det_ind = bbox[6]
+            self.conf = bbox[-1]
+            self.cls = cls
+            self.det_ind = det_ind
             if self.last_observation.sum() >= 0:  # no previous observation
                 previous_box = None
                 for i in range(self.delta_t):
@@ -393,6 +394,7 @@ class HybridSORT(object):
         # scale = min(img_size[0] / float(img_h), img_size[1] / float(img_w))
         # bboxes /= scale
         dets_embs = self.model.get_features(bboxes, im)
+        dets0 = np.concatenate((dets, np.expand_dims(scores, axis=-1)), axis=1)
         dets = np.concatenate((bboxes, np.expand_dims(scores, axis=-1)), axis=1)
         inds_low = scores > self.low_thresh
         inds_high = scores < self.det_thresh
@@ -464,7 +466,7 @@ class HybridSORT(object):
 
         # update with id feature
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :], id_feature_keep[m[0], :])
+            self.trackers[m[1]].update(dets[m[0], :], dets0[m[0], 5], dets0[m[0], 6], id_feature_keep[m[0], :])
 
         """
             Second round of associaton by OCR
@@ -532,18 +534,24 @@ class HybridSORT(object):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.iou_threshold:
                         continue
-                    self.trackers[trk_ind].update(dets[det_ind, :], id_feature_keep[det_ind, :], update_feature=False)
+                    self.trackers[trk_ind].update(
+                        dets[det_ind, :],
+                        dets0[det_ind, 5],
+                        dets0[det_ind, 6],
+                        id_feature_keep[det_ind, :],
+                        update_feature=False
+                    )
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
-            self.trackers[m].update(None, None)
+            self.trackers[m].update(None, None, None, None)
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(dets[i, :], id_feature_keep[i, :], delta_t=self.delta_t)
+            trk = KalmanBoxTracker(dets[i, :], dets0[i, 5], dets0[i, 6], id_feature_keep[i, :], delta_t=self.delta_t)
             self.trackers.append(trk)
         i = len(self.trackers)
         for trk in reversed(self.trackers):
@@ -557,7 +565,7 @@ class HybridSORT(object):
                 d = trk.last_observation[:4]
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
                 # +1 as MOT benchmark requires positive
-                ret.append(np.concatenate((d, [trk.id + 1], [0], [0], [0])).reshape(1, -1))
+                ret.append(np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])).reshape(1, -1))
             i -= 1
             # remove dead tracklet
             if (trk.time_since_update > self.max_age):
