@@ -56,6 +56,9 @@ jobs:
           python examples/track.py --yolo-model yolo_nas_s --tracking-method deepocsort --source $IMG --imgsz 320
           python examples/track.py --yolo-model yolox_n --tracking-method deepocsort --source $IMG --imgsz 320
 
+          # hybridsort
+          python examples/track.py --tracking-method hybridsort --source $IMG --imgsz 320
+
           # botsort
           python examples/track.py --tracking-method botsort --source $IMG --imgsz 320
 
