@@ -10,10 +10,9 @@ import numpy as np
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.utils.association import (associate_4_points_with_score,
-                                      associate_4_points_with_score_with_reid,
-                                      cal_score_dif_batch_two_score,
-                                      embedding_distance, linear_assignment)
+from boxmot.trackers.hybridsort.association import (
+    associate_4_points_with_score, associate_4_points_with_score_with_reid,
+    cal_score_dif_batch_two_score, embedding_distance, linear_assignment)
 from boxmot.utils.iou import get_asso_func
 
 np.random.seed(0)
@@ -385,8 +384,6 @@ class HybridSORT(object):
         #         self.camera_update(self.trackers, warp_matrix)
 
         self.frame_count += 1
-        # post_process detections
-        # if output_results.shape[1] == 5:
         scores = dets[:, 4]
         bboxes = dets[:, :4]
 
@@ -447,7 +444,7 @@ class HybridSORT(object):
                 assert emb_dists.shape == long_emb_dists.shape
                 matched, unmatched_dets, unmatched_trks = associate_4_points_with_score_with_reid(
                     dets, trks, self.iou_threshold, velocities_lt, velocities_rt, velocities_lb, velocities_rb,
-                    k_observations, self.inertia, self.asso_func, self.args, emb_cost=emb_dists,
+                    k_observations, self.inertia, self.TCM_first_step_weight, self.asso_func, emb_cost=emb_dists,
                     weights=(1.0, self.args.EG_weight_high_score), thresh=self.args.high_score_matching_thresh,
                     long_emb_dists=long_emb_dists, with_longterm_reid=self.args.with_longterm_reid,
                     longterm_reid_weight=self.args.longterm_reid_weight,
@@ -571,6 +568,5 @@ class HybridSORT(object):
             if (trk.time_since_update > self.max_age):
                 self.trackers.pop(i)
         if (len(ret) > 0):
-            print('np.concatenate(ret)', np.concatenate(ret).shape)
             return np.concatenate(ret)
         return np.empty((0, 7))

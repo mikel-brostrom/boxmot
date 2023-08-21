@@ -595,11 +595,14 @@ def associate_4_points_with_score(
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
 
-def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold, lt, rt, lb, rb, previous_obs,
-                                            vdc_weight, iou_type=None, args=None, emb_cost=None, weights=(1.0, 0),
-                                            thresh=0.8, long_emb_dists=None, with_longterm_reid=False,
-                                            longterm_reid_weight=0.0, with_longterm_reid_correction=False,
-                                            longterm_reid_correction_thresh=0.0, dataset="dancetrack"):
+def associate_4_points_with_score_with_reid(
+    detections, trackers, iou_threshold, lt, rt, lb, rb, previous_obs, vdc_weight,
+    iou_type=None, emb_cost=None, weights=(1.0, 0), thresh=0.8,
+    long_emb_dists=None, with_longterm_reid=False,
+    longterm_reid_weight=0.0, with_longterm_reid_correction=False,
+    longterm_reid_correction_thresh=0.0, dataset="dancetrack"
+):
+
     if (len(trackers) == 0):
         return np.empty((0, 2), dtype=int), np.arange(len(detections)), np.empty((0, 5), dtype=int)
 
@@ -617,7 +620,7 @@ def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold,
     angle_diff_cost = cost_lt + cost_rt + cost_lb + cost_rb
 
     # TCM
-    angle_diff_cost -= score_dif * args.TCM_first_step_weight
+    angle_diff_cost -= score_dif * 1.0
 
     if min(iou_matrix.shape) > 0:
         if emb_cost is None:
@@ -629,12 +632,13 @@ def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold,
         else:
             if not with_longterm_reid:
                 matched_indices = linear_assignment(
-                    weights[0] * (-(iou_matrix + angle_diff_cost)) + weights[1] * emb_cost
-                )  # , thresh=thresh
+                    weights[0] * (-(iou_matrix + angle_diff_cost)) +
+                    weights[1] * emb_cost)  # , thresh=thresh
             else:   # long-term reid feats
                 matched_indices = linear_assignment(
                     weights[0] * (-(iou_matrix + angle_diff_cost)) +
-                    weights[1] * emb_cost + longterm_reid_weight * long_emb_dists)  # , thresh=thresh
+                    weights[1] * emb_cost + longterm_reid_weight * long_emb_dists
+                )  # , thresh=thresh
 
         if matched_indices.size == 0:
             matched_indices = np.empty(shape=(0, 2))
