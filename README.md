@@ -1,4 +1,4 @@
-# BoxMOT: pluggable SOTA tracking modules for object detectors. Yolov8, YoloX, YoloNAS supported. SOTA CLIP-ReID models available!!
+# BoxMOT: pluggable SOTA tracking modules for object detectors
 
 <div align="center">
   <p>
@@ -14,7 +14,6 @@
 
   </div>
 </div>
-
 
 ## Introduction
 
@@ -78,6 +77,12 @@ In inverse chronological order:
 * [Yolov5 StrongSORT OSNet vs other trackers MOT16 (deprecated)](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/MOT-16-evaluation)&nbsp;
 
   </details>
+
+#### News
+
+* HybridSORT available (August 2023)
+* SOTA CLIP-ReID people and vehicle models available (August 2023)
+
 
 ## Why using this tracking toolbox?
 
