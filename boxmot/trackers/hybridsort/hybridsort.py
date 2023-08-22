@@ -13,6 +13,7 @@ from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.hybridsort.association import (
     associate_4_points_with_score, associate_4_points_with_score_with_reid,
     cal_score_dif_batch_two_score, embedding_distance, linear_assignment)
+from boxmot.utils import PerClassDecorator
 from boxmot.utils.iou import get_asso_func
 
 np.random.seed(0)
@@ -339,6 +340,7 @@ class HybridSORT(object):
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
         self.trackers = []
+        self.per_class = True
         self.frame_count = 0
         self.det_thresh = det_thresh
         self.delta_t = delta_t
@@ -371,6 +373,7 @@ class HybridSORT(object):
         for tracker in trackers:
             tracker.camera_update(warp_matrix)
 
+    @PerClassDecorator
     def update(self, dets, im):
         """
         Params:
