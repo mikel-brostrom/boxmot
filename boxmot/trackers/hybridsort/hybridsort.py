@@ -340,7 +340,7 @@ class HybridSORT(object):
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
         self.trackers = []
-        self.per_class = True,
+        self.per_class = True
         self.frame_count = 0
         self.det_thresh = det_thresh
         self.delta_t = delta_t
