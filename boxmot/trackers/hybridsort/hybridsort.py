@@ -347,13 +347,18 @@ class HybridSORT(object):
         self.use_byte = use_byte
         self.low_thresh = 0.1
         self.EG_weight_high_score = 1.3
-        self.EG_weight_low_score = 0
+        self.EG_weight_low_score = 1.2
         self.TCM_first_step = True
-        self.with_longterm_reid = False
-        self.with_longterm_reid_correction = False
+        self.with_longterm_reid = True
+        self.with_longterm_reid_correction = True
         self.longterm_reid_weight = 0
         self.TCM_first_step_weight = 0
         self.high_score_matching_thresh = 0.8
+        self.longterm_reid_correction_thresh = 0.4
+        self.longterm_reid_correction_thresh_low = 0.4
+        self.TCM_byte_step = True
+        self.TCM_byte_step_weight = 1.0
+        self.dataset = 'dancetrack'
         KalmanBoxTracker.count = 0
 
         self.model = ReIDDetectMultiBackend(
@@ -445,18 +450,18 @@ class HybridSORT(object):
                 matched, unmatched_dets, unmatched_trks = associate_4_points_with_score_with_reid(
                     dets, trks, self.iou_threshold, velocities_lt, velocities_rt, velocities_lb, velocities_rb,
                     k_observations, self.inertia, self.TCM_first_step_weight, self.asso_func, emb_cost=emb_dists,
-                    weights=(1.0, self.args.EG_weight_high_score), thresh=self.args.high_score_matching_thresh,
-                    long_emb_dists=long_emb_dists, with_longterm_reid=self.args.with_longterm_reid,
-                    longterm_reid_weight=self.args.longterm_reid_weight,
-                    with_longterm_reid_correction=self.args.with_longterm_reid_correction,
-                    longterm_reid_correction_thresh=self.args.longterm_reid_correction_thresh,
-                    dataset=self.args.dataset)
+                    weights=(1.0, self.EG_weight_high_score), thresh=self.high_score_matching_thresh,
+                    long_emb_dists=long_emb_dists, with_longterm_reid=self.with_longterm_reid,
+                    longterm_reid_weight=self.longterm_reid_weight,
+                    with_longterm_reid_correction=self.with_longterm_reid_correction,
+                    longterm_reid_correction_thresh=self.longterm_reid_correction_thresh,
+                    dataset=self.dataset)
             else:
                 matched, unmatched_dets, unmatched_trks = associate_4_points_with_score_with_reid(
                     dets, trks, self.iou_threshold, velocities_lt, velocities_rt, velocities_lb, velocities_rb,
-                    k_observations, self.inertia, self.asso_func, emb_cost=emb_dists,
+                    k_observations, self.inertia, self.TCM_first_step_weight, self.asso_func, emb_cost=emb_dists,
                     weights=(1.0, self.EG_weight_high_score), thresh=self.high_score_matching_thresh)
-        elif self.args.TCM_first_step:
+        elif self.TCM_first_step:
             matched, unmatched_dets, unmatched_trks = associate_4_points_with_score(
                 dets, trks, self.iou_threshold, velocities_lt, velocities_rt, velocities_lb, velocities_rb,
                 k_observations, self.inertia, self.TCM_first_step_weight, self.asso_func)
@@ -480,24 +485,24 @@ class HybridSORT(object):
                     get a higher performance especially on MOT17/MOT20 datasets. But we keep it
                     uniform here for simplicity
                 """
-                if self.args.TCM_byte_step:
+                if self.TCM_byte_step:
                     iou_left -= np.array(
-                        cal_score_dif_batch_two_score(dets_second, u_trks) * self.args.TCM_byte_step_weight
+                        cal_score_dif_batch_two_score(dets_second, u_trks) * self.TCM_byte_step_weight
                     )
                     iou_left_thre = iou_left
-                if self.args.EG_weight_low_score > 0:
+                if self.EG_weight_low_score > 0:
                     u_track_features = np.asarray([track.smooth_feat for track in u_tracklets], dtype=np.float)
                     emb_dists_low_score = embedding_distance(u_track_features, id_feature_second).T
-                    matched_indices = linear_assignment(-iou_left + self.args.EG_weight_low_score * emb_dists_low_score,
+                    matched_indices = linear_assignment(-iou_left + self.EG_weight_low_score * emb_dists_low_score,
                                                         )
                 else:
                     matched_indices = linear_assignment(-iou_left)
                 to_remove_trk_indices = []
                 for m in matched_indices:
                     det_ind, trk_ind = m[0], unmatched_trks[m[1]]
-                    if self.args.with_longterm_reid_correction and self.args.EG_weight_low_score > 0:
+                    if self.with_longterm_reid_correction and self.EG_weight_low_score > 0:
                         if (iou_left_thre[m[0], m[1]] < self.iou_threshold) or \
-                           (emb_dists_low_score[m[0], m[1]] > self.args.longterm_reid_correction_thresh_low):
+                           (emb_dists_low_score[m[0], m[1]] > self.longterm_reid_correction_thresh_low):
                             print("correction 2nd:", emb_dists_low_score[m[0], m[1]])
                             continue
                     else:
