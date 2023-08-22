@@ -30,7 +30,7 @@ class PerClassDecorator:
             im = modified_args[1]
 
             # input one class of detections at a time in order to not mix them up
-            if instance.per_class is True and dets.size != 0:
+            if instance.per_class[0] is True and dets.size != 0:
                 dets_dict = {
                     class_id: np.array([det for det in dets if det[5] == class_id])
                     for class_id in set(det[5] for det in dets)
