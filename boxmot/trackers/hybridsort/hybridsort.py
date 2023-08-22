@@ -224,8 +224,8 @@ class KalmanBoxTracker(object):
         warp_matrix: warp matrix computed by ECC.
         """
         x1, y1, x2, y2, s = convert_x_to_bbox(self.kf.x)[0]
-        x1_, y1_, _ = warp_matrix @ np.array([x1, y1, 1]).T
-        x2_, y2_, _ = warp_matrix @ np.array([x2, y2, 1]).T
+        x1_, y1_ = warp_matrix @ np.array([x1, y1, 1]).T
+        x2_, y2_ = warp_matrix @ np.array([x2, y2, 1]).T
         # w, h = x2_ - x1_, y2_ - y1_
         # cx, cy = x1_ + w / 2, y1_ + h / 2
         self.kf.x[:5] = convert_bbox_to_z([x1_, y1_, x2_, y2_, s])
@@ -359,14 +359,14 @@ class HybridSORT(object):
         self.TCM_byte_step = True
         self.TCM_byte_step_weight = 1.0
         self.dataset = 'dancetrack'
+        self.ECC = False
         KalmanBoxTracker.count = 0
 
         self.model = ReIDDetectMultiBackend(
             weights=reid_weights, device=device, fp16=half
         )
-        self.cmc = get_cmc_method('sof')()
+        self.cmc = get_cmc_method('ecc')()
 
-    # ECC for CMC
     def camera_update(self, trackers, warp_matrix):
         for tracker in trackers:
             tracker.camera_update(warp_matrix)
@@ -383,18 +383,15 @@ class HybridSORT(object):
         if dets is None:
             return np.empty((0, 7))
 
-        # if self.args.ECC:
-        #     # camera update for all stracks
-        #     if warp_matrix is not None:
-        #         self.camera_update(self.trackers, warp_matrix)
+        if self.ECC:
+            warp_matrix = self.cmc.apply(im, dets)
+            if warp_matrix is not None:
+                self.camera_update(self.trackers, warp_matrix)
 
         self.frame_count += 1
         scores = dets[:, 4]
         bboxes = dets[:, :4]
 
-        # img_h, img_w = img_info[0], img_info[1]
-        # scale = min(img_size[0] / float(img_h), img_size[1] / float(img_w))
-        # bboxes /= scale
         dets_embs = self.model.get_features(bboxes, im)
         dets0 = np.concatenate((dets, np.expand_dims(scores, axis=-1)), axis=1)
         dets = np.concatenate((bboxes, np.expand_dims(scores, axis=-1)), axis=1)
