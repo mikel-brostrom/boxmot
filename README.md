@@ -19,20 +19,24 @@
 
 This repo contains a collections of pluggable state-of-the-art multi-object trackers for object detectors. For the methods using appearance description, both heavy ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight state-of-the-art ReID models ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf) and more) are downloaded automatically. We provide examples on how to use this package together with popular object detection models such as: [Yolov8](https://github.com/ultralytics), [Yolo-NAS](https://github.com/Deci-AI/super-gradients) and [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX).
 
+<div align="center">
 
-<details>
-<summary>Evaluation metrics</summary>
-
-| Trackers | HOTA↑ | MOTA↑ | IDF1↑ |
+|  Tracker | HOTA↑ | MOTA↑ | IDF1↑ |
 | -------- | ----- | ----- | ----- |
-| [BoTSORT](https://arxiv.org/pdf/2206.14651.pdf) | 77.8 | 78.9 | 88.9 |
+| [BoTSORT](https://arxiv.org/pdf/2206.14651.pdf)    | 77.8 | 78.9 | 88.9 |
 | [HybridSORT](https://arxiv.org/pdf/2308.00783.pdf) | 77.3 | 77.9 | 88.8 |
-| [OCSORT](https://arxiv.org/pdf/2203.14360.pdf) | 76.9 | 78.0 | 88.5 |
+| [OCSORT](https://arxiv.org/pdf/2203.14360.pdf)     | 76.9 | 78.0 | 88.5 |
 | [DeepOCSORT](https://arxiv.org/pdf/2302.11813.pdf) | 75.8 | 74.4 | 86.3 |
-| [ByteTrack](https://arxiv.org/pdf/2110.06864.pdf) | 75.6 | 74.6 | 86.0 |
-| [StrongSORT](https://arxiv.org/pdf/2202.13514.pdf) | | | |
+| [ByteTrack](https://arxiv.org/pdf/2110.06864.pdf)  | 75.6 | 74.6 | 86.0 |
+| [StrongSORT](https://arxiv.org/pdf/2202.13514.pdf) |      | | |
+| <img width=200/>                                   | <img width=100/> | <img width=100/> | <img width=100/> |
 
-NOTES: the evaluations are performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on CrowdHuman, MOT17, Cityperson and ETHZ. The configurations used for each tracking methods are the default ones.
+<sub> NOTES: performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on: CrowdHuman, MOT17, Cityperson and ETHZ.</sub>
+
+</div>
+
+
+
 
 </details>
 
