@@ -70,6 +70,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             device,
             half,
             track_high_thresh=cfg.track_high_thresh,
+            track_low_thresh=cfg.track_low_thresh,
             new_track_thresh=cfg.new_track_thresh,
             track_buffer=cfg.track_buffer,
             match_thresh=cfg.match_thresh,
@@ -77,7 +78,6 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             appearance_thresh=cfg.appearance_thresh,
             cmc_method=cfg.cmc_method,
             frame_rate=cfg.frame_rate,
-            lambda_=cfg.lambda_
         )
         return botsort
     elif tracker_type == 'deepocsort':
