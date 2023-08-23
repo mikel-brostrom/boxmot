@@ -187,7 +187,8 @@ class BoTSORT(object):
         model_weights,
         device,
         fp16,
-        track_high_thresh: float = 0.45,
+        track_high_thresh: float = 0.5,
+        track_low_thresh: float = 0.1,
         new_track_thresh: float = 0.6,
         track_buffer: int = 30,
         match_thresh: float = 0.8,
@@ -195,7 +196,6 @@ class BoTSORT(object):
         appearance_thresh: float = 0.25,
         cmc_method: str = "sparseOptFlow",
         frame_rate=30,
-        lambda_=0.985,
     ):
         self.tracked_stracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
@@ -204,9 +204,10 @@ class BoTSORT(object):
 
         self.frame_id = 0
 
-        self.lambda_ = lambda_
         self.track_high_thresh = track_high_thresh
+        self.track_low_thresh = track_low_thresh
         self.new_track_thresh = new_track_thresh
+        self.match_thresh = match_thresh
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
@@ -215,7 +216,6 @@ class BoTSORT(object):
         # ReID module
         self.proximity_thresh = proximity_thresh
         self.appearance_thresh = appearance_thresh
-        self.match_thresh = match_thresh
 
         self.model = ReIDDetectMultiBackend(
             weights=model_weights, device=device, fp16=fp16
@@ -237,33 +237,31 @@ class BoTSORT(object):
             dets.shape[1] == 6
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
-        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
         lost_stracks = []
         removed_stracks = []
 
-        xyxys = dets[:, 0:4]
+        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
+
+        # Remove bad detections
         confs = dets[:, 4]
 
-        remain_inds = confs > self.track_high_thresh
-        inds_low = confs > 0.1
-        inds_high = confs < self.track_high_thresh
+        # find second round association detections
+        second_mask = np.logical_or(confs > self.track_low_thresh, confs < self.track_high_thresh)
+        dets_second = dets[second_mask]
 
-        inds_second = np.logical_and(inds_low, inds_high)
-
-        dets = dets[remain_inds]
-        dets_second = dets[inds_second]
-
-        self.height, self.width = img.shape[:2]
+        # find first round association detections
+        first_mask = confs > self.track_high_thresh
+        dets_first = dets[first_mask]
 
         """Extract embeddings """
-        features_keep = self.model.get_features(xyxys[remain_inds], img)
+        features_high = self.model.get_features(dets_first[:, 0:4], img)
 
         if len(dets) > 0:
             """Detections"""
-            detections = [STrack(det, f) for (det, f) in zip(dets, features_keep)]
+            detections = [STrack(det, f) for (det, f) in zip(dets_first, features_high)]
         else:
             detections = []
 
@@ -283,7 +281,7 @@ class BoTSORT(object):
         STrack.multi_predict(strack_pool)
 
         # Fix camera motion
-        warp = self.cmc.apply(img, dets)
+        warp = self.cmc.apply(img, dets_first)
         STrack.multi_gmc(strack_pool, warp)
         STrack.multi_gmc(unconfirmed, warp)
 
@@ -313,7 +311,7 @@ class BoTSORT(object):
         """ Step 3: Second association, with low score detection boxes"""
         if len(dets_second) > 0:
             """Detections"""
-            detections_second = [STrack(det_second) for det_second in dets_second]
+            detections_second = [STrack(dets_second) for dets_second in dets_second]
         else:
             detections_second = []
 
