@@ -21,16 +21,19 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 
 <details>
-<summary>Supported tracking methods</summary>
+<summary>Evaluation metrics</summary>
 
 | Trackers | HOTA↑ | MOTA↑ | IDF1↑ |
 | -------- | ----- | ----- | ----- |
-| [OCSORT](https://arxiv.org/pdf/2203.14360.pdf) | | | |
-| [ByteTrack](https://arxiv.org/pdf/2110.06864.pdf) | | | |
-| [DeepOCSORT](https://arxiv.org/pdf/2302.11813.pdf) | | | |
-| [BoTSORT](https://arxiv.org/pdf/2206.14651.pdf) | | | |
+| [BoTSORT](https://arxiv.org/pdf/2206.14651.pdf) | 77.812 | 78.87 | 88.917 |
+| [HybridSORT](https://arxiv.org/pdf/2308.00783.pdf) | 77.283 | 77.887 | 88.821 |
+| [OCSORT](https://arxiv.org/pdf/2203.14360.pdf) | 76.925 | 78.01 | 88.466 |
+| [DeepOCSORT](https://arxiv.org/pdf/2302.11813.pdf) | 75.767 | 74.447 | 86.333 |
+| [ByteTrack](https://arxiv.org/pdf/2110.06864.pdf) | 75.613 | 74.57 | 85.996 |
 | [StrongSORT](https://arxiv.org/pdf/2202.13514.pdf) | | | |
-| [HybridSORT](https://arxiv.org/pdf/2308.00783.pdf) | | | |
+
+NOTES: the evaluation is performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on CrowdHuman, MOT17, Cityperson and ETHZ.
+
 
 For the methods using appearance description, both heavy ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight state-of-the-art ReID models ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf) and more) are downloaded automatically.
 
