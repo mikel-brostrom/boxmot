@@ -32,7 +32,7 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 | [ByteTrack](https://arxiv.org/pdf/2110.06864.pdf) | 75.613 | 74.57 | 85.996 |
 | [StrongSORT](https://arxiv.org/pdf/2202.13514.pdf) | | | |
 
-NOTES: the evaluation is performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on CrowdHuman, MOT17, Cityperson and ETHZ.
+NOTES: the evaluations are performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on CrowdHuman, MOT17, Cityperson and ETHZ. The configurations used for each tracking methods are the default ones.
 
 
 For the methods using appearance description, both heavy ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight state-of-the-art ReID models ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf) and more) are downloaded automatically.
