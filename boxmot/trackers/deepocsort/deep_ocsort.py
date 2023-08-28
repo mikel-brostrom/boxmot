@@ -457,7 +457,6 @@ class DeepOCSort(object):
             left_trks = last_boxes[unmatched_trks]
             left_trks_embs = trk_embs[unmatched_trks]
 
-            print('left_dets.shape, left_trks.shape', left_dets.shape, left_trks.shape)
             iou_left = self.asso_func(left_dets, left_trks)
             # TODO: is better without this
             emb_cost_left = left_dets_embs @ left_trks_embs.T
