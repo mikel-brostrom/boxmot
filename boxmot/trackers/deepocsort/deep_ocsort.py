@@ -384,8 +384,7 @@ class DeepOCSort(object):
             dets_embs = np.ones((dets.shape[0], 1))
         else:
             # (Ndets x X) [512, 1024, 2048]
-            # dets_embs = self.embedder.compute_embedding(img, dets[:, :4], tag)
-            dets_embs = self.model.get_features(dets[:, :4], img)
+            dets_embs = self.model.get_features(dets[:, 0:4], img)
 
         # CMC
         if not self.cmc_off:
