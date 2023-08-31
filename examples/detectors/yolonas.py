@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from super_gradients.common.object_names import Models
 from super_gradients.training import models
+from super_gradients.training.pipelines.pipelines import DetectionPipeline
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
 
@@ -37,6 +38,7 @@ class YoloNASStrategy(YoloInterface):
 
     def __init__(self, model, device, args):
         self.args = args
+        self.device = device
 
         avail_models = [x.lower() for x in list(Models.__dict__.keys())]
         model_type = self.get_model_from_weigths(avail_models, model)
@@ -55,20 +57,26 @@ class YoloNASStrategy(YoloInterface):
                 checkpoint_path=str(model)
             ).to(device)
 
-        self.device = device
+        self.pipeline = DetectionPipeline(
+            model=self.model.eval(),
+            image_processor=self.model._image_processor,
+            post_prediction_callback=self.model.get_post_prediction_callback(iou=args.iou, conf=args.conf),
+            class_names=self.model._class_names,
+            fuse_model=True
+        )
 
     @torch.no_grad()
     def __call__(self, im, augment, visualize):
 
+        # ultralytics preprocessing --> original cv2 image
         im = im[0].permute(1, 2, 0).cpu().numpy() * 255
 
+        preprocessed_image, processing_metadata = self.pipeline.image_processor.preprocess_image(image=im.copy())
+
         with torch.no_grad():
-            preds = self.model.predict(
-                im,
-                iou=0.5,
-                conf=0.7,
-                fuse_model=False
-            )[0].prediction
+            im = torch.Tensor(preprocessed_image).unsqueeze(0).to(self.device)
+            model_output = self.pipeline.model(im)
+            preds = self.pipeline._decode_model_output(model_output, model_input=im)[0]
 
         preds = np.concatenate(
             [
