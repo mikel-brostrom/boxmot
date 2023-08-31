@@ -31,12 +31,9 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 | [StrongSORT](https://arxiv.org/pdf/2202.13514.pdf) |      | | |
 | <img width=200/>                                   | <img width=100/> | <img width=100/> | <img width=100/> |
 
-<sub> NOTES: performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on: CrowdHuman, MOT17, Cityperson and ETHZ.</sub>
+<sub> NOTES: performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on: CrowdHuman, MOT17, Cityperson and ETHZ. Each tracker is configured with its original parameters found in their respective official repository.</sub>
 
 </div>
-
-
-
 
 </details>
 
