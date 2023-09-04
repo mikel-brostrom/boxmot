@@ -84,9 +84,9 @@ In inverse chronological order:
 * SOTA CLIP-ReID people and vehicle models available (August 2023)
 
 
-## Why using this tracking toolbox?
+## Why BOXMOT?
 
-Everything is designed with simplicity and flexibility in mind. We don't hyperfocus on results on a single dataset, we prioritize real-world results. If you don't get good tracking results on your custom dataset with the out-of-the-box tracker configurations, use the `examples/evolve.py` script for tracker hyperparameter tuning.
+Today's multi-object tracking options are heavily dependant on the computation capabilities of the underlaying hardware. BOXMOT provides a great variety of setup options that meet different hardware limitations: CPU only, low memory GPUs... Everything is designed with simplicity and flexibility in mind. If you don't get good tracking results on your custom dataset with the out-of-the-box tracker configurations, use the `examples/evolve.py` script for tracker hyperparameter tuning.
 
 ## Installation
 
