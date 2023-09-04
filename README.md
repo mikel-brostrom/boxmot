@@ -1,4 +1,4 @@
-# BoxMOT: pluggable SOTA tracking modules for object detectors
+# BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models
 
 <div align="center">
   <p>
