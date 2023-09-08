@@ -9,7 +9,6 @@ import numpy as np
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.adapters import OCSortKalmanFilterAdapter
-from boxmot.utils import PerClassDecorator
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 
@@ -355,7 +354,6 @@ class DeepOCSort(object):
         self.aw_off = aw_off
         self.new_kf_off = new_kf_off
 
-    @PerClassDecorator
     def update(self, dets, img):
         """
         Params:
@@ -432,7 +430,7 @@ class DeepOCSort(object):
         else:
             stage1_emb_cost = dets_embs @ trk_embs.T
         matched, unmatched_dets, unmatched_trks = associate(
-            dets,
+            dets[:, 0:5],
             trks,
             self.iou_threshold,
             velocities,
