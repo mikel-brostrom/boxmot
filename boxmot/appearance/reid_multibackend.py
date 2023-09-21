@@ -71,13 +71,14 @@ class ReIDDetectMultiBackend(nn.Module):
                 show_downloadable_models()
                 exit()
 
-        # Build model
-        self.model = build_model(
-            model_name,
-            num_classes=get_nr_classes(w),
-            pretrained=not (w and w.is_file()),
-            use_gpu=device,
-        )
+        # Build model for pytorch only
+        if self.pt or self.jit:
+            self.model = build_model(
+                model_name,
+                num_classes=get_nr_classes(w),
+                pretrained=not (w and w.is_file()),
+                use_gpu=device,
+            )
 
         if self.pt:  # PyTorch
             # populate model arch with weights
