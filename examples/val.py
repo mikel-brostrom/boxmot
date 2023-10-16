@@ -64,9 +64,9 @@ class Evaluator:
         except git.exc.GitError as err:
             LOGGER.info(f'Eval repo already downloaded {err}')
         subprocess.run(['grep', '-rl', 'np.int', f'{val_tools_path}', '|', 'xargs', 'sed', '-i', "'s/np.int/int/g'"])
-        subprocess.run(['grep', '-rl', 'np.int', f'{val_tools_path}', '|', 'xargs', 'sed', '-i', "'s/np.bool/bool/g'"])
+        subprocess.run(['grep', '-rl', 'np.bool', f'{val_tools_path}', '|', 'xargs', 'sed', '-i', "'s/np.bool/bool/g'"])
         subprocess.run(
-            ['grep', '-rl', 'np.int', f'{val_tools_path}', '|', 'xargs', 'sed', '-i', "'s/np.float/float/g'"]
+            ['grep', '-rl', 'np.float', f'{val_tools_path}', '|', 'xargs', 'sed', '-i', "'s/np.float/float/g'"]
         )
 
     def download_mot_dataset(self, val_tools_path, benchmark):
