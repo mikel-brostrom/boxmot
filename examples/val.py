@@ -65,8 +65,12 @@ class Evaluator:
             LOGGER.info(f'Eval repo already downloaded {err}')
 
         # fix deprecated np.float
-        cmd = "grep -rl np.float . | xargs sed -i 's/np.float/float/g'"
-        subprocess.run(cmd, shell=True)
+        cmd_float = "grep -rl np.float . | xargs sed -i 's/np.float/float/g'"
+        subprocess.run(cmd_float, shell=True)
+        cmd_int = "grep -rl np.int . | xargs sed -i 's/np.int/int/g'"
+        subprocess.run(cmd_int, shell=True)
+        cmd_bool = "grep -rl np.bool . | xargs sed -i 's/np.bool/bool/g'"
+        subprocess.run(cmd_bool, shell=True)
 
     def download_mot_dataset(self, val_tools_path, benchmark):
         """Download specific MOT dataset and unpack it
