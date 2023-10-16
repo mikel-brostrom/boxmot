@@ -63,6 +63,11 @@ class Evaluator:
             LOGGER.info('Official MOT evaluation repo downloaded')
         except git.exc.GitError as err:
             LOGGER.info(f'Eval repo already downloaded {err}')
+        subprocess.run(['grep', '-rl', 'np.int', f'{val_tools_path}', '|', 'xargs', 'sed', '-i', "'s/np.int/int/g'"])
+        subprocess.run(['grep', '-rl', 'np.int', f'{val_tools_path}', '|', 'xargs', 'sed', '-i', "'s/np.bool/bool/g'"])
+        subprocess.run(
+            ['grep', '-rl', 'np.int', f'{val_tools_path}', '|', 'xargs', 'sed', '-i', "'s/np.float/float/g'"]
+        )
 
     def download_mot_dataset(self, val_tools_path, benchmark):
         """Download specific MOT dataset and unpack it
