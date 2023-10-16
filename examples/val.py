@@ -64,12 +64,12 @@ class Evaluator:
         except git.exc.GitError as err:
             LOGGER.info(f'Eval repo already downloaded {err}')
 
-        # fix deprecated np.float
-        cmd_float = "grep -rl np.float . | xargs sed -i 's/np.float/float/g'"
+        # fix deprecated np.float, np.int & np.bool
+        cmd_float = f"grep -rl np.float {val_tools_path} | xargs sed -i 's/np.float/float/g'"
         subprocess.run(cmd_float, shell=True)
-        cmd_int = "grep -rl np.int . | xargs sed -i 's/np.int/int/g'"
+        cmd_int = f"grep -rl np.int {val_tools_path} | xargs sed -i 's/np.int/int/g'"
         subprocess.run(cmd_int, shell=True)
-        cmd_bool = "grep -rl np.bool . | xargs sed -i 's/np.bool/bool/g'"
+        cmd_bool = f"grep -rl np.bool {val_tools_path} | xargs sed -i 's/np.bool/bool/g'"
         subprocess.run(cmd_bool, shell=True)
 
     def download_mot_dataset(self, val_tools_path, benchmark):
