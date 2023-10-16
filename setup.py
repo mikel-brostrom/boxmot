@@ -63,7 +63,7 @@ setup(
             'yolox==0.3.0',  # yolox inference
             'thop',  # yolox dependency
             'super-gradients==3.1.1',  # yolo_nas inference
-            'ultralytics==8.0.124',  # Tyolov8 inference
+            'ultralytics==8.0.199',  # Tyolov8 inference
         ],
     },
 
