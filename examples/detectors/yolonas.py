@@ -103,6 +103,10 @@ class YoloNASStrategy(YoloInterface):
 
                 pred[:, :4] = ops.scale_boxes(im.shape[2:], pred[:, :4], im0s[i].shape)
 
+                # filter boxes by classes
+                if self.args.classes:
+                    pred = pred[torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))]
+
                 r = Results(
                     path=path,
                     boxes=pred,
