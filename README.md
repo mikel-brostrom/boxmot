@@ -341,6 +341,11 @@ cv2.destroyAllWindows()
 
 </details>
 
+## Contributors
+
+<a href="https://github.com/mikel-brostrom/yolo_tracking/graphs/contributors ">
+  <img src="https://contrib.rocks/image?repo=mikel-brostrom/yolo_tracking" />
+</a>
 
 ## Contact
 
