@@ -249,7 +249,7 @@ class BoTSORT(object):
         confs = dets[:, 4]
 
         # find second round association detections
-        second_mask = np.logical_or(confs > self.track_low_thresh, confs < self.track_high_thresh)
+        second_mask = np.logical_and(confs > self.track_low_thresh, confs < self.track_high_thresh)
         dets_second = dets[second_mask]
 
         # find first round association detections
