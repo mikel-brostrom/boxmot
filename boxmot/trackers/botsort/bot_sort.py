@@ -196,6 +196,7 @@ class BoTSORT(object):
         appearance_thresh: float = 0.25,
         cmc_method: str = "sparseOptFlow",
         frame_rate=30,
+        fuse_first_associate: bool = False,
     ):
         self.tracked_stracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
@@ -222,6 +223,7 @@ class BoTSORT(object):
         )
 
         self.cmc = SparseOptFlow()
+        self.fuse_first_associate = fuse_first_associate
 
     def update(self, dets, img):
         assert isinstance(
@@ -288,6 +290,8 @@ class BoTSORT(object):
         # Associate with high score detection boxes
         ious_dists = iou_distance(strack_pool, detections)
         ious_dists_mask = ious_dists > self.proximity_thresh
+        if self.fuse_first_associate:
+          ious_dists = fuse_score(ious_dists, detections)
 
         emb_dists = embedding_distance(strack_pool, detections) / 2.0
         emb_dists[emb_dists > self.appearance_thresh] = 1.0
