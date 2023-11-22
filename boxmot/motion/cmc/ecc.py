@@ -56,24 +56,6 @@ class ECC(CMCInterface):
         self.termination_criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, max_iter, eps)
         self.prev_img = None
 
-    def preprocess(self, img):
-
-        # bgr2gray
-        if self.grayscale:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-        # resize
-        if self.scale is not None:
-            img = cv2.resize(
-                img,
-                (0, 0),
-                fx=self.scale,
-                fy=self.scale,
-                interpolation=cv2.INTER_LINEAR
-            )
-
-        return img
-
     def apply(self, curr_img, dets):
 
         if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
