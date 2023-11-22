@@ -1,12 +1,14 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import numpy as np
+from abc import ABC, abstractmethod
 
 
-class CMCInterface:
+class CMCInterface(ABC):
 
+    @abstractmethod
     def apply(self, im):
-        raise NotImplementedError('Subclasses must implement this method.')
+        pass
 
     def generate_mask(self, img, dets, scale):
         h, w = img.shape
