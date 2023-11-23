@@ -5,13 +5,16 @@ from pathlib import Path
 import numpy as np
 import torch
 from ultralytics.engine.results import Results
+from abc import ABC, abstractmethod
 
 
-class YoloInterface:
+class YoloInterface(ABC):
 
+    @abstractmethod
     def inference(self, im):
         raise NotImplementedError('Subclasses must implement this method.')
 
+    @abstractmethod
     def postprocess(self, preds):
         raise NotImplementedError('Subclasses must implement this method.')
 
