@@ -5,33 +5,18 @@ from pathlib import Path
 import numpy as np
 import torch
 from ultralytics.engine.results import Results
+from abc import ABC, abstractmethod
 
 
-class YoloInterface:
+class YoloInterface(ABC):
 
-    def inference(self, im):
-        raise NotImplementedError('Subclasses must implement this method.')
+    @abstractmethod
+    def __call__(self, im):
+        pass
 
+    @abstractmethod
     def postprocess(self, preds):
-        raise NotImplementedError('Subclasses must implement this method.')
-
-    def filter_results(self, i, predictor):
-        if predictor.tracker_outputs[i].size != 0:
-            # filter boxes masks and pose results by tracking results
-            sorted_confs = predictor.tracker_outputs[i][:, 5].argsort()[::-1]
-            predictor.tracker_outputs[i] = predictor.tracker_outputs[i][sorted_confs]
-            yolo_confs = predictor.results[i].boxes.conf.cpu().numpy()
-            tracker_confs = predictor.tracker_outputs[i][:, 5]
-            mask = np.in1d(yolo_confs, tracker_confs)
-
-            if predictor.results[i].masks is not None:
-                predictor.results[i].masks = predictor.results[i].masks[mask]
-                predictor.results[i].boxes = predictor.results[i].boxes[mask]
-            elif predictor.results[i].keypoints is not None:
-                predictor.results[i].boxes = predictor.results[i].boxes[mask]
-                predictor.results[i].keypoints = predictor.results[i].keypoints[mask]
-        else:
-            pass
+        pass
 
     def get_scaling_factors(self, im, im0):
 
