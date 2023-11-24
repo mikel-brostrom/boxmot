@@ -12,11 +12,11 @@ class YoloInterface(ABC):
 
     @abstractmethod
     def inference(self, im):
-        raise NotImplementedError('Subclasses must implement this method.')
+        pass
 
     @abstractmethod
     def postprocess(self, preds):
-        raise NotImplementedError('Subclasses must implement this method.')
+        pass
 
     def filter_results(self, i, predictor):
         if predictor.tracker_outputs[i].size != 0:
