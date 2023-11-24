@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 class YoloInterface(ABC):
 
     @abstractmethod
-    def inference(self, im):
+    def __call__(self, im):
         pass
 
     @abstractmethod
