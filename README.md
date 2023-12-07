@@ -346,12 +346,10 @@ cv2.destroyAllWindows()
   
 ```py
 from sahi import AutoDetectionModel
-from sahi.predict import get_prediction, get_sliced_prediction, predict
-from sahi.postprocess.utils import object_prediction_list_to_numpy
+from sahi.predict import get_sliced_prediction
 import cv2
 import numpy as np
 from pathlib import Path
-
 from boxmot import DeepOCSORT
 
 
@@ -363,8 +361,8 @@ tracker = DeepOCSORT(
 
 detection_model = AutoDetectionModel.from_pretrained(
     model_type='yolov8',
-    model_path='/home/mikel.brostrom/yolo_tracking/examples/weights/yolov8n.pt',
-    confidence_threshold=0.3,
+    model_path='yolov8n.pt',
+    confidence_threshold=0.5,
     device="cpu",  # or 'cuda:0'
 )
 
@@ -376,7 +374,7 @@ fontscale = 0.5
 while True:
     ret, im = vid.read()
 
-    # get detections using sahi
+    # get sliced predictions
     result = get_sliced_prediction(
         im,
         detection_model,
@@ -394,14 +392,15 @@ while True:
 
     tracks = tracker.update(dets, im) # --> (x, y, x, y, id, conf, cls, ind)
 
-    xyxys = tracks[:, 0:4].astype('int') # float64 to int
-    ids = tracks[:, 4].astype('int') # float64 to int
-    confs = tracks[:, 5].round(decimals=2)
-    clss = tracks[:, 6].astype('int') # float64 to int
-    inds = tracks[:, 7].astype('int') # float64 to int
-
-    # print bboxes with their associated id, cls and conf
     if tracks.shape[0] != 0:
+
+        xyxys = tracks[:, 0:4].astype('int') # float64 to int
+        ids = tracks[:, 4].astype('int') # float64 to int
+        confs = tracks[:, 5].round(decimals=2)
+        clss = tracks[:, 6].astype('int') # float64 to int
+        inds = tracks[:, 7].astype('int') # float64 to int
+
+        # print bboxes with their associated id, cls and conf
         for xyxy, id, conf, cls in zip(xyxys, ids, confs, clss):
             im = cv2.rectangle(
                 im,
