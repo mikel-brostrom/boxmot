@@ -231,7 +231,7 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 </details>
 
 
-## Custom object detection model example
+## Custom object detection model tracking example
 
 <details>
 <summary>Minimalistic</summary>
