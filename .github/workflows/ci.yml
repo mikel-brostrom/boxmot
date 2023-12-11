@@ -33,7 +33,7 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4  # Check out the repository
-      - uses: actions/setup-python@v4  # Prepare environment with python 3.9
+      - uses: actions/setup-python@v5  # Prepare environment with python 3.9
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip' # caching pip dependencies
