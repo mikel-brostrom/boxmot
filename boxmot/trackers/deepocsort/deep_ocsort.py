@@ -8,7 +8,7 @@ import numpy as np
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.motion.kalman_filters.adapters import OCSortKalmanFilterAdapter
+from boxmot.motion.kalman_filters.deepocsort_kf import KalmanFilter
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 
@@ -108,7 +108,7 @@ class KalmanBoxTracker(object):
         self.det_ind = det[6]
 
         if new_kf:
-            self.kf = OCSortKalmanFilterAdapter(dim_x=8, dim_z=4)
+            self.kf = KalmanFilter(dim_x=8, dim_z=4)
             self.kf.F = np.array(
                 [
                     # x y w h x' y' w' h'
@@ -363,6 +363,8 @@ class DeepOCSort(object):
         Returns the a similar array, where the last column is the object ID.
         NOTE: The number of objects returned may differ from the number of detections provided.
         """
+        #dets, s, c = dets.data
+        #print(dets, s, c)
         assert isinstance(dets, np.ndarray), f"Unsupported 'dets' input type '{type(dets)}', valid format is np.ndarray"
         assert isinstance(img, np.ndarray), f"Unsupported 'img' input type '{type(img)}', valid format is np.ndarray"
         assert len(dets.shape) == 2, "Unsupported 'dets' dimensions, valid number of dimensions is two"
