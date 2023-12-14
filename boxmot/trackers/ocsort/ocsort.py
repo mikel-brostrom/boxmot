@@ -5,7 +5,7 @@
 """
 import numpy as np
 
-from boxmot.motion.kalman_filters.adapters import OCSortKalmanFilterAdapter
+from boxmot.motion.kalman_filters.ocsort_kf import KalmanFilter
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 
@@ -75,7 +75,7 @@ class KalmanBoxTracker(object):
         """
         # define constant velocity model
         self.det_ind = det_ind
-        self.kf = OCSortKalmanFilterAdapter(dim_x=7, dim_z=4)
+        self.kf = KalmanFilter(dim_x=7, dim_z=4)
         self.kf.F = np.array(
             [
                 [1, 0, 0, 0, 1, 0, 0],
