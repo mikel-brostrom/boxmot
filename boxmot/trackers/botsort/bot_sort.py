@@ -6,7 +6,7 @@ import numpy as np
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc.sof import SparseOptFlow
-from boxmot.motion.kalman_filters.adapters import BotSortKalmanFilterAdapter
+from boxmot.motion.kalman_filters.botsort_kf import KalmanFilter
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment)
@@ -14,7 +14,7 @@ from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):
-    shared_kalman = BotSortKalmanFilterAdapter()
+    shared_kalman = KalmanFilter()
 
     def __init__(self, det, feat=None, feat_history=50):
         # wait activate
@@ -212,7 +212,7 @@ class BoTSORT(object):
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = BotSortKalmanFilterAdapter()
+        self.kalman_filter = KalmanFilter()
 
         # ReID module
         self.proximity_thresh = proximity_thresh
