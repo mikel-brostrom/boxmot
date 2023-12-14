@@ -5,7 +5,7 @@
 """
 import numpy as np
 
-from boxmot.motion.kalman_filters.adapters import OCSortKalmanFilterAdapter
+from boxmot.motion.kalman_filters.ocsort_kf import KalmanFilter
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 
