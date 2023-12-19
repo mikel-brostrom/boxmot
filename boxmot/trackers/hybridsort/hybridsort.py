@@ -408,10 +408,7 @@ class HybridSORT(object):
         ret = []
         for t, trk in enumerate(trks):
             pos, kalman_score, simple_score = self.trackers[t].predict()
-            try:
-                trk[:6] = [pos[0][0], pos[0][1], pos[0][2], pos[0][3], kalman_score, simple_score[0]]
-            except Exception:
-                trk[:6] = [pos[0][0], pos[0][1], pos[0][2], pos[0][3], kalman_score, simple_score]
+            trk[:6] = [pos[0][0], pos[0][1], pos[0][2], pos[0][3], kalman_score[0], simple_score]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
@@ -435,11 +432,11 @@ class HybridSORT(object):
         """
         if self.EG_weight_high_score > 0 and self.TCM_first_step:
             track_features = np.asarray([track.smooth_feat for track in self.trackers],
-                                        dtype=np.float)
+                                        dtype=np.float64)
             emb_dists = embedding_distance(track_features, id_feature_keep).T
             if self.with_longterm_reid or self.with_longterm_reid_correction:
                 long_track_features = np.asarray([np.vstack(list(track.features)).mean(0) for track in self.trackers],
-                                                 dtype=np.float)
+                                                 dtype=np.float64)
                 assert track_features.shape == long_track_features.shape
                 long_emb_dists = embedding_distance(long_track_features, id_feature_keep).T
                 assert emb_dists.shape == long_emb_dists.shape
@@ -487,7 +484,7 @@ class HybridSORT(object):
                     )
                     iou_left_thre = iou_left
                 if self.EG_weight_low_score > 0:
-                    u_track_features = np.asarray([track.smooth_feat for track in u_tracklets], dtype=np.float)
+                    u_track_features = np.asarray([track.smooth_feat for track in u_tracklets], dtype=np.float64)
                     emb_dists_low_score = embedding_distance(u_track_features, id_feature_second).T
                     matched_indices = linear_assignment(-iou_left + self.EG_weight_low_score * emb_dists_low_score,
                                                         )
