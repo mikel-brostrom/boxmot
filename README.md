@@ -80,6 +80,7 @@ In inverse chronological order:
 
 #### News
 
+* Custom Ultralytics pacakge updated from 8.0.124 to 8.0.224 (December 2023)
 * HybridSORT available (August 2023)
 * SOTA CLIP-ReID people and vehicle models available (August 2023)
 
