@@ -27,11 +27,11 @@ setup(
     description=('SOTA tracking methods for detection, segmentation and pose estimation models.'),
     long_description=README,
     long_description_content_type='text/markdown',
-    url='https://github.com/mikel-brostrom/yolov8_tracking',
+    url='https://github.com/mikel-brostrom/yolo_tracking',
     project_urls={
         'Bug Reports': 'https://github.com/mikel-brostrom/yolo_tracking/issues',
         'Source': 'https://github.com/mikel-brostrom/yolo_tracking'},
-    author='Mikel Brostrom',
+    author='Mikel Broström',
     author_email='yolov5.deepsort.pytorch@gmail.com',
     packages=find_packages(),  # required
     include_package_data=True,
@@ -69,7 +69,7 @@ setup(
 
     platforms=["linux", "windows"],
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
         'Intended Audience :: Education',
         'Intended Audience :: Science/Research',
