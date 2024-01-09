@@ -53,7 +53,7 @@ def export_torchscript(model, im, file, optimize):
 def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
     # ONNX export
     try:
-        __tr.check_packages(("onnx",))
+        __tr.check_packages(("onnx==1.13.0",))
         import onnx
 
         f = file.with_suffix(".onnx")
@@ -258,7 +258,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--weights",
         type=Path,
-        default=WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt",
+        default=WEIGHTS / "osnet_x0_25_msmt17.pt",
         help="model.pt path(s)",
     )
     parser.add_argument(
