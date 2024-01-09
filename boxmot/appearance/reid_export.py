@@ -107,7 +107,7 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
 
 def export_openvino(file, half):
     __tr.check_packages(
-        ("openvino",)
+        ("openvino-dev>=2023.0",)
     )  # requires openvino-dev: https://pypi.org/project/openvino-dev/
     import openvino.runtime as ov  # noqa
     from openvino.tools import mo  # noqa
@@ -118,7 +118,7 @@ def export_openvino(file, half):
     try:
         LOGGER.info(f"\nStarting export with openvino {ov.__version__}...")
         # subprocess.check_output(cmd.split())  # export
-        ov_model = ov.convert_model(
+        ov_model = mo.convert_model(
             f_onnx,
             model_name=file.with_suffix(".xml"),
             framework="onnx",
