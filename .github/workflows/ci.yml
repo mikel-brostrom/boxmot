@@ -76,7 +76,7 @@ jobs:
         run: |
 
           # needed in TFLite export
-          wget https://github.com/PINTO0309/onnx2tf/releases/download/1.7.3/flatc.tar.gz
+          wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
           tar -zxvf flatc.tar.gz
           sudo chmod +x flatc
           sudo mv flatc /usr/bin/
