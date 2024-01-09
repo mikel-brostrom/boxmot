@@ -93,7 +93,7 @@ class ReIDDetectMultiBackend(nn.Module):
             LOGGER.info(f"Loading {w} for ONNX Runtime inference...")
             cuda = torch.cuda.is_available() and device.type != "cpu"
             # https://onnxruntime.ai/docs/reference/compatibility.html
-            tr.check_packages(("onnx", "onnxruntime-gpu==1.15.0" if cuda else "onnxruntime==1.15.0", ))
+            tr.check_packages(("onnx", "onnxruntime-gpu==1.16.3" if cuda else "onnxruntime==1.16.3", ))
             import onnxruntime
 
             providers = (
