@@ -53,7 +53,7 @@ def export_torchscript(model, im, file, optimize):
 def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
     # ONNX export
     try:
-        __tr.check_packages(("onnx==1.15.0",))
+        __tr.check_packages(("onnx==1.14.1",))
         import onnx
 
         f = file.with_suffix(".onnx")
