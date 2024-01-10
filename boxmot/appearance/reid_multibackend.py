@@ -135,6 +135,9 @@ class ReIDDetectMultiBackend(nn.Module):
             self.binding_addrs = OrderedDict(
                 (n, d.ptr) for n, d in self.bindings.items()
             )
+            self.batch_size = self.bindings["images"].shape[
+                0
+            ]  # if dynamic, this is instead max batch size
             # batch_size = self.bindings["images"].shape[
             #     0
             # ]  # if dynamic, this is instead max batch size
@@ -253,6 +256,14 @@ class ReIDDetectMultiBackend(nn.Module):
             features = tf_lite_output['output']
 
         elif self.engine:  # TensorRT
+            # TensorRT will not work if shape is higher than max shape...
+            # Call this function in chunks of max shape
+            # To avoid this most unfortunate scenario.
+            features = []
+            if im_batch.shape[0] > self.batch_size:
+                for i in range(0, im_batch.shape[0], self.batch_size):
+                    features.append(self.forward(im_batch[i : i + self.batch_size]))
+                return np.concatenate(features, axis=0)
             if True and im_batch.shape != self.bindings["images"].shape:
                 i_in, i_out = (
                     self.model_.get_binding_index(x) for x in ("images", "output")
