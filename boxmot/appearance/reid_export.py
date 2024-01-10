@@ -187,14 +187,16 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
 
         inputs = [network.get_input(i) for i in range(network.num_inputs)]
         outputs = [network.get_output(i) for i in range(network.num_outputs)]
-        logger.info("Network Description:")
+        logger.log(trt.Logger.INFO, "Network Description:")
         for inp in inputs:
-            logger.info(
-                f'\tinput "{inp.name}" with shape {inp.shape} and dtype {inp.dtype}'
+            logger.log(
+                trt.Logger.INFO,
+                f'\tinput "{inp.name}" with shape {inp.shape} and dtype {inp.dtype}',
             )
         for out in outputs:
-            logger.info(
-                f'\toutput "{out.name}" with shape {out.shape} and dtype {out.dtype}'
+            logger.log(
+                trt.Logger.INFO,
+                f'\toutput "{out.name}" with shape {out.shape} and dtype {out.dtype}',
             )
 
         if dynamic:
@@ -214,18 +216,21 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
                 )
             config.add_optimization_profile(profile)
 
-        logger.info(
-            f"Building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine in {f}"
+        logger.log(
+            trt.Logger.INFO,
+            f"Building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine in {f}",
         )
         if builder.platform_has_fast_fp16 and half:
             config.set_flag(trt.BuilderFlag.FP16)
             config.default_device_type = trt.DeviceType.GPU
         with builder.build_engine(network, config) as engine, open(f, "wb") as t:
             t.write(engine.serialize())
-        logger.info(f"Export success, saved as {f} ({file_size(f):.1f} MB)")
+        logger.log(
+            trt.Logger.INFO, f"Export success, saved as {f} ({file_size(f):.1f} MB)"
+        )
         return f
     except Exception as e:
-        logger.info(f"\nexport failure: {e}")
+        logger.log(trt.Logger.ERROR, f"\nexport failure: {e}")
 
 
 if __name__ == "__main__":
