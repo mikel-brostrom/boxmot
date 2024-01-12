@@ -280,7 +280,6 @@ class OCSort(object):
         """
             First round of association
         """
-        print(self.asso_func)
         matched, unmatched_dets, unmatched_trks = associate(
             dets[:, 0:5], trks, self.asso_func, self.asso_threshold, velocities, k_observations, self.inertia, w, h
         )
