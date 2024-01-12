@@ -185,7 +185,7 @@ def centroid_batch(bboxes1, bboxes2, w, h):
     norm_factor = np.sqrt(w**2 + h**2)
     normalized_distances = distances / norm_factor
 
-    return normalized_distances
+    return 1 - normalized_distances
 
 
 def get_asso_func(asso_mode):
