@@ -3,7 +3,7 @@
 import numpy as np
 
 
-def iou_batch(bboxes1, bboxes2):
+def iou_batch(bboxes1, bboxes2) -> np.ndarray:
     """
     From SORT: Computes IOU between two bboxes in the form [x1,y1,x2,y2]
     """
@@ -25,7 +25,7 @@ def iou_batch(bboxes1, bboxes2):
     return o
 
 
-def giou_batch(bboxes1, bboxes2):
+def giou_batch(bboxes1, bboxes2) -> np.ndarray:
     """
     :param bbox_p: predict of bbox(N,4)(x1,y1,x2,y2)
     :param bbox_g: groundtruth of bbox(N,4)(x1,y1,x2,y2)
@@ -62,7 +62,7 @@ def giou_batch(bboxes1, bboxes2):
     return giou
 
 
-def diou_batch(bboxes1, bboxes2):
+def diou_batch(bboxes1, bboxes2) -> np.ndarray:
     """
     :param bbox_p: predict of bbox(N,4)(x1,y1,x2,y2)
     :param bbox_g: groundtruth of bbox(N,4)(x1,y1,x2,y2)
@@ -105,7 +105,7 @@ def diou_batch(bboxes1, bboxes2):
     return (diou + 1) / 2.0  # resize from (-1,1) to (0,1)
 
 
-def ciou_batch(bboxes1, bboxes2):
+def ciou_batch(bboxes1, bboxes2) -> np.ndarray:
     """
     :param bbox_p: predict of bbox(N,4)(x1,y1,x2,y2)
     :param bbox_g: groundtruth of bbox(N,4)(x1,y1,x2,y2)
@@ -161,7 +161,7 @@ def ciou_batch(bboxes1, bboxes2):
     return (ciou + 1) / 2.0  # resize from (-1,1) to (0,1)
 
 
-def centroid_batch(bboxes1, bboxes2, w, h):
+def centroid_batch(bboxes1, bboxes2, w, h) -> np.ndarray:
     """
     Computes the normalized centroid distance between two sets of bounding boxes.
     Bounding boxes are in the format [x1, y1, x2, y2].
@@ -186,6 +186,30 @@ def centroid_batch(bboxes1, bboxes2, w, h):
     normalized_distances = distances / norm_factor
 
     return 1 - normalized_distances
+
+
+def run_asso_func(func, *args):
+    """
+    Wrapper function that checks the inputs to the association functions
+    and then call either one of the iou association functions or centroid.
+
+    Parameters:
+    func: The batch function to call (either *iou*_batch or centroid_batch).
+    *args: Variable length argument list, containing either bounding boxes and optionally size parameters.
+    """
+    if func not in [iou_batch, giou_batch, diou_batch, ciou_batch, centroid_batch]:
+        raise ValueError("Invalid function specified. Must be either '(g,d,c, )iou_batch' or 'centroid_batch'.")
+
+    if func in (iou_batch, giou_batch, diou_batch, ciou_batch):
+        if len(args) != 4 or not all(isinstance(arg, (list, np.ndarray)) for arg in args[0:2]):
+            raise ValueError("Invalid arguments for iou_batch. Expected two bounding boxes.")
+        return func(*args[0:2])
+    elif func is centroid_batch:
+        if len(args) != 4 or not all(isinstance(arg, (list, np.ndarray)) for arg in args[:2]) or not all(isinstance(arg, (int)) for arg in args[2:]):
+            raise ValueError("Invalid arguments for centroid_batch. Expected two bounding boxes and two size parameters.")
+        return func(*args)
+    else:
+        raise ValueError("No such association method")
 
 
 def get_asso_func(asso_mode):
