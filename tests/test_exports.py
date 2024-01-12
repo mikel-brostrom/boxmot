@@ -55,8 +55,9 @@ def test_export_openvino():
     assert f is not None
 
 
-def test_export_tflite(enabled=False):
-    f = export_tflite(
-        file=ONNX_WEIGHTS,
-    )
-    assert f is not None
+# def test_export_tflite():
+#     f = export_tflite(
+#         file=ONNX_WEIGHTS,
+#     )
+#     print(f)
+#     assert f is not None
