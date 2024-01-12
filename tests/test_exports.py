@@ -6,9 +6,6 @@ from boxmot.appearance.reid_export import (export_onnx, export_openvino,
 from boxmot.appearance.reid_model_factory import (get_model_name,
                                                   load_pretrained_weights)
 from boxmot.utils import WEIGHTS
-from boxmot.utils.checks import TestRequirements
-
-__tr = TestRequirements()
 
 PT_WEIGHTS = WEIGHTS / 'osnet_x0_25_msmt17.pt'
 ONNX_WEIGHTS = WEIGHTS / 'osnet_x0_25_msmt17.onnx'
@@ -38,7 +35,6 @@ def test_export_torchscript():
 
 
 def test_export_onnx():
-    __tr.check_packages(("onnx==1.15.0",))
     f = export_onnx(
         model=model,
         im=im,
