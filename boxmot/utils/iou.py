@@ -161,12 +161,40 @@ def ciou_batch(bboxes1, bboxes2):
     return (ciou + 1) / 2.0  # resize from (-1,1) to (0,1)
 
 
+def centroid_batch(bboxes1, bboxes2, w, h):
+    """
+    Computes the normalized centroid distance between two sets of bounding boxes.
+    Bounding boxes are in the format [x1, y1, x2, y2].
+    `normalize_scale` is a tuple (width, height) to normalize the distance.
+    """
+
+    # Calculate centroids
+    centroids1 = np.stack(((bboxes1[..., 0] + bboxes1[..., 2]) / 2,
+                           (bboxes1[..., 1] + bboxes1[..., 3]) / 2), axis=-1)
+    centroids2 = np.stack(((bboxes2[..., 0] + bboxes2[..., 2]) / 2,
+                           (bboxes2[..., 1] + bboxes2[..., 3]) / 2), axis=-1)
+
+    # Expand dimensions for broadcasting
+    centroids1 = np.expand_dims(centroids1, 1)
+    centroids2 = np.expand_dims(centroids2, 0)
+
+    # Calculate Euclidean distances
+    distances = np.sqrt(np.sum((centroids1 - centroids2) ** 2, axis=-1))
+
+    # Normalize distances
+    norm_factor = np.sqrt(w**2 + h**2)
+    normalized_distances = distances / norm_factor
+
+    return 1 - normalized_distances
+
+
 def get_asso_func(asso_mode):
     ASSO_FUNCS = {
         "iou": iou_batch,
         "giou": giou_batch,
         "ciou": ciou_batch,
         "diou": diou_batch,
+        "centroid": centroid_batch
     }
 
     return ASSO_FUNCS[asso_mode]
