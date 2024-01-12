@@ -8,6 +8,7 @@ import numpy as np
 from boxmot.motion.kalman_filters.ocsort_kf import KalmanFilter
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
+from boxmot.utils.iou import run_asso_func
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -193,7 +194,7 @@ class OCSort(object):
         det_thresh=0.2,
         max_age=30,
         min_hits=3,
-        iou_threshold=0.3,
+        asso_threshold=0.3,
         delta_t=3,
         asso_func="iou",
         inertia=0.2,
@@ -204,7 +205,7 @@ class OCSort(object):
         """
         self.max_age = max_age
         self.min_hits = min_hits
-        self.iou_threshold = iou_threshold
+        self.asso_threshold = asso_threshold
         self.trackers = []
         self.frame_count = 0
         self.det_thresh = det_thresh
@@ -214,7 +215,7 @@ class OCSort(object):
         self.use_byte = use_byte
         KalmanBoxTracker.count = 0
 
-    def update(self, dets, _):
+    def update(self, dets, img):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -235,6 +236,7 @@ class OCSort(object):
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         self.frame_count += 1
+        h, w = img.shape[0:2]
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         confs = dets[:, 4]
@@ -279,7 +281,7 @@ class OCSort(object):
             First round of association
         """
         matched, unmatched_dets, unmatched_trks = associate(
-            dets[:, 0:5], trks, self.iou_threshold, velocities, k_observations, self.inertia
+            dets[:, 0:5], trks, self.asso_func, self.asso_threshold, velocities, k_observations, self.inertia, w, h
         )
         for m in matched:
             self.trackers[m[1]].update(dets[m[0], :5], dets[m[0], 5], dets[m[0], 6])
@@ -294,9 +296,9 @@ class OCSort(object):
                 dets_second, u_trks
             )  # iou between low score detections and unmatched tracks
             iou_left = np.array(iou_left)
-            if iou_left.max() > self.iou_threshold:
+            if iou_left.max() > self.asso_threshold:
                 """
-                NOTE: by using a lower threshold, e.g., self.iou_threshold - 0.1, you may
+                NOTE: by using a lower threshold, e.g., self.asso_threshold - 0.1, you may
                 get a higher performance especially on MOT17/MOT20 datasets. But we keep it
                 uniform here for simplicity
                 """
@@ -304,7 +306,7 @@ class OCSort(object):
                 to_remove_trk_indices = []
                 for m in matched_indices:
                     det_ind, trk_ind = m[0], unmatched_trks[m[1]]
-                    if iou_left[m[0], m[1]] < self.iou_threshold:
+                    if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
                     self.trackers[trk_ind].update(
                         dets_second[det_ind, :5], dets_second[det_ind, 5], dets_second[det_ind, 6]
@@ -317,11 +319,11 @@ class OCSort(object):
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]
             left_trks = last_boxes[unmatched_trks]
-            iou_left = self.asso_func(left_dets, left_trks)
+            iou_left = run_asso_func(self.asso_func, left_dets, left_trks, w, h)
             iou_left = np.array(iou_left)
-            if iou_left.max() > self.iou_threshold:
+            if iou_left.max() > self.asso_threshold:
                 """
-                NOTE: by using a lower threshold, e.g., self.iou_threshold - 0.1, you may
+                NOTE: by using a lower threshold, e.g., self.asso_threshold - 0.1, you may
                 get a higher performance especially on MOT17/MOT20 datasets. But we keep it
                 uniform here for simplicity
                 """
@@ -330,7 +332,7 @@ class OCSort(object):
                 to_remove_trk_indices = []
                 for m in rematched_indices:
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
-                    if iou_left[m[0], m[1]] < self.iou_threshold:
+                    if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
                     self.trackers[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5], dets[det_ind, 6])
                     to_remove_det_indices.append(det_ind)
