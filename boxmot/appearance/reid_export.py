@@ -53,7 +53,8 @@ def export_torchscript(model, im, file, optimize):
 def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
     # ONNX export
     try:
-        __tr.check_packages(("onnx",))
+        # required by onnx2tf
+        __tr.check_packages(("onnx==1.14.0",))
         import onnx
 
         f = file.with_suffix(".onnx")
@@ -107,7 +108,7 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
 
 def export_openvino(file, half):
     __tr.check_packages(
-        ("openvino-dev",)
+        ("openvino-dev>=2023.0",)
     )  # requires openvino-dev: https://pypi.org/project/openvino-dev/
     import openvino.runtime as ov  # noqa
     from openvino.tools import mo  # noqa
@@ -258,7 +259,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--weights",
         type=Path,
-        default=WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt",
+        default=WEIGHTS / "osnet_x0_25_msmt17.pt",
         help="model.pt path(s)",
     )
     parser.add_argument(
