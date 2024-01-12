@@ -5,6 +5,7 @@ import numpy as np
 import scipy
 import torch
 from scipy.spatial.distance import cdist
+from boxmot.utils.iou import iou_batch
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -107,7 +108,13 @@ def iou_distance(atracks, btracks):
     else:
         atlbrs = [track.xyxy for track in atracks]
         btlbrs = [track.xyxy for track in btracks]
-    _ious = ious(atlbrs, btlbrs)
+
+    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
+    if ious.size == 0:
+        return ious
+    _ious = iou_batch(atlbrs, btlbrs)
+    print(_ious)
+
     cost_matrix = 1 - _ious
 
     return cost_matrix
@@ -213,45 +220,6 @@ def fuse_score(cost_matrix, detections):
     fuse_sim = iou_sim * det_scores
     fuse_cost = 1 - fuse_sim
     return fuse_cost
-
-
-def bbox_ious(boxes, query_boxes):
-    """
-    Parameters
-    ----------
-    boxes: (N, 4) ndarray of float
-    query_boxes: (K, 4) ndarray of float
-    Returns
-    -------
-    overlaps: (N, K) ndarray of overlap between boxes and query_boxes
-    """
-    N = boxes.shape[0]
-    K = query_boxes.shape[0]
-    overlaps = np.zeros((N, K), dtype=np.float32)
-
-    for k in range(K):
-        box_area = (query_boxes[k, 2] - query_boxes[k, 0] + 1) * (
-            query_boxes[k, 3] - query_boxes[k, 1] + 1
-        )
-        for n in range(N):
-            iw = (
-                min(boxes[n, 2], query_boxes[k, 2]) -
-                max(boxes[n, 0], query_boxes[k, 0]) + 1
-            )
-            if iw > 0:
-                ih = (
-                    min(boxes[n, 3], query_boxes[k, 3]) -
-                    max(boxes[n, 1], query_boxes[k, 1]) + 1
-                )
-                if ih > 0:
-                    ua = float(
-                        (boxes[n, 2] - boxes[n, 0] + 1) *
-                        (boxes[n, 3] - boxes[n, 1] + 1) +
-                        box_area -
-                        iw * ih
-                    )
-                    overlaps[n, k] = iw * ih / ua
-    return overlaps
 
 
 def _pdist(a, b):
