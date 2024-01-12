@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from boxmot.utils.iou import iou_batch
+from boxmot.utils.iou import iou_batch, centroid_batch, run_asso_func
 
 
 def speed_direction_batch(dets, tracks):
@@ -111,14 +111,18 @@ def compute_aw_max_metric(emb_cost, w_association_emb, bottom=0.5):
 def associate(
     detections,
     trackers,
+    asso_func,
     iou_threshold,
     velocities,
     previous_obs,
     vdc_weight,
+    w,
+    h,
     emb_cost=None,
     w_assoc_emb=None,
     aw_off=None,
     aw_param=None,
+    
 ):
     if len(trackers) == 0:
         return (
@@ -139,7 +143,8 @@ def associate(
     valid_mask = np.ones(previous_obs.shape[0])
     valid_mask[np.where(previous_obs[:, 4] < 0)] = 0
 
-    iou_matrix = iou_batch(detections, trackers)
+    iou_matrix = run_asso_func(asso_func, detections, trackers, w, h)
+    #iou_matrix = iou_batch(detections, trackers)
     scores = np.repeat(detections[:, -1][:, np.newaxis], trackers.shape[0], axis=1)
     # iou_matrix = iou_matrix * scores # a trick sometiems works, we don't encourage this
     valid_mask = np.repeat(valid_mask[:, np.newaxis], X.shape[1], axis=1)
