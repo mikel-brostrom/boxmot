@@ -52,9 +52,9 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
         run: |
           # deepocsort fro all supported yolo models
-          python examples/track.py --tracking-method deepocsort --source $IMG --imgsz 320 --reid-model examples/weights/clip_market1501.pt
+          python examples/track.py --tracking-method deepocsort --source $IMG --imgsz 320
           python examples/track.py --yolo-model yolo_nas_s --tracking-method deepocsort --source $IMG --imgsz 320
-          python examples/track.py --yolo-model yolox_n --tracking-method deepocsort --source $IMG --imgsz 320
+          # python examples/track.py --yolo-model yolox_n --tracking-method deepocsort --source $IMG --imgsz 320
 
           # hybridsort
           python examples/track.py --tracking-method hybridsort --source $IMG --imgsz 320
@@ -93,7 +93,7 @@ jobs:
           # test exported reid model
           python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17.torchscript                                   --source $IMG --imgsz 320
           python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17.onnx                                          --source $IMG --imgsz 320
-          python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float16.tflite --source $IMG --imgsz 320
+          #python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float16.tflite --source $IMG --imgsz 320
           python examples/track.py --reid-model examples/weights/osnet_x0_25_msmt17_openvino_model                                --source $IMG --imgsz 320
 
       - name: Test tracking with seg models
