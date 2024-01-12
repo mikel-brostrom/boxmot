@@ -54,7 +54,7 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
     # ONNX export
     try:
         # required by onnx2tf
-        __tr.check_packages(("onnx==1.14.0",))
+        __tr.check_packages(("onnx==1.15.0",))
         import onnx
 
         f = file.with_suffix(".onnx")
