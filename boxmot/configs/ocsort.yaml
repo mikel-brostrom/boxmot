@@ -1,6 +1,6 @@
 # Trial number:      137
 # HOTA, MOTA, IDF1:  [55.567]
-asso_func: giou
+asso_func: centroid
 conf_thres: 0.5122620708221085
 delta_t: 3
 det_thresh: 0
