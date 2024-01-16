@@ -197,6 +197,7 @@ class BoTSORT(object):
         cmc_method: str = "sparseOptFlow",
         frame_rate=30,
         fuse_first_associate: bool = False,
+        with_reid: bool = False,
     ):
         self.tracked_stracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
@@ -218,9 +219,11 @@ class BoTSORT(object):
         self.proximity_thresh = proximity_thresh
         self.appearance_thresh = appearance_thresh
 
-        self.model = ReIDDetectMultiBackend(
-            weights=model_weights, device=device, fp16=fp16
-        )
+        self.with_reid = with_reid
+        if self.with_reid:
+            self.model = ReIDDetectMultiBackend(
+                weights=model_weights, device=device, fp16=fp16
+            )
 
         self.cmc = SparseOptFlow()
         self.fuse_first_associate = fuse_first_associate
@@ -259,11 +262,15 @@ class BoTSORT(object):
         dets_first = dets[first_mask]
 
         """Extract embeddings """
-        features_high = self.model.get_features(dets_first[:, 0:4], img)
+        if self.with_reid:
+            features_high = self.model.get_features(dets_first[:, 0:4], img)
 
         if len(dets) > 0:
             """Detections"""
-            detections = [STrack(det, f) for (det, f) in zip(dets_first, features_high)]
+            if self.with_reid:
+                detections = [STrack(det, f) for (det, f) in zip(dets_first, features_high)]
+            else:
+                detections = [STrack(det) for (det) in np.array(dets_first)]
         else:
             detections = []
 
@@ -293,10 +300,13 @@ class BoTSORT(object):
         if self.fuse_first_associate:
           ious_dists = fuse_score(ious_dists, detections)
 
-        emb_dists = embedding_distance(strack_pool, detections) / 2.0
-        emb_dists[emb_dists > self.appearance_thresh] = 1.0
-        emb_dists[ious_dists_mask] = 1.0
-        dists = np.minimum(ious_dists, emb_dists)
+        if self.with_reid:
+            emb_dists = embedding_distance(strack_pool, detections) / 2.0
+            emb_dists[emb_dists > self.appearance_thresh] = 1.0
+            emb_dists[ious_dists_mask] = 1.0
+            dists = np.minimum(ious_dists, emb_dists)
+        else:
+            dists = ious_dists
 
         matches, u_track, u_detection = linear_assignment(
             dists, thresh=self.match_thresh
@@ -348,11 +358,14 @@ class BoTSORT(object):
         ious_dists_mask = ious_dists > self.proximity_thresh
 
         ious_dists = fuse_score(ious_dists, detections)
-
-        emb_dists = embedding_distance(unconfirmed, detections) / 2.0
-        emb_dists[emb_dists > self.appearance_thresh] = 1.0
-        emb_dists[ious_dists_mask] = 1.0
-        dists = np.minimum(ious_dists, emb_dists)
+        
+        if self.with_reid:
+            emb_dists = embedding_distance(unconfirmed, detections) / 2.0
+            emb_dists[emb_dists > self.appearance_thresh] = 1.0
+            emb_dists[ious_dists_mask] = 1.0
+            dists = np.minimum(ious_dists, emb_dists)
+        else:
+            dists = ious_dists
 
         matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)
         for itracked, idet in matches:
