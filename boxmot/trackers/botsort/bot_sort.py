@@ -197,7 +197,7 @@ class BoTSORT(object):
         cmc_method: str = "sparseOptFlow",
         frame_rate=30,
         fuse_first_associate: bool = False,
-        with_reid: bool = False,
+        with_reid: bool = True,
     ):
         self.tracked_stracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
