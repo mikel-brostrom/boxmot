@@ -125,7 +125,7 @@ class Objective(Evaluator):
             min_hits = trial.suggest_int("min_hits", 1, 5, step=1)
             iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
             delta_t = trial.suggest_int("delta_t", 1, 5, step=1)
-            asso_func = trial.suggest_categorical("asso_func", ['iou', 'giou'])
+            asso_func = trial.suggest_categorical("asso_func", ['iou', 'giou', 'centroid'])
             inertia = trial.suggest_float("inertia", 0.1, 0.4)
             use_byte = trial.suggest_categorical("use_byte", [True, False])
 
@@ -147,7 +147,7 @@ class Objective(Evaluator):
             min_hits = trial.suggest_int("min_hits", 1, 5, step=1)
             iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
             delta_t = trial.suggest_int("delta_t", 1, 5, step=1)
-            asso_func = trial.suggest_categorical("asso_func", ['iou', 'giou'])
+            asso_func = trial.suggest_categorical("asso_func", ['iou', 'giou', 'centroid'])
             inertia = trial.suggest_float("inertia", 0.1, 0.4)
             w_association_emb = trial.suggest_float("w_association_emb", 0.5, 0.9)
             alpha_fixed_emb = trial.suggest_float("alpha_fixed_emb", 0.9, 0.999)
