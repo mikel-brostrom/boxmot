@@ -39,6 +39,7 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 <details>
 <summary>Tutorials</summary>
+  
 * [Yolov8 training (link to external repository)](https://docs.ultralytics.com/modes/train/)&nbsp;
 * [Deep appearance descriptor training (link to external repository)](https://kaiyangzhou.github.io/deep-person-reid/user_guide.html)&nbsp;
 * [ReID model export to ONNX, OpenVINO, TensorRT and TorchScript](https://github.com/mikel-brostrom/yolo_tracking/wiki/ReID-multi-framework-model-export)&nbsp;
@@ -79,7 +80,7 @@ In inverse chronological order:
 
 #### News
 
-* Centroid-based cost function added to OCSORT and DeepOCSORT (suitable for: small and/or high speed objects and low FPS videos) (Januari 2024)
+* Centroid-based cost function added to OCSORT and DeepOCSORT (suitable for: small and/or high speed objects and low FPS videos) (January 2024)
 * Custom Ultralytics pacakge updated from 8.0.124 to 8.0.224 (December 2023)
 * HybridSORT available (August 2023)
 * SOTA CLIP-ReID people and vehicle models available (August 2023)
