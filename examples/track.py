@@ -68,7 +68,7 @@ def run(args):
         source=args.source,
         conf=args.conf,
         iou=args.iou,
-        agnostic=args.agnostic_nms,
+        agnostic_nms=args.agnostic_nms,
         show=args.show,
         stream=True,
         device=args.device,
