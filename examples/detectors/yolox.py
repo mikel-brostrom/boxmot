@@ -103,9 +103,9 @@ class YoloXStrategy(YoloInterface):
             pred = postprocess(
                 pred.unsqueeze(0),  # YOLOX postprocessor expects 3D arary
                 1,
-                conf_thre=0.1,
-                nms_thre=0.45,
-                class_agnostic=True
+                conf_thre=self.args.conf,
+                nms_thre=self.args.iou,
+                class_agnostic=self.args.agnostic_nms
             )[0]
 
             if pred is None:
