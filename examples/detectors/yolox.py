@@ -105,7 +105,7 @@ class YoloXStrategy(YoloInterface):
                 1,
                 conf_thre=self.args.conf,
                 nms_thre=self.args.iou,
-                class_agnostic=True
+                class_agnostic=self.args.agnostic_nms
             )[0]
 
             if pred is None:
