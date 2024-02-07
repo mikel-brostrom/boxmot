@@ -68,6 +68,7 @@ def run(args):
         source=args.source,
         conf=args.conf,
         iou=args.iou,
+        agnostic=args.agnostic_nms,
         show=args.show,
         stream=True,
         device=args.device,
@@ -187,6 +188,8 @@ def parse_opt():
                         help='not mix up classes when tracking')
     parser.add_argument('--verbose', default=True, action='store_true',
                         help='print results per frame')
+    parser.add_argument('--agnostic-nms', default=False, action='store_true',
+                        help='class-agnostic NMS')
 
     opt = parser.parse_args()
     return opt
