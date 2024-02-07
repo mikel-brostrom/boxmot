@@ -65,8 +65,8 @@ class YoloNASStrategy(YoloInterface):
         with torch.no_grad():
             preds = self.model.predict(
                 im,
-                iou=0.5,
-                conf=0.7,
+                iou=self.args.iou,
+                conf=self.args.conf,
                 fuse_model=False
             )[0].prediction
 
