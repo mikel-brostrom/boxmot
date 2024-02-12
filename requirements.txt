@@ -7,7 +7,7 @@ gdown==5.1.0            # google drive model download
 GitPython>=3.1.0        # track eval cloning
 lapx>=0.5.4
 loguru>=0.7.0
-numpy==1.24.4           # otherwise issues with track eval
+numpy==1.26.4           # otherwise issues with track eval
 opencv-python>=4.6.0
 pandas>=1.1.4           # export matrix
 pre-commit>=3.3.3
