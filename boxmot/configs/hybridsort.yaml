@@ -10,3 +10,4 @@ iou_thresh: 0.39555224612193407
 longterm_reid_weight: 0.0509704360503877
 max_age: 130
 min_hits: 1
+use_byte: False
