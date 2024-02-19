@@ -328,7 +328,7 @@ class KalmanBoxTracker(object):
 
 class HybridSORT(object):
     def __init__(self, reid_weights, device, half, det_thresh, max_age=30, min_hits=3,
-                 iou_threshold=0.3, delta_t=3, asso_func="iou", inertia=0.2, use_byte=False):
+                 iou_threshold=0.3, delta_t=3, asso_func="iou", inertia=0.2, longterm_reid_weight=0, TCM_first_step_weight=0, use_byte=False):
         """
         Sets key parameters for SORT
         """
@@ -349,8 +349,8 @@ class HybridSORT(object):
         self.TCM_first_step = True
         self.with_longterm_reid = True
         self.with_longterm_reid_correction = True
-        self.longterm_reid_weight = 0
-        self.TCM_first_step_weight = 0
+        self.longterm_reid_weight = longterm_reid_weight
+        self.TCM_first_step_weight = TCM_first_step_weight
         self.high_score_matching_thresh = 0.8
         self.longterm_reid_correction_thresh = 0.4
         self.longterm_reid_correction_thresh_low = 0.4
