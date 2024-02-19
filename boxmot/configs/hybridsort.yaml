@@ -1,9 +1,12 @@
-asso_func: giou
-conf_thres: 0.5122620708221085
-delta_t: 3
-det_thresh: 0
-inertia: 0.2
-iou_thresh: 0.3
-max_age: 30
+# Trial number:      7
+# HOTA, MOTA, IDF1:  [40.35]
+TCM_first_step_weight: 0.2866529225304586
+asso_func: iou
+conf: 0.44745176349923044
+delta_t: 5
+det_thresh: 0.12442660055370669
+inertia: 0.369525477649008
+iou_thresh: 0.39555224612193407
+longterm_reid_weight: 0.0509704360503877
+max_age: 130
 min_hits: 1
-use_byte: false
