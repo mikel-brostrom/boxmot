@@ -80,6 +80,31 @@ class Objective(Evaluator):
                 'n_init': n_init,
                 'nn_budget': nn_budget
             }
+        
+        elif self.opt.tracking_method == 'hybridsort':
+            det_thresh = trial.suggest_float("det_thresh", 0, 0.6)
+            max_age = trial.suggest_int("max_age",10,150,step=10)
+            min_hits = trial.suggest_int("min_hits",1,5,step=1)
+            delta_t = trial.suggest_int("delta_t", 1, 5, step=1)
+            asso_func = trial.suggest_categorical("asso_func", ['iou', 'giou', 'diou'])
+            iou_thresh = trial.suggest_float("iou_thresh",0.1,0.4)
+            inertia = trial.suggest_float("inertia", 0.1, 0.4)
+            TCM_first_step_weight = trial.suggest_float("TCM_first_step_weight", 0, 0.5)
+            longterm_reid_weight = trial.suggest_float("longterm_reid_weight", 0, 0.5)
+            use_byte = trial.suggest_categorical("use_byte", [True, False])
+            
+            d = {
+                'det_thresh': det_thresh,
+                'max_age': max_age,
+                'min_hits': min_hits,
+                'iou_thresh': iou_thresh,
+                'delta_t': delta_t,
+                'asso_func': asso_func,
+                'inertia': inertia,
+                'TCM_first_step_weight': TCM_first_step_weight,
+                'longterm_reid_weight': longterm_reid_weight,
+                'use_byte': use_byte
+            }
 
         elif self.opt.tracking_method == 'botsort':
 
@@ -120,7 +145,7 @@ class Objective(Evaluator):
 
         elif self.opt.tracking_method == 'ocsort':
 
-            det_thresh = trial.suggest_int("det_thresh", 0, 0.6)
+            det_thresh = trial.suggest_float("det_thresh", 0, 0.6)
             max_age = trial.suggest_int("max_age", 10, 60, step=10)
             min_hits = trial.suggest_int("min_hits", 1, 5, step=1)
             iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
@@ -137,7 +162,7 @@ class Objective(Evaluator):
                 'delta_t': delta_t,
                 'asso_func': asso_func,
                 'inertia': inertia,
-                'use_byte': use_byte,
+                'use_byte': use_byte
             }
 
         elif self.opt.tracking_method == 'deepocsort':
