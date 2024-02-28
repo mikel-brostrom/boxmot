@@ -5,6 +5,12 @@ from functools import partial
 from pathlib import Path
 
 import torch
+import os
+import sys 
+
+script_dir = os.path.dirname(os.path.abspath(__file__))  # Absolute dir the script is in
+parent_dir = os.path.dirname(script_dir)  # Directory containing the script_dir
+sys.path.append(parent_dir)
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
