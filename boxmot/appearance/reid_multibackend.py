@@ -21,7 +21,7 @@ from boxmot.utils.checks import TestRequirements
 tr = TestRequirements()
 
 
-def check_suffix(file="osnet_x0_25_msmt17.pt", suffix=(".pt",), msg=""):
+def check_suffix(file="osnet_x0_25_msmt17.pt", suffix=(".pt"), msg=""):
     # Check file(s) for acceptable suffix
     if file and suffix:
         if isinstance(suffix, str):
@@ -45,6 +45,7 @@ class ReIDDetectMultiBackend(nn.Module):
         w = weights[0] if isinstance(weights, list) else weights
         (
             self.pt,
+            self.pth,
             self.jit,
             self.onnx,
             self.xml,
@@ -58,7 +59,7 @@ class ReIDDetectMultiBackend(nn.Module):
 
         model_name = get_model_name(w)
 
-        if w.suffix == ".pt":
+        if w.suffix == ".pt" or w.suffix == ".pth":
             model_url = get_model_url(w)
             if not file_exists(w) and model_url is not None:
                 gdown.download(model_url, str(w), quiet=False)
@@ -79,9 +80,9 @@ class ReIDDetectMultiBackend(nn.Module):
             use_gpu=device,
         )
 
-        if self.pt:  # PyTorch
+        if self.pt or self.pth:  # PyTorch
             # populate model arch with weights
-            if w and w.is_file() and w.suffix == ".pt":
+            if w and w.is_file() and w.suffix == ".pt" or w.suffix == ".pth":
                 load_pretrained_weights(self.model, w)
             self.model.to(device).eval()
             self.model.half() if self.fp16 else self.model.float()
@@ -183,7 +184,7 @@ class ReIDDetectMultiBackend(nn.Module):
 
         sf = list(export_formats().Suffix)  # export suffixes
         check_suffix(p, sf)  # checks
-        types = [s in Path(p).name for s in sf]
+        types = [s in Path(p).suffix for s in sf]
         return types
 
     def preprocess(self, xyxys, img):

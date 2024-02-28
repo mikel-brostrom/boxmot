@@ -7,6 +7,7 @@ def export_formats():
     # yolo tracking export formats
     x = [
         ["PyTorch", "-", ".pt", True, True],
+        ["PyTorch", "-", ".pth", True, True],
         ["TorchScript", "torchscript", ".torchscript", True, True],
         ["ONNX", "onnx", ".onnx", True, True],
         ["OpenVINO", "openvino", "_openvino_model", True, False],
