@@ -39,7 +39,7 @@ class StrongSORT(object):
         )
         self.cmc = get_cmc_method('ecc')()
 
-    def update(self, dets, img):
+    def update(self, dets, img, embs=None):
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
@@ -65,7 +65,10 @@ class StrongSORT(object):
                 track.camera_update(warp_matrix)
 
         # extract appearance information for each detection
-        features = self.model.get_features(xyxy, img)
+        if embs is not None:
+            features = embs
+        else:
+            features = self.model.get_features(xyxy, img)
 
         tlwh = xyxy2tlwh(xyxy)
         detections = [
