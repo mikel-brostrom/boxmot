@@ -101,8 +101,6 @@ def parse_opt():
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='reid model path')
-    parser.add_argument('--mot-seq-folder', type=Path, default='/home/mikel.brostrom/yolo_tracking/assets/MOT17-mini/train',
-                        help='fodler to MOT dataset')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0',
@@ -145,7 +143,7 @@ def parse_opt():
 
 if __name__ == "__main__":
     opt = parse_opt()
-    mot_folder_paths = [item for item in opt.mot_seq_folder.iterdir()]
+    mot_folder_paths = [item for item in Path(opt.source).iterdir()]
     
     for mot_folder_path in mot_folder_paths:
         opt.source = mot_folder_path / 'img1'
