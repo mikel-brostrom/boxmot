@@ -26,3 +26,26 @@ def write_mot_results(txt_path, results, frame_idx):
 
     with open(str(txt_path), 'ab+') as f:  # append binary mode
         np.savetxt(f, mot.numpy(), fmt='%d')  # save as ints instead of scientific notation
+
+
+def write_np_mot_results(txt_path, numpy_results, frame_idx):
+    # (x, y, x, y, id, conf, cls, ind) --> (id, t, l, w, h, conf, cls, ind)
+    tlwh = ops.xyxy2ltwh(numpy_results[:, 0:4])
+
+    mot_result = np.column_stack((
+        numpy_results[:, 4],
+        tlwh,
+        numpy_results[:, 5],
+        numpy_results[:, 6],)
+    )
+
+    frame_idx_column = np.full((mot_result.shape[0], 1), frame_idx)
+    mot = np.hstack([frame_idx_column, mot_result])
+
+    # create parent folder
+    txt_path.parent.mkdir(parents=True, exist_ok=True)
+    # create mot txt file
+    txt_path.touch(exist_ok=True)
+
+    with open(str(txt_path), 'ab+') as f:  # append binary mode
+        np.savetxt(f, mot, fmt='%d')  # save as ints instead of scientific notation
