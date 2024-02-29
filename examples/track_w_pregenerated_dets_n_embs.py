@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 import numpy as np
 from functools import partial
-
+import json
 import torch
 
 from boxmot import TRACKERS
@@ -15,6 +15,11 @@ from boxmot.utils.checks import TestRequirements
 from examples.detectors import get_yolo_inferer
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from ultralytics.data.loaders import LoadImages
+from ultralytics import YOLO
+from ultralytics.data.utils import VID_FORMATS
+
+from examples.utils import write_np_mot_results
+
 
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
@@ -38,11 +43,42 @@ def run(args):
         args.per_class
     )
 
+    yolo = YOLO(
+        args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
+    )
+
+    with open(args.results_file, 'r') as file:
+        header = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
+
+    args.source = header
+    dets_n_embs = np.loadtxt(args.results_file, skiprows=1)  # skiprows=1 skips the header row
+
+    print(header)
+    print(dets_n_embs.shape)
+
+    results = yolo.track(
+        source=args.source,
+        conf=args.conf,
+        iou=args.iou,
+        agnostic_nms=args.agnostic_nms,
+        show=args.show,
+        stream=True,
+        device=args.device,
+        show_conf=args.show_conf,
+        save_txt=args.save_txt,
+        show_labels=args.show_labels,
+        save=args.save,
+        verbose=args.verbose,
+        exist_ok=args.exist_ok,
+        project=args.project,
+        name=args.name,
+        classes=args.classes,
+        imgsz=args.imgsz,
+        vid_stride=args.vid_stride,
+        line_width=args.line_width
+    )
+
     dataset = LoadImages(args.source)
-
-
-    dets_n_embs = np.loadtxt("/home/mikel.brostrom/yolo_tracking/runs/track/exp7/det_n_embs/0.txt")
-
     for frame_idx, d in enumerate(dataset):
 
         im = d[1][0]
@@ -50,14 +86,19 @@ def run(args):
         # get dets and embedding associated to this frame
         frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_idx + 1]
 
-        # x1, y1, x2, y2, conf, cls
-        dets = frame_dets_n_embs[:, :6]
-        embs = frame_dets_n_embs[:, 6:]
+        # frame id, x1, y1, x2, y2, conf, cls
+        dets = frame_dets_n_embs[:, 1:7]
+        embs = frame_dets_n_embs[:, 7:]
+        tracks = tracker.update(dets, im, embs)
 
-        print(dets.shape)
-        print(embs.shape)
+        p = yolo.predictor.save_dir / 'mot' / (Path(args.source).parent.name + '.txt')
+        yolo.predictor.mot_txt_path = p
 
-        tracks = tracker.update(dets, embs)
+        write_np_mot_results(
+            yolo.predictor.mot_txt_path,
+            tracks,
+            frame_idx,
+        )
 
 
 def parse_opt():
@@ -65,6 +106,8 @@ def parse_opt():
     parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolov8n',
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+                        help='reid model path')
+    parser.add_argument('--results-file', type=Path, default='/home/mikel.brostrom/yolo_tracking/runs/track/exp12/det_n_embs/MOT17-02-FRCNN.txt',
                         help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
