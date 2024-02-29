@@ -54,6 +54,9 @@ def run(args):
         dets = frame_dets_n_embs[:, :6]
         embs = frame_dets_n_embs[:, 6:]
 
+        print(dets.shape)
+        print(embs.shape)
+
         tracks = tracker.update(dets, embs)
 
 
