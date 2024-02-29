@@ -73,7 +73,7 @@ def run(args):
     yolo.predictor.det_n_embs_txt_path.touch(exist_ok=True)
 
     with open(str(yolo.predictor.det_n_embs_txt_path), 'ab+') as f:  # append binary mode
-        np.savetxt(f, [], fmt='%f', header=args.source)  # save as ints instead of scientific notation
+        np.savetxt(f, [], fmt='%f', header=str(args.source))  # save as ints instead of scientific notation
 
     for frame_idx, r in enumerate(results):
 
@@ -105,6 +105,8 @@ def parse_opt():
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='reid model path')
+    parser.add_argument('--mot-seq-folder', type=Path, default='/home/mikel.brostrom/yolo_tracking/assets/MOT17-mini/train',
+                        help='fodler to MOT dataset')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0',
@@ -128,24 +130,12 @@ def parse_opt():
                         help='save results to project/name')
     parser.add_argument('--name', default='exp',
                         help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_true',
+    parser.add_argument('--exist-ok', action='store_true', default=True,
                         help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true',
                         help='use FP16 half-precision inference')
     parser.add_argument('--vid-stride', type=int, default=1,
                         help='video frame-rate stride')
-    parser.add_argument('--show-labels', action='store_false',
-                        help='either show all or only bboxes')
-    parser.add_argument('--show-conf', action='store_false',
-                        help='hide confidences when show')
-    parser.add_argument('--save-txt', action='store_true',
-                        help='save tracking results in a txt file')
-    parser.add_argument('--save-id-crops', action='store_true',
-                        help='save each crop to its respective id folder')
-    parser.add_argument('--save-mot', action='store_true',
-                        help='save tracking results in a single txt file')
-    parser.add_argument('--line-width', default=None, type=int,
-                        help='The line width of the bounding boxes. If None, it is scaled to the image size.')
     parser.add_argument('--per-class', default=False, action='store_true',
                         help='not mix up classes when tracking')
     parser.add_argument('--verbose', default=True, action='store_true',
@@ -159,4 +149,8 @@ def parse_opt():
 
 if __name__ == "__main__":
     opt = parse_opt()
-    run(opt)
+    mot_folder_paths = [item for item in opt.mot_seq_folder.iterdir()]
+    
+    for mot_folder_path in mot_folder_paths:
+        opt.source = mot_folder_path / 'img1'
+        run(opt)
