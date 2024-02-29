@@ -33,8 +33,6 @@ def run_trackeval(
         Prints the standard output and standard error from the evaluation script.
     """
     # Define paths
-    mot_seqs_path = ROOT / 'assets' / 'MOT17-mini' / 'train'
-    gt_folder = mot_seqs_path
     d = [seq_path.parent.name for seq_path in seq_paths]
     # Prepare arguments for subprocess call
     args = [
@@ -135,9 +133,8 @@ if __name__ == "__main__":
 
     val_tools_path = EXPERIMENTATION / 'val_utils'
     download_mot_eval_tools(val_tools_path)
-    zip_dst = download_mot_dataset(val_tools_path, opt.benchmark)
-    if zip_dst:  # Proceed with unzipping only if the download was successful
-        unzip_mot_dataset(zip_dst, val_tools_path, opt.benchmark)
+    zip_path = download_mot_dataset(val_tools_path, opt.benchmark)
+    unzip_mot_dataset(zip_path, val_tools_path, opt.benchmark)
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, val_tools_path)
     run_trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
 
