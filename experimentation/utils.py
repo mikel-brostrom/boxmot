@@ -65,55 +65,63 @@ def download_mot_dataset(val_tools_path, benchmark):
 
     if not zip_dst.exists():
         try:
-            response = requests.get(url, stream=True)
-            response.raise_for_status()  # Check for HTTP request errors
-            total_size_in_bytes = int(response.headers.get('content-length', 0))
+            response = requests.head(url, allow_redirects=True)
+            # Consider any status code less than 400 (e.g., 200, 302) as indicating that the resource exists
+            if response.status_code < 400:
+                response = requests.get(url, stream=True)
+                response.raise_for_status()  # Check for HTTP request errors
+                total_size_in_bytes = int(response.headers.get('content-length', 0))
 
-            with open(zip_dst, 'wb') as file, tqdm(
-                desc=zip_dst.name,
-                total=total_size_in_bytes,
-                unit='iB',
-                unit_scale=True,
-                unit_divisor=1024,
-            ) as bar:
-                for data in response.iter_content(chunk_size=1024):
-                    size = file.write(data)
-                    bar.update(size)
-
-            LOGGER.info(f'{benchmark}.zip downloaded successfully.')
-            return zip_dst
+                with open(zip_dst, 'wb') as file, tqdm(
+                    desc=zip_dst.name,
+                    total=total_size_in_bytes,
+                    unit='iB',
+                    unit_scale=True,
+                    unit_divisor=1024,
+                ) as bar:
+                    for data in response.iter_content(chunk_size=1024):
+                        size = file.write(data)
+                        bar.update(size)
+                LOGGER.info(f'{benchmark}.zip downloaded successfully.')
+            else:
+                LOGGER.warning(f'{benchmark} is not downloadeable from {url}')
+                zip_dst = None
         except requests.HTTPError as e:
             LOGGER.error(f'HTTP Error occurred while downloading {benchmark}.zip: {e}')
         except Exception as e:
             LOGGER.error(f'An error occurred: {e}')
     else:
         LOGGER.info(f'{benchmark}.zip already exists.')
-        return zip_dst
+    return zip_dst
 
 
-def unzip_mot_dataset(zip_dst, val_tools_path, benchmark):
+def unzip_mot_dataset(zip_path, val_tools_path, benchmark):
     """
     Unzip a downloaded MOT dataset zip file into the specified directory.
     
     Parameters:
-        zip_dst (Path): Path to the downloaded MOT benchmark zip file.
+        zip_path (Path): Path to the downloaded MOT benchmark zip file.
         val_tools_path (Path): Base path to the destination folder where the dataset will be unzipped.
         benchmark (str): The MOT benchmark that was downloaded (e.g., 'MOT20', 'MOT17').
     
     Returns:
         None
     """
+    if zip_path is None:
+        LOGGER.warning(f'No zip file. Skipping unzipping')
+        return None
+
     extract_path = val_tools_path / 'data' / benchmark
     if not extract_path.exists():
         try:
-            with zipfile.ZipFile(zip_dst, 'r') as zip_ref:
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_path)
 
             LOGGER.info(f'{benchmark}.zip unzipped successfully.')
         except zipfile.BadZipFile:
-            LOGGER.error(f'{zip_dst.name} is corrupted. Try deleting the file and run the script again.')
+            LOGGER.error(f'{zip_path.name} is corrupted. Try deleting the file and run the script again.')
         except Exception as e:
-            LOGGER.error(f'An error occurred while unzipping {zip_dst.name}: {e}')
+            LOGGER.error(f'An error occurred while unzipping {zip_path.name}: {e}')
     else:
         LOGGER.info(f'{benchmark} folder already exists.')
         return extract_path
