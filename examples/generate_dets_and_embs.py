@@ -64,14 +64,18 @@ def run(args):
     yolo.predictor.custom_args = args
     dets_n_embs = []
 
-    for frame_idx, r in enumerate(results):
+    p = yolo.predictor.save_dir / 'det_n_embs' / (Path(args.source).parent.name + '.txt')
+    yolo.predictor.det_n_embs_txt_path = p
 
-        if yolo.predictor.source_type.webcam or args.source.endswith(VID_FORMATS):
-            p = yolo.predictor.save_dir / 'det_n_embs' / (args.source + '.txt')
-            yolo.predictor.det_n_embs_txt_path = p
-        elif 'MOT16' or 'MOT17' or 'MOT20' in args.source:
-            p = yolo.predictor.save_dir / 'det_n_embs' / (Path(args.source).parent.name + '.txt')
-            yolo.predictor.det_n_embs_txt_path = p
+    # create parent folder
+    yolo.predictor.det_n_embs_txt_path.parent.mkdir(parents=True, exist_ok=True)
+    # create mot txt file
+    yolo.predictor.det_n_embs_txt_path.touch(exist_ok=True)
+
+    with open(str(yolo.predictor.det_n_embs_txt_path), 'ab+') as f:  # append binary mode
+        np.savetxt(f, [], fmt='%f', header=args.source)  # save as ints instead of scientific notation
+
+    for frame_idx, r in enumerate(results):
 
         nr_dets = len(r.boxes)
         frame_idx = torch.full((1, 1), frame_idx + 1)
@@ -90,11 +94,6 @@ def run(args):
                 embs
             ], axis=1
         )
-
-        # create parent folder
-        yolo.predictor.det_n_embs_txt_path.parent.mkdir(parents=True, exist_ok=True)
-        # create mot txt file
-        yolo.predictor.det_n_embs_txt_path.touch(exist_ok=True)
 
         with open(str(yolo.predictor.det_n_embs_txt_path), 'ab+') as f:  # append binary mode
             np.savetxt(f, dets_n_embs, fmt='%f')  # save as ints instead of scientific notation
