@@ -10,7 +10,7 @@ seq_paths = [p / 'img1' for p in Path(mot_seqs_path).iterdir() if Path(p).is_dir
 d = [seq_path.parent.name for seq_path in seq_paths]
 p = subprocess.Popen(
     args=[
-        sys.executable, "/home/mikel.brostrom/yolo_tracking/examples/val_utils/scripts/run_mot_challenge.py",
+        sys.executable, EXAMPLES / "val_utils/scripts/run_mot_challenge.py",
         "--GT_FOLDER", gt_folder,
         "--BENCHMARK", "",
         "--TRACKERS_FOLDER", "/home/mikel.brostrom/yolo_tracking/runs/track/exp",   # project/name
