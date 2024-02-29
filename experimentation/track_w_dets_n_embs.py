@@ -3,29 +3,60 @@
 import argparse
 from pathlib import Path
 import numpy as np
-
+from functools import partial
+import json
 import torch
+
+from boxmot import TRACKERS
+from boxmot.tracker_zoo import create_tracker
 
 from boxmot.utils import ROOT, WEIGHTS
 from boxmot.utils.checks import TestRequirements
 from examples.detectors import get_yolo_inferer
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from ultralytics.data.loaders import LoadImages
+from ultralytics import YOLO
+from ultralytics.data.utils import VID_FORMATS
+
+from examples.utils import write_np_mot_results
+
 
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
-
-from ultralytics import YOLO
-from ultralytics.data.utils import VID_FORMATS
 
 
 @torch.no_grad()
 def run(args):
 
+    tracking_config = \
+        ROOT /\
+        'boxmot' /\
+        'configs' /\
+        (args.tracking_method + '.yaml')
+
+    tracker = create_tracker(
+        args.tracking_method,
+        tracking_config,
+        args.reid_model,
+        'cpu',
+        args.half,
+        args.per_class
+    )
+
     yolo = YOLO(
         args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
     )
 
-    results = yolo(
+    with open(args.dets_n_embs_file_path, 'r') as file:
+        header = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
+
+    args.source = header
+    dets_n_embs = np.loadtxt(args.dets_n_embs_file_path, skiprows=1)  # skiprows=1 skips the header row
+
+    print(header)
+    print(dets_n_embs.shape)
+
+    results = yolo.track(
         source=args.source,
         conf=args.conf,
         iou=args.iou,
@@ -47,56 +78,27 @@ def run(args):
         line_width=args.line_width
     )
 
-    reid = ReIDDetectMultiBackend(weights=args.reid_model, device=yolo.predictor.device, fp16=args.half)
+    dataset = LoadImages(args.source)
+    for frame_idx, d in enumerate(dataset):
 
+        im = d[1][0]
 
-    if 'yolov8' not in str(args.yolo_model):
-        # replace yolov8 model
-        m = get_yolo_inferer(args.yolo_model)
-        model = m(
-            model=args.yolo_model,
-            device=yolo.predictor.device,
-            args=yolo.predictor.args
+        # get dets and embedding associated to this frame
+        frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_idx + 1]
+
+        # frame id, x1, y1, x2, y2, conf, cls
+        dets = frame_dets_n_embs[:, 1:7]
+        embs = frame_dets_n_embs[:, 7:]
+        tracks = tracker.update(dets, im, embs)
+
+        p = yolo.predictor.save_dir / 'mot' / (Path(args.source).parent.name + '.txt')
+        yolo.predictor.mot_txt_path = p
+
+        write_np_mot_results(
+            yolo.predictor.mot_txt_path,
+            tracks,
+            frame_idx + 1,
         )
-        yolo.predictor.model = model
-
-    # store custom args in predictor
-    yolo.predictor.custom_args = args
-    dets_n_embs = []
-
-    p = yolo.predictor.save_dir / 'det_n_embs' / (Path(args.source).parent.name + '.txt')
-    yolo.predictor.det_n_embs_txt_path = p
-
-    # create parent folder
-    yolo.predictor.det_n_embs_txt_path.parent.mkdir(parents=True, exist_ok=True)
-    # create mot txt file
-    yolo.predictor.det_n_embs_txt_path.touch(exist_ok=True)
-
-    with open(str(yolo.predictor.det_n_embs_txt_path), 'ab+') as f:  # append binary mode
-        np.savetxt(f, [], fmt='%f', header=str(args.source))  # save as ints instead of scientific notation
-
-    for frame_idx, r in enumerate(results):
-
-        nr_dets = len(r.boxes)
-        frame_idx = torch.full((1, 1), frame_idx + 1)
-        frame_idx = frame_idx.repeat(nr_dets, 1)
-
-        dets = r.boxes.data[:, 0:4].numpy()
-        img = r.orig_img
-        embs = reid.get_features(dets, img)
-
-        dets_n_embs = np.concatenate(
-            [
-                frame_idx,
-                r.boxes.xyxy.to('cpu'),
-                r.boxes.conf.unsqueeze(1).to('cpu'),
-                r.boxes.cls.unsqueeze(1).to('cpu'),
-                embs
-            ], axis=1
-        )
-
-        with open(str(yolo.predictor.det_n_embs_txt_path), 'ab+') as f:  # append binary mode
-            np.savetxt(f, dets_n_embs, fmt='%f')  # save as ints instead of scientific notation
 
 
 def parse_opt():
@@ -105,8 +107,8 @@ def parse_opt():
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='reid model path')
-    parser.add_argument('--mot-seq-folder', type=Path, default='/home/mikel.brostrom/yolo_tracking/assets/MOT17-mini/train',
-                        help='fodler to MOT dataset')
+    parser.add_argument('--dets-n-emb-path', type=Path, default='/home/mikel.brostrom/yolo_tracking/runs/track/exp/det_n_embs',
+                        help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0',
@@ -124,7 +126,7 @@ def parse_opt():
     parser.add_argument('--save', action='store_true',
                         help='save video tracking results')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
-    parser.add_argument('--classes', nargs='+', type=int,
+    parser.add_argument('--classes', nargs='+', type=int, default=0,
                         help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--project', default=ROOT / 'runs' / 'track',
                         help='save results to project/name')
@@ -136,6 +138,18 @@ def parse_opt():
                         help='use FP16 half-precision inference')
     parser.add_argument('--vid-stride', type=int, default=1,
                         help='video frame-rate stride')
+    parser.add_argument('--show-labels', action='store_false',
+                        help='either show all or only bboxes')
+    parser.add_argument('--show-conf', action='store_false',
+                        help='hide confidences when show')
+    parser.add_argument('--save-txt', action='store_true',
+                        help='save tracking results in a txt file')
+    parser.add_argument('--save-id-crops', action='store_true',
+                        help='save each crop to its respective id folder')
+    parser.add_argument('--save-mot', action='store_true',
+                        help='save tracking results in a single txt file')
+    parser.add_argument('--line-width', default=None, type=int,
+                        help='The line width of the bounding boxes. If None, it is scaled to the image size.')
     parser.add_argument('--per-class', default=False, action='store_true',
                         help='not mix up classes when tracking')
     parser.add_argument('--verbose', default=True, action='store_true',
@@ -149,8 +163,9 @@ def parse_opt():
 
 if __name__ == "__main__":
     opt = parse_opt()
-    mot_folder_paths = [item for item in opt.mot_seq_folder.iterdir()]
-    
-    for mot_folder_path in mot_folder_paths:
-        opt.source = mot_folder_path / 'img1'
+
+    dets_n_emb_file_paths = [item for item in opt.dets_n_emb_path.glob('*.txt')]
+
+    for dets_n_emb_file_path in dets_n_emb_file_paths:
+        opt.dets_n_embs_file_path = dets_n_emb_file_path
         run(opt)
