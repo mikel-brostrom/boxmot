@@ -354,7 +354,7 @@ class DeepOCSort(object):
         self.aw_off = aw_off
         self.new_kf_off = new_kf_off
 
-    def update(self, dets, img):
+    def update(self, dets, img, embs=None):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -382,6 +382,8 @@ class DeepOCSort(object):
         # appearance descriptor extraction
         if self.embedding_off or dets.shape[0] == 0:
             dets_embs = np.ones((dets.shape[0], 1))
+        elif embs is not None:
+            dets_embs = embs
         else:
             # (Ndets x X) [512, 1024, 2048]
             dets_embs = self.model.get_features(dets[:, 0:4], img)
