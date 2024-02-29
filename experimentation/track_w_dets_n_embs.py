@@ -107,8 +107,6 @@ def parse_opt():
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='reid model path')
-    parser.add_argument('--dets-n-emb-path', type=Path, default='/home/mikel.brostrom/yolo_tracking/runs/track/exp/det_n_embs',
-                        help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0',
@@ -163,9 +161,7 @@ def parse_opt():
 
 if __name__ == "__main__":
     opt = parse_opt()
-
-    dets_n_emb_file_paths = [item for item in opt.dets_n_emb_path.glob('*.txt')]
-
+    dets_n_emb_file_paths = [item for item in (opt.project / opt.name / 'det_n_embs').glob('*.txt')]
     for dets_n_emb_file_path in dets_n_emb_file_paths:
         opt.dets_n_embs_file_path = dets_n_emb_file_path
         run(opt)
