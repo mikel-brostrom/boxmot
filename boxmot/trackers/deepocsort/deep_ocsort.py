@@ -354,7 +354,7 @@ class DeepOCSort(object):
         self.aw_off = aw_off
         self.new_kf_off = new_kf_off
 
-    def update(self, dets, img, embs):
+    def update(self, dets, img, embs=None):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
