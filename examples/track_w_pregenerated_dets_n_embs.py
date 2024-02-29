@@ -14,101 +14,47 @@ from boxmot.utils import ROOT, WEIGHTS
 from boxmot.utils.checks import TestRequirements
 from examples.detectors import get_yolo_inferer
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from ultralytics.data.loaders import LoadImages
 
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
-
-from ultralytics import YOLO
-from ultralytics.data.utils import VID_FORMATS
-
-
-def on_predict_start(predictor, persist=False):
-    """
-    Initialize trackers for object tracking during prediction.
-
-    Args:
-        predictor (object): The predictor object to initialize trackers for.
-        persist (bool, optional): Whether to persist the trackers if they already exist. Defaults to False.
-    """
-
-    assert predictor.custom_args.tracking_method in TRACKERS, \
-        f"'{predictor.custom_args.tracking_method}' is not supported. Supported ones are {TRACKERS}"
-
-    tracking_config = \
-        ROOT /\
-        'boxmot' /\
-        'configs' /\
-        (predictor.custom_args.tracking_method + '.yaml')
-    trackers = []
-    for i in range(predictor.dataset.bs):
-        tracker = create_tracker(
-            predictor.custom_args.tracking_method,
-            tracking_config,
-            predictor.custom_args.reid_model,
-            predictor.device,
-            predictor.custom_args.half,
-            predictor.custom_args.per_class
-        )
-        # motion only modeles do not have
-        if hasattr(tracker, 'model'):
-            tracker.model.warmup()
-        trackers.append(tracker)
-
-    predictor.trackers = trackers
 
 
 @torch.no_grad()
 def run(args):
 
-    yolo = YOLO(
-        args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
+    tracking_config = \
+        ROOT /\
+        'boxmot' /\
+        'configs' /\
+        (args.tracking_method + '.yaml')
+
+    tracker = create_tracker(
+        args.tracking_method,
+        tracking_config,
+        args.reid_model,
+        'cpu',
+        args.half,
+        args.per_class
     )
 
-    results = yolo.track(
-        source=args.source,
-        conf=args.conf,
-        iou=args.iou,
-        agnostic_nms=args.agnostic_nms,
-        show=args.show,
-        stream=True,
-        device=args.device,
-        show_conf=args.show_conf,
-        save_txt=args.save_txt,
-        show_labels=args.show_labels,
-        save=args.save,
-        verbose=args.verbose,
-        exist_ok=args.exist_ok,
-        project=args.project,
-        name=args.name,
-        classes=args.classes,
-        imgsz=args.imgsz,
-        vid_stride=args.vid_stride,
-        line_width=args.line_width
-    )
+    dataset = LoadImages(args.source)
 
-    yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
-
-    if 'yolov8' not in str(args.yolo_model):
-        # replace yolov8 model
-        m = get_yolo_inferer(args.yolo_model)
-        model = m(
-            model=args.yolo_model,
-            device=yolo.predictor.device,
-            args=yolo.predictor.args
-        )
-        yolo.predictor.model = None
-
-    # store custom args in predictor
-    yolo.predictor.custom_args = args
 
     dets_n_embs = np.loadtxt("/home/mikel.brostrom/yolo_tracking/runs/track/exp7/det_n_embs/0.txt")
 
-    for frame_idx, r in enumerate(results):
+    for frame_idx, d in enumerate(dataset):
+
+        im = d[1][0]
 
         # get dets and embedding associated to this frame
         frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_idx + 1]
 
-        print(frame_dets_n_embs[0][0])
+        # x1, y1, x2, y2, conf, cls
+        dets = frame_dets_n_embs[:, :6]
+        embs = frame_dets_n_embs[:, 6:]
+
+        tracks = tracker.update(dets, embs)
 
 
 def parse_opt():
