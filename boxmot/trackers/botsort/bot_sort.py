@@ -228,7 +228,7 @@ class BoTSORT(object):
         self.cmc = SparseOptFlow()
         self.fuse_first_associate = fuse_first_associate
 
-    def update(self, dets, img, embs):
+    def update(self, dets, img, embs=None):
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
