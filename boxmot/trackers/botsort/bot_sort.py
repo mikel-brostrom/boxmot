@@ -228,7 +228,7 @@ class BoTSORT(object):
         self.cmc = SparseOptFlow()
         self.fuse_first_associate = fuse_first_associate
 
-    def update(self, dets, img):
+    def update(self, dets, img, embs=None):
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
@@ -262,8 +262,13 @@ class BoTSORT(object):
         dets_first = dets[first_mask]
 
         """Extract embeddings """
+        # appearance descriptor extraction
         if self.with_reid:
-            features_high = self.model.get_features(dets_first[:, 0:4], img)
+            if embs is not None:
+                features_high = embs
+            else:
+                # (Ndets x X) [512, 1024, 2048]
+                features_high = self.model.get_features(dets_first[:, 0:4], img)
 
         if len(dets) > 0:
             """Detections"""

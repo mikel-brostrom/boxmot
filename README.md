@@ -219,6 +219,20 @@ $ python3 examples/val.py --yolo-model yolo_nas_s.pt --reid-model osnetx1_0_duke
 </details>
 
 <details>
+<summary>Experimentation</summary>
+
+```bash
+# saves dets and embeddings under project/name/dets_n_embs
+python generate_dets_and_embs.py --source ./assets/MOT17-mini/train
+# tracks the loaded dets and embs under project/name/dets_n_embs and generates results under project/name/mot
+python track_w_dets_n_embs.py
+# uses TrackEval to validate the tracking results under project/name/mot
+python val_results.py
+```
+
+</details>
+
+<details>
 <summary>Evolution</summary>
 
 We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. By default the objectives are: HOTA, MOTA, IDF1. Run it by
