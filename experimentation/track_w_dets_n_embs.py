@@ -7,13 +7,17 @@ from functools import partial
 import json
 import torch
 
+from tqdm import tqdm
+
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 
-from boxmot.utils import ROOT, WEIGHTS
+from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import TestRequirements
 from examples.detectors import get_yolo_inferer
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.utils import logger as LOGGER
+
 from ultralytics.data.loaders import LoadImages
 from ultralytics import YOLO
 from ultralytics.data.utils import VID_FORMATS
@@ -28,15 +32,9 @@ __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultral
 @torch.no_grad()
 def run(args):
 
-    tracking_config = \
-        ROOT /\
-        'boxmot' /\
-        'configs' /\
-        (args.tracking_method + '.yaml')
-
     tracker = create_tracker(
         args.tracking_method,
-        tracking_config,
+        TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
         args.reid_model,
         'cpu',
         args.half,
@@ -49,11 +47,8 @@ def run(args):
     args.source = header
     dets_n_embs = np.loadtxt(args.dets_n_embs_file_path, skiprows=1)  # skiprows=1 skips the header row
 
-    print(header)
-    print(dets_n_embs.shape)
-
     dataset = LoadImages(args.source)
-    for frame_idx, d in enumerate(dataset):
+    for frame_idx, d in enumerate(tqdm(dataset)):
 
         im = d[1][0]
 
@@ -136,5 +131,6 @@ if __name__ == "__main__":
     opt = parse_opt()
     dets_n_emb_file_paths = [item for item in (opt.project / opt.name / 'det_n_embs').glob('*.txt')]
     for dets_n_emb_file_path in dets_n_emb_file_paths:
+        LOGGER.info(f"Started tracking on {dets_n_emb_file_path} with preloaded dets and embs")
         opt.dets_n_embs_file_path = dets_n_emb_file_path
         run(opt)
