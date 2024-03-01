@@ -30,11 +30,9 @@ def run(args):
         conf=args.conf,
         iou=args.iou,
         agnostic_nms=args.agnostic_nms,
-        show=args.show,
         stream=True,
         device=args.device,
-        save=args.save,
-        verbose=args.verbose,
+        verbose=False,
         exist_ok=args.exist_ok,
         project=args.project,
         name=args.name,
@@ -42,9 +40,6 @@ def run(args):
         imgsz=args.imgsz,
         vid_stride=args.vid_stride,
     )
-
-    reid = ReIDDetectMultiBackend(weights=args.reid_model, device=yolo.predictor.device, fp16=args.half)
-
 
     if 'yolov8' not in str(args.yolo_model):
         # replace yolov8 model
@@ -56,19 +51,29 @@ def run(args):
         )
         yolo.predictor.model = model
 
+    reids = []
+    for r in opt.reid_model:
+        reids.append(
+            ReIDDetectMultiBackend(
+                weights=r,
+                device='cpu',
+                fp16=False
+            )
+        )
+        embs_path = yolo.predictor.save_dir / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
+        embs_path.parent.mkdir(parents=True, exist_ok=True)
+        embs_path.touch(exist_ok=True)
+
     # store custom args in predictor
     yolo.predictor.custom_args = args
-    dets_n_embs = []
 
-    p = yolo.predictor.save_dir / 'det_n_embs' / (Path(args.source).parent.name + '.txt')
-    yolo.predictor.det_n_embs_txt_path = p
-
-    # create parent folder
-    yolo.predictor.det_n_embs_txt_path.parent.mkdir(parents=True, exist_ok=True)
-    # create mot txt file
-    yolo.predictor.det_n_embs_txt_path.touch(exist_ok=True)
-
-    with open(str(yolo.predictor.det_n_embs_txt_path), 'ab+') as f:  # append binary mode
+    dets_path = yolo.predictor.save_dir / 'dets' / (Path(args.source).parent.name + '.txt')
+    
+    # create parent folder and txt files
+    dets_path.parent.mkdir(parents=True, exist_ok=True)
+    dets_path.touch(exist_ok=True)
+    
+    with open(str(dets_path), 'ab+') as f:  # append binary mode
         np.savetxt(f, [], fmt='%f', header=str(args.source))  # save as ints instead of scientific notation
 
     for frame_idx, r in enumerate(results):
@@ -79,30 +84,30 @@ def run(args):
 
         dets = r.boxes.data[:, 0:4].numpy()
         img = r.orig_img
-        embs = reid.get_features(dets, img)
-
-        dets_n_embs = np.concatenate(
+        
+        dets = np.concatenate(
             [
                 frame_idx,
                 r.boxes.xyxy.to('cpu'),
                 r.boxes.conf.unsqueeze(1).to('cpu'),
                 r.boxes.cls.unsqueeze(1).to('cpu'),
-                embs
             ], axis=1
         )
 
-        with open(str(yolo.predictor.det_n_embs_txt_path), 'ab+') as f:  # append binary mode
-            np.savetxt(f, dets_n_embs, fmt='%f')  # save as ints instead of scientific notation
+        with open(str(dets_path), 'ab+') as f:  # append binary mode
+            np.savetxt(f, dets, fmt='%f')  # save as ints instead of scientific notation
+
+        for reid, reid_model_name in zip(reids, opt.reid_model):
+            embs = reid.get_features(dets[:, 1:5], img)
+            embs_path = yolo.predictor.save_dir / 'embs' / reid_model_name.stem / (Path(args.source).parent.name + '.txt')
+            with open(str(embs_path), 'ab+') as f:  # append binary mode
+                np.savetxt(f, embs, fmt='%f')  # save as ints instead of scientific notation
 
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n',
                         help='yolo model path')
-    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
-                        help='reid model path')
-    parser.add_argument('--tracking-method', type=str, default='deepocsort',
-                        help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0',
                         help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
@@ -113,14 +118,14 @@ def parse_opt():
                         help='intersection over union (IoU) threshold for NMS')
     parser.add_argument('--device', default='',
                         help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--show', action='store_true',
-                        help='display tracking video results')
-    parser.add_argument('--save', action='store_true',
-                        help='save video tracking results')
+    parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+                        help='reid model path')
+    parser.add_argument('--tracking-method', type=str, default='deepocsort',
+                        help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, default=0,
                         help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--project', default=ROOT / 'runs' / 'track',
+    parser.add_argument('--project', default=ROOT / 'runs' / 'dets_n_embs',
                         help='save results to project/name')
     parser.add_argument('--name', default='exp',
                         help='save results to project/name')
@@ -145,6 +150,9 @@ if __name__ == "__main__":
     opt = parse_opt()
     mot_folder_paths = [item for item in Path(opt.source).iterdir()]
     
-    for mot_folder_path in mot_folder_paths:
-        opt.source = mot_folder_path / 'img1'
-        run(opt)
+    for y in opt.yolo_model:
+        opt.yolo_model = y
+        opt.name = y.stem
+        for mot_folder_path in mot_folder_paths:
+            opt.source = mot_folder_path / 'img1'
+            run(opt)
