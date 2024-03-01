@@ -230,6 +230,8 @@ python experimentation/generate_dets_and_embs.py --source /home/mikel.brostrom/y
 python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
 # uses TrackEval to generate MOT metrics the tracking results under ./runs/mot
 python experimentation/val_results.py --benchmark MOT17-mini --name yolov8n_osnet_x0_25_msmt17
+# evolve the tracker parameters using pregenerated detections and embeddings
+python experimentation/evolve.py --benchmark MOT17-mini --dets yolov8s --embs osnet_x0_25_msmt17
 ```
 
 </details>
