@@ -222,7 +222,7 @@ $ python3 examples/val.py --yolo-model yolo_nas_s.pt --reid-model osnetx1_0_duke
 <details>
 <summary>Research</summary>
 
-The process of experimenting with tracking algorithms without the right tools is slow and cumbersome. With these new script our intention is to supercharge the research process by loading pre-generated detections and embeddings.
+The process of experimenting with tracking algorithms without the right tools is slow and cumbersome. With these new scripts our intention is to supercharge the research process by loading pre-generated detections and embeddings such that you can focus on the algorithmic part and get the most out of your research time.
 
 ```bash
 # saves dets and embs under ./runs/dets_n_embs separately for each yolo and reid model
