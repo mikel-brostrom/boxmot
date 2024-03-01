@@ -52,7 +52,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
         run: |
           # generate detections and embeddings
-          python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model weights/osnet_x0_25_msmt17.pt --imgsz 320
+          python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
           # generate mot results for calculating metrics
           python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
 
