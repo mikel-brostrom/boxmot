@@ -154,6 +154,9 @@ def parse_opt():
 def run_trackeval(opt):
     if opt is None:
         opt = parse_opt()
+        exp_folder_path = opt.project / opt.name / (str(opt.dets) + "_" + str(opt.embs))
+        exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=opt.exist_ok)
+        opt.exp_folder_path = exp_folder_path
     else:
         opt = opt
 
