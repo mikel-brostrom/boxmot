@@ -3,6 +3,7 @@
 import argparse
 from pathlib import Path
 import numpy as np
+from tqdm import tqdm
 
 import torch
 
@@ -78,7 +79,7 @@ def run(args):
     with open(str(dets_path), 'ab+') as f:  # append binary mode
         np.savetxt(f, [], fmt='%f', header=str(args.source))  # save as ints instead of scientific notation
 
-    for frame_idx, r in enumerate(results):
+    for frame_idx, r in enumerate(tqdm(results)):
 
         nr_dets = len(r.boxes)
         frame_idx = torch.full((1, 1), frame_idx + 1)
