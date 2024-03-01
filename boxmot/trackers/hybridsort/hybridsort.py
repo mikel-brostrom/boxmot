@@ -370,7 +370,7 @@ class HybridSORT(object):
             tracker.camera_update(warp_matrix)
 
     @PerClassDecorator
-    def update(self, dets, im):
+    def update(self, dets, im, embs=None):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
