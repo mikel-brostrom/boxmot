@@ -225,7 +225,7 @@ The process of experimenting with tracking algorithms without the right tools is
 
 ```bash
 # saves dets and embs under ./runs/dets_n_embs separately for each yolo and reid model
-python experimentation/generate_dets_and_embs.py --source /home/mikel.brostrom/yolo_tracking/assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
+python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
 # select a set of dets and embs for the fastest possible tracking and results generation for calculating metrics
 python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
 # uses TrackEval to generate MOT metrics the tracking results under ./runs/mot
