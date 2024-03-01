@@ -1,4 +1,6 @@
 import torch
+from pathlib import Path
+
 
 from boxmot.appearance.backbones import build_model
 from boxmot.appearance.reid_export import (export_onnx, export_openvino,
@@ -7,8 +9,8 @@ from boxmot.appearance.reid_model_factory import (get_model_name,
                                                   load_pretrained_weights)
 from boxmot.utils import WEIGHTS
 
-PT_WEIGHTS = 'osnet_x0_25_msmt17.pt'
-ONNX_WEIGHTS = 'osnet_x0_25_msmt17.onnx'
+PT_WEIGHTS = Path('osnet_x0_25_msmt17.pt')
+ONNX_WEIGHTS = Path('osnet_x0_25_msmt17.onnx')
 
 
 im = torch.zeros(1, 3, 256, 128)
