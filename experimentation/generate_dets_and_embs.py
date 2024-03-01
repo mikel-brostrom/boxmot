@@ -21,6 +21,9 @@ from ultralytics.data.utils import VID_FORMATS
 @torch.no_grad()
 def run(args):
 
+    args.yolo_model.mkdir(parents=True, exist_ok=True)
+    args.reid_model.mkdir(parents=True, exist_ok=True)
+
     yolo = YOLO(
         args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
     )
