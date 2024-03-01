@@ -38,8 +38,8 @@ def run_trackeval(
         sys.executable, EXPERIMENTATION / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
-        "--TRACKERS_FOLDER", args.project / args.name,
-        "--TRACKERS_TO_EVAL", "mot",  # Assuming 'mot' is a constant identifier
+        "--TRACKERS_FOLDER", args.project,
+        "--TRACKERS_TO_EVAL", args.name,  # Assuming 'mot' is a constant identifier
         "--SPLIT_TO_EVAL", "train",
         "--METRICS", *metrics,
         "--USE_PARALLEL", "True",
@@ -90,9 +90,9 @@ def parse_opt():
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, default=0,
                         help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--project', default=ROOT / 'runs' / 'dets_n_embs',
+    parser.add_argument('--project', default=ROOT / 'runs' / 'mot',
                         help='save results to project/name')
-    parser.add_argument('--name', default='exp',
+    parser.add_argument('--name', default='yolov8n_osnet_x0_25_msmt17',
                         help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', default=True,
                         help='existing project/name ok, do not increment')
