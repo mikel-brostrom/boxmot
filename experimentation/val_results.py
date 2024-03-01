@@ -11,7 +11,6 @@ from experimentation.utils import (
 )
 
 
-
 def run_trackeval(
     args,
     seq_paths,
