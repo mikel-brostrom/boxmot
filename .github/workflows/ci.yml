@@ -49,7 +49,7 @@ jobs:
       - name: Tests all tracking options
         shell: bash  # for Windows compatibility
         env:
-          IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           # generate detections and embeddings
           python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
@@ -86,7 +86,7 @@ jobs:
 
       - name: Tests exported reid models
         env:
-            IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
+            IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         shell: bash  # for Windows compatibility
         run: |
 
@@ -98,7 +98,7 @@ jobs:
 
       - name: Test tracking with seg models
         env:
-            IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
+            IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         shell: bash  # for Windows compatibility
         run: |
           # tracking with SEG models
@@ -106,7 +106,7 @@ jobs:
 
       - name: Test tracking with pose models
         env:
-          IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         shell: bash  # for Windows compatibility
         run: |
           # tracking with POSE models
