@@ -90,7 +90,7 @@ def parse_opt():
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, default=0,
                         help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--project', default=ROOT / 'runs' / 'track',
+    parser.add_argument('--project', default=ROOT / 'runs' / 'dets_n_embs',
                         help='save results to project/name')
     parser.add_argument('--name', default='exp',
                         help='save results to project/name')
