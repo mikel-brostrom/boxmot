@@ -12,6 +12,7 @@ from tqdm import tqdm
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 
+from ultralytics.utils.files import increment_path 
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import TestRequirements
 from examples.detectors import get_yolo_inferer
@@ -30,21 +31,21 @@ __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultral
 
 
 @torch.no_grad()
-def run(args):
+def track(args):
 
     tracker = create_tracker(
         args.tracking_method,
         TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
         args.reid_model.with_suffix('.pt'),
         'cpu',
-        args.half,
-        args.per_class
+        False,
+        False
     )
 
     with open(args.dets_file_path, 'r') as file:
         args.source = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
 
-    LOGGER.info(f"Starting tracking on {args.source} with preloaded dets ({args.dets_file_path}) and embs ({args.embs_file_path})")
+    LOGGER.info(f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})")
 
     dets = np.loadtxt(args.dets_file_path, skiprows=1)  # skiprows=1 skips the header row
     embs = np.loadtxt(args.embs_file_path)  # skiprows=1 skips the header row
@@ -61,6 +62,8 @@ def run(args):
     print(dets_n_embs.shape)
 
     dataset = LoadImages(args.source)
+    
+    p = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
     for frame_idx, d in enumerate(tqdm(dataset)):
 
         im = d[1][0]
@@ -72,8 +75,6 @@ def run(args):
         dets = frame_dets_n_embs[:, 1:7]
         embs = frame_dets_n_embs[:, 7:]
         tracks = tracker.update(dets, im, embs)
-
-        p = args.project / args.name / (str(args.dets) + "_" + str(args.embs)) / (Path(args.source).parent.name + '.txt')
 
         write_np_mot_results(
             p,
@@ -115,7 +116,7 @@ def parse_opt():
                         help='save results to project/name')
     parser.add_argument('--name', default='mot',
                         help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_true', default=True,
+    parser.add_argument('--exist-ok', action='store_true',
                         help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true',
                         help='use FP16 half-precision inference')
@@ -139,16 +140,29 @@ def parse_opt():
                         help='print results per frame')
     parser.add_argument('--agnostic-nms', default=False, action='store_true',
                         help='class-agnostic NMS')
+    parser.add_argument('--benchmark', type=str, default='MOT17',
+                        help='MOT16, MOT17, MOT20')
 
     opt = parser.parse_args()
     return opt
 
+def run_track(opt):
+    if opt is None:
+        opt = parse_opt()
+        
+    else:
+        opt = opt
 
-if __name__ == "__main__":
-    opt = parse_opt()
+    exp_folder_path = opt.project / opt.name / (str(opt.dets) + "_" + str(opt.embs))
+    exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=opt.exist_ok)
+    opt.exp_folder_path = exp_folder_path
     dets_file_paths = [item for item in (opt.project / "dets_n_embs" / opt.dets / 'dets').glob('*.txt')]
     embs_file_paths = [item for item in (opt.project / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt')]
     for d, e in zip(dets_file_paths, embs_file_paths):
         opt.dets_file_path = d
         opt.embs_file_path = e
-        run(opt)
+        track(opt)
+
+
+if __name__ == "__main__":
+    run_track(None)
