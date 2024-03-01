@@ -198,7 +198,7 @@ def load_pretrained_weights(model, weight_path):
         model.load_state_dict(model_dict)
 
         if len(matched_layers) == 0:
-            LOGGER.warning(
+            LOGGER.debug(
                 f'The pretrained weights "{weight_path}" cannot be loaded, '
                 "please check the key names manually "
                 "(** ignored and continue **)"
@@ -208,7 +208,7 @@ def load_pretrained_weights(model, weight_path):
                 f'Successfully loaded pretrained weights from "{weight_path}"'
             )
             if len(discarded_layers) > 0:
-                LOGGER.warning(
+                LOGGER.debug(
                     "The following layers are discarded "
                     f"due to unmatched keys or layer size: {*discarded_layers,}"
                 )
