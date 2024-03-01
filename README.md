@@ -219,15 +219,17 @@ $ python3 examples/val.py --yolo-model yolo_nas_s.pt --reid-model osnetx1_0_duke
 </details>
 
 <details>
-<summary>Experimentation</summary>
+<summary>Research</summary>
+
+The process of experimenting with tracking algorithms without the right tools is slow and cumbersome. With these new script our intention is to supercharge the research process by loading pre-generated detections and embeddings.
 
 ```bash
-# saves dets and embeddings under project/name/dets_n_embs
-python generate_dets_and_embs.py --source ./assets/MOT17-mini/train
-# tracks the loaded dets and embs under project/name/dets_n_embs and generates results under project/name/mot
-python track_w_dets_n_embs.py
-# uses TrackEval to validate the tracking results under project/name/mot
-python val_results.py
+# saves dets and embs under ./runs/dets_n_embs separately for each yolo and reid model
+python experimentation/generate_dets_and_embs.py --source /home/mikel.brostrom/yolo_tracking/assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
+# select a set of dets and embs for the fastest possible tracking and results generation for calculating metrics
+python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
+# uses TrackEval to generate MOT metrics the tracking results under ./runs/mot
+python experimentation/val_results.py --benchmark MOT17-mini --name yolov8n_osnet_x0_25_msmt17
 ```
 
 </details>
