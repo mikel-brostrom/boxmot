@@ -45,7 +45,7 @@ def track(args):
     with open(args.dets_file_path, 'r') as file:
         args.source = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
 
-    LOGGER.info(f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)}) using {args.tracking_method}")
+    LOGGER.info(f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})\nusing\n\t{args.tracking_method}")
 
     dets = np.loadtxt(args.dets_file_path, skiprows=1)  # skiprows=1 skips the header row
     embs = np.loadtxt(args.embs_file_path)  # skiprows=1 skips the header row
@@ -90,9 +90,9 @@ def track(args):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', type=Path, default='yolov8n',
                         help='yolo model path')
-    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+    parser.add_argument('--reid-model', type=Path, default='osnet_x0_25_msmt17.pt',
                         help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
