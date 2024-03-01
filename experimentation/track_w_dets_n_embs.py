@@ -35,17 +35,30 @@ def run(args):
     tracker = create_tracker(
         args.tracking_method,
         TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
-        args.reid_model,
+        args.reid_model.with_suffix('.pt'),
         'cpu',
         args.half,
         args.per_class
     )
 
-    with open(args.dets_n_embs_file_path, 'r') as file:
-        header = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
+    with open(args.dets_file_path, 'r') as file:
+        args.source = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
 
-    args.source = header
-    dets_n_embs = np.loadtxt(args.dets_n_embs_file_path, skiprows=1)  # skiprows=1 skips the header row
+    LOGGER.info(f"Starting tracking on {args.source} with preloaded dets ({args.dets_file_path}) and embs ({args.embs_file_path})")
+
+    dets = np.loadtxt(args.dets_file_path, skiprows=1)  # skiprows=1 skips the header row
+    embs = np.loadtxt(args.embs_file_path)  # skiprows=1 skips the header row
+
+    print(dets.shape)
+    print(embs.shape)
+    dets_n_embs = np.concatenate(
+        [
+            dets,
+            embs
+        ], axis=1
+    )
+
+    print(dets_n_embs.shape)
 
     dataset = LoadImages(args.source)
     for frame_idx, d in enumerate(tqdm(dataset)):
@@ -60,7 +73,7 @@ def run(args):
         embs = frame_dets_n_embs[:, 7:]
         tracks = tracker.update(dets, im, embs)
 
-        p = args.project / args.name / 'mot' / (Path(args.source).parent.name + '.txt')
+        p = args.project / args.name / (str(args.dets) + "_" + str(args.embs)) / (Path(args.source).parent.name + '.txt')
 
         write_np_mot_results(
             p,
@@ -79,6 +92,10 @@ def parse_opt():
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0',
                         help='file/dir/URL/glob, 0 for webcam')
+    parser.add_argument('--dets', type=str, default='yolov8n',
+                        help='the folder name under project to load the detections from')
+    parser.add_argument('--embs', type=str, default='osnet_x0_25_msmt17',
+                        help='the folder name under project/dets to load the embeddings from')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
                         help='inference size h,w')
     parser.add_argument('--conf', type=float, default=0.5,
@@ -94,9 +111,9 @@ def parse_opt():
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, default=0,
                         help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--project', default=ROOT / 'runs' / 'dets_n_embs',
+    parser.add_argument('--project', default=ROOT / 'runs',
                         help='save results to project/name')
-    parser.add_argument('--name', default='exp',
+    parser.add_argument('--name', default='mot',
                         help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', default=True,
                         help='existing project/name ok, do not increment')
@@ -129,8 +146,9 @@ def parse_opt():
 
 if __name__ == "__main__":
     opt = parse_opt()
-    dets_n_emb_file_paths = [item for item in (opt.project / opt.name / 'det_n_embs').glob('*.txt')]
-    for dets_n_emb_file_path in dets_n_emb_file_paths:
-        LOGGER.info(f"Started tracking on {dets_n_emb_file_path} with preloaded dets and embs")
-        opt.dets_n_embs_file_path = dets_n_emb_file_path
+    dets_file_paths = [item for item in (opt.project / "dets_n_embs" / opt.dets / 'dets').glob('*.txt')]
+    embs_file_paths = [item for item in (opt.project / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt')]
+    for d, e in zip(dets_file_paths, embs_file_paths):
+        opt.dets_file_path = d
+        opt.embs_file_path = e
         run(opt)
