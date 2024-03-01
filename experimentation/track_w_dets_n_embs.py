@@ -45,7 +45,7 @@ def track(args):
     with open(args.dets_file_path, 'r') as file:
         args.source = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
 
-    LOGGER.info(f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})")
+    LOGGER.info(f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)}) using {args.tracking_method}")
 
     dets = np.loadtxt(args.dets_file_path, skiprows=1)  # skiprows=1 skips the header row
     embs = np.loadtxt(args.embs_file_path)  # skiprows=1 skips the header row
@@ -79,7 +79,7 @@ def track(args):
         if tracks.ndim == 1:
             # The array is 1D; add a new axis to make it 2D
             # For example, convert it to a column vector
-            tracks = tracks[np.newaxis, :]
+            print(tracks)
 
         write_np_mot_results(
             p,
