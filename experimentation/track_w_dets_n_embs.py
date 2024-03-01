@@ -76,6 +76,11 @@ def track(args):
         embs = frame_dets_n_embs[:, 7:]
         tracks = tracker.update(dets, im, embs)
 
+        if tracks.ndim == 1:
+            # The array is 1D; add a new axis to make it 2D
+            # For example, convert it to a column vector
+            tracks = tracks[np.newaxis, :]
+
         write_np_mot_results(
             p,
             tracks,
