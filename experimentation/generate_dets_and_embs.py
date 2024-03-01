@@ -110,6 +110,8 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n',
                         help='yolo model path')
+    parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+                        help='reid model path')
     parser.add_argument('--source', type=str, default='0',
                         help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
@@ -120,8 +122,6 @@ def parse_opt():
                         help='intersection over union (IoU) threshold for NMS')
     parser.add_argument('--device', default='',
                         help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
-                        help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
