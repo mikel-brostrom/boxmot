@@ -86,7 +86,7 @@ jobs:
 
       - name: Tests exported reid models
         env:
-            IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
+            IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         shell: bash  # for Windows compatibility
         run: |
 
@@ -98,7 +98,7 @@ jobs:
 
       - name: Test tracking with seg models
         env:
-            IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
+            IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         shell: bash  # for Windows compatibility
         run: |
           # tracking with SEG models
@@ -106,7 +106,7 @@ jobs:
 
       - name: Test tracking with pose models
         env:
-          IMG: ./assets/MOT17-mini/train/MOT17-05-FRCNN/img1/000001.jpg
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         shell: bash  # for Windows compatibility
         run: |
           # tracking with POSE models
