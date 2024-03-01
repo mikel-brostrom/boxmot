@@ -43,10 +43,6 @@ def run(args):
         args.per_class
     )
 
-    yolo = YOLO(
-        args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
-    )
-
     with open(args.dets_n_embs_file_path, 'r') as file:
         header = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
 
@@ -55,28 +51,6 @@ def run(args):
 
     print(header)
     print(dets_n_embs.shape)
-
-    results = yolo.track(
-        source=args.source,
-        conf=args.conf,
-        iou=args.iou,
-        agnostic_nms=args.agnostic_nms,
-        show=args.show,
-        stream=True,
-        device=args.device,
-        show_conf=args.show_conf,
-        save_txt=args.save_txt,
-        show_labels=args.show_labels,
-        save=args.save,
-        verbose=args.verbose,
-        exist_ok=args.exist_ok,
-        project=args.project,
-        name=args.name,
-        classes=args.classes,
-        imgsz=args.imgsz,
-        vid_stride=args.vid_stride,
-        line_width=args.line_width
-    )
 
     dataset = LoadImages(args.source)
     for frame_idx, d in enumerate(dataset):
@@ -91,11 +65,10 @@ def run(args):
         embs = frame_dets_n_embs[:, 7:]
         tracks = tracker.update(dets, im, embs)
 
-        p = yolo.predictor.save_dir / 'mot' / (Path(args.source).parent.name + '.txt')
-        yolo.predictor.mot_txt_path = p
+        p = args.project / args.name / 'mot' / (Path(args.source).parent.name + '.txt')
 
         write_np_mot_results(
-            yolo.predictor.mot_txt_path,
+            p,
             tracks,
             frame_idx + 1,
         )
