@@ -152,7 +152,7 @@ if __name__ == "__main__":
     
     for y in opt.yolo_model:
         opt.yolo_model = y
-        opt.name = y.name
+        opt.name = y.stem
         for mot_folder_path in mot_folder_paths:
             opt.source = mot_folder_path / 'img1'
             run(opt)
