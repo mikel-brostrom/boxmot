@@ -1,3 +1,4 @@
+import re
 import sys
 import argparse
 import subprocess
@@ -11,7 +12,25 @@ from experimentation.utils import (
 )
 
 
-def run_trackeval(
+def parse_mot_results(results):
+        """Extract the COMBINED HOTA, MOTA, IDF1 from the results generate by the
+           run_mot_challenge.py script.
+
+        Args:
+            str: mot_results
+
+        Returns:
+            (dict): {'HOTA': x, 'MOTA':y, 'IDF1':z}
+        """
+        combined_results = results.split('COMBINED')[2:-1]
+        # robust way of getting first ints/float in string
+        combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
+        # pack everything in dict
+        combined_results = {key: value for key, value in zip(['HOTA', 'MOTA', 'IDF1'], combined_results)}
+        return combined_results
+
+
+def trackeval(
     args,
     seq_paths,
     save_dir,
@@ -38,8 +57,8 @@ def run_trackeval(
         sys.executable, EXPERIMENTATION / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
-        "--TRACKERS_FOLDER", args.project,
-        "--TRACKERS_TO_EVAL", args.name,  # Assuming 'mot' is a constant identifier
+        "--TRACKERS_FOLDER", args.exp_folder_path,
+        "--TRACKERS_TO_EVAL", "",
         "--SPLIT_TO_EVAL", "train",
         "--METRICS", *metrics,
         "--USE_PARALLEL", "True",
@@ -63,6 +82,7 @@ def run_trackeval(
     print("Standard Output:\n", stdout)
     if stderr:
         print("Standard Error:\n", stderr)
+    return stdout
 
 
 def parse_opt():
@@ -94,6 +114,10 @@ def parse_opt():
                         help='save results to project/name')
     parser.add_argument('--name', default='yolov8n_osnet_x0_25_msmt17',
                         help='save results to project/name')
+    parser.add_argument('--dets', type=str, default='yolov8n',
+                        help='the folder name under project to load the detections from')
+    parser.add_argument('--embs', type=str, default='osnet_x0_25_msmt17',
+                        help='the folder name under project/dets to load the embeddings from')
     parser.add_argument('--exist-ok', action='store_true', default=True,
                         help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true',
@@ -127,13 +151,22 @@ def parse_opt():
     return opt
 
 
-if __name__ == "__main__":
-    opt = parse_opt()
+def run_trackeval(opt):
+    if opt is None:
+        opt = parse_opt()
+    else:
+        opt = opt
 
     val_tools_path = EXPERIMENTATION / 'val_utils'
     download_mot_eval_tools(val_tools_path)
     zip_path = download_mot_dataset(val_tools_path, opt.benchmark)
     unzip_mot_dataset(zip_path, val_tools_path, opt.benchmark)
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, val_tools_path)
-    run_trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
+    results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
+    combined_results = parse_mot_results(results)
+    print(combined_results)
+    return combined_results
+
+if __name__ == "__main__":
+    run_trackeval(None)
 
