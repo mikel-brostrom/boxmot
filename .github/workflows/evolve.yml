@@ -3,15 +3,14 @@ name: Evolution
 
 # events that trigger the workflow (required)
 on:
-  push: {}
+  push:
+    branches:
+      - '**'         # Runs on pushes to any branch
+      - '!master'    # Exclude master branch to avoid duplicate runs when merging PRs
   pull_request:
     # pull request where master is target
     branches:
       - master
-
-env:
-  # Directory of PyPi package to be tested
-  PACKAGE_DIR: boxmot
 
 jobs:
   test-tracking-methods:
@@ -45,4 +44,4 @@ jobs:
 
       - name: Evolve set of parameters for selected tracking method
         run: |
-          python experimentation/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17
+          python experimentation/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 2
