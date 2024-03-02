@@ -13,13 +13,15 @@ on:
       - master
 
 jobs:
-  test-tracking-methods:
+  test-mot-metrics:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
         python-version: ['3.11']
+    outputs:
+      status: ${{ job.status }}
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50

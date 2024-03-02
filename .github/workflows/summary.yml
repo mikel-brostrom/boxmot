@@ -1,0 +1,56 @@
+# name of the workflow, what it is doing (optional)
+name: Create summary
+
+# events that trigger the workflow (required)
+on:
+  push:
+    # pushes to the following branches
+    branches:
+      - master
+  pull_request:
+    # pull request where master is target
+    branches:
+      - master  
+
+
+jobs:
+  create-summary:
+    needs:
+      - test-tracking-methods
+      - test-mot-metrics
+      - test-evolution
+      - test-tracking-with-pose
+      - test-tracking-with-seg
+      - test-tracking-methods
+    if: always()  # This ensures the job runs regardless of previous job failures
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare environment variables
+        run: |
+          echo "test-tracking-methods_STATUS=${{ needs.test-tracking-methods.result }}" >> $GITHUB_ENV
+          echo "test-mot-metrics_STATUS=${{ needs.test-mot-metrics.result }}" >> $GITHUB_ENV
+          echo "test-evolution_STATUS=${{ needs.test-evolution.result }}" >> $GITHUB_ENV
+          echo "test-tracking-with-pose_STATUS=${{ needs.test-tracking-with-pose.result }}" >> $GITHUB_ENV
+          echo "test-tracking-with-seg_STATUS=${{ needs.test-tracking-with-seg.result }}" >> $GITHUB_ENV
+          echo "test-tracking-methods_STATUS=${{ needs.test-tracking-methods.result }}" >> $GITHUB_ENV
+          # Repeat for additional jobs
+      - name: Check for failures and create summary
+        run: |
+          summary=""
+          failed=false
+
+          # Print all environment variables, grep for those ending with _STATUS, then loop
+          for var in $(printenv | grep '_STATUS$'); do
+            job_status="${var##*=}"  # Extract the status part
+            job_name="${var%%=*}"  # Extract the job name part
+            if [[ "$job_status" != "success" ]]; then
+              summary+="$job_name failed with status: $job_status\n"
+              failed=true
+            fi
+          done
+
+          if [[ "$failed" = false ]]; then
+            summary="All jobs succeeded."
+          fi
+
+          echo "Summary: $summary"
