@@ -12,9 +12,8 @@ on:
     branches:
       - master  
 
-
 jobs:
-  create-summary:
+  check-failures:
     needs:
       - test-tracking-methods
       - test-mot-metrics
