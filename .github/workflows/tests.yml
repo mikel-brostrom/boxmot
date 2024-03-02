@@ -15,6 +15,9 @@ on:
 env:
   # Directory of PyPi package to be tested
   PACKAGE_DIR: boxmot
+  # Minimum acceptable test coverage
+  # Increase as you add more tests to increase coverage
+  COVERAGE_FAIL_UNDER: 29
 
 jobs:
   test-tests:
