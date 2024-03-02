@@ -124,14 +124,75 @@ jobs:
           python experimentation/val_results.py --benchmark MOT17-mini --name yolov8n_osnet_x0_25_msmt17
 
 
+  test-tracking-with-pose:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Test tracking with pose models
+        env:
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+        run: python examples/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
+
+
+  test-tracking-with-seg:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    steps:
+      - id: set_result
+        run: echo "::set-output name=result::success"
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Test tracking with seg models
+        env:
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+        run: python examples/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
+
+
+  test-tests:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: 
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e . pytest pytest-cov --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Pytest tests  # after tracking options as this does not download models
+        shell: bash  # for Windows compatibility
+        run: |
+          pytest --cov=$PACKAGE_DIR --cov-report=html -v tests
+          coverage report --fail-under=$COVERAGE_FAIL_UNDER
+
   check-failures:
     needs:
       - test-tracking-methods
       - test-mot-metrics
       - test-evolution
-      #- test-tests
-      #- test-tracking-with-pose
-      #- test-tracking-with-seg
+      - test-tests
+      - test-tracking-with-pose
+      - test-tracking-with-seg
     if: always()  # This ensures the job runs regardless of previous job failures
     runs-on: ubuntu-latest
     steps:
@@ -140,6 +201,9 @@ jobs:
           echo "test-tracking-methods_STATUS=${{ needs.test-tracking-methods.result }}" >> $GITHUB_ENV
           echo "test-mot-metrics_STATUS=${{ needs.test-mot-metrics.result }}" >> $GITHUB_ENV
           echo "test-evolution_STATUS=${{ needs.test-evolution.result }}" >> $GITHUB_ENV
+          echo "test-tests_STATUS=${{ needs.test-tests.result }}" >> $GITHUB_ENV
+          echo "test-tracking-with-pose_STATUS=${{ needs.test-tracking-with-pose.result }}" >> $GITHUB_ENV
+          echo "test-tracking-with-seg_STATUS=${{ needs.test-tracking-with-seg.result }}" >> $GITHUB_ENV
       - name: Check for failures and create summary
         run: |
           summary=""
