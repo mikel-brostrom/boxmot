@@ -1,13 +1,13 @@
 # name of the workflow, what it is doing (optional)
-name: seg model tracking test
+name: Tracking with segmentation model test
 
 # events that trigger the workflow (required)
 on:
-  push:
-    branches: [master, ci-test]
+  push: {}
   pull_request:
     # pull request where master is target
-    branches: [master]
+    branches:
+      - master
 
 env:
   # Directory of PyPi package to be tested
