@@ -80,9 +80,10 @@ In inverse chronological order:
 
 #### News
 
+* x4 pipeline speedup boost by jobs parallelization (Mars 2024)
 * Ultra fast exerimentation enabled by allowing local detections and embeddings saving. This data can then be loaded into any tracking algorithm, avoiding the overhead of repeatedly generating it (February 2024)
 * Centroid-based cost function added to OCSORT and DeepOCSORT (suitable for: small and/or high speed objects and low FPS videos) (January 2024)
-* Custom Ultralytics pacakge updated from 8.0.124 to 8.0.224 (December 2023)
+* Custom Ultralytics package updated from 8.0.124 to 8.0.224 (December 2023)
 * HybridSORT available (August 2023)
 * SOTA CLIP-ReID people and vehicle models available (August 2023)
 
