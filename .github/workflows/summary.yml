@@ -21,7 +21,6 @@ jobs:
       - test-tests
       - test-tracking-with-pose
       - test-tracking-with-seg
-      - test-tracking-methods
     if: always()  # This ensures the job runs regardless of previous job failures
     runs-on: ubuntu-latest
     steps:
