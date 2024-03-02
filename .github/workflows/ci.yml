@@ -4,7 +4,7 @@ name: CI CPU testing
 # events that trigger the workflow (required)
 on:
   push:
-    branches: [ci-test]
+    branches: [master, ci-test]
   pull_request:
     # pull request where master is target
     branches: [master]
