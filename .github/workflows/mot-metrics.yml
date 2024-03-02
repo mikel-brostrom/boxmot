@@ -4,12 +4,10 @@ name: MOT metrics
 # events that trigger the workflow (required)
 on:
   push:
-    branches:
-      - parallelize-trackers-ci-tests
+    branches: [main]
   pull_request:
     # pull request where master is target
-    branches:
-      - master
+    branches: [main]
 
 env:
   # Directory of PyPi package to be tested
