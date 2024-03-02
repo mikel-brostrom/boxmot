@@ -1,9 +1,11 @@
 # name of the workflow, what it is doing (optional)
 name: MOT metrics
 
-# evensts that trigger the workflow (required)
+# events that trigger the workflow (required)
 on:
-  push: {}
+  push:
+    branches:
+      - parallelize-trackers-ci-tests
   pull_request:
     # pull request where master is target
     branches:
