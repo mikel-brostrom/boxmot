@@ -5,8 +5,7 @@ name: Evolution
 on:
   push:
     branches:
-      - '**'         # Runs on pushes to any branch
-      - '!master'    # Exclude master branch to avoid duplicate runs when merging PRs
+      - master  # Ignore direct pushes to master
   pull_request:
     # pull request where master is target
     branches:

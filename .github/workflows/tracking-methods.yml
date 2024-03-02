@@ -4,9 +4,8 @@ name: Test all tracking methods
 # events that trigger the workflow (required)
 on:
   push:
-    branches-ignore:
+    branches:
       - master  # Ignore direct pushes to master
-      - 'feature/**'  # Ignore pushes to feature branches likely to have PRs
   pull_request:
     # pull request where master is target
     branches:
