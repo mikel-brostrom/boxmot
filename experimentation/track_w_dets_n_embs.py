@@ -63,7 +63,8 @@ def track(args):
 
     dataset = LoadImages(args.source)
     
-    p = args.exp_folder_path / (Path(args.source).parent.name + '.npy')
+    p = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
+    print(p)
     for frame_idx, d in enumerate(tqdm(dataset)):
 
         im = d[1][0]
@@ -161,8 +162,8 @@ def run_track(opt):
     exp_folder_path = opt.project / opt.name / (str(opt.dets) + "_" + str(opt.embs))
     exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=opt.exist_ok)
     opt.exp_folder_path = exp_folder_path
-    dets_file_paths = [item for item in (opt.project / "dets_n_embs" / opt.dets / 'dets').glob('*.npy')]
-    embs_file_paths = [item for item in (opt.project / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.npy')]
+    dets_file_paths = [item for item in (opt.project / "dets_n_embs" / opt.dets / 'dets').glob('*.txt')]
+    embs_file_paths = [item for item in (opt.project / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt')]
     for d, e in zip(dets_file_paths, embs_file_paths):
         opt.dets_file_path = d
         opt.embs_file_path = e
