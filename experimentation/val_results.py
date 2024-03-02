@@ -55,6 +55,7 @@ def trackeval(
     # Define paths
     d = [seq_path.parent.name for seq_path in seq_paths]
     # Prepare arguments for subprocess call
+    print('args.exp_folder_path', args.exp_folder_path) 
     args = [
         sys.executable, EXPERIMENTATION / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
@@ -156,11 +157,12 @@ def parse_opt():
 def run_trackeval(opt):
     if opt is None:
         opt = parse_opt()
-        exp_folder_path = opt.project / opt.name / (str(opt.dets) + "_" + str(opt.embs))
+        exp_folder_path = opt.project / (str(opt.dets) + "_" + str(opt.embs))
         exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=opt.exist_ok)
         opt.exp_folder_path = exp_folder_path
     else:
         opt = opt
+        opt.exist_ok = False
 
     val_tools_path = EXPERIMENTATION / 'val_utils'
     download_mot_eval_tools(val_tools_path)
