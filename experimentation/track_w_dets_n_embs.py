@@ -63,7 +63,7 @@ def track(args):
 
     dataset = LoadImages(args.source)
     
-    p = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
+    p = args.exp_folder_path / (Path(args.source).parent.name + '.npy')
     for frame_idx, d in enumerate(tqdm(dataset)):
 
         im = d[1][0]
