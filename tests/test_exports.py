@@ -8,8 +8,8 @@ from boxmot.appearance.reid_model_factory import (get_model_name,
                                                   load_pretrained_weights)
 from boxmot.utils import WEIGHTS
 
-PT_WEIGHTS = Path('osnet_x0_25_msmt17.pt')
-ONNX_WEIGHTS = Path('osnet_x0_25_msmt17.onnx')
+PT_WEIGHTS = WEIGHTS / 'osnet_x0_25_msmt17.pt'
+ONNX_WEIGHTS = WEIGHTS / 'osnet_x0_25_msmt17.onnx'
 
 
 im = torch.zeros(1, 3, 256, 128)
