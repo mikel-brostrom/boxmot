@@ -1,7 +1,7 @@
 # name of the workflow, what it is doing (optional)
 name: MOT metrics
 
-# events that trigger the workflow (required)
+# evensts that trigger the workflow (required)
 on:
   push: {}
   pull_request:
