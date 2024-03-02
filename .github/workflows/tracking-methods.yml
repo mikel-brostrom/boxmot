@@ -21,7 +21,8 @@ jobs:
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
         python-version: ['3.8', '3.9', '3.10']
-        tracking-method: [hybridsort, botsort, ocsort, bytetrack]
+        # leads to too many workflow which ends up queued
+        # tracking-method: [hybridsort, botsort, ocsort, bytetrack] 
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
@@ -46,4 +47,7 @@ jobs:
 
       - name: Run tracking method
         run: |
-          python experimentation/track_w_dets_n_embs.py --tracking-method ${{ matrix.tracking-method }} --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
+          python experimentation/track_w_dets_n_embs.py --tracking-method hybridsort --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
+          python experimentation/track_w_dets_n_embs.py --tracking-method botsort    --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
+          python experimentation/track_w_dets_n_embs.py --tracking-method ocsort     --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
+          python experimentation/track_w_dets_n_embs.py --tracking-method bytetrack  --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
