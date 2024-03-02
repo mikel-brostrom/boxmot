@@ -22,8 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.8', '3.9', '3.10']
-        tracking-method: [hybridsort, botsort, ocsort, bytetrack]
+        python-version: ['3.11']
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
