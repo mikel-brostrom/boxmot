@@ -15,9 +15,7 @@ Usage:
 import argparse
 
 import yaml
-from ultralytics.utils.files import increment_path 
 from ultralytics.utils.checks import check_requirements, print_args
-from ultralytics.utils.files import increment_path 
 
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, logger
 from experimentation.val_results import run_trackeval
@@ -220,6 +218,7 @@ class Objective():
         # generate new set of params
         self.get_new_config(trial)
         # run trial, get HOTA, MOTA, IDF1 COMBINED results
+        print('run_track(self.opt)')
         run_track(self.opt)
         results = run_trackeval(self.opt)
         # extract objective results of current trial
@@ -293,9 +292,9 @@ def parse_opt():
     parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='strongsort, ocsort, bytetrack, deepocsort, botsort')
-    parser.add_argument('--project', default=ROOT / 'runs',
+    parser.add_argument('--project', default=ROOT / 'runs' / 'mot',
                         help='save results to project/name')
-    parser.add_argument('--name', default='mot',
+    parser.add_argument('--name', default='yolov8n_osnet_x0_25_msmt17',
                         help='save results to project/name')
     parser.add_argument('--dets', type=str, default='yolov8n',
                         help='the folder name under project to load the detections from')
@@ -304,7 +303,7 @@ def parse_opt():
 
     parser.add_argument('--classes', nargs='+', type=str, default=['0'],
                         help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--exist-ok', action='store_true',
+    parser.add_argument('--exist-ok', action='store_true', default=False,
                         help='existing project/name ok, do not increment')
     parser.add_argument('--benchmark', type=str, default='MOT17',
                         help='MOT16, MOT17, MOT20')

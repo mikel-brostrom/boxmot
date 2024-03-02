@@ -30,7 +30,6 @@ __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 
-@torch.no_grad()
 def track(args):
 
     tracker = create_tracker(
@@ -50,16 +49,12 @@ def track(args):
     dets = np.loadtxt(args.dets_file_path, skiprows=1)  # skiprows=1 skips the header row
     embs = np.loadtxt(args.embs_file_path)  # skiprows=1 skips the header row
 
-    print(dets.shape)
-    print(embs.shape)
     dets_n_embs = np.concatenate(
         [
             dets,
             embs
         ], axis=1
     )
-
-    print(dets_n_embs.shape)
 
     dataset = LoadImages(args.source)
     
@@ -98,6 +93,10 @@ def parse_opt():
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack')
     parser.add_argument('--source', type=str, default='0',
                         help='file/dir/URL/glob, 0 for webcam')
+    parser.add_argument('--project', default=ROOT / 'runs' / 'mot',
+                        help='save results to project/name')
+    parser.add_argument('--name', default='mot',
+                        help='save results to project/name')
     parser.add_argument('--dets', type=str, default='yolov8n',
                         help='the folder name under project to load the detections from')
     parser.add_argument('--embs', type=str, default='osnet_x0_25_msmt17',
@@ -117,10 +116,6 @@ def parse_opt():
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, default=0,
                         help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--project', default=ROOT / 'runs',
-                        help='save results to project/name')
-    parser.add_argument('--name', default='mot',
-                        help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true',
                         help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true',
@@ -153,16 +148,16 @@ def parse_opt():
 
 def run_track(opt):
     if opt is None:
-        opt = parse_opt()
-        
+        opt = parse_opt()  
     else:
         opt = opt
 
-    exp_folder_path = opt.project / opt.name / (str(opt.dets) + "_" + str(opt.embs))
-    exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=opt.exist_ok)
+    exp_folder_path = opt.project / (str(opt.dets) + "_" + str(opt.embs))
+    exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
     opt.exp_folder_path = exp_folder_path
-    dets_file_paths = [item for item in (opt.project / "dets_n_embs" / opt.dets / 'dets').glob('*.txt')]
-    embs_file_paths = [item for item in (opt.project / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt')]
+    dets_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'dets').glob('*.txt')]
+    embs_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt')]
+    print(dets_file_paths)
     for d, e in zip(dets_file_paths, embs_file_paths):
         opt.dets_file_path = d
         opt.embs_file_path = e
