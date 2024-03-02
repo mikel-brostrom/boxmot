@@ -3,7 +3,10 @@ name: Tests
 
 # events that trigger the workflow (required)
 on:
-  push: {}
+  push:
+    branches:
+      - '**'         # Runs on pushes to any branch
+      - '!master'    # Exclude master branch to avoid duplicate runs when merging PRs
   pull_request:
     # pull request where master is target
     branches:
