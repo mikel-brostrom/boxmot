@@ -1,0 +1,235 @@
+# name of the workflow, what it is doing (optional)
+name: BoxMOT CI
+
+# events that trigger the workflow (required)
+on:
+  push:
+    # pushes to the following branches
+    branches:
+      - master
+  pull_request:
+    # pull request where master is target
+    branches:
+      - master
+
+
+env:
+  # Directory of PyPi package to be tested
+  PACKAGE_DIR: boxmot
+  # Minimum acceptable test coverage
+  # Increase as you add more tests to increase coverage
+  COVERAGE_FAIL_UNDER: 29
+
+
+jobs:
+  test-tracking-methods:
+    runs-on: ${{ matrix.os }}
+    outputs:
+      status: ${{ job.status }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]   # skip windows-latest for
+        python-version: ['3.8', '3.11']
+        # leads to too many workflow which ends up queued
+        # tracking-method: [hybridsort, botsort, ocsort, bytetrack] 
+
+    # Timeout: https://stackoverflow.com/a/59076067/4521646
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4  # Check out the repository
+      - name: Set up Python
+        uses: actions/setup-python@v5  # Prepare environment with python 3.9
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip' # caching pip dependencies
+      - name: Install requirements
+        shell: bash  # for Windows compatibility
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Generate detections and embeddings
+        run: |
+          python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
+
+      - name: Run tracking method
+        run: |
+          python experimentation/track_w_dets_n_embs.py --tracking-method hybridsort --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
+          python experimentation/track_w_dets_n_embs.py --tracking-method botsort    --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
+          python experimentation/track_w_dets_n_embs.py --tracking-method ocsort     --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
+          python experimentation/track_w_dets_n_embs.py --tracking-method bytetrack  --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
+
+  test-evolution:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]   # skip windows-latest for
+        python-version: ['3.8', '3.11']
+    outputs:
+      status: ${{ job.status }}
+
+    # Timeout: https://stackoverflow.com/a/59076067/4521646
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4  # Check out the repository
+      - name: Set up Python
+        uses: actions/setup-python@v5  # Prepare environment with python 3.9
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip' # caching pip dependencies
+
+      - name: Install requirements
+        shell: bash  # for Windows compatibility
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Generate detections and embeddings
+        run: |
+          python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
+
+      - name: Evolve set of parameters for selected tracking method
+        run: |
+          python experimentation/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9       
+
+
+  test-mot-metrics:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]   # skip windows-latest for
+        python-version: ['3.8', '3.11']
+    outputs:
+      status: ${{ job.status }}
+
+    # Timeout: https://stackoverflow.com/a/59076067/4521646
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4  # Check out the repository
+      - name: Set up Python
+        uses: actions/setup-python@v5  # Prepare environment with python 3.9
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip' # caching pip dependencies
+
+      - name: Install requirements
+        shell: bash  # for Windows compatibility
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Generate detections and embeddings
+        run: |
+          python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
+
+      - name: Evolve set of parameters for selected tracking method
+        run: |
+          python experimentation/val_results.py --benchmark MOT17-mini --name yolov8n_osnet_x0_25_msmt17
+
+
+  test-tracking-with-pose:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Test tracking with pose models
+        env:
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+        run: python examples/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
+
+
+  test-tracking-with-seg:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    steps:
+      - id: set_result
+        run: echo "::set-output name=result::success"
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Test tracking with seg models
+        env:
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+        run: python examples/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
+
+
+  test-tests:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: 
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e . pytest pytest-cov --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Pytest tests  # after tracking options as this does not download models
+        shell: bash  # for Windows compatibility
+        run: |
+          pytest --cov=$PACKAGE_DIR --cov-report=html -v tests
+          coverage report --fail-under=$COVERAGE_FAIL_UNDER
+
+  check-failures:
+    needs:
+      - test-tracking-methods
+      - test-mot-metrics
+      - test-evolution
+      - test-tests
+      - test-tracking-with-pose
+      - test-tracking-with-seg
+    if: always()  # This ensures the job runs regardless of previous job failures
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare environment variables
+        run: |
+          echo "test-tracking-methods_STATUS=${{ needs.test-tracking-methods.result }}" >> $GITHUB_ENV
+          echo "test-mot-metrics_STATUS=${{ needs.test-mot-metrics.result }}" >> $GITHUB_ENV
+          echo "test-evolution_STATUS=${{ needs.test-evolution.result }}" >> $GITHUB_ENV
+          echo "test-tests_STATUS=${{ needs.test-tests.result }}" >> $GITHUB_ENV
+          echo "test-tracking-with-pose_STATUS=${{ needs.test-tracking-with-pose.result }}" >> $GITHUB_ENV
+          echo "test-tracking-with-seg_STATUS=${{ needs.test-tracking-with-seg.result }}" >> $GITHUB_ENV
+      - name: Check for failures and create summary
+        run: |
+          summary=""
+          failed=false
+
+          # Print all environment variables, grep for those ending with _STATUS, then loop
+          for var in $(printenv | grep '_STATUS$'); do
+            job_status="${var##*=}"  # Extract the status part
+            job_name="${var%%=*}"  # Extract the job name part
+            if [[ "$job_status" != "success" ]]; then
+              summary+="$job_name failed with status: $job_status\n"
+              failed=true
+            fi
+          done
+
+          if [[ "$failed" = false ]]; then
+            summary="All jobs succeeded."
+          fi
+
+          echo "Summary: $summary"
