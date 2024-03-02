@@ -259,7 +259,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--weights",
         type=Path,
-        default=WEIGHTS / "osnet_x0_25_msmt17.pt",
+        default="osnet_x0_25_msmt17.pt",
         help="model.pt path(s)",
     )
     parser.add_argument(
