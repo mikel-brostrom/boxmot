@@ -1,5 +1,5 @@
 # name of the workflow, what it is doing (optional)
-name: evolve
+name: Evolution
 
 # events that trigger the workflow (required)
 on:
