@@ -3,7 +3,9 @@ name: Tracking with pose model test
 
 # events that trigger the workflow (required)
 on:
-  push: {}
+  push:
+    branches:
+      - parallelize-trackers-ci-tests
   pull_request:
     # pull request where master is target
     branches:
