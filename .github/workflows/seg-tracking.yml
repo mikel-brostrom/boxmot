@@ -3,11 +3,11 @@ name: Tracking with segmentation model test
 
 # events that trigger the workflow (required)
 on:
-  push:
-    branches: [main]
+  push: {}
   pull_request:
     # pull request where master is target
-    branches: [main]
+    branches:
+      - master
 
 env:
   # Directory of PyPi package to be tested
