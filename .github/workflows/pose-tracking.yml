@@ -3,15 +3,14 @@ name: Tracking with pose model test
 
 # events that trigger the workflow (required)
 on:
-  push: {}
+  push:
+    branches:
+      - '**'         # Runs on pushes to any branch
+      - '!master'    # Exclude master branch to avoid duplicate runs when merging PRs
   pull_request:
     # pull request where master is target
     branches:
       - master
-
-env:
-  # Directory of PyPi package to be tested
-  PACKAGE_DIR: boxmot
 
 jobs:
   test-tracking-with-pose:
