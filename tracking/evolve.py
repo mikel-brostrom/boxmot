@@ -109,7 +109,8 @@ class Objective():
 
         elif self.opt.tracking_method == 'botsort':
 
-            track_high_thresh = trial.suggest_float("track_high_thresh", 0.2, 0.7)
+            track_high_thresh = trial.suggest_float("track_high_thresh", 0.3, 0.7)
+            track_low_thresh = trial.suggest_float("track_low_thresh", 0.1, 0.3)
             new_track_thresh = trial.suggest_float("new_track_thresh", 0.1, 0.8)
             track_buffer = trial.suggest_int("track_buffer", 20, 80, step=10)
             match_thresh = trial.suggest_float("match_thresh", 0.1, 0.9)
@@ -120,6 +121,7 @@ class Objective():
             lambda_ = trial.suggest_float("lambda_", 0.97, 0.995)
 
             d = {
+                'track_low_thresh': track_low_thresh,
                 'track_high_thresh': track_high_thresh,
                 'new_track_thresh': new_track_thresh,
                 'track_buffer': track_buffer,
