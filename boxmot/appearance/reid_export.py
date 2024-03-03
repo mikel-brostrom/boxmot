@@ -18,6 +18,8 @@ from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import TestRequirements
 from boxmot.utils.torch_utils import select_device
+from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+
 
 __tr = TestRequirements()
 
@@ -274,6 +276,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     t = time.time()
+    WEIGHTS.mkdir(parents=False, exist_ok=True)
 
     include = [x.lower() for x in args.include]  # to lowercase
     fmts = tuple(export_formats()["Argument"][1:])  # --include arguments
@@ -288,6 +291,12 @@ if __name__ == "__main__":
         assert (
             args.device.type != "cpu"
         ), "--half only compatible with GPU export, i.e. use --device 0"
+
+    ReIDDetectMultiBackend(
+        weights=args.weights,
+        device='cpu',
+        fp16=False
+    )
 
     model = build_model(
         get_model_name(args.weights),
