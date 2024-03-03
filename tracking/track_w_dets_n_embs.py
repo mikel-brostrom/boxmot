@@ -23,7 +23,7 @@ from ultralytics.data.loaders import LoadImages
 from ultralytics import YOLO
 from ultralytics.data.utils import VID_FORMATS
 
-from experimentation.utils import convert_to_mot_format, write_mot_results
+from tracking.utils import convert_to_mot_format, write_mot_results
 
 
 __tr = TestRequirements()
