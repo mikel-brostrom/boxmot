@@ -218,7 +218,7 @@ class Objective():
         # generate new set of params
         self.get_new_config(trial)
         # run trial, get HOTA, MOTA, IDF1 COMBINED results
-        run_track(self.opt)
+        run_generate_mot_results(self.opt)
         results = run_trackeval(self.opt)
         # extract objective results of current trial
         combined_results = [results.get(key) for key in self.opt.objectives]
