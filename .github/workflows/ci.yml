@@ -130,7 +130,7 @@ jobs:
 
       - name: Evolve set of parameters for selected tracking method
         run: |
-          python experimentation/val_results.py --benchmark MOT17-mini --name yolov8n_osnet_x0_25_msmt17
+          python experimentation/val.py --benchmark MOT17-mini --name yolov8n_osnet_x0_25_msmt17
 
 
   test-tracking-with-pose:
