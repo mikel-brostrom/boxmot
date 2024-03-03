@@ -51,15 +51,15 @@ jobs:
 
       - name: Generate detections and embeddings
         run: |
-          python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
-          python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
+          python tracking/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python tracking/track_w_pregenerated.py --dets yolov8n --embs osnet_x0_25_msmt17
 
       - name: Run tracking method
         run: |
-          python experimentation/track_w_dets_n_embs.py --tracking-method hybridsort --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
-          python experimentation/track_w_dets_n_embs.py --tracking-method botsort    --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
-          python experimentation/track_w_dets_n_embs.py --tracking-method ocsort     --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
-          python experimentation/track_w_dets_n_embs.py --tracking-method bytetrack  --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
+          python tracking/track_w_pregenerated.py --tracking-method hybridsort --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/track_w_pregenerated.py --tracking-method botsort    --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/track_w_pregenerated.py --tracking-method ocsort     --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/track_w_pregenerated.py --tracking-method bytetrack  --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
 
   test-evolution:
     runs-on: ${{ matrix.os }}
@@ -89,12 +89,12 @@ jobs:
 
       - name: Generate detections and embeddings
         run: |
-          python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
-          python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
+          python tracking/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python tracking/track_w_pregenerated.py --dets yolov8n --reid osnet_x0_25_msmt17
 
       - name: Evolve set of parameters for selected tracking method
         run: |
-          python experimentation/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9       
+          python tracking/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9       
 
 
   test-mot-metrics:
@@ -125,12 +125,12 @@ jobs:
 
       - name: Generate detections and embeddings
         run: |
-          python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
-          python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
+          python tracking/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python tracking/track_w_pregenerated.py --dets yolov8n --reid osnet_x0_25_msmt17
 
       - name: Evolve set of parameters for selected tracking method
         run: |
-          python experimentation/val_results.py --benchmark MOT17-mini --name yolov8n_osnet_x0_25_msmt17
+          python tracking/val.py --benchmark MOT17-mini --name yolov8n_osnet_x0_25_msmt17
 
 
   test-tracking-with-pose:
@@ -149,7 +149,7 @@ jobs:
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
-        run: python examples/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
+        run: python tracking/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
 
 
   test-tracking-with-seg:
@@ -171,7 +171,7 @@ jobs:
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
-        run: python examples/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
+        run: python tracking/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
 
 
   test-tests:

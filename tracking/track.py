@@ -8,9 +8,9 @@ import torch
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, WEIGHTS
+from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import TestRequirements
-from examples.detectors import get_yolo_inferer
+from tracking.detectors import get_yolo_inferer
 
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
@@ -18,8 +18,6 @@ __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultral
 from ultralytics import YOLO
 from ultralytics.data.utils import VID_FORMATS
 from ultralytics.utils.plotting import save_one_box
-
-from examples.utils import write_mot_results
 
 
 def on_predict_start(predictor, persist=False):
@@ -34,11 +32,7 @@ def on_predict_start(predictor, persist=False):
     assert predictor.custom_args.tracking_method in TRACKERS, \
         f"'{predictor.custom_args.tracking_method}' is not supported. Supported ones are {TRACKERS}"
 
-    tracking_config = \
-        ROOT /\
-        'boxmot' /\
-        'configs' /\
-        (predictor.custom_args.tracking_method + '.yaml')
+    tracking_config = TRACKER_CONFIGS / (predictor.custom_args.tracking_method + '.yaml')
     trackers = []
     for i in range(predictor.dataset.bs):
         tracker = create_tracker(
@@ -105,20 +99,6 @@ def run(args):
 
         if r.boxes.data.shape[1] == 7:
 
-            if yolo.predictor.source_type.webcam or args.source.endswith(VID_FORMATS):
-                p = yolo.predictor.save_dir / 'mot' / (args.source + '.txt')
-                yolo.predictor.mot_txt_path = p
-            elif 'MOT16' or 'MOT17' or 'MOT20' in args.source:
-                p = yolo.predictor.save_dir / 'mot' / (Path(args.source).parent.name + '.txt')
-                yolo.predictor.mot_txt_path = p
-
-            if args.save_mot:
-                write_mot_results(
-                    yolo.predictor.mot_txt_path,
-                    r,
-                    frame_idx,
-                )
-
             if args.save_id_crops:
                 for d in r.boxes:
                     print('args.save_id_crops', d.data)
@@ -132,9 +112,6 @@ def run(args):
                         ),
                         BGR=True
                     )
-
-    if args.save_mot:
-        print(f'MOT results saved to {yolo.predictor.mot_txt_path}')
 
 
 def parse_opt():
@@ -180,8 +157,6 @@ def parse_opt():
                         help='save tracking results in a txt file')
     parser.add_argument('--save-id-crops', action='store_true',
                         help='save each crop to its respective id folder')
-    parser.add_argument('--save-mot', action='store_true',
-                        help='save tracking results in a single txt file')
     parser.add_argument('--line-width', default=None, type=int,
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')
     parser.add_argument('--per-class', default=False, action='store_true',
