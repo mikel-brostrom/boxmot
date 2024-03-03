@@ -92,7 +92,7 @@ jobs:
 
       - name: Evolve set of parameters for selected tracking method
         run: |
-          python tracking/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method botsort
+          python tracking/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method bytetrack
 
 
   test-mot-metrics:
@@ -171,6 +171,33 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: python tracking/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
 
+  
+  test-export-reid-models:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    steps:
+      - id: set_result
+        run: echo "::set-output name=result::success"
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Test export models
+        run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
+      - name: Test inference on exported models
+        env:
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+        run: |
+          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript    --source $IMG --imgsz 320
+          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.onnx           --source $IMG --imgsz 320
+          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --source $IMG --imgsz 320        
+
 
   test-tests:
     runs-on: ubuntu-latest
@@ -197,6 +224,7 @@ jobs:
       - test-tracking-methods
       - test-mot-metrics
       - test-evolution
+      - test-export-reid-models
       - test-tests
       - test-tracking-with-pose
       - test-tracking-with-seg
@@ -208,6 +236,7 @@ jobs:
           echo "test-tracking-methods_STATUS=${{ needs.test-tracking-methods.result }}" >> $GITHUB_ENV
           echo "test-mot-metrics_STATUS=${{ needs.test-mot-metrics.result }}" >> $GITHUB_ENV
           echo "test-evolution_STATUS=${{ needs.test-evolution.result }}" >> $GITHUB_ENV
+          echo "test-export-reid-models_STATUS=${{ needs.test-export-reid-modelsn.result }}" >> $GITHUB_ENV
           echo "test-tests_STATUS=${{ needs.test-tests.result }}" >> $GITHUB_ENV
           echo "test-tracking-with-pose_STATUS=${{ needs.test-tracking-with-pose.result }}" >> $GITHUB_ENV
           echo "test-tracking-with-seg_STATUS=${{ needs.test-tracking-with-seg.result }}" >> $GITHUB_ENV
