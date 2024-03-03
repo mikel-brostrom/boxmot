@@ -194,9 +194,9 @@ jobs:
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
-          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript    --source $IMG                                  --source $IMG --imgsz 320
-          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.onnx           --source $IMG                              --source $IMG --imgsz 320
-          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --source $IMG                    
+          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript    --source $IMG --imgsz 320
+          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.onnx           --source $IMG --imgsz 320
+          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --source $IMG --imgsz 320        
 
 
   test-tests:
