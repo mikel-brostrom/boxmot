@@ -90,7 +90,7 @@ In inverse chronological order:
 
 ## Why BOXMOT?
 
-Today's multi-object tracking options are heavily dependant on the computation capabilities of the underlaying hardware. BOXMOT provides a great variety of setup options that meet different hardware limitations: CPU only, low memory GPUs... Everything is designed with simplicity and flexibility in mind. If you don't get good tracking results on your custom dataset with the out-of-the-box tracker configurations, use the `examples/evolve.py` script for tracker hyperparameter tuning.
+Today's multi-object tracking options are heavily dependant on the computation capabilities of the underlaying hardware. BOXMOT provides a great variety of tracking methods that meet different hardware limitations: CPU only, low memory GPUs... Morover, we provide scripts for ultra fast experiemntation based on pregenerated detections and embeddings such that you can focus on the algorithmic part and get the most out of your research time.
 
 ## Installation
 
@@ -121,9 +121,9 @@ pip install boxmot
 
 
 ```bash
-$ python examples/track.py --yolo-model yolov8n       # bboxes only
-  python examples/track.py --yolo-model yolo_nas_s    # bboxes only
-  python examples/track.py --yolo-model yolox_n       # bboxes only
+$ python tracking/track.py --yolo-model yolov8n       # bboxes only
+  python tracking/track.py --yolo-model yolo_nas_s    # bboxes only
+  python tracking/track.py --yolo-model yolox_n       # bboxes only
                                         yolov8n-seg   # bboxes + segmentation masks
                                         yolov8n-pose  # bboxes + pose estimation
 
@@ -135,7 +135,7 @@ $ python examples/track.py --yolo-model yolov8n       # bboxes only
 <summary>Tracking methods</summary>
 
 ```bash
-$ python examples/track.py --tracking-method deepocsort
+$ python tracking/track.py --tracking-method deepocsort
                                              strongsort
                                              ocsort
                                              bytetrack
@@ -150,7 +150,7 @@ $ python examples/track.py --tracking-method deepocsort
 Tracking can be run on most video formats
 
 ```bash
-$ python examples/track.py --source 0                               # webcam
+$ python tracking/track.py --source 0                               # webcam
                                     img.jpg                         # image
                                     vid.mp4                         # video
                                     path/                           # directory
@@ -167,7 +167,7 @@ $ python examples/track.py --source 0                               # webcam
 Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/deep/reid_export.py) script
 
 ```bash
-$ python examples/track.py --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightweight
+$ python tracking/track.py --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightweight
                                                    osnet_x0_25_market1501.pt
                                                    mobilenetv2_x1_4_msmt17.engine
                                                    resnet50_msmt17.onnx
@@ -187,7 +187,7 @@ By default the tracker tracks all MS COCO classes.
 If you want to track a subset of the classes that you model predicts, add their corresponding index after the classes flag,
 
 ```bash
-python examples/track.py --source 0 --yolo-model yolov8s.pt --classes 16 17  # COCO yolov8 model. Track cats and dogs, only
+python tracking/track.py --source 0 --yolo-model yolov8s.pt --classes 16 17  # COCO yolov8 model. Track cats and dogs, only
 ```
 
 [Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a Yolov8 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
@@ -200,7 +200,7 @@ python examples/track.py --source 0 --yolo-model yolov8s.pt --classes 16 17  # C
 Can be saved to your experiment folder `runs/track/exp*/` by
 
 ```bash
-python examples/track.py --source ... --save-mot
+python tracking/track.py --source ... --save-mot
 ```
 
 </details>
@@ -213,30 +213,16 @@ python examples/track.py --source ... --save-mot
 Evaluate a combination of detector, tracking method and ReID model on standard MOT dataset or you custom one by
 
 ```bash
-$ python3 examples/val.py --yolo-model yolo_nas_s.pt --reid-model osnetx1_0_dukemtcereid.pt --tracking-method deepocsort --benchmark MOT16
-                          --yolo-model yolox_n.pt    --reid-model osnet_ain_x1_0_msmt17.pt  --tracking-method ocsort     --benchmark MOT17
-                          --yolo-model yolov8s.pt    --reid-model lmbn_n_market.pt          --tracking-method strongsort --benchmark <your-custom-dataset>
-```
-
-</details>
-
-<details>
-<summary>Research</summary>
-
-The process of experimenting with tracking algorithms without the right tools is slow and cumbersome. With these new scripts our intention is to supercharge the research process by loading pre-generated detections and embeddings such that you can focus on the algorithmic part and get the most out of your research time.
-
-```bash
-# saves dets and embs under ./runs/dets_n_embs separately for each yolo and reid model
-python experimentation/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
-# select a set of dets and embs for the fastest possible tracking and results generation for calculating metrics
-python experimentation/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
+# saves dets and embs under ./runs/dets_n_embs separately for each selected yolo and reid model
+$ python tracking/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
+# generate MOT challenge format results based on pregenerated detections and embeddings for a specific trackign method
+$ python tracking/generate_mot_metrics.py --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method botsort
 # uses TrackEval to generate MOT metrics the tracking results under ./runs/mot
-python experimentation/val_results.py --benchmark MOT17-mini --name yolov8n_osnet_x0_25_msmt17
-# evolve the tracker parameters using pregenerated detections and embeddings
-python experimentation/evolve.py --benchmark MOT17-mini --dets yolov8s --embs osnet_x0_25_msmt17
+$ python tracking/val.py --benchmark MOT17-mini --name yolov8n_osnet_x0_25_msmt17
 ```
 
 </details>
+
 
 <details>
 <summary>Evolution</summary>
@@ -244,8 +230,11 @@ python experimentation/evolve.py --benchmark MOT17-mini --dets yolov8s --embs os
 We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. By default the objectives are: HOTA, MOTA, IDF1. Run it by
 
 ```bash
-$ python examples/evolve.py --tracking-method strongsort --benchmark MOT17 --n-trials 100  # tune strongsort for MOT17
-                            --tracking-method ocsort     --benchmark <your-custom-dataset> --objective HOTA # tune ocsort for maximizing HOTA on your custom tracking dataset
+# saves dets and embs under ./runs/dets_n_embs separately for each selected yolo and reid model
+$ python tracking/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
+# generate MOT challenge format results based on pregenerated detections and embeddings for a specific trackign method
+$ python tracking/generate_mot_metrics.py --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method botsort
+$ python tracking/evolve.py --benchmark MOT17-mini --dets yolov8s --embs osnet_x0_25_msmt17
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
