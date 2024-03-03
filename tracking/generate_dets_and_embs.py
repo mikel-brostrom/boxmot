@@ -9,7 +9,7 @@ import torch
 
 from boxmot.utils import ROOT, WEIGHTS
 from boxmot.utils.checks import TestRequirements
-from examples.detectors import get_yolo_inferer
+from tracking.detectors import get_yolo_inferer
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 
 __tr = TestRequirements()

@@ -4,7 +4,7 @@ import argparse
 import subprocess
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, EXPERIMENTATION
 from pathlib import Path
-from experimentation.utils import (
+from tracking.utils import (
     download_mot_eval_tools,
     download_mot_dataset,
     unzip_mot_dataset,

@@ -15,7 +15,7 @@ from boxmot.tracker_zoo import create_tracker
 from ultralytics.utils.files import increment_path 
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import TestRequirements
-from examples.detectors import get_yolo_inferer
+from tracking.detectors import get_yolo_inferer
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.utils import logger as LOGGER
 
@@ -23,7 +23,7 @@ from ultralytics.data.loaders import LoadImages
 from ultralytics import YOLO
 from ultralytics.data.utils import VID_FORMATS
 
-from examples.utils import write_np_mot_results
+from tracking.utils import convert_to_mot_format, write_mot_results
 
 
 __tr = TestRequirements()
@@ -58,7 +58,7 @@ def track(args):
 
     dataset = LoadImages(args.source)
     
-    p = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
+    txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
     for frame_idx, d in enumerate(tqdm(dataset)):
 
         im = d[1][0]
@@ -71,16 +71,8 @@ def track(args):
         embs = frame_dets_n_embs[:, 7:]
         tracks = tracker.update(dets, im, embs)
 
-        if tracks.ndim == 1:
-            # The array is 1D; add a new axis to make it 2D
-            # For example, convert it to a column vector
-            print(tracks)
-
-        write_np_mot_results(
-            p,
-            tracks,
-            frame_idx + 1,
-        )
+        mot_results = convert_to_mot_format(tracks, frame_idx + 1)
+        write_mot_results(txt_path, mot_results)
 
 
 def parse_opt():
