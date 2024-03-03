@@ -8,7 +8,7 @@ import torch
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, WEIGHTS
+from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import TestRequirements
 from examples.detectors import get_yolo_inferer
 
@@ -32,11 +32,7 @@ def on_predict_start(predictor, persist=False):
     assert predictor.custom_args.tracking_method in TRACKERS, \
         f"'{predictor.custom_args.tracking_method}' is not supported. Supported ones are {TRACKERS}"
 
-    tracking_config = \
-        ROOT /\
-        'boxmot' /\
-        'configs' /\
-        (predictor.custom_args.tracking_method + '.yaml')
+    tracking_config = TRACKER_CONFIGS / (predictor.custom_args.tracking_method + '.yaml')
     trackers = []
     for i in range(predictor.dataset.bs):
         tracker = create_tracker(
