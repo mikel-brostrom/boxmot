@@ -18,7 +18,7 @@ import yaml
 from ultralytics.utils.checks import check_requirements, print_args
 
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, logger
-from experimentation.val_results import run_trackeval
+from experimentation.val import run_trackeval
 from experimentation.track_w_dets_n_embs import run_track
 
 
