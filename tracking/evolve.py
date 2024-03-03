@@ -19,7 +19,7 @@ from ultralytics.utils.checks import check_requirements, print_args
 
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, logger
 from tracking.val import run_trackeval
-from tracking.track_w_pregenerated import run_track
+from tracking.generate_mot_results import run_generate_mot_results
 
 
 class Objective():
@@ -218,7 +218,6 @@ class Objective():
         # generate new set of params
         self.get_new_config(trial)
         # run trial, get HOTA, MOTA, IDF1 COMBINED results
-        print('run_track(self.opt)')
         run_track(self.opt)
         results = run_trackeval(self.opt)
         # extract objective results of current trial
