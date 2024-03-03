@@ -218,34 +218,36 @@ def convert_to_mot_format(results: Union[Results, np.ndarray], frame_idx: int) -
     - Union[torch.Tensor, np.ndarray]: A tensor or array containing the MOT formatted results for the frame.
     """
 
-    if isinstance(results, np.ndarray):
-        # convert numpy array results to MOT format
-        tlwh = ops.xyxy2ltwh(results[:, 0:4])
-        frame_idx_column = np.full((results.shape[0], 1), frame_idx + 1)
-        mot_results = np.column_stack((
-            frame_idx_column,
-            results[:, 4],  # track id
-            tlwh,  # top,left,bottom, right
-            results[:, 5],  # confidence
-            results[:, 6],  # class
-        ))
-        return mot_results
-    else:
-        # convert ultralytics results to MOT format
-        num_detections = len(results.boxes)
-        frame_indices = torch.full((num_detections, 1), frame_idx + 1, dtype=torch.float32)
-        dont_care_values = torch.full((num_detections, 1), -1, dtype=torch.float32)
-        
-        mot_results = torch.cat([
-            frame_indices,
-            results.boxes.id.unsqueeze(1).float(),
-            ops.xyxy2ltwh(results.boxes.xyxy).float(),  # Convert bbox format
-            results.boxes.conf.unsqueeze(1),
-            results.boxes.cls.unsqueeze(1).float(),
-            dont_care_values
-        ], dim=1)
+    # do not try to safe if array is empty
+    if results.size != 0:
+        if isinstance(results, np.ndarray):
+            # convert numpy array results to MOT format
+            tlwh = ops.xyxy2ltwh(results[:, 0:4])
+            frame_idx_column = np.full((results.shape[0], 1), frame_idx + 1)
+            mot_results = np.column_stack((
+                frame_idx_column,
+                results[:, 4],  # track id
+                tlwh,  # top,left,bottom, right
+                results[:, 5],  # confidence
+                results[:, 6],  # class
+            ))
+            return mot_results
+        else:
+            # convert ultralytics results to MOT format
+            num_detections = len(results.boxes)
+            frame_indices = torch.full((num_detections, 1), frame_idx + 1, dtype=torch.float32)
+            dont_care_values = torch.full((num_detections, 1), -1, dtype=torch.float32)
+            
+            mot_results = torch.cat([
+                frame_indices,
+                results.boxes.id.unsqueeze(1).float(),
+                ops.xyxy2ltwh(results.boxes.xyxy).float(),  # Convert bbox format
+                results.boxes.conf.unsqueeze(1),
+                results.boxes.cls.unsqueeze(1).float(),
+                dont_care_values
+            ], dim=1)
 
-        return mot_results.numpy()
+            return mot_results.numpy()
 
 
 def write_mot_results(txt_path: Path, mot_results: torch.Tensor) -> None:
@@ -259,12 +261,14 @@ def write_mot_results(txt_path: Path, mot_results: torch.Tensor) -> None:
     Note: The text file will be created if it does not exist, and the directory
     path to the file will be created as well if necessary.
     """
-    # Ensure the parent directory of the txt_path exists
-    txt_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Ensure the file exists before opening
-    txt_path.touch(exist_ok=True)
+    if mot_results is not None:
+        if mot_results.size != 0:
+            # Ensure the parent directory of the txt_path exists
+            txt_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Ensure the file exists before opening
+            txt_path.touch(exist_ok=True)
 
-    # Open the file in append binary mode and save the MOT results
-    with open(str(txt_path), 'ab+') as file:
-        np.savetxt(file, mot_results, fmt='%.6f')
+            # Open the file in append binary mode and save the MOT results
+            with open(str(txt_path), 'ab+') as file:
+                np.savetxt(file, mot_results, fmt='%.6f')

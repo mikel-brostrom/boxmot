@@ -1,12 +1,13 @@
-# Trial number:      232
-# HOTA, MOTA, IDF1:  [45.31]
-appearance_thresh: 0.4818211117541298
+# Trial number:      0
+# HOTA, MOTA, IDF1:  [20.236, 5.1887, 12.987]
+appearance_thresh: 0.7636154550757781
 cmc_method: sparseOptFlow
-conf_thres: 0.3501265956918775
+conf: 0.5024512355200363
 frame_rate: 30
-match_thresh: 0.22734550911325851
-new_track_thresh: 0.21144301345190655
-proximity_thresh: 0.5945380911899254
-track_buffer: 60
-track_high_thresh: 0.33824964456239337
+lambda_: 0.9764964093204093
+match_thresh: 0.22182609980772128
+new_track_thresh: 0.25855770885476126
+proximity_thresh: 0.37262205760353817
+track_buffer: 40
+track_high_thresh: 0.5
 track_low_thresh: 0.1
