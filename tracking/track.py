@@ -10,7 +10,7 @@ from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import TestRequirements
-from examples.detectors import get_yolo_inferer
+from tracking.detectors import get_yolo_inferer
 
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
