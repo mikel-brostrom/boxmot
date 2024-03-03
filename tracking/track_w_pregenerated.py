@@ -144,7 +144,7 @@ def run_track(opt):
     else:
         opt = opt
 
-    exp_folder_path = opt.project / (str(opt.dets) + "_" + str(opt.embs))
+    exp_folder_path = opt.project / (str(opt.dets) + "_" + str(opt.embs) + "_" + str(opt.tracking_method))
     exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
     opt.exp_folder_path = exp_folder_path
     dets_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'dets').glob('*.txt')]
