@@ -55,7 +55,6 @@ def trackeval(
     # Define paths
     d = [seq_path.parent.name for seq_path in seq_paths]
     # Prepare arguments for subprocess call
-    print('args.exp_folder_path', args.exp_folder_path) 
     args = [
         sys.executable, EXPERIMENTATION / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
