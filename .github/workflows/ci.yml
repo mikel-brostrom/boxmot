@@ -126,7 +126,7 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           python tracking/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
-          python tracking/generate_mot_results.py --dets yolov8n --reid osnet_x0_25_msmt17
+          python tracking/track_w_pregenerated.py --dets yolov8n --reid osnet_x0_25_msmt17
 
       - name: Evolve set of parameters for selected tracking method
         run: |
