@@ -157,4 +157,4 @@ def run_generate_mot_results(opt):
 
 
 if __name__ == "__main__":
-    run_track(None)
+    run_generate_mot_results(None)
