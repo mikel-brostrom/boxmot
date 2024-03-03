@@ -52,14 +52,14 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           python tracking/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
-          python tracking/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
+          python tracking/track_w_dets_n_embs.py --dets yolov8n --embs osnet_x0_25_msmt17
 
       - name: Run tracking method
         run: |
-          python tracking/track_w_dets_n_embs.py --tracking-method hybridsort --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
-          python tracking/track_w_dets_n_embs.py --tracking-method botsort    --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
-          python tracking/track_w_dets_n_embs.py --tracking-method ocsort     --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
-          python tracking/track_w_dets_n_embs.py --tracking-method bytetrack  --dets yolov8n --reid osnet_x0_25_msmt17 --imgsz 320
+          python tracking/track_w_dets_n_embs.py --tracking-method hybridsort --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/track_w_dets_n_embs.py --tracking-method botsort    --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/track_w_dets_n_embs.py --tracking-method ocsort     --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/track_w_dets_n_embs.py --tracking-method bytetrack  --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
 
   test-evolution:
     runs-on: ${{ matrix.os }}
@@ -126,7 +126,7 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           python tracking/generate_dets_and_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
-          python tracking/track_w_dets_n_embs.py --dets yolov8n --reid osnet_x0_25_msmt17
+          python tracking/generate_mot_results.py --dets yolov8n --reid osnet_x0_25_msmt17
 
       - name: Evolve set of parameters for selected tracking method
         run: |
