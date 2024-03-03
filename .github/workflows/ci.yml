@@ -149,7 +149,7 @@ jobs:
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
-        run: python examples/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
+        run: python tracking/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
 
 
   test-tracking-with-seg:
@@ -171,7 +171,7 @@ jobs:
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
-        run: python examples/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
+        run: python tracking/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
 
 
   test-tests:
