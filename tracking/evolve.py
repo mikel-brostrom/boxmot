@@ -19,7 +19,7 @@ from ultralytics.utils.checks import check_requirements, print_args
 
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, logger
 from tracking.val import run_trackeval
-from tracking.track_w_dets_n_embs import run_track
+from tracking.track_w_pregenerated import run_track
 
 
 class Objective():
