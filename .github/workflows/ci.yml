@@ -92,7 +92,7 @@ jobs:
 
       - name: Evolve set of parameters for selected tracking method
         run: |
-          python tracking/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method ocsort
+          python tracking/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method bytetrack
 
 
   test-mot-metrics:
@@ -191,10 +191,12 @@ jobs:
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
       - name: Test inference on exported models
+        env:
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
-          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript                                    --source $IMG --imgsz 320
-          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.onnx                                           --source $IMG --imgsz 320
-          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model                    
+          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript    --source $IMG                                  --source $IMG --imgsz 320
+          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.onnx           --source $IMG                              --source $IMG --imgsz 320
+          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --source $IMG                    
 
 
   test-tests:
