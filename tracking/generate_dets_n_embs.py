@@ -20,7 +20,7 @@ from ultralytics.data.utils import VID_FORMATS
 
 
 @torch.no_grad()
-def run_generate_dets_n_embs(args):
+def run(args):
 
     WEIGHTS.mkdir(parents=True, exist_ok=True)
 
@@ -38,6 +38,7 @@ def run_generate_dets_n_embs(args):
         verbose=False,
         exist_ok=args.exist_ok,
         project=args.project,
+        name=args.name,
         classes=args.classes,
         imgsz=args.imgsz,
         vid_stride=args.vid_stride,
@@ -54,7 +55,7 @@ def run_generate_dets_n_embs(args):
         yolo.predictor.model = model
 
     reids = []
-    for r in [args.reid_model]:
+    for r in opt.reid_model:
         reids.append(
             ReIDDetectMultiBackend(
                 weights=r,
@@ -62,14 +63,14 @@ def run_generate_dets_n_embs(args):
                 fp16=False
             )
         )
-        embs_path = args.project / 'dets_n_embs' / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
+        embs_path = yolo.predictor.save_dir / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
         embs_path.touch(exist_ok=True)
 
     # store custom args in predictor
     yolo.predictor.custom_args = args
 
-    dets_path = args.project / 'dets_n_embs' / 'dets' / (Path(args.source).parent.name + '.txt')
+    dets_path = yolo.predictor.save_dir / 'dets' / (Path(args.source).parent.name + '.txt')
     
     # create parent folder and txt files
     dets_path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,7 +100,7 @@ def run_generate_dets_n_embs(args):
         with open(str(dets_path), 'ab+') as f:  # append binary mode
             np.savetxt(f, dets, fmt='%f')  # save as ints instead of scientific notation
 
-        for reid, reid_model_name in zip(reids, [args.reid_model]):
+        for reid, reid_model_name in zip(reids, opt.reid_model):
             embs = reid.get_features(dets[:, 1:5], img)
             embs_path = yolo.predictor.save_dir / 'embs' / reid_model_name.stem / (Path(args.source).parent.name + '.txt')
             with open(str(embs_path), 'ab+') as f:  # append binary mode
@@ -143,24 +144,18 @@ def parse_opt():
                         help='print results per frame')
     parser.add_argument('--agnostic-nms', default=False, action='store_true',
                         help='class-agnostic NMS')
-    parser.add_argument('--benchmark', type=str, default='MOT17',
-                        help='MOT16, MOT17, MOT20')
 
     opt = parser.parse_args()
     return opt
 
 
-def run(opt):
+if __name__ == "__main__":
     opt = parse_opt()
     mot_folder_paths = [item for item in Path(opt.source).iterdir()]
-    print(mot_folder_paths)
+    
     for y in opt.yolo_model:
         opt.yolo_model = y
         opt.name = y.stem
         for mot_folder_path in mot_folder_paths:
             opt.source = mot_folder_path / 'img1'
-            run_generate_dets_n_embs(opt)
-
-
-if __name__ == "__main__":
-    run()
+            run(opt)
