@@ -18,6 +18,7 @@ regex = "^2023.12.25"
 torch = "^2.0.0+cpu"
 torchvision = "^0.17.1"
 yacs = "^0.1.8"
+scikit-learn = "^1.3.0"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.0.2"
