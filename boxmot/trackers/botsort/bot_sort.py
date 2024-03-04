@@ -5,7 +5,7 @@ from collections import deque
 import numpy as np
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
-from boxmot.motion.cmc.sof import SparseOptFlow
+from boxmot.motion.cmc.sof import SOF
 from boxmot.motion.kalman_filters.botsort_kf import KalmanFilter
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
@@ -194,7 +194,7 @@ class BoTSORT(object):
         match_thresh: float = 0.8,
         proximity_thresh: float = 0.5,
         appearance_thresh: float = 0.25,
-        cmc_method: str = "sparseOptFlow",
+        cmc_method: str = "sof",
         frame_rate=30,
         fuse_first_associate: bool = False,
         with_reid: bool = True,
@@ -225,7 +225,7 @@ class BoTSORT(object):
                 weights=model_weights, device=device, fp16=fp16
             )
 
-        self.cmc = SparseOptFlow()
+        self.cmc = SOF()
         self.fuse_first_associate = fuse_first_associate
 
     def update(self, dets, img, embs=None):
