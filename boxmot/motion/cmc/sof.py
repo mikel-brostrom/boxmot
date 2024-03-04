@@ -10,7 +10,7 @@ from boxmot.utils import BOXMOT
 from boxmot.utils import logger as LOGGER
 
 
-class SparseOptFlow(CMCInterface):
+class SOF(CMCInterface):
 
     def __init__(
         self,
@@ -61,7 +61,22 @@ class SparseOptFlow(CMCInterface):
         self.extractor = cv2.ORB_create(nfeatures=5)
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
 
-    def apply(self, img, dets):
+    def apply(self, img: np.ndarray, dets: np.ndarray) -> np.ndarray:
+        """Apply ORB-based sparse optical flow to compute the warp matrix.
+
+        Parameters
+        ----------
+        img : ndarray
+            The input image.
+        dets : ndarray
+            Detected bounding boxes in the image.
+
+        Returns
+        -------
+        ndarray
+            The warp matrix from the matching keypoint in the previous image to the current.
+            The warp matrix is always 2x3.
+        """
 
         H = np.eye(2, 3)
 

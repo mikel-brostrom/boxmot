@@ -70,7 +70,22 @@ class SIFT(CMCInterface):
         self.draw_keypoint_matches = draw_keypoint_matches
         self.align = align
 
-    def apply(self, img, dets):
+    def apply(self, img: np.ndarray, dets: np.ndarray) -> np.ndarray:
+        """Apply ORB-based sparse optical flow to compute the warp matrix.
+
+        Parameters
+        ----------
+        img : ndarray
+            The input image.
+        dets : ndarray
+            Detected bounding boxes in the image.
+
+        Returns
+        -------
+        ndarray
+            The warp matrix from the matching keypoint in the previous image to the current.
+            The warp matrix is always 2x3.
+        """
 
         H = np.eye(2, 3)
 
