@@ -12,7 +12,7 @@ from boxmot import (
 
 MOTION_ONLY_TRACKING_METHODS=[OCSORT, BYTETracker]
 MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSORT, BoTSORT, DeepOCSORT]
-ALL_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack']
+ALL_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'strongsort']
 
 
 @pytest.mark.parametrize("Tracker", MOTION_N_APPEARANCE_TRACKING_METHODS)
