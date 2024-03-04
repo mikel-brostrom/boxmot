@@ -13,13 +13,13 @@ from boxmot.utils import logger as LOGGER
 class ECC(CMCInterface):
     def __init__(
         self,
-        warp_mode=cv2.MOTION_EUCLIDEAN,
-        eps=1e-5,
-        max_iter=100,
-        scale=0.1,
-        align=False,
-        grayscale=True
-    ):
+        warp_mode: int = cv2.MOTION_EUCLIDEAN,
+        eps: float = 1e-5,
+        max_iter: int = 100,
+        scale: float = 0.1,
+        align: bool = False,
+        grayscale: bool = True
+    ) -> None:
         """Compute the warp matrix from src to dst.
 
         Parameters
@@ -56,7 +56,17 @@ class ECC(CMCInterface):
         self.termination_criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, max_iter, eps)
         self.prev_img = None
 
-    def apply(self, curr_img, dets):
+    def apply(self, img: np.ndarray, dets: np.ndarray = None) -> np.ndarray:
+        """Apply sparse optical flow to compute the warp matrix.
+
+        Parameters:
+            img (ndarray): The input image.
+            dets: Description of dets parameter.
+
+        Returns:
+            ndarray: The warp matrix from the source to the destination.
+                If the motion model is homography, the warp matrix will be 3x3; otherwise, it will be 2x3.
+        """
 
         if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
             warp_matrix = np.eye(3, 3, dtype=np.float32)
@@ -64,15 +74,15 @@ class ECC(CMCInterface):
             warp_matrix = np.eye(2, 3, dtype=np.float32)
 
         if self.prev_img is None:
-            self.prev_img = self.preprocess(curr_img)
+            self.prev_img = self.preprocess(img)
             return warp_matrix
 
-        curr_img = self.preprocess(curr_img)
+        img = self.preprocess(img)
 
         try:
             (ret_val, warp_matrix) = cv2.findTransformECC(
                 self.prev_img,  # already processed
-                curr_img,
+                img,
                 warp_matrix,
                 self.warp_mode,
                 self.termination_criteria,
@@ -99,15 +109,15 @@ class ECC(CMCInterface):
         else:
             self.prev_img_aligned = None
 
-        self.prev_img = curr_img
+        self.prev_img = img
 
         return warp_matrix  # , prev_img_aligned
 
 
 def main():
     ecc = ECC(scale=0.5, align=True, grayscale=True)
-    curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
-    prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
+    curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-2-FRCNN/img1/000005.jpg')
+    prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-2-FRCNN/img1/000001.jpg')
 
     warp_matrix = ecc.apply(prev_img, None)
     warp_matrix = ecc.apply(curr_img, None)

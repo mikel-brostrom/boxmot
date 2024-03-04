@@ -14,33 +14,30 @@ class ORB(CMCInterface):
 
     def __init__(
         self,
-        feature_detector_threshold=20,
-        matcher_norm_type=cv2.NORM_HAMMING,
-        scale=0.1,
-        grayscale=True,
-        draw_keypoint_matches=False,
-        align=False
-    ):
+        feature_detector_threshold: int = 20,
+        matcher_norm_type: int = cv2.NORM_HAMMING,
+        scale: float = 0.1,
+        grayscale: bool = True,
+        draw_keypoint_matches: bool = False,
+        align: bool = False
+    ) -> None:
         """Compute the warp matrix from src to dst.
 
         Parameters
         ----------
-        matcher_norm_type: opencv flag
-            NORM_L1, NORM_L2, NORM_HAMMING, NORM_HAMMING2. L1 and L2 norms are preferable
-            choices for SIFT and SURF descriptors, NORM_HAMMING should be used with
-            ORB, BRISK and BRIEF, NORM_HAMMING2 should be used with ORB when WTA_K==3 or 4
-        feature_detector_threshold: int
-            the threshold for feature extraction
-        scale: float
-            scale_ratio: float
-        grayscale: bool
-            whether to transform 3 channel RGB to single channel grayscale for faster computations
-
-        Returns
-        -------
-        warp matrix : ndarray
-            Returns the warp matrix from the matching keypoint in the previous image to the current
-            warp matrix is always 2x3
+        feature_detector_threshold: int, optional
+            The threshold for feature extraction. Defaults to 20.
+        matcher_norm_type: int, optional
+            The norm type of the matcher. Defaults to cv2.NORM_HAMMING.
+        scale: float, optional
+            Scale ratio. Defaults to 0.1.
+        grayscale: bool, optional
+            Whether to transform 3-channel RGB to single-channel grayscale for faster computations.
+            Defaults to True.
+        draw_keypoint_matches: bool, optional
+            Whether to draw keypoint matches on the output image. Defaults to False.
+        align: bool, optional
+            Whether to align the images based on keypoint matches. Defaults to False.
         """
         self.grayscale = grayscale
         self.scale = scale
@@ -53,7 +50,22 @@ class ORB(CMCInterface):
         self.draw_keypoint_matches = draw_keypoint_matches
         self.align = align
 
-    def apply(self, img, dets):
+    def apply(self, img: np.ndarray, dets: np.ndarray) -> np.ndarray:
+        """Apply ORB-based sparse optical flow to compute the warp matrix.
+
+        Parameters
+        ----------
+        img : ndarray
+            The input image.
+        dets : ndarray
+            Detected bounding boxes in the image.
+
+        Returns
+        -------
+        ndarray
+            The warp matrix from the matching keypoint in the previous image to the current.
+            The warp matrix is always 2x3.
+        """
 
         H = np.eye(2, 3)
 
