@@ -38,8 +38,7 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
+          python -m pip install --upgrade pip setuptools wheel poetry
           poetry install --with yolo
 
       - name: Generate detections and embeddings
@@ -76,8 +75,7 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
+          python -m pip install --upgrade pip setuptools wheel poetry
           poetry install --with yolo,evolve
 
       - name: Generate detections and embeddings
@@ -112,8 +110,7 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
+          python -m pip install --upgrade pip setuptools wheel poetry
           poetry install
 
       - name: Generate detections and embeddings
@@ -155,8 +152,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
+          python -m pip install --upgrade pip setuptools wheel poetry
           poetry install --with yolo
       - name: Test tracking with pose models
         env:
@@ -181,8 +177,7 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
+          python -m pip install --upgrade pip setuptools wheel poetry
           poetry install --with yolo
       - name: Test tracking with seg models
         env:
@@ -204,8 +199,7 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
+          python -m pip install --upgrade pip setuptools wheel poetry
           poetry install --with export
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
@@ -229,8 +223,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
+          python -m pip install --upgrade pip setuptools wheel poetry
           poetry install --with test
 
       - name: Pytest tests  # after tracking options as this does not download models
