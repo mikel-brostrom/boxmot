@@ -78,7 +78,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install poetry
-          poetry install --with yolo evolve
+          poetry install --with yolo,evolve
 
       - name: Generate detections and embeddings
         run: |
@@ -205,7 +205,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install poetry
+          poetry install --with export
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
       - name: Test inference on exported models
@@ -229,7 +230,8 @@ jobs:
           python-version: '3.11'
       - run: 
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e . pytest pytest-cov --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install poetry
+          poetry install --with test
 
       - name: Pytest tests  # after tracking options as this does not download models
         env:
