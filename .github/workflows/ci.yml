@@ -38,10 +38,8 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
-          poetry config virtualenvs.in-project false
-          poetry install --with yolo
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry install --system --with yolo
 
       - name: Generate detections and embeddings
         run: |
@@ -78,7 +76,7 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel poetry
-          poetry install --with yolo,evolve
+          poetry install --system --with yolo,evolve
 
       - name: Generate detections and embeddings
         run: |
@@ -112,9 +110,8 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
-          poetry install
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry install --system
 
       - name: Generate detections and embeddings
         run: |
@@ -137,9 +134,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
-          poetry install --with yolo
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry install --system --with yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -156,9 +152,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
-          poetry install --with yolo
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry install --system --with yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -182,9 +177,8 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
-          poetry install --with yolo
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry install --system --with yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -205,9 +199,8 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
-          poetry install --with export
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry install --system --with export
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
       - name: Test inference on exported models
@@ -230,9 +223,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
-          poetry install --with test
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry install --system --with test
 
       - name: Pytest tests  # after tracking options as this does not download models
         env:
