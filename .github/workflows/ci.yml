@@ -40,7 +40,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install poetry
-          poetry config virtualenvs.in-project true
+          poetry config virtualenvs.in-project false
           poetry install --with yolo
 
       - name: Generate detections and embeddings
