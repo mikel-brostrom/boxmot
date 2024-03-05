@@ -6,8 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       pypi:
-        type: boolean
-        description: Publish to PyPI
+        description: 'Target repository (pypi or testpypi)'
+        required: true
+        default: 'testpypi'
 
 jobs:
   pypi-upload:
@@ -49,7 +50,7 @@ jobs:
         env:
           POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
         run: |
-          if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
+          if [ "${{ github.event.inputs.repository }}" == "pypi" ]; then
             poetry publish
           else
             poetry config repositories.testpypi https://test.pypi.org/legacy/
