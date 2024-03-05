@@ -46,9 +46,11 @@ jobs:
         if: ${{ success() }}
 
       - name: Publish to PyPI
+        env:
+          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
         run: |
-          poetry config http-basic.pypi "__token__" ${{ secrets.PYPI_TOKEN }}
-          poetry publish --build --verbose
+          poetry config http-basic.pypi "__token__" "${POETRY_PYPI_TOKEN_PYPI}"	
+          poetry publish --build
         if: ${{ success() }}
 
       - name: Create code release
