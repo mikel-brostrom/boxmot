@@ -53,7 +53,8 @@ jobs:
             poetry publish
           else
             poetry config repositories.testpypi https://test.pypi.org/legacy/
-            poetry config pypi-token.testpypi ${{ secrets.TEST_PYPI_TOKEN }}
+            # poetry config pypi-token.testpypi ${{ secrets.TEST_PYPI_TOKEN }}
+            poetry config http-basic.testpypi ${{ secrets.TEST_PYPI_USERNAME }} ${{ secrets.TEST_PYPI_PASSWORD }}
             poetry publish --repository testpypi
           fi
         if: ${{ success() }}
