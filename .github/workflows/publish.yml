@@ -36,7 +36,7 @@ jobs:
           commit_message=$(poetry version patch)
           git add pyproject.toml
           poetry build
-          echo "{commit_message}={$commit_message}" >> $GITHUB_OUTPUT
+          echo "commit_message={$commit_message}" >> $GITHUB_OUTPUT
         if: ${{ success() }}
 
       - name: Commit and push updated version
