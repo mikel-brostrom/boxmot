@@ -48,12 +48,11 @@ jobs:
       - name: Publish to PyPI
         env:
           POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
-          TEST_PYPI_API_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
         run: |
           if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
             poetry publish
           else
-            poetry config pypi-token.testpypi ${{ secrets.TEST_PYPI_API_TOKEN }}
+            poetry config pypi-token.testpypi ${{ secrets.TEST_PYPI_TOKEN }}
             poetry publish --repository testpypi
           fi
         if: ${{ success() }}
