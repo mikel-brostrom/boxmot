@@ -59,7 +59,11 @@ def generate_mot_results(args):
     dataset = LoadImages(args.source)
     
     txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
-    for frame_idx, d in enumerate(tqdm(dataset)):
+    for frame_idx, d in enumerate(tqdm(dataset, desc="Frames")):
+
+        # don't generate dets_n_emb for the last frame
+        if (frame_idx + 1) == len(dataset):
+            break
 
         im = d[1][0]
 
@@ -150,6 +154,7 @@ def run_generate_mot_results(opt):
     dets_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'dets').glob('*.txt')]
     embs_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt')]
     print(dets_file_paths)
+    print(embs_file_paths)
     for d, e in zip(dets_file_paths, embs_file_paths):
         opt.dets_file_path = d
         opt.embs_file_path = e
