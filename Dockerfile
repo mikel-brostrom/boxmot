@@ -7,18 +7,17 @@ FROM nvcr.io/nvidia/pytorch:22.11-py3
 # Update image
 RUN apt update
 
-# Install pip packages
-COPY requirements.txt .
-RUN python -m pip install --upgrade pip setuptools wheel
-RUN pip uninstall -y torch torchvision
-RUN pip install --no-cache -r requirements.txt
-
 # Create working directory
-RUN mkdir -p /usr/src/app
-WORKDIR /usr/src/app
+WORKDIR /usr/src/boxmot
 
 # Clone with submodules
-RUN git clone --recurse-submodules https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet.git /usr/src/app
+RUN git clone https://github.com/mikel-brostrom/yolo_tracking.git -b main /usr/src/boxmot
+
+# Install pip packages
+RUN python3 -m pip install --upgrade pip wheel
+RUN pip install --no-cache -e .
+# Install custom ultralytics package which makes model from other repos loadable
+RUN pip install git+https://github.com/mikel-brostrom/ultralytics.git
 
 # ------------------------------------------------------------------------------
 
