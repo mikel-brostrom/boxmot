@@ -43,12 +43,12 @@ jobs:
         run: |
           git commit -m "${{ steps.get_version.outputs.commit_message }}"
           git push
+        if: ${{ success() }}
 
       - name: Publish to PyPI
         run: poetry publish --build
         env:
           POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
-
         if: ${{ success() }}
 
       - name: Create code release
