@@ -52,6 +52,7 @@ jobs:
           if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
             poetry publish
           else
+            poetry config repositories.testpypi https://test.pypi.org/legacy/
             poetry config pypi-token.testpypi ${{ secrets.TEST_PYPI_TOKEN }}
             poetry publish --repository testpypi
           fi
