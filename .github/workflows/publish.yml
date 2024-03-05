@@ -24,54 +24,24 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip wheel build twine
-          pip install numpy
-          pip install -e '.[dev]' --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry config virtualenvs.create false
+          poetry install
 
-      - name: Get current package version
+      - name: Increase path version and get commit message
         id: get_version
         run: |
-          current_version=$(python -c "from boxmot import __version__; print(__version__)")
-          echo "version=$current_version" >> $GITHUB_OUTPUT
-        if: ${{ success() }}
-
-      - name: Increment package version
-        id: increment_version
-        run: |
-          current_version="${{ steps.get_version.outputs.version }}"
-          IFS='.' read -r -a version_parts <<< "$current_version"
-          ((version_parts[2]++))
-          new_version="${version_parts[0]}.${version_parts[1]}.${version_parts[2]}"
-          echo $new_version
-          echo "new_version=$new_version" >> $GITHUB_OUTPUT
-        if: ${{ success() }}
-
-      - name: Update package version
-        run: |
-          new_version="${{ steps.increment_version.outputs.new_version }}"
-          sed -i "s/__version__ = .*/__version__ = '$new_version'/" boxmot/__init__.py
+          git config --local user.email yolov5.deepsort.pytorch@gmail.com
+          git config --local user.name mikel-brostrom
+          commit_message=$(poetry version patch)
+          git add pyproject.toml
+          poetry build
         if: ${{ success() }}
 
       - name: Commit and push updated version
         run: |
-          current_version="${{ steps.get_version.outputs.version }}"
-          new_version="${{ steps.increment_version.outputs.new_version }}"
-          git config --local user.email yolov5.deepsort.pytorch@gmail.com
-          git config --local user.name mikel-brostrom
-          git add boxmot/__init__.py
-          git commit -m "Update package version from $current_version to $new_version"
+          git commit -m "$commit_message"
           git push
-        if: ${{ success() }}
-
-      - name: Create source distribution
-        run: |
-          python setup.py sdist bdist_wheel
-        if: ${{ success() }}
-
-      - name: Twine check  # Checks whether the long description will render correctly on PyPI
-        run: |
-          twine check dist/*
-        if: ${{ success() }}
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@e53eb8b103ffcb59469888563dc324e3c8ba6f06
