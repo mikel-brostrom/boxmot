@@ -80,6 +80,7 @@ In inverse chronological order:
 
 #### News
 
+* Switched from setuptools to poetry for unified: dependency resolution, packaging and publishing management
 * ~x3 pipeline speedup by: using pregenerated detections + embeddings and jobs parallelization (Mars 2024)
 * Ultra fast exerimentation enabled by allowing local detections and embeddings saving. This data can then be loaded into any tracking algorithm, avoiding the overhead of repeatedly generating it (February 2024)
 * Centroid-based cost function added to OCSORT and DeepOCSORT (suitable for: small and/or high speed objects and low FPS videos) (January 2024)
