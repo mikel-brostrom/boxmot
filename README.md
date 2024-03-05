@@ -90,7 +90,7 @@ In inverse chronological order:
 
 ## Why BOXMOT?
 
-Today's multi-object tracking options are heavily dependant on the computation capabilities of the underlaying hardware. BOXMOT provides a great variety of tracking methods that meet different hardware limitations: CPU only, low memory GPUs... Morover, we provide scripts for ultra fast experimentation based on pregenerated detections and embeddings such that you can focus on the algorithmic part and get the most out of your research time.
+Today's multi-object tracking options are heavily dependant on the computation capabilities of the underlaying hardware. BoxMOT provides a great variety of tracking methods that meet different hardware limitations, all the way from CPU only to larger GPUs. Morover, we provide scripts for ultra fast experimentation by saving detections and embeddings, which then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
 
 ## Installation
 
