@@ -1,0 +1,87 @@
+[tool.poetry]
+name = "boxmot"
+version = "10.0.52"
+description = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
+authors = ["Mikel Broström"]
+license = "AGPL-3.0"
+readme = "README.md"
+classifiers = [
+    'Development Status :: 4 - Beta',
+    'Intended Audience :: Developers',
+    'Intended Audience :: Education',
+    'Intended Audience :: Science/Research',
+    'License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3.8',
+    'Programming Language :: Python :: 3.9',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Topic :: Software Development',
+    'Topic :: Scientific/Engineering',
+    'Topic :: Scientific/Engineering :: Artificial Intelligence',
+    'Topic :: Scientific/Engineering :: Image Recognition',
+    'Topic :: Scientific/Engineering :: Image Processing',
+]
+keywords = ["tracking", "tracking-by-detection", "machine-learning", "deep-learning", "vision", "ML", "DL", "AI", "YOLO"]
+
+
+[tool.poetry.dependencies]
+python = "^3.8"
+filterpy = "^1.4.5"
+gdown = "^5.1.0"
+lapx = "^0.5.5"
+loguru = "^0.7.2"
+numpy = "1.24.4"
+pyyaml = "^6.0.1"
+regex = "^2023.12.25"
+yacs = "^0.1.8"
+scikit-learn = "^1.3.0"
+pandas = "^2.0.0"
+opencv-python = "^4.7.0"
+ftfy = "^6.1.3"
+torch = {version = "^2.2.1", source = "torchcpu"}
+torchvision = {version = "^0.17.1", source = "torchcpu"}
+gitpython = "^3.1.42"
+
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8.0.2"
+isort = "^5.13.2"
+pytest-cov = "^4.1.0"
+
+
+[tool.poetry.group.yolo.dependencies]
+ultralytics = {git = "https://github.com/mikel-brostrom/ultralytics.git"}
+
+
+[tool.poetry.group.export.dependencies]
+onnx = "^1.15.0"
+onnxsim = "^0.4.36"
+openvino-dev = "^2023.3.0"
+
+
+[tool.poetry.group.evolve.dependencies]
+optuna = "^3.5.0"
+plotly = "^5.19.0"
+joblib = "^1.3.2"
+
+
+[[tool.poetry.source]]
+name = "torchcpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.flake8]
+max-line-length = 120
+exclude = [".tox", "*.egg", "build", "temp"]
+select = ["E", "W", "F"]
+doctests = true
+verbose = 2
+format = "pylint"
+ignore = ["E731", "F405", "E402", "W504", "W605", "E741"]
