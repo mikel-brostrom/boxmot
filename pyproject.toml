@@ -76,3 +76,12 @@ priority = "explicit"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
+
+[tool.flake8]
+max-line-length = 120
+exclude = [".tox", "*.egg", "build", "temp"]
+select = ["E", "W", "F"]
+doctests = true
+verbose = 2
+format = "pylint"
+ignore = ["E731", "F405", "E402", "W504", "W605", "E741"]
