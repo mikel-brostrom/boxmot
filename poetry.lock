@@ -2433,7 +2433,7 @@ optree = ["optree (>=0.9.1)"]
 [package.source]
 type = "legacy"
 url = "https://download.pytorch.org/whl/cpu"
-reference = "pytorch"
+reference = "torchcpu"
 
 [[package]]
 name = "torchvision"
@@ -2465,7 +2465,7 @@ scipy = ["scipy"]
 [package.source]
 type = "legacy"
 url = "https://download.pytorch.org/whl/cpu"
-reference = "pytorch"
+reference = "torchcpu"
 
 [[package]]
 name = "tqdm"
@@ -2620,4 +2620,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "b376e2083b34848eb2343eb0136f96a75aba99f41bda367f8a54c6b8aea48f2b"
+content-hash = "4ca2d6a57667642ed5afae71694a9a1786c5e2970ac544d54990d0b3788f2a6b"
