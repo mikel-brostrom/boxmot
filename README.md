@@ -101,7 +101,8 @@ If you want to run the YOLOv8, YOLO-NAS or YOLOX examples:
 ```
 git clone https://github.com/mikel-brostrom/yolo_tracking.git
 cd yolo_tracking
-pip install -v -e .
+pip install poetry
+poetry install  # if you don't have an active environment, it will create it for you
 ```
 
 but if you only want to import the tracking modules you can simply:
