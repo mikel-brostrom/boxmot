@@ -46,7 +46,7 @@ jobs:
         if: ${{ success() }}
 
       - name: Publish to PyPI
-        run: poetry publish --build
+        run: poetry publish --build --verbose
         env:
           POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
         if: ${{ success() }}
