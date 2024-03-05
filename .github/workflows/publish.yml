@@ -8,7 +8,7 @@ on:
       pypi:
         description: 'Target repository (pypi or testpypi)'
         required: true
-        default: 'testpypi'
+        default: 'pypi'
 
 jobs:
   pypi-upload:
