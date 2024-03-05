@@ -40,7 +40,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install poetry
-          poetry shell
+          poetry config virtualenvs.create false
           poetry install --with yolo
 
       - name: Generate detections and embeddings
@@ -78,7 +78,7 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel poetry
-          poetry shell
+          poetry config virtualenvs.create false
           poetry install --with yolo,evolve
 
       - name: Generate detections and embeddings
@@ -114,7 +114,7 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel poetry
-          poetry shell
+          poetry config virtualenvs.create false
           poetry install
 
       - name: Generate detections and embeddings
@@ -139,7 +139,7 @@ jobs:
           python-version: '3.11'
       - run: |
           python -m pip install --upgrade pip setuptools wheel poetry
-          poetry shell
+          poetry config virtualenvs.create false
           poetry install --with yolo
       - name: Test tracking with pose models
         env:
@@ -158,7 +158,7 @@ jobs:
           python-version: '3.11'
       - run: |
           python -m pip install --upgrade pip setuptools wheel poetry
-          poetry shell
+          poetry config virtualenvs.create false
           poetry install --with yolo
       - name: Test tracking with pose models
         env:
@@ -184,7 +184,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel poetry
-          poetry shell
+          poetry config virtualenvs.create false
           poetry install --with yolo
       - name: Test tracking with seg models
         env:
@@ -207,7 +207,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel poetry
-          poetry shell
+          poetry config virtualenvs.create false
           poetry install --with export
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
@@ -232,7 +232,7 @@ jobs:
           python-version: '3.11'
       - run: |
           python -m pip install --upgrade pip setuptools wheel poetry
-          poetry shell
+          poetry config virtualenvs.create false
           poetry install --with test
 
       - name: Pytest tests  # after tracking options as this does not download models
