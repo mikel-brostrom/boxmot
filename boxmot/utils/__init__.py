@@ -34,11 +34,11 @@ class PerClassDecorator:
             dets = modified_args[0]
             im = modified_args[1]
             
-            if instance.per_class is True and detections.size != 0:
+            if instance.per_class is True and dets.size != 0:
                 # Organize detections by class ID for per-class processing
                 detections_by_class = {
-                    class_id: np.array([det for det in detections if det[5] == class_id])
-                    for class_id in set(det[5] for det in detections)
+                    class_id: np.array([det for det in dets if det[5] == class_id])
+                    for class_id in set(det[5] for det in dets)
                 }
 
                 # Detect classes in the current frame and active trackers
@@ -56,14 +56,14 @@ class PerClassDecorator:
                     logger.debug(f"Processing class {int(class_id)}: {current_class_detections.shape}")
                     
                     # Update detections using the decorated method
-                    updated_dets = self.update(instance, current_class_detections, image)
+                    updated_dets = self.update(instance, current_class_detections, im)
                     if updated_dets.size != 0:
                         modified_detections = np.append(modified_detections, updated_dets, axis=0)
 
                 logger.debug(f"Per-class update result: {modified_detections.shape}")
             else:
                 # Process all detections at once if per_class is False or detections are empty
-                modified_detections = self.update(instance, detections, image)
+                modified_detections = self.update(instance, dets, im)
 
             return modified_detections
 
