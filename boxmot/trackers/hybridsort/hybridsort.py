@@ -372,7 +372,6 @@ class HybridSORT(BaseTracker):
         for tracker in trackers:
             tracker.camera_update(warp_matrix)
 
-    @PerClassDecorator
     def update(self, dets, im, embs=None):
         """
         Params:
