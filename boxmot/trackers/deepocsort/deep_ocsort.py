@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import numpy as np
+from collections import deque
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc import get_cmc_method
@@ -183,11 +184,12 @@ class KalmanBoxTracker(object):
         # Used for OCR
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
         # Used to output track after min_hits reached
-        self.history_observations = []
+        self.features = deque([], maxlen=50)
         # Used for velocity
         self.observations = dict()
         self.velocity = None
         self.delta_t = delta_t
+        self.history_observations = deque([], maxlen=50)
 
         self.emb = emb
 
