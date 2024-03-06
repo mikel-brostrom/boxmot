@@ -206,6 +206,7 @@ class OCSort(BaseTracker):
         """
         Sets key parameters for SORT
         """
+        self.per_class = per_class
         self.max_age = max_age
         self.min_hits = min_hits
         self.asso_threshold = asso_threshold

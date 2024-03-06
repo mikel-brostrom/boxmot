@@ -125,6 +125,7 @@ class BYTETracker(BaseTracker):
         self.frame_id = 0
         self.track_buffer = track_buffer
 
+        self.per_class = per_class
         self.track_thresh = track_thresh
         self.match_thresh = match_thresh
         self.det_thresh = track_thresh
