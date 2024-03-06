@@ -192,7 +192,7 @@ class KalmanBoxTracker(object):
 class OCSort(BaseTracker):
     def __init__(
         self,
-        per_class=True,
+        per_class=False,
         det_thresh=0.2,
         max_age=30,
         min_hits=3,
