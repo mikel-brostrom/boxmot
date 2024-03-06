@@ -1,6 +1,8 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import argparse
+import cv2
+import numpy as np
 from functools import partial
 from pathlib import Path
 
@@ -16,6 +18,7 @@ __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 from ultralytics import YOLO
+from ultralytics.utils.plotting import Annotator, colors
 from ultralytics.data.utils import VID_FORMATS
 from ultralytics.utils.plotting import save_one_box
 
@@ -95,23 +98,31 @@ def run(args):
     # store custom args in predictor
     yolo.predictor.custom_args = args
 
-    for frame_idx, r in enumerate(results):
+    for idx, r in enumerate(results):
+
+        annotator = Annotator(r.orig_img)
 
         if r.boxes.data.shape[1] == 7:
 
-            if args.save_id_crops:
-                for d in r.boxes:
-                    print('args.save_id_crops', d.data)
-                    save_one_box(
-                        d.xyxy,
-                        r.orig_img.copy(),
-                        file=(
-                            yolo.predictor.save_dir / 'crops' /
-                            str(int(d.cls.cpu().numpy().item())) /
-                            str(int(d.id.cpu().numpy().item())) / f'{frame_idx}.jpg'
-                        ),
-                        BGR=True
-                    )
+            annotator = Annotator(r.orig_img)
+            for inn, b in enumerate(r.boxes):
+                box = b.xyxy[0]
+                c = b.cls
+                i = b.id
+                annotator.box_label(box, str(i), color=colors(int(i)))
+
+                img = annotator.result()  
+
+                a = yolo.predictor.trackers[0].active_tracks[inn]
+                for o in a.history_observations:
+                    thickness = int(np.sqrt(float (idx + 1)) * 2)
+                    cv2.circle(img, (int((o[0] + o[2]) / 2), int((o[1] + o[3]) / 2)), 2, color=colors(int(i)), thickness=thickness)
+
+            cv2.imshow('BoxMOT', img)     
+            if cv2.waitKey(1) & 0xFF == ord(' '):
+                break
+
+            
 
 
 def parse_opt():
