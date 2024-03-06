@@ -189,7 +189,7 @@ class BoTSORT(BaseTracker):
         model_weights,
         device,
         fp16,
-        per_class=True,
+        per_class=False,
         track_high_thresh: float = 0.5,
         track_low_thresh: float = 0.1,
         new_track_thresh: float = 0.6,
