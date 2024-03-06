@@ -56,14 +56,14 @@ class PerClassDecorator:
                     logger.debug(f"Processing class {int(class_id)}: {current_class_detections.shape}")
                     
                     # Update detections using the decorated method
-                    updated_dets = self.update_method(instance, current_class_detections, image)
+                    updated_dets = self.update(instance, current_class_detections, image)
                     if updated_dets.size != 0:
                         modified_detections = np.append(modified_detections, updated_dets, axis=0)
 
                 logger.debug(f"Per-class update result: {modified_detections.shape}")
             else:
                 # Process all detections at once if per_class is False or detections are empty
-                modified_detections = self.update_method(instance, detections, image)
+                modified_detections = self.update(instance, detections, image)
 
             return modified_detections
 
