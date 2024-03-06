@@ -391,7 +391,7 @@ class DeepOCSort(BaseTracker):
         # CMC
         if not self.cmc_off:
             transform = self.cmc.apply(img, dets[:, :4])
-            for trk in self.trackers:
+            for trk in self.active_tracks:
                 trk.apply_affine_correction(transform)
 
         trust = (dets[:, 4] - self.det_thresh) / (1 - self.det_thresh)
@@ -400,17 +400,17 @@ class DeepOCSort(BaseTracker):
         dets_alpha = af + (1 - af) * (1 - trust)
 
         # get predicted locations from existing trackers.
-        trks = np.zeros((len(self.trackers), 5))
+        trks = np.zeros((len(self.active_tracks), 5))
         trk_embs = []
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
-            pos = self.trackers[t].predict()[0]
+            pos = self.active_tracks[t].predict()[0]
             trk[:] = [pos[0], pos[1], pos[2], pos[3], 0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
             else:
-                trk_embs.append(self.trackers[t].get_emb())
+                trk_embs.append(self.active_tracks[t].get_emb())
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
 
         if len(trk_embs) > 0:
@@ -419,11 +419,11 @@ class DeepOCSort(BaseTracker):
             trk_embs = np.array(trk_embs)
 
         for t in reversed(to_del):
-            self.trackers.pop(t)
+            self.active_tracks.pop(t)
 
-        velocities = np.array([trk.velocity if trk.velocity is not None else np.array((0, 0)) for trk in self.trackers])
-        last_boxes = np.array([trk.last_observation for trk in self.trackers])
-        k_observations = np.array([k_previous_obs(trk.observations, trk.age, self.delta_t) for trk in self.trackers])
+        velocities = np.array([trk.velocity if trk.velocity is not None else np.array((0, 0)) for trk in self.active_tracks])
+        last_boxes = np.array([trk.last_observation for trk in self.active_tracks])
+        k_observations = np.array([k_previous_obs(trk.observations, trk.age, self.delta_t) for trk in self.active_tracks])
 
         """
             First round of association
