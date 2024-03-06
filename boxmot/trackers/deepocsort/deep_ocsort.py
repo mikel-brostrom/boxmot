@@ -13,6 +13,7 @@ from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.trackers.basetracker import BaseTracker
 
+
 def k_previous_obs(observations, cur_age, k):
     if len(observations) == 0:
         return [-1, -1, -1, -1, -1]
