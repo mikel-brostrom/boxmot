@@ -207,6 +207,7 @@ class BoTSORT(BaseTracker):
         self.removed_stracks = []  # type: list[STrack]
         BaseTrack.clear_count()
 
+        self.per_class = per_class
         self.track_high_thresh = track_high_thresh
         self.track_low_thresh = track_low_thresh
         self.new_track_thresh = new_track_thresh

@@ -339,7 +339,7 @@ class HybridSORT(BaseTracker):
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
-        self.per_class = True
+        self.per_class = per_class
         self.frame_count = 0
         self.det_thresh = det_thresh
         self.delta_t = delta_t
