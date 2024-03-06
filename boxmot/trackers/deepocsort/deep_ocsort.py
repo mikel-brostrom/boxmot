@@ -309,7 +309,7 @@ class DeepOCSort(BaseTracker):
         model_weights,
         device,
         fp16,
-        per_class=True,
+        per_class=False,
         det_thresh=0.3,
         max_age=30,
         min_hits=3,
