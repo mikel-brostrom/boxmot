@@ -24,7 +24,7 @@ logger.add(sys.stderr, colorize=True, level="INFO")
 class PerClassDecorator:
     def __init__(self, method):
         # Store the method that will be decorated
-        self.update_method = method
+        self.update = method
 
     def __get__(self, instance, owner):
         # This makes PerClassDecorator a non-data descriptor that binds the method to the instance

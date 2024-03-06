@@ -12,6 +12,7 @@ from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment)
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 from boxmot.trackers.basetracker import BaseTracker
+from boxmot.utils import PerClassDecorator
 
 
 class STrack(BaseTrack):
@@ -226,6 +227,7 @@ class BoTSORT(BaseTracker):
         self.cmc = SOF()
         self.fuse_first_associate = fuse_first_associate
 
+    @PerClassDecorator
     def update(self, dets, img, embs=None):
         assert isinstance(
             dets, np.ndarray
