@@ -52,7 +52,7 @@ jobs:
         env:
           POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
         run: |
-          if [ "${{ github.event.inputs.repository }}" == "pypi" ]; then
+          if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
             poetry publish
           else
             poetry config repositories.testpypi https://test.pypi.org/legacy/
