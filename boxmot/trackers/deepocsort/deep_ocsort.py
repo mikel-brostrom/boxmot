@@ -12,6 +12,7 @@ from boxmot.motion.kalman_filters.deepocsort_kf import KalmanFilter
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.trackers.basetracker import BaseTracker
+from boxmot.utils import PerClassDecorator
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -354,6 +355,7 @@ class DeepOCSort(BaseTracker):
         self.aw_off = aw_off
         self.new_kf_off = new_kf_off
 
+    @PerClassDecorator
     def update(self, dets, img, embs=None):
         """
         Params:

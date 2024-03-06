@@ -8,6 +8,7 @@ from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.tracker import Tracker
 from boxmot.utils.matching import NearestNeighborDistanceMetric
 from boxmot.utils.ops import xyxy2tlwh
+from boxmot.utils import PerClassDecorator
 
 
 class StrongSORT(object):
@@ -39,6 +40,7 @@ class StrongSORT(object):
         )
         self.cmc = get_cmc_method('ecc')()
 
+    @PerClassDecorator
     def update(self, dets, img, embs=None):
         assert isinstance(
             dets, np.ndarray
