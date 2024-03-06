@@ -201,6 +201,7 @@ class OCSort(BaseTracker):
         inertia=0.2,
         use_byte=False,
     ):
+        super(OCSort, self).__init__()
         """
         Sets key parameters for SORT
         """
