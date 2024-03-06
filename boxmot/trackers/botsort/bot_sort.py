@@ -11,7 +11,7 @@ from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment)
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
-from boxmot.trackers.basetrack import BaseTracker
+from boxmot.trackers.basetracker import BaseTracker
 
 
 class STrack(BaseTrack):
