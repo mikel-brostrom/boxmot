@@ -1,9 +1,5 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-"""
-    This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
-"""
-
 import numpy as np
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
