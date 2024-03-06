@@ -17,6 +17,7 @@ class StrongSORT(object):
         model_weights,
         device,
         fp16,
+        per_class=True,
         max_dist=0.2,
         max_iou_dist=0.7,
         max_age=30,
