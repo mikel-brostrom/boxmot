@@ -2,7 +2,7 @@ import re
 import sys
 import argparse
 import subprocess
-from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, EXPERIMENTATION
+from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, DATA
 from pathlib import Path
 from tracking.utils import (
     download_mot_eval_tools,
@@ -56,7 +56,7 @@ def trackeval(
     d = [seq_path.parent.name for seq_path in seq_paths]
     # Prepare arguments for subprocess call
     args = [
-        sys.executable, EXPERIMENTATION / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
+        sys.executable, EXAMPLES / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
         "--TRACKERS_FOLDER", args.exp_folder_path,
@@ -112,7 +112,7 @@ def parse_opt():
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, default=0,
                         help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--project', default=ROOT / 'runs' / 'mot',
+    parser.add_argument('--project', default=ROOT / 'runs' / 'mot', type=Path,
                         help='save results to project/name')
     parser.add_argument('--name', default='yolov8n_osnet_x0_25_msmt17',
                         help='save results to project/name')
@@ -163,7 +163,7 @@ def run_trackeval(opt):
         opt = opt
         opt.exist_ok = False
 
-    val_tools_path = EXPERIMENTATION / 'val_utils'
+    val_tools_path = EXAMPLES / 'val_utils'
     download_mot_eval_tools(val_tools_path)
     zip_path = download_mot_dataset(val_tools_path, opt.benchmark)
     unzip_mot_dataset(zip_path, val_tools_path, opt.benchmark)

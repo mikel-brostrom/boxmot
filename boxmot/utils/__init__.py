@@ -7,9 +7,9 @@ import numpy as np
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[2]  # root directory
+DATA = ROOT / 'data'
 BOXMOT = ROOT / "boxmot"
 EXAMPLES = ROOT / "tracking"
-EXPERIMENTATION = ROOT / "experimentation"
 TRACKER_CONFIGS = ROOT / "boxmot" / "configs"
 WEIGHTS = ROOT / "tracking" / "weights"
 REQUIREMENTS = ROOT / "requirements.txt"
