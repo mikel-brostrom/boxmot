@@ -85,7 +85,11 @@ def run(args):
         frame_idx = torch.full((1, 1), frame_idx + 1)
         frame_idx = frame_idx.repeat(nr_dets, 1)
 
-        dets = r.boxes.data[:, 0:4].numpy()
+        if r.boxes.data.is_cuda:
+            dets = r.boxes.data[:, 0:4].cpu().numpy()
+        else:
+            dets = r.boxes.data[:, 0:4].numpy()
+            
         img = r.orig_img
         
         dets = np.concatenate(
@@ -152,7 +156,7 @@ def parse_opt():
 if __name__ == "__main__":
     opt = parse_opt()
     mot_folder_paths = [item for item in Path(opt.source).iterdir()]
-    
+    print(mot_folder_paths)
     for y in opt.yolo_model:
         opt.yolo_model = y
         opt.name = y.stem
