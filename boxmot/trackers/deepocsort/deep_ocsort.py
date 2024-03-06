@@ -329,6 +329,7 @@ class DeepOCSort(BaseTracker):
         new_kf_off=False,
         **kwargs
     ):
+        super(DeepOCSort, self).__init__()
         """
         Sets key parameters for SORT
         """
