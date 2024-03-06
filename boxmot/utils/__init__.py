@@ -30,7 +30,9 @@ class PerClassDecorator:
         # This makes PerClassDecorator a non-data descriptor that binds the method to the instance
         def wrapper(*args, **kwargs):
             # Unpack arguments for clarity
-            detections, image = args
+            modified_args = list(args)
+            dets = modified_args[0]
+            im = modified_args[1]
             
             if instance.per_class is True and detections.size != 0:
                 # Organize detections by class ID for per-class processing
