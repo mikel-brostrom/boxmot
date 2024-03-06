@@ -104,7 +104,7 @@ git clone https://github.com/mikel-brostrom/yolo_tracking.git
 cd yolo_tracking
 pip install poetry
 poetry install --with yolo  # installed boxmot + yolo dependencies
-poetry shell  # actives the newly created environment with the installed dependencies
+poetry shell  # activates the newly created environment with the installed dependencies
 ```
 
 but if you only want to import the tracking modules you can simply:
