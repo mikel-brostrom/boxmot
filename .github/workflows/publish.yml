@@ -35,9 +35,11 @@ jobs:
           git config --local user.email yolov5.deepsort.pytorch@gmail.com
           git config --local user.name mikel-brostrom
           commit_message=$(poetry version patch)
+          new_version=$(echo $commit_message | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
           git add pyproject.toml
           poetry build
-          echo "commit_message={$commit_message}" >> $GITHUB_OUTPUT
+          echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
         if: ${{ success() }}
 
       - name: Commit and push updated version
@@ -50,7 +52,7 @@ jobs:
         env:
           POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
         run: |
-          if [ "${{ github.event.inputs.repository }}" == "pypi" ]; then
+          if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
             poetry publish
           else
             poetry config repositories.testpypi https://test.pypi.org/legacy/
@@ -66,8 +68,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ steps.increment_version.outputs.new_version }}
-          release_name: Release v${{ steps.increment_version.outputs.new_version }}
+          tag_name: v${{ steps.get_version.outputs.new_version }}
+          release_name: Release v${{ steps.get_version.outputs.new_version }}
           draft: false
           prerelease: false
         if: ${{ success() }}
