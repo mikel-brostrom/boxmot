@@ -10,6 +10,7 @@ from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.utils.iou import run_asso_func
 from boxmot.trackers.basetracker import BaseTracker
+from boxmot.utils import PerClassDecorator
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -216,6 +217,7 @@ class OCSort(BaseTracker):
         self.use_byte = use_byte
         KalmanBoxTracker.count = 0
 
+    @PerClassDecorator
     def update(self, dets, img, embs=None):
         """
         Params:
