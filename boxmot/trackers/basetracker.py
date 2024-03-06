@@ -6,7 +6,7 @@ class BaseTracker(object):
         self.iou_threshold = iou_threshold
 
         self.frame_count = 0
-        self.tracks = []  # This might be handled differently in derived classes
+        self.active_tracks = []  # This might be handled differently in derived classes
 
     def update(self, dets, img, embs=None):
         raise NotImplementedError("The update method needs to be implemented by the subclass.")
