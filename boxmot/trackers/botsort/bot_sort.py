@@ -7,10 +7,11 @@ import numpy as np
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc.sof import SOF
 from boxmot.motion.kalman_filters.botsort_kf import KalmanFilter
-from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
+from boxmot.trackers.botsort.basetracker import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment)
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
+from boxmot.trackers.basetrack import BaseTracker
 
 
 class STrack(BaseTrack):
@@ -181,7 +182,7 @@ class STrack(BaseTrack):
         return ret
 
 
-class BoTSORT(object):
+class BoTSORT(BaseTracker):
     def __init__(
         self,
         model_weights,
@@ -199,12 +200,9 @@ class BoTSORT(object):
         fuse_first_associate: bool = False,
         with_reid: bool = True,
     ):
-        self.tracked_stracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
         BaseTrack.clear_count()
-
-        self.frame_id = 0
 
         self.track_high_thresh = track_high_thresh
         self.track_low_thresh = track_low_thresh
@@ -212,7 +210,6 @@ class BoTSORT(object):
         self.match_thresh = match_thresh
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
-        self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
 
         # ReID module
@@ -242,7 +239,7 @@ class BoTSORT(object):
             dets.shape[1] == 6
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
-        self.frame_id += 1
+        self.frame_count += 1
         activated_starcks = []
         refind_stracks = []
         lost_stracks = []
@@ -282,7 +279,7 @@ class BoTSORT(object):
         """ Add newly detected tracklets to tracked_stracks"""
         unconfirmed = []
         tracked_stracks = []  # type: list[STrack]
-        for track in self.tracked_stracks:
+        for track in self.active_tracks:
             if not track.is_activated:
                 unconfirmed.append(track)
             else:
@@ -321,10 +318,10 @@ class BoTSORT(object):
             track = strack_pool[itracked]
             det = detections[idet]
             if track.state == TrackState.Tracked:
-                track.update(detections[idet], self.frame_id)
+                track.update(detections[idet], self.frame_count)
                 activated_starcks.append(track)
             else:
-                track.re_activate(det, self.frame_id, new_id=False)
+                track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
         """ Step 3: Second association, with low score detection boxes"""
@@ -345,10 +342,10 @@ class BoTSORT(object):
             track = r_tracked_stracks[itracked]
             det = detections_second[idet]
             if track.state == TrackState.Tracked:
-                track.update(det, self.frame_id)
+                track.update(det, self.frame_count)
                 activated_starcks.append(track)
             else:
-                track.re_activate(det, self.frame_id, new_id=False)
+                track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
         for it in u_track:
@@ -374,7 +371,7 @@ class BoTSORT(object):
 
         matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)
         for itracked, idet in matches:
-            unconfirmed[itracked].update(detections[idet], self.frame_id)
+            unconfirmed[itracked].update(detections[idet], self.frame_count)
             activated_starcks.append(unconfirmed[itracked])
         for it in u_unconfirmed:
             track = unconfirmed[it]
@@ -387,30 +384,30 @@ class BoTSORT(object):
             if track.score < self.new_track_thresh:
                 continue
 
-            track.activate(self.kalman_filter, self.frame_id)
+            track.activate(self.kalman_filter, self.frame_count)
             activated_starcks.append(track)
 
         """ Step 5: Update state"""
         for track in self.lost_stracks:
-            if self.frame_id - track.end_frame > self.max_time_lost:
+            if self.frame_count - track.end_frame > self.max_age:
                 track.mark_removed()
                 removed_stracks.append(track)
 
         """ Merge """
-        self.tracked_stracks = [
-            t for t in self.tracked_stracks if t.state == TrackState.Tracked
+        self.active_tracks = [
+            t for t in self.active_tracks if t.state == TrackState.Tracked
         ]
-        self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_starcks)
-        self.tracked_stracks = joint_stracks(self.tracked_stracks, refind_stracks)
-        self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
+        self.active_tracks = joint_stracks(self.active_tracks, activated_starcks)
+        self.active_tracks = joint_stracks(self.active_tracks, refind_stracks)
+        self.lost_stracks = sub_stracks(self.lost_stracks, self.active_tracks)
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
-        self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(
-            self.tracked_stracks, self.lost_stracks
+        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(
+            self.active_tracks, self.lost_stracks
         )
 
-        output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+        output_stracks = [track for track in self.active_tracks if track.is_activated]
         outputs = []
         for t in output_stracks:
             output = []

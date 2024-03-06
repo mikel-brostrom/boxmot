@@ -11,7 +11,7 @@ from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.deepocsort_kf import KalmanFilter
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
-
+from boxmot.trackers.basetracker import BaseTracker
 
 def k_previous_obs(observations, cur_age, k):
     if len(observations) == 0:
@@ -305,7 +305,7 @@ class KalmanBoxTracker(object):
         return self.kf.md_for_measurement(self.bbox_to_z_func(bbox))
 
 
-class DeepOCSort(object):
+class DeepOCSort(BaseTracker):
     def __init__(
         self,
         model_weights,
@@ -334,8 +334,6 @@ class DeepOCSort(object):
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
-        self.trackers = []
-        self.frame_count = 0
         self.det_thresh = det_thresh
         self.delta_t = delta_t
         self.asso_func = get_asso_func(asso_func)
@@ -449,8 +447,8 @@ class DeepOCSort(object):
             self.aw_param,
         )
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :])
-            self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
+            self.active_tracks[m[1]].update(dets[m[0], :])
+            self.active_tracks[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
 
         """
             Second round of associaton by OCR
@@ -480,15 +478,15 @@ class DeepOCSort(object):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.iou_threshold:
                         continue
-                    self.trackers[trk_ind].update(dets[det_ind, :])
-                    self.trackers[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
+                    self.active_tracks[trk_ind].update(dets[det_ind, :])
+                    self.active_tracks[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
-            self.trackers[m].update(None)
+            self.active_tracks[m].update(None)
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
@@ -499,9 +497,9 @@ class DeepOCSort(object):
                 alpha=dets_alpha[i],
                 new_kf=not self.new_kf_off
             )
-            self.trackers.append(trk)
-        i = len(self.trackers)
-        for trk in reversed(self.trackers):
+            self.active_tracks.append(trk)
+        i = len(self.active_tracks)
+        for trk in reversed(self.active_tracks):
             if trk.last_observation.sum() < 0:
                 d = trk.get_state()[0]
             else:
@@ -516,7 +514,7 @@ class DeepOCSort(object):
             i -= 1
             # remove dead tracklet
             if trk.time_since_update > self.max_age:
-                self.trackers.pop(i)
+                self.active_tracks.pop(i)
         if len(ret) > 0:
             return np.concatenate(ret)
         return np.array([])

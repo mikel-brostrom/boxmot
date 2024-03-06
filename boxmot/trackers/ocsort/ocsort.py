@@ -9,6 +9,8 @@ from boxmot.motion.kalman_filters.ocsort_kf import KalmanFilter
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.utils.iou import run_asso_func
+from boxmot.trackers.basetracker import BaseTracker
+
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -187,7 +189,7 @@ class KalmanBoxTracker(object):
         return convert_x_to_bbox(self.kf.x)
 
 
-class OCSort(object):
+class OCSort(BaseTracker):
     def __init__(
         self,
         per_class=True,
@@ -206,7 +208,6 @@ class OCSort(object):
         self.max_age = max_age
         self.min_hits = min_hits
         self.asso_threshold = asso_threshold
-        self.trackers = []
         self.frame_count = 0
         self.det_thresh = det_thresh
         self.delta_t = delta_t
@@ -251,29 +252,29 @@ class OCSort(object):
         dets = dets[remain_inds]
 
         # get predicted locations from existing trackers.
-        trks = np.zeros((len(self.trackers), 5))
+        trks = np.zeros((len(self.active_tracks), 5))
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
-            pos = self.trackers[t].predict()[0]
+            pos = self.active_tracks[t].predict()[0]
             trk[:] = [pos[0], pos[1], pos[2], pos[3], 0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
         for t in reversed(to_del):
-            self.trackers.pop(t)
+            self.active_tracks.pop(t)
 
         velocities = np.array(
             [
                 trk.velocity if trk.velocity is not None else np.array((0, 0))
-                for trk in self.trackers
+                for trk in self.active_tracks
             ]
         )
-        last_boxes = np.array([trk.last_observation for trk in self.trackers])
+        last_boxes = np.array([trk.last_observation for trk in self.active_tracks])
         k_observations = np.array(
             [
                 k_previous_obs(trk.observations, trk.age, self.delta_t)
-                for trk in self.trackers
+                for trk in self.active_tracks
             ]
         )
 
@@ -284,7 +285,7 @@ class OCSort(object):
             dets[:, 0:5], trks, self.asso_func, self.asso_threshold, velocities, k_observations, self.inertia, w, h
         )
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :5], dets[m[0], 5], dets[m[0], 6])
+            self.active_tracks[m[1]].update(dets[m[0], :5], dets[m[0], 5], dets[m[0], 6])
 
         """
             Second round of associaton by OCR
@@ -308,7 +309,7 @@ class OCSort(object):
                     det_ind, trk_ind = m[0], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
-                    self.trackers[trk_ind].update(
+                    self.active_tracks[trk_ind].update(
                         dets_second[det_ind, :5], dets_second[det_ind, 5], dets_second[det_ind, 6]
                     )
                     to_remove_trk_indices.append(trk_ind)
@@ -334,7 +335,7 @@ class OCSort(object):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
-                    self.trackers[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5], dets[det_ind, 6])
+                    self.active_tracks[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5], dets[det_ind, 6])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_dets = np.setdiff1d(
@@ -345,14 +346,14 @@ class OCSort(object):
                 )
 
         for m in unmatched_trks:
-            self.trackers[m].update(None, None, None)
+            self.active_tracks[m].update(None, None, None)
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
             trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t)
-            self.trackers.append(trk)
-        i = len(self.trackers)
-        for trk in reversed(self.trackers):
+            self.active_tracks.append(trk)
+        i = len(self.active_tracks)
+        for trk in reversed(self.active_tracks):
             if trk.last_observation.sum() < 0:
                 d = trk.get_state()[0]
             else:
@@ -373,7 +374,7 @@ class OCSort(object):
             i -= 1
             # remove dead tracklet
             if trk.time_since_update > self.max_age:
-                self.trackers.pop(i)
+                self.active_tracks.pop(i)
         if len(ret) > 0:
             return np.concatenate(ret)
         return np.array([])
