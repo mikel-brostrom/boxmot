@@ -6,6 +6,8 @@ from boxmot.motion.kalman_filters.bytetrack_kf import KalmanFilter
 from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
 from boxmot.utils.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
+from boxmot.trackers.basetracker import BaseTracker
+from boxmot.utils import PerClassDecorator
 
 
 class STrack(BaseTrack):
@@ -111,17 +113,19 @@ class STrack(BaseTrack):
         return ret
 
 
-class BYTETracker(object):
+class BYTETracker(BaseTracker):
     def __init__(
-        self, track_thresh=0.45, match_thresh=0.8, track_buffer=25, frame_rate=30
+        self, track_thresh=0.45, match_thresh=0.8, track_buffer=25, frame_rate=30, per_class=False,
     ):
-        self.tracked_stracks = []  # type: list[STrack]
+        super(BYTETracker, self).__init__()
+        self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
 
         self.frame_id = 0
         self.track_buffer = track_buffer
 
+        self.per_class = per_class
         self.track_thresh = track_thresh
         self.match_thresh = match_thresh
         self.det_thresh = track_thresh
@@ -129,6 +133,7 @@ class BYTETracker(object):
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
 
+    @PerClassDecorator
     def update(self, dets, im=None, embs=None):
         assert isinstance(
             dets, np.ndarray
@@ -141,7 +146,7 @@ class BYTETracker(object):
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
-        self.frame_id += 1
+        self.frame_count += 1
         activated_starcks = []
         refind_stracks = []
         lost_stracks = []
@@ -168,7 +173,7 @@ class BYTETracker(object):
         """ Add newly detected tracklets to tracked_stracks"""
         unconfirmed = []
         tracked_stracks = []  # type: list[STrack]
-        for track in self.tracked_stracks:
+        for track in self.active_tracks:
             if not track.is_activated:
                 unconfirmed.append(track)
             else:
@@ -189,10 +194,10 @@ class BYTETracker(object):
             track = strack_pool[itracked]
             det = detections[idet]
             if track.state == TrackState.Tracked:
-                track.update(detections[idet], self.frame_id)
+                track.update(detections[idet], self.frame_count)
                 activated_starcks.append(track)
             else:
-                track.re_activate(det, self.frame_id, new_id=False)
+                track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
         """ Step 3: Second association, with low score detection boxes"""
@@ -213,10 +218,10 @@ class BYTETracker(object):
             track = r_tracked_stracks[itracked]
             det = detections_second[idet]
             if track.state == TrackState.Tracked:
-                track.update(det, self.frame_id)
+                track.update(det, self.frame_count)
                 activated_starcks.append(track)
             else:
-                track.re_activate(det, self.frame_id, new_id=False)
+                track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
         for it in u_track:
@@ -232,7 +237,7 @@ class BYTETracker(object):
         dists = fuse_score(dists, detections)
         matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)
         for itracked, idet in matches:
-            unconfirmed[itracked].update(detections[idet], self.frame_id)
+            unconfirmed[itracked].update(detections[idet], self.frame_count)
             activated_starcks.append(unconfirmed[itracked])
         for it in u_unconfirmed:
             track = unconfirmed[it]
@@ -244,30 +249,30 @@ class BYTETracker(object):
             track = detections[inew]
             if track.score < self.det_thresh:
                 continue
-            track.activate(self.kalman_filter, self.frame_id)
+            track.activate(self.kalman_filter, self.frame_count)
             activated_starcks.append(track)
         """ Step 5: Update state"""
         for track in self.lost_stracks:
-            if self.frame_id - track.end_frame > self.max_time_lost:
+            if self.frame_count - track.end_frame > self.max_time_lost:
                 track.mark_removed()
                 removed_stracks.append(track)
 
         # print('Ramained match {} s'.format(t4-t3))
 
-        self.tracked_stracks = [
-            t for t in self.tracked_stracks if t.state == TrackState.Tracked
+        self.active_tracks = [
+            t for t in self.active_tracks if t.state == TrackState.Tracked
         ]
-        self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_starcks)
-        self.tracked_stracks = joint_stracks(self.tracked_stracks, refind_stracks)
-        self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
+        self.active_tracks = joint_stracks(self.active_tracks, activated_starcks)
+        self.active_tracks = joint_stracks(self.active_tracks, refind_stracks)
+        self.lost_stracks = sub_stracks(self.lost_stracks, self.active_tracks)
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
-        self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(
-            self.tracked_stracks, self.lost_stracks
+        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(
+            self.active_tracks, self.lost_stracks
         )
         # get scores of lost tracks
-        output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+        output_stracks = [track for track in self.active_tracks if track.is_activated]
         outputs = []
         for t in output_stracks:
             output = []
