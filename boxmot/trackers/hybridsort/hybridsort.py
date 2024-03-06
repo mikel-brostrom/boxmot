@@ -15,6 +15,9 @@ from boxmot.trackers.hybridsort.association import (
     cal_score_dif_batch_two_score, embedding_distance, linear_assignment)
 from boxmot.utils import PerClassDecorator
 from boxmot.utils.iou import get_asso_func
+from boxmot.trackers.basetracker import BaseTracker
+from boxmot.utils import PerClassDecorator
+
 
 np.random.seed(0)
 
@@ -326,17 +329,18 @@ class KalmanBoxTracker(object):
         return convert_x_to_bbox(self.kf.x)
 
 
-class HybridSORT(object):
-    def __init__(self, reid_weights, device, half, det_thresh, max_age=30, min_hits=3,
+class HybridSORT(BaseTracker):
+    def __init__(self, reid_weights, device, half, det_thresh, per_class=False, max_age=30, min_hits=3,
                  iou_threshold=0.3, delta_t=3, asso_func="iou", inertia=0.2, longterm_reid_weight=0, TCM_first_step_weight=0, use_byte=False):
+        super(HybridSORT, self).__init__()
+
         """
         Sets key parameters for SORT
         """
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
-        self.trackers = []
-        self.per_class = True
+        self.per_class = per_class
         self.frame_count = 0
         self.det_thresh = det_thresh
         self.delta_t = delta_t
@@ -385,7 +389,7 @@ class HybridSORT(object):
         if self.ECC:
             warp_matrix = self.cmc.apply(im, dets)
             if warp_matrix is not None:
-                self.camera_update(self.trackers, warp_matrix)
+                self.camera_update(self.active_tracks, warp_matrix)
 
         self.frame_count += 1
         scores = dets[:, 4]
@@ -403,39 +407,39 @@ class HybridSORT(object):
         id_feature_keep = dets_embs[remain_inds]  # ID feature of 1st stage matching
         id_feature_second = dets_embs[inds_second]  # ID feature of 2nd stage matching
 
-        trks = np.zeros((len(self.trackers), 8))
+        trks = np.zeros((len(self.active_tracks), 8))
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
-            pos, kalman_score, simple_score = self.trackers[t].predict()
+            pos, kalman_score, simple_score = self.active_tracks[t].predict()
             trk[:6] = [pos[0][0], pos[0][1], pos[0][2], pos[0][3], kalman_score[0], simple_score]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
         for t in reversed(to_del):
-            self.trackers.pop(t)
+            self.active_tracks.pop(t)
 
         velocities_lt = np.array(
-            [trk.velocity_lt if trk.velocity_lt is not None else np.array((0, 0)) for trk in self.trackers])
+            [trk.velocity_lt if trk.velocity_lt is not None else np.array((0, 0)) for trk in self.active_tracks])
         velocities_rt = np.array(
-            [trk.velocity_rt if trk.velocity_rt is not None else np.array((0, 0)) for trk in self.trackers])
+            [trk.velocity_rt if trk.velocity_rt is not None else np.array((0, 0)) for trk in self.active_tracks])
         velocities_lb = np.array(
-            [trk.velocity_lb if trk.velocity_lb is not None else np.array((0, 0)) for trk in self.trackers])
+            [trk.velocity_lb if trk.velocity_lb is not None else np.array((0, 0)) for trk in self.active_tracks])
         velocities_rb = np.array(
-            [trk.velocity_rb if trk.velocity_rb is not None else np.array((0, 0)) for trk in self.trackers])
-        last_boxes = np.array([trk.last_observation for trk in self.trackers])
+            [trk.velocity_rb if trk.velocity_rb is not None else np.array((0, 0)) for trk in self.active_tracks])
+        last_boxes = np.array([trk.last_observation for trk in self.active_tracks])
         k_observations = np.array(
-            [k_previous_obs(trk.observations, trk.age, self.delta_t) for trk in self.trackers])
+            [k_previous_obs(trk.observations, trk.age, self.delta_t) for trk in self.active_tracks])
 
         """
             First round of association
         """
         if self.EG_weight_high_score > 0 and self.TCM_first_step:
-            track_features = np.asarray([track.smooth_feat for track in self.trackers],
+            track_features = np.asarray([track.smooth_feat for track in self.active_tracks],
                                         dtype=np.float64)
             emb_dists = embedding_distance(track_features, id_feature_keep).T
             if self.with_longterm_reid or self.with_longterm_reid_correction:
-                long_track_features = np.asarray([np.vstack(list(track.features)).mean(0) for track in self.trackers],
+                long_track_features = np.asarray([np.vstack(list(track.features)).mean(0) for track in self.active_tracks],
                                                  dtype=np.float64)
                 assert track_features.shape == long_track_features.shape
                 long_emb_dists = embedding_distance(long_track_features, id_feature_keep).T
@@ -461,7 +465,7 @@ class HybridSORT(object):
 
         # update with id feature
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :], dets0[m[0], 5], dets0[m[0], 6], id_feature_keep[m[0], :])
+            self.active_tracks[m[1]].update(dets[m[0], :], dets0[m[0], 5], dets0[m[0], 6], id_feature_keep[m[0], :])
 
         """
             Second round of associaton by OCR
@@ -469,7 +473,7 @@ class HybridSORT(object):
         # BYTE association
         if self.use_byte and len(dets_second) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
-            u_tracklets = [self.trackers[index] for index in unmatched_trks]
+            u_tracklets = [self.active_tracks[index] for index in unmatched_trks]
             iou_left = self.asso_func(dets_second, u_trks)
             iou_left = np.array(iou_left)
             if iou_left.max() > self.iou_threshold:
@@ -501,7 +505,7 @@ class HybridSORT(object):
                     else:
                         if iou_left_thre[m[0], m[1]] < self.iou_threshold:
                             continue
-                    self.trackers[trk_ind].update(
+                    self.active_tracks[trk_ind].update(
                         dets_second[det_ind, :],
                         id_feature_second[det_ind, :],
                         update_feature=False
@@ -529,7 +533,7 @@ class HybridSORT(object):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.iou_threshold:
                         continue
-                    self.trackers[trk_ind].update(
+                    self.active_tracks[trk_ind].update(
                         dets[det_ind, :],
                         dets0[det_ind, 5],
                         dets0[det_ind, 6],
@@ -542,14 +546,14 @@ class HybridSORT(object):
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
-            self.trackers[m].update(None, None, None, None)
+            self.active_tracks[m].update(None, None, None, None)
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
             trk = KalmanBoxTracker(dets[i, :], dets0[i, 5], dets0[i, 6], id_feature_keep[i, :], delta_t=self.delta_t)
-            self.trackers.append(trk)
-        i = len(self.trackers)
-        for trk in reversed(self.trackers):
+            self.active_tracks.append(trk)
+        i = len(self.active_tracks)
+        for trk in reversed(self.active_tracks):
             if trk.last_observation.sum() < 0:
                 d = trk.get_state()[0][:4]
             else:
@@ -564,7 +568,7 @@ class HybridSORT(object):
             i -= 1
             # remove dead tracklet
             if (trk.time_since_update > self.max_age):
-                self.trackers.pop(i)
+                self.active_tracks.pop(i)
         if (len(ret) > 0):
             return np.concatenate(ret)
         return np.empty((0, 7))

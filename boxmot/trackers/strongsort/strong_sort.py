@@ -8,6 +8,7 @@ from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.tracker import Tracker
 from boxmot.utils.matching import NearestNeighborDistanceMetric
 from boxmot.utils.ops import xyxy2tlwh
+from boxmot.utils import PerClassDecorator
 
 
 class StrongSORT(object):
@@ -16,6 +17,7 @@ class StrongSORT(object):
         model_weights,
         device,
         fp16,
+        per_class=False,
         max_dist=0.2,
         max_iou_dist=0.7,
         max_age=30,
@@ -24,6 +26,8 @@ class StrongSORT(object):
         mc_lambda=0.995,
         ema_alpha=0.9,
     ):
+
+        self.per_class = per_class
         self.model = ReIDDetectMultiBackend(
             weights=model_weights,
             device=device,
@@ -39,6 +43,7 @@ class StrongSORT(object):
         )
         self.cmc = get_cmc_method('ecc')()
 
+    @PerClassDecorator
     def update(self, dets, img, embs=None):
         assert isinstance(
             dets, np.ndarray
