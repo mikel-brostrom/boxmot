@@ -1,16 +1,15 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-"""
-    This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
-"""
-
 import numpy as np
+from collections import deque
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.deepocsort_kf import KalmanFilter
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
+from boxmot.trackers.basetracker import BaseTracker
+from boxmot.utils import PerClassDecorator
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -185,7 +184,7 @@ class KalmanBoxTracker(object):
         # Used for OCR
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
         # Used to output track after min_hits reached
-        self.history_observations = []
+        self.features = deque([], maxlen=50)
         # Used for velocity
         self.observations = dict()
         self.velocity = None
@@ -305,13 +304,13 @@ class KalmanBoxTracker(object):
         return self.kf.md_for_measurement(self.bbox_to_z_func(bbox))
 
 
-class DeepOCSort(object):
+class DeepOCSort(BaseTracker):
     def __init__(
         self,
         model_weights,
         device,
         fp16,
-        per_class=True,
+        per_class=False,
         det_thresh=0.3,
         max_age=30,
         min_hits=3,
@@ -328,14 +327,13 @@ class DeepOCSort(object):
         new_kf_off=False,
         **kwargs
     ):
+        super(DeepOCSort, self).__init__()
         """
         Sets key parameters for SORT
         """
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
-        self.trackers = []
-        self.frame_count = 0
         self.det_thresh = det_thresh
         self.delta_t = delta_t
         self.asso_func = get_asso_func(asso_func)
@@ -354,6 +352,7 @@ class DeepOCSort(object):
         self.aw_off = aw_off
         self.new_kf_off = new_kf_off
 
+    @PerClassDecorator
     def update(self, dets, img, embs=None):
         """
         Params:
@@ -391,7 +390,7 @@ class DeepOCSort(object):
         # CMC
         if not self.cmc_off:
             transform = self.cmc.apply(img, dets[:, :4])
-            for trk in self.trackers:
+            for trk in self.active_tracks:
                 trk.apply_affine_correction(transform)
 
         trust = (dets[:, 4] - self.det_thresh) / (1 - self.det_thresh)
@@ -400,17 +399,17 @@ class DeepOCSort(object):
         dets_alpha = af + (1 - af) * (1 - trust)
 
         # get predicted locations from existing trackers.
-        trks = np.zeros((len(self.trackers), 5))
+        trks = np.zeros((len(self.active_tracks), 5))
         trk_embs = []
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
-            pos = self.trackers[t].predict()[0]
+            pos = self.active_tracks[t].predict()[0]
             trk[:] = [pos[0], pos[1], pos[2], pos[3], 0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
             else:
-                trk_embs.append(self.trackers[t].get_emb())
+                trk_embs.append(self.active_tracks[t].get_emb())
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
 
         if len(trk_embs) > 0:
@@ -419,11 +418,11 @@ class DeepOCSort(object):
             trk_embs = np.array(trk_embs)
 
         for t in reversed(to_del):
-            self.trackers.pop(t)
+            self.active_tracks.pop(t)
 
-        velocities = np.array([trk.velocity if trk.velocity is not None else np.array((0, 0)) for trk in self.trackers])
-        last_boxes = np.array([trk.last_observation for trk in self.trackers])
-        k_observations = np.array([k_previous_obs(trk.observations, trk.age, self.delta_t) for trk in self.trackers])
+        velocities = np.array([trk.velocity if trk.velocity is not None else np.array((0, 0)) for trk in self.active_tracks])
+        last_boxes = np.array([trk.last_observation for trk in self.active_tracks])
+        k_observations = np.array([k_previous_obs(trk.observations, trk.age, self.delta_t) for trk in self.active_tracks])
 
         """
             First round of association
@@ -449,8 +448,8 @@ class DeepOCSort(object):
             self.aw_param,
         )
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :])
-            self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
+            self.active_tracks[m[1]].update(dets[m[0], :])
+            self.active_tracks[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
 
         """
             Second round of associaton by OCR
@@ -480,15 +479,15 @@ class DeepOCSort(object):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.iou_threshold:
                         continue
-                    self.trackers[trk_ind].update(dets[det_ind, :])
-                    self.trackers[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
+                    self.active_tracks[trk_ind].update(dets[det_ind, :])
+                    self.active_tracks[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
-            self.trackers[m].update(None)
+            self.active_tracks[m].update(None)
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
@@ -499,9 +498,9 @@ class DeepOCSort(object):
                 alpha=dets_alpha[i],
                 new_kf=not self.new_kf_off
             )
-            self.trackers.append(trk)
-        i = len(self.trackers)
-        for trk in reversed(self.trackers):
+            self.active_tracks.append(trk)
+        i = len(self.active_tracks)
+        for trk in reversed(self.active_tracks):
             if trk.last_observation.sum() < 0:
                 d = trk.get_state()[0]
             else:
@@ -516,7 +515,7 @@ class DeepOCSort(object):
             i -= 1
             # remove dead tracklet
             if trk.time_since_update > self.max_age:
-                self.trackers.pop(i)
+                self.active_tracks.pop(i)
         if len(ret) > 0:
             return np.concatenate(ret)
         return np.array([])
