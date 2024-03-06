@@ -115,7 +115,7 @@ def run(args):
 
                 a = yolo.predictor.trackers[0].active_tracks[inn]
                 for o in a.history_observations:
-                    thickness = int(np.sqrt(float (idx + 1)) * 2)
+                    thickness = int(np.sqrt(float (inn + 1)) * 2)
                     cv2.circle(img, (int((o[0] + o[2]) / 2), int((o[1] + o[3]) / 2)), 2, color=colors(int(i)), thickness=thickness)
 
             cv2.imshow('BoxMOT', img)     
