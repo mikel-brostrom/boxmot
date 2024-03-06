@@ -40,7 +40,7 @@ class PerClassDecorator:
                 # get unique classes in predictions
                 detected_classes = set(dets_dict.keys())
                 # get unque classes with active trackers
-                active_classes = set([tracker.cls for tracker in instance.trackers])
+                active_classes = set([tracker.cls for tracker in instance.active_tracks])
                 # get tracks that are both active and in the current detections
                 relevant_classes = active_classes.union(detected_classes)
 
