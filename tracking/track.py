@@ -1,6 +1,8 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import argparse
+import cv2
+import numpy as np
 from functools import partial
 from pathlib import Path
 
@@ -16,6 +18,7 @@ __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 from ultralytics import YOLO
+from ultralytics.utils.plotting import Annotator, colors
 from ultralytics.data.utils import VID_FORMATS
 from ultralytics.utils.plotting import save_one_box
 
@@ -63,7 +66,7 @@ def run(args):
         conf=args.conf,
         iou=args.iou,
         agnostic_nms=args.agnostic_nms,
-        show=args.show,
+        show=False,
         stream=True,
         device=args.device,
         show_conf=args.show_conf,
@@ -95,23 +98,15 @@ def run(args):
     # store custom args in predictor
     yolo.predictor.custom_args = args
 
-    for frame_idx, r in enumerate(results):
+    for r in results:
 
-        if r.boxes.data.shape[1] == 7:
+        img = yolo.predictor.trackers[0].plot_results(r.orig_img, args.show_trajectories)
 
-            if args.save_id_crops:
-                for d in r.boxes:
-                    print('args.save_id_crops', d.data)
-                    save_one_box(
-                        d.xyxy,
-                        r.orig_img.copy(),
-                        file=(
-                            yolo.predictor.save_dir / 'crops' /
-                            str(int(d.cls.cpu().numpy().item())) /
-                            str(int(d.id.cpu().numpy().item())) / f'{frame_idx}.jpg'
-                        ),
-                        BGR=True
-                    )
+        if args.show is True:
+            cv2.imshow('BoxMOT', img)     
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord(' ') or key == ord('q'):
+                break
 
 
 def parse_opt():
@@ -153,6 +148,8 @@ def parse_opt():
                         help='either show all or only bboxes')
     parser.add_argument('--show-conf', action='store_false',
                         help='hide confidences when show')
+    parser.add_argument('--show-trajectories', action='store_true',
+                        help='show confidences')
     parser.add_argument('--save-txt', action='store_true',
                         help='save tracking results in a txt file')
     parser.add_argument('--save-id-crops', action='store_true',

@@ -1,8 +1,7 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-from collections import deque
-
 import numpy as np
+from collections import deque
 
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.motion.cmc.sof import SOF
@@ -21,14 +20,15 @@ class STrack(BaseTrack):
     def __init__(self, det, feat=None, feat_history=50):
         # wait activate
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
-        self.score = det[4]
+        self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
         self.cls_hist = []  # (cls id, freq)
-        self.update_cls(self.cls, self.score)
+        self.update_cls(self.cls, self.conf)
+        self.history_observations = deque([], maxlen=50)
 
         self.tracklet_len = 0
 
@@ -49,23 +49,23 @@ class STrack(BaseTrack):
         self.features.append(feat)
         self.smooth_feat /= np.linalg.norm(self.smooth_feat)
 
-    def update_cls(self, cls, score):
+    def update_cls(self, cls, conf):
         if len(self.cls_hist) > 0:
             max_freq = 0
             found = False
             for c in self.cls_hist:
                 if cls == c[0]:
-                    c[1] += score
+                    c[1] += conf
                     found = True
 
                 if c[1] > max_freq:
                     max_freq = c[1]
                     self.cls = c[0]
             if not found:
-                self.cls_hist.append([cls, score])
+                self.cls_hist.append([cls, conf])
                 self.cls = cls
         else:
-            self.cls_hist.append([cls, score])
+            self.cls_hist.append([cls, conf])
             self.cls = cls
 
     def predict(self):
@@ -138,11 +138,11 @@ class STrack(BaseTrack):
         self.frame_id = frame_id
         if new_id:
             self.id = self.next_id()
-        self.score = new_track.score
+        self.conf = new_track.conf
         self.cls = new_track.cls
         self.det_ind = new_track.det_ind
 
-        self.update_cls(new_track.cls, new_track.score)
+        self.update_cls(new_track.cls, new_track.conf)
 
     def update(self, new_track, frame_id):
         """
@@ -155,6 +155,8 @@ class STrack(BaseTrack):
         self.frame_id = frame_id
         self.tracklet_len += 1
 
+        self.history_observations.append(self.xyxy)
+
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, new_track.xywh
         )
@@ -165,10 +167,10 @@ class STrack(BaseTrack):
         self.state = TrackState.Tracked
         self.is_activated = True
 
-        self.score = new_track.score
+        self.conf = new_track.conf
         self.cls = new_track.cls
         self.det_ind = new_track.det_ind
-        self.update_cls(new_track.cls, new_track.score)
+        self.update_cls(new_track.cls, new_track.conf)
 
     @property
     def xyxy(self):
@@ -281,17 +283,17 @@ class BoTSORT(BaseTracker):
         else:
             detections = []
 
-        """ Add newly detected tracklets to tracked_stracks"""
+        """ Add newly detected tracklets to active_tracks"""
         unconfirmed = []
-        tracked_stracks = []  # type: list[STrack]
+        active_tracks = []  # type: list[STrack]
         for track in self.active_tracks:
             if not track.is_activated:
                 unconfirmed.append(track)
             else:
-                tracked_stracks.append(track)
+                active_tracks.append(track)
 
-        """ Step 2: First association, with high score detection boxes"""
-        strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
+        """ Step 2: First association, with high conf detection boxes"""
+        strack_pool = joint_stracks(active_tracks, self.lost_stracks)
 
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
@@ -301,7 +303,7 @@ class BoTSORT(BaseTracker):
         STrack.multi_gmc(strack_pool, warp)
         STrack.multi_gmc(unconfirmed, warp)
 
-        # Associate with high score detection boxes
+        # Associate with high conf detection boxes
         ious_dists = iou_distance(strack_pool, detections)
         ious_dists_mask = ious_dists > self.proximity_thresh
         if self.fuse_first_associate:
@@ -329,7 +331,7 @@ class BoTSORT(BaseTracker):
                 track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
-        """ Step 3: Second association, with low score detection boxes"""
+        """ Step 3: Second association, with low conf detection boxes"""
         if len(dets_second) > 0:
             """Detections"""
             detections_second = [STrack(dets_second) for dets_second in dets_second]
@@ -386,7 +388,7 @@ class BoTSORT(BaseTracker):
         """ Step 4: Init new stracks"""
         for inew in u_detection:
             track = detections[inew]
-            if track.score < self.new_track_thresh:
+            if track.conf < self.new_track_thresh:
                 continue
 
             track.activate(self.kalman_filter, self.frame_count)
@@ -418,7 +420,7 @@ class BoTSORT(BaseTracker):
             output = []
             output.extend(t.xyxy)
             output.append(t.id)
-            output.append(t.score)
+            output.append(t.conf)
             output.append(t.cls)
             output.append(t.det_ind)
             outputs.append(output)

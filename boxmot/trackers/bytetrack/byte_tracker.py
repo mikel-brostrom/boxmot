@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import numpy as np
+from collections import deque
 
 from boxmot.motion.kalman_filters.bytetrack_kf import KalmanFilter
 from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
@@ -18,13 +19,14 @@ class STrack(BaseTrack):
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         self.tlwh = xywh2tlwh(self.xywh)  # (xc, yc, w, h) --> (t, l, w, h)
         self.xyah = tlwh2xyah(self.tlwh)
-        self.score = det[4]
+        self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
         self.tracklet_len = 0
+        self.history_observations = deque([], maxlen=50)
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -52,7 +54,7 @@ class STrack(BaseTrack):
     def activate(self, kalman_filter, frame_id):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
-        self.track_id = self.next_id()
+        self.id = self.next_id()
         self.mean, self.covariance = self.kalman_filter.initiate(self.xyah)
 
         self.tracklet_len = 0
@@ -72,8 +74,8 @@ class STrack(BaseTrack):
         self.is_activated = True
         self.frame_id = frame_id
         if new_id:
-            self.track_id = self.next_id()
-        self.score = new_track.score
+            self.id = self.next_id()
+        self.conf = new_track.conf
         self.cls = new_track.cls
         self.det_ind = new_track.det_ind
 
@@ -87,7 +89,7 @@ class STrack(BaseTrack):
         """
         self.frame_id = frame_id
         self.tracklet_len += 1
-        # self.cls = cls
+        self.history_observations.append(self.xyxy)
 
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, new_track.xyah
@@ -95,7 +97,7 @@ class STrack(BaseTrack):
         self.state = TrackState.Tracked
         self.is_activated = True
 
-        self.score = new_track.score
+        self.conf = new_track.conf
         self.cls = new_track.cls
         self.det_ind = new_track.det_ind
 
@@ -179,7 +181,7 @@ class BYTETracker(BaseTracker):
             else:
                 tracked_stracks.append(track)
 
-        """ Step 2: First association, with high score detection boxes"""
+        """ Step 2: First association, with high conf detection boxes"""
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
@@ -200,8 +202,8 @@ class BYTETracker(BaseTracker):
                 track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
-        """ Step 3: Second association, with low score detection boxes"""
-        # association the untrack to the low score detections
+        """ Step 3: Second association, with low conf detection boxes"""
+        # association the untrack to the low conf detections
         if len(dets_second) > 0:
             """Detections"""
             detections_second = [STrack(det_second) for det_second in dets_second]
@@ -247,7 +249,7 @@ class BYTETracker(BaseTracker):
         """ Step 4: Init new stracks"""
         for inew in u_detection:
             track = detections[inew]
-            if track.score < self.det_thresh:
+            if track.conf < self.det_thresh:
                 continue
             track.activate(self.kalman_filter, self.frame_count)
             activated_starcks.append(track)
@@ -256,8 +258,6 @@ class BYTETracker(BaseTracker):
             if self.frame_count - track.end_frame > self.max_time_lost:
                 track.mark_removed()
                 removed_stracks.append(track)
-
-        # print('Ramained match {} s'.format(t4-t3))
 
         self.active_tracks = [
             t for t in self.active_tracks if t.state == TrackState.Tracked
@@ -271,14 +271,14 @@ class BYTETracker(BaseTracker):
         self.active_tracks, self.lost_stracks = remove_duplicate_stracks(
             self.active_tracks, self.lost_stracks
         )
-        # get scores of lost tracks
+        # get confs of lost tracks
         output_stracks = [track for track in self.active_tracks if track.is_activated]
         outputs = []
         for t in output_stracks:
             output = []
             output.extend(t.xyxy)
-            output.append(t.track_id)
-            output.append(t.score)
+            output.append(t.id)
+            output.append(t.conf)
             output.append(t.cls)
             output.append(t.det_ind)
             outputs.append(output)
@@ -286,17 +286,17 @@ class BYTETracker(BaseTracker):
         return outputs
 
 
-# track_id, class_id, conf
+# id, class_id, conf
 
 
 def joint_stracks(tlista, tlistb):
     exists = {}
     res = []
     for t in tlista:
-        exists[t.track_id] = 1
+        exists[t.id] = 1
         res.append(t)
     for t in tlistb:
-        tid = t.track_id
+        tid = t.id
         if not exists.get(tid, 0):
             exists[tid] = 1
             res.append(t)
@@ -306,9 +306,9 @@ def joint_stracks(tlista, tlistb):
 def sub_stracks(tlista, tlistb):
     stracks = {}
     for t in tlista:
-        stracks[t.track_id] = t
+        stracks[t.id] = t
     for t in tlistb:
-        tid = t.track_id
+        tid = t.id
         if stracks.get(tid, 0):
             del stracks[tid]
     return list(stracks.values())
