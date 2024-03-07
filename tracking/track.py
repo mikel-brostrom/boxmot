@@ -66,7 +66,7 @@ def run(args):
         conf=args.conf,
         iou=args.iou,
         agnostic_nms=args.agnostic_nms,
-        show=args.show,
+        show=True,
         stream=True,
         device=args.device,
         show_conf=args.show_conf,
@@ -100,27 +100,12 @@ def run(args):
 
     for idx, r in enumerate(results):
 
-        annotator = Annotator(r.orig_img)
+        img = yolo.predictor.trackers[0].plot_trajectory(r.orig_img)
 
-        if r.boxes.data.shape[1] == 7:
-
-            annotator = Annotator(r.orig_img)
-            for inn, b in enumerate(r.boxes):
-                box = b.xyxy[0]
-                c = b.cls
-                i = b.id
-                annotator.box_label(box, str(i), color=colors(int(i)))
-
-                img = annotator.result()  
-
-                a = yolo.predictor.trackers[0].plot_trajectory(img, i)
-
-            if args.show is True:
-                cv2.imshow('BoxMOT', img)     
-                if cv2.waitKey(1) & 0xFF == ord(' '):
-                    break
-
-            
+        if args.show is True:
+            cv2.imshow('BoxMOT', img)     
+            if cv2.waitKey(1) & 0xFF == ord(' '):
+                break
 
 
 def parse_opt():
