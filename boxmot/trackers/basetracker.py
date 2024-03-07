@@ -40,42 +40,53 @@ class BaseTracker(object):
         
         return bgr
 
-    def plot_trajectory(self, img):
+    def plot_box_on_img(self, img, box, conf, cls, id):
 
         thickness = 2
         fontscale = 0.5
 
+        img = cv.rectangle(
+            img,
+            (int(box[0]), int(box[1])),
+            (int(box[2]), int(box[3])),
+            self.id_to_color(id),
+            thickness
+        )
+        img = cv.putText(
+            img,
+            f'id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}',
+            (int(box[0]), int(box[1]) - 10),
+            cv.FONT_HERSHEY_SIMPLEX,
+            fontscale,
+            self.id_to_color(id),
+            thickness
+        )
+        return img
+
+
+    def plot_trackers_trajectories(self, img, observations, id):
+        
+        for i, box in enumerate(observations):
+            trajectory_thickness = int(np.sqrt(float (i + 1)) * 1.2)
+            img = cv.circle(
+                img,
+                (int((box[0] + box[2]) / 2),
+                int((box[1] + box[3]) / 2)), 
+                2,
+                color=self.id_to_color(int(id)),
+                thickness=trajectory_thickness
+            )
+        return img
+
+
+    def plot_trajectory(self, img):
+
         for a in self.active_tracks:
-            
             if a.history_observations:
+                if len(a.history_observations) > 2:
+                    box = a.history_observations[-1]
+                    img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id)
+                    img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
                 
-                o = a.history_observations[-1]
-                img = cv.rectangle(
-                    img,
-                    (int(o[0]), int(o[1])),
-                    (int(o[2]), int(o[3])),
-                    self.id_to_color(a.id),
-                    thickness
-                )
-                img = cv.putText(
-                    img,
-                    f'id: {int(a.id)}, conf: {a.conf:.2f}, c: {int(a.cls)}',
-                    (int(o[0]), int(o[1]) - 10),
-                    cv.FONT_HERSHEY_SIMPLEX,
-                    fontscale,
-                    self.id_to_color(a.id),
-                    thickness
-                )
-            if len(a.history_observations) > 3:
-                for e, o in enumerate(a.history_observations):
-                    trajectory_thickness = int(np.sqrt(float (e + 1)) * 1.2)
-                    cv.circle(
-                        img,
-                        (int((o[0] + o[2]) / 2),
-                        int((o[1] + o[3]) / 2)), 
-                        2,
-                        color=self.id_to_color(int(a.id)),
-                        thickness=trajectory_thickness
-                    )
         return img
 
