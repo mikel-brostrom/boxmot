@@ -4,6 +4,8 @@
     This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
 import numpy as np
+from collections import deque
+
 
 from boxmot.motion.kalman_filters.ocsort_kf import KalmanFilter
 from boxmot.utils.association import associate, linear_assignment
@@ -125,7 +127,7 @@ class KalmanBoxTracker(object):
         """
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
         self.observations = dict()
-        self.history_observations = []
+        self.history_observations = deque([], maxlen=50)
         self.velocity = None
         self.delta_t = delta_t
 
@@ -160,7 +162,7 @@ class KalmanBoxTracker(object):
             self.history_observations.append(bbox)
 
             self.time_since_update = 0
-            self.history = []
+            self.history = deque([], maxlen=50)
             self.hits += 1
             self.hit_streak += 1
             self.kf.update(convert_bbox_to_z(bbox))
