@@ -98,7 +98,7 @@ def run(args):
     # store custom args in predictor
     yolo.predictor.custom_args = args
 
-    for idx, r in enumerate(results):
+    for r in results:
 
         img = yolo.predictor.trackers[0].plot_trajectory(r.orig_img)
 
