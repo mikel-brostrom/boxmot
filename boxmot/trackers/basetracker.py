@@ -143,7 +143,7 @@ class BaseTracker(object):
         return img
 
 
-    def plot_trajectory(self, img: np.ndarray) -> np.ndarray:
+    def plot_results(self, img: np.ndarray, show_trajectories: bool) -> np.ndarray:
         """
         Visualizes the trajectories of all active tracks on the image. For each track,
         it draws the latest bounding box and the path of movement if the history of
@@ -161,7 +161,8 @@ class BaseTracker(object):
                 if len(a.history_observations) > 2:
                     box = a.history_observations[-1]
                     img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id)
-                    img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
+                    if show_trajectories:
+                        img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
                 
         return img
 
