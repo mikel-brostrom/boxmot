@@ -100,7 +100,7 @@ def run(args):
 
     for r in results:
 
-        img = yolo.predictor.trackers[0].plot_trajectory(r.orig_img)
+        img = yolo.predictor.trackers[0].plot_results(r.orig_img, args.show_trajectories)
 
         if args.show is True:
             cv2.imshow('BoxMOT', img)     
@@ -148,6 +148,8 @@ def parse_opt():
                         help='either show all or only bboxes')
     parser.add_argument('--show-conf', action='store_false',
                         help='hide confidences when show')
+    parser.add_argument('--show-trajectories', action='store_true',
+                        help='show confidences')
     parser.add_argument('--save-txt', action='store_true',
                         help='save tracking results in a txt file')
     parser.add_argument('--save-id-crops', action='store_true',
