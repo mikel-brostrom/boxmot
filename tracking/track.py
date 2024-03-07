@@ -115,9 +115,10 @@ def run(args):
 
                 a = yolo.predictor.trackers[0].plot_trajectory(img, i)
 
-            cv2.imshow('BoxMOT', img)     
-            if cv2.waitKey(1) & 0xFF == ord(' '):
-                break
+            if args.show is True:
+                cv2.imshow('BoxMOT', img)     
+                if cv2.waitKey(1) & 0xFF == ord(' '):
+                    break
 
             
 
