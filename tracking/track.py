@@ -113,10 +113,7 @@ def run(args):
 
                 img = annotator.result()  
 
-                a = yolo.predictor.trackers[0].active_tracks[inn]
-                for o in a.history_observations:
-                    thickness = int(np.sqrt(float (inn + 1)) * 2)
-                    cv2.circle(img, (int((o[0] + o[2]) / 2), int((o[1] + o[3]) / 2)), 2, color=colors(int(i)), thickness=thickness)
+                a = yolo.predictor.trackers[0].plot_trajectory(img, i)
 
             cv2.imshow('BoxMOT', img)     
             if cv2.waitKey(1) & 0xFF == ord(' '):
