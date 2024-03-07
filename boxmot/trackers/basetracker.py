@@ -44,6 +44,7 @@ class BaseTracker(object):
 
         thickness = 2
         fontscale = 0.5
+
         for a in self.active_tracks:
             
             if a.history_observations:
