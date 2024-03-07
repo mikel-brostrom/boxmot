@@ -40,10 +40,39 @@ class BaseTracker(object):
         
         return bgr
 
-    def plot_trajectory(self, img, id):
-        for a in self.active_tracks:
-            for i, o in enumerate(a.history_observations):
-                thickness = int(np.sqrt(float (i + 1)) * 2)
-                cv.circle(img, (int((o[0] + o[2]) / 2), int((o[1] + o[3]) / 2)), 2, color=self.id_to_color(int(id)), thickness=thickness)
+    def plot_trajectory(self, img):
 
-    
+        thickness = 2
+        fontscale = 0.5
+
+        for a in self.active_tracks:
+            if a.history_observations:
+                o = a.history_observations[-1]
+                img = cv.rectangle(
+                    img,
+                    (int(o[0]), int(o[1])),
+                    (int(o[2]), int(o[3])),
+                    self.id_to_color(a.id),
+                    thickness
+                )
+                img = cv.putText(
+                    img,
+                    f'id: {a.id}, conf: {a.conf:.2f}, c: {a.cls}',
+                    (int(o[0]), int(o[1]) - 10),
+                    cv.FONT_HERSHEY_SIMPLEX,
+                    fontscale,
+                    self.id_to_color(a.id),
+                    thickness
+                )
+            for e, o in enumerate(a.history_observations):
+                thickness = int(np.sqrt(float (e + 1)) * 1.2)
+                cv.circle(
+                    img,
+                    (int((o[0] + o[2]) / 2),
+                    int((o[1] + o[3]) / 2)), 
+                    2,
+                    color=self.id_to_color(int(a.id)),
+                    thickness=thickness
+                )
+        return img
+
