@@ -279,7 +279,7 @@ while True:
     tracker.plot_results(im, show_trajectories=True)
 
     # break on pressing q or space
-    cv2.imshow('BoxMOT detection', img)     
+    cv2.imshow('BoxMOT detection', im)     
     key = cv2.waitKey(1) & 0xFF
     if key == ord(' ') or key == ord('q'):
         break
@@ -334,7 +334,7 @@ while True:
     # such that you then can: zip(tracks, masks) or zip(tracks, keypoints)
 
     # break on pressing q or space
-    cv2.imshow('BoxMOT segmentation | pose', img)     
+    cv2.imshow('BoxMOT segmentation | pose', im)     
     key = cv2.waitKey(1) & 0xFF
     if key == ord(' ') or key == ord('q'):
         break
@@ -399,7 +399,7 @@ while True:
     tracker.plot_results(im, show_trajectories=True)
 
     # break on pressing q or space
-    cv2.imshow('BoxMOT tiled inference', img)     
+    cv2.imshow('BoxMOT tiled inference', im)     
     key = cv2.waitKey(1) & 0xFF
     if key == ord(' ') or key == ord('q'):
         break
