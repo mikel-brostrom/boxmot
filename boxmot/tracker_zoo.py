@@ -41,7 +41,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
     elif tracker_type == 'ocsort':
         from boxmot.trackers.ocsort.ocsort import OCSort
         ocsort = OCSort(
-            per_class,
+            per_class=per_class,
             det_thresh=cfg.det_thresh,
             max_age=cfg.max_age,
             min_hits=cfg.min_hits,
@@ -56,6 +56,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
     elif tracker_type == 'bytetrack':
         from boxmot.trackers.bytetrack.byte_tracker import BYTETracker
         bytetracker = BYTETracker(
+            per_class=per_class,
             track_thresh=cfg.track_thresh,
             match_thresh=cfg.match_thresh,
             track_buffer=cfg.track_buffer,
@@ -69,6 +70,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             reid_weights,
             device,
             half,
+            per_class=per_class,
             track_high_thresh=cfg.track_high_thresh,
             track_low_thresh=cfg.track_low_thresh,
             new_track_thresh=cfg.new_track_thresh,
@@ -87,7 +89,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             reid_weights,
             device,
             half,
-            per_class,
+            per_class=per_class,
             det_thresh=cfg.det_thresh,
             max_age=cfg.max_age,
             min_hits=cfg.min_hits,
@@ -104,6 +106,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             reid_weights,
             device,
             half,
+            per_class=per_class,
             det_thresh=cfg.det_thresh,
             max_age=cfg.max_age,
             min_hits=cfg.min_hits,
