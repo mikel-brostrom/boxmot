@@ -161,7 +161,7 @@ class KalmanBoxTracker(object):
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
-        self.history = []
+        self.history = deque([], maxlen=50)
         self.hits = 0
         self.hit_streak = 0
         self.age = 0
@@ -178,7 +178,7 @@ class KalmanBoxTracker(object):
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
         self.last_observation_save = np.array([-1, -1, -1, -1, -1])
         self.observations = dict()
-        self.history_observations = []
+        self.history_observations = deque([], maxlen=50)
         self.velocity_lt = None
         self.velocity_rt = None
         self.velocity_lb = None
