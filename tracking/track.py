@@ -104,7 +104,8 @@ def run(args):
 
         if args.show is True:
             cv2.imshow('BoxMOT', img)     
-            if cv2.waitKey(1) & 0xFF == ord(' '):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord(' ') or key == ord('q'):
                 break
 
 
