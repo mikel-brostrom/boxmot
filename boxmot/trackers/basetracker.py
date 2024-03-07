@@ -44,9 +44,10 @@ class BaseTracker(object):
 
         thickness = 2
         fontscale = 0.5
-
         for a in self.active_tracks:
+            
             if a.history_observations:
+                
                 o = a.history_observations[-1]
                 img = cv.rectangle(
                     img,
@@ -57,22 +58,23 @@ class BaseTracker(object):
                 )
                 img = cv.putText(
                     img,
-                    f'id: {a.id}, conf: {a.conf:.2f}, c: {a.cls}',
+                    f'id: {int(a.id)}, conf: {a.conf:.2f}, c: {int(a.cls)}',
                     (int(o[0]), int(o[1]) - 10),
                     cv.FONT_HERSHEY_SIMPLEX,
                     fontscale,
                     self.id_to_color(a.id),
                     thickness
                 )
-            for e, o in enumerate(a.history_observations):
-                thickness = int(np.sqrt(float (e + 1)) * 1.2)
-                cv.circle(
-                    img,
-                    (int((o[0] + o[2]) / 2),
-                    int((o[1] + o[3]) / 2)), 
-                    2,
-                    color=self.id_to_color(int(a.id)),
-                    thickness=thickness
-                )
+            if len(a.history_observations) > 3:
+                for e, o in enumerate(a.history_observations):
+                    trajectory_thickness = int(np.sqrt(float (e + 1)) * 1.2)
+                    cv.circle(
+                        img,
+                        (int((o[0] + o[2]) / 2),
+                        int((o[1] + o[3]) / 2)), 
+                        2,
+                        color=self.id_to_color(int(a.id)),
+                        thickness=trajectory_thickness
+                    )
         return img
 
