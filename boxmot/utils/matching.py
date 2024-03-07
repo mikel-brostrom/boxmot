@@ -203,9 +203,9 @@ def fuse_iou(cost_matrix, tracks, detections):
     iou_dist = iou_distance(tracks, detections)
     iou_sim = 1 - iou_dist
     fuse_sim = reid_sim * (1 + iou_sim) / 2
-    det_scores = np.array([det.score for det in detections])
-    det_scores = np.expand_dims(det_scores, axis=0).repeat(cost_matrix.shape[0], axis=0)
-    # fuse_sim = fuse_sim * (1 + det_scores) / 2
+    det_confs = np.array([det.conf for det in detections])
+    det_confs = np.expand_dims(det_confs, axis=0).repeat(cost_matrix.shape[0], axis=0)
+    # fuse_sim = fuse_sim * (1 + det_confs) / 2
     fuse_cost = 1 - fuse_sim
     return fuse_cost
 
@@ -214,9 +214,9 @@ def fuse_score(cost_matrix, detections):
     if cost_matrix.size == 0:
         return cost_matrix
     iou_sim = 1 - cost_matrix
-    det_scores = np.array([det.score for det in detections])
-    det_scores = np.expand_dims(det_scores, axis=0).repeat(cost_matrix.shape[0], axis=0)
-    fuse_sim = iou_sim * det_scores
+    det_confs = np.array([det.conf for det in detections])
+    det_confs = np.expand_dims(det_confs, axis=0).repeat(cost_matrix.shape[0], axis=0)
+    fuse_sim = iou_sim * det_confs
     fuse_cost = 1 - fuse_sim
     return fuse_cost
 
