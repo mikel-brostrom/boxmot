@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.8', '3.11']
+        python-version: ['3.11']
         # leads to too many workflow which ends up queued
         # tracking-method: [hybridsort, botsort, ocsort, bytetrack] 
 
@@ -61,7 +61,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.8', '3.11']
+        python-version: ['3.11']
     outputs:
       status: ${{ job.status }}
 
@@ -97,7 +97,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.8', '3.11']
+        python-version: ['3.11']
     outputs:
       status: ${{ job.status }}
 

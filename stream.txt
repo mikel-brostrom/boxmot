@@ -1,0 +1,2 @@
+/home/mikel.brostrom/yolo_tracking/assets/MOT17-mini/train/MOT17-02-FRCNN/img1
+/home/mikel.brostrom/yolo_tracking/assets/MOT17-mini/train/MOT17-04-FRCNN/img1

@@ -1,0 +1,26 @@
+name: 'Generate Detections and Embeddings'
+description: 'Generates detections and embeddings, then runs a tracking method.'
+inputs:
+  source:
+    description: 'Source directory for input data'
+    required: true
+  yoloModel:
+    description: 'YOLO model file'
+    required: true
+  reidModel:
+    description: 'ReID model file'
+    required: true
+  imgSize:
+    description: 'Image size for processing'
+    required: true
+  trackingMethod:
+    description: 'Tracking method to be used'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - run: |
+        python tracking/generate_dets_n_embs.py --source ${{ inputs.source }} --yolo-model ${{ inputs.yoloModel }} --reid-model ${{ inputs.reidModel }} --imgsz ${{ inputs.imgSize }}
+        python tracking/generate_mot_results.py --dets ${{ inputs.yoloModel }} --reid ${{ inputs.reidModel }} --tracking-method ${{ inputs.trackingMethod }}
+      shell: bash
