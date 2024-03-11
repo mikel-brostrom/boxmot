@@ -24,6 +24,7 @@ class BaseTracker(object):
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
+        self.per_class_active_tracks = {}
 
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
@@ -156,13 +157,26 @@ class BaseTracker(object):
         Returns:
         - np.ndarray: The image array with trajectories and bounding boxes of all active tracks.
         """
-        for a in self.active_tracks:
-            if a.history_observations:
-                if len(a.history_observations) > 2:
-                    box = a.history_observations[-1]
-                    img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id)
-                    if show_trajectories:
-                        img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
+
+        # if values in dict
+        if self.per_class_active_tracks:
+            for k in self.per_class_active_tracks.keys():
+                active_tracks = self.per_class_active_tracks[k]
+                for a in active_tracks:
+                    if a.history_observations:
+                        if len(a.history_observations) > 2:
+                            box = a.history_observations[-1]
+                            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id)
+                            if show_trajectories:
+                                img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
+        else:
+            for a in self.active_tracks:
+                if a.history_observations:
+                    if len(a.history_observations) > 2:
+                        box = a.history_observations[-1]
+                        img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id)
+                        if show_trajectories:
+                            img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
                 
         return img
 
