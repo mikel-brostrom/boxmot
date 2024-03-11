@@ -18,7 +18,7 @@ REQUIREMENTS = ROOT / "requirements.txt"
 from loguru import logger
 
 logger.remove()
-logger.add(sys.stderr, colorize=True, level="DEBUG")
+logger.add(sys.stderr, colorize=True, level="INFO")
 
 
 class PerClassDecorator:
@@ -38,19 +38,17 @@ class PerClassDecorator:
             dets = modified_args[0]
             im = modified_args[1]
             
-            if instance.per_class is True and dets.size > 0:
-                # Organize detections by class ID for per-class processing
-                detections_by_class = {
-                    int(class_id): np.array([det for det in dets if det[5] == class_id])
-                    for class_id in set(det[5] for det in dets)
-                }
+            if instance.per_class is True:
 
-                # Initialize an array to store modified detections
+                # Initialize an array to store the tracks for each class
                 per_class_tracks = []
 
                 for cls_id in range(self.nr_classes):
-                    class_dets = detections_by_class.get(int(cls_id), np.empty((0, 6)))
-                    #logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape}")
+                    if dets.size > 0:
+                        class_dets = dets[dets[:, 5] == cls_id]
+                    else:
+                        class_dets = np.empty((0, 6))
+                    logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape}")
 
                     instance.active_tracks = self.per_class_active_tracks[cls_id]
                     
