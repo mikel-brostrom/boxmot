@@ -34,7 +34,9 @@ class PerClassDecorator:
         # This makes PerClassDecorator a non-data descriptor that binds the method to the instance
         def wrapper(*args, **kwargs):
             # Unpack arguments for clarity
-            dets, im = args
+            args = list(args)
+            dets = args[0]
+            im = args[1]
             
             if instance.per_class is True:
 
