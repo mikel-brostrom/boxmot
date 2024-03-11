@@ -55,8 +55,6 @@ def export_torchscript(model, im, file, optimize):
 def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
     # ONNX export
     try:
-        # required by onnx2tf
-        __tr.check_packages(("onnx==1.14.0",))
         import onnx
 
         f = file.with_suffix(".onnx")
@@ -137,7 +135,7 @@ def export_openvino(file, half):
 def export_tflite(file):
     try:
         __tr.check_packages(
-            ("onnx2tf>=1.15.4", "tensorflow", "onnx_graphsurgeon>=0.3.26", "sng4onnx>=1.0.1"),
+            ("onnx_graphsurgeon", "sng4onnx"),
             cmds='--extra-index-url https://pypi.ngc.nvidia.com'
         )  # requires openvino-dev: https://pypi.org/project/openvino-dev/
         import onnx2tf
