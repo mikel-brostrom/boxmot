@@ -49,23 +49,23 @@ class PerClassDecorator:
                 per_class_tracks = []
 
                 for cls_id in range(self.nr_classes):
-                    if cls_id in detections_by_class:
-                        class_dets = detections_by_class.get(int(cls_id), np.empty((0, 6)))
-                        logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape}")
+                    class_dets = detections_by_class.get(int(cls_id), np.empty((0, 6)))
+                    #logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape}")
 
-                        instance.active_tracks = self.per_class_active_tracks[cls_id]
-                        
-                        # Update detections using the decorated method
-                        tracks = self.update(instance, class_dets, im)
+                    instance.active_tracks = self.per_class_active_tracks[cls_id]
+                    
+                    # Update detections using the decorated method
+                    tracks = self.update(instance, class_dets, im)
 
-                        # save active tracks
-                        self.per_class_active_tracks[cls_id] = instance.active_tracks
+                    # save active tracks
+                    self.per_class_active_tracks[cls_id] = instance.active_tracks
 
-                        instance.per_class_active_tracks = self.per_class_active_tracks
-
-                        if tracks.size > 0:
-                            per_class_tracks.append(tracks)
+                    if tracks.size > 0:
+                        per_class_tracks.append(tracks)
                 
+                # when all active tracks lists have been updated
+                instance.per_class_active_tracks = self.per_class_active_tracks
+
                 if per_class_tracks:
                     # Convert the list of arrays to a single NumPy array
                     per_class_tracks = np.vstack(per_class_tracks)
@@ -79,7 +79,6 @@ class PerClassDecorator:
                 # Process all detections at once if per_class is False or detections are empty
                 tracks = self.update(instance, dets, im)
             
-            print('tracks.shape', tracks.shape)
             return tracks
 
         return wrapper
