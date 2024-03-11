@@ -6,8 +6,8 @@ preferred-citation:
   - family-names: Broström
     given-names: Mikel
   title: "BoxMOT: pluggable SOTA tracking modules for object detection, segmentation and pose estimation models"
-  version: 10.0.43
+  version: 10.0.57
   doi: https://zenodo.org/record/7629840
-  date-released: 2023-9
+  date-released: 2024-3
   license: AGPL-3.0
   url: "https://github.com/mikel-brostrom/yolo_tracking"
