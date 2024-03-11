@@ -18,13 +18,17 @@ REQUIREMENTS = ROOT / "requirements.txt"
 from loguru import logger
 
 logger.remove()
-logger.add(sys.stderr, colorize=True, level="INFO")
+logger.add(sys.stderr, colorize=True, level="DEBUG")
 
 
 class PerClassDecorator:
     def __init__(self, method):
         # Store the method that will be decorated
         self.update = method
+        self.nr_classes = 80
+        self.per_class_active_tracks = {}
+        for i in range(self.nr_classes):
+            self.per_class_active_tracks[i] = []
 
     def __get__(self, instance, owner):
         # This makes PerClassDecorator a non-data descriptor that binds the method to the instance
@@ -34,37 +38,48 @@ class PerClassDecorator:
             dets = modified_args[0]
             im = modified_args[1]
             
-            if instance.per_class is True and dets.size != 0:
+            if instance.per_class is True and dets.size > 0:
                 # Organize detections by class ID for per-class processing
                 detections_by_class = {
-                    class_id: np.array([det for det in dets if det[5] == class_id])
+                    int(class_id): np.array([det for det in dets if det[5] == class_id])
                     for class_id in set(det[5] for det in dets)
                 }
 
-                # Detect classes in the current frame and active trackers
-                detected_classes = set(detections_by_class.keys())
-                active_classes = set(tracker.cls for tracker in instance.active_tracks)
-                
-                # Determine relevant classes for processing
-                relevant_classes = active_classes.union(detected_classes)
-
                 # Initialize an array to store modified detections
-                modified_detections = np.empty(shape=(0, 8))
-                for class_id in relevant_classes:
-                    # Process detections class-by-class
-                    current_class_detections = detections_by_class.get(int(class_id), np.empty((0, 6)))
-                    logger.debug(f"Processing class {int(class_id)}: {current_class_detections.shape}")
-                    
-                    # Update detections using the decorated method
-                    updated_dets = self.update(instance, current_class_detections, im)
-                    if updated_dets.size != 0:
-                        modified_detections = np.append(modified_detections, updated_dets, axis=0)
+                per_class_tracks = []
 
-                logger.debug(f"Per-class update result: {modified_detections.shape}")
+                for cls_id in range(self.nr_classes):
+                    if cls_id in detections_by_class:
+                        class_dets = detections_by_class.get(int(cls_id), np.empty((0, 6)))
+                        logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape}")
+
+                        instance.active_tracks = self.per_class_active_tracks[cls_id]
+                        
+                        # Update detections using the decorated method
+                        tracks = self.update(instance, class_dets, im)
+
+                        # save active tracks
+                        self.per_class_active_tracks[cls_id] = instance.active_tracks
+
+                        instance.per_class_active_tracks = self.per_class_active_tracks
+
+                        if tracks.size > 0:
+                            per_class_tracks.append(tracks)
+                
+                if per_class_tracks:
+                    # Convert the list of arrays to a single NumPy array
+                    per_class_tracks = np.vstack(per_class_tracks)
+                    
+                else:
+                    # If no detections were updated, initialize an empty array with the correct shape
+                    per_class_tracks = np.empty(shape=(0, 8))
+                # logger.debug(f"Per-class update result: {per_class_tracks.shape}")
+                tracks = per_class_tracks
             else:
                 # Process all detections at once if per_class is False or detections are empty
-                modified_detections = self.update(instance, dets, im)
-
-            return modified_detections
+                tracks = self.update(instance, dets, im)
+            
+            print('tracks.shape', tracks.shape)
+            return tracks
 
         return wrapper
