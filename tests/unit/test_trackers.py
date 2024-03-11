@@ -52,7 +52,7 @@ def test_tracker_output_size(tracker_type):
 
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
 def test_per_class_tracker_output_size(tracker_type):
-    tracker_type = 'ocsort'
+
     tracker_conf = get_tracker_config(tracker_type)
     tracker = create_tracker(
         tracker_type=tracker_type,
@@ -69,5 +69,28 @@ def test_per_class_tracker_output_size(tracker_type):
 
     output = tracker.update(det, rgb)
     output = tracker.update(det, rgb)
-    print(output)
     assert output.shape == (2, 8)  # two inputs should give two outputs
+
+
+@pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
+def test_per_class_tracker_active_tracks(tracker_type):
+
+    tracker_conf = get_tracker_config(tracker_type)
+    tracker = create_tracker(
+        tracker_type=tracker_type,
+        tracker_config=tracker_conf,
+        reid_weights=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt',
+        device='cpu',
+        half=False,
+        per_class=True
+    )
+
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    det = np.array([[144, 212, 578, 480, 0.82, 0],
+                    [425, 281, 576, 472, 0.56, 65]])
+
+    tracker.update(det, rgb)
+
+    # check that tracks are created under the class tracks
+    assert tracker.per_class_active_tracks[0] and tracker.per_class_active_tracks[65]
+
