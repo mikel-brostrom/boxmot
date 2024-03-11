@@ -210,6 +210,13 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry install --with export
+
+          # needed in TFLite export
+          wget https://github.com/PINTO0309/onnx2tf/releases/download/1.7.3/flatc.tar.gz
+          tar -zxvf flatc.tar.gz
+          sudo chmod +x flatc
+          sudo mv flatc /usr/bin/
+          
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
       - name: Test inference on exported models
