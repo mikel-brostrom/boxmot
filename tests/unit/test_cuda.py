@@ -18,7 +18,7 @@ def test_reidbackend_output(reid_model):
 
     r = ReIDDetectMultiBackend(
         weights=reid_model,
-        device='cuda:0',
+        device='cuda:0' if torch.cuda.is_available() else 'cpu',
         fp16=False  # not compatible with OSNet
     )
 
