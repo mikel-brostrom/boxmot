@@ -23,6 +23,6 @@ def test_reidbackend_output(reid_model):
     )
 
     if torch.cuda.is_available():
-        assert r.model.is_cuda
+        assert next(r.model.parameters()).is_cuda
     else:
-        assert r.model.device.type == 'cpu'
+        assert next(r.model.parameters()).device.type == 'cpu'
