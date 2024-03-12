@@ -1,4 +1,5 @@
 import cv2
+import torch
 import pytest
 import numpy as np
 from pathlib import Path
@@ -21,4 +22,7 @@ def test_reidbackend_output(reid_model):
         fp16=False  # not compatible with OSNet
     )
 
-    assert r.model.is_cuda
+    if torch.cuda.is_available():
+        assert r.model.is_cuda
+    else:
+        assert r.model.device.type == 'cpu'
