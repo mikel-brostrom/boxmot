@@ -8,7 +8,7 @@ from boxmot.utils import ROOT
 from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 
 REID_MODELS = [
-    Path('resnet50_market1501.pt'),
+    Path('mobilenetv2_x1_0_market1501.pt'),
 ]
 
 
