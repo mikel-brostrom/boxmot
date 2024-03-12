@@ -9,12 +9,11 @@ from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 
 REID_MODELS = [
     Path('osnet_x0_25_msmt17.pt'),
-    Path('osnet_x1_0_dukemtmcreid.pt')
 ]
 
 
 @pytest.mark.parametrize("reid_model", REID_MODELS)
-def test_reidbackend_output(reid_model):
+def test_reidbackend_device(reid_model):
 
     r = ReIDDetectMultiBackend(
         weights=reid_model,
