@@ -1,3 +1,5 @@
+import torch
+
 from boxmot.utils import logger as LOGGER
 from boxmot.appearance.backends.onnx_backend import ONNXBackend
 from boxmot.appearance.backends.openvino_backend import OpenVinoBackend
