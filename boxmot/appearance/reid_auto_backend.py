@@ -103,7 +103,7 @@ class ReidAutoBackend():
                 LOGGER.error(f"File {f} does not have an acceptable suffix. Expected: {suffix}")
 
 
-    def model_type(self, path: Path) -> Tuple[bool, ...]:
+    def model_type(self, p: Path) -> Tuple[bool, ...]:
         """
         Determines the model type based on the file's suffix.
 
