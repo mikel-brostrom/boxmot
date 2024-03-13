@@ -100,7 +100,7 @@ class BaseModelBackend:
     @staticmethod
     def model_type(p="path/to/model.pt"):
         # Return model type from model path, i.e. path='path/to/model.onnx' -> type=onnx
-        from . import export_formats
+        from boxmot.appearance import export_formats
 
         sf = list(export_formats().Suffix)  # export suffixes
         check_suffix(p, sf)  # checks
