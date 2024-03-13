@@ -365,7 +365,7 @@ class HybridSORT(BaseTracker):
         KalmanBoxTracker.count = 0
 
         rab = ReidAutoBackend(
-            weights=model_weights, device=device, half=fp16
+            weights=reid_weights, device=device, half=half
         )
         self.model = rab.get_backend()
         self.cmc = get_cmc_method('ecc')()
