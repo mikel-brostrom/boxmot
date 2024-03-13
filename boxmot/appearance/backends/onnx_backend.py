@@ -29,19 +29,3 @@ class ONNXBackend(BaseModelBackend):
             {self.session.get_inputs()[0].name: im_batch},
         )[0]
         return features
-
-
-im = (np.random.rand(800,800,3) * 255).astype(np.uint8)
-xyxy = np.array(
-    [[ 345,  246,  794,  498],
-     [ 400,  400, 500, 500]]
-)
-
-b = ONNXBackend(
-    weights=Path("/home/mikel.brostrom/yolo_tracking/tracking/weights/osnet_x0_25_msmt17.onnx"),
-    half=False,
-    device="cpu"
-)
-
-f = b.get_features(xyxy, im)
-print(f.shape)
