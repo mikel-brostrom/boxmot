@@ -71,8 +71,6 @@ class ReidAutoBackend():
         from boxmot.appearance import export_formats
 
         sf = list(export_formats().Suffix)  # export suffixes
-        print(sf)
-        print(p)
         self.check_suffix(p, sf)  # checks
         types = [s in Path(p).name for s in sf]
         return types
