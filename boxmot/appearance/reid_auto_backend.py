@@ -29,22 +29,24 @@ class ReidAutoBackend():
         self.half = half
 
     def get_backend(self):
-        # Logic to determine which backend to use
-        if self.pt:  # Condition for PyTorch
-            return PyTorchBackend(self.weights, self.device, self.half)
-        elif self.jit:  # Conditions for other backends
-            return TorchscriptBackend(self.weights, self.device, self.half)
-        elif self.onnx:
-            return ONNXBackend(self.weights, self.device, self.half)
-        elif self.engine:
-            TensorRTBackend(self.weights, self.device, self.half)
-        elif self.xml:  # OpenVINO
-            OpenVinoBackend(self.weights, self.device, self.half)
-        elif self.tflite:
-            TFLiteBackend(self.weights, self.device, self.half)
-        else:
-            LOGGER.error("This model framework is not supported yet!")
-            exit()
+        # Mapping of conditions to backend constructors
+        backend_map = {
+            self.pt: PyTorchBackend,
+            self.jit: TorchscriptBackend,
+            self.onnx: ONNXBackend,
+            self.engine: TensorRTBackend,
+            self.xml: OpenVinoBackend,
+            self.tflite: TFLiteBackend
+        }
+
+        # Iterate through the mapping and return the first matching backend
+        for condition, backend_class in backend_map.items():
+            if condition:
+                return backend_class(self.weights, self.device, self.half)
+
+        # If no condition is met, log an error and exit
+        LOGGER.error("This model framework is not supported yet!")
+        exit()
 
     def forward(self, im_batch):
         im_batch = self.backend.preprocess_input(im_batch)
