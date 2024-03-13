@@ -11,13 +11,13 @@ from boxmot.appearance.reid_model_factory import (
 
 class BaseModelBackend:
     def __init__(self, weights, device, half):
-        self.weights = weights
+        self.weights = self.weights[0] if isinstance(self.weights, list) else self.weights
         self.device = device
         self.half = half
         self.model = None
         self.cuda = torch.cuda.is_available() and self.device.type != "cpu"
         
-        self.download_model(self.weights[0] if isinstance(self.weights, list) else self.weights)
+        self.download_model(self.weights)
         self.model_name = get_model_name(self.weights)
 
         self.model = build_model(
