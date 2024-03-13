@@ -294,7 +294,7 @@ if __name__ == "__main__":
     rab = ReidAutoBackend(
         weights=args.weights, device=args.device, half=args.half
     )
-    self.model = rab.get_backend()
+    model = rab.get_backend()
 
     model = build_model(
         get_model_name(args.weights),
