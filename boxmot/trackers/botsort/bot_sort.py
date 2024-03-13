@@ -3,7 +3,7 @@
 import numpy as np
 from collections import deque
 
-from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
 from boxmot.motion.kalman_filters.botsort_kf import KalmanFilter
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
@@ -224,9 +224,10 @@ class BoTSORT(BaseTracker):
 
         self.with_reid = with_reid
         if self.with_reid:
-            self.model = ReIDDetectMultiBackend(
-                weights=model_weights, device=device, fp16=fp16
+            rab = ReidAutoBackend(
+                weights=model_weights, device=device, half=fp16
             )
+            self.model = rab.get_backend()
 
         self.cmc = SOF()
         self.fuse_first_associate = fuse_first_associate
