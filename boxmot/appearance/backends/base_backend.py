@@ -126,11 +126,9 @@ class BaseModelBackend:
             model_url = get_model_url(w)
             if not w.exists() and model_url is not None:
                 gdown.download(model_url, str(w), quiet=False)
-            elif w.exists():
-                pass
-            else:
+            elif not w.exists():
                 LOGGER.error(
-                    f"No URL associated to the chosen StrongSORT weights ({w}). Choose between:"
+                    f"No URL associated with the chosen StrongSORT weights ({w}). Choose between:"
                 )
                 show_downloadable_models()
                 exit()
