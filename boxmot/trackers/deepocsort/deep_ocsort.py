@@ -3,7 +3,7 @@
 import numpy as np
 from collections import deque
 
-from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.deepocsort_kf import KalmanFilter
 from boxmot.utils.association import associate, linear_assignment
@@ -345,7 +345,10 @@ class DeepOCSort(BaseTracker):
         self.per_class = per_class
         KalmanBoxTracker.count = 1
 
-        self.model = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
+        rab = ReidAutoBackend(
+            weights=model_weights, device=device, half=fp16
+        )
+        self.model = rab.get_backend()
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = get_cmc_method('sof')()
         self.embedding_off = embedding_off
