@@ -98,17 +98,17 @@ class BaseModelBackend:
         return x.cpu().numpy() if isinstance(x, torch.Tensor) else x
 
     def check_suffix(self, file="osnet_x0_25_msmt17.pt", suffix=(".pt",), msg=""):
-    # Check file(s) for acceptable suffix
-    if file and suffix:
-        if isinstance(suffix, str):
-            suffix = [suffix]
-        for f in file if isinstance(file, (list, tuple)) else [file]:
-            s = Path(f).suffix.lower()  # file suffix
-            if len(s):
-                try:
-                    assert s in suffix
-                except AssertionError as err:
-                    LOGGER.error(f"{err}{f} acceptable suffix is {suffix}")
+        # Check file(s) for acceptable suffix
+        if file and suffix:
+            if isinstance(suffix, str):
+                suffix = [suffix]
+            for f in file if isinstance(file, (list, tuple)) else [file]:
+                s = Path(f).suffix.lower()  # file suffix
+                if len(s):
+                    try:
+                        assert s in suffix
+                    except AssertionError as err:
+                        LOGGER.error(f"{err}{f} acceptable suffix is {suffix}")
 
     @staticmethod
     def model_type(p="path/to/model.pt"):
