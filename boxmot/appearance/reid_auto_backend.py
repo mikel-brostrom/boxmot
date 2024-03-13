@@ -2,7 +2,9 @@ import torch
 from pathlib import Path
 from typing import Union, Tuple
 
+from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
+from boxmot.appearance import export_formats
 from boxmot.appearance.backends.onnx_backend import ONNXBackend
 from boxmot.appearance.backends.openvino_backend import OpenVinoBackend
 from boxmot.appearance.backends.pytorch_backend import PyTorchBackend
@@ -14,7 +16,11 @@ from boxmot.appearance.backends.base_backend import BaseModelBackend
 
 
 class ReidAutoBackend():
-    def __init__(self, weights="osnet_x0_25_msmt17.pt", device=torch.device("cpu"), half=False):
+    def __init__(
+        self,
+        weights: Path = WEIGHTS / "osnet_x0_25_msmt17.pt",
+        device: torch.device = torch.device("cpu"),
+        half: bool = False) -> None:
         """
         Initializes the ReidAutoBackend instance with specified weights, device, and precision mode.
 
@@ -113,8 +119,6 @@ class ReidAutoBackend():
         Returns:
             Tuple[bool, ...]: A tuple of booleans indicating the model type, corresponding to pt, jit, onnx, xml, engine, and tflite.
         """
-
-        from boxmot.appearance import export_formats
 
         sf = list(export_formats().Suffix)  # export suffixes
         self.check_suffix(p, sf)  # checks
