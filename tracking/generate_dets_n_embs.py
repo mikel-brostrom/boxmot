@@ -57,7 +57,7 @@ def run(args):
     reids = []
     for r in opt.reid_model:
         rab = ReidAutoBackend(
-            weights=model_weights, device=device, half=fp16
+            weights=args.reid_model, device=yolo.predictor.device, half=args.half
         )
         model = rab.get_backend()
         reids.append(model)
