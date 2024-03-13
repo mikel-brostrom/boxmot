@@ -292,7 +292,7 @@ if __name__ == "__main__":
         ), "--half only compatible with GPU export, i.e. use --device 0"
 
     rab = ReidAutoBackend(
-        weights=model_weights, device=device, half=fp16
+        weights=args.weights, device=args.device, half=args.half
     )
     self.model = rab.get_backend()
 
