@@ -46,7 +46,7 @@ def test_reidbackend_output(reid_model):
 
 
 @pytest.mark.parametrize("exported_reid_model, backend", zip(EXPORTED_REID_MODELS, ASSOCIATED_BACKEND))
-def test_reidbackend_output(exported_reid_model, backend):
+def test_reidbackend_type(exported_reid_model, backend):
 
     rab = ReidAutoBackend(
         weights=exported_reid_model, device='cpu', half=False
