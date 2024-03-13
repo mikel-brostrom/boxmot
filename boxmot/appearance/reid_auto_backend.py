@@ -6,6 +6,7 @@ from boxmot.appearance.backends.openvino_backend import OpenVinoBackend
 from boxmot.appearance.backends.pytorch_backend import PyTorchBackend
 from boxmot.appearance.backends.tensorrt_backend import TensorRTBackend
 from boxmot.appearance.backends.tflite_backend import TFLiteBackend
+from boxmot.appearance.backends.base_backend import BaseModelBackend
 
 
 
@@ -20,7 +21,7 @@ class ReidAutoBackend():
             self.xml,
             self.engine,
             self.tflite,
-        ) = self.model_type(w)  # get backend
+        ) = BaseModelBackend.model_type(w)  # get backend
 
         self.weights = weights
         self.device = device
