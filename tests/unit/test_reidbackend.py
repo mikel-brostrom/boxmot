@@ -16,7 +16,7 @@ REID_MODELS = [
 def test_reidbackend_output(reid_model):
 
     rab = ReidAutoBackend(
-        weights=model_weights, device=device, half=fp16
+        weights=reid_model, device='cpu', half=False
     )
     b = rab.get_backend()
 
