@@ -97,29 +97,6 @@ class BaseModelBackend:
     def to_numpy(self, x):
         return x.cpu().numpy() if isinstance(x, torch.Tensor) else x
 
-    def check_suffix(self, file="osnet_x0_25_msmt17.pt", suffix=(".pt",), msg=""):
-        # Check file(s) for acceptable suffix
-        if file and suffix:
-            if isinstance(suffix, str):
-                suffix = [suffix]
-            for f in file if isinstance(file, (list, tuple)) else [file]:
-                s = Path(f).suffix.lower()  # file suffix
-                if len(s):
-                    try:
-                        assert s in suffix
-                    except AssertionError as err:
-                        LOGGER.error(f"{err}{f} acceptable suffix is {suffix}")
-
-    @staticmethod
-    def model_type(p="path/to/model.pt"):
-        # Return model type from model path, i.e. path='path/to/model.onnx' -> type=onnx
-        from boxmot.appearance import export_formats
-
-        sf = list(export_formats().Suffix)  # export suffixes
-        self.check_suffix(p, sf)  # checks
-        types = [s in Path(p).name for s in sf]
-        return types
-
     def inference_preprocess(self, x):
         if self.half and x.dtype != torch.float16:
             x = x.half()
