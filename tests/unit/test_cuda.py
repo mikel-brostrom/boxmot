@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 from boxmot.utils import ROOT
 
-from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
 REID_MODELS = [
     Path('mobilenetv2_x1_0_market1501.pt'),
@@ -15,11 +15,12 @@ REID_MODELS = [
 @pytest.mark.parametrize("reid_model", REID_MODELS)
 def test_reidbackend_device(reid_model):
 
-    r = ReIDDetectMultiBackend(
-        weights=reid_model,
-        device='cuda:0' if torch.cuda.is_available() else 'cpu',
-        fp16=False  # not compatible with OSNet
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+
+    rab = ReidAutoBackend(
+        weights=reid_model, device=device, half=False
     )
+    r = rab.get_backend()
 
     if torch.cuda.is_available():
         assert next(r.model.parameters()).is_cuda
@@ -32,11 +33,10 @@ def test_reidbackend_half(reid_model):
 
     half = True if torch.cuda.is_available() else False
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-    r = ReIDDetectMultiBackend(
-        weights=reid_model,
-        device=device,
-        fp16=half
+    rab = ReidAutoBackend(
+        weights=reid_model, device=device, half=False
     )
+    r = rab.get_backend()
 
     if device is 'cpu':
         expected_dtype = torch.float32

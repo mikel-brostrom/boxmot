@@ -10,7 +10,7 @@ import torch
 from boxmot.utils import ROOT, WEIGHTS
 from boxmot.utils.checks import TestRequirements
 from tracking.detectors import get_yolo_inferer
-from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
+from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
@@ -56,13 +56,11 @@ def run(args):
 
     reids = []
     for r in opt.reid_model:
-        reids.append(
-            ReIDDetectMultiBackend(
-                weights=r,
-                device='cpu',
-                fp16=False
-            )
+        rab = ReidAutoBackend(
+            weights=args.reid_model, device=yolo.predictor.device, half=args.half
         )
+        model = rab.get_backend()
+        reids.append(model)
         embs_path = yolo.predictor.save_dir / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
         embs_path.touch(exist_ok=True)
