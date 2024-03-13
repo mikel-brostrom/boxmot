@@ -12,28 +12,23 @@ from boxmot.appearance.backends.torchscript_backend import TorchscriptBackend
 
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
-REID_MODELS = [
-    Path('osnet_x0_25_msmt17.pt'),
-    Path('osnet_x1_0_dukemtmcreid.pt')
-]
-
 # generated in previous job step
 EXPORTED_REID_MODELS = [
+    WEIGHTS / 'osnet_x0_25_msmt17.pt',
     WEIGHTS / 'osnet_x0_25_msmt17.torchscript',
     WEIGHTS / 'osnet_x0_25_msmt17.onnx',
     WEIGHTS / 'osnet_x0_25_msmt17_openvino_model'
 ]
 
 ASSOCIATED_BACKEND = [
+    PyTorchBackend,
     TorchscriptBackend,
     ONNXBackend,
     OpenVinoBackend
 ]
 
 
-
-
-@pytest.mark.parametrize("reid_model", REID_MODELS)
+@pytest.mark.parametrize("reid_model", EXPORTED_REID_MODELS)
 def test_reidbackend_output(reid_model):
 
     rab = ReidAutoBackend(
