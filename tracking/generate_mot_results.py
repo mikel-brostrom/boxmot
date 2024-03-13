@@ -15,8 +15,6 @@ from boxmot.tracker_zoo import create_tracker
 from ultralytics.utils.files import increment_path 
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import TestRequirements
-from tracking.detectors import get_yolo_inferer
-from boxmot.appearance.reid_multibackend import ReIDDetectMultiBackend
 from boxmot.utils import logger as LOGGER
 
 from ultralytics.data.loaders import LoadImages
