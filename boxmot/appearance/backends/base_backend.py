@@ -17,7 +17,7 @@ class BaseModelBackend:
         self.model = None
         self.cuda = torch.cuda.is_available() and self.device.type != "cpu"
         
-        self.download_model(self.weights)
+        self.download_model(self.weights[0] if isinstance(self.weights, list) else self.weights)
         self.model_name = get_model_name(self.weights)
 
         self.model = build_model(
