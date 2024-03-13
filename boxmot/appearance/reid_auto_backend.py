@@ -1,5 +1,6 @@
 import torch
 from pathlib import Path
+from typing import Union, Tuple
 
 from boxmot.utils import logger as LOGGER
 from boxmot.appearance.backends.onnx_backend import ONNXBackend
