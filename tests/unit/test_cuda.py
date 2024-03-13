@@ -15,8 +15,10 @@ REID_MODELS = [
 @pytest.mark.parametrize("reid_model", REID_MODELS)
 def test_reidbackend_device(reid_model):
 
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+
     rab = ReidAutoBackend(
-        weights=model_weights, device=device, half=fp16
+        weights=reid_model, device=device, half=False
     )
     self.model = rab.get_backend()
 
