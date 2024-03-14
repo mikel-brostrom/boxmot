@@ -273,6 +273,7 @@ jobs:
 
 
   test-tests:
+    needs: test-reid-export
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
