@@ -17,14 +17,16 @@ EXPORTED_REID_MODELS = [
     WEIGHTS / 'osnet_x0_25_msmt17.pt',
     WEIGHTS / 'osnet_x0_25_msmt17.torchscript',
     WEIGHTS / 'osnet_x0_25_msmt17.onnx',
-    WEIGHTS / 'osnet_x0_25_msmt17_openvino_model'
+    WEIGHTS / 'osnet_x0_25_msmt17_openvino_model',
+    WEIGHTS / 'osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float16.tflite'
 ]
 
 ASSOCIATED_BACKEND = [
     PyTorchBackend,
     TorchscriptBackend,
     ONNXBackend,
-    OpenVinoBackend
+    OpenVinoBackend,
+    TFLiteBackend
 ]
 
 
