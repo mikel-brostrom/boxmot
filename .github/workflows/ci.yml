@@ -193,7 +193,7 @@ jobs:
         run: python tracking/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
 
   
-  test-export-reid-models:
+  test-reid-export:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -219,6 +219,48 @@ jobs:
 
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
+      - name: Archive exported models
+        run: |
+          tar -czvf exported_models.tar.gz tracking/weights/
+      - name: Upload exported models as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: exported-models
+          path: exported_models.tar.gz
+
+
+  test-reid-exports-inference:
+    needs: test-reid-export # Ensure this job runs after the export job
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download exported models artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: exported-models
+
+      - name: Extract exported models
+        run: |
+          tar -xzvf exported_models.tar.gz -C tracking/weights
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry config virtualenvs.create false
+          poetry install --with export
+
+          # needed for TFLite export when not using onnx2tf official docker
+          wget https://github.com/PINTO0309/onnx2tf/releases/download/1.7.3/flatc.tar.gz
+          tar -zxvf flatc.tar.gz
+          sudo chmod +x flatc
+          sudo mv flatc /usr/bin/
+
+      - name: Test export models
+        run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
       - name: Test inference on exported models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -226,7 +268,8 @@ jobs:
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript                                   --source $IMG --imgsz 320
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.onnx                                          --source $IMG --imgsz 320
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model                                --source $IMG --imgsz 320 
-          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float16.tflite --source $IMG --imgsz 320        
+          python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float16.tflite --source $IMG --imgsz 320
+      
 
 
   test-tests:
@@ -249,9 +292,14 @@ jobs:
           tar -zxvf flatc.tar.gz
           sudo chmod +x flatc
           sudo mv flatc /usr/bin/
-          
-      - name: Test export models
-        run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
+      - name: Download exported models artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: exported-models
+
+      - name: Extract exported models
+        run: |
+          tar -xzvf exported_models.tar.gz -C tracking/weights
       - name: Pytest tests  # after tracking options as this does not download models
         env:
           # directory of PyPi package to be tested
