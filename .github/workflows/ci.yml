@@ -244,7 +244,7 @@ jobs:
           poetry config virtualenvs.create false
           poetry install --with test
       - name: Test export models
-        run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
+        run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
       - name: Pytest tests  # after tracking options as this does not download models
         env:
           # directory of PyPi package to be tested
