@@ -13,7 +13,7 @@ class TFLiteBackend(BaseModelBackend):
 
     def __init__(self, weights, device, half):
         super().__init__(weights, device, half)
-        self.nhwc = False
+        self.nhwc = True
         self.half = half
 
     def load_model(self, w):
