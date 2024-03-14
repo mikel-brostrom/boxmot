@@ -193,7 +193,7 @@ jobs:
         run: python tracking/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
 
   
-  test-reid-export:
+  test-reid-exports:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -357,7 +357,7 @@ jobs:
           echo "test-tracking-methods_STATUS=${{ needs.test-tracking-methods.result }}" >> $GITHUB_ENV
           echo "test-mot-metrics_STATUS=${{ needs.test-mot-metrics.result }}" >> $GITHUB_ENV
           echo "test-evolution_STATUS=${{ needs.test-evolution.result }}" >> $GITHUB_ENV
-          echo "test-export-reid-models_STATUS=${{ needs.test-export-reid-models.result }}" >> $GITHUB_ENV
+          echo "test-reid-exports-models_STATUS=${{ needs.test-reid-exports.result }}" >> $GITHUB_ENV
           echo "test-tests_STATUS=${{ needs.test-tests.result }}" >> $GITHUB_ENV
           echo "test-tracking-with-pose_STATUS=${{ needs.test-tracking-with-pose.result }}" >> $GITHUB_ENV
           echo "test-tracking-with-seg_STATUS=${{ needs.test-tracking-with-seg.result }}" >> $GITHUB_ENV
