@@ -14,7 +14,6 @@ from boxmot.appearance.backends.torchscript_backend import TorchscriptBackend
 from boxmot.appearance.backends.base_backend import BaseModelBackend
 
 
-
 class ReidAutoBackend():
     def __init__(
         self,
@@ -109,7 +108,7 @@ class ReidAutoBackend():
         # Initialize the dictionary with all values set to False
         framework_presence = {
             "pytorch": False,
-            "tensorrt": False
+            "tensorrt": False,
             "onnx": False,
             "torchscript": False,
             "openvino": False,
