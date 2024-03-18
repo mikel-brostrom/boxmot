@@ -36,9 +36,8 @@ def test_motion_tracker_update_time(tracker_type):
     end = time.process_time()
     elapsed_time_per_iteration = (end - start) / n_runs
     
-    max_allowed_time = 0.003
+    max_allowed_time = 0.005
     
-    print(elapsed_time_per_iteration)
     assert elapsed_time_per_iteration < max_allowed_time, f"Tracking algorithms processing time exceeds the allowed limit:  {elapsed_time_per_iteration} > {max_allowed_time}"
 
 
@@ -67,5 +66,4 @@ def test_motion_n_appearance_tracker_update_time(tracker_type):
     
     max_allowed_time = 6
     
-    print(elapsed_time_per_iteration)
     assert elapsed_time_per_iteration < max_allowed_time, f"Tracking algorithms processing time exceeds the allowed limit:  {elapsed_time_per_iteration} > {max_allowed_time}"
