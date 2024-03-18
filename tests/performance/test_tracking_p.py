@@ -42,7 +42,7 @@ def test_motion_tracker_update_time(tracker_type):
     assert elapsed_time_per_iteration < max_allowed_time, f"Tracking algorithms processing time exceeds the allowed limit:  {elapsed_time_per_iteration} > {max_allowed_time}"
 
 
-@pytest.mark.parametrize("tracker_type", MOTION_ONLY_TRACKING_METHODS)
+@pytest.mark.parametrize("tracker_type", MOTION_N_APPEARANCE_TRACKING_METHODS)
 def test_motion_n_appearance_tracker_update_time(tracker_type):
     tracker_conf = get_tracker_config(tracker_type)
     tracker = create_tracker(
