@@ -31,15 +31,8 @@ class ReidAutoBackend():
         """
         super().__init__()
         w = weights[0] if isinstance(weights, list) else weights
-        (
-            self.pt,
-            self.jit,
-            self.onnx,
-            self.xml,
-            self.engine,
-            self.tflite,
-        ) = self.model_type(w)  # get backend
-
+        
+        self.framework = self.identify_framework(w)  # get backend
         self.weights = weights
         self.device = device
         self.half = half
@@ -57,14 +50,14 @@ class ReidAutoBackend():
         """
 
         # Mapping of conditions to backend constructors
-        backend_map = {
-            self.pt: PyTorchBackend,
-            self.jit: TorchscriptBackend,
-            self.onnx: ONNXBackend,
-            self.engine: TensorRTBackend,
-            self.xml: OpenVinoBackend,
-            self.tflite: TFLiteBackend
-        }
+        backend_map = [
+            (self.pt, PyTorchBackend),
+            (self.torchscript, TorchscriptBackend),
+            (self.onnx, ONNXBackend),
+            (self.tensorrt, TensorRTBackend),
+            (self.openvino, OpenVinoBackend),
+            (self.tflite, TFLiteBackend)
+        ]
 
         # Iterate through the mapping and return the first matching backend
         for condition, backend_class in backend_map.items():
@@ -109,18 +102,39 @@ class ReidAutoBackend():
                 LOGGER.error(f"File {f} does not have an acceptable suffix. Expected: {suffix}")
 
 
-    def model_type(self, p: Path) -> Tuple[bool, ...]:
-        """
-        Determines the model type based on the file's suffix.
+    def identify_framework(self, Path: path):
+        # Extract the file extension
+        file_extension = file_path.suffix.lower()  # lowercase for consistency
 
-        Args:
-            path (str): The file path to the model.
-
-        Returns:
-            Tuple[bool, ...]: A tuple of booleans indicating the model type, corresponding to pt, jit, onnx, xml, engine, and tflite.
-        """
-
-        sf = list(export_formats().Suffix)  # export suffixes
-        self.check_suffix(p, sf)  # checks
-        types = [s in Path(p).name for s in sf]
-        return types
+        # Initialize the dictionary with all values set to False
+        framework_presence = {
+            "pytorch": False,
+            "tensorrt": False
+            "onnx": False,
+            "torchscript": False,
+            "openvino": False,
+            "tflite": False
+        }
+        
+        # Check the file extension and update the dictionary accordingly
+        if file_extension in ['.pt', '.pth']:
+            framework_presence["pytorch"] = True
+        elif file_extension == '.onnx':
+            framework_presence["onnx"] = True
+        elif file_extension == '.torchscript':
+            framework_presence["torchscript"] = True
+        elif file_extension == '.xml':  # Assuming an OpenVINO model; further checks for .bin would be outside this function's scope
+            framework_presence["openvino"] = True
+        elif file_extension in ['.plan', '.engine']:
+            framework_presence["tensorrt"] = True
+        else:
+            LOGGER.error("This model framework is not supported yet!")
+            exit()
+            
+        for framework, is_present in framework_dict.items():
+            if is_present:
+                return framework
+            else:
+                LOGGER.error("Framework now found")
+                exit()
+        
