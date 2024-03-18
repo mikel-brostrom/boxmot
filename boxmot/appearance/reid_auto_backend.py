@@ -130,7 +130,7 @@ class ReidAutoBackend():
             LOGGER.error("This model framework is not supported yet!")
             exit()
             
-        for framework, is_present in framework_dict.items():
+        for framework, is_present in framework_presence.items():
             if is_present:
                 return framework
             else:
