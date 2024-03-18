@@ -37,37 +37,6 @@ class ReidAutoBackend():
         self.half = half
 
 
-    def get_backend(self) -> Union['PyTorchBackend', 'TorchscriptBackend', 'ONNXBackend', 'TensorRTBackend', 'OpenVinoBackend', 'TFLiteBackend']:
-        """
-        Returns an instance of the appropriate backend based on the model type.
-
-        Returns:
-            An instance of a backend class corresponding to the detected model type.
-        
-        Raises:
-            SystemExit: If no supported model framework is detected.
-        """
-
-        # Mapping of conditions to backend constructors
-        backend_map = [
-            (self.pt, PyTorchBackend),
-            (self.torchscript, TorchscriptBackend),
-            (self.onnx, ONNXBackend),
-            (self.tensorrt, TensorRTBackend),
-            (self.openvino, OpenVinoBackend),
-            (self.tflite, TFLiteBackend)
-        ]
-
-        # Iterate through the mapping and return the first matching backend
-        for condition, backend_class in backend_map.items():
-            if condition:
-                return backend_class(self.weights, self.device, self.half)
-
-        # If no condition is met, log an error and exit
-        LOGGER.error("This model framework is not supported yet!")
-        exit()
-
-
     def forward(self, im_batch: torch.Tensor) -> torch.Tensor:
         """
         Processes an image batch through the selected backend and returns the processed batch.

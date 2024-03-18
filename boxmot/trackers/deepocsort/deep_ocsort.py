@@ -348,7 +348,7 @@ class DeepOCSort(BaseTracker):
         rab = ReidAutoBackend(
             weights=model_weights, device=device, half=fp16
         )
-        self.model = rab.get_backend()
+        self.model = rab.framework
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = get_cmc_method('sof')()
         self.embedding_off = embedding_off

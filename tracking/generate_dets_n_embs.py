@@ -59,7 +59,7 @@ def run(args):
         rab = ReidAutoBackend(
             weights=args.reid_model, device=yolo.predictor.device, half=args.half
         )
-        model = rab.get_backend()
+        model = rab.framework
         reids.append(model)
         embs_path = yolo.predictor.save_dir / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)

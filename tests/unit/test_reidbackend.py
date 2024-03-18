@@ -34,7 +34,7 @@ def test_reidbackend_output(reid_model):
     rab = ReidAutoBackend(
         weights=reid_model, device='cpu', half=False
     )
-    b = rab.get_backend()
+    b = rab.framework
 
     img = cv2.imread(str(ROOT / 'assets/MOT17-mini/train/MOT17-04-FRCNN/img1/000001.jpg'))
     dets = np.array([[144, 212, 578, 480, 0.82, 0],
@@ -51,6 +51,6 @@ def test_reidbackend_type(exported_reid_model, backend):
     rab = ReidAutoBackend(
         weights=exported_reid_model, device='cpu', half=False
     )
-    b = rab.get_backend()
+    b = rab.framework
 
     assert isinstance(b, backend)

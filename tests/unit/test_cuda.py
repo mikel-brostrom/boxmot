@@ -20,7 +20,7 @@ def test_reidbackend_device(reid_model):
     rab = ReidAutoBackend(
         weights=reid_model, device=device, half=False
     )
-    r = rab.get_backend()
+    r = rab.framework
 
     if torch.cuda.is_available():
         assert next(r.model.parameters()).is_cuda
@@ -36,7 +36,7 @@ def test_reidbackend_half(reid_model):
     rab = ReidAutoBackend(
         weights=reid_model, device=device, half=False
     )
-    r = rab.get_backend()
+    r = rab.framework
 
     if device == 'cpu':
         expected_dtype = torch.float32

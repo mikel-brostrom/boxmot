@@ -31,7 +31,7 @@ class StrongSORT(object):
         rab = ReidAutoBackend(
             weights=model_weights, device=device, half=fp16
         )
-        self.model = rab.get_backend()
+        self.model = rab.framework
         self.tracker = Tracker(
             metric=NearestNeighborDistanceMetric("cosine", max_dist, nn_budget),
             max_iou_dist=max_iou_dist,

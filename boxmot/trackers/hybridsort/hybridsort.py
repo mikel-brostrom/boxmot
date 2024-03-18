@@ -367,7 +367,7 @@ class HybridSORT(BaseTracker):
         rab = ReidAutoBackend(
             weights=reid_weights, device=device, half=half
         )
-        self.model = rab.get_backend()
+        self.model = rab.framework
         self.cmc = get_cmc_method('ecc')()
 
     def camera_update(self, trackers, warp_matrix):
