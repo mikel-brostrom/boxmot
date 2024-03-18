@@ -103,7 +103,7 @@ class ReidAutoBackend():
 
     def identify_framework(self, path: Path):
         # Extract the file extension
-        file_extension = file_path.suffix.lower()  # lowercase for consistency
+        file_extension = path.suffix.lower()  # lowercase for consistency
 
         # Initialize the dictionary with all values set to False
         framework_presence = {
