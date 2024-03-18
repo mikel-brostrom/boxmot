@@ -38,7 +38,7 @@ def test_reidbackend_half(reid_model):
     )
     r = rab.get_backend()
 
-    if device is 'cpu':
+    if device == 'cpu':
         expected_dtype = torch.float32
     else:
         expected_dtype = torch.float16
