@@ -73,16 +73,6 @@ class ReidAutoBackend():
     def identify_framework(self, path: Path):
         # Extract the file extension
         file_extension = path.suffix.lower()  # lowercase for consistency
-
-        # Initialize the dictionary with all values set to False
-        framework_presence = {
-            "pytorch": False,
-            "tensorrt": False,
-            "onnx": False,
-            "torchscript": False,
-            "openvino": False,
-            "tflite": False
-        }
         
         # Check the file extension and update the dictionary accordingly
         if file_extension in ['.pt', '.pth']:
