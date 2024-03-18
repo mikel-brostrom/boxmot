@@ -228,7 +228,6 @@ class KalmanBoxTracker(object):
             self.history_observations.append(bbox)
 
             self.time_since_update = 0
-            self.history = []
             self.hits += 1
             self.hit_streak += 1
             if self.new_kf:
