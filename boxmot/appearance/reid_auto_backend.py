@@ -101,7 +101,7 @@ class ReidAutoBackend():
                 LOGGER.error(f"File {f} does not have an acceptable suffix. Expected: {suffix}")
 
 
-    def identify_framework(self, Path: path):
+    def identify_framework(self, path: Path):
         # Extract the file extension
         file_extension = file_path.suffix.lower()  # lowercase for consistency
 
