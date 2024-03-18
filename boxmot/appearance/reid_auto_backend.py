@@ -86,23 +86,18 @@ class ReidAutoBackend():
         
         # Check the file extension and update the dictionary accordingly
         if file_extension in ['.pt', '.pth']:
-            framework_presence["pytorch"] = True
+            framework = PyTorchBackend
         elif file_extension == '.onnx':
-            framework_presence["onnx"] = True
+            framework = ONNXBackend
         elif file_extension == '.torchscript':
-            framework_presence["torchscript"] = True
+            framework = TorchscriptBackend
         elif file_extension == '.xml':  # Assuming an OpenVINO model; further checks for .bin would be outside this function's scope
-            framework_presence["openvino"] = True
+            framework = OpenVinoBackend
         elif file_extension in ['.plan', '.engine']:
-            framework_presence["tensorrt"] = True
+            framework = TensorRTBackend
         else:
             LOGGER.error("This model framework is not supported yet!")
             exit()
             
-        for framework, is_present in framework_presence.items():
-            if is_present:
-                return framework
-            else:
-                LOGGER.error("Framework now found")
-                exit()
+        return framework
         
