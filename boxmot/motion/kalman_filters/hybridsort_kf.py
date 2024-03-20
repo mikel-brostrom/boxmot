@@ -104,6 +104,7 @@ from numpy import dot, zeros, eye, isscalar, shape
 import numpy.linalg as linalg
 from filterpy.stats import logpdf
 from filterpy.common import pretty_str, reshape_z
+from collections import deque
 
 
 class KalmanFilter(object):
@@ -328,7 +329,7 @@ class KalmanFilter(object):
         self._mahalanobis = None
 
         # keep all observations 
-        self.history_obs = []
+        self.history_obs = deque([], maxlen=50)
 
         self.inv = np.linalg.inv
 
