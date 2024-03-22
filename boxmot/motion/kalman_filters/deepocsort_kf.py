@@ -433,7 +433,7 @@ class KalmanFilter(object):
 
     def unfreeze(self):
         if self.attr_saved is not None:
-            new_history = deepcopy(self.history_obs)
+            new_history = deepcopy(list(self.history_obs))
             self.__dict__ = self.attr_saved
             # self.history_obs = new_history
             self.history_obs = deque(list(self.history_obs)[:-1])
