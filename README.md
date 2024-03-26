@@ -200,16 +200,6 @@ python tracking/track.py --source 0 --yolo-model yolov8s.pt --classes 16 17  # C
 
 </details>
 
-<details>
-<summary>MOT compliant results</summary>
-
-Can be saved to your experiment folder `runs/track/exp*/` by
-
-```bash
-python tracking/track.py --source ... --save-mot
-```
-
-</details>
 
 </details>
 
