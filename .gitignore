@@ -48,3 +48,7 @@ dist/
 
 # cmc debug images
 boxmot/motion/cmc/*.jpg
+
+
+data/
+yolox_m
