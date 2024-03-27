@@ -52,3 +52,8 @@ boxmot/motion/cmc/*.jpg
 
 data/
 yolox_m
+# ignore 
+model_repository/
+
+*.pt
+*.pth.tar
