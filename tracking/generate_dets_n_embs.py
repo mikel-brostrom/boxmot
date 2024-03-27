@@ -56,6 +56,8 @@ def run(args):
 
     reids = []
     for r in opt.reid_model:
+        if str(r) == '.':
+            continue
         rab = ReidAutoBackend(
             weights=args.reid_model, device=yolo.predictor.device, half=args.half
         )
