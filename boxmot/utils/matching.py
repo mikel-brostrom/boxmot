@@ -5,7 +5,8 @@ import numpy as np
 import scipy
 import torch
 from scipy.spatial.distance import cdist
-from boxmot.utils.iou import iou_batch
+# from boxmot.utils.iou import iou_batch
+from cython_bbox import bbox_overlaps as bbox_ious
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -79,16 +80,21 @@ def ious(atlbrs, btlbrs):
 
     :rtype ious np.ndarray
     """
-    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
+    # fix AttributeError: module 'numpy' has no attribute 'float'
+    # https://stackoverflow.com/questions/74844262/how-can-i-solve-error-module-numpy-has-no-attribute-float-in-python
+    np.float = float    
+
+    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float)
     if ious.size == 0:
         return ious
 
     ious = bbox_ious(
-        np.ascontiguousarray(atlbrs, dtype=np.float32),
-        np.ascontiguousarray(btlbrs, dtype=np.float32),
+        np.ascontiguousarray(atlbrs, dtype=np.float),
+        np.ascontiguousarray(btlbrs, dtype=np.float),
     )
 
     return ious
+
 
 
 def iou_distance(atracks, btracks):
@@ -109,11 +115,10 @@ def iou_distance(atracks, btracks):
         atlbrs = [track.xyxy for track in atracks]
         btlbrs = [track.xyxy for track in btracks]
 
-    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
-    if ious.size == 0:
-        return ious
-    _ious = iou_batch(atlbrs, btlbrs)
-
+    # ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
+    # if ious.size == 0:
+    #     return ious
+    _ious = ious(atlbrs, btlbrs)
     cost_matrix = 1 - _ious
 
     return cost_matrix
