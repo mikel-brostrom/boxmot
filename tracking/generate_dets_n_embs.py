@@ -1,123 +1,79 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
-
+import os
+import cv2
 import argparse
-from pathlib import Path
 import numpy as np
 from tqdm import tqdm
+from pathlib import Path
 
 import torch
 
 from boxmot.utils import ROOT, WEIGHTS
 from boxmot.utils.checks import TestRequirements
-from tracking.detectors import get_yolo_inferer
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+from tracking.detectors import get_yolo_inferer
+from ultralytics.utils.files import increment_path
 
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
-from ultralytics import YOLO
-from ultralytics.data.utils import VID_FORMATS
-
+from tracking.detectors import create_detector
 
 @torch.no_grad()
 def run(args):
+    save_dir = args.save_dir
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     WEIGHTS.mkdir(parents=True, exist_ok=True)
+    detector = create_detector(args)
 
-    yolo = YOLO(
-        args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
-    )
-
-    results = yolo(
-        source=args.source,
-        conf=args.conf,
-        iou=args.iou,
-        agnostic_nms=args.agnostic_nms,
-        stream=True,
-        device=args.device,
-        verbose=False,
-        exist_ok=args.exist_ok,
-        project=args.project,
-        name=args.name,
-        classes=args.classes,
-        imgsz=args.imgsz,
-        vid_stride=args.vid_stride,
-    )
-
-    if 'yolov8' not in str(args.yolo_model):
-        # replace yolov8 model
-        m = get_yolo_inferer(args.yolo_model)
-        model = m(
-            model=args.yolo_model,
-            device=yolo.predictor.device,
-            args=yolo.predictor.args
-        )
-        yolo.predictor.model = model
-
-    reids = []
-    for r in opt.reid_model:
-        if str(r) == '.':
-            continue
-        rab = ReidAutoBackend(
-            weights=args.reid_model, device=yolo.predictor.device, half=args.half
-        )
-        model = rab.get_backend()
-        reids.append(model)
-        embs_path = yolo.predictor.save_dir / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
-        embs_path.parent.mkdir(parents=True, exist_ok=True)
-        embs_path.touch(exist_ok=True)
-
-    # store custom args in predictor
-    yolo.predictor.custom_args = args
-
-    dets_path = yolo.predictor.save_dir / 'dets' / (Path(args.source).parent.name + '.txt')
-    
-    # create parent folder and txt files
+    dets_path = save_dir / 'dets' / (Path(args.source).parent.name + '.txt')
     dets_path.parent.mkdir(parents=True, exist_ok=True)
     dets_path.touch(exist_ok=True)
-    
-    with open(str(dets_path), 'ab+') as f:  # append binary mode
-        np.savetxt(f, [], fmt='%f', header=str(args.source))  # save as ints instead of scientific notation
 
-    for frame_idx, r in enumerate(tqdm(results, desc="Frames")):
-
-        nr_dets = len(r.boxes)
-        frame_idx = torch.full((1, 1), frame_idx + 1)
-        frame_idx = frame_idx.repeat(nr_dets, 1)
-
-        if r.boxes.data.is_cuda:
-            dets = r.boxes.data[:, 0:4].cpu().numpy()
-        else:
-            dets = r.boxes.data[:, 0:4].numpy()
-            
-        img = r.orig_img
-        
-        dets = np.concatenate(
-            [
-                frame_idx,
-                r.boxes.xyxy.to('cpu'),
-                r.boxes.conf.unsqueeze(1).to('cpu'),
-                r.boxes.cls.unsqueeze(1).to('cpu'),
-            ], axis=1
+    reid_model = None
+    embs_path = None
+    if str(args.reid_model) != '.':
+        rab = ReidAutoBackend(
+            weights=args.reid_model, device=device, half=args.half
         )
+        reid_model = rab.get_backend()
+        embs_path = save_dir / 'embs' / str(args.reid_model) / (Path(args.source).parent.name + '.txt')
+        embs_path.parent.mkdir(parents=True, exist_ok=True)
+        embs_path.touch(exist_ok=True)
+    
+    dets_results = []
+    for frame_idx, img_name in enumerate(sorted(os.listdir(args.source))):
+        img_path = os.path.join(args.source, img_name)
+        img = cv2.imread(img_path)
+        dets = detector.inference(img_path)
 
-        with open(str(dets_path), 'ab+') as f:  # append binary mode
-            np.savetxt(f, dets, fmt='%f')  # save as ints instead of scientific notation
+        for det in dets:
+            x, y, w, h, conf, cls = det
+            dets_results.append([frame_idx, -1, x, y, w, h, conf, cls, -1])
 
-        for reid, reid_model_name in zip(reids, opt.reid_model):
-            embs = reid.get_features(dets[:, 1:5], img)
-            embs_path = yolo.predictor.save_dir / 'embs' / reid_model_name.stem / (Path(args.source).parent.name + '.txt')
+        dets = np.array(dets)[2:6]
+        dets[:, 2] = dets[:, 0] + dets[:, 2]
+        dets[:, 3] = dets[:, 1] + dets[:, 3]
+        if reid_model:
+            embs = reid_model.get_features(dets[:, 0:4], img)
             with open(str(embs_path), 'ab+') as f:  # append binary mode
                 np.savetxt(f, embs, fmt='%f')  # save as ints instead of scientific notation
+                
+    with open(dets_path, 'a') as f:
+        for det in dets_results:
+            # x,y,w,h  => (top,left),(width,height)
+            frame_idx, track_id, x, y, w, h, conf, cls, _ = det
+            f.write(f'{frame_idx+1},{track_id},{x},{y},{w},{h},{conf},{cls},-1\n')
 
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', type=Path, default='yolox_m',
                         help='yolo model path')
-    parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+    parser.add_argument('--reid-model', type=Path, default='',
                         help='reid model path')
-    parser.add_argument('--source', type=str, default='0',
+    parser.add_argument('--source', type=str, default='/home/legkovas/Projects/tracking/yolo_tracking_save_det/yolo_tracking/assets/MOT17-mini/train/',
                         help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
                         help='inference size h,w')
@@ -154,12 +110,15 @@ def parse_opt():
 
 
 if __name__ == "__main__":
-    opt = parse_opt()
-    mot_folder_paths = [item for item in Path(opt.source).iterdir()]
-    print(mot_folder_paths)
-    for y in opt.yolo_model:
-        opt.yolo_model = y
-        opt.name = y.stem
-        for mot_folder_path in mot_folder_paths:
-            opt.source = mot_folder_path / 'img1'
-            run(opt)
+    args = parse_opt()
+    mot_folder_paths = [item for item in Path(args.source).iterdir()]
+    
+    save_dir = Path(args.project) / args.yolo_model.stem
+    if os.path.exists(save_dir):
+        save_dir = increment_path(Path(args.project) / args.yolo_model.stem, exist_ok=False)
+    args.save_dir = save_dir
+    
+    for mot_folder_path in mot_folder_paths:
+        print(mot_folder_path)
+        args.source = mot_folder_path / 'img1'
+        run(args)

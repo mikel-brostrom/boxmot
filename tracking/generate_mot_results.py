@@ -29,52 +29,72 @@ __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultral
 
 
 def generate_mot_results(args):
-
+    tracking_config = \
+        ROOT /\
+        'boxmot' /\
+        'configs' /\
+        (args.tracking_method + '.yaml')
+    
     tracker = create_tracker(
         args.tracking_method,
-        TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
-        args.reid_model.with_suffix('.pt'),
-        'cpu',
+        tracking_config,
+        args.reid_model,
+        args.device,
         False,
         False
     )
 
-    with open(args.dets_file_path, 'r') as file:
-        args.source = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
+    LOGGER.info(f"\nStarting tracking on:\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT) if args.embs_file_path else None})\nusing\n\t{args.tracking_method}")
 
-    LOGGER.info(f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})\nusing\n\t{args.tracking_method}")
-
-    dets = np.loadtxt(args.dets_file_path, skiprows=1)  # skiprows=1 skips the header row
-    embs = np.loadtxt(args.embs_file_path)  # skiprows=1 skips the header row
-
-    dets_n_embs = np.concatenate(
-        [
-            dets,
-            embs
-        ], axis=1
-    )
-
-    dataset = LoadImages(args.source)
+    print('NOT USED EMBEDDINGS')
+    # embs = None
     
-    txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
-    for frame_idx, d in enumerate(tqdm(dataset, desc="Frames")):
+    tracks_results = []
+    current_frame_idx = 1
+    frame_detection = []
 
-        # don't generate dets_n_emb for the last frame
-        if (frame_idx + 1) == len(dataset):
-            break
+    with open(args.dets_file_path, 'r') as f:
+        frame_detection = []
+        lines = f.readlines()
+        for idx, det in enumerate(lines):
+            frame_idx, _, x, y, w, h, conf, cls, __ = det.split(',')
+            frame_idx = int(frame_idx)
+            x = float(x)
+            y = float(y)
+            w = float(w)
+            h = float(h)
+            conf = float(conf)
+            cls = int(float(cls))
 
-        im = d[1][0]
+            if frame_idx != current_frame_idx or idx == len(lines)-1:
+                if idx == len(lines)-1:
+                    frame_detection.append([x, y, x+w, y+h, conf, cls])
+                    
+                tracks = tracker.update(np.array(frame_detection), None)
+                for track in tracks:
+                    bbox = track[:4]
+                    tracks_results.append([current_frame_idx, int(track[4]), bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1], track[5], track[6], -1])
+                current_frame_idx = frame_idx
+                frame_detection = []
+            frame_detection.append([x, y, x+w, y+h, conf, cls])
+                
+    
+    if len(tracks_results) > 0:
+        mot_txt_path = args.exp_folder_path / (args.dets_file_path.stem + '.txt')
+        # create parent folder
+        mot_txt_path.parent.mkdir(parents=True, exist_ok=True)
+        # create mot txt file
+        mot_txt_path.touch(exist_ok=True)
 
-        # get dets and embedding associated to this frame
-        frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_idx + 1]
+        print('Aaa', str(mot_txt_path))
 
-        # frame id, x1, y1, x2, y2, conf, cls
-        dets = frame_dets_n_embs[:, 1:7]
-        embs = frame_dets_n_embs[:, 7:]
-        tracks = tracker.update(dets, im, embs)
+        with open(mot_txt_path, 'a') as f:
+            for track in tracks_results:
+                # x,y,w,h  => (top,left),(width,height)
+                frame_idx, track_id, x, y, w, h, conf, cls, _ = track
+                f.write(f'{int(frame_idx)},{int(track_id)},{round(x, 1)},{round(y, 1)},{round(w, 1)},{round(h, 1)},{conf},{int(cls)},-1\n')
 
-        mot_results = convert_to_mot_format(tracks, frame_idx + 1)
-        write_mot_results(txt_path, mot_results)
+    print(f'MOT results saved to {mot_txt_path}')
 
 
 def parse_opt():
@@ -145,12 +165,16 @@ def run_generate_mot_results(opt):
         opt = parse_opt()  
     else:
         opt = opt
-
     exp_folder_path = opt.project / (str(opt.dets) + "_" + str(opt.embs) + "_" + str(opt.tracking_method))
     exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
     opt.exp_folder_path = exp_folder_path
     dets_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'dets').glob('*.txt')]
     embs_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt')]
+    
+    # when not used embedddings
+    if len(embs_file_paths) == 0:
+        embs_file_paths = [None]*len(dets_file_paths)
+
     print(dets_file_paths)
     print(embs_file_paths)
     for d, e in zip(dets_file_paths, embs_file_paths):

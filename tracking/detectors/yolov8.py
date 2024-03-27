@@ -1,17 +1,34 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+from copy import deepcopy
+from ultralytics import YOLO
 
-from .yolo_interface import YoloInterface
 
+class YOLOv8_wrapper:
+    def __init__(self, args):
+        self.args = deepcopy(args)
+        self.yolov8 = YOLO(args.yolo_model.name)
+    
+    def inference(self, img_path):
+        outputs = self.yolov8([img_path],
+            conf=self.args.conf,
+            iou=self.args.iou,
+            agnostic_nms=self.args.agnostic_nms,
+            stream=True,
+            device=self.args.device,
+            verbose=self.args.verbose,
+            exist_ok=self.args.exist_ok,
+            project=self.args.project,
+            name=self.args.name,
+            classes=self.args.classes,
+            imgsz=self.args.imgsz,
+        )
 
-class Yolov8Strategy(YoloInterface):
-
-    def __init__(self, model, device, args):
-        self.model = model
-
-    def inference(self, im):
-        preds = self.model(im, augment=False, visualize=False)
-        return preds
-
-    def postprocess(self, path, preds, im, im0s, predictor):
-        postprocessed_preds = predictor.postprocess(preds, im, im0s)
-        return postprocessed_preds
+        results = []
+        for output in outputs:
+            dets = []
+            for box in output.boxes:
+                bbox = box.xyxy[0].tolist()  # Convert from tensor to list
+                conf = box.conf.item()  # Get confidence score
+                cls = box.cls.item()  # Get confidence score
+                dets.append([bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1], conf, cls])
+            results.append(dets)
+        return results[0]
