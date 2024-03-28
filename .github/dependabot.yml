@@ -1,7 +1,7 @@
 version: 2
 
 updates:
-  - package-ecosystem: pipenv  # Poetry is treated similarly to pipenv for Dependabot
+  - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: weekly
