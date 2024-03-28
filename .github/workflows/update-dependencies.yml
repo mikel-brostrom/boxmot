@@ -27,6 +27,9 @@ jobs:
       with:
         python-version: '3.11' # Use the Python version appropriate to your project
 
+    - name: Generate Date String
+      run: echo "BRANCH_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
     - name: Install Poetry
       run: |
         python -m pip install --upgrade pip setuptools wheel
@@ -43,7 +46,10 @@ jobs:
       run: |
         git config --global user.name 'CI Bot'
         git config --global user.email 'ci-bot@example.com'
-        git checkout -b update-dependencies-$(date +'%Y-%m-%d')
+
+    - name: Create and switch to a new branch
+      run: |
+        git checkout -b update-dependencies-${{ env.BRANCH_DATE }}
         git add poetry.lock
         git commit -m "Update dependencies" || echo "No changes to commit"
         git push --set-upstream origin update-dependencies-$(date +'%Y-%m-%d')
@@ -51,8 +57,8 @@ jobs:
     - name: Create Pull Request
       uses: peter-evans/create-pull-request@v3
       with:
-        branch: update-dependencies-$(date +'%Y-%m-%d') # The branch to push changes
-        title: "Update dependencies $(date +'%Y-%m-%d')"
+        branch: update-dependencies-${{ env.BRANCH_DATE }}
+        title: "Update dependencies for ${{ env.BRANCH_DATE }}"
         body: |
           Updates dependencies to their latest versions.
         labels: dependencies,automated PR
