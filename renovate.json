@@ -3,5 +3,5 @@
   "extends": [
     "config:recommended"
   ],
-  "schedule": ["every second weekend"]
+  "schedule": ["every weekend"]
 }
