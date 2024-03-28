@@ -6,6 +6,9 @@ updates:
     schedule:
       interval: weekly
       time: "02:00"
+    commit-message:
+      prefix: "chore"  # Optional: Prefix for commit messages and pull request titles
+      include: "scope"  # Optional: Include the scope of the update in commit messages and pull request titles
 
   - package-ecosystem: github-actions
     directory: "/"
