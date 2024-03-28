@@ -7,6 +7,14 @@ name: Update Python Dependencies
 #   workflow_dispatch:
 #     # Allows manual triggering of the workflow.
 
+on:
+  push:
+    branches:
+      - master
+      - dependency-updates
+    # This will trigger the workflow on pushes to the main and develop branches.
+    # You can adjust the branch names as per your workflow requirements.
+
 jobs:
   update-dependencies:
     runs-on: ubuntu-latest
