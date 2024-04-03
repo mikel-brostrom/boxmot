@@ -436,7 +436,7 @@ class KalmanFilter(object):
             new_history = deepcopy(list(self.history_obs))
             self.__dict__ = self.attr_saved
             # self.history_obs = new_history
-            self.history_obs = deque(list(self.history_obs)[:-1])
+            self.history_obs = deque(list(self.history_obs)[:-1], maxlen=50)
             occur = [int(d is None) for d in new_history]
             indices = np.where(np.array(occur) == 0)[0]
             index1 = indices[-2]
