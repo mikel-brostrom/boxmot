@@ -46,10 +46,7 @@ class PerClassDecorator:
                 frame_count = instance.frame_count
 
                 for i, cls_id in enumerate(range(self.nr_classes)):
-                    
-                    # reset frame count
-                    if i != 0:
-                        instance.frame_count = frame_count
+ 
                     if dets.size > 0:
                         class_dets = dets[dets[:, 5] == cls_id]
                     else:
@@ -58,6 +55,9 @@ class PerClassDecorator:
 
                     # activate the specific active tracks for this class id
                     instance.active_tracks = self.per_class_active_tracks[cls_id]
+                    
+                    # reset frame count for every class
+                    instance.frame_count = frame_count
                     
                     # Update detections using the decorated method
                     tracks = self.update(instance, class_dets, im)
