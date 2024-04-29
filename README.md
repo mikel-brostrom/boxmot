@@ -212,7 +212,7 @@ Evaluate a combination of detector, tracking method and ReID model on standard M
 # saves dets and embs under ./runs/dets_n_embs separately for each selected yolo and reid model
 $ python tracking/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
 # generate MOT challenge format results based on pregenerated detections and embeddings for a specific trackign method
-$ python tracking/generate_mot_metrics.py --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method botsort
+$ python tracking/generate_mot_results.py --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method botsort
 # uses TrackEval to generate MOT metrics for the tracking results under ./runs/mot/<dets+embs+tracking-method>
 $ python tracking/val.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method botsort
 ```
