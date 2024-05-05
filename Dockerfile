@@ -11,7 +11,7 @@ RUN apt update
 WORKDIR /usr/src/boxmot
 
 # Clone with submodules
-RUN git clone https://github.com/mikel-brostrom/yolo_tracking.git -b main /usr/src/boxmot
+RUN git clone https://github.com/mikel-brostrom/yolo_tracking.git -b master /usr/src/boxmot
 
 # Install pip packages
 RUN python3 -m pip install --upgrade pip wheel
