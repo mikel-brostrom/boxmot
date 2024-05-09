@@ -51,12 +51,3 @@ def select_device(device="", batch=0):
         arg = "cpu"
     LOGGER.info(s)
     return torch.device(arg)
-
-def get_version_from_pyproject():
-    # Load the pyproject.toml file
-    with open(ROOT / "pyproject.toml", "r") as file:
-        pyproject_data = toml.load(file)
-
-    # Extract the version
-    version = pyproject_data['tool']['poetry']['version']
-    return version
