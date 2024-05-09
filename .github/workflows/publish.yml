@@ -45,6 +45,7 @@ jobs:
       - name: Update __init__.py version and add
         run: |
           pwd
+          ls
           sed -i '' "s/__version__ = '.*'/__version__ = '${{ steps.get_version.outputs.new_version }}'/" boxmot/__init__.py
           git add boxmot/__init__.py
         if: ${{ success() }}
