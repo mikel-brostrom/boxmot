@@ -2,24 +2,15 @@
 
 import os
 import platform
-import toml
 import torch
 
+from .. import __version__
 from . import logger as LOGGER
 from boxmot.utils import ROOT
 
 
-def get_version_from_pyproject():
-    # Load the pyproject.toml file
-    with open(ROOT / "pyproject.toml", "r") as file:
-        pyproject_data = toml.load(file)
-
-    # Extract the version
-    version = pyproject_data['tool']['poetry']['version']
-    return version
-
 def get_system_info():
-    return f"Yolo Tracking v{get_version_from_pyproject()} 🚀 Python-{platform.python_version()} torch-{torch.__version__}"
+    return f"Yolo Tracking v{__version__} 🚀 Python-{platform.python_version()} torch-{torch.__version__}"
 
 def parse_device(device):
     device = str(device).lower().replace("cuda:", "").replace("none", "").replace("(", "").replace(")", "").replace("[", "").replace("]", "").replace("'", "").replace(" ", "")
