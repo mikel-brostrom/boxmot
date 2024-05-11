@@ -45,21 +45,21 @@ gitpython = "^3.1.42"
 [tool.poetry.group.gpu.dependencies]
 torch = [
     {version = "^2.2.1", source="pypi", markers = "sys_platform == 'darwin'"},
-    {version = "^2.2.1+cu113", markers = "sys_platform == 'linux'"}
+    {version = "^2.2.1+cu113", markers = "sys_platform == 'linux' or sys_platform == 'win32'"}
 ]
 torchvision = [
     {version = "^0.17.1", source="pypi", markers = "sys_platform == 'darwin'"},
-    {version = "^0.17.1+cu113", markers = "sys_platform == 'linux'"}
+    {version = "^0.17.1+cu113", markers = "sys_platform == 'linux' or sys_platform == 'win32'"}
 ]
 
 [tool.poetry.group.cpu.dependencies]
 torch = [
     {version = "^2.2.1", source="pypi", markers = "sys_platform == 'darwin'"},
-    {version = "^2.2.1", source = "torchcpu", markers = "sys_platform == 'linux'"}
+    {version = "^2.2.1", source = "torchcpu", markers = "sys_platform == 'linux' or sys_platform == 'win32'"}
 ]
 torchvision = [
     {version = "^0.17.1", source="pypi", markers = "sys_platform == 'darwin'"},
-    {version = "^0.17.1", source = "torchcpu", markers = "sys_platform == 'linux'"}
+    {version = "^0.17.1", source = "torchcpu", markers = "sys_platform == 'linux' or sys_platform == 'win32'"}
 ]
 
 
