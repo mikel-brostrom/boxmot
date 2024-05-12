@@ -57,7 +57,6 @@ torch = [
 torchvision = [
     {version = "^0.17.1", source="pypi", markers = "sys_platform == 'darwin'"},
     {version = "^0.17.1", source = "torchcpu", markers = "sys_platform == 'linux'"},
-    {version = "^0.17.1", source = "torchcpu", markers = "sys_platform == 'win32'"}
 ]
 
 [[tool.poetry.source]]
