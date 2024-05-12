@@ -51,6 +51,8 @@ torchvision = [
     {version = "^0.17.1", source="torch_cuda121", markers = "sys_platform == 'win32'"},
 ]
 
+
+
 [tool.poetry.group.test.dependencies]
 pytest = "^8.0.2"
 isort = "^5.13.2"
