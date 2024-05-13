@@ -59,7 +59,6 @@ class PerClassDecorator:
                     
                     # reset frame count for every class
                     instance.frame_count = frame_count
-                    logger.info(instance.frame_count)
                     
                     # Update detections using the decorated method
                     tracks = self.update(instance, class_dets, im)
@@ -69,9 +68,7 @@ class PerClassDecorator:
 
                     if tracks.size > 0:
                         per_class_tracks.append(tracks)
-                        
-                    print(cls_id, instance.frame_count)
-                
+                                        
                 # when all active tracks lists have been updated
                 instance.per_class_active_tracks = self.per_class_active_tracks
                 
