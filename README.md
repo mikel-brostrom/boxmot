@@ -82,7 +82,7 @@ In inverse chronological order:
 
 * Enabled tracking per class for all trackers besides StrongSORT by `--per-class` (March 2024)
 * Enabled trajectory plotting for all trackers besides StrongSORT by `--show-trajectories` (March 2024)
-* All trackers inherit from BaseTracker (Mars 2024)
+* All trackers inherit from BaseTracker (March 2024)
 * Switched from setuptools to poetry for unified: dependency resolution, packaging and publishing management (March 2024)
 * ~x3 pipeline speedup by: using pregenerated detections + embeddings and jobs parallelization (March 2024)
 * Ultra fast exerimentation enabled by allowing local detections and embeddings saving. This data can then be loaded into any tracking algorithm, avoiding the overhead of repeatedly generating it (February 2024)
