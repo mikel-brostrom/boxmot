@@ -1427,42 +1427,37 @@ files = [
 
 [[package]]
 name = "onnx"
-version = "1.16.0"
+version = "1.16.1"
 description = "Open Neural Network Exchange"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "onnx-1.16.0-cp310-cp310-macosx_10_15_universal2.whl", hash = "sha256:9eadbdce25b19d6216f426d6d99b8bc877a65ed92cbef9707751c6669190ba4f"},
-    {file = "onnx-1.16.0-cp310-cp310-macosx_10_15_x86_64.whl", hash = "sha256:034ae21a2aaa2e9c14119a840d2926d213c27aad29e5e3edaa30145a745048e1"},
-    {file = "onnx-1.16.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ec22a43d74eb1f2303373e2fbe7fbcaa45fb225f4eb146edfed1356ada7a9aea"},
-    {file = "onnx-1.16.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:298f28a2b5ac09145fa958513d3d1e6b349ccf86a877dbdcccad57713fe360b3"},
-    {file = "onnx-1.16.0-cp310-cp310-win32.whl", hash = "sha256:66300197b52beca08bc6262d43c103289c5d45fde43fb51922ed1eb83658cf0c"},
-    {file = "onnx-1.16.0-cp310-cp310-win_amd64.whl", hash = "sha256:ae0029f5e47bf70a1a62e7f88c80bca4ef39b844a89910039184221775df5e43"},
-    {file = "onnx-1.16.0-cp311-cp311-macosx_10_15_universal2.whl", hash = "sha256:f51179d4af3372b4f3800c558d204b592c61e4b4a18b8f61e0eea7f46211221a"},
-    {file = "onnx-1.16.0-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:5202559070afec5144332db216c20f2fff8323cf7f6512b0ca11b215eacc5bf3"},
-    {file = "onnx-1.16.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:77579e7c15b4df39d29465b216639a5f9b74026bdd9e4b6306cd19a32dcfe67c"},
-    {file = "onnx-1.16.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0e60ca76ac24b65c25860d0f2d2cdd96d6320d062a01dd8ce87c5743603789b8"},
-    {file = "onnx-1.16.0-cp311-cp311-win32.whl", hash = "sha256:81b4ee01bc554e8a2b11ac6439882508a5377a1c6b452acd69a1eebb83571117"},
-    {file = "onnx-1.16.0-cp311-cp311-win_amd64.whl", hash = "sha256:7449241e70b847b9c3eb8dae622df8c1b456d11032a9d7e26e0ee8a698d5bf86"},
-    {file = "onnx-1.16.0-cp312-cp312-macosx_10_15_universal2.whl", hash = "sha256:03a627488b1a9975d95d6a55582af3e14c7f3bb87444725b999935ddd271d352"},
-    {file = "onnx-1.16.0-cp312-cp312-macosx_10_15_x86_64.whl", hash = "sha256:c392faeabd9283ee344ccb4b067d1fea9dfc614fa1f0de7c47589efd79e15e78"},
-    {file = "onnx-1.16.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0efeb46985de08f0efe758cb54ad3457e821a05c2eaf5ba2ccb8cd1602c08084"},
-    {file = "onnx-1.16.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ddf14a3d32234f23e44abb73a755cb96a423fac7f004e8f046f36b10214151ee"},
-    {file = "onnx-1.16.0-cp312-cp312-win32.whl", hash = "sha256:62a2e27ae8ba5fc9b4a2620301446a517b5ffaaf8566611de7a7c2160f5bcf4c"},
-    {file = "onnx-1.16.0-cp312-cp312-win_amd64.whl", hash = "sha256:3e0860fea94efde777e81a6f68f65761ed5e5f3adea2e050d7fbe373a9ae05b3"},
-    {file = "onnx-1.16.0-cp38-cp38-macosx_10_15_universal2.whl", hash = "sha256:70a90649318f3470985439ea078277c9fb2a2e6e2fd7c8f3f2b279402ad6c7e6"},
-    {file = "onnx-1.16.0-cp38-cp38-macosx_10_15_x86_64.whl", hash = "sha256:71839546b7f93be4fa807995b182ab4b4414c9dbf049fee11eaaced16fcf8df2"},
-    {file = "onnx-1.16.0-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7665217c45a61eb44718c8e9349d2ad004efa0cb9fbc4be5c6d5e18b9fe12b52"},
-    {file = "onnx-1.16.0-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e5752bbbd5717304a7643643dba383a2fb31e8eb0682f4e7b7d141206328a73b"},
-    {file = "onnx-1.16.0-cp38-cp38-win32.whl", hash = "sha256:257858cbcb2055284f09fa2ae2b1cfd64f5850367da388d6e7e7b05920a40c90"},
-    {file = "onnx-1.16.0-cp38-cp38-win_amd64.whl", hash = "sha256:209fe84995a28038e29ae8369edd35f33e0ef1ebc3bddbf6584629823469deb1"},
-    {file = "onnx-1.16.0-cp39-cp39-macosx_10_15_universal2.whl", hash = "sha256:8cf3e518b1b1b960be542e7c62bed4e5219e04c85d540817b7027029537dec92"},
-    {file = "onnx-1.16.0-cp39-cp39-macosx_10_15_x86_64.whl", hash = "sha256:30f02beaf081c7d9fa3a8c566a912fc4408e28fc33b1452d58f890851691d364"},
-    {file = "onnx-1.16.0-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7fb29a9a692b522deef1f6b8f2145da62c0c43ea1ed5b4c0f66f827fdc28847d"},
-    {file = "onnx-1.16.0-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7755cbd5f4e47952e37276ea5978a46fc8346684392315902b5ed4a719d87d06"},
-    {file = "onnx-1.16.0-cp39-cp39-win32.whl", hash = "sha256:7532343dc5b8b5e7c3e3efa441a3100552f7600155c4db9120acd7574f64ffbf"},
-    {file = "onnx-1.16.0-cp39-cp39-win_amd64.whl", hash = "sha256:d7886c05aa6d583ec42f6287678923c1e343afc4350e49d5b36a0023772ffa22"},
-    {file = "onnx-1.16.0.tar.gz", hash = "sha256:237c6987c6c59d9f44b6136f5819af79574f8d96a760a1fa843bede11f3822f7"},
+    {file = "onnx-1.16.1-cp310-cp310-macosx_11_0_universal2.whl", hash = "sha256:bb2d392e5b7060082c2fb38eb5c44f67eb34ff5f0681bd6f45beff9abc6f7094"},
+    {file = "onnx-1.16.1-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:15abf94a7868eed6db15a8b5024ba570c891cae77ca4d0e7258dabdad76980df"},
+    {file = "onnx-1.16.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6251910e554f811fdd070164b0bc76d76b067b95576cb9dad4d52ae64fe014b5"},
+    {file = "onnx-1.16.1-cp310-cp310-win32.whl", hash = "sha256:c11e3b15eee46cd20767e505cc3ba97457ef5ac93c3e459cdfb77943ff8fe9a7"},
+    {file = "onnx-1.16.1-cp310-cp310-win_amd64.whl", hash = "sha256:b3d10405706807ec2ef493b2a78519fa0264cf190363e89478585aac1179b596"},
+    {file = "onnx-1.16.1-cp311-cp311-macosx_11_0_universal2.whl", hash = "sha256:006ba5059c85ce43e89a1486cc0276d0f1a8ec9c6efd1a9334fd3fa0f6e33b64"},
+    {file = "onnx-1.16.1-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1521ea7cd3497ecaf57d3b5e72d637ca5ebca632122a0806a9df99bedbeecdf8"},
+    {file = "onnx-1.16.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:45cf20421aeac03872bea5fd6ebf92abe15c4d1461a2572eb839add5059e2a09"},
+    {file = "onnx-1.16.1-cp311-cp311-win32.whl", hash = "sha256:f98e275b4f46a617a9c527e60c02531eae03cf67a04c26db8a1c20acee539533"},
+    {file = "onnx-1.16.1-cp311-cp311-win_amd64.whl", hash = "sha256:95aa20aa65a9035d7543e81713e8b0f611e213fc02171959ef4ee09311d1bf28"},
+    {file = "onnx-1.16.1-cp312-cp312-macosx_11_0_universal2.whl", hash = "sha256:32e11d39bee04f927fab09f74c46cf76584094462311bab1aca9ccdae6ed3366"},
+    {file = "onnx-1.16.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8884bf53b552873c0c9b072cb8625e7d4e8f3cc0529191632d24e3de58a3b93a"},
+    {file = "onnx-1.16.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:595b2830093f81361961295f7b0ebb6000423bcd04123d516d081c306002e387"},
+    {file = "onnx-1.16.1-cp312-cp312-win32.whl", hash = "sha256:2fde4dd5bc278b3fc8148f460bce8807b2874c66f48529df9444cdbc9ecf456b"},
+    {file = "onnx-1.16.1-cp312-cp312-win_amd64.whl", hash = "sha256:e69ad8c110d8c37d759cad019d498fdf3fd24e0bfaeb960e52fed0469a5d2974"},
+    {file = "onnx-1.16.1-cp38-cp38-macosx_11_0_universal2.whl", hash = "sha256:0fc189195a40b5862fb77d97410c89823197fe19c1088ce150444eec72f200c1"},
+    {file = "onnx-1.16.1-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:496ba17b16a74711081772e1b03f3207959972e351298e51abdc600051027a22"},
+    {file = "onnx-1.16.1-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0f3faf239b48418b3ea6fe73bd4d86807b903d0b2ebd20b8b8c84f83741b0f18"},
+    {file = "onnx-1.16.1-cp38-cp38-win32.whl", hash = "sha256:18b22143836838591f6551b089196e69f60c47fabce52b4b72b4cb37522645aa"},
+    {file = "onnx-1.16.1-cp38-cp38-win_amd64.whl", hash = "sha256:8c2b70d602acfb90056fbdc60ef26f4658f964591212a4e9dbbda922ff43061b"},
+    {file = "onnx-1.16.1-cp39-cp39-macosx_11_0_universal2.whl", hash = "sha256:2bed6fe05905b073206cabbb4463c58050cf8d544192303c09927b229f93ac14"},
+    {file = "onnx-1.16.1-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5798414332534a41404a7ff83677d49ced01d70160e1541484cce647f2295051"},
+    {file = "onnx-1.16.1-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:aa7518d6d27f357261a4014079dec364cad6fef827d0b3fe1d3ff59939a68394"},
+    {file = "onnx-1.16.1-cp39-cp39-win32.whl", hash = "sha256:67f372db4fe8fe61e00b762af5b0833aa72b5baa37e7e2f47d8668964ebff411"},
+    {file = "onnx-1.16.1-cp39-cp39-win_amd64.whl", hash = "sha256:1c059fea6229c44d2d39c8f6e2f2f0d676d587c97f4c854c86f3e7bc97e0b31c"},
+    {file = "onnx-1.16.1.tar.gz", hash = "sha256:8299193f0f2a3849bfc069641aa8e4f93696602da8d165632af8ee48ec7556b6"},
 ]
 
 [package.dependencies]
@@ -1538,11 +1533,11 @@ files = [
 [package.dependencies]
 numpy = [
     {version = ">=1.21.0", markers = "python_version <= \"3.9\" and platform_system == \"Darwin\" and platform_machine == \"arm64\" and python_version >= \"3.8\""},
+    {version = ">=1.23.5", markers = "python_version >= \"3.11\" and python_version < \"3.12\""},
     {version = ">=1.21.4", markers = "python_version >= \"3.10\" and platform_system == \"Darwin\" and python_version < \"3.11\""},
     {version = ">=1.21.2", markers = "platform_system != \"Darwin\" and python_version >= \"3.10\" and python_version < \"3.11\""},
     {version = ">=1.19.3", markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\" and python_version >= \"3.8\" and python_version < \"3.10\" or python_version > \"3.9\" and python_version < \"3.10\" or python_version >= \"3.9\" and platform_system != \"Darwin\" and python_version < \"3.10\" or python_version >= \"3.9\" and platform_machine != \"arm64\" and python_version < \"3.10\""},
     {version = ">=1.17.3", markers = "(platform_system != \"Darwin\" and platform_system != \"Linux\") and python_version >= \"3.8\" and python_version < \"3.9\" or platform_system != \"Darwin\" and python_version >= \"3.8\" and python_version < \"3.9\" and platform_machine != \"aarch64\" or platform_machine != \"arm64\" and python_version >= \"3.8\" and python_version < \"3.9\" and platform_system != \"Linux\" or (platform_machine != \"arm64\" and platform_machine != \"aarch64\") and python_version >= \"3.8\" and python_version < \"3.9\""},
-    {version = ">=1.23.5", markers = "python_version >= \"3.11\" and python_version < \"3.12\""},
 ]
 
 [[package]]
@@ -1697,8 +1692,8 @@ files = [
 [package.dependencies]
 numpy = [
     {version = ">=1.20.3", markers = "python_version < \"3.10\""},
-    {version = ">=1.21.0", markers = "python_version >= \"3.10\" and python_version < \"3.11\""},
     {version = ">=1.23.2", markers = "python_version >= \"3.11\""},
+    {version = ">=1.21.0", markers = "python_version >= \"3.10\" and python_version < \"3.11\""},
 ]
 python-dateutil = ">=2.8.2"
 pytz = ">=2020.1"
