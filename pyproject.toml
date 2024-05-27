@@ -53,7 +53,7 @@ torchvision = [
 [tool.poetry.group.test.dependencies]
 pytest = "^8.0.2"
 isort = "^5.13.2"
-pytest-cov = "^4.1.0"
+pytest-cov = ">=4.1,<6.0"
 
 
 [tool.poetry.group.yolo.dependencies]
