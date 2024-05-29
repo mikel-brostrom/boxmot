@@ -388,7 +388,7 @@ class HybridSORT(BaseTracker):
             return np.empty((0, 7))
 
         if self.ECC:
-            warp_matrix = self.cmc.apply(im, dets)
+            warp_matrix = self.cmc.apply(img, dets)
             if warp_matrix is not None:
                 self.camera_update(self.active_tracks, warp_matrix)
 
@@ -396,7 +396,7 @@ class HybridSORT(BaseTracker):
         scores = dets[:, 4]
         bboxes = dets[:, :4]
 
-        dets_embs = self.model.get_features(bboxes, im)
+        dets_embs = self.model.get_features(bboxes, img)
         dets0 = np.concatenate((dets, np.expand_dims(scores, axis=-1)), axis=1)
         dets = np.concatenate((bboxes, np.expand_dims(scores, axis=-1)), axis=1)
         inds_low = scores > self.low_thresh
