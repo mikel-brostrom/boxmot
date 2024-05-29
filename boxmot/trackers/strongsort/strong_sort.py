@@ -43,7 +43,7 @@ class StrongSORT(object):
         self.cmc = get_cmc_method('ecc')()
 
     @PerClassDecorator
-    def update(self, dets, img, embs=None):
+    def update(self, dets: np.ndarray, im: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
