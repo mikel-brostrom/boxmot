@@ -136,7 +136,7 @@ class BYTETracker(BaseTracker):
         self.kalman_filter = KalmanFilter()
 
     @PerClassDecorator
-    def update(self, dets, im=None, embs=None):
+    def update(self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None) -> np.ndarray:
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
