@@ -233,7 +233,7 @@ class BoTSORT(BaseTracker):
         self.fuse_first_associate = fuse_first_associate
 
     @PerClassDecorator
-    def update(self, dets, img, embs=None):
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
