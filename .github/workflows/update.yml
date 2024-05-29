@@ -23,6 +23,7 @@ jobs:
 
       - name: Update dependencies
         run: |
+          poetry install
           poetry update
           poetry lock --no-update
 
