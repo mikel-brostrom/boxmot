@@ -2,9 +2,10 @@ import numpy as np
 import cv2 as cv
 import hashlib
 import colorsys
+from abc import ABC, abstractmethod
 
 
-class BaseTracker(object):
+class BaseTracker(ABC):
     def __init__(self, det_thresh: float = 0.3, max_age: int = 30, min_hits: int = 3, iou_threshold: float = 0.3):
         """
         Initialize the BaseTracker object with detection threshold, maximum age, minimum hits, 
@@ -29,7 +30,8 @@ class BaseTracker(object):
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
 
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> None:
+    @abstractmethod
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         Abstract method to update the tracker with new detections for a new frame. This method 
         should be implemented by subclasses.
