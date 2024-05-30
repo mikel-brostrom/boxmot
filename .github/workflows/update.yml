@@ -1,8 +1,6 @@
 name: Update Dependencies
 
 on:
-  schedule:
-    - cron: '0 0 * * 0' # Run every Sunday at midnight
   workflow_dispatch: # Allows you to manually trigger the workflow
 
 jobs:
