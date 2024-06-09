@@ -298,7 +298,7 @@ class OCSort(BaseTracker):
         if self.use_byte and len(dets_second) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
             iou_left = self.asso_func(
-                dets_second, u_trks
+                *(dets_second, u_trks, w, h) if self.asso_func.__name__ == 'centroid_batch' else (dets_second, u_trks)
             )  # iou between low score detections and unmatched tracks
             iou_left = np.array(iou_left)
             if iou_left.max() > self.asso_threshold:
