@@ -76,8 +76,9 @@ def generate_mot_results(args):
         embs = frame_dets_n_embs[:, 7:]
         tracks = tracker.update(dets, im, embs)
 
-        mot_results = convert_to_mot_format(tracks, frame_idx + 1)
-        all_mot_results.append(mot_results)
+        if tracks.size > 0:  # Check if tracks is not an empty array
+            mot_results = convert_to_mot_format(tracks, frame_idx + 1)
+            all_mot_results.append(mot_results)
 
     if all_mot_results:
         all_mot_results = np.vstack(all_mot_results)
