@@ -83,10 +83,10 @@ def run(args):
         frame_idx = torch.full((1, 1), frame_idx + 1)
         frame_idx = frame_idx.repeat(nr_dets, 1)
 
-        if r.boxes.data.is_cuda:
-            dets = r.boxes.data[:, 0:4].cpu().numpy()
-        else:
+        if r.boxes.data.is_cpu:
             dets = r.boxes.data[:, 0:4].numpy()
+        else:
+            dets = r.boxes.data[:, 0:4].cpu().numpy()
             
         img = r.orig_img
         
