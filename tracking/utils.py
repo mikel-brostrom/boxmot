@@ -190,22 +190,10 @@ def eval_setup(opt, val_tools_path):
     return seq_paths, save_dir, MOT_results_folder, gt_folder
 
 
-
 def convert_to_mot_format(results: Union[Results, np.ndarray], frame_idx: int) -> np.ndarray:
     """
     Converts tracking results for a single frame into MOT challenge format.
 
-    Parameters:
-    - results (object): An object containing detection results for the current frame.
-                        Must have 'boxes' attribute with 'id', 'xyxy', 'conf', and 'cls' sub-attributes.
-    - frame_idx (int): The zero-based index of the frame being processed.
-
-    Returns:
-    - torch.Tensor: A tensor containing the MOT formatted results for the frame.
-    """
-    """
-    Converts tracking results for a single frame into MOT challenge format.
-    
     This function supports inputs as either a custom object with a 'boxes' attribute or a numpy array.
     For custom object inputs, 'boxes' should contain 'id', 'xyxy', 'conf', and 'cls' sub-attributes.
     For numpy array inputs, the expected format per row is: (xmin, ymin, xmax, ymax, id, conf, cls).
@@ -215,48 +203,49 @@ def convert_to_mot_format(results: Union[Results, np.ndarray], frame_idx: int) -
     - frame_idx (int): The zero-based index of the frame being processed.
 
     Returns:
-    - Union[torch.Tensor, np.ndarray]: A tensor or array containing the MOT formatted results for the frame.
+    - np.ndarray: An array containing the MOT formatted results for the frame.
     """
 
-    # do not try to safe if array is empty
+    # Check if results are not empty
     if results.size != 0:
         if isinstance(results, np.ndarray):
-            # convert numpy array results to MOT format
+            # Convert numpy array results to MOT format
             tlwh = ops.xyxy2ltwh(results[:, 0:4])
-            frame_idx_column = np.full((results.shape[0], 1), frame_idx + 1)
+            frame_idx_column = np.full((results.shape[0], 1), frame_idx + 1, dtype=np.int32)
             mot_results = np.column_stack((
-                frame_idx_column,
-                results[:, 4],  # track id
-                tlwh,  # top,left,bottom, right
-                results[:, 5],  # confidence
-                results[:, 6],  # class
+                frame_idx_column, # frame index
+                results[:, 4].astype(np.int32),  # track id
+                tlwh.astype(np.int32),  # top,left,width,height
+                np.ones((results.shape[0], 1), dtype=np.int32),  # "not ignored"
+                results[:, 6].astype(np.int32),  # class
+                results[:, 5],  # confidence (float)
             ))
             return mot_results
         else:
-            # convert ultralytics results to MOT format
+            # Convert ultralytics results to MOT format
             num_detections = len(results.boxes)
-            frame_indices = torch.full((num_detections, 1), frame_idx + 1, dtype=torch.float32)
-            dont_care_values = torch.full((num_detections, 1), -1, dtype=torch.float32)
-            
+            frame_indices = torch.full((num_detections, 1), frame_idx + 1, dtype=torch.int32)
+            not_ignored = torch.ones((num_detections, 1), dtype=torch.int32)
+
             mot_results = torch.cat([
-                frame_indices,
-                results.boxes.id.unsqueeze(1).float(),
-                ops.xyxy2ltwh(results.boxes.xyxy).float(),  # Convert bbox format
-                results.boxes.conf.unsqueeze(1),
-                results.boxes.cls.unsqueeze(1).float(),
-                dont_care_values
+                frame_indices, # frame index
+                results.boxes.id.unsqueeze(1).astype(np.int32), # track id
+                ops.xyxy2ltwh(results.boxes.xyxy).astype(np.int32),  ## top,left,width,height
+                not_ignored, # "not ignored"
+                results.boxes.cls.unsqueeze(1).astype(np.int32), # class
+                results.boxes.conf.unsqueeze(1).astype(np.float32), # confidence (float)
             ], dim=1)
 
             return mot_results.numpy()
 
 
-def write_mot_results(txt_path: Path, mot_results: torch.Tensor) -> None:
+def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
     """
     Writes the MOT challenge formatted results to a text file.
 
     Parameters:
     - txt_path (Path): The path to the text file where results are saved.
-    - mot_results (torch.Tensor): A tensor containing the MOT formatted results.
+    - mot_results (np.ndarray): An array containing the MOT formatted results.
 
     Note: The text file will be created if it does not exist, and the directory
     path to the file will be created as well if necessary.
@@ -265,10 +254,11 @@ def write_mot_results(txt_path: Path, mot_results: torch.Tensor) -> None:
         if mot_results.size != 0:
             # Ensure the parent directory of the txt_path exists
             txt_path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             # Ensure the file exists before opening
             txt_path.touch(exist_ok=True)
 
-            # Open the file in append binary mode and save the MOT results
-            with open(str(txt_path), 'ab+') as file:
-                np.savetxt(file, mot_results, fmt='%.6f')
+            # Open the file in append mode and save the MOT results
+            with open(str(txt_path), 'a') as file:
+                np.savetxt(file, mot_results, fmt='%d,%d,%d,%d,%d,%d,%d,%d,%.6f')
+

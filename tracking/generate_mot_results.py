@@ -29,7 +29,6 @@ __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultral
 
 
 def generate_mot_results(args):
-
     tracker = create_tracker(
         args.tracking_method,
         TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
@@ -40,9 +39,11 @@ def generate_mot_results(args):
     )
 
     with open(args.dets_file_path, 'r') as file:
-        args.source = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
+        args.source = file.readline().strip().replace("# ",
+                                                      "")  # .strip() removes leading/trailing whitespace and newline characters
 
-    LOGGER.info(f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})\nusing\n\t{args.tracking_method}")
+    LOGGER.info(
+        f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})\nusing\n\t{args.tracking_method}")
 
     dets = np.loadtxt(args.dets_file_path, skiprows=1)  # skiprows=1 skips the header row
     embs = np.loadtxt(args.embs_file_path)  # skiprows=1 skips the header row
@@ -55,8 +56,10 @@ def generate_mot_results(args):
     )
 
     dataset = LoadImages(args.source)
-    
+
     txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
+    all_mot_results = []
+
     for frame_idx, d in enumerate(tqdm(dataset, desc="Frames")):
 
         # don't generate dets_n_emb for the last frame
@@ -74,7 +77,11 @@ def generate_mot_results(args):
         tracks = tracker.update(dets, im, embs)
 
         mot_results = convert_to_mot_format(tracks, frame_idx + 1)
-        write_mot_results(txt_path, mot_results)
+        all_mot_results.append(mot_results)
+
+    if all_mot_results:
+        all_mot_results = np.vstack(all_mot_results)
+        write_mot_results(txt_path, all_mot_results)
 
 
 def parse_opt():
@@ -120,7 +127,7 @@ def parse_opt():
                         help='either show all or only bboxes')
     parser.add_argument('--show-conf', action='store_false',
                         help='hide confidences when show')
-    parser.add_argument('--save-txt', action='store_true',
+    parser.add_argument('--save_txt', action='store_true',
                         help='save tracking results in a txt file')
     parser.add_argument('--save-id-crops', action='store_true',
                         help='save each crop to its respective id folder')
