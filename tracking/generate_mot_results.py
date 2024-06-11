@@ -157,8 +157,8 @@ def run_generate_mot_results(opt):
     exp_folder_path = opt.project / (str(opt.dets) + "_" + str(opt.embs) + "_" + str(opt.tracking_method))
     exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
     opt.exp_folder_path = exp_folder_path
-    dets_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'dets').glob('*.txt')]
-    embs_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt')]
+    dets_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'dets').glob('*.txt') if not item.name.startswith('.')]
+    embs_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt') if not item.name.startswith('.')]
     print(dets_file_paths)
     print(embs_file_paths)
     for d, e in zip(dets_file_paths, embs_file_paths):
