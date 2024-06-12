@@ -22,18 +22,19 @@ from ultralytics import YOLO
 from ultralytics.data.utils import VID_FORMATS
 
 from tracking.utils import convert_to_mot_format, write_mot_results
-
+from boxmot.utils.torch_utils import select_device
 
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 
 def generate_mot_results(args):
+    args.device = select_device(args.device)
     tracker = create_tracker(
         args.tracking_method,
         TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
         args.reid_model.with_suffix('.pt'),
-        'cpu',
+        args.device,
         False,
         False
     )
