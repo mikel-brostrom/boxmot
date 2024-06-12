@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 import torch
 
-from boxmot.utils import ROOT, WEIGHTS
+from boxmot.utils import ROOT, WEIGHTS, logger as LOGGER
 from boxmot.utils.checks import TestRequirements
 from tracking.detectors import get_yolo_inferer
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
@@ -154,10 +154,10 @@ def parse_opt():
 if __name__ == "__main__":
     opt = parse_opt()
     mot_folder_paths = [item for item in Path(opt.source).iterdir()]
-    print(mot_folder_paths)
     for y in opt.yolo_model:
         opt.yolo_model = y
         opt.name = y.stem
-        for mot_folder_path in mot_folder_paths:
+        for i, mot_folder_path in enumerate(mot_folder_paths):
+            LOGGER.info(f'Generating detections and embeddings for data under {mot_folder_path} [{i + 1}/{len(mot_folder_paths)} seqs]')
             opt.source = mot_folder_path / 'img1'
             run(opt)
