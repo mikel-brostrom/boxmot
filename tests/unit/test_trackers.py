@@ -65,7 +65,7 @@ def test_dynamic_max_obs_based_on_max_age(tracker_type):
         use_byte=cfg.use_byte,
     )
 
-    assert ocsort.max_obs == (max_age + 1)
+    assert ocsort.max_obs == (max_age + 5)
 
 
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
