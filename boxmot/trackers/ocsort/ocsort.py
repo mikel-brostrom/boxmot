@@ -113,6 +113,7 @@ class KalmanBoxTracker(object):
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
+        self.max_obs = max_obs
         self.history = deque([], maxlen=self.max_obs)
         self.hits = 0
         self.hit_streak = 0
