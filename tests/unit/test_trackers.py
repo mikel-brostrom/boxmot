@@ -53,7 +53,7 @@ def test_tracker_output_size(tracker_type):
 @pytest.mark.parametrize("tracker_type", ALL_TRACKERS)
 def test_dynamic_max_obs_based_on_max_age(tracker_type):
     max_age = 400
-    ocsort = OCSort(
+    ocsort = OCSORT(
         per_class=per_class,
         det_thresh=cfg.det_thresh,
         max_age=max_age,
