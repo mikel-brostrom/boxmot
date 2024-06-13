@@ -122,7 +122,8 @@ class KalmanBoxTracker(object):
         orig=False,
         buffer_size=30,
         longterm_bank_length=30,
-        alpha=0.8
+        alpha=0.8,
+        max_obs=50
     ):     # 'temp_feat' and 'buffer_size' for reid feature
         """
         Initialises a tracker using initial bounding box.
@@ -131,7 +132,7 @@ class KalmanBoxTracker(object):
         # define constant velocity model
         # if not orig and not args.kalman_GPR:
         from boxmot.motion.kalman_filters.hybridsort_kf import KalmanFilter
-        self.kf = KalmanFilter(dim_x=9, dim_z=5)
+        self.kf = KalmanFilter(dim_x=9, dim_z=5, max_obs=max_obs)
 
         # u, v, s, c, r, ~u, ~v, ~s, ~c
         self.kf.F = np.array([[1, 0, 0, 0, 0, 1, 0, 0, 0],
@@ -161,7 +162,8 @@ class KalmanBoxTracker(object):
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
-        self.history = deque([], maxlen=50)
+        self.max_obs = max_obs
+        self.history = deque([], maxlen=self.max_obs)
         self.hits = 0
         self.hit_streak = 0
         self.age = 0
@@ -169,6 +171,7 @@ class KalmanBoxTracker(object):
         self.cls = cls
         self.det_ind = det_ind
         self.adapfs = False
+        
         """
         NOTE: [-1,-1,-1,-1,-1] is a compromising placeholder for non-observation status, the same for the return of
         function k_previous_obs. It is ugly and I do not like it. But to support generate observation array in a
@@ -178,7 +181,7 @@ class KalmanBoxTracker(object):
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
         self.last_observation_save = np.array([-1, -1, -1, -1, -1])
         self.observations = dict()
-        self.history_observations = deque([], maxlen=50)
+        self.history_observations = deque([], maxlen=self.max_obs)
         self.velocity_lt = None
         self.velocity_rt = None
         self.velocity_lb = None
@@ -332,7 +335,7 @@ class KalmanBoxTracker(object):
 class HybridSORT(BaseTracker):
     def __init__(self, reid_weights, device, half, det_thresh, per_class=False, max_age=30, min_hits=3,
                  iou_threshold=0.3, delta_t=3, asso_func="iou", inertia=0.2, longterm_reid_weight=0, TCM_first_step_weight=0, use_byte=False):
-        super(HybridSORT, self).__init__()
+        super().__init__(max_age=max_age)
 
         """
         Sets key parameters for SORT
@@ -551,7 +554,7 @@ class HybridSORT(BaseTracker):
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(dets[i, :], dets0[i, 5], dets0[i, 6], id_feature_keep[i, :], delta_t=self.delta_t)
+            trk = KalmanBoxTracker(dets[i, :], dets0[i, 5], dets0[i, 6], id_feature_keep[i, :], delta_t=self.delta_t, max_obs=self.max_obs)
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
         for trk in reversed(self.active_tracks):
