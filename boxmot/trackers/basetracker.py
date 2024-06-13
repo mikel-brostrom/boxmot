@@ -6,7 +6,14 @@ from abc import ABC, abstractmethod
 
 
 class BaseTracker(ABC):
-    def __init__(self, det_thresh: float = 0.3, max_age: int = 30, min_hits: int = 3, iou_threshold: float = 0.3):
+    def __init__(
+        self, 
+        det_thresh: float = 0.3,
+        max_age: int = 30,
+        min_hits: int = 3,
+        iou_threshold: float = 0.3,
+        max_obs: int = 50
+    ):
         """
         Initialize the BaseTracker object with detection threshold, maximum age, minimum hits, 
         and Intersection Over Union (IOU) threshold for tracking objects in video frames.
@@ -23,12 +30,16 @@ class BaseTracker(ABC):
         """
         self.det_thresh = det_thresh
         self.max_age = max_age
+        self.max_obs = max_obs
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
         self.per_class_active_tracks = {}
 
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
+        
+        if self.max_age >= self.max_obs:
+            self.max_obs = self.max_age + 1
 
     @abstractmethod
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:

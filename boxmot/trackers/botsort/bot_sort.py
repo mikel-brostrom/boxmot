@@ -17,7 +17,7 @@ from boxmot.utils import PerClassDecorator
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
 
-    def __init__(self, det, feat=None, feat_history=50):
+    def __init__(self, det, feat=None, feat_history=50, max_obs=50):
         # wait activate
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         self.conf = det[4]
@@ -278,9 +278,9 @@ class BoTSORT(BaseTracker):
         if len(dets) > 0:
             """Detections"""
             if self.with_reid:
-                detections = [STrack(det, f) for (det, f) in zip(dets_first, features_high)]
+                detections = [STrack(det, f, max_obs=self.max_obs) for (det, f) in zip(dets_first, features_high)]
             else:
-                detections = [STrack(det) for (det) in np.array(dets_first)]
+                detections = [STrack(det, max_obs=self.max_obs) for (det) in np.array(dets_first)]
         else:
             detections = []
 
@@ -335,7 +335,7 @@ class BoTSORT(BaseTracker):
         """ Step 3: Second association, with low conf detection boxes"""
         if len(dets_second) > 0:
             """Detections"""
-            detections_second = [STrack(dets_second) for dets_second in dets_second]
+            detections_second = [STrack(dets_second, max_obs=self.max_obs) for dets_second in dets_second]
         else:
             detections_second = []
 
