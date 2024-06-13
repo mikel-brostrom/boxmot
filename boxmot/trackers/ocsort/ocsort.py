@@ -204,7 +204,7 @@ class OCSort(BaseTracker):
         inertia=0.2,
         use_byte=False,
     ):
-        super(OCSort, self).__init__()
+        super().__init__(max_age=max_age)
         """
         Sets key parameters for SORT
         """
