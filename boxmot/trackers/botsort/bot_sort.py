@@ -23,12 +23,13 @@ class STrack(BaseTrack):
         self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
+        self.max_obs=max_obs
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
         self.cls_hist = []  # (cls id, freq)
         self.update_cls(self.cls, self.conf)
-        self.history_observations = deque([], maxlen=50)
+        self.history_observations = deque([], maxlen=self.max_obs)
 
         self.tracklet_len = 0
 
