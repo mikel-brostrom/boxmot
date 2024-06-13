@@ -38,6 +38,7 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
+          sed -i 's/torch_cuda121/torchcpu/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel
           pip install poetry
           poetry config virtualenvs.create false
@@ -78,6 +79,7 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
+          sed -i 's/torch_cuda121/torchcpu/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry install --with yolo,evolve
@@ -114,6 +116,7 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
+          sed -i 's/torch_cuda121/torchcpu/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry install
@@ -139,6 +142,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
+          sed -i 's/torch_cuda121/torchcpu/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry install --with yolo
@@ -158,6 +162,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
+          sed -i 's/torch_cuda121/torchcpu/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry install --with yolo
@@ -184,6 +189,7 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
+          sed -i 's/torch_cuda121/torchcpu/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry install --with yolo
@@ -207,6 +213,7 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
+          sed -i 's/torch_cuda121/torchcpu/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry install --with export
@@ -232,6 +239,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
+          sed -i 's/torch_cuda121/torchcpu/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry install --with test
