@@ -122,7 +122,8 @@ class KalmanBoxTracker(object):
         orig=False,
         buffer_size=30,
         longterm_bank_length=30,
-        alpha=0.8
+        alpha=0.8,
+        max_obs=50
     ):     # 'temp_feat' and 'buffer_size' for reid feature
         """
         Initialises a tracker using initial bounding box.
@@ -169,6 +170,7 @@ class KalmanBoxTracker(object):
         self.cls = cls
         self.det_ind = det_ind
         self.adapfs = False
+        self.max_obs = max_obs
         """
         NOTE: [-1,-1,-1,-1,-1] is a compromising placeholder for non-observation status, the same for the return of
         function k_previous_obs. It is ugly and I do not like it. But to support generate observation array in a
