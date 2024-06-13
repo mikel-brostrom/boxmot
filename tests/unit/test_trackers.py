@@ -53,15 +53,7 @@ def test_tracker_output_size(tracker_type):
 def test_dynamic_max_obs_based_on_max_age():
     max_age = 400
     ocsort = OCSORT(
-        per_class=False,
-        det_thresh=cfg.det_thresh,
-        max_age=max_age,
-        min_hits=cfg.min_hits,
-        asso_threshold=cfg.iou_thresh,
-        delta_t=cfg.delta_t,
-        asso_func=cfg.asso_func,
-        inertia=cfg.inertia,
-        use_byte=cfg.use_byte,
+        max_age=max_age
     )
 
     assert ocsort.max_obs == (max_age + 5)
