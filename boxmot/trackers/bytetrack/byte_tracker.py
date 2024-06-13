@@ -125,7 +125,7 @@ class BYTETracker(BaseTracker):
         frame_rate=30,
         per_class=False,
     ):
-        super(BYTETracker, self).__init__()
+        super().__init__()
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]

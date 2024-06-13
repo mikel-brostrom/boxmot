@@ -205,7 +205,7 @@ class BoTSORT(BaseTracker):
         fuse_first_associate: bool = False,
         with_reid: bool = True,
     ):
-        super(BoTSORT, self).__init__()
+        super().__init__()
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
         BaseTrack.clear_count()
