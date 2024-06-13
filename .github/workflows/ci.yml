@@ -38,7 +38,12 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
@@ -79,7 +84,12 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
@@ -117,7 +127,12 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
@@ -144,7 +159,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
@@ -165,7 +185,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
@@ -193,7 +218,12 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
@@ -218,7 +248,12 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
@@ -245,7 +280,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
