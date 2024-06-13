@@ -42,6 +42,7 @@ class BaseTracker(ABC):
         if self.max_age >= self.max_obs:
             LOGGER.warning("Max age > max observations, increasing size of max observations...")
             self.max_obs = self.max_age + 5
+            print("self.max_obs", self.max_obs)
 
     @abstractmethod
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
