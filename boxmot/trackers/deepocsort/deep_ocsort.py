@@ -327,7 +327,7 @@ class DeepOCSort(BaseTracker):
         new_kf_off=False,
         **kwargs
     ):
-        super(DeepOCSort, self).__init__()
+        super().__init__(max_age=max_age)
         """
         Sets key parameters for SORT
         """
