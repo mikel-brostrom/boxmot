@@ -39,9 +39,9 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
+          python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with yolo
 
       - name: Generate detections and embeddings
@@ -82,6 +82,7 @@ jobs:
           sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with yolo,evolve
 
       - name: Generate detections and embeddings
@@ -119,6 +120,7 @@ jobs:
           sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install
 
       - name: Generate detections and embeddings
@@ -145,6 +147,7 @@ jobs:
           sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with yolo
       - name: Test tracking with pose models
         env:
@@ -165,6 +168,7 @@ jobs:
           sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with yolo
       - name: Test tracking with pose models
         env:
@@ -192,6 +196,7 @@ jobs:
           sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with yolo
       - name: Test tracking with seg models
         env:
@@ -216,6 +221,7 @@ jobs:
           sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with export
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
@@ -242,6 +248,7 @@ jobs:
           sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with test
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
