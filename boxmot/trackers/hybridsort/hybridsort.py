@@ -162,6 +162,7 @@ class KalmanBoxTracker(object):
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
+        self.max_obs = max_obs
         self.history = deque([], maxlen=self.max_obs)
         self.hits = 0
         self.hit_streak = 0
@@ -170,7 +171,7 @@ class KalmanBoxTracker(object):
         self.cls = cls
         self.det_ind = det_ind
         self.adapfs = False
-        self.max_obs = max_obs
+        
         """
         NOTE: [-1,-1,-1,-1,-1] is a compromising placeholder for non-observation status, the same for the return of
         function k_previous_obs. It is ugly and I do not like it. But to support generate observation array in a
