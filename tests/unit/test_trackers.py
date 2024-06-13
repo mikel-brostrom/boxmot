@@ -52,18 +52,20 @@ def test_tracker_output_size(tracker_type):
     
 @pytest.mark.parametrize("tracker_type", ALL_TRACKERS)
 def test_dynamic_max_obs_based_on_max_age(tracker_type):
-    tracker_conf = get_tracker_config(tracker_type)
-    tracker = create_tracker(
-        tracker_type=tracker_type,
-        tracker_config=tracker_conf,
-        reid_weights=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt',
-        device='cpu',
-        half=False,
-        per_class=False,
-        max_age=100
+    max_age = 400
+    ocsort = OCSort(
+        per_class=per_class,
+        det_thresh=cfg.det_thresh,
+        max_age=max_age,
+        min_hits=cfg.min_hits,
+        asso_threshold=cfg.iou_thresh,
+        delta_t=cfg.delta_t,
+        asso_func=cfg.asso_func,
+        inertia=cfg.inertia,
+        use_byte=cfg.use_byte,
     )
 
-    assert tracker.max_obs > tracker.max_age
+    assert ocsort.max_obs == (max_age + 1)
 
 
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
