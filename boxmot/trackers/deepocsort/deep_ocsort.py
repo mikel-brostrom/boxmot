@@ -499,7 +499,7 @@ class DeepOCSort(BaseTracker):
                 delta_t=self.delta_t,
                 emb=dets_embs[i],
                 alpha=dets_alpha[i],
-                new_kf=not self.new_kf_off
+                new_kf=not self.new_kf_off,
                 max_obs=self.max_obs
             )
             self.active_tracks.append(trk)
