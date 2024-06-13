@@ -107,7 +107,7 @@ class KalmanBoxTracker(object):
         self.det_ind = det[6]
 
         if new_kf:
-            self.kf = KalmanFilter(dim_x=8, dim_z=4)
+            self.kf = KalmanFilter(dim_x=8, dim_z=4, max_obs=max_obs)
             self.kf.F = np.array(
                 [
                     # x y w h x' y' w' h'
@@ -184,7 +184,7 @@ class KalmanBoxTracker(object):
         # Used for OCR
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
         # Used to output track after min_hits reached
-        self.features = deque([], maxlen=50)
+        self.features = deque([], maxlen=self.max_obs)
         # Used for velocity
         self.observations = dict()
         self.velocity = None

@@ -80,7 +80,7 @@ class KalmanBoxTracker(object):
         """
         # define constant velocity model
         self.det_ind = det_ind
-        self.kf = KalmanFilter(dim_x=7, dim_z=4)
+        self.kf = KalmanFilter(dim_x=7, dim_z=4, max_obs=max_obs)
         self.kf.F = np.array(
             [
                 [1, 0, 0, 0, 1, 0, 0],

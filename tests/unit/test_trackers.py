@@ -59,11 +59,10 @@ def test_dynamic_max_obs_based_on_max_age(tracker_type):
         reid_weights=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt',
         device='cpu',
         half=False,
-        per_class=False
+        per_class=False,
         max_age=100
     )
 
-    
     assert tracker.max_obs > tracker.max_age
 
 
