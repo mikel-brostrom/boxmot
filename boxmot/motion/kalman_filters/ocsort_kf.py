@@ -281,7 +281,7 @@ class KalmanFilter(object):
        https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python
     """
 
-    def __init__(self, dim_x, dim_z, dim_u=0):
+    def __init__(self, dim_x, dim_z, dim_u=0, max_obs=50):
         if dim_x < 1:
             raise ValueError('dim_x must be 1 or greater')
         if dim_z < 1:
@@ -327,9 +327,10 @@ class KalmanFilter(object):
         self._log_likelihood = log(sys.float_info.min)
         self._likelihood = sys.float_info.min
         self._mahalanobis = None
+        self.max_obs = max_obs
 
         # keep all observations 
-        self.history_obs = deque([], maxlen=50)
+        self.history_obs = deque([], maxlen=self.max_obs)
 
         self.inv = np.linalg.inv
 
@@ -393,7 +394,7 @@ class KalmanFilter(object):
             new_history = deepcopy(list(self.history_obs))
             self.__dict__ = self.attr_saved
             # self.history_obs = new_history 
-            self.history_obs = deque(list(self.history_obs)[:-1], maxlen=50)
+            self.history_obs = deque(list(self.history_obs)[:-1], maxlen=self.max_obs)
             occur = [int(d is None) for d in new_history]
             indices = np.where(np.array(occur)==0)[0]
             index1 = indices[-2]
