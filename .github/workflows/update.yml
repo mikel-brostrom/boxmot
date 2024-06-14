@@ -19,6 +19,16 @@ jobs:
       - name: Install Poetry
         run: pip install poetry
 
+      - name: Create or Checkout Branch
+        run: |
+          git fetch origin
+          if git rev-parse --verify origin/dependabot/update-dependencies; then
+            git checkout dependabot/update-dependencies
+            git pull origin dependabot/update-dependencies
+          else
+            git checkout -b dependabot/update-dependencies
+          fi
+
       - name: Update dependencies
         run: |
           poetry install
