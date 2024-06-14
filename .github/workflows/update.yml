@@ -19,16 +19,6 @@ jobs:
       - name: Install Poetry
         run: pip install poetry
 
-      - name: Create or Checkout Branch
-        run: |
-          git fetch origin
-          if git rev-parse --verify origin/dependabot/update-dependencies; then
-            git checkout dependabot/update-dependencies
-            git pull origin dependabot/update-dependencies
-          else
-            git checkout -b dependabot/update-dependencies
-          fi
-
       - name: Update dependencies
         run: |
           poetry install
@@ -52,3 +42,12 @@ jobs:
           branch: dependabot/update-dependencies
           title: "Update dependencies"
           body: "This is an automated pull request to update dependencies."
+          delete-branch: true
+
+      # - name: Auto-merge Pull Request
+      #   uses: pascalgn/automerge-action@v0.16.3
+      #   with:
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     merge-method: squash
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
