@@ -50,6 +50,8 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             asso_func=cfg.asso_func,
             inertia=cfg.inertia,
             use_byte=cfg.use_byte,
+            Q_xy_scaling=cfg.Q_xy_scaling,
+            Q_s_scaling=cfg.Q_s_scaling
         )
         return ocsort
 
