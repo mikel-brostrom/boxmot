@@ -48,6 +48,15 @@ def test_tracker_output_size(tracker_type):
 
     output = tracker.update(det, rgb)
     assert output.shape == (2, 8)  # two inputs should give two outputs
+    
+    
+def test_dynamic_max_obs_based_on_max_age():
+    max_age = 400
+    ocsort = OCSORT(
+        max_age=max_age
+    )
+
+    assert ocsort.max_obs == (max_age + 5)
 
 
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)

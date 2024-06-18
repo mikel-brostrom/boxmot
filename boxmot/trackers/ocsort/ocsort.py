@@ -73,14 +73,14 @@ class KalmanBoxTracker(object):
 
     count = 0
 
-    def __init__(self, bbox, cls, det_ind, delta_t=3):
+    def __init__(self, bbox, cls, det_ind, delta_t=3, max_obs=50):
         """
         Initialises a tracker using initial bounding box.
 
         """
         # define constant velocity model
         self.det_ind = det_ind
-        self.kf = KalmanFilter(dim_x=7, dim_z=4)
+        self.kf = KalmanFilter(dim_x=7, dim_z=4, max_obs=max_obs)
         self.kf.F = np.array(
             [
                 [1, 0, 0, 0, 1, 0, 0],
@@ -114,7 +114,8 @@ class KalmanBoxTracker(object):
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
-        self.history = deque([], maxlen=50)
+        self.max_obs = max_obs
+        self.history = deque([], maxlen=self.max_obs)
         self.hits = 0
         self.hit_streak = 0
         self.age = 0
@@ -128,7 +129,7 @@ class KalmanBoxTracker(object):
         """
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
         self.observations = dict()
-        self.history_observations = deque([], maxlen=50)
+        self.history_observations = deque([], maxlen=self.max_obs)
         self.velocity = None
         self.delta_t = delta_t
 
@@ -204,7 +205,7 @@ class OCSort(BaseTracker):
         inertia=0.2,
         use_byte=False,
     ):
-        super(OCSort, self).__init__()
+        super().__init__(max_age=max_age)
         """
         Sets key parameters for SORT
         """
@@ -221,7 +222,7 @@ class OCSort(BaseTracker):
         KalmanBoxTracker.count = 0
 
     @PerClassDecorator
-    def update(self, dets, img, embs=None):
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -355,7 +356,7 @@ class OCSort(BaseTracker):
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t)
+            trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t, max_obs=self.max_obs)
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
         for trk in reversed(self.active_tracks):
