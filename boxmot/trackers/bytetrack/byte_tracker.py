@@ -14,7 +14,7 @@ from boxmot.utils import PerClassDecorator
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
 
-    def __init__(self, det):
+    def __init__(self, det, max_obs):
         # wait activate
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         self.tlwh = xywh2tlwh(self.xywh)  # (xc, yc, w, h) --> (t, l, w, h)
@@ -22,11 +22,12 @@ class STrack(BaseTrack):
         self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
+        self.max_obs=max_obs
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
         self.tracklet_len = 0
-        self.history_observations = deque([], maxlen=50)
+        self.history_observations = deque([], maxlen=self.max_obs)
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -117,9 +118,14 @@ class STrack(BaseTrack):
 
 class BYTETracker(BaseTracker):
     def __init__(
-        self, track_thresh=0.45, match_thresh=0.8, track_buffer=25, frame_rate=30, per_class=False,
+        self,
+        track_thresh=0.45,
+        match_thresh=0.8,
+        track_buffer=25,
+        frame_rate=30,
+        per_class=False,
     ):
-        super(BYTETracker, self).__init__()
+        super().__init__()
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
@@ -136,7 +142,7 @@ class BYTETracker(BaseTracker):
         self.kalman_filter = KalmanFilter()
 
     @PerClassDecorator
-    def update(self, dets, im=None, embs=None):
+    def update(self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None) -> np.ndarray:
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
@@ -167,7 +173,7 @@ class BYTETracker(BaseTracker):
         if len(dets) > 0:
             """Detections"""
             detections = [
-                STrack(det) for det in dets
+                STrack(det, max_obs=self.max_obs) for det in dets
             ]
         else:
             detections = []
@@ -206,7 +212,7 @@ class BYTETracker(BaseTracker):
         # association the untrack to the low conf detections
         if len(dets_second) > 0:
             """Detections"""
-            detections_second = [STrack(det_second) for det_second in dets_second]
+            detections_second = [STrack(det_second, max_obs=self.max_obs) for det_second in dets_second]
         else:
             detections_second = []
         r_tracked_stracks = [

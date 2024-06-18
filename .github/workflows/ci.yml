@@ -38,9 +38,16 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install poetry
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          fi
+          python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with yolo
 
       - name: Generate detections and embeddings
@@ -78,8 +85,16 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with yolo,evolve
 
       - name: Generate detections and embeddings
@@ -114,8 +129,16 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install
 
       - name: Generate detections and embeddings
@@ -123,7 +146,7 @@ jobs:
           python tracking/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
           python tracking/generate_mot_results.py --dets yolov8n --reid osnet_x0_25_msmt17 --tracking-method ocsort
 
-      - name: Evolve set of parameters for selected tracking method
+      - name: Evaluation on pregenerated dets and embs
         run: |
           python tracking/val.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method ocsort
 
@@ -139,8 +162,16 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with yolo
       - name: Test tracking with pose models
         env:
@@ -158,8 +189,16 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with yolo
       - name: Test tracking with pose models
         env:
@@ -184,8 +223,16 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with yolo
       - name: Test tracking with seg models
         env:
@@ -207,8 +254,16 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with export
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
@@ -232,8 +287,16 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
+          poetry lock --no-update
           poetry install --with test
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic

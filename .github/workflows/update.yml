@@ -1,0 +1,53 @@
+name: Update Dependencies
+
+on:
+  workflow_dispatch: # Allows you to manually trigger the workflow
+
+jobs:
+  update-dependencies:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Update dependencies
+        run: |
+          poetry install
+          poetry update
+          poetry lock --no-update
+
+      - name: Commit changes
+        run: |
+          git config --local user.email yolov5.deepsort.pytorch@gmail.com
+          git config --local user.name mikel-brostrom
+          git add .
+          git commit -m "Update dependencies"
+
+      - name: Push changes
+        run: git push origin HEAD:dependabot/update-dependencies
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: dependabot/update-dependencies
+          title: "Update dependencies"
+          body: "This is an automated pull request to update dependencies."
+          delete-branch: true
+
+      # - name: Auto-merge Pull Request
+      #   uses: pascalgn/automerge-action@v0.16.3
+      #   with:
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     merge-method: squash
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

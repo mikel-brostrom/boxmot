@@ -93,13 +93,13 @@ class KalmanBoxTracker(object):
 
     count = 0
 
-    def __init__(self, det, delta_t=3, emb=None, alpha=0, new_kf=False):
+    def __init__(self, det, delta_t=3, emb=None, alpha=0, new_kf=False, max_obs=50):
         """
         Initialises a tracker using initial bounding box.
 
         """
         # define constant velocity model
-
+        self.max_obs=max_obs
         self.new_kf = new_kf
         bbox = det[0:5]
         self.conf = det[4]
@@ -107,7 +107,7 @@ class KalmanBoxTracker(object):
         self.det_ind = det[6]
 
         if new_kf:
-            self.kf = KalmanFilter(dim_x=8, dim_z=4)
+            self.kf = KalmanFilter(dim_x=8, dim_z=4, max_obs=max_obs)
             self.kf.F = np.array(
                 [
                     # x y w h x' y' w' h'
@@ -171,7 +171,7 @@ class KalmanBoxTracker(object):
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
-        self.history = deque([], maxlen=50)
+        self.history = deque([], maxlen=self.max_obs)
         self.hits = 0
         self.hit_streak = 0
         self.age = 0
@@ -184,12 +184,12 @@ class KalmanBoxTracker(object):
         # Used for OCR
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
         # Used to output track after min_hits reached
-        self.features = deque([], maxlen=50)
+        self.features = deque([], maxlen=self.max_obs)
         # Used for velocity
         self.observations = dict()
         self.velocity = None
         self.delta_t = delta_t
-        self.history_observations = deque([], maxlen=50)
+        self.history_observations = deque([], maxlen=self.max_obs)
 
         self.emb = emb
 
@@ -327,7 +327,7 @@ class DeepOCSort(BaseTracker):
         new_kf_off=False,
         **kwargs
     ):
-        super(DeepOCSort, self).__init__()
+        super().__init__(max_age=max_age)
         """
         Sets key parameters for SORT
         """
@@ -356,7 +356,7 @@ class DeepOCSort(BaseTracker):
         self.new_kf_off = new_kf_off
 
     @PerClassDecorator
-    def update(self, dets, img, embs=None):
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -499,7 +499,8 @@ class DeepOCSort(BaseTracker):
                 delta_t=self.delta_t,
                 emb=dets_embs[i],
                 alpha=dets_alpha[i],
-                new_kf=not self.new_kf_off
+                new_kf=not self.new_kf_off,
+                max_obs=self.max_obs
             )
             self.active_tracks.append(trk)
         i = len(self.active_tracks)

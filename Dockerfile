@@ -2,7 +2,7 @@
 #   docker build -t mikel-brostrom/yolov5_strongsort_osnet .
 
 # Base image: Nvidia PyTorch https://ngc.nvidia.com/catalog/containers/nvidia:pytorch
-FROM nvcr.io/nvidia/pytorch:24.03-py3
+FROM nvcr.io/nvidia/pytorch:24.05-py3
 
 # Update image
 RUN apt update
@@ -11,7 +11,7 @@ RUN apt update
 WORKDIR /usr/src/boxmot
 
 # Clone with submodules
-RUN git clone https://github.com/mikel-brostrom/yolo_tracking.git -b main /usr/src/boxmot
+RUN git clone https://github.com/mikel-brostrom/yolo_tracking.git -b master /usr/src/boxmot
 
 # Install pip packages
 RUN python3 -m pip install --upgrade pip wheel
