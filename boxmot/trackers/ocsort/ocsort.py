@@ -106,8 +106,10 @@ class KalmanBoxTracker(object):
             4:, 4:
         ] *= 1000.0  # give high uncertainty to the unobservable initial velocities
         self.kf.P *= 10.0
-        self.kf.Q[-1, -1] *= 1
-        self.kf.Q[4:, 4:] *= 1
+
+        self.kf.Q[-1, -1] *= 0.01
+        self.kf.Q[4:, 4:] *= 0.01
+        
         self.kf.x[:4] = convert_bbox_to_z(bbox)
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
@@ -380,4 +382,4 @@ class OCSort(BaseTracker):
                 self.active_tracks.pop(i)
         if len(ret) > 0:
             return np.concatenate(ret), trks
-        return np.array([])
+        return np.array([]), np.array([])
