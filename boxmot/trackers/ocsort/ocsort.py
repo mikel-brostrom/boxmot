@@ -391,5 +391,5 @@ class OCSort(BaseTracker):
             if trk.time_since_update > self.max_age:
                 self.active_tracks.pop(i)
         if len(ret) > 0:
-            return np.concatenate(ret), trks
-        return np.array([]), np.array([])
+            return np.concatenate(ret)
+        return np.array([])
