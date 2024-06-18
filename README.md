@@ -39,7 +39,8 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 <details>
 <summary>Tutorials</summary>
-  
+
+* [Yolov10 Integration with BoxMOT (link to external Notebook)](https://colab.research.google.com/drive/1-QV2TNfqaMsh14w5VxieEyanugVBG14V?usp=drive_link)&nbsp;
 * [Yolov8 training (link to external repository)](https://docs.ultralytics.com/modes/train/)&nbsp;
 * [Deep appearance descriptor training (link to external repository)](https://kaiyangzhou.github.io/deep-person-reid/user_guide.html)&nbsp;
 * [ReID model export to ONNX, OpenVINO, TensorRT and TorchScript](https://github.com/mikel-brostrom/yolo_tracking/wiki/ReID-multi-framework-model-export)&nbsp;
@@ -82,7 +83,7 @@ In inverse chronological order:
 
 * Enabled tracking per class for all trackers besides StrongSORT by `--per-class` (March 2024)
 * Enabled trajectory plotting for all trackers besides StrongSORT by `--show-trajectories` (March 2024)
-* All trackers inherit from BaseTracker (Mars 2024)
+* All trackers inherit from BaseTracker (March 2024)
 * Switched from setuptools to poetry for unified: dependency resolution, packaging and publishing management (March 2024)
 * ~x3 pipeline speedup by: using pregenerated detections + embeddings and jobs parallelization (March 2024)
 * Ultra fast exerimentation enabled by allowing local detections and embeddings saving. This data can then be loaded into any tracking algorithm, avoiding the overhead of repeatedly generating it (February 2024)
@@ -170,7 +171,7 @@ $ python tracking/track.py --source 0                               # webcam
 <details>
 <summary>Select ReID model</summary>
 
-Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/deep/reid_export.py) script
+Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/appearance/reid_export.py) script
 
 ```bash
 $ python tracking/track.py --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightweight
@@ -212,7 +213,7 @@ Evaluate a combination of detector, tracking method and ReID model on standard M
 # saves dets and embs under ./runs/dets_n_embs separately for each selected yolo and reid model
 $ python tracking/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
 # generate MOT challenge format results based on pregenerated detections and embeddings for a specific trackign method
-$ python tracking/generate_mot_metrics.py --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method botsort
+$ python tracking/generate_mot_results.py --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method botsort
 # uses TrackEval to generate MOT metrics for the tracking results under ./runs/mot/<dets+embs+tracking-method>
 $ python tracking/val.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method botsort
 ```

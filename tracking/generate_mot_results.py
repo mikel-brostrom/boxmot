@@ -22,27 +22,29 @@ from ultralytics import YOLO
 from ultralytics.data.utils import VID_FORMATS
 
 from tracking.utils import convert_to_mot_format, write_mot_results
-
+from boxmot.utils.torch_utils import select_device
 
 __tr = TestRequirements()
 __tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 
 def generate_mot_results(args):
-
+    args.device = select_device(args.device)
     tracker = create_tracker(
         args.tracking_method,
         TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
         args.reid_model.with_suffix('.pt'),
-        'cpu',
+        args.device,
         False,
         False
     )
 
     with open(args.dets_file_path, 'r') as file:
-        args.source = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
+        args.source = file.readline().strip().replace("# ",
+                                                      "")  # .strip() removes leading/trailing whitespace and newline characters
 
-    LOGGER.info(f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})\nusing\n\t{args.tracking_method}")
+    LOGGER.info(
+        f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})\nusing\n\t{args.tracking_method}")
 
     dets = np.loadtxt(args.dets_file_path, skiprows=1)  # skiprows=1 skips the header row
     embs = np.loadtxt(args.embs_file_path)  # skiprows=1 skips the header row
@@ -55,8 +57,10 @@ def generate_mot_results(args):
     )
 
     dataset = LoadImages(args.source)
-    
+
     txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
+    all_mot_results = []
+
     for frame_idx, d in enumerate(tqdm(dataset, desc="Frames")):
 
         # don't generate dets_n_emb for the last frame
@@ -73,8 +77,13 @@ def generate_mot_results(args):
         embs = frame_dets_n_embs[:, 7:]
         tracks = tracker.update(dets, im, embs)
 
-        mot_results = convert_to_mot_format(tracks, frame_idx + 1)
-        write_mot_results(txt_path, mot_results)
+        if tracks.size > 0:  # Check if tracks is not an empty array
+            mot_results = convert_to_mot_format(tracks, frame_idx + 1)
+            all_mot_results.append(mot_results)
+
+    if all_mot_results:
+        all_mot_results = np.vstack(all_mot_results)
+        write_mot_results(txt_path, all_mot_results)
 
 
 def parse_opt():
@@ -120,7 +129,7 @@ def parse_opt():
                         help='either show all or only bboxes')
     parser.add_argument('--show-conf', action='store_false',
                         help='hide confidences when show')
-    parser.add_argument('--save-txt', action='store_true',
+    parser.add_argument('--save_txt', action='store_true',
                         help='save tracking results in a txt file')
     parser.add_argument('--save-id-crops', action='store_true',
                         help='save each crop to its respective id folder')
@@ -149,8 +158,8 @@ def run_generate_mot_results(opt):
     exp_folder_path = opt.project / (str(opt.dets) + "_" + str(opt.embs) + "_" + str(opt.tracking_method))
     exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
     opt.exp_folder_path = exp_folder_path
-    dets_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'dets').glob('*.txt')]
-    embs_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt')]
+    dets_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'dets').glob('*.txt') if not item.name.startswith('.')]
+    embs_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'embs' /  opt.embs).glob('*.txt') if not item.name.startswith('.')]
     print(dets_file_paths)
     print(embs_file_paths)
     for d, e in zip(dets_file_paths, embs_file_paths):
