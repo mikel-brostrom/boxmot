@@ -73,7 +73,7 @@ class KalmanBoxTracker(object):
 
     count = 0
 
-    def __init__(self, bbox, cls, det_ind, delta_t=3, max_obs=50, Q_xy_scale = 0.01, Q_s_scale = 0.0001):
+    def __init__(self, bbox, cls, det_ind, delta_t=3, max_obs=50, Q_xy_scaling = 0.01, Q_s_scaling = 0.0001):
         """
         Initialises a tracker using initial bounding box.
 
@@ -81,8 +81,8 @@ class KalmanBoxTracker(object):
         # define constant velocity model
         self.det_ind = det_ind
 
-        self.Q_xy_scale = Q_xy_scale
-        self.Q_s_scale = Q_s_scale
+        self.Q_xy_scaling = Q_xy_scaling
+        self.Q_s_scaling = Q_s_scaling
 
         self.kf = KalmanFilter(dim_x=7, dim_z=4, max_obs=max_obs)
 
@@ -112,8 +112,8 @@ class KalmanBoxTracker(object):
         ] *= 1000.0  # give high uncertainty to the unobservable initial velocities
         self.kf.P *= 10.0 
 
-        self.kf.Q[4:6, 4:6] *= self.Q_xy_scale
-        self.kf.Q[-1, -1] *= self.Q_s_scale
+        self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
+        self.kf.Q[-1, -1] *= self.Q_s_scaling
 
         self.kf.x[:4] = convert_bbox_to_z(bbox)
         self.time_since_update = 0
@@ -209,8 +209,8 @@ class OCSort(BaseTracker):
         asso_func="iou",
         inertia=0.2,
         use_byte=False,
-        Q_xy_scale=0.01,
-        Q_s_scale=0.0001
+        Q_xy_scaling=0.01,
+        Q_s_scaling=0.0001
     ):
         super().__init__(max_age=max_age)
         """
@@ -226,8 +226,8 @@ class OCSort(BaseTracker):
         self.asso_func = get_asso_func(asso_func)
         self.inertia = inertia
         self.use_byte = use_byte
-        self.Q_xy_scale = Q_xy_scale
-        self.Q_s_scale = Q_s_scale
+        self.Q_xy_scaling = Q_xy_scaling
+        self.Q_s_scaling = Q_s_scaling
         KalmanBoxTracker.count = 0
 
     @PerClassDecorator
@@ -365,7 +365,7 @@ class OCSort(BaseTracker):
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t, Q_xy_scale=self.Q_xy_scale, Q_s_scale=self.Q_s_scale, max_obs=self.max_obs)
+            trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_s_scaling=self.Q_s_scaling, max_obs=self.max_obs)
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
         for trk in reversed(self.active_tracks):
