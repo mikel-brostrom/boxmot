@@ -2,10 +2,19 @@ import numpy as np
 import cv2 as cv
 import hashlib
 import colorsys
+from abc import ABC, abstractmethod
+from boxmot.utils import logger as LOGGER
 
 
-class BaseTracker(object):
-    def __init__(self, det_thresh: float = 0.3, max_age: int = 30, min_hits: int = 3, iou_threshold: float = 0.3):
+class BaseTracker(ABC):
+    def __init__(
+        self, 
+        det_thresh: float = 0.3,
+        max_age: int = 30,
+        min_hits: int = 3,
+        iou_threshold: float = 0.3,
+        max_obs: int = 50
+    ):
         """
         Initialize the BaseTracker object with detection threshold, maximum age, minimum hits, 
         and Intersection Over Union (IOU) threshold for tracking objects in video frames.
@@ -22,14 +31,21 @@ class BaseTracker(object):
         """
         self.det_thresh = det_thresh
         self.max_age = max_age
+        self.max_obs = max_obs
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
         self.per_class_active_tracks = {}
 
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
+        
+        if self.max_age >= self.max_obs:
+            LOGGER.warning("Max age > max observations, increasing size of max observations...")
+            self.max_obs = self.max_age + 5
+            print("self.max_obs", self.max_obs)
 
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> None:
+    @abstractmethod
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         Abstract method to update the tracker with new detections for a new frame. This method 
         should be implemented by subclasses.

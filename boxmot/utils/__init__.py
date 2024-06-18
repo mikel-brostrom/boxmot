@@ -43,6 +43,7 @@ class PerClassDecorator:
                 # Initialize an array to store the tracks for each class
                 per_class_tracks = []
                 
+                # same frame count for all classes
                 frame_count = instance.frame_count
 
                 for i, cls_id in enumerate(range(self.nr_classes)):
@@ -67,11 +68,12 @@ class PerClassDecorator:
 
                     if tracks.size > 0:
                         per_class_tracks.append(tracks)
-                
+                                        
                 # when all active tracks lists have been updated
                 instance.per_class_active_tracks = self.per_class_active_tracks
                 
-                instance.frame_count = instance.frame_count - 1
+                # increase frame count by 1
+                instance.frame_count = frame_count + 1
 
                 tracks = np.vstack(per_class_tracks) if per_class_tracks else np.empty((0, 8))
             else:

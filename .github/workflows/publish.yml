@@ -29,7 +29,7 @@ jobs:
           poetry config virtualenvs.create false
           poetry install
 
-      - name: Increase path version and get commit message
+      - name: Increase poetry path version and add
         id: get_version
         run: |
           git config --local user.email yolov5.deepsort.pytorch@gmail.com
@@ -40,6 +40,12 @@ jobs:
           poetry build
           echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
+        if: ${{ success() }}
+
+      - name: Update __init__.py version and add
+        run: |
+          sed -i "s/__version__ = '.*'/__version__ = '${{ steps.get_version.outputs.new_version }}'/" boxmot/__init__.py
+          git add boxmot/__init__.py
         if: ${{ success() }}
 
       - name: Commit and push updated version
