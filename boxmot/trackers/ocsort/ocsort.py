@@ -85,7 +85,6 @@ class KalmanBoxTracker(object):
         self.Q_s_scaling = Q_s_scaling
 
         self.kf = KalmanFilter(dim_x=7, dim_z=4, max_obs=max_obs)
-
         self.kf.F = np.array(
             [
                 [1, 0, 0, 0, 1, 0, 0],
@@ -106,11 +105,11 @@ class KalmanBoxTracker(object):
             ]
         )
 
-        self.kf.R[2:, 2:] *= 10.0 
+        self.kf.R[2:, 2:] *= 10.0
         self.kf.P[
             4:, 4:
         ] *= 1000.0  # give high uncertainty to the unobservable initial velocities
-        self.kf.P *= 10.0 
+        self.kf.P *= 10.0
 
         self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
         self.kf.Q[-1, -1] *= self.Q_s_scaling
