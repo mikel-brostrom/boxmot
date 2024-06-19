@@ -48,6 +48,12 @@ jobs:
           git add boxmot/__init__.py
         if: ${{ success() }}
 
+      - name: Update license file version and add
+        run: |
+          sed -i "s/version: .*/version: ${{ steps.get_version.outputs.new_version }}/" CITATION.cff
+          git add CITATION.cff
+        if: ${{ success() }}
+
       - name: Commit and push updated version
         run: |
           git commit -m "${{ steps.get_version.outputs.commit_message }}"
