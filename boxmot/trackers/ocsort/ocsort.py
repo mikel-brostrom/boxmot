@@ -7,7 +7,7 @@ import numpy as np
 from collections import deque
 
 
-from boxmot.motion.kalman_filters.xys_kf import KalmanFilterXYS
+from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.utils.iou import run_asso_func
@@ -80,7 +80,7 @@ class KalmanBoxTracker(object):
         """
         # define constant velocity model
         self.det_ind = det_ind
-        self.kf = KalmanFilterXYS(dim_x=7, dim_z=4, max_obs=max_obs)
+        self.kf = KalmanFilterXYSR(dim_x=7, dim_z=4, max_obs=max_obs)
         self.kf.F = np.array(
             [
                 [1, 0, 0, 0, 1, 0, 0],

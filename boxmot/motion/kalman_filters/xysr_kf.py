@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-# pylint: disable=invalid-name, too-many-arguments, too-many-branches,
-# pylint: disable=too-many-locals, too-many-instance-attributes, too-many-lines
+
 
 """
 This module implements the linear Kalman filter in both an object
@@ -106,9 +104,9 @@ from filterpy.stats import logpdf
 from filterpy.common import pretty_str, reshape_z
 from collections import deque
 
-
-# The aspect ratio r is assumed to be constant.
-class KalmanFilterXYS(object):
+# x_t is a seven-tuple, i.e. x_t =[u, v, s, r, u,˙ v,˙ s˙]^⊤,
+# r (aspect ratio) is assumed to be constant.
+class KalmanFilterXYSR(object):
     """ Implements a Kalman filter. You are responsible for setting the
     various state variables to reasonable values; the defaults  will
     not give you a functional filter.
