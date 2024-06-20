@@ -106,7 +106,7 @@ from collections import deque
 
 # x_t is a seven-tuple, i.e. x_t =[u, v, s, r, u,˙ v,˙ s˙]^⊤,
 # r (aspect ratio) is assumed to be constant.
-class KalmanFilterXYS(object):
+class KalmanFilterXYSR(object):
     """ Implements a Kalman filter. You are responsible for setting the
     various state variables to reasonable values; the defaults  will
     not give you a functional filter.
