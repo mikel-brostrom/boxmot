@@ -64,8 +64,9 @@ class BaseKalmanFilter:
         std_pos, std_vel = self._get_process_noise_std(mean)
         motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
 
-        mean = np.dot(self._motion_mat, mean)
-        covariance = np.linalg.multi_dot((self._motion_mat, covariance, self._motion_mat.T)) + motion_cov
+        mean = np.dot(mean, self._motion_mat.T)
+        covariance = np.linalg.multi_dot((
+            self._motion_mat, covariance, self._motion_mat.T)) + motion_cov
 
         return mean, covariance
 
@@ -94,23 +95,9 @@ class BaseKalmanFilter:
         innovation_cov = np.diag(np.square(std))
 
         mean = np.dot(self._update_mat, mean)
-        covariance = np.linalg.multi_dot((self._update_mat, covariance, self._update_mat.T))
+        covariance = np.linalg.multi_dot((
+            self._update_mat, covariance, self._update_mat.T))
         return mean, covariance + innovation_cov
-    
-    def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        std_pos = [
-            self._std_weight_position * mean[:, 2],
-            self._std_weight_position * mean[:, 3],
-            self._std_weight_position * mean[:, 2],
-            self._std_weight_position * mean[:, 3]
-        ]
-        std_vel = [
-            self._std_weight_velocity * mean[:, 2],
-            self._std_weight_velocity * mean[:, 3],
-            self._std_weight_velocity * mean[:, 2],
-            self._std_weight_velocity * mean[:, 3]
-        ]
-        return std_pos, std_vel
 
     def multi_predict(self, mean: np.ndarray, covariance: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -141,6 +128,13 @@ class BaseKalmanFilter:
         new_mean = mean + np.dot(innovation, kalman_gain.T)
         new_covariance = covariance - np.linalg.multi_dot((kalman_gain, projected_cov, kalman_gain.T))
         return new_mean, new_covariance
+
+    def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Return standard deviations for process noise in vectorized form.
+        Should be implemented by subclasses.
+        """
+        raise NotImplementedError
 
     def gating_distance(self, mean: np.ndarray, covariance: np.ndarray, measurements: np.ndarray, only_position: bool = False, metric: str = 'maha') -> np.ndarray:
         """
