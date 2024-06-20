@@ -128,13 +128,6 @@ class BaseKalmanFilter:
 
         return mean, covariance
 
-    def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Return standard deviations for process noise in vectorized form.
-        Should be implemented by subclasses.
-        """
-        raise NotImplementedError
-
     def update(self, mean: np.ndarray, covariance: np.ndarray, measurement: np.ndarray, confidence: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
         """
         Run Kalman filter correction step.
