@@ -96,13 +96,6 @@ class BaseKalmanFilter:
         mean = np.dot(self._update_mat, mean)
         covariance = np.linalg.multi_dot((self._update_mat, covariance, self._update_mat.T))
         return mean, covariance + innovation_cov
-
-    def _get_measurement_noise_std(self, mean: np.ndarray, confidence: float) -> np.ndarray:
-        """
-        Return standard deviations for measurement noise.
-        Should be implemented by subclasses.
-        """
-        raise NotImplementedError
     
     def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         std_pos = [
