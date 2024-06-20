@@ -5,12 +5,12 @@ import time
 import cv2
 import numpy as np
 
-from boxmot.motion.cmc.base_cmc import BaseCMC
+from boxmot.motion.cmc.cmc_interface import CMCInterface
 from boxmot.utils import BOXMOT
 from boxmot.utils import logger as LOGGER
 
 
-class SOF(BaseCMC):
+class SOF(CMCInterface):
 
     def __init__(
         self,
