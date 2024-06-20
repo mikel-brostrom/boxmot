@@ -159,6 +159,45 @@ class KalmanFilterXYAH(object):
         covariance = np.linalg.multi_dot((
             self._update_mat, covariance, self._update_mat.T))
         return mean, covariance + innovation_cov
+    
+    def multi_predict(self, mean, covariance):
+        """Run Kalman filter prediction step (Vectorized version).
+        Parameters
+        ----------
+        mean : ndarray
+            The Nx8 dimensional mean matrix of the object states at the previous
+            time step.
+        covariance : ndarray
+            The Nx8x8 dimensional covariance matrics of the object states at the
+            previous time step.
+        Returns
+        -------
+        (ndarray, ndarray)
+            Returns the mean vector and covariance matrix of the predicted
+            state. Unobserved velocities are initialized to 0 mean.
+        """
+        std_pos = [
+            self._std_weight_position * mean[:, 2],
+            self._std_weight_position * mean[:, 3],
+            self._std_weight_position * mean[:, 2],
+            self._std_weight_position * mean[:, 3]]
+        std_vel = [
+            self._std_weight_velocity * mean[:, 2],
+            self._std_weight_velocity * mean[:, 3],
+            self._std_weight_velocity * mean[:, 2],
+            self._std_weight_velocity * mean[:, 3]]
+        sqr = np.square(np.r_[std_pos, std_vel]).T
+
+        motion_cov = []
+        for i in range(len(mean)):
+            motion_cov.append(np.diag(sqr[i]))
+        motion_cov = np.asarray(motion_cov)
+
+        mean = np.dot(mean, self._motion_mat.T)
+        left = np.dot(self._motion_mat, covariance).transpose((1, 0, 2))
+        covariance = np.dot(left, self._motion_mat.T) + motion_cov
+
+        return mean, covariance
 
     def update(self, mean, covariance, measurement, confidence=.0):
         """Run Kalman filter correction step.
