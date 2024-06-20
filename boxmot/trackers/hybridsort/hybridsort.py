@@ -131,7 +131,7 @@ class KalmanBoxTracker(object):
         """
         # define constant velocity model
         # if not orig and not args.kalman_GPR:
-        from boxmot.motion.kalman_filters.hybridsort_kf import KalmanFilterXYS
+        from boxmot.motion.kalman_filters.xys_kf import KalmanFilterXYS
         self.kf = KalmanFilterXYS(dim_x=9, dim_z=5, max_obs=max_obs)
 
         # u, v, s, c, r, ~u, ~v, ~s, ~c
