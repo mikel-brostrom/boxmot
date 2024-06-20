@@ -3,7 +3,7 @@
 import numpy as np
 from collections import deque
 
-from boxmot.motion.kalman_filters.bytetrack_kf import KalmanFilter
+from boxmot.motion.kalman_filters.xyah_kf import KalmanFilterXYAH
 from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
 from boxmot.utils.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
@@ -12,7 +12,7 @@ from boxmot.utils import PerClassDecorator
 
 
 class STrack(BaseTrack):
-    shared_kalman = KalmanFilter()
+    shared_kalman = KalmanFilterXYAH()
 
     def __init__(self, det, max_obs):
         # wait activate
@@ -139,7 +139,7 @@ class BYTETracker(BaseTracker):
         self.det_thresh = track_thresh
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilter()
+        self.kalman_filter = KalmanFilterXYAH()
 
     @PerClassDecorator
     def update(self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None) -> np.ndarray:
