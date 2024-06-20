@@ -7,7 +7,7 @@ import numpy as np
 from collections import deque
 
 
-from boxmot.motion.kalman_filters.ocsort_kf import KalmanFilterXYS
+from boxmot.motion.kalman_filters.xys_kf import KalmanFilterXYS
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.utils.iou import run_asso_func
