@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from boxmot.motion.kalman_filters.strongsort_kf import KalmanFilter
+from boxmot.motion.kalman_filters.xyah_kf import KalmanFilterXYAH
 
 
 class TrackState:
@@ -94,7 +94,7 @@ class Track:
         self._n_init = n_init
         self._max_age = max_age
 
-        self.kf = KalmanFilter()
+        self.kf = KalmanFilterXYAH()
         self.mean, self.covariance = self.kf.initiate(self.bbox)
 
     def to_tlwh(self):
