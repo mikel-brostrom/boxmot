@@ -1,3 +1,4 @@
+import numpy as np
 from boxmot.motion.kalman_filters.base_kalman_filter import BaseKalmanFilter
 
 
