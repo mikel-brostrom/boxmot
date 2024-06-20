@@ -1,8 +1,6 @@
 # vim: expandtab:ts=4:sw=4
 import numpy as np
 import scipy.linalg
-
-
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
 freedom (contains values for N=1, ..., 9). Taken from MATLAB/Octave's chi2inv
@@ -20,7 +18,7 @@ chi2inv95 = {
     9: 16.919}
 
 
-class KalmanFilter(object):
+class KalmanFilterXYAH(object):
     """
     A simple Kalman filter for tracking bounding boxes in image space.
 
@@ -44,6 +42,7 @@ class KalmanFilter(object):
         self._motion_mat = np.eye(2 * ndim, 2 * ndim)
         for i in range(ndim):
             self._motion_mat[i, ndim + i] = dt
+
         self._update_mat = np.eye(ndim, 2 * ndim)
 
         # Motion and observation uncertainty are chosen relative to the current
@@ -116,14 +115,13 @@ class KalmanFilter(object):
             self._std_weight_velocity * mean[3]]
         motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
 
-        #mean = np.dot(self._motion_mat, mean)
-        mean = np.dot(mean, self._motion_mat.T)
+        mean = np.dot(self._motion_mat, mean)
         covariance = np.linalg.multi_dot((
             self._motion_mat, covariance, self._motion_mat.T)) + motion_cov
 
         return mean, covariance
 
-    def project(self, mean, covariance):
+    def project(self, mean, covariance, confidence=.0):
         """Project state distribution to measurement space.
 
         Parameters
@@ -132,7 +130,7 @@ class KalmanFilter(object):
             The state's mean vector (8 dimensional array).
         covariance : ndarray
             The state's covariance matrix (8x8 dimensional).
-
+        confidence: (dyh) 检测框置信度
         Returns
         -------
         (ndarray, ndarray)
@@ -145,13 +143,23 @@ class KalmanFilter(object):
             self._std_weight_position * mean[3],
             1e-1,
             self._std_weight_position * mean[3]]
+
+        # NSA Kalman algorithm from GIAOTracker, which proposes a formula to 
+        # adaptively calculate the noise covariance Rek:
+        # Rk = (1 − ck) Rk
+        # where Rk is the preset constant measurement noise covariance
+        # and ck is the detection confidence score at state k. Intuitively,
+        # the detection has a higher score ck when it has less noise,
+        # which results in a low Re.
+        std = [(1 - confidence) * x for x in std]
+
         innovation_cov = np.diag(np.square(std))
 
         mean = np.dot(self._update_mat, mean)
         covariance = np.linalg.multi_dot((
             self._update_mat, covariance, self._update_mat.T))
         return mean, covariance + innovation_cov
-
+    
     def multi_predict(self, mean, covariance):
         """Run Kalman filter prediction step (Vectorized version).
         Parameters
@@ -169,14 +177,14 @@ class KalmanFilter(object):
             state. Unobserved velocities are initialized to 0 mean.
         """
         std_pos = [
+            self._std_weight_position * mean[:, 2],
             self._std_weight_position * mean[:, 3],
-            self._std_weight_position * mean[:, 3],
-            1e-2 * np.ones_like(mean[:, 3]),
+            self._std_weight_position * mean[:, 2],
             self._std_weight_position * mean[:, 3]]
         std_vel = [
+            self._std_weight_velocity * mean[:, 2],
             self._std_weight_velocity * mean[:, 3],
-            self._std_weight_velocity * mean[:, 3],
-            1e-5 * np.ones_like(mean[:, 3]),
+            self._std_weight_velocity * mean[:, 2],
             self._std_weight_velocity * mean[:, 3]]
         sqr = np.square(np.r_[std_pos, std_vel]).T
 
@@ -191,7 +199,7 @@ class KalmanFilter(object):
 
         return mean, covariance
 
-    def update(self, mean, covariance, measurement):
+    def update(self, mean, covariance, measurement, confidence=.0):
         """Run Kalman filter correction step.
 
         Parameters
@@ -204,14 +212,14 @@ class KalmanFilter(object):
             The 4 dimensional measurement vector (x, y, a, h), where (x, y)
             is the center position, a the aspect ratio, and h the height of the
             bounding box.
-
+        confidence: (dyh)检测框置信度
         Returns
         -------
         (ndarray, ndarray)
             Returns the measurement-corrected state distribution.
 
         """
-        projected_mean, projected_cov = self.project(mean, covariance)
+        projected_mean, projected_cov = self.project(mean, covariance, confidence)
 
         chol_factor, lower = scipy.linalg.cho_factor(
             projected_cov, lower=True, check_finite=False)
@@ -228,9 +236,11 @@ class KalmanFilter(object):
     def gating_distance(self, mean, covariance, measurements,
                         only_position=False, metric='maha'):
         """Compute gating distance between state distribution and measurements.
+
         A suitable distance threshold can be obtained from `chi2inv95`. If
         `only_position` is False, the chi-square distribution has 4 degrees of
         freedom, otherwise 2.
+
         Parameters
         ----------
         mean : ndarray
@@ -244,23 +254,26 @@ class KalmanFilter(object):
         only_position : Optional[bool]
             If True, distance computation is done with respect to the bounding
             box center position only.
+
         Returns
         -------
         ndarray
             Returns an array of length N, where the i-th element contains the
             squared Mahalanobis distance between (mean, covariance) and
             `measurements[i]`.
+
         """
         mean, covariance = self.project(mean, covariance)
+
         if only_position:
             mean, covariance = mean[:2], covariance[:2, :2]
             measurements = measurements[:, :2]
-
-        d = measurements - mean
+            
         if metric == 'gaussian':
             return np.sum(d * d, axis=1)
         elif metric == 'maha':
             cholesky_factor = np.linalg.cholesky(covariance)
+            d = measurements - mean
             z = scipy.linalg.solve_triangular(
                 cholesky_factor, d.T, lower=True, check_finite=False,
                 overwrite_b=True)
