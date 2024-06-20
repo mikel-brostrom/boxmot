@@ -1,3 +1,6 @@
+from boxmot.motion.kalman_filters.base_kalman_filter import BaseKalmanFilter
+
+
 class KalmanFilterXYWH(BaseKalmanFilter):
     """
     A Kalman filter for tracking bounding boxes in image space with state space:
