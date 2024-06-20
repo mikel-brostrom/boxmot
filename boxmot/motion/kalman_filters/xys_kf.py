@@ -107,7 +107,8 @@ from filterpy.common import pretty_str, reshape_z
 from collections import deque
 
 
-class KalmanFilter(object):
+# The aspect ratio r is assumed to be constant.
+class KalmanFilterXYS(object):
     """ Implements a Kalman filter. You are responsible for setting the
     various state variables to reasonable values; the defaults  will
     not give you a functional filter.
