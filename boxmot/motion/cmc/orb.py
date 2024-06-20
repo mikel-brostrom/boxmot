@@ -6,11 +6,11 @@ import time
 import cv2
 import numpy as np
 
-from boxmot.motion.cmc.cmc_interface import CMCInterface
+from boxmot.motion.cmc.base_cmc import BaseCMC
 from boxmot.utils import BOXMOT
 
 
-class ORB(CMCInterface):
+class ORB(BaseCMC):
 
     def __init__(
         self,
