@@ -5,7 +5,7 @@ from collections import deque
 
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.motion.kalman_filters.xys_kf import KalmanFilterXYSR
+from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.trackers.basetracker import BaseTracker
