@@ -5,7 +5,7 @@ from collections import deque
 
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
+from boxmot.motion.kalman_filters.xys_kf import KalmanFilterXYS
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.trackers.basetracker import BaseTracker
@@ -107,7 +107,7 @@ class KalmanBoxTracker(object):
         self.det_ind = det[6]
 
         if new_kf:
-            self.kf = KalmanFilterXYSR(dim_x=8, dim_z=4, max_obs=max_obs)
+            self.kf = KalmanFilterXYS(dim_x=8, dim_z=4, max_obs=max_obs)
             self.kf.F = np.array(
                 [
                     # x y w h x' y' w' h'
