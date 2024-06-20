@@ -5,7 +5,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 
 
-class CMCInterface(ABC):
+class BaseCMC(ABC):
 
     @abstractmethod
     def apply(self, im):
