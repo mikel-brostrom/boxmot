@@ -73,20 +73,6 @@ def speed_direction(bbox1, bbox2):
     return speed / norm
 
 
-def new_kf_process_noise(w, h, p=1 / 20, v=1 / 160):
-    Q = np.diag(
-        ((p * w) ** 2, (p * h) ** 2, (p * w) ** 2, (p * h) ** 2, (v * w) ** 2, (v * h) ** 2, (v * w) ** 2, (v * h) ** 2)
-    )
-    return Q
-
-
-def new_kf_measurement_noise(w, h, m=1 / 20):
-    w_var = (m * w) ** 2
-    h_var = (m * h) ** 2
-    R = np.diag((w_var, h_var, w_var, h_var))
-    return R
-
-
 class KalmanBoxTracker(object):
     """
     This class represents the internal state of individual tracked objects observed as bbox.
@@ -94,14 +80,13 @@ class KalmanBoxTracker(object):
 
     count = 0
 
-    def __init__(self, det, delta_t=3, emb=None, alpha=0, new_kf=False, max_obs=50):
+    def __init__(self, det, delta_t=3, emb=None, alpha=0, max_obs=50):
         """
         Initialises a tracker using initial bounding box.
 
         """
         # define constant velocity model
         self.max_obs=max_obs
-        self.new_kf = new_kf
         bbox = det[0:5]
         self.conf = det[4]
         self.cls = det[5]
@@ -200,11 +185,8 @@ class KalmanBoxTracker(object):
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
-            if self.new_kf:
-                R = new_kf_measurement_noise(self.kf.x[2, 0], self.kf.x[3, 0])
-                self.kf.update(self.bbox_to_z_func(bbox), R=R)
-            else:
-                self.kf.update(self.bbox_to_z_func(bbox))
+
+            self.kf.update(self.bbox_to_z_func(bbox))
         else:
             self.kf.update(det)
             self.frozen = True
@@ -233,27 +215,16 @@ class KalmanBoxTracker(object):
                 self.observations[self.age - dt][:4] = ps.T.reshape(-1)
 
         # Also need to change kf state, but might be frozen
-        self.kf.apply_affine_correction(m, t, self.new_kf)
+        self.kf.apply_affine_correction(m, t)
 
     def predict(self):
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
         # Don't allow negative bounding boxes
-        if self.new_kf:
-            if self.kf.x[2] + self.kf.x[6] <= 0:
-                self.kf.x[6] = 0
-            if self.kf.x[3] + self.kf.x[7] <= 0:
-                self.kf.x[7] = 0
-
-            # Stop velocity, will update in kf during OOS
-            if self.frozen:
-                self.kf.x[6] = self.kf.x[7] = 0
-            Q = new_kf_process_noise(self.kf.x[2, 0], self.kf.x[3, 0])
-        else:
-            if (self.kf.x[6] + self.kf.x[2]) <= 0:
-                self.kf.x[6] *= 0.0
-            Q = None
+        if (self.kf.x[6] + self.kf.x[2]) <= 0:
+            self.kf.x[6] *= 0.0
+        Q = None
 
         self.kf.predict(Q=Q)
         self.age += 1
@@ -294,7 +265,6 @@ class DeepOCSort(BaseTracker):
         embedding_off=False,
         cmc_off=False,
         aw_off=False,
-        new_kf_off=False,
         **kwargs
     ):
         super().__init__(max_age=max_age)
@@ -323,7 +293,6 @@ class DeepOCSort(BaseTracker):
         self.embedding_off = embedding_off
         self.cmc_off = cmc_off
         self.aw_off = aw_off
-        self.new_kf_off = new_kf_off
 
     @PerClassDecorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
@@ -469,7 +438,6 @@ class DeepOCSort(BaseTracker):
                 delta_t=self.delta_t,
                 emb=dets_embs[i],
                 alpha=dets_alpha[i],
-                new_kf= False,
                 max_obs=self.max_obs
             )
             self.active_tracks.append(trk)
