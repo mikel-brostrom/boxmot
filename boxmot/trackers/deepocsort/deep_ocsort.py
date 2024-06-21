@@ -5,11 +5,13 @@ from collections import deque
 
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.motion.kalman_filters.deepocsort_kf import KalmanFilter
+from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
+from boxmot.motion.kalman_filters.xywh_kf import KalmanFilterXYWH
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils import PerClassDecorator
+from boxmot.utils.ops import xyxy2xysr
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -21,34 +23,6 @@ def k_previous_obs(observations, cur_age, k):
             return observations[cur_age - dt]
     max_age = max(observations.keys())
     return observations[max_age]
-
-
-def convert_bbox_to_z(bbox):
-    """
-    Takes a bounding box in the form [x1,y1,x2,y2] and returns z in the form
-      [x,y,s,r] where x,y is the centre of the box and s is the scale/area and r is
-      the aspect ratio
-    """
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    x = bbox[0] + w / 2.0
-    y = bbox[1] + h / 2.0
-    s = w * h  # scale is just area
-    r = w / float(h + 1e-6)
-    return np.array([x, y, s, r]).reshape((4, 1))
-
-
-def convert_bbox_to_z_new(bbox):
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    x = bbox[0] + w / 2.0
-    y = bbox[1] + h / 2.0
-    return np.array([x, y, w, h]).reshape((4, 1))
-
-
-def convert_x_to_bbox_new(x):
-    x, y, w, h = x.reshape(-1)[:4]
-    return np.array([x - w / 2, y - h / 2, x + w / 2, y + h / 2]).reshape(1, 4)
 
 
 def convert_x_to_bbox(x, score=None):
@@ -72,20 +46,6 @@ def speed_direction(bbox1, bbox2):
     return speed / norm
 
 
-def new_kf_process_noise(w, h, p=1 / 20, v=1 / 160):
-    Q = np.diag(
-        ((p * w) ** 2, (p * h) ** 2, (p * w) ** 2, (p * h) ** 2, (v * w) ** 2, (v * h) ** 2, (v * w) ** 2, (v * h) ** 2)
-    )
-    return Q
-
-
-def new_kf_measurement_noise(w, h, m=1 / 20):
-    w_var = (m * w) ** 2
-    h_var = (m * h) ** 2
-    R = np.diag((w_var, h_var, w_var, h_var))
-    return R
-
-
 class KalmanBoxTracker(object):
     """
     This class represents the internal state of individual tracked objects observed as bbox.
@@ -93,78 +53,46 @@ class KalmanBoxTracker(object):
 
     count = 0
 
-    def __init__(self, det, delta_t=3, emb=None, alpha=0, new_kf=False, max_obs=50):
+    def __init__(self, det, delta_t=3, emb=None, alpha=0, max_obs=50):
         """
         Initialises a tracker using initial bounding box.
 
         """
         # define constant velocity model
         self.max_obs=max_obs
-        self.new_kf = new_kf
         bbox = det[0:5]
         self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
 
-        if new_kf:
-            self.kf = KalmanFilter(dim_x=8, dim_z=4, max_obs=max_obs)
-            self.kf.F = np.array(
-                [
-                    # x y w h x' y' w' h'
-                    [1, 0, 0, 0, 1, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 1, 0, 0],
-                    [0, 0, 1, 0, 0, 0, 1, 0],
-                    [0, 0, 0, 1, 0, 0, 0, 1],
-                    [0, 0, 0, 0, 1, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 1, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 1, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 1],
-                ]
-            )
-            self.kf.H = np.array(
-                [
-                    [1, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 1, 0, 0, 0, 0],
-                ]
-            )
-            _, _, w, h = convert_bbox_to_z_new(bbox).reshape(-1)
-            self.kf.P = new_kf_process_noise(w, h)
-            self.kf.P[:4, :4] *= 4
-            self.kf.P[4:, 4:] *= 100
-            # Process and measurement uncertainty happen in functions
-            self.bbox_to_z_func = convert_bbox_to_z_new
-            self.x_to_bbox_func = convert_x_to_bbox_new
-        else:
-            self.kf = OCSortKalmanFilterAdapter(dim_x=7, dim_z=4)
-            self.kf.F = np.array(
-                [
-                    # x  y  s  r  x' y' s'
-                    [1, 0, 0, 0, 1, 0, 0],
-                    [0, 1, 0, 0, 0, 1, 0],
-                    [0, 0, 1, 0, 0, 0, 1],
-                    [0, 0, 0, 1, 0, 0, 0],
-                    [0, 0, 0, 0, 1, 0, 0],
-                    [0, 0, 0, 0, 0, 1, 0],
-                    [0, 0, 0, 0, 0, 0, 1],
-                ]
-            )
-            self.kf.H = np.array(
-                [
-                    [1, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 1, 0, 0, 0],
-                ]
-            )
-            self.kf.R[2:, 2:] *= 10.0
-            self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
-            self.kf.P *= 10.0
-            self.kf.Q[-1, -1] *= 0.01
-            self.kf.Q[4:, 4:] *= 0.01
-            self.bbox_to_z_func = convert_bbox_to_z
-            self.x_to_bbox_func = convert_x_to_bbox
+        self.kf = KalmanFilterXYSR(dim_x=7, dim_z=4)
+        self.kf.F = np.array(
+            [
+                # x  y  s  r  x' y' s'
+                [1, 0, 0, 0, 1, 0, 0],
+                [0, 1, 0, 0, 0, 1, 0],
+                [0, 0, 1, 0, 0, 0, 1],
+                [0, 0, 0, 1, 0, 0, 0],
+                [0, 0, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0, 1, 0],
+                [0, 0, 0, 0, 0, 0, 1],
+            ]
+        )
+        self.kf.H = np.array(
+            [
+                [1, 0, 0, 0, 0, 0, 0],
+                [0, 1, 0, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 1, 0, 0, 0],
+            ]
+        )
+        self.kf.R[2:, 2:] *= 10.0
+        self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
+        self.kf.P *= 10.0
+        self.kf.Q[-1, -1] *= 0.01
+        self.kf.Q[4:, 4:] *= 0.01
+        self.bbox_to_z_func = xyxy2xysr
+        self.x_to_bbox_func = convert_x_to_bbox
 
         self.kf.x[:4] = self.bbox_to_z_func(bbox)
 
@@ -230,11 +158,8 @@ class KalmanBoxTracker(object):
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
-            if self.new_kf:
-                R = new_kf_measurement_noise(self.kf.x[2, 0], self.kf.x[3, 0])
-                self.kf.update(self.bbox_to_z_func(bbox), R=R)
-            else:
-                self.kf.update(self.bbox_to_z_func(bbox))
+
+            self.kf.update(self.bbox_to_z_func(bbox))
         else:
             self.kf.update(det)
             self.frozen = True
@@ -263,27 +188,16 @@ class KalmanBoxTracker(object):
                 self.observations[self.age - dt][:4] = ps.T.reshape(-1)
 
         # Also need to change kf state, but might be frozen
-        self.kf.apply_affine_correction(m, t, self.new_kf)
+        self.kf.apply_affine_correction(m, t)
 
     def predict(self):
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
         # Don't allow negative bounding boxes
-        if self.new_kf:
-            if self.kf.x[2] + self.kf.x[6] <= 0:
-                self.kf.x[6] = 0
-            if self.kf.x[3] + self.kf.x[7] <= 0:
-                self.kf.x[7] = 0
-
-            # Stop velocity, will update in kf during OOS
-            if self.frozen:
-                self.kf.x[6] = self.kf.x[7] = 0
-            Q = new_kf_process_noise(self.kf.x[2, 0], self.kf.x[3, 0])
-        else:
-            if (self.kf.x[6] + self.kf.x[2]) <= 0:
-                self.kf.x[6] *= 0.0
-            Q = None
+        if (self.kf.x[6] + self.kf.x[2]) <= 0:
+            self.kf.x[6] *= 0.0
+        Q = None
 
         self.kf.predict(Q=Q)
         self.age += 1
@@ -324,7 +238,6 @@ class DeepOCSort(BaseTracker):
         embedding_off=False,
         cmc_off=False,
         aw_off=False,
-        new_kf_off=False,
         **kwargs
     ):
         super().__init__(max_age=max_age)
@@ -353,7 +266,6 @@ class DeepOCSort(BaseTracker):
         self.embedding_off = embedding_off
         self.cmc_off = cmc_off
         self.aw_off = aw_off
-        self.new_kf_off = new_kf_off
 
     @PerClassDecorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
@@ -499,7 +411,6 @@ class DeepOCSort(BaseTracker):
                 delta_t=self.delta_t,
                 emb=dets_embs[i],
                 alpha=dets_alpha[i],
-                new_kf=not self.new_kf_off,
                 max_obs=self.max_obs
             )
             self.active_tracks.append(trk)
