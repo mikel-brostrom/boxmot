@@ -108,42 +108,29 @@ class KalmanFilterXYSR(object):
         self.observed = False
 
 
-    def apply_affine_correction(self, m, t, new_kf):
+    def apply_affine_correction(self, m, t):
         """
         Apply to both last state and last observation for OOS smoothing.
 
         Messy due to internal logic for kalman filter being messy.
         """
-        if new_kf:
-            big_m = np.kron(np.eye(4, dtype=float), m)
-            self.x = big_m @ self.x
-            self.x[:2] += t
-            self.P = big_m @ self.P @ big_m.T
+        
+        scale = np.linalg.norm(m[:, 0])
+        self.x[:2] = m @ self.x[:2] + t
+        self.x[4:6] = m @ self.x[4:6]
 
-            # If frozen, also need to update the frozen state for OOS
-            if not self.observed and self.attr_saved is not None:
-                self.attr_saved["x"] = big_m @ self.attr_saved["x"]
-                self.attr_saved["x"][:2] += t
-                self.attr_saved["P"] = big_m @ self.attr_saved["P"] @ big_m.T
-                self.attr_saved["last_measurement"][:2] = m @ self.attr_saved["last_measurement"][:2] + t
-                self.attr_saved["last_measurement"][2:] = m @ self.attr_saved["last_measurement"][2:]
-        else:
-            scale = np.linalg.norm(m[:, 0])
-            self.x[:2] = m @ self.x[:2] + t
-            self.x[4:6] = m @ self.x[4:6]
+        self.P[:2, :2] = m @ self.P[:2, :2] @ m.T
+        self.P[4:6, 4:6] = m @ self.P[4:6, 4:6] @ m.T
 
-            self.P[:2, :2] = m @ self.P[:2, :2] @ m.T
-            self.P[4:6, 4:6] = m @ self.P[4:6, 4:6] @ m.T
+        # If frozen, also need to update the frozen state for OOS
+        if not self.observed and self.attr_saved is not None:
+            self.attr_saved["x"][:2] = m @ self.attr_saved["x"][:2] + t
+            self.attr_saved["x"][4:6] = m @ self.attr_saved["x"][4:6]
 
-            # If frozen, also need to update the frozen state for OOS
-            if not self.observed and self.attr_saved is not None:
-                self.attr_saved["x"][:2] = m @ self.attr_saved["x"][:2] + t
-                self.attr_saved["x"][4:6] = m @ self.attr_saved["x"][4:6]
+            self.attr_saved["P"][:2, :2] = m @ self.attr_saved["P"][:2, :2] @ m.T
+            self.attr_saved["P"][4:6, 4:6] = m @ self.attr_saved["P"][4:6, 4:6] @ m.T
 
-                self.attr_saved["P"][:2, :2] = m @ self.attr_saved["P"][:2, :2] @ m.T
-                self.attr_saved["P"][4:6, 4:6] = m @ self.attr_saved["P"][4:6, 4:6] @ m.T
-
-                self.attr_saved["last_measurement"][:2] = m @ self.attr_saved["last_measurement"][:2] + t
+            self.attr_saved["last_measurement"][:2] = m @ self.attr_saved["last_measurement"][:2] + t
 
 
     def predict(self, u=None, B=None, F=None, Q=None):
@@ -333,33 +320,6 @@ class KalmanFilterXYSR(object):
         """
 
         return self._likelihood
-
-    def rts_smoother(self, Xs, Ps, Fs=None, Qs=None):
-        """ Runs the Rauch-Tung-Striebel (RTS) smoother on a set of
-        Kalman filter output, consisting of means and covariances.
-        """
-
-        if len(Xs) != len(Ps):
-            raise ValueError("length of Xs and Ps must be equal")
-
-        n = len(Xs)
-        dim_x = Xs[0].shape[0]
-
-        if Fs is None:
-            Fs = [self.F] * n
-        if Qs is None:
-            Qs = [self.Q] * n
-
-        # smoother gain
-        K = np.zeros((n, dim_x, dim_x))
-
-        x, P = Xs.copy(), Ps.copy()
-        for k in range(n-2, -1, -1):
-            P_pred = dot(dot(Fs[k], P[k]), Fs[k].T) + Qs[k]
-            K[k] = dot(dot(P[k], Fs[k].T), self.inv(P_pred))
-            x[k] += dot(K[k], x[k+1] - dot(Fs[k], x[k]))
-            P[k] += dot(dot(K[k], P[k+1] - P_pred), K[k].T)
-        return (x, P, K)
 
     def batch_filter(self, zs, us=None, Bs=None, Fs=None, Qs=None, Hs=None, Rs=None):
         """ Batch processes a sequence of measurements.
