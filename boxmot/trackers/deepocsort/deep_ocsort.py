@@ -11,6 +11,7 @@ from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils import PerClassDecorator
+from boxmot.utils.ops import xyxy2xysr
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -22,34 +23,6 @@ def k_previous_obs(observations, cur_age, k):
             return observations[cur_age - dt]
     max_age = max(observations.keys())
     return observations[max_age]
-
-
-def convert_bbox_to_z(bbox):
-    """
-    Takes a bounding box in the form [x1,y1,x2,y2] and returns z in the form
-      [x,y,s,r] where x,y is the centre of the box and s is the scale/area and r is
-      the aspect ratio
-    """
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    x = bbox[0] + w / 2.0
-    y = bbox[1] + h / 2.0
-    s = w * h  # scale is just area
-    r = w / float(h + 1e-6)
-    return np.array([x, y, s, r]).reshape((4, 1))
-
-
-def convert_bbox_to_z_new(bbox):
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    x = bbox[0] + w / 2.0
-    y = bbox[1] + h / 2.0
-    return np.array([x, y, w, h]).reshape((4, 1))
-
-
-def convert_x_to_bbox_new(x):
-    x, y, w, h = x.reshape(-1)[:4]
-    return np.array([x - w / 2, y - h / 2, x + w / 2, y + h / 2]).reshape(1, 4)
 
 
 def convert_x_to_bbox(x, score=None):
@@ -118,7 +91,7 @@ class KalmanBoxTracker(object):
         self.kf.P *= 10.0
         self.kf.Q[-1, -1] *= 0.01
         self.kf.Q[4:, 4:] *= 0.01
-        self.bbox_to_z_func = convert_bbox_to_z
+        self.bbox_to_z_func = xyxy2xysr
         self.x_to_bbox_func = convert_x_to_bbox
 
         self.kf.x[:4] = self.bbox_to_z_func(bbox)
