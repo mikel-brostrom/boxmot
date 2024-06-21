@@ -8,6 +8,7 @@ from numpy.testing import assert_allclose
 from boxmot import (
     StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, get_tracker_config, create_tracker,
 )
+from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker
 
 
 MOTION_ONLY_TRACKING_METHODS=[OCSORT, BYTETracker]
@@ -57,6 +58,31 @@ def test_dynamic_max_obs_based_on_max_age():
     )
 
     assert ocsort.max_obs == (max_age + 5)
+
+
+def test_Q_matrix_scaling():
+    bbox = [0, 0, 100, 100, 0.9]
+    cls = 1
+    det_ind = 0
+    Q_xy_scaling = 0.05
+    Q_s_scaling = 0.0005
+
+    ocsort = OCSORT(
+        Q_xy_scaling=Q_xy_scaling, 
+        Q_s_scaling=Q_s_scaling
+    )
+
+    kalman_box_tracker = KalmanBoxTracker(
+        bbox, 
+        cls, 
+        det_ind, 
+        Q_xy_scaling=ocsort.Q_xy_scaling, 
+        Q_s_scaling=ocsort.Q_s_scaling
+    )
+
+    assert kalman_box_tracker.kf.Q[4, 4] == Q_xy_scaling
+    assert kalman_box_tracker.kf.Q[5, 5] == Q_xy_scaling
+    assert kalman_box_tracker.kf.Q[6, 6] == Q_s_scaling
 
 
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
