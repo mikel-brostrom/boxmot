@@ -107,65 +107,34 @@ class KalmanBoxTracker(object):
         self.cls = det[5]
         self.det_ind = det[6]
 
-        if new_kf:
-            self.kf = KalmanFilterXYSR(dim_x=8, dim_z=4, max_obs=max_obs)
-            self.kf.F = np.array(
-                [
-                    # x y w h x' y' w' h'
-                    [1, 0, 0, 0, 1, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 1, 0, 0],
-                    [0, 0, 1, 0, 0, 0, 1, 0],
-                    [0, 0, 0, 1, 0, 0, 0, 1],
-                    [0, 0, 0, 0, 1, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 1, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 1, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 1],
-                ]
-            )
-            self.kf.H = np.array(
-                [
-                    [1, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 1, 0, 0, 0, 0],
-                ]
-            )
-            _, _, w, h = convert_bbox_to_z_new(bbox).reshape(-1)
-            self.kf.P = new_kf_process_noise(w, h)
-            self.kf.P[:4, :4] *= 4
-            self.kf.P[4:, 4:] *= 100
-            # Process and measurement uncertainty happen in functions
-            self.bbox_to_z_func = convert_bbox_to_z_new
-            self.x_to_bbox_func = convert_x_to_bbox_new
-        else:
-            self.kf = KalmanFilterXYSR(dim_x=7, dim_z=4)
-            self.kf.F = np.array(
-                [
-                    # x  y  s  r  x' y' s'
-                    [1, 0, 0, 0, 1, 0, 0],
-                    [0, 1, 0, 0, 0, 1, 0],
-                    [0, 0, 1, 0, 0, 0, 1],
-                    [0, 0, 0, 1, 0, 0, 0],
-                    [0, 0, 0, 0, 1, 0, 0],
-                    [0, 0, 0, 0, 0, 1, 0],
-                    [0, 0, 0, 0, 0, 0, 1],
-                ]
-            )
-            self.kf.H = np.array(
-                [
-                    [1, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 1, 0, 0, 0],
-                ]
-            )
-            self.kf.R[2:, 2:] *= 10.0
-            self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
-            self.kf.P *= 10.0
-            self.kf.Q[-1, -1] *= 0.01
-            self.kf.Q[4:, 4:] *= 0.01
-            self.bbox_to_z_func = convert_bbox_to_z
-            self.x_to_bbox_func = convert_x_to_bbox
+        self.kf = KalmanFilterXYSR(dim_x=7, dim_z=4)
+        self.kf.F = np.array(
+            [
+                # x  y  s  r  x' y' s'
+                [1, 0, 0, 0, 1, 0, 0],
+                [0, 1, 0, 0, 0, 1, 0],
+                [0, 0, 1, 0, 0, 0, 1],
+                [0, 0, 0, 1, 0, 0, 0],
+                [0, 0, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0, 1, 0],
+                [0, 0, 0, 0, 0, 0, 1],
+            ]
+        )
+        self.kf.H = np.array(
+            [
+                [1, 0, 0, 0, 0, 0, 0],
+                [0, 1, 0, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 1, 0, 0, 0],
+            ]
+        )
+        self.kf.R[2:, 2:] *= 10.0
+        self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
+        self.kf.P *= 10.0
+        self.kf.Q[-1, -1] *= 0.01
+        self.kf.Q[4:, 4:] *= 0.01
+        self.bbox_to_z_func = convert_bbox_to_z
+        self.x_to_bbox_func = convert_x_to_bbox
 
         self.kf.x[:4] = self.bbox_to_z_func(bbox)
 
@@ -500,7 +469,7 @@ class DeepOCSort(BaseTracker):
                 delta_t=self.delta_t,
                 emb=dets_embs[i],
                 alpha=dets_alpha[i],
-                new_kf=not self.new_kf_off,
+                new_kf= False,
                 max_obs=self.max_obs
             )
             self.active_tracks.append(trk)
