@@ -8,7 +8,10 @@ from numpy.testing import assert_allclose
 from boxmot import (
     StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, get_tracker_config, create_tracker,
 )
-from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker
+
+from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
+from boxmot.trackers.deepocsort.deep_ocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
+
 
 
 MOTION_ONLY_TRACKING_METHODS=[OCSORT, BYTETracker]
@@ -60,29 +63,59 @@ def test_dynamic_max_obs_based_on_max_age():
     assert ocsort.max_obs == (max_age + 5)
 
 
-def test_Q_matrix_scaling():
-    bbox = [0, 0, 100, 100, 0.9]
+def create_kalman_box_tracker_ocsort(bbox, cls, det_ind, tracker):
+    return OCSortKalmanBoxTracker(
+        bbox,
+        cls,
+        det_ind,
+        Q_xy_scaling=tracker.Q_xy_scaling,
+        Q_s_scaling=tracker.Q_s_scaling
+    )
+
+
+def create_kalman_box_tracker_deepocsort(bbox, cls, det_ind, tracker):
+    # DeepOCSort KalmanBoxTracker expects input in different format than OCSort
+    det = np.concatenate([bbox, [cls, det_ind]]) 
+    return DeepOCSortKalmanBoxTracker(
+        det,
+        Q_xy_scaling=tracker.Q_xy_scaling,
+        Q_s_scaling=tracker.Q_s_scaling
+    )
+
+
+TRACKER_CREATORS = {
+    OCSORT: create_kalman_box_tracker_ocsort,
+    DeepOCSORT: create_kalman_box_tracker_deepocsort,
+}
+
+
+@pytest.mark.parametrize("Tracker, init_args", [
+    (OCSORT, {}),
+    (DeepOCSORT, {
+        'model_weights': Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
+        'device': 'cpu',
+        'fp16': True
+    }),
+])
+def test_Q_matrix_scaling(Tracker, init_args):
+    bbox = np.array([0, 0, 100, 100, 0.9])
     cls = 1
     det_ind = 0
     Q_xy_scaling = 0.05
     Q_s_scaling = 0.0005
 
-    ocsort = OCSORT(
+    tracker = Tracker(
         Q_xy_scaling=Q_xy_scaling, 
-        Q_s_scaling=Q_s_scaling
+        Q_s_scaling=Q_s_scaling,
+        **init_args
     )
 
-    kalman_box_tracker = KalmanBoxTracker(
-        bbox, 
-        cls, 
-        det_ind, 
-        Q_xy_scaling=ocsort.Q_xy_scaling, 
-        Q_s_scaling=ocsort.Q_s_scaling
-    )
+    create_kalman_box_tracker = TRACKER_CREATORS[Tracker]
+    kalman_box_tracker = create_kalman_box_tracker(bbox, cls, det_ind, tracker)
 
-    assert kalman_box_tracker.kf.Q[4, 4] == Q_xy_scaling
-    assert kalman_box_tracker.kf.Q[5, 5] == Q_xy_scaling
-    assert kalman_box_tracker.kf.Q[6, 6] == Q_s_scaling
+    assert kalman_box_tracker.kf.Q[4, 4] == Q_xy_scaling, "Q_xy scaling incorrect for x' velocity"
+    assert kalman_box_tracker.kf.Q[5, 5] == Q_xy_scaling, "Q_xy scaling incorrect for y' velocity"
+    assert kalman_box_tracker.kf.Q[6, 6] == Q_s_scaling, "Q_s scaling incorrect for s' (scale) velocity"
 
 
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
