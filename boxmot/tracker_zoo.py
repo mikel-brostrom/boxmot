@@ -99,6 +99,8 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             delta_t=cfg.delta_t,
             asso_func=cfg.asso_func,
             inertia=cfg.inertia,
+            Q_xy_scaling=cfg.Q_xy_scaling,
+            Q_s_scaling=cfg.Q_s_scaling
         )
         return deepocsort
     elif tracker_type == 'hybridsort':
