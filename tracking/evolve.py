@@ -155,7 +155,8 @@ class Objective():
             delta_t = trial.suggest_int("delta_t", 1, 5, step=1)
             asso_func = trial.suggest_categorical("asso_func", ['iou', 'giou', 'centroid'])
             inertia = trial.suggest_float("inertia", 0.1, 0.4)
-            use_byte = trial.suggest_categorical("use_byte", [True, False])
+            Q_xy_scaling = trial.suggest_float("Q_xy_scaling", 0.01, 1)
+            Q_s_scaling = trial.suggest_float("Q_s_scaling", 0.0001, 1)
 
             d = {
                 'det_thresh': det_thresh,
@@ -165,7 +166,9 @@ class Objective():
                 'delta_t': delta_t,
                 'asso_func': asso_func,
                 'inertia': inertia,
-                'use_byte': use_byte
+                'use_byte': use_byte,
+                'Q_xy_scaling': Q_xy_scaling,
+                'Q_s_scaling': Q_s_scaling
             }
 
         elif self.opt.tracking_method == 'deepocsort':
@@ -183,6 +186,8 @@ class Objective():
             embedding_off = trial.suggest_categorical("embedding_off", [True, False])
             cmc_off = trial.suggest_categorical("cmc_off", [True, False])
             aw_off = trial.suggest_categorical("aw_off", [True, False])
+            Q_xy_scaling = trial.suggest_float("Q_xy_scaling", 0.01, 1)
+            Q_s_scaling = trial.suggest_float("Q_s_scaling", 0.0001, 1)
 
             d = {
                 'det_thresh': det_thresh,
@@ -198,6 +203,8 @@ class Objective():
                 'embedding_off': embedding_off,
                 'cmc_off': cmc_off,
                 'aw_off': aw_off,
+                'Q_xy_scaling': Q_xy_scaling,
+                'Q_s_scaling': Q_s_scaling
             }
 
         # overwrite existing config for tracker
