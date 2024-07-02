@@ -53,7 +53,7 @@ class KalmanBoxTracker(object):
 
     count = 0
 
-    def __init__(self, det, delta_t=3, emb=None, alpha=0, max_obs=50):
+    def __init__(self, det, delta_t=3, emb=None, alpha=0, max_obs=50, Q_xy_scaling = 0.01, Q_s_scaling = 0.0001):
         """
         Initialises a tracker using initial bounding box.
 
@@ -64,6 +64,9 @@ class KalmanBoxTracker(object):
         self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
+
+        self.Q_xy_scaling = Q_xy_scaling
+        self.Q_s_scaling = Q_s_scaling
 
         self.kf = KalmanFilterXYSR(dim_x=7, dim_z=4)
         self.kf.F = np.array(
@@ -89,8 +92,9 @@ class KalmanBoxTracker(object):
         self.kf.R[2:, 2:] *= 10.0
         self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
         self.kf.P *= 10.0
-        self.kf.Q[-1, -1] *= 0.01
-        self.kf.Q[4:, 4:] *= 0.01
+        self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
+        self.kf.Q[-1, -1] *= self.Q_s_scaling
+
         self.bbox_to_z_func = xyxy2xysr
         self.x_to_bbox_func = convert_x_to_bbox
 
@@ -238,6 +242,8 @@ class DeepOCSort(BaseTracker):
         embedding_off=False,
         cmc_off=False,
         aw_off=False,
+        Q_xy_scaling=0.01,
+        Q_s_scaling=0.0001,
         **kwargs
     ):
         super().__init__(max_age=max_age)
@@ -255,6 +261,8 @@ class DeepOCSort(BaseTracker):
         self.alpha_fixed_emb = alpha_fixed_emb
         self.aw_param = aw_param
         self.per_class = per_class
+        self.Q_xy_scaling = Q_xy_scaling
+        self.Q_s_scaling = Q_s_scaling
         KalmanBoxTracker.count = 1
 
         rab = ReidAutoBackend(
@@ -411,6 +419,8 @@ class DeepOCSort(BaseTracker):
                 delta_t=self.delta_t,
                 emb=dets_embs[i],
                 alpha=dets_alpha[i],
+                Q_xy_scaling=self.Q_xy_scaling, 
+                Q_s_scaling=self.Q_s_scaling,                
                 max_obs=self.max_obs
             )
             self.active_tracks.append(trk)
