@@ -183,7 +183,6 @@ class Objective():
             embedding_off = trial.suggest_categorical("embedding_off", [True, False])
             cmc_off = trial.suggest_categorical("cmc_off", [True, False])
             aw_off = trial.suggest_categorical("aw_off", [True, False])
-            new_kf_off = trial.suggest_categorical("new_kf_off", [True, False])
 
             d = {
                 'det_thresh': det_thresh,
@@ -199,7 +198,6 @@ class Objective():
                 'embedding_off': embedding_off,
                 'cmc_off': cmc_off,
                 'aw_off': aw_off,
-                'new_kf_off': new_kf_off
             }
 
         # overwrite existing config for tracker

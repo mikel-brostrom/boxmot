@@ -7,12 +7,13 @@ import numpy as np
 from collections import deque
 
 
-from boxmot.motion.kalman_filters.ocsort_kf import KalmanFilter
+from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.utils.iou import run_asso_func
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils import PerClassDecorator
+from boxmot.utils.ops import xyxy2xysr
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -24,21 +25,6 @@ def k_previous_obs(observations, cur_age, k):
             return observations[cur_age - dt]
     max_age = max(observations.keys())
     return observations[max_age]
-
-
-def convert_bbox_to_z(bbox):
-    """
-    Takes a bounding box in the form [x1,y1,x2,y2] and returns z in the form
-      [x,y,s,r] where x,y is the centre of the box and s is the scale/area and r is
-      the aspect ratio
-    """
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    x = bbox[0] + w / 2.0
-    y = bbox[1] + h / 2.0
-    s = w * h  # scale is just area
-    r = w / float(h + 1e-6)
-    return np.array([x, y, s, r]).reshape((4, 1))
 
 
 def convert_x_to_bbox(x, score=None):
@@ -84,7 +70,7 @@ class KalmanBoxTracker(object):
         self.Q_xy_scaling = Q_xy_scaling
         self.Q_s_scaling = Q_s_scaling
 
-        self.kf = KalmanFilter(dim_x=7, dim_z=4, max_obs=max_obs)
+        self.kf = KalmanFilterXYSR(dim_x=7, dim_z=4, max_obs=max_obs)
         self.kf.F = np.array(
             [
                 [1, 0, 0, 0, 1, 0, 0],
@@ -114,7 +100,7 @@ class KalmanBoxTracker(object):
         self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
         self.kf.Q[-1, -1] *= self.Q_s_scaling
 
-        self.kf.x[:4] = convert_bbox_to_z(bbox)
+        self.kf.x[:4] = xyxy2xysr(bbox)
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
@@ -170,7 +156,7 @@ class KalmanBoxTracker(object):
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
-            self.kf.update(convert_bbox_to_z(bbox))
+            self.kf.update(xyxy2xysr(bbox))
         else:
             self.kf.update(bbox)
 

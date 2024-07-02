@@ -104,8 +104,8 @@ Start with [**Python>=3.8**](https://www.python.org/) environment.
 If you want to run the YOLOv8, YOLO-NAS or YOLOX examples:
 
 ```
-git clone https://github.com/mikel-brostrom/yolo_tracking.git
-cd yolo_tracking
+git clone https://github.com/mikel-brostrom/boxmot.git
+cd boxmot
 pip install poetry
 poetry install --with yolo  # installed boxmot + yolo dependencies
 poetry shell  # activates the newly created environment with the installed dependencies
