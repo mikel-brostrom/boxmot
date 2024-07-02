@@ -5,7 +5,7 @@ from collections import deque
 
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
-from boxmot.motion.kalman_filters.botsort_kf import KalmanFilter
+from boxmot.motion.kalman_filters.xywh_kf import KalmanFilterXYWH
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment)
@@ -15,7 +15,7 @@ from boxmot.utils import PerClassDecorator
 
 
 class STrack(BaseTrack):
-    shared_kalman = KalmanFilter()
+    shared_kalman = KalmanFilterXYWH()
 
     def __init__(self, det, feat=None, feat_history=50, max_obs=50):
         # wait activate
@@ -217,7 +217,7 @@ class BoTSORT(BaseTracker):
         self.match_thresh = match_thresh
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
-        self.kalman_filter = KalmanFilter()
+        self.kalman_filter = KalmanFilterXYWH()
 
         # ReID module
         self.proximity_thresh = proximity_thresh
