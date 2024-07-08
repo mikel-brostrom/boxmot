@@ -116,10 +116,12 @@ def get_model_name(model):
     except AttributeError:
         return None
 
-
-def get_model_name(model):
-    return next((x for x in __model_types if x in model.name), None)
-
+def get_model_url(model):
+    for model_type, model_infos in trained_urls.items():
+        for model_info in model_infos:
+            if model_info.name.value == model.name:
+                return model_info.url
+    return None
 
 def load_pretrained_weights(model, weight_path):
     """Loads pretrained weights to model.
