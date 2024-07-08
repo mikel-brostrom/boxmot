@@ -179,3 +179,37 @@ def load_pretrained_weights(model, weight_path):
                     "The following layers are discarded due to unmatched keys or layer size: "
                     f"{', '.join(discarded_layers)}"
                 )
+                
+                
+def build_model(name, num_classes, loss="softmax", pretrained=True, use_gpu=True):
+    """A function wrapper for building a model.
+
+    Args:
+        name (str): model name.
+        num_classes (int): number of training identities.
+        loss (str, optional): loss function to optimize the model. Currently
+            supports "softmax" and "triplet". Default is "softmax".
+        pretrained (bool, optional): whether to load ImageNet-pretrained weights.
+            Default is True.
+        use_gpu (bool, optional): whether to use gpu. Default is True.
+
+    Returns:
+        nn.Module
+
+    Examples::
+        >>> from torchreid import models
+        >>> model = models.build_model('resnet50', 751, loss='softmax')
+    """
+    if name not in __model_factory:
+        raise KeyError(f"Unknown model: {name}. Must be one of {list(__model_factory.keys())}")
+
+    if 'clip' in name:
+        from boxmot.appearance.backbones.clip.config.defaults import _C as cfg
+        return __model_factory[name](cfg, num_class=num_classes, camera_num=2, view_num=1)
+
+    return __model_factory[name](
+        num_classes=num_classes,
+        loss=loss,
+        pretrained=pretrained,
+        use_gpu=use_gpu
+    )
