@@ -11,9 +11,10 @@ import torch
 from torch.utils.mobile_optimizer import optimize_for_mobile
 
 from boxmot.appearance import export_formats
-from boxmot.appearance.backbones import build_model, get_nr_classes
 from boxmot.appearance.reid_model_factory import (get_model_name,
-                                                  load_pretrained_weights)
+                                                  load_pretrained_weights,build_model,
+                                                  get_nr_classes
+                                                 )
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import TestRequirements
