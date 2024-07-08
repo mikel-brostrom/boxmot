@@ -123,23 +123,6 @@ __model_factory = {
 }
 
 
-# Combine into a single data structure
-combined_data = {}
-
-
-for model_type in __model_types:
-    for url_key, url_value in __trained_urls.items():
-        if model_type in url_key:
-            dataset = next(key for key in NR_CLASSES_DICT.keys() if key in url_key)
-            num_classes = NR_CLASSES_DICT[dataset]
-            combined_data[model_type] = {
-                'trained_url': url_value,
-                'dataset': dataset,
-                'num_classes': num_classes
-            }
-            break  # Stop searching further once found
-print(combined_data)
-
 # Utility functions
 def show_downloadable_models():
     LOGGER.info("Available .pt ReID models for automatic download")
