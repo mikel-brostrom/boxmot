@@ -1,13 +1,33 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
-
 import sys
 import time
 from collections import OrderedDict
 
 import torch
-
+from torch import nn
 from boxmot.utils import logger as LOGGER
 
+# Model Factory and Construction
+from boxmot.appearance.backbones.clip.make_model import make_model
+from boxmot.appearance.backbones.hacnn import HACNN
+from boxmot.appearance.backbones.lmbn.lmbn_n import LMBN_n
+from boxmot.appearance.backbones.mlfn import mlfn
+from boxmot.appearance.backbones.mobilenetv2 import mobilenetv2_x1_0, mobilenetv2_x1_4
+from boxmot.appearance.backbones.osnet import (
+    osnet_ibn_x1_0,
+    osnet_x0_5,
+    osnet_x0_25,
+    osnet_x0_75,
+    osnet_x1_0,
+)
+from boxmot.appearance.backbones.osnet_ain import (
+    osnet_ain_x0_5,
+    osnet_ain_x0_25,
+    osnet_ain_x0_75,
+    osnet_ain_x1_0,
+)
+from boxmot.appearance.backbones.resnet import resnet50, resnet101
+
+# Constants
 __model_types = [
     "resnet50",
     "resnet101",
@@ -24,8 +44,6 @@ __model_types = [
     "lmbn_n",
     "clip",
 ]
-
-lmbn_loc = 'https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/'
 
 __trained_urls = {
     # resnet50
@@ -67,9 +85,9 @@ __trained_urls = {
     "osnet_ibn_x1_0_msmt17.pt": "https://drive.google.com/uc?id=1q3Sj2ii34NlfxA4LvmHdWO_75NDRmECJ",
     "osnet_ain_x1_0_msmt17.pt": "https://drive.google.com/uc?id=1SigwBE6mPdqiJMqhuIY4aqC7--5CsMal",
     # lmbn
-    "lmbn_n_duke.pt": lmbn_loc + "lmbn_n_duke.pth",
-    "lmbn_n_market.pt": lmbn_loc + "lmbn_n_market.pth",
-    "lmbn_n_cuhk03_d.pt": lmbn_loc + "lmbn_n_cuhk03_d.pth",
+    "lmbn_n_duke.pt": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth",
+    "lmbn_n_market.pt": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_market.pth",
+    "lmbn_n_cuhk03_d.pt": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_cuhk03_d.pth",
     # clip
     "clip_market1501.pt": "https://drive.google.com/uc?id=1GnyAVeNOg3Yug1KBBWMKKbT2x43O5Ch7",
     "clip_duke.pt": "https://drive.google.com/uc?id=1ldjSkj-7pXAWmx8on5x0EftlCaolU4dY",
@@ -77,11 +95,45 @@ __trained_urls = {
     "clip_vehicleid.pt": "https://drive.google.com/uc?id=168BLegHHxNqatW5wx1YyL2REaThWoof5"
 }
 
+NR_CLASSES_DICT = {
+    'market1501': 751,
+    'duke': 702,
+    'veri': 576,
+    'vehicleid': 576
+}
 
+__model_factory = {
+    "resnet50": resnet50,
+    "resnet101": resnet101,
+    "mobilenetv2_x1_0": mobilenetv2_x1_0,
+    "mobilenetv2_x1_4": mobilenetv2_x1_4,
+    "hacnn": HACNN,
+    "mlfn": mlfn,
+    "osnet_x1_0": osnet_x1_0,
+    "osnet_x0_75": osnet_x0_75,
+    "osnet_x0_5": osnet_x0_5,
+    "osnet_x0_25": osnet_x0_25,
+    "osnet_ibn_x1_0": osnet_ibn_x1_0,
+    "osnet_ain_x1_0": osnet_ain_x1_0,
+    "osnet_ain_x0_75": osnet_ain_x0_75,
+    "osnet_ain_x0_5": osnet_ain_x0_5,
+    "osnet_ain_x0_25": osnet_ain_x0_25,
+    "lmbn_n": LMBN_n,
+    "clip": make_model,
+}
+
+
+# Utility functions
 def show_downloadable_models():
-    LOGGER.info("\nAvailable .pt ReID models for automatic download")
+    LOGGER.info("Available .pt ReID models for automatic download")
     LOGGER.info(list(__trained_urls.keys()))
-
+    
+    
+def get_model_name(model):
+    for x in __model_types:
+        if x in model.name:
+            return x
+    return None
 
 def get_model_url(model):
     if model.name in __trained_urls:
@@ -90,70 +142,8 @@ def get_model_url(model):
         None
 
 
-def is_model_in_model_types(model):
-    if model.name in __model_types:
-        return True
-    else:
-        return False
-
-
-def get_model_name(model):
-    for x in __model_types:
-        if x in model.name:
-            return x
-    return None
-
-
-def download_url(url, dst):
-    """Downloads file from a url to a destination.
-
-    Args:
-        url (str): url to download file.
-        dst (str): destination path.
-    """
-    from six.moves import urllib
-
-    LOGGER.info('* url="{}"'.format(url))
-    LOGGER.info('* destination="{}"'.format(dst))
-
-    def _reporthook(count, block_size, total_size):
-        global start_time
-        if count == 0:
-            start_time = time.time()
-            return
-        duration = time.time() - start_time
-        progress_size = int(count * block_size)
-        speed = int(progress_size / (1024 * duration))
-        percent = int(count * block_size * 100 / total_size)
-        sys.stdout.write(
-            "\r...%d%%, %d MB, %d KB/s, %d seconds passed"
-            % (percent, progress_size / (1024 * 1024), speed, duration)
-        )
-        sys.stdout.flush()
-
-    urllib.request.urlretrieve(url, dst, _reporthook)
-    sys.stdout.write("\n")
-
-
 def load_pretrained_weights(model, weight_path):
-    r"""Loads pretrianed weights to model.
-
-    Features::
-        - Incompatible layers (unmatched in name or size) will be ignored.
-        - Can automatically deal with keys containing "module.".
-
-    Args:
-        model (nn.Module): network model.
-        weight_path (str): path to pretrained weights.
-
-    Examples::
-        >>> from boxmot.appearance.backbones import build_model
-        >>> from boxmot.appearance.reid_model_factory import load_pretrained_weights
-        >>> weight_path = 'log/my_model/model-best.pth.tar'
-        >>> model = build_model()
-        >>> load_pretrained_weights(model, weight_path)
-    """
-
+    """Loads pretrained weights to a model."""
     if not torch.cuda.is_available():
         checkpoint = torch.load(weight_path, map_location=torch.device("cpu"))
     else:
@@ -168,25 +158,13 @@ def load_pretrained_weights(model, weight_path):
 
     if "lmbn" in str(weight_path):
         model.load_state_dict(model_dict, strict=True)
-    elif "clip" in str(weight_path):
-        def forward_override(self, x: torch.Tensor, cv_emb=None, old_forward=None):
-            _, image_features, image_features_proj = old_forward(x, cv_emb)
-            return torch.cat([image_features[:, 0], image_features_proj[:, 0]], dim=1)
-        # print('model.load_param(str(weight_path))', str(weight_path))
-        model.load_param(str(weight_path))
-        model = model.image_encoder
-        # old_forward = model.forward
-        # model.forward = lambda *args, **kwargs: forward_override(model, old_forward=old_forward, *args, **kwargs)
-        LOGGER.success(
-            f'Successfully loaded pretrained weights from "{weight_path}"'
-        )
     else:
         new_state_dict = OrderedDict()
         matched_layers, discarded_layers = [], []
 
         for k, v in state_dict.items():
             if k.startswith("module."):
-                k = k[7:]  # discard module.
+                k = k[7:]  # remove 'module.' prefix if present
 
             if k in model_dict and model_dict[k].size() == v.size():
                 new_state_dict[k] = v
@@ -199,16 +177,41 @@ def load_pretrained_weights(model, weight_path):
 
         if len(matched_layers) == 0:
             LOGGER.debug(
-                f'The pretrained weights "{weight_path}" cannot be loaded, '
-                "please check the key names manually "
-                "(** ignored and continue **)"
+                f"Pretrained weights from {weight_path} cannot be loaded. Check key names manually."
             )
         else:
-            LOGGER.success(
-                f'Successfully loaded pretrained weights from "{weight_path}"'
+            LOGGER.success(f"Loaded pretrained weights from {weight_path}")
+
+        if len(discarded_layers) > 0:
+            LOGGER.debug(
+                f"Discarded layers due to unmatched keys or layer size: {discarded_layers}"
             )
-            if len(discarded_layers) > 0:
-                LOGGER.debug(
-                    "The following layers are discarded "
-                    f"due to unmatched keys or layer size: {*discarded_layers,}"
-                )
+
+
+def show_available_models():
+    """Displays available models."""
+    LOGGER.info("Available models:")
+    LOGGER.info(list(__model_factory.keys()))
+
+
+def get_nr_classes(weights):
+    """Returns the number of classes based on weights."""
+    num_classes = NR_CLASSES_DICT.get(weights.name.split('_')[1], 1)
+    return num_classes
+
+
+def build_model(name, num_classes, loss="softmax", pretrained=True, use_gpu=True):
+    """Builds a model based on specified parameters."""
+    available_models = list(__model_factory.keys())
+
+    if name not in available_models:
+        raise KeyError(f"Unknown model '{name}'. Must be one of {available_models}")
+
+    if 'clip' in name:
+        # Assuming clip requires special configuration, adjust as needed
+        from boxmot.appearance.backbones.clip.config.defaults import _C as cfg
+        return __model_factory[name](cfg, num_class=num_classes, camera_num=2, view_num=1)
+
+    return __model_factory[name](
+        num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu
+    )
