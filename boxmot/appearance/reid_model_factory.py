@@ -3,6 +3,9 @@
 import sys
 import time
 from collections import OrderedDict
+from enum import Enum
+from dataclasses import dataclass
+
 
 import torch
 
