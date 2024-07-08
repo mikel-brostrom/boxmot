@@ -110,7 +110,7 @@ def show_downloadable_models():
             LOGGER.info(f"{model_type.value} - {model_info.url}")
 
 
-def get_model_urls(model_name: ModelType):
+def get_model_url(model_name: ModelType):
     return trained_urls.get(model_name, [])
 
 
