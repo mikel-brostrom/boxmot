@@ -3,11 +3,24 @@ import torch
 import gdown
 import numpy as np
 from abc import ABC, abstractmethod
-from boxmot.appearance.backbones import build_model, get_nr_classes
+from boxmot.appearance.backbones import build_model
 from boxmot.appearance.reid_model_factory import (
     get_model_name,
-    get_model_url
+    get_model_url,
+    build_model
 )
+
+NR_CLASSES_DICT = {'market1501': 751, 'duke': 702, 'veri': 576, 'vehicleid': 576}
+
+
+def get_nr_classes(weigths):
+    num_classes = [value for key, value in NR_CLASSES_DICT.items() if key in str(weigths.name)]
+    if len(num_classes) == 0:
+        num_classes = 1
+    else:
+        num_classes = num_classes[0]
+    return num_classes
+
 
 class BaseModelBackend:
     def __init__(self, weights, device, half):
