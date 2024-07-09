@@ -2,7 +2,7 @@
 #   docker build -t mikel-brostrom/yolov5_strongsort_osnet .
 
 # Base image: Nvidia PyTorch https://ngc.nvidia.com/catalog/containers/nvidia:pytorch
-FROM nvcr.io/nvidia/pytorch:24.06-py3
+FROM pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime
 
 # Update image
 RUN apt update
