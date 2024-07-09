@@ -6,6 +6,7 @@ FROM pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime
 
 # Update image
 RUN apt update
+RUN apt install -y git
 
 # Create working directory
 WORKDIR /usr/src/boxmot
