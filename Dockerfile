@@ -28,18 +28,18 @@ RUN poetry install --with yolo
 #
 #   - run interactively with all GPUs accessible:
 #
-#       docker run -it --gpus all mikel-brostrom/yolov5_strongsort_osnet bash
+#       docker run -it --gpus all boxmot/boxmot bash
 #
 #   - run interactively with first and third GPU accessible:
 #
-#       docker run -it --gpus '"device=0, 2"' mikel-brostrom/yolov5_strongsort_osnet bash
+#       docker run -it --gpus '"device=0, 2"' boxmot/boxmot bash
 
 
 # Run in detached mode (if you exit the container it won't stop)
 #
 #   -create a detached docker container from an image:
 #
-#       docker run -it --gpus all -d mikel-brostrom/yolov5_strongsort_osnet
+#       docker run -it --gpus all -d boxmot/boxmot
 #
 #   - this will return a <container_id> number which makes it accessible. Access it by:
 #
