@@ -16,8 +16,9 @@ RUN git clone https://github.com/mikel-brostrom/boxmot.git -b master /usr/src/bo
 
 # Install pip packages
 RUN python3 -m pip install --upgrade pip poetry
+RUN poetry config virtualenvs.create false
+# use base environment directly, avoiding the need to spawn an interactive shell
 RUN poetry install --with yolo
-RUN poetry shell
 
 # ------------------------------------------------------------------------------
 
