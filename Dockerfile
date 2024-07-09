@@ -11,13 +11,12 @@ RUN apt update
 WORKDIR /usr/src/boxmot
 
 # Clone with submodules
-RUN git clone https://github.com/mikel-brostrom/yolo_tracking.git -b master /usr/src/boxmot
+RUN git clone https://github.com/mikel-brostrom/boxmot.git -b master /usr/src/boxmot
 
 # Install pip packages
-RUN python3 -m pip install --upgrade pip wheel
-RUN pip install --no-cache -e .
-# Install custom ultralytics package which makes model from other repos loadable
-RUN pip install git+https://github.com/mikel-brostrom/ultralytics.git
+RUN python3 -m pip install --upgrade pip poetry
+RUN poetry install --with yolo
+RUN poetry shell
 
 # ------------------------------------------------------------------------------
 
