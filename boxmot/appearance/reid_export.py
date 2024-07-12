@@ -11,7 +11,7 @@ from boxmot.appearance.exporters.torchscript_exporter import TorchScriptExporter
 from boxmot.appearance.exporters.onnx_exporter import ONNXExporter
 from boxmot.appearance.exporters.openvino_exporter import OpenVINOExporter
 from boxmot.appearance.exporters.tflite_exporter import TFLiteExporter
-from boxmot.appearance.exporters.engine_exporter import EngineExporter
+from boxmot.appearance.exporters.tensorrt_exporter import EngineExporter
 
 def parse_args():
     parser = argparse.ArgumentParser(description="ReID export")
