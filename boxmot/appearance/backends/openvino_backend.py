@@ -5,7 +5,7 @@ from boxmot.utils import logger as LOGGER
 from boxmot.appearance.backends.base_backend import BaseModelBackend
 from boxmot.utils.checks import RequirementsChecker
 
-tr = RequirementsChecker()
+checker = RequirementsChecker()
 
 
 class OpenVinoBackend(BaseModelBackend):
@@ -16,6 +16,7 @@ class OpenVinoBackend(BaseModelBackend):
         self.half = half
 
     def load_model(self, w):
+        checker.check_packages(("openvino-dev>=2022.3",))
 
         LOGGER.info(f"Loading {w} for OpenVINO inference...")
         try:
