@@ -4,7 +4,7 @@ from pathlib import Path
 from boxmot.appearance.backends.base_backend import BaseModelBackend
 from boxmot.utils.checks import RequirementsChecker
 
-tr = RequirementsChecker()
+checker = RequirementsChecker()
 
 
 class ONNXBackend(BaseModelBackend):
@@ -16,7 +16,7 @@ class ONNXBackend(BaseModelBackend):
 
     def load_model(self, w):
 
-        tr.check_packages(("onnxruntime-gpu==1.16.3" if self.cuda else "onnxruntime==1.16.3", ))
+        checker.check_packages(("onnxruntime-gpu==1.16.3" if self.cuda else "onnxruntime==1.16.3", ))
         import onnxruntime
 
         providers = (["CUDAExecutionProvider", "CPUExecutionProvider"] if self.cuda else ["CPUExecutionProvider"])

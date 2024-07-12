@@ -24,8 +24,8 @@ from ultralytics.data.utils import VID_FORMATS
 from tracking.utils import convert_to_mot_format, write_mot_results
 from boxmot.utils.torch_utils import select_device
 
-__tr = RequirementsChecker()
-__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
+checker = RequirementsChecker()
+checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 
 def generate_mot_results(args):
