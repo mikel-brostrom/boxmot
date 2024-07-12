@@ -1,6 +1,8 @@
 import platform
 import torch
 from boxmot.appearance.exporters.base_exporter import BaseExporter
+from boxmot.utils import logger as LOGGER
+
 
 class EngineExporter(BaseExporter):
     def export(self):
