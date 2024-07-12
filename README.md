@@ -267,7 +267,13 @@ while True:
     dets = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
 
-    tracker.update(dets, im) # --> M X (x, y, x, y, id, conf, cls, ind)
+    # Check if there are any detections
+    if dets.size > 0:
+        tracker.update(dets, im) # --> M X (x, y, x, y, id, conf, cls, ind)
+    # If no prediction, make prediction ahead
+    else:   
+        dets = np.empty((0, 6))  # empty N X (x, y, x, y, conf, cls)
+        tracker.update(dets, im) # --> M X (x, y, x, y, id, conf, cls, ind)
     tracker.plot_results(im, show_trajectories=True)
 
     # break on pressing q or space
