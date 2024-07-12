@@ -1,5 +1,6 @@
 import argparse
 import time
+import torch
 from pathlib import Path
 from boxmot.appearance import export_formats
 from boxmot.utils.torch_utils import select_device
