@@ -12,7 +12,7 @@ class EngineExporter(BaseExporter):
                 import tensorrt as trt
             except ImportError:
                 if platform.system() == "Linux":
-                    checker.check_packages(
+                    self.checker.check_packages(
                         ["nvidia-tensorrt"],
                         cmds=("-U --index-url https://pypi.ngc.nvidia.com",),
                     )
