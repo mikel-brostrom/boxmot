@@ -11,11 +11,11 @@ import torch
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
-from boxmot.utils.checks import TestRequirements
+from boxmot.utils.checks import RequirementsChecker
 from tracking.detectors import get_yolo_inferer
 
-__tr = TestRequirements()
-__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
+checker = RequirementsChecker()
+checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
