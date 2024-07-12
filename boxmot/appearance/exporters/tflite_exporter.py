@@ -6,7 +6,7 @@ from boxmot.utils import logger as LOGGER
 class TFLiteExporter(BaseExporter):
     def export(self):
         try:
-            checker.check_packages(
+            self.checker.check_packages(
                 ("onnx2tf>=1.15.4", "tensorflow", "onnx_graphsurgeon>=0.3.26", "sng4onnx>=1.0.1"),
                 cmds='--extra-index-url https://pypi.ngc.nvidia.com'
             )

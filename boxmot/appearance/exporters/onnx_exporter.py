@@ -7,7 +7,7 @@ from boxmot.utils import logger as LOGGER
 class ONNXExporter(BaseExporter):
     def export(self):
         try:
-            checker.check_packages(("onnx==1.14.0",))
+            self.checker.check_packages(("onnx==1.14.0",))
             f = self.file.with_suffix(".onnx")
             LOGGER.info(f"\nStarting export with onnx {onnx.__version__}...")
 
@@ -40,7 +40,7 @@ class ONNXExporter(BaseExporter):
     def simplify_model(self, model_onnx, f):
         try:
             cuda = torch.cuda.is_available()
-            checker.check_packages(
+            self.checker.check_packages(
                 (
                     "onnxruntime-gpu" if cuda else "onnxruntime",
                     "onnx-simplifier>=0.4.1",
