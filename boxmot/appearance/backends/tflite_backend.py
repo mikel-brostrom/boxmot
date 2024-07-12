@@ -6,7 +6,7 @@ from boxmot.utils import logger as LOGGER
 from boxmot.appearance.backends.base_backend import BaseModelBackend
 from boxmot.utils.checks import RequirementsChecker
 
-tr = RequirementsChecker()
+checker = RequirementsChecker()
 
 
 class TFLiteBackend(BaseModelBackend):
@@ -17,11 +17,13 @@ class TFLiteBackend(BaseModelBackend):
         self.half = half
 
     def load_model(self, w):
+        checker.check_packages(("tensorflow",))
 
         LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
-        import tensorflow as tf
-        interpreter = tf.lite.Interpreter(model_path=str(w))
+        
         try:
+            import tensorflow as tf
+            interpreter = tf.lite.Interpreter(model_path=str(w))
             self.tf_lite_model = interpreter.get_signature_runner()
         except Exception as e:
             LOGGER.error(f'{e}. If SignatureDef error. Export you model with the official onn2tf docker')
