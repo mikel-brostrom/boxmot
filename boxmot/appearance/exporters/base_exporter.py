@@ -4,7 +4,6 @@ from pathlib import Path
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils import logger as LOGGER
 
-checker = RequirementsChecker()
 
 class BaseExporter:
     def __init__(self, model, im, file, optimize=False, dynamic=False, half=False, simplify=False):
@@ -15,6 +14,7 @@ class BaseExporter:
         self.dynamic = dynamic
         self.half = half
         self.simplify = simplify
+        self.checker = RequirementsChecker()
 
     @staticmethod
     def file_size(path):
