@@ -39,14 +39,14 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 </details>
 
 <details>
-<summary>Tutorials</summary>
+<summary>3rd party resources</summary>
 
+* [ROS wrapper for boxmot](https://github.com/KalanaRatnayake/boxmot_ros)&nbsp;
 * [Yolov10 Integration with BoxMOT (link to external Notebook)](https://colab.research.google.com/drive/1-QV2TNfqaMsh14w5VxieEyanugVBG14V?usp=drive_link)&nbsp;
 * [Yolov8 training (link to external repository)](https://docs.ultralytics.com/modes/train/)&nbsp;
-* [Deep appearance descriptor training (link to external repository)](https://kaiyangzhou.github.io/deep-person-reid/user_guide.html)&nbsp;
-* [ReID model export to ONNX, OpenVINO, TensorRT and TorchScript](https://github.com/mikel-brostrom/yolo_tracking/wiki/ReID-multi-framework-model-export)&nbsp;
+* [ReID model training (link to external repository)](https://kaiyangzhou.github.io/deep-person-reid/user_guide.html)&nbsp;
 * [Evaluation on custom tracking dataset](https://github.com/mikel-brostrom/yolo_tracking/wiki/How-to-evaluate-on-custom-tracking-dataset)&nbsp;
-* [ReID inference acceleration with Nebullvm](https://colab.research.google.com/drive/1APUZ1ijCiQFBR9xD0gUvFUOC8yOJIvHm?usp=sharing)&nbsp;
+* [ReID model inference acceleration with Nebullvm](https://colab.research.google.com/drive/1APUZ1ijCiQFBR9xD0gUvFUOC8yOJIvHm?usp=sharing)&nbsp;
 
   </details>
 
@@ -232,6 +232,24 @@ We use a fast and elitist multiobjective genetic algorithm for tracker hyperpara
 $ python tracking/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
 # evolve parameters for specified tracking method using the selected detections and embeddings generated in the previous step
 $ python tracking/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method botsort
+```
+
+The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
+
+</details>
+
+<details>
+<summary>Export</summary>
+
+We support ReID model export to ONNX, OpenVINO, TorchScript and TensorRT
+
+```bash
+# export to ONNX
+$ python3 boxmot/appearance/reid_export.py --include onnx --device cpu
+# export to OpenVINO
+$ python3 boxmot/appearance/reid_export.py --include openvino --device cpu
+# export to TensorRT with dynamic input
+$ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
