@@ -78,7 +78,7 @@ def main():
         exporter = TorchScriptExporter(model, im, args.weights, args.optimize)
         f[0] = exporter.export()
     if engine:
-        exporter = EngineExporter(model, im, args.weights, args.half, args.dynamic, args.simplify, args.workspace, args.verbose)
+        exporter = EngineExporter(model, im, args.weights, args.half, args.dynamic, args.simplify, args.verbose)
         f[1] = exporter.export()
     if onnx:
         exporter = ONNXExporter(model, im, args.weights, args.opset, args.dynamic, args.half, args.simplify)
