@@ -1,7 +1,7 @@
 import os
 import openvino.runtime as ov
 from openvino.tools import mo
-from boxmot.appearance.exporters import BaseExporter
+from boxmot.appearance.exporters.base_exporter import BaseExporter
 
 class OpenVINOExporter(BaseExporter):
     def export(self):
