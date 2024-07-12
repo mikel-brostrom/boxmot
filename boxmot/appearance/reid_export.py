@@ -21,7 +21,7 @@ from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
-__tr = RequirementsChecker()
+checker = RequirementsChecker()
 
 
 def file_size(path):
@@ -56,7 +56,7 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
     # ONNX export
     try:
         # required by onnx2tf
-        __tr.check_packages(("onnx==1.14.0",))
+        checker.check_packages(("onnx==1.14.0",))
         import onnx
 
         f = file.with_suffix(".onnx")
@@ -86,7 +86,7 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
         if simplify:
             try:
                 cuda = torch.cuda.is_available()
-                __tr.check_packages(
+                checker.check_packages(
                     (
                         "onnxruntime-gpu" if cuda else "onnxruntime",
                         "onnx-simplifier>=0.4.1",
@@ -109,7 +109,7 @@ def export_onnx(model, im, file, opset, dynamic, fp16, simplify):
 
 
 def export_openvino(file, half):
-    __tr.check_packages(
+    checker.check_packages(
         ("openvino-dev>=2023.0",)
     )  # requires openvino-dev: https://pypi.org/project/openvino-dev/
     import openvino.runtime as ov  # noqa
@@ -136,7 +136,7 @@ def export_openvino(file, half):
 
 def export_tflite(file):
     try:
-        __tr.check_packages(
+        checker.check_packages(
             ("onnx2tf>=1.15.4", "tensorflow", "onnx_graphsurgeon>=0.3.26", "sng4onnx>=1.0.1"),
             cmds='--extra-index-url https://pypi.ngc.nvidia.com'
         )  # requires openvino-dev: https://pypi.org/project/openvino-dev/
@@ -162,7 +162,7 @@ def export_engine(model, im, file, half, dynamic, simplify, workspace=4, verbose
             import tensorrt as trt
         except Exception:
             if platform.system() == "Linux":
-                __tr.check_packages(
+                checker.check_packages(
                     ["nvidia-tensorrt"],
                     cmds=("-U --index-url https://pypi.ngc.nvidia.com",),
                 )
