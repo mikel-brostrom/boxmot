@@ -1,5 +1,5 @@
 import subprocess
-from base_exporter import BaseExporter
+from boxmot.appearance.exporters import BaseExporter
 
 class TFLiteExporter(BaseExporter):
     def export(self):
