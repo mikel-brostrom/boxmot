@@ -8,12 +8,12 @@ from tqdm import tqdm
 import torch
 
 from boxmot.utils import ROOT, WEIGHTS, logger as LOGGER
-from boxmot.utils.checks import TestRequirements
+from boxmot.utils.checks import RequirementsChecker
 from tracking.detectors import get_yolo_inferer
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
-__tr = TestRequirements()
-__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
+checker = RequirementsChecker()
+checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 from ultralytics import YOLO
 from ultralytics.data.utils import VID_FORMATS

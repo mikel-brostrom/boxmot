@@ -14,7 +14,7 @@ from boxmot.tracker_zoo import create_tracker
 
 from ultralytics.utils.files import increment_path 
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
-from boxmot.utils.checks import TestRequirements
+from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils import logger as LOGGER
 
 from ultralytics.data.loaders import LoadImages
@@ -24,8 +24,8 @@ from ultralytics.data.utils import VID_FORMATS
 from tracking.utils import convert_to_mot_format, write_mot_results
 from boxmot.utils.torch_utils import select_device
 
-__tr = TestRequirements()
-__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
+checker = RequirementsChecker()
+checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 
 def generate_mot_results(args):

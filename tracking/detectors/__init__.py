@@ -1,9 +1,9 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.checks import TestRequirements
+from boxmot.utils.checks import RequirementsChecker
 
-tr = TestRequirements()
+checker = RequirementsChecker()
 
 
 def get_yolo_inferer(yolo_model):
@@ -13,9 +13,9 @@ def get_yolo_inferer(yolo_model):
             import yolox  # for linear_assignment
             assert yolox.__version__
         except (ImportError, AssertionError, AttributeError):
-            tr.check_packages(('yolox==0.3.0',), cmds='--no-dependencies')
-            tr.check_packages(('tabulate',))  # needed dependency
-            tr.check_packages(('thop',))  # needed dependency
+            checker.check_packages(('yolox==0.3.0',), cmds='--no-dependencies')
+            checker.check_packages(('tabulate',))  # needed dependency
+            checker.check_packages(('thop',))  # needed dependency
         from .yolox import YoloXStrategy
         return YoloXStrategy
     elif 'yolov8' in str(yolo_model):
@@ -27,7 +27,7 @@ def get_yolo_inferer(yolo_model):
             import super_gradients  # for linear_assignment
             assert super_gradients.__version__
         except (ImportError, AssertionError, AttributeError):
-            tr.check_packages(('super-gradients==3.1.3',))  # install
+            checker.check_packages(('super-gradients==3.1.3',))  # install
         from .yolonas import YoloNASStrategy
         return YoloNASStrategy
     else:
