@@ -15,6 +15,7 @@ class BaseExporter:
         self.half = half
         self.simplify = simplify
         self.checker = RequirementsChecker()
+        self.workspace = 4
 
     @staticmethod
     def file_size(path):
