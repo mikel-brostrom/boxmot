@@ -1,6 +1,6 @@
 import platform
 import torch
-from base_exporter import BaseExporter
+from boxmot.appearance.exporters import BaseExporter
 
 class EngineExporter(BaseExporter):
     def export(self):
