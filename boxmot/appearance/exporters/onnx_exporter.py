@@ -1,6 +1,6 @@
 import torch
 import onnx
-from boxmot.appearance.exporters import BaseExporter
+from boxmot.appearance.exporters.base_exporter import BaseExporter
 
 class ONNXExporter(BaseExporter):
     def export(self):
