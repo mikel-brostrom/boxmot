@@ -270,7 +270,7 @@ while True:
     # Check if there are any detections
     if dets.size > 0:
         tracker.update(dets, im) # --> M X (x, y, x, y, id, conf, cls, ind)
-    # If no prediction, make prediction ahead
+    # If no detections, make prediction ahead
     else:   
         dets = np.empty((0, 6))  # empty N X (x, y, x, y, conf, cls)
         tracker.update(dets, im) # --> M X (x, y, x, y, id, conf, cls, ind)
