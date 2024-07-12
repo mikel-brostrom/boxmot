@@ -8,6 +8,7 @@ from boxmot.appearance.reid_model_factory import get_model_name, load_pretrained
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.utils import WEIGHTS, logger as LOGGER
 
+from boxmot.appearance.exporters.base_exporter import BaseExporter
 from boxmot.appearance.exporters.torchscript_exporter import TorchScriptExporter
 from boxmot.appearance.exporters.onnx_exporter import ONNXExporter
 from boxmot.appearance.exporters.openvino_exporter import OpenVINOExporter
@@ -70,7 +71,7 @@ def main():
     if args.half:
         im, model = im.half(), model.half()
     shape = tuple((y[0] if isinstance(y, tuple) else y).shape)
-    LOGGER.info(f"\nStarting from {args.weights} with output shape {shape} ({self.file_size(args.weights):.1f} MB)")
+    LOGGER.info(f"\nStarting from {args.weights} with output shape {shape} ({BaseExporter.file_size(args.weights):.1f} MB)")
 
     f = [""] * len(fmts)
     if jit:
