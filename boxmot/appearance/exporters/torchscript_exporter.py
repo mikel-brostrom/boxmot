@@ -1,5 +1,5 @@
 import torch
-from base_exporter import BaseExporter
+from boxmot.appearance.exporters import BaseExporter
 
 class TorchScriptExporter(BaseExporter):
     def export(self):
