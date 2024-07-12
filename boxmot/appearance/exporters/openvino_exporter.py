@@ -7,7 +7,7 @@ from boxmot.utils import logger as LOGGER
 
 class OpenVINOExporter(BaseExporter):
     def export(self):
-        checker.check_packages(
+        self.checker.check_packages(
             ("openvino-dev>=2023.0",)
         )
         f = str(self.file).replace(self.file.suffix, f"_openvino_model{os.sep}")
