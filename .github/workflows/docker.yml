@@ -32,4 +32,5 @@ jobs:
           push: true
           tags: |
             boxmot/boxmot:${{ env.VERSION }}
+            # will overwrite the previous image tagged as latest
             boxmot/boxmot:latest
