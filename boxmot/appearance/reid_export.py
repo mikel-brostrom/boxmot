@@ -70,7 +70,7 @@ def main():
     if args.half:
         im, model = im.half(), model.half()
     shape = tuple((y[0] if isinstance(y, tuple) else y).shape)
-    LOGGER.info(f"\nStarting from {args.weights} with output shape {shape} ({file_size(args.weights):.1f} MB)")
+    LOGGER.info(f"\nStarting from {args.weights} with output shape {shape} ({self.file_size(args.weights):.1f} MB)")
 
     f = [""] * len(fmts)
     if jit:
