@@ -27,7 +27,7 @@ def get_yolo_inferer(yolo_model):
             import super_gradients  # for linear_assignment
             assert super_gradients.__version__
         except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(('super-gradients==3.1.3',))  # install
+            checker.check_packages(('super-gradients==3.7.1',))  # install
         from .yolonas import YoloNASStrategy
         return YoloNASStrategy
     else:
