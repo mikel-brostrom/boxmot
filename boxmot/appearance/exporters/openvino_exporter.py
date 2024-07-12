@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import openvino.runtime as ov
 from openvino.tools import mo
 from boxmot.appearance.exporters.base_exporter import BaseExporter
