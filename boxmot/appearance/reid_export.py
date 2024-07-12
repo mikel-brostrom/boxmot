@@ -17,11 +17,11 @@ from boxmot.appearance.reid_model_factory import (get_model_name,
                                                  )
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.checks import TestRequirements
+from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
-__tr = TestRequirements()
+__tr = RequirementsChecker()
 
 
 def file_size(path):

@@ -1,9 +1,9 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.checks import TestRequirements
+from boxmot.utils.checks import RequirementsChecker
 
-tr = TestRequirements()
+tr = RequirementsChecker()
 
 
 def get_yolo_inferer(yolo_model):
