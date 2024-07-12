@@ -45,7 +45,6 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 * [Yolov10 Integration with BoxMOT (link to external Notebook)](https://colab.research.google.com/drive/1-QV2TNfqaMsh14w5VxieEyanugVBG14V?usp=drive_link)&nbsp;
 * [Yolov8 training (link to external repository)](https://docs.ultralytics.com/modes/train/)&nbsp;
 * [ReID model training (link to external repository)](https://kaiyangzhou.github.io/deep-person-reid/user_guide.html)&nbsp;
-* [Evaluation on custom tracking dataset](https://github.com/mikel-brostrom/yolo_tracking/wiki/How-to-evaluate-on-custom-tracking-dataset)&nbsp;
 * [ReID model inference acceleration with Nebullvm (link to external Notebook)](https://colab.research.google.com/drive/1APUZ1ijCiQFBR9xD0gUvFUOC8yOJIvHm?usp=sharing)&nbsp;
 
   </details>
