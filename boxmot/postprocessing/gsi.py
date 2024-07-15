@@ -1,5 +1,3 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
-
 from pathlib import Path
 import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
@@ -8,16 +6,16 @@ from boxmot.utils import logger as LOGGER
 
 def linear_interpolation(input_, interval):
     """
-    Perform linear interpolation on the input array.
+    Perform linear interpolation on the input data to fill in missing frames within the specified interval.
 
     Args:
-        input_ (np.ndarray): Input array with shape (n, m) where n is the number of entries and m is the number of features.
-        interval (int): Maximum interval for interpolation.
+        input_ (np.ndarray): Input array with shape (n, m) where n is the number of rows and m is the number of columns.
+        interval (int): The maximum frame gap to interpolate.
 
     Returns:
-        np.ndarray: Interpolated array.
+        np.ndarray: Interpolated array with additional rows for the interpolated frames.
     """
-    input_ = input_[np.lexsort([input_[:, 0], input_[:, 1]])]
+    input_ = input_[np.lexsort((input_[:, 0], input_[:, 1]))]
     output_ = input_.copy()
 
     id_pre, f_pre, row_pre = -1, -1, np.zeros((10,))
@@ -28,24 +26,24 @@ def linear_interpolation(input_, interval):
                 for i, f in enumerate(range(f_pre + 1, f_curr), start=1):
                     step = (row - row_pre) / (f_curr - f_pre) * i
                     row_new = row_pre + step
-                    output_ = np.append(output_, row_new[np.newaxis, :], axis=0)
+                    output_ = np.vstack((output_, row_new))
         else:
             id_pre = id_curr
         row_pre = row
         f_pre = f_curr
-    output_ = output_[np.lexsort([output_[:, 0], output_[:, 1]])]
+    output_ = output_[np.lexsort((output_[:, 0], output_[:, 1]))]
     return output_
 
 def gaussian_smooth(input_, tau):
     """
-    Apply Gaussian smoothing to the input array.
+    Apply Gaussian smoothing to the input data.
 
     Args:
-        input_ (np.ndarray): Input array with shape (n, m) where n is the number of entries and m is the number of features.
-        tau (float): Smoothing parameter.
+        input_ (np.ndarray): Input array with shape (n, m) where n is the number of rows and m is the number of columns.
+        tau (float): Time constant for Gaussian smoothing.
 
     Returns:
-        list: Smoothed array.
+        np.ndarray: Smoothed array with the same shape as the input.
     """
     output_ = []
     ids = set(input_[:, 1])
@@ -53,28 +51,36 @@ def gaussian_smooth(input_, tau):
         tracks = input_[input_[:, 1] == id_]
         len_scale = np.clip(tau * np.log(tau ** 3 / len(tracks)), tau ** -1, tau ** 2)
         gpr = GPR(RBF(len_scale, 'fixed'))
-        
         t = tracks[:, 0].reshape(-1, 1)
-        features = [tracks[:, i].reshape(-1, 1) for i in range(2, 6)]
-        smoothed_features = []
-
-        for feature in features:
-            gpr.fit(t, feature)
-            smoothed_features.append(gpr.predict(t))
-
-        for i in range(len(t)):
-            output_.append([t[i, 0], id_, *[sf[i, 0] for sf in smoothed_features], tracks[i, 6], tracks[i, 7], -1])
-
-    return output_
+        x = tracks[:, 2].reshape(-1, 1)
+        y = tracks[:, 3].reshape(-1, 1)
+        w = tracks[:, 4].reshape(-1, 1)
+        h = tracks[:, 5].reshape(-1, 1)
+        gpr.fit(t, x)
+        xx = gpr.predict(t)
+        gpr.fit(t, y)
+        yy = gpr.predict(t)
+        gpr.fit(t, w)
+        ww = gpr.predict(t)
+        gpr.fit(t, h)
+        hh = gpr.predict(t)
+        output_.extend([
+            [t[j, 0], id_, xx[j, 0], yy[j, 0], ww[j, 0], hh[j, 0], tracks[j, 6], tracks[j, 7], -1]
+            for j in range(len(t))
+        ])
+    return np.array(output_)
 
 def gsi(mot_results_folder=Path('examples/runs/val/exp87/labels'), interval=20, tau=10):
     """
-    Apply Gaussian Smoothed Interpolation (GSI) to tracking results.
+    Apply Gaussian Smoothed Interpolation (GSI) to the tracking results files.
 
     Args:
-        mot_results_folder (Path): Path to the folder containing tracking result files.
-        interval (int): Maximum interval for interpolation.
-        tau (float): Smoothing parameter.
+        mot_results_folder (Path): Path to the folder containing the tracking results files.
+        interval (int): The maximum frame gap to interpolate.
+        tau (float): Time constant for Gaussian smoothing.
+
+    Returns:
+        None
     """
     tracking_results_files = mot_results_folder.glob('MOT*FRCNN.txt')
     for p in tracking_results_files:
@@ -82,14 +88,14 @@ def gsi(mot_results_folder=Path('examples/runs/val/exp87/labels'), interval=20, 
         tracking_results = np.loadtxt(p, dtype=int, delimiter=' ')
         if tracking_results.size != 0:
             li = linear_interpolation(tracking_results, interval)
-            gsi_results = gaussian_smooth(li, tau)
-            np.savetxt(p, gsi_results, fmt='%d %d %d %d %d %d %d %d %d')
+            gsi = gaussian_smooth(li, tau)
+            np.savetxt(p, gsi, fmt='%d %d %d %d %d %d %d %d %d')
         else:
-            LOGGER.info(f'No tracking result in {p}. Skipping...')
+            print(f'No tracking result in {p}. Skipping...')
 
 def main():
     """
-    Main function to apply Gaussian Smoothed Interpolation (GSI) to tracking results.
+    Main function to run GSI on the specified folder.
     """
     gsi()
 
