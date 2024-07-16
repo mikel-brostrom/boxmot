@@ -43,7 +43,7 @@ class BaseExporter:
                 return None
         return wrapper
     
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(self, cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if 'export' in cls.__dict__:
             cls.export = self.export_decorator(cls.export)
