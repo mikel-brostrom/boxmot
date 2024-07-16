@@ -14,7 +14,6 @@ class EngineExporter(BaseExporter):
         try:
             import tensorrt as trt
         except ImportError:
-            if platform.system() == "Linux":
             import tensorrt as trt
 
         onnx_file = self.export_onnx()
