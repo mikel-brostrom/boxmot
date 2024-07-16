@@ -57,13 +57,13 @@ def gaussian_smooth(input_, tau):
         w = tracks[:, 4].reshape(-1, 1)
         h = tracks[:, 5].reshape(-1, 1)
         gpr.fit(t, x)
-        xx = gpr.predict(t)
+        xx = gpr.predict(t).reshape(-1, 1)
         gpr.fit(t, y)
-        yy = gpr.predict(t)
+        yy = gpr.predict(t).reshape(-1, 1)
         gpr.fit(t, w)
-        ww = gpr.predict(t)
+        ww = gpr.predict(t).reshape(-1, 1)
         gpr.fit(t, h)
-        hh = gpr.predict(t)
+        hh = gpr.predict(t).reshape(-1, 1)
         output_.extend([
             [t[j, 0], id_, xx[j, 0], yy[j, 0], ww[j, 0], hh[j, 0], tracks[j, 6], tracks[j, 7], -1]
             for j in range(len(t))
