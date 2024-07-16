@@ -48,10 +48,13 @@ def gaussian_smooth(input_, tau):
         tracks = input_[input_[:, 1] == id_]
         len_scale = np.clip(tau * np.log(tau ** 3 / len(tracks)), tau ** -1, tau ** 2)
         t = tracks[:, 0].reshape(-1, 1)
-        smoothed_data = [
-            apply_gaussian_process(t, tracks[:, i].reshape(-1, 1), len_scale)
-            for i in range(2, 6)
-        ]
+        gpr = GPR(RBF(len_scale, 'fixed'))
+        smoothed_data = []
+        # x, y, w, h
+        for i in range(2, 6):
+            data = tracks[:, i].reshape(-1, 1)
+            gpr.fit(t, data)
+            smoothed_data.append(gpr.predict(t).reshape(-1, 1))
         for j in range(len(t)):
             output_.append([
                 t[j, 0], id_, *[data[j, 0] for data in smoothed_data], tracks[j, 6], tracks[j, 7], -1
