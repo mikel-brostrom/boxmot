@@ -5,9 +5,10 @@ from boxmot.utils import logger as LOGGER
 
 
 class ONNXExporter(BaseExporter):
+    required_packages = ("onnx=>1.14.0",)
+    
     def export(self):
 
-        self.checker.check_packages(("onnx==1.14.0",))
         f = self.file.with_suffix(".onnx")
         LOGGER.info(f"\nStarting export with onnx {onnx.__version__}...")
 
