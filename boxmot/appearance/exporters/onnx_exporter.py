@@ -10,7 +10,6 @@ class ONNXExporter(BaseExporter):
     def export(self):
 
         f = self.file.with_suffix(".onnx")
-        LOGGER.info(f"\nStarting export with onnx {onnx.__version__}...")
 
         dynamic = {"images": {0: "batch"}, "output": {0: "batch"}} if self.dynamic else None
 
@@ -32,6 +31,8 @@ class ONNXExporter(BaseExporter):
 
         if self.simplify:
             self.simplify_model(model_onnx, f)
+            
+        return f
 
 
     def simplify_model(self, model_onnx, f):
