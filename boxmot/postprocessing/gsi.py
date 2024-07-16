@@ -4,6 +4,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.gaussian_process.kernels import RBF
 from boxmot.utils import logger as LOGGER
 
+
 def linear_interpolation(input_, interval):
     """
     Perform linear interpolation on the input data to fill in missing frames within the specified interval.
@@ -21,18 +22,14 @@ def linear_interpolation(input_, interval):
     id_pre, f_pre, row_pre = -1, -1, np.zeros((10,))
     for row in input_:
         f_curr, id_curr = row[:2].astype(int)
-        if id_curr == id_pre:
-            if f_pre + 1 < f_curr < f_pre + interval:
-                for i, f in enumerate(range(f_pre + 1, f_curr), start=1):
-                    step = (row - row_pre) / (f_curr - f_pre) * i
-                    row_new = row_pre + step
-                    output_ = np.vstack((output_, row_new))
-        else:
-            id_pre = id_curr
-        row_pre = row
-        f_pre = f_curr
-    output_ = output_[np.lexsort((output_[:, 0], output_[:, 1]))]
-    return output_
+        if id_curr == id_pre and f_pre + 1 < f_curr < f_pre + interval:
+            for i, f in enumerate(range(f_pre + 1, f_curr), start=1):
+                step = (row - row_pre) / (f_curr - f_pre) * i
+                row_new = row_pre + step
+                output_ = np.vstack((output_, row_new))
+        id_pre, row_pre, f_pre = id_curr, row, f_curr
+    return output_[np.lexsort((output_[:, 0], output_[:, 1]))]
+
 
 def gaussian_smooth(input_, tau):
     """
@@ -50,25 +47,17 @@ def gaussian_smooth(input_, tau):
     for id_ in ids:
         tracks = input_[input_[:, 1] == id_]
         len_scale = np.clip(tau * np.log(tau ** 3 / len(tracks)), tau ** -1, tau ** 2)
-        gpr = GPR(RBF(len_scale, 'fixed'))
         t = tracks[:, 0].reshape(-1, 1)
-        x = tracks[:, 2].reshape(-1, 1)
-        y = tracks[:, 3].reshape(-1, 1)
-        w = tracks[:, 4].reshape(-1, 1)
-        h = tracks[:, 5].reshape(-1, 1)
-        gpr.fit(t, x)
-        xx = gpr.predict(t).reshape(-1, 1)
-        gpr.fit(t, y)
-        yy = gpr.predict(t).reshape(-1, 1)
-        gpr.fit(t, w)
-        ww = gpr.predict(t).reshape(-1, 1)
-        gpr.fit(t, h)
-        hh = gpr.predict(t).reshape(-1, 1)
-        output_.extend([
-            [t[j, 0], id_, xx[j, 0], yy[j, 0], ww[j, 0], hh[j, 0], tracks[j, 6], tracks[j, 7], -1]
-            for j in range(len(t))
-        ])
+        smoothed_data = [
+            apply_gaussian_process(t, tracks[:, i].reshape(-1, 1), len_scale)
+            for i in range(2, 6)
+        ]
+        for j in range(len(t)):
+            output_.append([
+                t[j, 0], id_, *[data[j, 0] for data in smoothed_data], tracks[j, 6], tracks[j, 7], -1
+            ])
     return np.array(output_)
+
 
 def gsi(mot_results_folder=Path('examples/runs/val/exp87/labels'), interval=20, tau=10):
     """
@@ -93,11 +82,13 @@ def gsi(mot_results_folder=Path('examples/runs/val/exp87/labels'), interval=20, 
         else:
             print(f'No tracking result in {p}. Skipping...')
 
+
 def main():
     """
     Main function to run GSI on the specified folder.
     """
     gsi()
+
 
 if __name__ == "__main__":
     main()
