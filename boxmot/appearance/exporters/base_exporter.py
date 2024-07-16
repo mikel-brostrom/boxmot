@@ -30,7 +30,7 @@ class BaseExporter:
     def export(self):
         raise NotImplementedError("Export method must be implemented in subclasses.")
     
-    def export_decorator(export_func):
+    def export_decorator(self, export_func):
         def wrapper(self, *args, **kwargs):
             try:
                 LOGGER.info(f"\nStarting export with {self.__class__.__name__}...")
