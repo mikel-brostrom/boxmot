@@ -1,14 +1,17 @@
-import subprocess
+import os
 from boxmot.appearance.exporters.base_exporter import BaseExporter
 from boxmot.utils import logger as LOGGER
 
 
 class TFLiteExporter(BaseExporter):
     required_packages = (
-        "onnx2tf>=1.15.4", 
-        "tensorflow", 
-        "onnx_graphsurgeon>=0.3.26", 
-        "sng4onnx>=1.0.1"
+        "onnx2tf>=1.18.0", 
+        "tensorflow",
+        "tf_keras",  # required by 'onnx2tf' package
+        "sng4onnx>=1.0.1",  # required by 'onnx2tf' package
+        "onnx_graphsurgeon>=0.3.26",  # required by 'onnx2tf' package
+        "onnxslim>=0.1.31",
+        "onnxruntime",
     )
     cmds = '--extra-index-url https://pypi.ngc.nvidia.com'
     
@@ -17,6 +20,13 @@ class TFLiteExporter(BaseExporter):
         import onnx2tf
         LOGGER.info(f"\nStarting {self.file} export with onnx2tf {onnx2tf.__version__}")
         f = str(self.file).replace(".onnx", f"_saved_model{os.sep}")
-        cmd = f"onnx2tf -i {self.file} -o {f} -osd -coion --non_verbose"
-        subprocess.check_output(cmd.split())
+        onnx2tf.convert(
+            input_onnx_file_path=self.file,
+            output_folder_path=str(f),
+            not_use_onnxsim=True,
+            verbosity=True,
+            #output_integer_quantized_tflite=self.args.int8,
+            quant_type="per-tensor",  # "per-tensor" (faster) or "per-channel" (slower but more accurate)
+            #custom_input_op_name_np_data_path=np_data,
+        )
         return f
