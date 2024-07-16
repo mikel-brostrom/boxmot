@@ -266,8 +266,8 @@ jobs:
           poetry lock --no-update
           poetry install --with export
 
-          # needed in TFLite export
-          wget https://github.com/PINTO0309/onnx2tf/releases/download/1.25.0/flatc.tar.gz
+          # needed for TFLite export
+          wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
           tar -zxvf flatc.tar.gz
           sudo chmod +x flatc
           sudo mv flatc /usr/bin/
