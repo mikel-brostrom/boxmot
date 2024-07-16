@@ -21,7 +21,7 @@ class TFLiteExporter(BaseExporter):
         LOGGER.info(f"\nStarting {self.file} export with onnx2tf {onnx2tf.__version__}")
         f = str(self.file).replace(".onnx", f"_saved_model{os.sep}")
         onnx2tf.convert(
-            input_onnx_file_path=self.file,
+            input_onnx_file_path=self.file.with_suffix(".onnx"),
             output_folder_path=str(f),
             not_use_onnxsim=True,
             verbosity=True,
