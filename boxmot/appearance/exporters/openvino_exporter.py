@@ -14,8 +14,7 @@ class OpenVINOExporter(BaseExporter):
         f = str(self.file).replace(self.file.suffix, f"_openvino_model{os.sep}")
         f_onnx = self.file.with_suffix(".onnx")
         f_ov = str(Path(f) / self.file.with_suffix(".xml").name)
-        try:
-            LOGGER.info(f"\nStarting export with openvino {ov.__version__}...")
+
             ov_model = mo.convert_model(
                 f_onnx,
                 model_name=self.file.with_suffix(".xml"),
@@ -23,7 +22,5 @@ class OpenVINOExporter(BaseExporter):
                 compress_to_fp16=self.half,
             )
             ov.serialize(ov_model, f_ov)
-        except Exception as e:
-            LOGGER.error(f"Export failure: {e}")
-        LOGGER.info(f"Export success, saved as {f_ov} ({self.file_size(f_ov):.1f} MB)")
-        return f
+        
+        return f_ov
