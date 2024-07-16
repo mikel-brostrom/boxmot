@@ -8,7 +8,7 @@ from boxmot.utils import logger as LOGGER
 def export_decorator(export_func):
     def wrapper(self, *args, **kwargs):
         args = list(args)
-        p = args[0]
+        #p = args[0]
         try:
             if hasattr(self, 'required_packages'):
                 if hasattr(self, 'cmd'):
@@ -16,7 +16,7 @@ def export_decorator(export_func):
                 else:
                     self.checker.check_packages(self.required_packages)
                 
-            LOGGER.info(f"\nStarting {p} export with {self.__class__.__name__}...")
+            LOGGER.info(f"\nStarting export with {self.__class__.__name__}...")
             result = export_func(self, *args, **kwargs)
             if result:
                 LOGGER.info(f"Export success, saved as {result} ({self.file_size(result):.1f} MB)")
