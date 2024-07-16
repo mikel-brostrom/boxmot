@@ -5,6 +5,9 @@ from boxmot.utils import logger as LOGGER
 
 
 class EngineExporter(BaseExporter):
+    required_packages = ("nvidia-tensorrt")
+    cmds = '--extra-index-url https://pypi.ngc.nvidia.com'
+    
     def export(self):
 
         assert self.im.device.type != "cpu", "export running on CPU but must be on GPU, i.e. `python export.py --device 0`"
@@ -12,10 +15,6 @@ class EngineExporter(BaseExporter):
             import tensorrt as trt
         except ImportError:
             if platform.system() == "Linux":
-                self.checker.check_packages(
-                    ["nvidia-tensorrt"],
-                    cmds=("-U --index-url https://pypi.ngc.nvidia.com",),
-                )
             import tensorrt as trt
 
         onnx_file = self.export_onnx()
