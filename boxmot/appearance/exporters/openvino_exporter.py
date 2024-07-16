@@ -15,12 +15,12 @@ class OpenVINOExporter(BaseExporter):
         f_onnx = self.file.with_suffix(".onnx")
         f_ov = str(Path(f) / self.file.with_suffix(".xml").name)
 
-            ov_model = mo.convert_model(
-                f_onnx,
-                model_name=self.file.with_suffix(".xml"),
-                framework="onnx",
-                compress_to_fp16=self.half,
-            )
-            ov.serialize(ov_model, f_ov)
+        ov_model = mo.convert_model(
+            f_onnx,
+            model_name=self.file.with_suffix(".xml"),
+            framework="onnx",
+            compress_to_fp16=self.half,
+        )
+        ov.serialize(ov_model, f_ov)
         
-        return f_ov
+        return f
