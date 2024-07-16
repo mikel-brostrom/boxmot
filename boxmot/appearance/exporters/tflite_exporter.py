@@ -21,8 +21,8 @@ class TFLiteExporter(BaseExporter):
         LOGGER.info(f"\nStarting {self.file} export with onnx2tf {onnx2tf.__version__}")
         f = str(self.file).replace(".onnx", f"_saved_model{os.sep}")
         onnx2tf.convert(
-            input_onnx_file_path=self.file.with_suffix(".onnx"),
-            output_folder_path=str(f),
+            input_onnx_file_path="/home/runner/work/boxmot/boxmot/tracking/weights/osnet_x0_25_msmt17.onnx",
+            output_folder_path="/home/runner/work/boxmot/boxmot/tracking/weights/osnet_x0_25_msmt17_saved_model/",
             not_use_onnxsim=True,
             verbosity=True,
             #output_integer_quantized_tflite=self.args.int8,
