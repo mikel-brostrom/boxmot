@@ -9,7 +9,7 @@ def export_decorator(export_func):
     def wrapper(self, *args, **kwargs):
         try:
             if hasattr(self, 'required_packages'):
-                self.checker.check_packages(self.required_packages)
+                self.checker.check_packages(self.required_packages, cmd=self.cmd)
                 
             LOGGER.info(f"\nStarting export with {self.__class__.__name__}...")
             result = export_func(self, *args, **kwargs)
