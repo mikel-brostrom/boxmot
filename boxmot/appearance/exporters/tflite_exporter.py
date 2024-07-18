@@ -6,7 +6,6 @@ from boxmot.utils import logger as LOGGER
 class TFLiteExporter(BaseExporter):
     required_packages = (
         "onnx2tf>=1.18.0",
-        "onnx==1.16.1", 
         "tensorflow==2.17.0",
         "tf_keras",  # required by 'onnx2tf' package
         "sng4onnx>=1.0.1",  # required by 'onnx2tf' package
