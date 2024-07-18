@@ -5,7 +5,7 @@ from boxmot.utils import logger as LOGGER
 
 
 class ONNXExporter(BaseExporter):
-    required_packages = ("onnx=>1.16.1",)
+    required_packages = ("onnx=>1.14.0",)
     
     def export(self):
 
