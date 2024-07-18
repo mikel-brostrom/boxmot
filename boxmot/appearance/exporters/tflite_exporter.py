@@ -13,9 +13,7 @@ class TFLiteExporter(BaseExporter):
         "onnx_graphsurgeon>=0.3.26",  # required by 'onnx2tf' package
         "onnxslim>=0.1.31",
         "onnxruntime",
-        "flatbuffers-compiler",
         "flatbuffers>=23.5.26",
-        "simple_onnx_processing_tools",
         "psutil==5.9.5",
         "ml_dtypes==0.3.2",
     )
