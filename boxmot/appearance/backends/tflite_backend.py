@@ -16,27 +16,24 @@ class TFLiteBackend(BaseModelBackend):
         self.nhwc = False
         self.half = half
         self.interpreter = None
-        # Variable to keep track of the current allocated batch size
         self.current_allocated_batch_size = None
-        
+
     def load_model(self, w):
         checker.check_packages(("tensorflow",))
 
         LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
         
         try:
-            import tensorflow as tf
             Interpreter = tf.lite.Interpreter
             self.interpreter = tf.lite.Interpreter(model_path=str(w))
         except Exception as e:
-            LOGGER.error(f'{e}. If SignatureDef error. Export you model with the official onn2tf docker')
+            LOGGER.error(f'{e}. If SignatureDef error. Export your model with the official onnx2tf docker')
             exit()
             
         self.interpreter.allocate_tensors()  # allocate
         self.input_details = self.interpreter.get_input_details()  # inputs
         self.output_details = self.interpreter.get_output_details()  # outputs
         self.current_allocated_batch_size = self.input_details[0]['shape'][0]
-
 
     def forward(self, im_batch):
         im_batch = im_batch.cpu().numpy()
@@ -48,10 +45,10 @@ class TFLiteBackend(BaseModelBackend):
             print(f"Resizing tensor input to batch size {batch_size}")
             self.interpreter.resize_tensor_input(self.input_details[0]['index'], [batch_size, 256, 128, 3])
             self.interpreter.allocate_tensors()
-            current_allocated_batch_size = batch_size
+            self.current_allocated_batch_size = batch_size
 
         # Set the tensor to point to the input data
-        self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+        self.interpreter.set_tensor(self.input_details[0]['index'], im_batch)
 
         # Run inference
         self.interpreter.invoke()
