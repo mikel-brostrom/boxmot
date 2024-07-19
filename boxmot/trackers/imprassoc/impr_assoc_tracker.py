@@ -208,7 +208,7 @@ class ImprAssocTrack(BaseTracker):
         with_reid: bool = True
     ):
         super().__init__()
-        self.tracked_stracks = []  # type: list[STrack]
+        self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
         BaseTrack.clear_count()
@@ -292,16 +292,16 @@ class ImprAssocTrack(BaseTracker):
         else:
             detections = []
 
-        """ Add newly detected tracklets to tracked_stracks"""
+        """ Add newly detected tracklets to active_tracks"""
         unconfirmed = []
         low_tent = []
         high_tent = []
-        tracked_stracks = []  # type: list[STrack]
-        for track in self.tracked_stracks:
+        active_tracks = []  # type: list[STrack]
+        for track in self.active_tracks:
             if not track.is_activated:
                 unconfirmed.append(track)
             else:
-                tracked_stracks.append(track)
+                active_tracks.append(track)
 
         '''Improved Association: First they calc the cost matrix of the high
         detections(func_1 -> cost_h), then the calc the cost matrix of the low
@@ -311,7 +311,7 @@ class ImprAssocTrack(BaseTracker):
         '''
 
         ''' Step 2: First association, with high score detection boxes'''
-        strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
+        strack_pool = joint_stracks(active_tracks, self.lost_stracks)
 
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
@@ -434,20 +434,20 @@ class ImprAssocTrack(BaseTracker):
                 removed_stracks.append(track)
 
         """ Merge """
-        self.tracked_stracks = [
-            t for t in self.tracked_stracks if t.state == TrackState.Tracked
+        self.active_tracks = [
+            t for t in self.active_tracks if t.state == TrackState.Tracked
         ]
-        self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_starcks)
-        self.tracked_stracks = joint_stracks(self.tracked_stracks, refind_stracks)
-        self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
+        self.active_tracks = joint_stracks(self.active_tracks, activated_starcks)
+        self.active_tracks = joint_stracks(self.active_tracks, refind_stracks)
+        self.lost_stracks = sub_stracks(self.lost_stracks, self.active_tracks)
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
-        self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(
-            self.tracked_stracks, self.lost_stracks
+        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(
+            self.active_tracks, self.lost_stracks
         )
 
-        output_stracks = [track for track in self.tracked_stracks]
+        output_stracks = [track for track in self.active_tracks]
         outputs = []
         for t in output_stracks:
             output = []
