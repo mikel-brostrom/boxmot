@@ -1,0 +1,16 @@
+# Trial number:      25
+# HOTA, MOTA, IDF1:  [33.09, -3.3019, 29.808]
+appearance_thresh: 0.2587210429170027
+cmc_method: sparseOptFlow
+conf: 0.42266880177138644
+conf_thresh: 0.590780763917436
+cov_alpha: 90
+frame_rate: 30
+lambda_: 0.9871107637201086
+match_thresh: 0.6836652200152339
+new_track_thresh: 0.5210245597110309
+proximity_thresh: 0.272488631788737
+tent_conf_thresh: 0.8359179651576158
+track_buffer: 80
+track_high_thresh: 0.3757666043058296
+track_low_thresh: 0.1474177918915564

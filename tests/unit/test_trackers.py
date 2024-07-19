@@ -6,7 +6,7 @@ from boxmot.utils import WEIGHTS
 
 from numpy.testing import assert_allclose
 from boxmot import (
-    StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, get_tracker_config, create_tracker,
+    StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, ConfTrack, get_tracker_config, create_tracker,
 )
 
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
@@ -15,9 +15,9 @@ from boxmot.trackers.deepocsort.deep_ocsort import KalmanBoxTracker as DeepOCSor
 
 
 MOTION_ONLY_TRACKING_METHODS=[OCSORT, BYTETracker]
-MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSORT, BoTSORT, DeepOCSORT]
-ALL_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'strongsort']
-PER_CLASS_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack']
+MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSORT, BoTSORT, DeepOCSORT, ConfTrack]
+ALL_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'strongsort', 'conftrack']
+PER_CLASS_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'conftrack']
 
 
 @pytest.mark.parametrize("Tracker", MOTION_N_APPEARANCE_TRACKING_METHODS)

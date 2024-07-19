@@ -10,9 +10,10 @@ from boxmot.trackers.deepocsort.deep_ocsort import DeepOCSort as DeepOCSORT
 from boxmot.trackers.hybridsort.hybridsort import HybridSORT
 from boxmot.trackers.ocsort.ocsort import OCSort as OCSORT
 from boxmot.trackers.strongsort.strong_sort import StrongSORT
+from boxmot.trackers.conftrack.conftrack import ConfTrack
 
-TRACKERS = ['bytetrack', 'botsort', 'strongsort', 'ocsort', 'deepocsort', 'hybridsort']
+TRACKERS = ['bytetrack', 'botsort', 'strongsort', 'ocsort', 'deepocsort', 'hybridsort', 'conftrack']
 
 __all__ = ("__version__",
-           "StrongSORT", "OCSORT", "BYTETracker", "BoTSORT", "DeepOCSORT", "HybridSORT",
+           "StrongSORT", "OCSORT", "BYTETracker", "BoTSORT", "DeepOCSORT", "HybridSORT", "ConfTrack",
            "create_tracker", "get_tracker_config", "gsi")

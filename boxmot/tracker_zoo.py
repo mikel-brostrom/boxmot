@@ -123,6 +123,27 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             use_byte=cfg.use_byte,
         )
         return hybridsort
+    elif tracker_type == 'conftrack':
+        from boxmot.trackers.conftrack.conftrack import ConfTrack
+        conftrack = ConfTrack(
+            reid_weights,
+            device,
+            half,
+            per_class=per_class,
+            track_high_thresh=cfg.track_high_thresh,
+            track_low_thresh=cfg.track_low_thresh,
+            new_track_thresh=cfg.new_track_thresh,
+            tent_conf_thresh=cfg.tent_conf_thresh,
+            track_buffer=cfg.track_buffer,
+            match_thresh=cfg.match_thresh,
+            cov_alpha=cfg.cov_alpha,
+            conf_thresh=cfg.conf_thresh,
+            proximity_thresh=cfg.proximity_thresh,
+            appearance_thresh=cfg.appearance_thresh,
+            cmc_method=cfg.cmc_method,
+            frame_rate=cfg.frame_rate,
+        )
+        return conftrack
     else:
         print('No such tracker')
         exit()
