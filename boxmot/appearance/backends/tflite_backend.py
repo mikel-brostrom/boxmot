@@ -32,7 +32,7 @@ class TFLiteBackend(BaseModelBackend):
         self.interpreter: tf.lite.Interpreter = None
         self.current_allocated_batch_size: int = None
 
-    def load_model(self, w: Path) -> None:
+    def load_model(self, w):
         """
         Loads the TensorFlow Lite model and initializes the interpreter.
 
@@ -45,6 +45,8 @@ class TFLiteBackend(BaseModelBackend):
 
         import tensorflow as tf
         self.interpreter = tf.lite.Interpreter(model_path=str(w))
+
+
         self.interpreter.allocate_tensors()  # allocate
         self.input_details = self.interpreter.get_input_details()  # inputs
         self.output_details = self.interpreter.get_output_details()  # outputs
