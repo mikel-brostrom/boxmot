@@ -3,12 +3,6 @@
 import numpy as np
 from collections import deque
 
-# from Impr_Assoc_Track.matching import iou_distance, d_iou_distance, embedding_distance, fuse_motion, fuse_score, linear_assignment, ious, fuse_iou
-# from tracker.gmc import GMC
-# from Impr_Assoc_Track.basetrack import BaseTrack, TrackState
-# from Impr_Assoc_Track.kalman_filter import KalmanFilter
-# from supervision.detection.core import Detections
-
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
 from boxmot.motion.kalman_filters.xywh_kf import KalmanFilterXYWH
@@ -25,9 +19,6 @@ class STrack(BaseTrack):
     shared_kalman = KalmanFilterXYWH()
 
     def __init__(self, det, feat=None, feat_history=15, max_obs=15):
-        # wait activate
-        # print(f"det: {det}")
-        # print(f"box: {det[0:4]}")
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         self.conf = det[4]
         self.cls = det[5]
@@ -214,9 +205,7 @@ class ImprAssocTrack(BaseTracker):
         appearance_thresh: float = 0.25,
         cmc_method: str = "sof",
         frame_rate=30,
-        with_reid: bool = True,
-        # fast_reid_config=r"/content/drive/MyDrive/YOLO_detections/ReID/sbs_S50.yml", #need to download
-        # fast_reid_weights=r"/content/drive/MyDrive/YOLO_detections/ReID/mot17_sbs_S50.pth", #need to download
+        with_reid: bool = True
     ):
         super().__init__()
         self.tracked_stracks = []  # type: list[STrack]
@@ -327,12 +316,8 @@ class ImprAssocTrack(BaseTracker):
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
 
-        # from ConfTrack
-        # strack_pool = joint_stracks(strack_pool, high_tent) # LM algorithm
-        # strack_u = joint_stracks(strack_pool, low_tent)
 
-        # no camera motion adjustment because our device is stationary
-        # # Fix camera motion
+        # Fix camera motion
         warp = self.cmc.apply(img, dets_first)
         STrack.multi_gmc(strack_pool, warp)
         STrack.multi_gmc(unconfirmed, warp)
@@ -340,8 +325,6 @@ class ImprAssocTrack(BaseTracker):
         # Associate with high score detection boxes
         d_ious_dists = d_iou_distance(strack_pool, detections)
         ious = 1 - iou_distance(strack_pool, detections)
-        # print(f"first dets: {detections}")
-        # print(f"ious_dists: {ious_dists}")
         ious_dists_mask = (ious < self.proximity_thresh) # o_min in ImprAssoc paper
 
         if self.with_reid:
@@ -384,16 +367,13 @@ class ImprAssocTrack(BaseTracker):
 
 
         B = self.match_thresh/self.second_match_thresh
-        # print(f"B: {B}")
 
-        combined_dists = np.concatenate((dists, B*dists_second), axis=1) # need to double check
-        # print(f"combined_dists: {combined_dists}")
+        combined_dists = np.concatenate((dists, B*dists_second), axis=1)
 
         matches, track_conf_remain, det_remain = linear_assignment(combined_dists, thresh=self.match_thresh)
 
         # concat detections so that it all works
-        detections = np.concatenate((detections, detections_second), axis=0) # double check
-        # print(f"combined_dets: {detections}")
+        detections = np.concatenate((detections, detections_second), axis=0)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
@@ -409,8 +389,6 @@ class ImprAssocTrack(BaseTracker):
 
         # left over confirmed tracks get lost
         for it in track_conf_remain:
-            # print(f"size of stracks_conf_remain: {len(stracks_conf_remain)}")
-            # print(f"index: {it}")
             track = strack_pool[it]
             if not track.state == TrackState.Lost:
                 track.mark_lost()
@@ -435,7 +413,6 @@ class ImprAssocTrack(BaseTracker):
                     # now initialize it
                     track = sdet_remain[det_ind]
                     if track.conf > self.new_track_thresh:
-                        # print(f"initialize track: {det_ind}")
                         track.activate(self.kalman_filter, self.frame_count)
                         if self.with_reid:
                             track.update_features(features[det_ind])
@@ -444,7 +421,6 @@ class ImprAssocTrack(BaseTracker):
                 # if no curr tracks, then init one
                 track = sdet_remain[det_ind]
                 if track.conf > self.new_track_thresh:
-                    # print(f"initialize track: {det_ind}")
                     track.activate(self.kalman_filter, self.frame_count)
                     if self.with_reid:
                         track.update_features(features[det_ind])
