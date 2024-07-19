@@ -1,5 +1,8 @@
+# Trial number:      0
+# HOTA, MOTA, IDF1:  [37.804, 19.34, 34.483]
 appearance_thresh: 0.7636154550757781
 cmc_method: sparseOptFlow
+conf: 0.4828271520496597
 frame_rate: 30
 lambda_: 0.9764964093204093
 match_thresh: 0.22182609980772128
