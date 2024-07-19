@@ -29,8 +29,8 @@ class BaseModelBackend:
             pretrained=not (self.weights and self.weights.is_file()),
             use_gpu=device,
         )
-        self.load_model(self.weights)
         self.checker = RequirementsChecker()
+        self.load_model(self.weights)
 
         
     @abstractmethod
