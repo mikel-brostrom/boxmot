@@ -1,13 +1,16 @@
-appearance_thresh: 0.45026460227060683
+# Trial number:      3
+# HOTA, MOTA, IDF1:  [37.787, 19.575, 35.048]
+appearance_thresh: 0.48396589323963035
 cmc_method: sparseOptFlow
+conf: 0.4336934087443602
 frame_rate: 30
-iou_weight: 0.23952360206611586
-lambda_: 0.9868313792314138
-match_thresh: 0.1679093699779095
-new_track_thresh: 0.49929306257998685
-overlap_thresh: 0.5486223573956148
-proximity_thresh: 0.3769494835487784
-second_match_thresh: 0.31480506616083626
+iou_weight: 0.4570211918252064
+lambda_: 0.9727356926625315
+match_thresh: 0.3853661949420558
+new_track_thresh: 0.2775399236098679
+overlap_thresh: 0.32722172170799374
+proximity_thresh: 0.5561104565730095
+second_match_thresh: 0.3316381346568539
 track_buffer: 30
-track_high_thresh: 0.6975266597432511
-track_low_thresh: 0.1915594386319488
+track_high_thresh: 0.5475880676693929
+track_low_thresh: 0.22917350812104917

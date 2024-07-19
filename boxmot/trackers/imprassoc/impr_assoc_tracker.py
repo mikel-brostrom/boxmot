@@ -26,8 +26,8 @@ class STrack(BaseTrack):
 
     def __init__(self, det, feat=None, feat_history=15, max_obs=15):
         # wait activate
-        print(f"det: {det}")
-        print(f"box: {det[0:4]}")
+        # print(f"det: {det}")
+        # print(f"box: {det[0:4]}")
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         self.conf = det[4]
         self.cls = det[5]
@@ -122,7 +122,7 @@ class STrack(BaseTrack):
                 stracks[i].mean = mean
                 stracks[i].covariance = cov
 
-    def activate(self, kalman_filter, frame_id):
+    def activate(self, kalman_filter, frame_count):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.id = self.next_id()
@@ -133,19 +133,19 @@ class STrack(BaseTrack):
         self.state = TrackState.Tracked
         # from OAI track, no unconfirmed tracks.
         self.is_activated = True
-        self.frame_id = frame_id
-        self.start_frame = frame_id
+        self.frame_count = frame_count
+        self.start_frame = frame_count
 
-    def re_activate(self, new_track, frame_id, new_id=False):
+    def re_activate(self, new_track, frame_count, new_id=False):
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.xywh, self.score
+            self.mean, self.covariance, new_track.xywh, self.conf
         )
         if new_track.curr_feat is not None:
             self.update_features(new_track.curr_feat)
         self.tracklet_len = 0
         self.state = TrackState.Tracked
         self.is_activated = True
-        self.frame_id = frame_id
+        self.frame_count = frame_count
         if new_id:
             self.id = self.next_id()
         self.conf = new_track.conf
@@ -154,21 +154,21 @@ class STrack(BaseTrack):
 
         self.update_cls(new_track.cls, new_track.conf)
 
-    def update(self, new_track, frame_id):
+    def update(self, new_track, frame_count):
         """
         Update a matched track
         :type new_track: STrack
-        :type frame_id: int
+        :type frame_count: int
         :type update_feature: bool
         :return:
         """
-        self.frame_id = frame_id
+        self.frame_count = frame_count
         self.tracklet_len += 1
 
         self.history_observations.append(self.xyxy)
 
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.xywh, self.score
+            self.mean, self.covariance, new_track.xywh, self.conf
         )
 
         if new_track.curr_feat is not None:
@@ -434,16 +434,18 @@ class ImprAssocTrack(BaseTracker):
                 if np.max(unmatched_overlap[:, det_ind]) < self.overlap_thresh:
                     # now initialize it
                     track = sdet_remain[det_ind]
-                    if track.score > self.new_track_thresh:
-                        track.activate(self.kalman_filter, self.frame_id)
+                    if track.conf > self.new_track_thresh:
+                        # print(f"initialize track: {det_ind}")
+                        track.activate(self.kalman_filter, self.frame_count)
                         if self.with_reid:
                             track.update_features(features[det_ind])
                         activated_starcks.append(track)
             else:
                 # if no curr tracks, then init one
                 track = sdet_remain[det_ind]
-                if track.score > self.new_track_thresh:
-                    track.activate(self.kalman_filter, self.frame_id)
+                if track.conf > self.new_track_thresh:
+                    # print(f"initialize track: {det_ind}")
+                    track.activate(self.kalman_filter, self.frame_count)
                     if self.with_reid:
                         track.update_features(features[det_ind])
                     activated_starcks.append(track)
@@ -514,8 +516,8 @@ def remove_duplicate_stracks(stracksa, stracksb):
     pairs = np.where(pdist < 0.15)
     dupa, dupb = list(), list()
     for p, q in zip(*pairs):
-        timep = stracksa[p].frame_id - stracksa[p].start_frame
-        timeq = stracksb[q].frame_id - stracksb[q].start_frame
+        timep = stracksa[p].frame_count - stracksa[p].start_frame
+        timeq = stracksb[q].frame_count - stracksb[q].start_frame
         if timep > timeq:
             dupb.append(q)
         else:
