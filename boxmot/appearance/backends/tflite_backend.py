@@ -4,20 +4,6 @@ from pathlib import Path
 from boxmot.utils import logger as LOGGER
 
 from boxmot.appearance.backends.base_backend import BaseModelBackend
-from boxmot.utils.checks import RequirementsChecker
-
-checker = RequirementsChecker()
-
-
-import torch
-import numpy as np
-from pathlib import Path
-from boxmot.utils import logger as LOGGER
-
-from boxmot.appearance.backends.base_backend import BaseModelBackend
-from boxmot.utils.checks import RequirementsChecker
-
-checker = RequirementsChecker()
 
 
 class TFLiteBackend(BaseModelBackend):
@@ -53,7 +39,7 @@ class TFLiteBackend(BaseModelBackend):
         Args:
             w (str): Path to the TFLite model file.
         """
-        checker.check_packages(("tensorflow",))
+        self.checker.check_packages(("tensorflow",))
 
         LOGGER.info(f"Loading {str(w)} for TensorFlow Lite inference...")
 
