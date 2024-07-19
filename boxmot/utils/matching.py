@@ -5,7 +5,7 @@ import numpy as np
 import scipy
 import torch
 from scipy.spatial.distance import cdist
-from boxmot.utils.iou import iou_batch
+from boxmot.utils.iou import iou_batch, diou_batch
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -90,6 +90,79 @@ def ious(atlbrs, btlbrs):
 
     return ious
 
+# def d_iou_distance(atracks, btracks):
+#     if (len(atracks)>0 and isinstance(atracks[0], np.ndarray)) or (len(btracks) > 0 and isinstance(btracks[0], np.ndarray)):
+#         atlbrs = atracks
+#         btlbrs = btracks
+#     else:
+#         atlbrs = [track.xyxy for track in atracks]
+#         btlbrs = [track.xyxy for track in btracks]
+#     _ious = iou_batch(atlbrs, btlbrs)
+#     # print(_ious.shape)
+
+#     atlbrs = np.tile(np.atleast_2d(np.ascontiguousarray(atlbrs, dtype=float)), len(btracks)).reshape((len(atracks), len(btracks), 4))
+#     # print(f"len atracks: {len(atracks)}")
+#     # print(f"shape atlbrs: {atlbrs.shape}")
+#     btlbrs = np.tile(np.atleast_2d(np.ascontiguousarray(btlbrs, dtype=float)), len(atracks)).reshape((len(btracks), len(atracks), 4))
+#     # print(f"len btracks: {len(btracks)}")
+#     # print(f"shape btlbrs: {btlbrs.shape}") 
+#     if _ious.size == 0: 
+#         return _ious 
+                  
+#     a_centers = (atlbrs[:,:,2:] - atlbrs[:,:,:2])/2 + atlbrs[:,:,:2]
+#     b_centers = np.swapaxes((btlbrs[:,:,2:] - btlbrs[:,:,:2])/2 + btlbrs[:,:,:2], 0, 1)
+#     # print(f"a_centers: {a_centers}")
+#     # print(f"b_centers: {b_centers}")
+	
+# 	# calc the euclidean dist between a's and b's centers
+#     diff_vect = a_centers - b_centers
+#     # print(f"diff: {diff_vect}")
+#     center_dist_sq = np.sum(np.square(diff_vect), axis=2)
+#     # print(f"sq: {center_dist_sq}")
+
+
+#     top_left = np.minimum(atlbrs[:,:, :2], np.swapaxes(btlbrs[:,:, :2], 0, 1))
+#     # print(f"top left: {top_left}")
+#     bottom_right = np.maximum(atlbrs[:,:, 2:], np.swapaxes(btlbrs[:,:, 2:], 0, 1))
+#     # print(f"bot right: {bottom_right}")
+#     # calc the diagonal length from the very top left to the very bottom right
+#     diff_vect = bottom_right - top_left
+#     # print(f"diff of corners: {diff_vect}")
+#     outside_dist_sq = np.sum(np.square(diff_vect), axis=2)
+#     # print(f"sq corners: {outside_dist_sq}")
+# 	# extra loss term to add to iou. D_IOU
+#     r = center_dist_sq/outside_dist_sq
+#     # print(f"r values: {r}")
+
+
+#     return 1-_ious+r
+
+def d_iou_distance(atracks, btracks):
+    """
+    Compute cost based on IoU
+    :type atracks: list[STrack]
+    :type btracks: list[STrack]
+
+    :rtype cost_matrix np.ndarray
+    """
+
+    if (len(atracks) > 0 and isinstance(atracks[0], np.ndarray)) or (
+        len(btracks) > 0 and isinstance(btracks[0], np.ndarray)
+    ):
+        atlbrs = atracks
+        btlbrs = btracks
+    else:
+        atlbrs = [track.xyxy for track in atracks]
+        btlbrs = [track.xyxy for track in btracks]
+
+    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
+    if ious.size == 0:
+        return ious
+    _ious = diou_batch(atlbrs, btlbrs)
+
+    cost_matrix = 1 - _ious
+
+    return cost_matrix
 
 def iou_distance(atracks, btracks):
     """

@@ -1,0 +1,13 @@
+appearance_thresh: 0.45026460227060683
+cmc_method: sparseOptFlow
+frame_rate: 30
+iou_weight: 0.23952360206611586
+lambda_: 0.9868313792314138
+match_thresh: 0.1679093699779095
+new_track_thresh: 0.49929306257998685
+overlap_thresh: 0.5486223573956148
+proximity_thresh: 0.3769494835487784
+second_match_thresh: 0.31480506616083626
+track_buffer: 30
+track_high_thresh: 0.6975266597432511
+track_low_thresh: 0.1915594386319488
