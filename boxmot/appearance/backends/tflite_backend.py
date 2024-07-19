@@ -7,64 +7,32 @@ from boxmot.appearance.backends.base_backend import BaseModelBackend
 
 
 class TFLiteBackend(BaseModelBackend):
-    """
-    A class to handle TensorFlow Lite model inference with dynamic batch size support.
 
-    Attributes:
-        nhwc (bool): A flag indicating the order of dimensions.
-        half (bool): A flag to indicate if half precision is used.
-        interpreter (tf.lite.Interpreter): The TensorFlow Lite interpreter.
-        current_allocated_batch_size (int): The current batch size allocated in the interpreter.
-    """
-
-    def __init__(self, weights: Path, device: str, half: bool):
-        """
-        Initializes the TFLiteBackend with given weights, device, and precision flag.
-
-        Args:
-            weights (Path): Path to the TFLite model file.
-            device (str): Device type (e.g., 'cpu', 'gpu').
-            half (bool): Flag to indicate if half precision is used.
-        """
+    def __init__(self, weights, device, half):
         super().__init__(weights, device, half)
         self.nhwc = False
         self.half = half
-        self.interpreter: tf.lite.Interpreter = None
-        self.current_allocated_batch_size: int = None
+        self.interpreter = None
+        self.current_allocated_batch_size = None
 
-    def load_model(self, w: Path) -> None:
-        """
-        Loads the TensorFlow Lite model and initializes the interpreter.
-
-        Args:
-            w (str): Path to the TFLite model file.
-        """
+    def load_model(self, w):
         self.checker.check_packages(("tensorflow",))
 
-        LOGGER.info(f"Loading {str(w)} for TensorFlow Lite inference...")
-
+        LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
+        
         try:
-            import tensorflow as tf
+            Interpreter = tf.lite.Interpreter
             self.interpreter = tf.lite.Interpreter(model_path=str(w))
         except Exception as e:
             LOGGER.error(f'{e}. If SignatureDef error. Export your model with the official onnx2tf docker')
             exit()
-
+            
         self.interpreter.allocate_tensors()  # allocate
         self.input_details = self.interpreter.get_input_details()  # inputs
         self.output_details = self.interpreter.get_output_details()  # outputs
         self.current_allocated_batch_size = self.input_details[0]['shape'][0]
 
-    def forward(self, im_batch: torch.Tensor) -> np.ndarray:
-        """
-        Runs forward pass for the given image batch through the TFLite model.
-
-        Args:
-            im_batch (torch.Tensor): Input image batch tensor.
-
-        Returns:
-            np.ndarray: Output features from the TFLite model.
-        """
+    def forward(self, im_batch):
         im_batch = im_batch.cpu().numpy()
         # Extract batch size from im_batch
         batch_size = im_batch.shape[0]
