@@ -126,7 +126,7 @@ def parse_opt():
     parser.add_argument('--device', default='',
                         help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
-                        help='deepocsort, botsort, strongsort, ocsort, bytetrack')
+                        help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, default=0,
                         help='filter by class: --classes 0, or --classes 0 2 3')
