@@ -15,7 +15,10 @@ class TFLiteBackend(BaseModelBackend):
         super().__init__(weights, device, half)
         self.nhwc = False
         self.half = half
-
+        self.interpreter = None
+        # Variable to keep track of the current allocated batch size
+        self.current_allocated_batch_size = None
+        
     def load_model(self, w):
         checker.check_packages(("tensorflow",))
 
@@ -23,17 +26,37 @@ class TFLiteBackend(BaseModelBackend):
         
         try:
             import tensorflow as tf
-            interpreter = tf.lite.Interpreter(model_path=str(w))
-            self.tf_lite_model = interpreter.get_signature_runner()
+            Interpreter = tf.lite.Interpreter
+            self.interpreter = tf.lite.Interpreter(model_path=str(w))
         except Exception as e:
             LOGGER.error(f'{e}. If SignatureDef error. Export you model with the official onn2tf docker')
             exit()
+            
+        self.interpreter.allocate_tensors()  # allocate
+        self.input_details = self.interpreter.get_input_details()  # inputs
+        self.output_details = self.interpreter.get_output_details()  # outputs
+        self.current_allocated_batch_size = input_details[0]['shape'][0]
+
 
     def forward(self, im_batch):
         im_batch = im_batch.cpu().numpy()
-        inputs = {
-            'images': im_batch,
-        }
-        tf_lite_output = self.tf_lite_model(**inputs)
-        features = tf_lite_output['output']
+        # Extract batch size from im_batch
+        batch_size = im_batch.shape[0]
+
+        # Resize tensors if the new batch size is different from the current allocated batch size
+        if batch_size != self.current_allocated_batch_size:
+            print(f"Resizing tensor input to batch size {batch_size}")
+            interpreter.resize_tensor_input(input_details[0]['index'], [batch_size, 256, 128, 3])
+            interpreter.allocate_tensors()
+            current_allocated_batch_size = batch_size
+
+        # Set the tensor to point to the input data
+        interpreter.set_tensor(input_details[0]['index'], input_data)
+
+        # Run inference
+        interpreter.invoke()
+
+        # Get the output data
+        features = interpreter.get_tensor(output_details[0]['index'])
+
         return features
