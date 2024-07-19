@@ -9,6 +9,8 @@ from boxmot.appearance.reid_model_factory import (
     build_model,
     get_nr_classes
 )
+from boxmot.utils.checks import RequirementsChecker
+
 
 class BaseModelBackend:
     def __init__(self, weights, device, half):
@@ -28,6 +30,7 @@ class BaseModelBackend:
             use_gpu=device,
         )
         self.load_model(self.weights)
+        self.checker = RequirementsChecker()
 
         
     @abstractmethod
