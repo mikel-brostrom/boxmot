@@ -24,7 +24,7 @@ class TFLiteBackend(BaseModelBackend):
         LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
         
         try:
-            Interpreter = tf.lite.Interpreter
+            import tensorflow as tf
             self.interpreter = tf.lite.Interpreter(model_path=str(w))
         except Exception as e:
             LOGGER.error(f'{e}. If SignatureDef error. Export your model with the official onnx2tf docker')
