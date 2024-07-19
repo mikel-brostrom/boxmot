@@ -20,12 +20,12 @@ class TFLiteBackend(BaseModelBackend):
         current_allocated_batch_size (int): The current batch size allocated in the interpreter.
     """
 
-    def __init__(self, weights: str, device: str, half: bool):
+    def __init__(self, weights: Path, device: str, half: bool):
         """
         Initializes the TFLiteBackend with given weights, device, and precision flag.
 
         Args:
-            weights (str): Path to the TFLite model file.
+            weights (Path): Path to the TFLite model file.
             device (str): Device type (e.g., 'cpu', 'gpu').
             half (bool): Flag to indicate if half precision is used.
         """
@@ -35,7 +35,7 @@ class TFLiteBackend(BaseModelBackend):
         self.interpreter: tf.lite.Interpreter = None
         self.current_allocated_batch_size: int = None
 
-    def load_model(self, w: str) -> None:
+    def load_model(self, w: Path) -> None:
         """
         Loads the TensorFlow Lite model and initializes the interpreter.
 
@@ -44,7 +44,7 @@ class TFLiteBackend(BaseModelBackend):
         """
         checker.check_packages(("tensorflow",))
 
-        LOGGER.info(f"Loading {w} for TensorFlow Lite inference...")
+        LOGGER.info(f"Loading {str(w)} for TensorFlow Lite inference...")
 
         try:
             import tensorflow as tf
@@ -58,12 +58,12 @@ class TFLiteBackend(BaseModelBackend):
         self.output_details = self.interpreter.get_output_details()  # outputs
         self.current_allocated_batch_size = self.input_details[0]['shape'][0]
 
-    def forward(self, im_batch: Any) -> np.ndarray:
+    def forward(self, im_batch: torch.Tensor) -> np.ndarray:
         """
         Runs forward pass for the given image batch through the TFLite model.
 
         Args:
-            im_batch (Any): Input image batch tensor.
+            im_batch (torch.Tensor): Input image batch tensor.
 
         Returns:
             np.ndarray: Output features from the TFLite model.
