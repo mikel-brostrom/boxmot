@@ -35,7 +35,7 @@ class TFLiteBackend(BaseModelBackend):
         self.interpreter.allocate_tensors()  # allocate
         self.input_details = self.interpreter.get_input_details()  # inputs
         self.output_details = self.interpreter.get_output_details()  # outputs
-        self.current_allocated_batch_size = input_details[0]['shape'][0]
+        self.current_allocated_batch_size = self.input_details[0]['shape'][0]
 
 
     def forward(self, im_batch):
