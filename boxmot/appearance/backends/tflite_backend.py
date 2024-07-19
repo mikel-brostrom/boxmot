@@ -43,13 +43,8 @@ class TFLiteBackend(BaseModelBackend):
 
         LOGGER.info(f"Loading {str(w)} for TensorFlow Lite inference...")
 
-        try:
-            import tensorflow as tf
-            self.interpreter = tf.lite.Interpreter(model_path=str(w))
-        except Exception as e:
-            LOGGER.error(f'{e}. If SignatureDef error. Export your model with the official onnx2tf docker')
-            exit()
-
+        import tensorflow as tf
+        self.interpreter = tf.lite.Interpreter(model_path=str(w))
         self.interpreter.allocate_tensors()  # allocate
         self.input_details = self.interpreter.get_input_details()  # inputs
         self.output_details = self.interpreter.get_output_details()  # outputs
