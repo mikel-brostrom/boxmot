@@ -217,7 +217,7 @@ class Objective():
             second_match_thresh = trial.suggest_float("second_match_thresh", 0.1, 0.4)
             overlap_thresh = trial.suggest_float("overlap_thresh", 0.3, 0.6)
             iou_weight = trial.suggest_float("iou_weight", 0.1, 0.6)
-            proximity_thresh = trial.suggest_float("proximity_thresh", 0.25, 0.75)
+            proximity_thresh = trial.suggest_float("proximity_thresh", 0.1, 0.8)
             appearance_thresh = trial.suggest_float("appearance_thresh", 0.1, 0.8)
             cmc_method = trial.suggest_categorical("cmc_method", ['sparseOptFlow'])
             frame_rate = trial.suggest_categorical("frame_rate", [30])
