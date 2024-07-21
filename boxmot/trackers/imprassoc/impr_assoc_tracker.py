@@ -313,19 +313,20 @@ class ImprAssocTrack(BaseTracker):
         ''' Step 2: First association, with high score detection boxes'''
         strack_pool = joint_stracks(active_tracks, self.lost_stracks)
 
-        # Predict the current location with KF
-        STrack.multi_predict(strack_pool)
-
-
         # Fix camera motion
         warp = self.cmc.apply(img, dets_first)
         STrack.multi_gmc(strack_pool, warp)
         STrack.multi_gmc(unconfirmed, warp)
 
+        # Predict the current location with KF
+        STrack.multi_predict(strack_pool)
+
         # Associate with high score detection boxes
         d_ious_dists = d_iou_distance(strack_pool, detections)
         ious = 1 - iou_distance(strack_pool, detections)
         ious_dists_mask = (ious < self.proximity_thresh) # o_min in ImprAssoc paper
+
+        num_high_detections = len(detections)
 
         if self.with_reid:
             # ConfTrack version
@@ -398,12 +399,16 @@ class ImprAssocTrack(BaseTracker):
         # calc the iou between every unmatched det and all tracks if the max iou
         # for a det D is above overlap_thresh, discard it.
         sdet_remain = [detections[i] for i in det_remain]
-        bboxes = [track.xyxy for track in sdet_remain]
-        bboxes = np.array(bboxes)
 
         if self.with_reid:
-            # (Ndets x X) [512, 1024, 2048]
-            features = self.model.get_features(bboxes, img)
+            # if we don't need to recompute features
+            if (self.new_track_thresh >= self.track_high_thresh) and features_high is not None:
+                features = [features_high[i] for i in det_remain if i < num_high_detections]
+            else:
+                bboxes = [track.xyxy for track in sdet_remain]
+                bboxes = np.array(bboxes)
+                # (Ndets x X) [512, 1024, 2048]
+                features = self.model.get_features(bboxes, img)
 
         unmatched_overlap = 1 - iou_distance(strack_pool, sdet_remain)
 
