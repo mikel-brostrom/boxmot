@@ -160,18 +160,10 @@ jobs:
               STATUS="❌"
             fi
 
-            # Extract the JSON part from the output
-            JSON_OUTPUT=$(grep -o '{.*}' ${tracker}_output.json)
-
-            if echo "$JSON_OUTPUT" | jq empty 2>/dev/null; then
-              HOTA=$(echo "$JSON_OUTPUT" | jq -r '.HOTA')
-              MOTA=$(echo "$JSON_OUTPUT" | jq -r '.MOTA')
-              IDF1=$(echo "$JSON_OUTPUT" | jq -r '.IDF1')
-            else
-              HOTA="N/A"
-              MOTA="N/A"
-              IDF1="N/A"
-            fi
+            # Extract the relevant parts of the JSON
+            HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
+            MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
+            IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
 
             TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
             echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
