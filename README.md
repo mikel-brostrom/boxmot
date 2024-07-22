@@ -83,15 +83,6 @@ In inverse chronological order:
 #### News
 
 * Added Improved Association Pipeline Tracker by [rolson24](https://github.com/rolson24) in [#1527](https://github.com/mikel-brostrom/boxmot/pull/1527) (July 2024)
-* Enabled tracking per class for all trackers besides StrongSORT by `--per-class` (March 2024)
-* Enabled trajectory plotting for all trackers besides StrongSORT by `--show-trajectories` (March 2024)
-* Switched from setuptools to poetry for unified: dependency resolution, packaging and publishing management (March 2024)
-* ~x3 pipeline speedup by: using pregenerated detections + embeddings and jobs parallelization (March 2024)
-* Ultra fast exerimentation enabled by allowing local detections and embeddings saving. This data can then be loaded into any tracking algorithm, avoiding the overhead of repeatedly generating it (February 2024)
-* Centroid-based cost function added (suitable for: small and/or high speed objects and low FPS videos) (January 2024)
-* Custom Ultralytics package updated from 8.0.124 to 8.0.224 (December 2023)
-* New tracker: HybridSORT available (August 2023)
-* New ReID model: CLIP-ReID people and vehicle models available (August 2023)
 
 
 ## Why BOXMOT?
