@@ -265,10 +265,9 @@ class DeepOCSort(BaseTracker):
         self.Q_s_scaling = Q_s_scaling
         KalmanBoxTracker.count = 1
 
-        rab = ReidAutoBackend(
+        self.model = ReidAutoBackend(
             weights=model_weights, device=device, half=fp16
-        )
-        self.model = rab.get_backend()
+        ).model
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = get_cmc_method('sof')()
         self.embedding_off = embedding_off
