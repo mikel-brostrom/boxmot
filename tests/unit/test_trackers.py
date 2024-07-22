@@ -6,7 +6,7 @@ from boxmot.utils import WEIGHTS
 
 from numpy.testing import assert_allclose
 from boxmot import (
-    StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, get_tracker_config, create_tracker,
+    StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, ImprAssocTrack, get_tracker_config, create_tracker,
 )
 
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
@@ -15,9 +15,9 @@ from boxmot.trackers.deepocsort.deep_ocsort import KalmanBoxTracker as DeepOCSor
 
 
 MOTION_ONLY_TRACKING_METHODS=[OCSORT, BYTETracker]
-MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSORT, BoTSORT, DeepOCSORT]
-ALL_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'strongsort']
-PER_CLASS_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack']
+MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSORT, BoTSORT, DeepOCSORT, ImprAssocTrack]
+ALL_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'strongsort', 'imprassoc']
+PER_CLASS_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'imprassoc']
 
 
 @pytest.mark.parametrize("Tracker", MOTION_N_APPEARANCE_TRACKING_METHODS)
@@ -48,7 +48,7 @@ def test_tracker_output_size(tracker_type):
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
-                    [425, 281, 576, 472, 0.56, 65]])
+                    [425, 281, 576, 472, 0.72, 65]])
 
     output = tracker.update(det, rgb)
     assert output.shape == (2, 8)  # two inputs should give two outputs
@@ -133,7 +133,7 @@ def test_per_class_tracker_output_size(tracker_type):
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
-                    [425, 281, 576, 472, 0.56, 65]])
+                    [425, 281, 576, 472, 0.72, 65]])
 
     output = tracker.update(det, rgb)
     output = tracker.update(det, rgb)
@@ -155,7 +155,7 @@ def test_per_class_tracker_active_tracks(tracker_type):
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
-                    [425, 281, 576, 472, 0.56, 65]])
+                    [425, 281, 576, 472, 0.72, 65]])
 
     tracker.update(det, rgb)
 

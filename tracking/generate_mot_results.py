@@ -93,7 +93,7 @@ def parse_opt():
     parser.add_argument('--reid-model', type=Path, default='osnet_x0_25_msmt17.pt',
                         help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
-                        help='deepocsort, botsort, strongsort, ocsort, bytetrack')
+                        help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
     parser.add_argument('--source', type=str, default='0',
                         help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--project', default=ROOT / 'runs' / 'mot',
@@ -156,6 +156,7 @@ def run_generate_mot_results(opt):
         opt = opt
 
     exp_folder_path = opt.project / (str(opt.dets) + "_" + str(opt.embs) + "_" + str(opt.tracking_method))
+    print(f"experiment folder: {exp_folder_path}")
     exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
     opt.exp_folder_path = exp_folder_path
     dets_file_paths = [item for item in (opt.project.parent / "dets_n_embs" / opt.dets / 'dets').glob('*.txt') if not item.name.startswith('.')]

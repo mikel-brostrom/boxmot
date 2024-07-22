@@ -207,6 +207,35 @@ class Objective():
                 'Q_s_scaling': Q_s_scaling
             }
 
+        elif self.opt.tracking_method == 'imprassoc':
+
+            track_high_thresh = trial.suggest_float("track_high_thresh", 0.3, 0.7)
+            track_low_thresh = trial.suggest_float("track_low_thresh", 0.1, 0.3)
+            new_track_thresh = trial.suggest_float("new_track_thresh", 0.1, 0.8)
+            track_buffer = trial.suggest_int("track_buffer", 20, 80, step=10)
+            match_thresh = trial.suggest_float("match_thresh", 0.1, 0.9)
+            second_match_thresh = trial.suggest_float("second_match_thresh", 0.1, 0.4)
+            overlap_thresh = trial.suggest_float("overlap_thresh", 0.3, 0.6)
+            proximity_thresh = trial.suggest_float("proximity_thresh", 0.1, 0.8)
+            appearance_thresh = trial.suggest_float("appearance_thresh", 0.1, 0.8)
+            cmc_method = trial.suggest_categorical("cmc_method", ['sparseOptFlow'])
+            frame_rate = trial.suggest_categorical("frame_rate", [30])
+            lambda_ = trial.suggest_float("lambda_", 0.97, 0.995)
+
+            d = {
+                'track_low_thresh': track_low_thresh,
+                'track_high_thresh': track_high_thresh,
+                'new_track_thresh': new_track_thresh,
+                'track_buffer': track_buffer,
+                'match_thresh': match_thresh,
+                'second_match_thresh': second_match_thresh,
+                'overlap_thresh': overlap_thresh,
+                'proximity_thresh': proximity_thresh,
+                'appearance_thresh': appearance_thresh,
+                'cmc_method': cmc_method,
+                'frame_rate': frame_rate,
+                'lambda_': lambda_
+            }
         # overwrite existing config for tracker
         logger.info("Writing newly generated config for trial")
         with open(self.opt.tracking_config, 'w') as f:
@@ -297,7 +326,7 @@ def parse_opt():
                         help='model.pt path(s)')
     parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
-                        help='strongsort, ocsort, bytetrack, deepocsort, botsort')
+                        help='strongsort, ocsort, bytetrack, deepocsort, botsort, imprassoc')
     parser.add_argument('--project', default=ROOT / 'runs' / 'mot',
                         help='save results to project/name')
     parser.add_argument('--name', default='yolov8n_osnet_x0_25_msmt17',
