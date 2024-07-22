@@ -25,12 +25,15 @@ def parse_mot_results(results):
             (dict): {'HOTA': x, 'MOTA':y, 'IDF1':z}
         """
         combined_results = results.split('COMBINED')[2:-1]
+        
         # robust way of getting first ints/float in string
         combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
+        
         # pack everything in dict
         results_dict = {}
-        combined_results["trackeval"] = results
-        results_dict[key]: value for key, value in zip(["HOTA", "MOTA", "IDF1"], combined_results)
+        combined_results["trackeval"] = results  #trackeval results
+        for key, value in zip(["HOTA", "MOTA", "IDF1"], combined_results):
+            results_dict[key]= value 
         
         return combined_results
 
