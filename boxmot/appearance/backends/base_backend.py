@@ -3,6 +3,7 @@ import torch
 import gdown
 import numpy as np
 from abc import ABC, abstractmethod
+from boxmot.utils import logger as LOGGER
 from boxmot.appearance.reid_model_factory import (
     get_model_name,
     get_model_url,
