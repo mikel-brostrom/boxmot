@@ -165,10 +165,10 @@ jobs:
             # Extract only the valid JSON part from the output
             jq '.HOTA, .MOTA, .IDF1' ${tracker}_output.json > ${tracker}_parsed.json
 
-            # Extract the relevant parts of the JSON
-            HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
-            MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
-            IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
+            # Read the values from the parsed JSON
+            HOTA=$(jq -r '.[0]' ${tracker}_parsed.json)
+            MOTA=$(jq -r '.[1]' ${tracker}_parsed.json)
+            IDF1=$(jq -r '.[2]' ${tracker}_parsed.json)
 
             TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
             echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
