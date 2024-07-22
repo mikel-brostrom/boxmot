@@ -160,7 +160,7 @@ jobs:
               STATUS="❌"
             fi
 
-            cat results.json
+            cat ${tracker}_output.json
 
             # Extract the relevant parts of the JSON
             HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
