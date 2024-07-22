@@ -160,6 +160,11 @@ jobs:
               STATUS="❌"
             fi
 
+            cat ${tracker}_output.json
+
+            # Extract only the valid JSON part from the output
+            jq '.HOTA, .MOTA, .IDF1' ${tracker}_output.json > ${tracker}_parsed.json
+
             # Extract the relevant parts of the JSON
             HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
             MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
