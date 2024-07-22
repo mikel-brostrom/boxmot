@@ -1,5 +1,6 @@
 import re
 import sys
+import json
 import argparse
 import subprocess
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, DATA
@@ -31,11 +32,11 @@ def parse_mot_results(results):
         
         # pack everything in dict
         results_dict = {}
-        combined_results["trackeval"] = results  #trackeval results
+        results_dict["trackeval"] = results  #trackeval results
         for key, value in zip(["HOTA", "MOTA", "IDF1"], combined_results):
             results_dict[key]= value 
         
-        return combined_results
+        return results_dict
 
 
 def trackeval(
