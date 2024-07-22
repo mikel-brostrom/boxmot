@@ -177,13 +177,16 @@ jobs:
             echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
           done
 
-          cat results.csv
+          # Create a pretty table from the results.csv file
+          column -s, -t results.csv > pretty_results.txt
+
+          cat pretty_results.txt
 
       - name: Upload Results
         uses: actions/upload-artifact@v3
         with:
           name: results-csv
-          path: results.csv
+          path: pretty_results.txt
 
 
   test-tracking-with-pose:
