@@ -150,20 +150,17 @@ jobs:
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
-          TRACKERS=("ocsort" "bytetrack" "botsort" "hybridsort")
+          TRACKERS=("ocsort" "bytetrack" "botsort" "hybridsort" "deepocsort")
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
 
           for tracker in "${TRACKERS[@]}"; do
-            if python tracking/val.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method $tracker > ${tracker}_output.json; then
+            if python tracking/val.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method $tracker --verbose; then
               STATUS="✅"
             else
               STATUS="❌"
             fi
 
-            cat ${tracker}_output.json
-
-            # Extract only the valid JSON part from the output
-            #jq '.HOTA, .MOTA, .IDF1' ${tracker}_output.json > ${tracker}_parsed.json
+            cat results.json
 
             # Extract the relevant parts of the JSON
             HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
