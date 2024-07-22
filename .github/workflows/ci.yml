@@ -159,7 +159,7 @@ jobs:
         run: |
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
 
-          for tracker in "${TRACKERS[@]}"; do
+          for tracker in $TRACKERS; do
             if python tracking/val.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method $tracker --verbose; then
               STATUS="✅"
             else
