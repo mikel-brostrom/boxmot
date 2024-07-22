@@ -176,7 +176,7 @@ def run_trackeval(opt):
     hota_mota_idf1 = parse_mot_results(trackeval_results)
     if opt.verbose:
         print(trackeval_results)
-        with open(args.tracking_method + "_output.json", "w") as outfile:
+        with open(opt.tracking_method + "_output.json", "w") as outfile:
             outfile.write(json.dumps(hota_mota_idf1))
     print(json.dumps(hota_mota_idf1))
     return hota_mota_idf1
