@@ -157,7 +157,6 @@ jobs:
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
-          echo -e "\n"
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
 
           for tracker in $TRACKERS; do
