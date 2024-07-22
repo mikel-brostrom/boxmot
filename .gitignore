@@ -24,6 +24,7 @@ weights/*.tflite
 
 # evaluation tools folder
 val_utils/
+assets/MOT17
 
 # zip files
 *.zip
