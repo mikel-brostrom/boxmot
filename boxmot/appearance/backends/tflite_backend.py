@@ -51,8 +51,6 @@ class TFLiteBackend(BaseModelBackend):
         self.input_details = self.interpreter.get_input_details()  # inputs
         self.output_details = self.interpreter.get_output_details()  # outputs
         self.current_allocated_batch_size = self.input_details[0]['shape'][0]
-        print('self.current_allocated_batch_size', self.current_allocated_batch_size)
-        print('self.current_allocated_batch_size', self.input_details[0]['shape'])
 
     def forward(self, im_batch: torch.Tensor) -> np.ndarray:
         """
