@@ -44,6 +44,7 @@ class ReidAutoBackend():
         self.weights = weights
         self.device = select_device(device)
         self.half = half
+        self.model = self.get_backend()
 
 
     def get_backend(self) -> Union['PyTorchBackend', 'TorchscriptBackend', 'ONNXBackend', 'TensorRTBackend', 'OpenVinoBackend', 'TFLiteBackend']:
