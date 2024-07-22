@@ -146,9 +146,32 @@ jobs:
           python tracking/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
           python tracking/generate_mot_results.py --dets yolov8n --reid osnet_x0_25_msmt17 --tracking-method ocsort
 
-      - name: Evaluation on pregenerated dets and embs
+      - name: Evaluation and Summarize Results
+        shell: bash
         run: |
-          python tracking/val.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method ocsort
+          TRACKERS=("ocsort" "bytetrack" "botsort" "hybridsort")
+          echo "Tracker,Status❔,HOTA,MOTA,IDF1" > results.csv
+
+          for tracker in "${TRACKERS[@]}"; do
+            if python tracking/val.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method $tracker > ${tracker}_output.json; then
+              STATUS="✅"
+            else
+              STATUS="❌"
+            fi
+            HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
+            MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
+            IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
+            TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+            echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
+          done
+
+          cat results.csv
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: results-csv
+          path: results.csv
 
 
   test-tracking-with-pose:
