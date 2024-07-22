@@ -168,9 +168,9 @@ def run_trackeval(opt):
         opt.exist_ok = False
 
     val_tools_path = EXAMPLES / 'val_utils'
-    #download_mot_eval_tools(val_tools_path)
-    #zip_path = download_mot_dataset(val_tools_path, opt.benchmark)
-    #unzip_mot_dataset(zip_path, val_tools_path, opt.benchmark)
+    download_mot_eval_tools(val_tools_path)
+    zip_path = download_mot_dataset(val_tools_path, opt.benchmark)
+    unzip_mot_dataset(zip_path, val_tools_path, opt.benchmark)
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, val_tools_path)
     trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
@@ -178,6 +178,7 @@ def run_trackeval(opt):
         print(trackeval_results)
         with open(opt.tracking_method + "_output.json", "w") as outfile:
             outfile.write(json.dumps(hota_mota_idf1))
+    print(json.dumps(hota_mota_idf1))
     return hota_mota_idf1
 
 if __name__ == "__main__":
