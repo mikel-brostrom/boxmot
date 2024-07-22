@@ -5,7 +5,7 @@ import numpy as np
 import scipy
 import torch
 from scipy.spatial.distance import cdist
-from boxmot.utils.iou import iou_batch
+from boxmot.utils.iou import iou_batch, diou_batch
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -90,6 +90,32 @@ def ious(atlbrs, btlbrs):
 
     return ious
 
+def d_iou_distance(atracks, btracks):
+    """
+    Compute cost based on IoU
+    :type atracks: list[STrack]
+    :type btracks: list[STrack]
+
+    :rtype cost_matrix np.ndarray
+    """
+
+    if (len(atracks) > 0 and isinstance(atracks[0], np.ndarray)) or (
+        len(btracks) > 0 and isinstance(btracks[0], np.ndarray)
+    ):
+        atlbrs = atracks
+        btlbrs = btracks
+    else:
+        atlbrs = [track.xyxy for track in atracks]
+        btlbrs = [track.xyxy for track in btracks]
+
+    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
+    if ious.size == 0:
+        return ious
+    _ious = diou_batch(atlbrs, btlbrs)
+
+    cost_matrix = 1 - _ious
+
+    return cost_matrix
 
 def iou_distance(atracks, btracks):
     """
