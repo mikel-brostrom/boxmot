@@ -27,8 +27,8 @@ class TFLiteBackend(BaseModelBackend):
             half (bool): Flag to indicate if half precision is used.
         """
         super().__init__(weights, device, half)
-        self.nhwc = False
-        self.half = half
+        self.nhwc = True
+        self.half = False
         # self.interpreter: tf.lite.Interpreter = None
         # self.current_allocated_batch_size: int = None
 
@@ -51,6 +51,8 @@ class TFLiteBackend(BaseModelBackend):
         self.input_details = self.interpreter.get_input_details()  # inputs
         self.output_details = self.interpreter.get_output_details()  # outputs
         self.current_allocated_batch_size = self.input_details[0]['shape'][0]
+        print('self.current_allocated_batch_size', self.current_allocated_batch_size)
+        print('self.current_allocated_batch_size', self.input_details[0]['shape'])
 
     def forward(self, im_batch: torch.Tensor) -> np.ndarray:
         """
@@ -63,12 +65,13 @@ class TFLiteBackend(BaseModelBackend):
             np.ndarray: Output features from the TFLite model.
         """
         im_batch = im_batch.cpu().numpy()
+
         # Extract batch size from im_batch
         batch_size = im_batch.shape[0]
 
         # Resize tensors if the new batch size is different from the current allocated batch size
         if batch_size != self.current_allocated_batch_size:
-            print(f"Resizing tensor input to batch size {batch_size}")
+            # print(f"Resizing tensor input to batch size {batch_size}")
             self.interpreter.resize_tensor_input(self.input_details[0]['index'], [batch_size, 256, 128, 3])
             self.interpreter.allocate_tensors()
             self.current_allocated_batch_size = batch_size
