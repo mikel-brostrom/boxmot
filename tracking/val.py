@@ -178,7 +178,6 @@ def run_trackeval(opt):
         print(trackeval_results)
         with open(opt.tracking_method + "_output.json", "w") as outfile:
             outfile.write(json.dumps(hota_mota_idf1))
-    print(json.dumps(hota_mota_idf1))
     return hota_mota_idf1
 
 if __name__ == "__main__":
