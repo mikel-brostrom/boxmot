@@ -176,7 +176,7 @@ def run_trackeval(opt):
     hota_mota_idf1 = parse_mot_results(trackeval_results)
     if opt.verbose:
         print(trackeval_results)
-    print(hota_mota_idf1)
+    print(json.dumps(hota_mota_idf1))
     return json.dumps(hota_mota_idf1)
 
 if __name__ == "__main__":
