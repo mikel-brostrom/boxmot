@@ -14,7 +14,7 @@ def export_decorator(export_func):
                 else:
                     self.checker.check_packages(self.required_packages)
                 
-            LOGGER.info(f"\nStarting export with {self.__class__.__name__}...")
+            LOGGER.info(f"\nStarting {self.file} export with {self.__class__.__name__}...")
             result = export_func(self, *args, **kwargs)
             if result:
                 LOGGER.info(f"Export success, saved as {result} ({self.file_size(result):.1f} MB)")
@@ -49,19 +49,6 @@ class BaseExporter:
 
     def export(self):
         raise NotImplementedError("Export method must be implemented in subclasses.")
-    
-    def export_decorator(self, export_func):
-        def wrapper(self, *args, **kwargs):
-            try:
-                LOGGER.info(f"\nStarting export with {self.__class__.__name__}...")
-                result = export_func(self, *args, **kwargs)
-                if result:
-                    LOGGER.info(f"Export success, saved as {result} ({self.file_size(result):.1f} MB)")
-                return result
-            except Exception as e:
-                LOGGER.error(f"Export failure: {e}")
-                return None
-        return wrapper
     
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
