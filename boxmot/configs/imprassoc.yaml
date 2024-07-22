@@ -1,8 +1,7 @@
 appearance_thresh: 0.25
 cmc_method: sparseOptFlow
 frame_rate: 30
-iou_weight: 0.2
-lambda_: 0.97
+lambda_: 0.2
 match_thresh: 0.65
 new_track_thresh: 0.7
 overlap_thresh: 0.55
