@@ -165,6 +165,8 @@ jobs:
             # Extract only the valid JSON part from the output
             jq '.HOTA, .MOTA, .IDF1' ${tracker}_output.json > ${tracker}_parsed.json
 
+            cat ${tracker}_parsed.json
+
             # Read the values from the parsed JSON
             HOTA=$(jq -r '.[0]' ${tracker}_parsed.json)
             MOTA=$(jq -r '.[1]' ${tracker}_parsed.json)
