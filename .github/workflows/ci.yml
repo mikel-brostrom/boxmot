@@ -181,6 +181,9 @@ jobs:
           # Create a pretty table from the results.csv file
           column -s, -t results.csv > pretty_results.txt
 
+      - name: Show Results
+        shell: bash
+        run: |
           cat pretty_results.txt
 
       - name: Upload Results
