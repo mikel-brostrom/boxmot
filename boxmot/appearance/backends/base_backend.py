@@ -34,11 +34,6 @@ class BaseModelBackend:
         self.checker = RequirementsChecker()
         self.load_model(self.weights)
 
-        
-    @abstractmethod
-    def load_model(self):
-        raise NotImplementedError("This method should be implemented by subclasses.")
-
     def get_crops(self, xyxys, img):
         crops = []
         h, w = img.shape[:2]
@@ -123,11 +118,11 @@ class BaseModelBackend:
 
     @abstractmethod
     def forward(self, im_batch):
-        pass
+        raise NotImplementedError("This method should be implemented by subclasses.")
 
     @abstractmethod
     def load_model(self, w):
-        pass
+        raise NotImplementedError("This method should be implemented by subclasses.")
 
 
     def download_model(self, w):
