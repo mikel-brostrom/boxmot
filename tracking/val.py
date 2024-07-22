@@ -174,8 +174,8 @@ def run_trackeval(opt):
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, val_tools_path)
     results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
     combined_results = parse_mot_results(results)
-    print({}{}}.dumps(combined_results))
-    return {}{}}.dumps(combined_results)
+    print(json.dumps(combined_results))
+    return json.dumps(combined_results)
 
 if __name__ == "__main__":
     run_trackeval(None)
