@@ -199,11 +199,11 @@ class ImprAssocTrack(BaseTracker):
         match_thresh: float = 0.65, # bigger?
         second_match_thresh: float = 0.19,
         overlap_thresh: float = 0.55,
-        iou_weight: float = 0.2,
+        lambda_: float = 0.2,
         track_buffer: int = 35,
         proximity_thresh: float = 0.1,
         appearance_thresh: float = 0.25,
-        cmc_method: str = "sof",
+        cmc_method: str = "sparseOptFlow",
         frame_rate=30,
         with_reid: bool = True
     ):
@@ -221,7 +221,7 @@ class ImprAssocTrack(BaseTracker):
 
         self.second_match_thresh = second_match_thresh
         self.overlap_thresh = overlap_thresh
-        self.iou_weight = iou_weight
+        self.lambda_ = lambda_
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.kalman_filter = KalmanFilterXYWH()
@@ -347,7 +347,7 @@ class ImprAssocTrack(BaseTracker):
 
             # Improved Association Version (CD)
             emb_dists = embedding_distance(strack_pool, detections) # high dets
-            dists = self.iou_weight*d_ious_dists + (1-self.iou_weight)*emb_dists
+            dists = self.lambda_*d_ious_dists + (1-self.lambda_)*emb_dists
             dists[ious_dists_mask] = self.match_thresh + 0.00001
         else:
             dists = d_ious_dists
