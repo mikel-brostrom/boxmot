@@ -123,6 +123,27 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             use_byte=cfg.use_byte,
         )
         return hybridsort
+    elif tracker_type == 'imprassoc':
+        from boxmot.trackers.imprassoc.impr_assoc_tracker import ImprAssocTrack
+        imprassoc = ImprAssocTrack(
+            reid_weights,
+            device,
+            half,
+            per_class=per_class,
+            track_high_thresh=cfg.track_high_thresh,
+            track_low_thresh=cfg.track_low_thresh,
+            new_track_thresh=cfg.new_track_thresh,
+            track_buffer=cfg.track_buffer,
+            match_thresh=cfg.match_thresh,
+            second_match_thresh=cfg.second_match_thresh,
+            overlap_thresh=cfg.overlap_thresh,
+            lambda_=cfg.lambda_,
+            proximity_thresh=cfg.proximity_thresh,
+            appearance_thresh=cfg.appearance_thresh,
+            cmc_method=cfg.cmc_method,
+            frame_rate=cfg.frame_rate,
+        )
+        return imprassoc
     else:
         print('No such tracker')
         exit()
