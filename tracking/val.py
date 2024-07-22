@@ -32,7 +32,6 @@ def parse_mot_results(results):
         
         # pack everything in dict
         results_dict = {}
-        results_dict["trackeval"] = results  #trackeval results
         for key, value in zip(["HOTA", "MOTA", "IDF1"], combined_results):
             results_dict[key]= value 
         
@@ -145,7 +144,7 @@ def parse_opt():
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')
     parser.add_argument('--per-class', default=False, action='store_true',
                         help='not mix up classes when tracking')
-    parser.add_argument('--verbose', default=True, action='store_true',
+    parser.add_argument('--verbose', default=False, action='store_true',
                         help='print results per frame')
     parser.add_argument('--agnostic-nms', default=False, action='store_true',
                         help='class-agnostic NMS')
@@ -173,10 +172,12 @@ def run_trackeval(opt):
     #zip_path = download_mot_dataset(val_tools_path, opt.benchmark)
     #unzip_mot_dataset(zip_path, val_tools_path, opt.benchmark)
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, val_tools_path)
-    results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
-    combined_results = parse_mot_results(results)
-    print(json.dumps(combined_results))
-    return json.dumps(combined_results)
+    trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
+    hota_mota_idf1 = parse_mot_results(trackeval_results)
+    if opt.verbose:
+        print(trackeval_results)
+    print(hota_mota_idf1)
+    return json.dumps(hota_mota_idf1)
 
 if __name__ == "__main__":
     run_trackeval(None)
