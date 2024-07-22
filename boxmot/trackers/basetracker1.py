@@ -43,7 +43,7 @@ class BaseAssocTrack(BaseTracker):
         if self.with_reid:
             self.model = ReidAutoBackend(
                 weights=model_weights, device=device, half=fp16
-            )
+            ).model
 
         self.cmc = SOF()
 
@@ -81,17 +81,8 @@ class BaseAssocTrack(BaseTracker):
         )
 
         output_stracks = [track for track in self.active_tracks]
-        outputs = []
-        for t in output_stracks:
-            output = []
-            output.extend(t.xyxy)
-            output.append(t.id)
-            output.append(t.conf)
-            output.append(t.cls)
-            output.append(t.det_ind)
-            outputs.append(output)
-
-        return np.asarray(outputs)
+        outputs = np.array([t.xyxy + [t.id, t.conf, t.cls, t.det_ind] for t in output_stracks])
+        return outputs
 
     def associate_tracks(self, strack_pool, detections, dists, match_thresh):
         matches, u_track, u_detection = linear_assignment(dists, thresh=match_thresh)
