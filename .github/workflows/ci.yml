@@ -147,6 +147,13 @@ jobs:
           python tracking/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
           python tracking/generate_mot_results.py --dets yolov8n --reid osnet_x0_25_msmt17 --tracking-method ocsort
 
+      - name: Debug Output
+        run: |
+          for tracker in "${TRACKERS[@]}"; do
+            echo "Output for $tracker:"
+            cat ${tracker}_output.json
+          done
+
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
