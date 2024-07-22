@@ -12,6 +12,9 @@ __pycache__/
 runs/
 videos/
 
+# experiment files
+*.pkl
+
 # Downloaded weights
 weights/*.pt
 weights/*.torchscript
