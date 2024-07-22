@@ -367,10 +367,9 @@ class HybridSORT(BaseTracker):
         self.ECC = False
         KalmanBoxTracker.count = 0
 
-        rab = ReidAutoBackend(
+        self.model = ReidAutoBackend(
             weights=reid_weights, device=device, half=half
-        )
-        self.model = rab.get_backend()
+        ).model
         self.cmc = get_cmc_method('ecc')()
 
     def camera_update(self, trackers, warp_matrix):
