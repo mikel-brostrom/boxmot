@@ -165,9 +165,9 @@ def run_trackeval(opt):
         opt.exist_ok = False
 
     val_tools_path = EXAMPLES / 'val_utils'
-    #download_mot_eval_tools(val_tools_path)
-    #zip_path = download_mot_dataset(val_tools_path, opt.benchmark)
-    #unzip_mot_dataset(zip_path, val_tools_path, opt.benchmark)
+    download_mot_eval_tools(val_tools_path)
+    zip_path = download_mot_dataset(val_tools_path, opt.benchmark)
+    unzip_mot_dataset(zip_path, val_tools_path, opt.benchmark)
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, val_tools_path)
     results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
     combined_results = parse_mot_results(results)
