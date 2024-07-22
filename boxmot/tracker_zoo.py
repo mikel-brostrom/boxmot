@@ -137,7 +137,7 @@ def create_tracker(tracker_type, tracker_config, reid_weights, device, half, per
             match_thresh=cfg.match_thresh,
             second_match_thresh=cfg.second_match_thresh,
             overlap_thresh=cfg.overlap_thresh,
-            iou_weight=cfg.iou_weight,
+            lambda_=cfg.lambda_,
             proximity_thresh=cfg.proximity_thresh,
             appearance_thresh=cfg.appearance_thresh,
             cmc_method=cfg.cmc_method,
