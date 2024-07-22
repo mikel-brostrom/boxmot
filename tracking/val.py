@@ -1,6 +1,5 @@
 import re
 import sys
-import {}{}}
 import argparse
 import subprocess
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, DATA
