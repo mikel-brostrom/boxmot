@@ -149,10 +149,10 @@ jobs:
 
       - name: Debug Output
         run: |
+          TRACKERS=("ocsort" "bytetrack" "botsort" "hybridsort")
           for tracker in "${TRACKERS[@]}"; do
-            echo "Output for $tracker:"
+            python tracking/val.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method $tracker > ${tracker}_output.json
             cat ${tracker}_output.json
-          done
 
       - name: Evaluation and Summarize Results
         shell: bash
