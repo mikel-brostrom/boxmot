@@ -14,7 +14,7 @@ on:
 
 
 jobs:
-  test-tracking-methods:
+  tracking-methods:
     runs-on: ${{ matrix.os }}
     outputs:
       status: ${{ job.status }}
@@ -62,7 +62,7 @@ jobs:
           python tracking/generate_mot_results.py --tracking-method bytetrack  --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
           python tracking/generate_mot_results.py --tracking-method strongsort --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
 
-  test-evolution:
+  evolution:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -106,7 +106,7 @@ jobs:
           python tracking/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method bytetrack
 
 
-  test-mot-metrics:
+  mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -189,7 +189,7 @@ jobs:
           path: pretty_results.txt
 
 
-  test-tracking-with-pose:
+  tracking-with-pose:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -216,7 +216,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: python tracking/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
 
-  test-tracking-with-yolos:
+  tracking-with-yolos:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -247,7 +247,7 @@ jobs:
           # python tracking/track.py --yolo-model yolo_nas_s.pt --source $IMG --imgsz 320
 
 
-  test-tracking-with-seg:
+  tracking-with-seg:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -278,7 +278,7 @@ jobs:
         run: python tracking/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
 
   
-  test-export-reid-models:
+  export-reid-models:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -314,7 +314,7 @@ jobs:
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --source $IMG --imgsz 320        
 
 
-  test-tests:
+  tests:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -378,27 +378,27 @@ jobs:
 
   check-failures:
     needs:
-      - test-tracking-methods
-      - test-mot-metrics
-      - test-evolution
-      - test-export-reid-models
-      - test-tests
-      - test-tracking-with-pose
-      - test-tracking-with-seg
-      - test-tracking-with-yolos
+      - tracking-methods
+      - mot-metrics-benchmark
+      - evolution
+      - export-reid-models
+      - tests
+      - tracking-with-pose
+      - tracking-with-seg
+      - tracking-with-yolos
     if: always()  # This ensures the job runs regardless of previous job failures
     runs-on: ubuntu-latest
     steps:
       - name: Prepare environment variables
         run: |
-          echo "test-tracking-methods_STATUS=${{ needs.test-tracking-methods.result }}" >> $GITHUB_ENV
-          echo "test-mot-metrics_STATUS=${{ needs.test-mot-metrics.result }}" >> $GITHUB_ENV
-          echo "test-evolution_STATUS=${{ needs.test-evolution.result }}" >> $GITHUB_ENV
-          echo "test-export-reid-models_STATUS=${{ needs.test-export-reid-modelsn.result }}" >> $GITHUB_ENV
-          echo "test-tests_STATUS=${{ needs.test-tests.result }}" >> $GITHUB_ENV
-          echo "test-tracking-with-pose_STATUS=${{ needs.test-tracking-with-pose.result }}" >> $GITHUB_ENV
-          echo "test-tracking-with-seg_STATUS=${{ needs.test-tracking-with-seg.result }}" >> $GITHUB_ENV
-          echo "test-tracking-with-yolos_STATUS=${{ needs.test-tracking-with-yolos.result }}" >> $GITHUB_ENV
+          echo "tracking-methods_STATUS=${{ needs.tracking-methods.result }}" >> $GITHUB_ENV
+          echo "mot-metrics_STATUS=${{ needs.mot-metrics.result }}" >> $GITHUB_ENV
+          echo "evolution_STATUS=${{ needs.evolution.result }}" >> $GITHUB_ENV
+          echo "export-reid-models_STATUS=${{ needs.export-reid-modelsn.result }}" >> $GITHUB_ENV
+          echo "tests_STATUS=${{ needs.tests.result }}" >> $GITHUB_ENV
+          echo "tracking-with-pose_STATUS=${{ needs.tracking-with-pose.result }}" >> $GITHUB_ENV
+          echo "tracking-with-seg_STATUS=${{ needs.tracking-with-seg.result }}" >> $GITHUB_ENV
+          echo "tracking-with-yolos_STATUS=${{ needs.tracking-with-yolos.result }}" >> $GITHUB_ENV
       - name: Check for failures and create summary
         run: |
           summary=""
