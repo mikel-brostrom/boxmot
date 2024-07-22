@@ -29,7 +29,7 @@ class TFLiteBackend(BaseModelBackend):
         super().__init__(weights, device, half)
         self.nhwc = False
         self.half = half
-        self.interpreter: tf.lite.Interpreter = None
+        # self.interpreter: tf.lite.Interpreter = None
         self.current_allocated_batch_size: int = None
 
     def load_model(self, w):
