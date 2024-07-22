@@ -335,6 +335,8 @@ def parse_opt():
                         help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
     parser.add_argument('--objectives', type=str, default='HOTA,MOTA,IDF1',
                         help='set of objective metrics: HOTA,MOTA,IDF1')
+    parser.add_argument('--verbose', default=False, action='store_true',
+                        help='print results per frame')
 
     opt = parser.parse_args()
     opt.tracking_config = ROOT / 'boxmot' / 'configs' / (opt.tracking_method + '.yaml')
