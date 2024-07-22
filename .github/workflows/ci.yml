@@ -312,30 +312,30 @@ jobs:
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
 
 
-  # test-gpu:
-  #   runs-on: gpu-latest
-  #   outputs:
-  #     status: ${{ job.status }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Set up Python
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: '3.11'
-  #     - run: |
-  #         python -m pip install --upgrade pip setuptools wheel poetry
-  #         poetry config virtualenvs.create false
-  #         poetry install --with test
+  test-gpu:
+    runs-on: gpu-latest
+    outputs:
+      status: ${{ job.status }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry config virtualenvs.create false
+          poetry install --with test
 
-  #     - name: Pytest tests  # after tracking options as this does not download models
-  #       env:
-  #         # directory of PyPi package to be tested
-  #         PACKAGE_DIR: boxmot
-  #         # minimum acceptable test coverage
-  #         COVERAGE_FAIL_UNDER: 25
-  #       shell: bash  # for Windows compatibility
-  #       run: |
-  #         pytest --cov=$PACKAGE_DIR --cov-report=html -v tests/test_cuda.py
+      - name: Pytest tests  # after tracking options as this does not download models
+        env:
+          # directory of PyPi package to be tested
+          PACKAGE_DIR: boxmot
+          # minimum acceptable test coverage
+          COVERAGE_FAIL_UNDER: 25
+        shell: bash  # for Windows compatibility
+        run: |
+          pytest --cov=$PACKAGE_DIR --cov-report=html -v tests/test_cuda.py
 
 
   check-failures:
