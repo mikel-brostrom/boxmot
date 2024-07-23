@@ -46,10 +46,11 @@ def prompt_overwrite(path_type, path, ci=False):
             result = sys.stdin.readline().strip().lower()
             return result in ['y', 'yes']
         else:
-            print("\nNo response, proceeding with overwrite...")
-            return True
+            print("\nNo response, not proceeding with overwrite...")
+            return False
     
     return input_with_timeout(f"{path_type} {path} already exists. Overwrite? [y/N]: ")
+
 
 def generate_dets_embs(args, y):
     WEIGHTS.mkdir(parents=True, exist_ok=True)
