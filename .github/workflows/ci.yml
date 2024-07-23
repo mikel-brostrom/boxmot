@@ -103,7 +103,7 @@ jobs:
 
       - name: Evolve set of parameters for selected tracking method
         run: |
-          python tracking/evolve.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method bytetrack
+          python tracking/evolve.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 9 --tracking-method bytetrack
 
 
   mot-metrics-benchmark:
