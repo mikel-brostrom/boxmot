@@ -30,7 +30,11 @@ from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
-def prompt_overwrite(path_type, path):
+def prompt_overwrite(path_type, path, auto_overwrite=False):
+    if auto_overwrite:
+        print(f"{path_type} {path} already exists. Auto-overwriting due to no UI mode.")
+        return True
+    
     def input_with_timeout(prompt, timeout=3.0):
         print(prompt, end='', flush=True)
         result = [None]
@@ -314,6 +318,8 @@ def parse_opt():
                         help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train',
                         help='existing project/name ok, do not increment')
+    parser.add_argument('--auto-overwrite', action='store_true',
+                        help='Automatically overwrite existing files without prompt')
 
     opt = parser.parse_args()
     return opt
@@ -328,7 +334,7 @@ def run_generate_dets_embs(opt):
             dets_path = Path(opt.project) / 'dets_n_embs' / opt.name / 'dets' / (mot_folder_path.name + '.txt')
             embs_path = Path(opt.project) / 'dets_n_embs' / opt.name / 'embs' / (opt.reid_model[0].stem) / (mot_folder_path.name + '.txt')
             if dets_path.exists() and embs_path.exists():
-                if prompt_overwrite('Detections and Embeddings', dets_path):
+                if prompt_overwrite('Detections and Embeddings', dets_path, opt.auto_overwrite):
                     LOGGER.info(f'Overwriting detections and embeddings for {mot_folder_path}...')
                 else:
                     LOGGER.info(f'Skipping generation for {mot_folder_path} as they already exist.')
@@ -347,7 +353,7 @@ def run_generate_mot_results(opt):
     for d, e in zip(dets_file_paths, embs_file_paths):
         mot_result_path = exp_folder_path / (d.stem + '.txt')
         if mot_result_path.exists():
-            if prompt_overwrite('MOT Result', mot_result_path):
+            if prompt_overwrite('MOT Result', mot_result_path, opt.auto_overwrite):
                 LOGGER.info(f'Overwriting MOT result for {d.stem}...')
             else:
                 LOGGER.info(f'Skipping MOT result generation for {d.stem} as it already exists.')
