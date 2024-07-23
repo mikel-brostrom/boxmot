@@ -6,7 +6,7 @@ from tracking.val import run_generate_mot_results, run_trackeval, parse_opt as p
 from boxmot.utils import ROOT
 
 checker = RequirementsChecker()
-checker.check_packages(('ray[tune]'))  # install
+checker.check_packages(('ray'))  # install
 
 import ray
 from ray import tune
@@ -58,6 +58,9 @@ tracker = Tracker(opt, search_space)
 def train(config):
     return tracker.objective_function(config)
 
+# Asynchronous Successive Halving Algorithm Scheduler
+# particularly well-suited for distributed and parallelized environments
+# it prunes poorly performing trials focusing on promising configurations
 asha_scheduler = ASHAScheduler(
     metric="HOTA",
     mode="max",
