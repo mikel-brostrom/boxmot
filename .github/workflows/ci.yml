@@ -52,15 +52,15 @@ jobs:
 
       - name: Generate detections and embeddings
         run: |
-          python tracking/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python tracking/utils/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
 
       - name: Run tracking method
         run: |
-          python tracking/generate_mot_results.py --tracking-method hybridsort --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
-          python tracking/generate_mot_results.py --tracking-method botsort    --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
-          python tracking/generate_mot_results.py --tracking-method ocsort     --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
-          python tracking/generate_mot_results.py --tracking-method bytetrack  --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
-          python tracking/generate_mot_results.py --tracking-method strongsort --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/utils/generate_mot_results.py --tracking-method hybridsort --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/utils/generate_mot_results.py --tracking-method botsort    --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/utils/generate_mot_results.py --tracking-method ocsort     --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/utils/generate_mot_results.py --tracking-method bytetrack  --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
+          python tracking/utils/generate_mot_results.py --tracking-method strongsort --dets yolov8n --embs osnet_x0_25_msmt17 --imgsz 320
 
   evolution:
     runs-on: ${{ matrix.os }}
@@ -146,12 +146,12 @@ jobs:
 
       - name: Generate detections and embeddings
         run: |
-          python tracking/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python tracking/utils/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
 
       - name: Generate MOT results for all trackers
         run: |
           for tracker in $TRACKERS; do
-            python tracking/generate_mot_results.py --dets yolov8n --reid osnet_x0_25_msmt17 --tracking-method $tracker
+            python tracking/utils/generate_mot_results.py --dets yolov8n --reid osnet_x0_25_msmt17 --tracking-method $tracker
           done
 
       - name: Evaluation and Summarize Results
