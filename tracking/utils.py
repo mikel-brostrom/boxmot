@@ -39,21 +39,20 @@ def download_mot_eval_tools(val_tools_path):
 
     # Fix deprecated np.float, np.int & np.bool by replacing them with native Python types
     deprecated_types = {'np.float': 'float', 'np.int': 'int', 'np.bool': 'bool'}
-    for old_type, new_type in deprecated_types.items():
-        # check if there are any occurrences of the old_type
-        grep_cmd = ["grep", "-rl", old_type, str(val_tools_path)]
-        grep_result = subprocess.run(grep_cmd, stdout=subprocess.PIPE, text=True)
-
-        # if occurrences are found, use sed to replace them
-        if grep_result.stdout:
-            cmd = f"grep -rl {old_type} {val_tools_path} | xargs sed -i 's/{old_type}/{new_type}/g'"
+    
+    for file_path in val_tools_path.rglob('*'):
+        if file_path.suffix in {'.py', '.txt'}:  # only consider .py and .txt files
             try:
-                subprocess.run(cmd, shell=True, check=True)
-                LOGGER.info(f'Replaced all occurrences of {old_type} with {new_type}.')
-            except subprocess.CalledProcessError as e:
-                LOGGER.error(f'Error occurred while trying to replace {old_type} with {new_type}: {e}')
-        else:
-            LOGGER.info(f'No occurrences of {old_type} found in TrackEval to replace with {new_type}.')
+                content = file_path.read_text(encoding='utf-8')
+                updated_content = content
+                for old_type, new_type in deprecated_types.items():
+                    updated_content = updated_content.replace(old_type, new_type)
+                
+                if updated_content != content:  # Only write back if there were changes
+                    file_path.write_text(updated_content, encoding='utf-8')
+                    LOGGER.info(f'Replaced deprecated types in {file_path}.')
+            except Exception as e:
+                LOGGER.error(f'Error processing {file_path}: {e}')
 
 
 def download_mot_dataset(val_tools_path, benchmark):
