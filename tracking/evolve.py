@@ -19,7 +19,8 @@ from ultralytics.utils.checks import check_requirements, print_args
 
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, logger
 from tracking.val import run_trackeval
-from tracking.generate_mot_results import run_generate_mot_results
+from tracking.val import run_generate_mot_results, run_trackeval, parse_opt as parse_optt
+
 
 
 class Objective():
@@ -321,53 +322,13 @@ def write_best_HOTA_params_to_config(opt, study):
 
 
 def parse_opt():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=str, default=WEIGHTS / 'yolov8n.pt',
-                        help='model.pt path(s)')
-    parser.add_argument('--reid-model', type=str, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
-    parser.add_argument('--tracking-method', type=str, default='deepocsort',
-                        help='strongsort, ocsort, bytetrack, deepocsort, botsort, imprassoc')
-    parser.add_argument('--project', default=ROOT / 'runs' / 'mot',
-                        help='save results to project/name')
-    parser.add_argument('--name', default='yolov8n_osnet_x0_25_msmt17',
-                        help='save results to project/name')
-    parser.add_argument('--dets', type=str, default='yolov8n',
-                        help='the folder name under project to load the detections from')
-    parser.add_argument('--embs', type=str, default='osnet_x0_25_msmt17',
-                        help='the folder name under project/dets to load the embeddings from')
 
-    parser.add_argument('--classes', nargs='+', type=str, default=['0'],
-                        help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--exist-ok', action='store_true', default=False,
-                        help='existing project/name ok, do not increment')
-    parser.add_argument('--benchmark', type=str, default='MOT17',
-                        help='MOT16, MOT17, MOT20')
-    parser.add_argument('--split', type=str, default='train',
-                        help='existing project/name ok, do not increment')
-    parser.add_argument('--eval-existing', type=str, default='',
-                        help='evaluate existing tracker results under mot_callenge/MOTXX-YY/...')
-    parser.add_argument('--conf', type=float, default=0.45,
-                        help='confidence threshold')
-    parser.add_argument('--imgsz', '--img-size', nargs='+', type=int, default=[1280],
-                        help='inference size h,w')
-    parser.add_argument('--gsi', action='store_true',
-                        help='apply gsi to results')
-    parser.add_argument('--device', default='',
-                        help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--n-trials', type=int, default=4,
-                        help='nr of trials for evolution')
-    parser.add_argument('--resume', action='store_true',
-                        help='resume hparam search')
-    parser.add_argument('--save', action='store_true',
-                        help='save video tracking results')
-    parser.add_argument('--processes-per-device', type=int, default=2,
-                        help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
-    parser.add_argument('--objectives', type=str, default='HOTA,MOTA,IDF1',
-                        help='set of objective metrics: HOTA,MOTA,IDF1')
-    parser.add_argument('--verbose', default=False, action='store_true',
-                        help='print results per frame')
-
-    opt = parser.parse_args()
+    opt = parse_optt()
+    yolo_model_stem = (opt.yolo_model[0]).stem
+    reid_model_stem = (opt.reid_model[0]).stem
+    default_name = f"{yolo_model_stem}_{reid_model_stem}"
+    opt.name = default_name
+    
     opt.tracking_config = ROOT / 'boxmot' / 'configs' / (opt.tracking_method + '.yaml')
     opt.objectives = opt.objectives.split(",")
 
