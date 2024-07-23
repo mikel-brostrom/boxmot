@@ -350,6 +350,10 @@ def parse_opt():
     parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--verbose', action='store_true', help='print results')
     parser.add_argument('--agnostic-nms', default=False, action='store_true', help='class-agnostic NMS')
+    parser.add_argument('--n-trials', type=int, default=4, help='nr of trials for evolution')
+    parser.add_argument('--resume', action='store_true', help='resume hparam search')
+    parser.add_argument('--processes-per-device', type=int, default=2, help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
+    parser.add_argument('--objectives', type=str, default='HOTA,MOTA,IDF1', help='set of objective metrics: HOTA,MOTA,IDF1')
 
     subparsers = parser.add_subparsers(dest='command')
 
