@@ -9,6 +9,7 @@ import json
 import queue
 import select
 import re
+import os
 import torch
 from functools import partial
 import threading
@@ -92,6 +93,10 @@ def generate_dets_embs(args, y):
         embs_path = opt.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
         embs_path.touch(exist_ok=True)
+        
+        # Truncate the embeddings file if it is not empty
+        if os.path.getsize(embs_path) > 0:
+            open(embs_path, 'w').close()
 
     # store custom args in predictor
     yolo.predictor.custom_args = args
@@ -101,6 +106,10 @@ def generate_dets_embs(args, y):
     # create parent folder and txt files
     dets_path.parent.mkdir(parents=True, exist_ok=True)
     dets_path.touch(exist_ok=True)
+    
+    # Truncate the detections file if it is not empty
+    if os.path.getsize(dets_path) > 0:
+        open(dets_path, 'w').close()
     
     with open(str(dets_path), 'ab+') as f:  # append binary mode
         np.savetxt(f, [], fmt='%f', header=str(args.source))  # save as ints instead of scientific notation
