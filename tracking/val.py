@@ -1,5 +1,6 @@
 import re
 import sys
+import json
 import argparse
 import subprocess
 from boxmot.utils import EXAMPLES, ROOT, WEIGHTS, DATA
@@ -25,11 +26,16 @@ def parse_mot_results(results):
             (dict): {'HOTA': x, 'MOTA':y, 'IDF1':z}
         """
         combined_results = results.split('COMBINED')[2:-1]
+        
         # robust way of getting first ints/float in string
         combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
+        
         # pack everything in dict
-        combined_results = {key: value for key, value in zip(['HOTA', 'MOTA', 'IDF1'], combined_results)}
-        return combined_results
+        results_dict = {}
+        for key, value in zip(["HOTA", "MOTA", "IDF1"], combined_results):
+            results_dict[key]= value 
+        
+        return results_dict
 
 
 def trackeval(
@@ -80,8 +86,6 @@ def trackeval(
 
     stdout, stderr = p.communicate()
 
-    # Output the results
-    print("Standard Output:\n", stdout)
     if stderr:
         print("Standard Error:\n", stderr)
     return stdout
@@ -94,7 +98,7 @@ def parse_opt():
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
-                        help='deepocsort, botsort, strongsort, ocsort, bytetrack')
+                        help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
     parser.add_argument('--source', type=str, default='0',
                         help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
@@ -140,7 +144,7 @@ def parse_opt():
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')
     parser.add_argument('--per-class', default=False, action='store_true',
                         help='not mix up classes when tracking')
-    parser.add_argument('--verbose', default=True, action='store_true',
+    parser.add_argument('--verbose', default=False, action='store_true',
                         help='print results per frame')
     parser.add_argument('--agnostic-nms', default=False, action='store_true',
                         help='class-agnostic NMS')
@@ -168,10 +172,14 @@ def run_trackeval(opt):
     zip_path = download_mot_dataset(val_tools_path, opt.benchmark)
     unzip_mot_dataset(zip_path, val_tools_path, opt.benchmark)
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, val_tools_path)
-    results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
-    combined_results = parse_mot_results(results)
-    print(combined_results)
-    return combined_results
+    trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
+    hota_mota_idf1 = parse_mot_results(trackeval_results)
+    if opt.verbose:
+        print(trackeval_results)
+        with open(opt.tracking_method + "_output.json", "w") as outfile:
+            outfile.write(json.dumps(hota_mota_idf1))
+    print(json.dumps(hota_mota_idf1))
+    return hota_mota_idf1
 
 if __name__ == "__main__":
     run_trackeval(None)

@@ -2,22 +2,23 @@
 #   docker build -t mikel-brostrom/yolov5_strongsort_osnet .
 
 # Base image: Nvidia PyTorch https://ngc.nvidia.com/catalog/containers/nvidia:pytorch
-FROM nvcr.io/nvidia/pytorch:24.05-py3
+FROM pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime
 
 # Update image
 RUN apt update
+RUN apt install -y git
 
 # Create working directory
 WORKDIR /usr/src/boxmot
 
 # Clone with submodules
-RUN git clone https://github.com/mikel-brostrom/yolo_tracking.git -b master /usr/src/boxmot
+RUN git clone https://github.com/mikel-brostrom/boxmot.git -b master /usr/src/boxmot
 
 # Install pip packages
-RUN python3 -m pip install --upgrade pip wheel
-RUN pip install --no-cache -e .
-# Install custom ultralytics package which makes model from other repos loadable
-RUN pip install git+https://github.com/mikel-brostrom/ultralytics.git
+RUN python3 -m pip install --upgrade pip poetry
+RUN poetry config virtualenvs.create false
+# use base environment directly, avoiding the need to spawn an interactive shell
+RUN poetry install --with yolo
 
 # ------------------------------------------------------------------------------
 
@@ -27,18 +28,18 @@ RUN pip install git+https://github.com/mikel-brostrom/ultralytics.git
 #
 #   - run interactively with all GPUs accessible:
 #
-#       docker run -it --gpus all mikel-brostrom/yolov5_strongsort_osnet bash
+#       docker run -it --gpus all boxmot/boxmot bash
 #
 #   - run interactively with first and third GPU accessible:
 #
-#       docker run -it --gpus '"device=0, 2"' mikel-brostrom/yolov5_strongsort_osnet bash
+#       docker run -it --gpus '"device=0, 2"' boxmot/boxmot bash
 
 
 # Run in detached mode (if you exit the container it won't stop)
 #
 #   -create a detached docker container from an image:
 #
-#       docker run -it --gpus all -d mikel-brostrom/yolov5_strongsort_osnet
+#       docker run -it --gpus all -d boxmot/boxmot
 #
 #   - this will return a <container_id> number which makes it accessible. Access it by:
 #

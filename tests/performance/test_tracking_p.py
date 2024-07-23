@@ -7,10 +7,10 @@ import time
 
 from numpy.testing import assert_allclose
 from boxmot import (
-    StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, get_tracker_config, create_tracker,
+    StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, ImprAssocTrack, get_tracker_config, create_tracker,
 )
 
-MOTION_N_APPEARANCE_TRACKING_METHODS=['botsort', 'deepocsort', 'strongsort']
+MOTION_N_APPEARANCE_TRACKING_METHODS=['botsort', 'deepocsort', 'strongsort', 'imprassoc']
 MOTION_ONLY_TRACKING_METHODS=['ocsort', 'bytetrack']
 
 @pytest.mark.parametrize("tracker_type", MOTION_ONLY_TRACKING_METHODS)

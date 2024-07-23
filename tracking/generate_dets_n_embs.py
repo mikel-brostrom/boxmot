@@ -7,13 +7,13 @@ from tqdm import tqdm
 
 import torch
 
-from boxmot.utils import ROOT, WEIGHTS
-from boxmot.utils.checks import TestRequirements
+from boxmot.utils import ROOT, WEIGHTS, logger as LOGGER
+from boxmot.utils.checks import RequirementsChecker
 from tracking.detectors import get_yolo_inferer
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
-__tr = TestRequirements()
-__tr.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
+checker = RequirementsChecker()
+checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 from ultralytics import YOLO
 from ultralytics.data.utils import VID_FORMATS
@@ -83,10 +83,10 @@ def run(args):
         frame_idx = torch.full((1, 1), frame_idx + 1)
         frame_idx = frame_idx.repeat(nr_dets, 1)
 
-        if r.boxes.data.is_cuda:
-            dets = r.boxes.data[:, 0:4].cpu().numpy()
-        else:
+        if r.boxes.data.is_cpu:
             dets = r.boxes.data[:, 0:4].numpy()
+        else:
+            dets = r.boxes.data[:, 0:4].cpu().numpy()
             
         img = r.orig_img
         
@@ -126,7 +126,7 @@ def parse_opt():
     parser.add_argument('--device', default='',
                         help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
-                        help='deepocsort, botsort, strongsort, ocsort, bytetrack')
+                        help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, default=0,
                         help='filter by class: --classes 0, or --classes 0 2 3')
@@ -154,10 +154,10 @@ def parse_opt():
 if __name__ == "__main__":
     opt = parse_opt()
     mot_folder_paths = [item for item in Path(opt.source).iterdir()]
-    print(mot_folder_paths)
     for y in opt.yolo_model:
         opt.yolo_model = y
         opt.name = y.stem
-        for mot_folder_path in mot_folder_paths:
+        for i, mot_folder_path in enumerate(mot_folder_paths):
+            LOGGER.info(f'Generating detections and embeddings for data under {mot_folder_path} [{i + 1}/{len(mot_folder_paths)} seqs]')
             opt.source = mot_folder_path / 'img1'
             run(opt)

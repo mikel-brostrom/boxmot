@@ -4,9 +4,7 @@ from pathlib import Path
 from boxmot.utils import logger as LOGGER
 
 from boxmot.appearance.backends.base_backend import BaseModelBackend
-from boxmot.utils.checks import TestRequirements
 
-tr = TestRequirements()
 
 
 class TensorRTBackend(BaseModelBackend):
@@ -19,7 +17,7 @@ class TensorRTBackend(BaseModelBackend):
     def load_model(self, w):
 
         LOGGER.info(f"Loading {w} for TensorRT inference...")
-        tr.check_packages(("nvidia-tensorrt",))
+        self.checker.check_packages(("nvidia-tensorrt",))
         import tensorrt as trt  # https://developer.nvidia.com/nvidia-tensorrt-download
 
         if device.type == "cpu":

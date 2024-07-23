@@ -11,6 +11,7 @@
   <br>
   <a href="https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
 <a href="https://doi.org/10.5281/zenodo.8132989"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.8132989.svg" alt="DOI"></a>
+<a href="https://hub.docker.com/r/boxmot/boxmot"><img src="https://img.shields.io/docker/pulls/boxmot/boxmot?logo=docker" alt="Ultralytics Docker Pulls"></a>
 
   </div>
 </div>
@@ -29,6 +30,7 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 | [HybridSORT](https://arxiv.org/pdf/2308.00783.pdf) | 77.3 | 77.9 | 88.8 |
 | [ByteTrack](https://arxiv.org/pdf/2110.06864.pdf)  | 75.6 | 74.6 | 86.0 |
 | [StrongSORT](https://arxiv.org/pdf/2202.13514.pdf) |      | | |
+| [ImprAssoc](https://ieeexplore.ieee.org/document/10223159)| | |
 | <img width=200/>                                   | <img width=100/> | <img width=100/> | <img width=100/> |
 
 <sub> NOTES: performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on: CrowdHuman, MOT17, Cityperson and ETHZ. Each tracker is configured with its original parameters found in their respective official repository.</sub>
@@ -38,14 +40,13 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 </details>
 
 <details>
-<summary>Tutorials</summary>
+<summary>3rd party resources</summary>
 
+* [ROS wrapper for boxmot (link to external repository)](https://github.com/KalanaRatnayake/boxmot_ros)&nbsp;
 * [Yolov10 Integration with BoxMOT (link to external Notebook)](https://colab.research.google.com/drive/1-QV2TNfqaMsh14w5VxieEyanugVBG14V?usp=drive_link)&nbsp;
 * [Yolov8 training (link to external repository)](https://docs.ultralytics.com/modes/train/)&nbsp;
-* [Deep appearance descriptor training (link to external repository)](https://kaiyangzhou.github.io/deep-person-reid/user_guide.html)&nbsp;
-* [ReID model export to ONNX, OpenVINO, TensorRT and TorchScript](https://github.com/mikel-brostrom/yolo_tracking/wiki/ReID-multi-framework-model-export)&nbsp;
-* [Evaluation on custom tracking dataset](https://github.com/mikel-brostrom/yolo_tracking/wiki/How-to-evaluate-on-custom-tracking-dataset)&nbsp;
-* [ReID inference acceleration with Nebullvm](https://colab.research.google.com/drive/1APUZ1ijCiQFBR9xD0gUvFUOC8yOJIvHm?usp=sharing)&nbsp;
+* [ReID model training (link to external repository)](https://kaiyangzhou.github.io/deep-person-reid/user_guide.html)&nbsp;
+* [ReID model inference acceleration with Nebullvm (link to external Notebook)](https://colab.research.google.com/drive/1APUZ1ijCiQFBR9xD0gUvFUOC8yOJIvHm?usp=sharing)&nbsp;
 
   </details>
 
@@ -81,16 +82,7 @@ In inverse chronological order:
 
 #### News
 
-* Enabled tracking per class for all trackers besides StrongSORT by `--per-class` (March 2024)
-* Enabled trajectory plotting for all trackers besides StrongSORT by `--show-trajectories` (March 2024)
-* All trackers inherit from BaseTracker (March 2024)
-* Switched from setuptools to poetry for unified: dependency resolution, packaging and publishing management (March 2024)
-* ~x3 pipeline speedup by: using pregenerated detections + embeddings and jobs parallelization (March 2024)
-* Ultra fast exerimentation enabled by allowing local detections and embeddings saving. This data can then be loaded into any tracking algorithm, avoiding the overhead of repeatedly generating it (February 2024)
-* Centroid-based cost function added to OCSORT and DeepOCSORT (suitable for: small and/or high speed objects and low FPS videos) (January 2024)
-* Custom Ultralytics package updated from 8.0.124 to 8.0.224 (December 2023)
-* HybridSORT available (August 2023)
-* SOTA CLIP-ReID people and vehicle models available (August 2023)
+* Added Improved Association Pipeline Tracker by [rolson24](https://github.com/rolson24) in [#1527](https://github.com/mikel-brostrom/boxmot/pull/1527) (July 2024)
 
 
 ## Why BOXMOT?
@@ -104,8 +96,8 @@ Start with [**Python>=3.8**](https://www.python.org/) environment.
 If you want to run the YOLOv8, YOLO-NAS or YOLOX examples:
 
 ```
-git clone https://github.com/mikel-brostrom/yolo_tracking.git
-cd yolo_tracking
+git clone https://github.com/mikel-brostrom/boxmot.git
+cd boxmot
 pip install poetry
 poetry install --with yolo  # installed boxmot + yolo dependencies
 poetry shell  # activates the newly created environment with the installed dependencies
@@ -147,6 +139,7 @@ $ python tracking/track.py --tracking-method deepocsort
                                              ocsort
                                              bytetrack
                                              botsort
+                                             imprassoc
 ```
 
 </details>
@@ -171,7 +164,7 @@ $ python tracking/track.py --source 0                               # webcam
 <details>
 <summary>Select ReID model</summary>
 
-Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/deep/reid_export.py) script
+Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/appearance/reid_export.py) script
 
 ```bash
 $ python tracking/track.py --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightweight
@@ -237,6 +230,24 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 
 </details>
 
+<details>
+<summary>Export</summary>
+
+We support ReID model export to ONNX, OpenVINO, TorchScript and TensorRT
+
+```bash
+# export to ONNX
+$ python3 boxmot/appearance/reid_export.py --include onnx --device cpu
+# export to OpenVINO
+$ python3 boxmot/appearance/reid_export.py --include openvino --device cpu
+# export to TensorRT with dynamic input
+$ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
+```
+
+The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
+
+</details>
+
 
 ## Custom tracking examples
 
@@ -266,7 +277,13 @@ while True:
     dets = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
 
-    tracker.update(dets, im) # --> M X (x, y, x, y, id, conf, cls, ind)
+    # Check if there are any detections
+    if dets.size > 0:
+        tracker.update(dets, im) # --> M X (x, y, x, y, id, conf, cls, ind)
+    # If no detections, make prediction ahead
+    else:   
+        dets = np.empty((0, 6))  # empty N X (x, y, x, y, conf, cls)
+        tracker.update(dets, im) # --> M X (x, y, x, y, id, conf, cls, ind)
     tracker.plot_results(im, show_trajectories=True)
 
     # break on pressing q or space

@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Raif Olson
 
 import numpy as np
 from collections import deque
@@ -6,9 +6,10 @@ from collections import deque
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
 from boxmot.motion.kalman_filters.xywh_kf import KalmanFilterXYWH
-from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
+from boxmot.trackers.imprassoc.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
-                                   iou_distance, linear_assignment)
+                                   iou_distance, linear_assignment,
+                                   d_iou_distance)
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils import PerClassDecorator
@@ -17,8 +18,7 @@ from boxmot.utils import PerClassDecorator
 class STrack(BaseTrack):
     shared_kalman = KalmanFilterXYWH()
 
-    def __init__(self, det, feat=None, feat_history=50, max_obs=50):
-        # wait activate
+    def __init__(self, det, feat=None, feat_history=15, max_obs=15):
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         self.conf = det[4]
         self.cls = det[5]
@@ -113,7 +113,7 @@ class STrack(BaseTrack):
                 stracks[i].mean = mean
                 stracks[i].covariance = cov
 
-    def activate(self, kalman_filter, frame_id):
+    def activate(self, kalman_filter, frame_count):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.id = self.next_id()
@@ -122,21 +122,21 @@ class STrack(BaseTrack):
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
-        if frame_id == 1:
-            self.is_activated = True
-        self.frame_id = frame_id
-        self.start_frame = frame_id
+        # from OAI track, no unconfirmed tracks.
+        self.is_activated = True
+        self.frame_count = frame_count
+        self.start_frame = frame_count
 
-    def re_activate(self, new_track, frame_id, new_id=False):
+    def re_activate(self, new_track, frame_count, new_id=False):
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.xywh
+            self.mean, self.covariance, new_track.xywh, self.conf
         )
         if new_track.curr_feat is not None:
             self.update_features(new_track.curr_feat)
         self.tracklet_len = 0
         self.state = TrackState.Tracked
         self.is_activated = True
-        self.frame_id = frame_id
+        self.frame_count = frame_count
         if new_id:
             self.id = self.next_id()
         self.conf = new_track.conf
@@ -145,21 +145,21 @@ class STrack(BaseTrack):
 
         self.update_cls(new_track.cls, new_track.conf)
 
-    def update(self, new_track, frame_id):
+    def update(self, new_track, frame_count):
         """
         Update a matched track
         :type new_track: STrack
-        :type frame_id: int
+        :type frame_count: int
         :type update_feature: bool
         :return:
         """
-        self.frame_id = frame_id
+        self.frame_count = frame_count
         self.tracklet_len += 1
 
         self.history_observations.append(self.xyxy)
 
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.xywh
+            self.mean, self.covariance, new_track.xywh, self.conf
         )
 
         if new_track.curr_feat is not None:
@@ -186,26 +186,29 @@ class STrack(BaseTrack):
         return ret
 
 
-class BoTSORT(BaseTracker):
+class ImprAssocTrack(BaseTracker):
     def __init__(
         self,
         model_weights,
         device,
         fp16,
         per_class=False,
-        track_high_thresh: float = 0.5,
+        track_high_thresh: float = 0.6,
         track_low_thresh: float = 0.1,
-        new_track_thresh: float = 0.6,
-        track_buffer: int = 30,
-        match_thresh: float = 0.8,
-        proximity_thresh: float = 0.5,
+        new_track_thresh: float = 0.7,
+        match_thresh: float = 0.65, # bigger?
+        second_match_thresh: float = 0.19,
+        overlap_thresh: float = 0.55,
+        lambda_: float = 0.2,
+        track_buffer: int = 35,
+        proximity_thresh: float = 0.1,
         appearance_thresh: float = 0.25,
-        cmc_method: str = "sof",
+        cmc_method: str = "sparseOptFlow",
         frame_rate=30,
-        fuse_first_associate: bool = False,
-        with_reid: bool = True,
+        with_reid: bool = True
     ):
         super().__init__()
+        self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
         BaseTrack.clear_count()
@@ -216,6 +219,10 @@ class BoTSORT(BaseTracker):
         self.new_track_thresh = new_track_thresh
         self.match_thresh = match_thresh
 
+        self.second_match_thresh = second_match_thresh
+        self.overlap_thresh = overlap_thresh
+        self.lambda_ = lambda_
+
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.kalman_filter = KalmanFilterXYWH()
 
@@ -225,12 +232,13 @@ class BoTSORT(BaseTracker):
 
         self.with_reid = with_reid
         if self.with_reid:
-            self.model = ReidAutoBackend(
+            rab = ReidAutoBackend(
                 weights=model_weights, device=device, half=fp16
-            ).model
+            )
+            self.model = rab.get_backend()
 
         self.cmc = SOF()
-        self.fuse_first_associate = fuse_first_associate
+
 
     @PerClassDecorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
@@ -286,6 +294,8 @@ class BoTSORT(BaseTracker):
 
         """ Add newly detected tracklets to active_tracks"""
         unconfirmed = []
+        low_tent = []
+        high_tent = []
         active_tracks = []  # type: list[STrack]
         for track in self.active_tracks:
             if not track.is_activated:
@@ -293,34 +303,78 @@ class BoTSORT(BaseTracker):
             else:
                 active_tracks.append(track)
 
-        """ Step 2: First association, with high conf detection boxes"""
-        strack_pool = joint_stracks(active_tracks, self.lost_stracks)
+        '''Improved Association: First they calc the cost matrix of the high
+        detections(func_1 -> cost_h), then the calc the cost matrix of the low
+        detections (func_2 -> cost_l) and get the max values of both. Then
+        B = det_h_max / det_l_max.
+        Finally they calc cost = concat(cost_h, B*cost_l) for the matching
+        '''
 
-        # Predict the current location with KF
-        STrack.multi_predict(strack_pool)
+        ''' Step 2: First association, with high score detection boxes'''
+        strack_pool = joint_stracks(active_tracks, self.lost_stracks)
 
         # Fix camera motion
         warp = self.cmc.apply(img, dets_first)
         STrack.multi_gmc(strack_pool, warp)
         STrack.multi_gmc(unconfirmed, warp)
 
-        # Associate with high conf detection boxes
-        ious_dists = iou_distance(strack_pool, detections)
-        ious_dists_mask = ious_dists > self.proximity_thresh
-        if self.fuse_first_associate:
-          ious_dists = fuse_score(ious_dists, detections)
+        # Predict the current location with KF
+        STrack.multi_predict(strack_pool)
+
+        # Associate with high score detection boxes
+        d_ious_dists = d_iou_distance(strack_pool, detections)
+        ious = 1 - iou_distance(strack_pool, detections)
+        ious_dists_mask = (ious < self.proximity_thresh) # o_min in ImprAssoc paper
+
+        num_high_detections = len(detections)
 
         if self.with_reid:
-            emb_dists = embedding_distance(strack_pool, detections) / 2.0
-            emb_dists[emb_dists > self.appearance_thresh] = 1.0
-            emb_dists[ious_dists_mask] = 1.0
-            dists = np.minimum(ious_dists, emb_dists)
-        else:
-            dists = ious_dists
+            # ConfTrack version
+            # emb_dists = embedding_distance(strack_pool, detections) / 2.0
+            # raw_emb_dists = emb_dists.copy()
+            # emb_dists[emb_dists > self.appearance_thresh] = 1.0
+            # emb_dists[ious_dists_mask] = 1.0
+            # dists = np.minimum(ious_dists, emb_dists)
 
-        matches, u_track, u_detection = linear_assignment(
-            dists, thresh=self.match_thresh
-        )
+            # Popular ReID method (JDE / FairMOT)
+            # raw_emb_dists = matching.embedding_distance(strack_pool, detections)
+            # dists = matching.fuse_motion(self.kalman_filter, raw_emb_dists, strack_pool, detections)
+            # emb_dists = dists
+
+            # IoU making ReID
+            # dists = matching.embedding_distance(strack_pool, detections)
+            # dists[ious_dists_mask] = 1.0
+
+            # Improved Association Version (CD)
+            emb_dists = embedding_distance(strack_pool, detections) # high dets
+            dists = self.lambda_*d_ious_dists + (1-self.lambda_)*emb_dists
+            dists[ious_dists_mask] = self.match_thresh + 0.00001
+        else:
+            dists = d_ious_dists
+            dists[ious_dists_mask] = self.match_thresh + 0.00001
+
+        # Add in the low score detection boxes
+
+        # association the untrack to the low score detections
+        if len(dets_second) > 0:
+            '''Detections'''
+            detections_second = [STrack(det, max_obs=self.max_obs) for
+                                 (det) in np.array(dets_second)]
+        else:
+            detections_second = []
+        dists_second = iou_distance(strack_pool, detections_second)
+        dists_second_mask = (dists_second > self.second_match_thresh) # this is what the paper used
+        dists_second[dists_second_mask] = self.second_match_thresh + 0.00001
+
+
+        B = self.match_thresh/self.second_match_thresh
+
+        combined_dists = np.concatenate((dists, B*dists_second), axis=1)
+
+        matches, track_conf_remain, det_remain = linear_assignment(combined_dists, thresh=self.match_thresh)
+
+        # concat detections so that it all works
+        detections = np.concatenate((detections, detections_second), axis=0)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
@@ -332,70 +386,53 @@ class BoTSORT(BaseTracker):
                 track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
-        """ Step 3: Second association, with low conf detection boxes"""
-        if len(dets_second) > 0:
-            """Detections"""
-            detections_second = [STrack(dets_second, max_obs=self.max_obs) for dets_second in dets_second]
-        else:
-            detections_second = []
+        '''Deal with lost tracks'''
 
-        r_tracked_stracks = [
-            strack_pool[i]
-            for i in u_track
-            if strack_pool[i].state == TrackState.Tracked
-        ]
-        dists = iou_distance(r_tracked_stracks, detections_second)
-        matches, u_track, u_detection_second = linear_assignment(dists, thresh=0.5)
-        for itracked, idet in matches:
-            track = r_tracked_stracks[itracked]
-            det = detections_second[idet]
-            if track.state == TrackState.Tracked:
-                track.update(det, self.frame_count)
-                activated_starcks.append(track)
-            else:
-                track.re_activate(det, self.frame_count, new_id=False)
-                refind_stracks.append(track)
-
-        for it in u_track:
-            track = r_tracked_stracks[it]
+        # left over confirmed tracks get lost
+        for it in track_conf_remain:
+            track = strack_pool[it]
             if not track.state == TrackState.Lost:
                 track.mark_lost()
                 lost_stracks.append(track)
 
-        """Deal with unconfirmed tracks, usually tracks with only one beginning frame"""
-        detections = [detections[i] for i in u_detection]
-        ious_dists = iou_distance(unconfirmed, detections)
-        ious_dists_mask = ious_dists > self.proximity_thresh
+        '''now do OAI from Improved Association paper'''
+        # calc the iou between every unmatched det and all tracks if the max iou
+        # for a det D is above overlap_thresh, discard it.
+        sdet_remain = [detections[i] for i in det_remain]
 
-        ious_dists = fuse_score(ious_dists, detections)
-        
         if self.with_reid:
-            emb_dists = embedding_distance(unconfirmed, detections) / 2.0
-            emb_dists[emb_dists > self.appearance_thresh] = 1.0
-            emb_dists[ious_dists_mask] = 1.0
-            dists = np.minimum(ious_dists, emb_dists)
-        else:
-            dists = ious_dists
+            # if we don't need to recompute features
+            if (self.new_track_thresh >= self.track_high_thresh) and features_high is not None:
+                features = [features_high[i] for i in det_remain if i < num_high_detections]
+            else:
+                bboxes = [track.xyxy for track in sdet_remain]
+                bboxes = np.array(bboxes)
+                # (Ndets x X) [512, 1024, 2048]
+                features = self.model.get_features(bboxes, img)
 
-        matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)
-        for itracked, idet in matches:
-            unconfirmed[itracked].update(detections[idet], self.frame_count)
-            activated_starcks.append(unconfirmed[itracked])
-        for it in u_unconfirmed:
-            track = unconfirmed[it]
-            track.mark_removed()
-            removed_stracks.append(track)
+        unmatched_overlap = 1 - iou_distance(strack_pool, sdet_remain)
 
-        """ Step 4: Init new stracks"""
-        for inew in u_detection:
-            track = detections[inew]
-            if track.conf < self.new_track_thresh:
-                continue
+        for det_ind in range(unmatched_overlap.shape[1]): # loop over the rows
+            if len(unmatched_overlap[:, det_ind]) != 0:
+                if np.max(unmatched_overlap[:, det_ind]) < self.overlap_thresh:
+                    # now initialize it
+                    track = sdet_remain[det_ind]
+                    if track.conf > self.new_track_thresh:
+                        track.activate(self.kalman_filter, self.frame_count)
+                        if self.with_reid:
+                            track.update_features(features[det_ind])
+                        activated_starcks.append(track)
+            else:
+                # if no curr tracks, then init one
+                track = sdet_remain[det_ind]
+                if track.conf > self.new_track_thresh:
+                    track.activate(self.kalman_filter, self.frame_count)
+                    if self.with_reid:
+                        track.update_features(features[det_ind])
+                    activated_starcks.append(track)
 
-            track.activate(self.kalman_filter, self.frame_count)
-            activated_starcks.append(track)
 
-        """ Step 5: Update state"""
+        """ Step 6: Update state"""
         for track in self.lost_stracks:
             if self.frame_count - track.end_frame > self.max_age:
                 track.mark_removed()
@@ -415,7 +452,7 @@ class BoTSORT(BaseTracker):
             self.active_tracks, self.lost_stracks
         )
 
-        output_stracks = [track for track in self.active_tracks if track.is_activated]
+        output_stracks = [track for track in self.active_tracks]
         outputs = []
         for t in output_stracks:
             output = []
@@ -460,8 +497,8 @@ def remove_duplicate_stracks(stracksa, stracksb):
     pairs = np.where(pdist < 0.15)
     dupa, dupb = list(), list()
     for p, q in zip(*pairs):
-        timep = stracksa[p].frame_id - stracksa[p].start_frame
-        timeq = stracksb[q].frame_id - stracksb[q].start_frame
+        timep = stracksa[p].frame_count - stracksa[p].start_frame
+        timeq = stracksb[q].frame_count - stracksb[q].start_frame
         if timep > timeq:
             dupb.append(q)
         else:

@@ -6,14 +6,18 @@ from boxmot.utils import WEIGHTS
 
 from numpy.testing import assert_allclose
 from boxmot import (
-    StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, get_tracker_config, create_tracker,
+    StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, ImprAssocTrack, get_tracker_config, create_tracker,
 )
+
+from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
+from boxmot.trackers.deepocsort.deep_ocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
+
 
 
 MOTION_ONLY_TRACKING_METHODS=[OCSORT, BYTETracker]
-MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSORT, BoTSORT, DeepOCSORT]
-ALL_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'strongsort']
-PER_CLASS_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack']
+MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSORT, BoTSORT, DeepOCSORT, ImprAssocTrack]
+ALL_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'strongsort', 'imprassoc']
+PER_CLASS_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'imprassoc']
 
 
 @pytest.mark.parametrize("Tracker", MOTION_N_APPEARANCE_TRACKING_METHODS)
@@ -44,10 +48,74 @@ def test_tracker_output_size(tracker_type):
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
-                    [425, 281, 576, 472, 0.56, 65]])
+                    [425, 281, 576, 472, 0.72, 65]])
 
     output = tracker.update(det, rgb)
     assert output.shape == (2, 8)  # two inputs should give two outputs
+    
+    
+def test_dynamic_max_obs_based_on_max_age():
+    max_age = 400
+    ocsort = OCSORT(
+        max_age=max_age
+    )
+
+    assert ocsort.max_obs == (max_age + 5)
+
+
+def create_kalman_box_tracker_ocsort(bbox, cls, det_ind, tracker):
+    return OCSortKalmanBoxTracker(
+        bbox,
+        cls,
+        det_ind,
+        Q_xy_scaling=tracker.Q_xy_scaling,
+        Q_s_scaling=tracker.Q_s_scaling
+    )
+
+
+def create_kalman_box_tracker_deepocsort(bbox, cls, det_ind, tracker):
+    # DeepOCSort KalmanBoxTracker expects input in different format than OCSort
+    det = np.concatenate([bbox, [cls, det_ind]]) 
+    return DeepOCSortKalmanBoxTracker(
+        det,
+        Q_xy_scaling=tracker.Q_xy_scaling,
+        Q_s_scaling=tracker.Q_s_scaling
+    )
+
+
+TRACKER_CREATORS = {
+    OCSORT: create_kalman_box_tracker_ocsort,
+    DeepOCSORT: create_kalman_box_tracker_deepocsort,
+}
+
+
+@pytest.mark.parametrize("Tracker, init_args", [
+    (OCSORT, {}),
+    (DeepOCSORT, {
+        'model_weights': Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
+        'device': 'cpu',
+        'fp16': True
+    }),
+])
+def test_Q_matrix_scaling(Tracker, init_args):
+    bbox = np.array([0, 0, 100, 100, 0.9])
+    cls = 1
+    det_ind = 0
+    Q_xy_scaling = 0.05
+    Q_s_scaling = 0.0005
+
+    tracker = Tracker(
+        Q_xy_scaling=Q_xy_scaling, 
+        Q_s_scaling=Q_s_scaling,
+        **init_args
+    )
+
+    create_kalman_box_tracker = TRACKER_CREATORS[Tracker]
+    kalman_box_tracker = create_kalman_box_tracker(bbox, cls, det_ind, tracker)
+
+    assert kalman_box_tracker.kf.Q[4, 4] == Q_xy_scaling, "Q_xy scaling incorrect for x' velocity"
+    assert kalman_box_tracker.kf.Q[5, 5] == Q_xy_scaling, "Q_xy scaling incorrect for y' velocity"
+    assert kalman_box_tracker.kf.Q[6, 6] == Q_s_scaling, "Q_s scaling incorrect for s' (scale) velocity"
 
 
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
@@ -65,7 +133,7 @@ def test_per_class_tracker_output_size(tracker_type):
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
-                    [425, 281, 576, 472, 0.56, 65]])
+                    [425, 281, 576, 472, 0.72, 65]])
 
     output = tracker.update(det, rgb)
     output = tracker.update(det, rgb)
@@ -87,7 +155,7 @@ def test_per_class_tracker_active_tracks(tracker_type):
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
-                    [425, 281, 576, 472, 0.56, 65]])
+                    [425, 281, 576, 472, 0.72, 65]])
 
     tracker.update(det, rgb)
 
