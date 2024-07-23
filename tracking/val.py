@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 import json
+import queue
+import select
 import re
 import torch
 from functools import partial
@@ -30,29 +32,23 @@ from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
-def prompt_overwrite(path_type, path, auto_overwrite=False):
-    if auto_overwrite:
-        print(f"{path_type} {path} already exists. Auto-overwriting due to no UI mode.")
-        return True
+
+def prompt_overwrite(path_type, path, ci=False):
+    if ci:
+        print(f"{path_type} {path} already exists. Use existing due to no UI mode.")
+        return False
     
     def input_with_timeout(prompt, timeout=3.0):
         print(prompt, end='', flush=True)
-        result = [None]
-        
-        def inner_input():
-            result[0] = input()
-        
-        thread = threading.Thread(target=inner_input)
-        thread.start()
-        thread.join(timeout)
-        if thread.is_alive():
+        inputs, _, _ = select.select([sys.stdin], [], [], timeout)
+        if inputs:
+            result = sys.stdin.readline().strip().lower()
+            return result in ['y', 'yes']
+        else:
             print("\nNo response, proceeding with overwrite...")
             return True
-        return result[0].strip().lower() in ['y', 'yes']
     
-    if input_with_timeout(f"{path_type} {path} already exists. Overwrite? [y/N]: "):
-        return True
-    return False
+    return input_with_timeout(f"{path_type} {path} already exists. Overwrite? [y/N]: ")
 
 def generate_dets_embs(args, y):
     WEIGHTS.mkdir(parents=True, exist_ok=True)
@@ -318,8 +314,8 @@ def parse_opt():
                         help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train',
                         help='existing project/name ok, do not increment')
-    parser.add_argument('--auto-overwrite', action='store_true',
-                        help='Automatically overwrite existing files without prompt')
+    parser.add_argument('--ci', action='store_true',
+                        help='Automatically reuse existing due to no UI in CI')
 
     opt = parser.parse_args()
     return opt
@@ -334,7 +330,7 @@ def run_generate_dets_embs(opt):
             dets_path = Path(opt.project) / 'dets_n_embs' / opt.name / 'dets' / (mot_folder_path.name + '.txt')
             embs_path = Path(opt.project) / 'dets_n_embs' / opt.name / 'embs' / (opt.reid_model[0].stem) / (mot_folder_path.name + '.txt')
             if dets_path.exists() and embs_path.exists():
-                if prompt_overwrite('Detections and Embeddings', dets_path, opt.auto_overwrite):
+                if prompt_overwrite('Detections and Embeddings', dets_path, opt.ci):
                     LOGGER.info(f'Overwriting detections and embeddings for {mot_folder_path}...')
                 else:
                     LOGGER.info(f'Skipping generation for {mot_folder_path} as they already exist.')
@@ -353,7 +349,7 @@ def run_generate_mot_results(opt):
     for d, e in zip(dets_file_paths, embs_file_paths):
         mot_result_path = exp_folder_path / (d.stem + '.txt')
         if mot_result_path.exists():
-            if prompt_overwrite('MOT Result', mot_result_path, opt.auto_overwrite):
+            if prompt_overwrite('MOT Result', mot_result_path, opt.ci):
                 LOGGER.info(f'Overwriting MOT result for {d.stem}...')
             else:
                 LOGGER.info(f'Skipping MOT result generation for {d.stem} as it already exists.')
