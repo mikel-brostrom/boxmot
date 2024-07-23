@@ -328,7 +328,6 @@ def parse_opt():
     reid_model_stem = (opt.reid_model[0]).stem
     default_name = f"{yolo_model_stem}_{reid_model_stem}"
     opt.name = default_name
-    opt.yolo_model = opt.yolo_model[0]
     
     opt.tracking_config = ROOT / 'boxmot' / 'configs' / (opt.tracking_method + '.yaml')
     opt.objectives = opt.objectives.split(",")
