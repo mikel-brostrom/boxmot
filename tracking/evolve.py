@@ -1,5 +1,4 @@
-import subprocess
-import ray
+
 import os
 import yaml
 from boxmot.utils.checks import RequirementsChecker
@@ -9,6 +8,7 @@ from boxmot.utils import ROOT
 checker = RequirementsChecker()
 checker.check_packages(('ray[tune]'))  # install
 
+import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.air import RunConfig
