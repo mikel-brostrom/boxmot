@@ -121,7 +121,8 @@ def unzip_mot_dataset(zip_path, val_tools_path, benchmark):
     if not extract_path.exists():
         try:
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_path)
+                # folder will be called as the original fetched file
+                zip_ref.extractall(val_tools_path / 'data')
 
             LOGGER.info(f'{benchmark}.zip unzipped successfully.')
         except zipfile.BadZipFile:
