@@ -9,6 +9,7 @@ from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
 from boxmot.motion.kalman_filters.xywh_kf import KalmanFilterXYWH
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
+from boxmot.utils.iou import run_asso_func
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils import PerClassDecorator
 from boxmot.utils.ops import xyxy2xysr
@@ -382,11 +383,9 @@ class DeepOCSort(BaseTracker):
             left_trks = last_boxes[unmatched_trks]
             left_trks_embs = trk_embs[unmatched_trks]
 
-            
-            iou_left = self.asso_func(
-                *(left_dets, left_trks, self.width, self.height) if self.asso_func.__name__ == 'centroid_batch'
-                else (left_dets, left_trks)
-            )
+
+            h, w = img.shape[0:2]
+            iou_left = run_asso_func(self.asso_func, left_dets, left_trks, w, h)
             # TODO: is better without this
             emb_cost_left = left_dets_embs @ left_trks_embs.T
             if self.embedding_off:
