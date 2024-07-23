@@ -203,14 +203,11 @@ python tracking/track.py --source 0 --yolo-model yolov8s.pt --classes 16 17  # C
 Evaluate a combination of detector, tracking method and ReID model on standard MOT dataset or you custom one by
 
 ```bash
-# saves dets and embs under ./runs/dets_n_embs separately for each selected yolo and reid model
-$ python tracking/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
-# generate MOT challenge format results based on pregenerated detections and embeddings for a specific trackign method
-$ python tracking/generate_mot_results.py --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method botsort
-# uses TrackEval to generate MOT metrics for the tracking results under ./runs/mot/<dets+embs+tracking-method>
-$ python tracking/val.py --benchmark MOT17-mini --dets yolov8n --embs osnet_x0_25_msmt17 --tracking-method botsort
+$ python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method deepocsort --verbose --source ./assert/MOT17-mini/train
+$ python3 tracking/val.py --benchmark MOT17      --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method ocsort     --verbose --source ./tracking/val_utils/MOT17/train
 ```
 
+Detections and embeddings are stored for the selected YOLO and ReID model respectively, which then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
 </details>
 
 
