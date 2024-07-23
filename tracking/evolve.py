@@ -6,7 +6,7 @@ from tracking.val import run_generate_mot_results, run_trackeval, parse_opt as p
 from boxmot.utils import ROOT
 
 checker = RequirementsChecker()
-checker.check_packages(('ray'))  # install
+checker.check_packages(('ray',))  # install
 
 import ray
 from ray import tune
