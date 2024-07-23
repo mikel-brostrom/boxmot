@@ -2,11 +2,17 @@ import subprocess
 import ray
 import os
 import yaml
+from boxmot.utils.checks import RequirementsChecker
+from tracking.val import run_generate_mot_results, run_trackeval, parse_opt as parse_optt
+from boxmot.utils import ROOT
+
+checker = RequirementsChecker()
+checker.check_packages(('ray[tune]'))  # install
+
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.air import RunConfig
-from tracking.val import run_generate_mot_results, run_trackeval, parse_opt as parse_optt
-from boxmot.utils import ROOT
+
 
 class Tracker:
     def __init__(self, opt, parameters):
@@ -30,7 +36,7 @@ class Tracker:
         # # Extract objective results of the current trial
         # combined_results = {key: results.get(key) for key in self.opt['objectives']}
         #return combined_results
-        return {"HOTA": 0.4, "MOTA": 0.3, "IDF1": 0.2}
+        return {"HOTA": 0.1, "MOTA": 0.1, "IDF1": 0.1}
 
 # Define the search space for hyperparameters
 search_space = {
