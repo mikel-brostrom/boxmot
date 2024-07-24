@@ -8,7 +8,6 @@ from boxmot.utils import logger as LOGGER
 class EngineExporter(BaseExporter):
     required_packages = ("nvidia-tensorrt",)
     cmds = '--extra-index-url https://pypi.ngc.nvidia.com'
-    self.verbose = True
     
     def export(self):
 
@@ -23,7 +22,7 @@ class EngineExporter(BaseExporter):
         assert onnx_file.exists(), f"Failed to export ONNX file: {onnx_file}"
         f = self.file.with_suffix(".engine")
         logger = trt.Logger(trt.Logger.INFO)
-        if self.verbose:
+        if True:
             logger.min_severity = trt.Logger.Severity.VERBOSE
 
         builder = trt.Builder(logger)
