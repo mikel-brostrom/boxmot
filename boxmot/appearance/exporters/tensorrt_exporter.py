@@ -8,6 +8,7 @@ from boxmot.utils import logger as LOGGER
 class EngineExporter(BaseExporter):
     required_packages = ("nvidia-tensorrt",)
     cmds = '--extra-index-url https://pypi.ngc.nvidia.com'
+    self.verbose = True
     
     def export(self):
 
