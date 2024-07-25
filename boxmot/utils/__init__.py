@@ -1,5 +1,6 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
+import os
 import sys
 from pathlib import Path
 
@@ -13,6 +14,9 @@ EXAMPLES = ROOT / "tracking"
 TRACKER_CONFIGS = ROOT / "boxmot" / "configs"
 WEIGHTS = ROOT / "tracking" / "weights"
 REQUIREMENTS = ROOT / "requirements.txt"
+
+NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of BoxMOT multiprocessing threads
+
 
 # global logger
 from loguru import logger
