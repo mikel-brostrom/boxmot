@@ -15,15 +15,14 @@ def get_tracker_config(tracker_type):
     return tracking_config
 
 
-def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=None, half=None, per_class=None, config_dict=None):
+def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=None, half=None, per_class=None, evolve_param_dict=None):
     # If config_dict is not provided, read from the file
-    if config_dict is None:
+    if evolve_param_dict is None:
         with open(tracker_config, "r") as f:
             cfg = yaml.load(f.read(), Loader=yaml.FullLoader)
         cfg = SimpleNamespace(**cfg)  # easier dict access by dot, instead of ['']
     else:
-        print('loading from ccccc')
-        cfg = SimpleNamespace(**config_dict)  # Use provided dict
+        cfg = SimpleNamespace(**evolve_param_dict)  # Use provided dict
 
     if tracker_type == 'strongsort':
         from boxmot.trackers.strongsort.strong_sort import StrongSORT
