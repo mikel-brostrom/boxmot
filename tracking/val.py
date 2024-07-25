@@ -168,10 +168,14 @@ def generate_mot_results(args):
 
     dets_n_embs = np.concatenate([dets, embs], axis=1)
 
-    print('args.source', args.source)
     dataset = LoadImages(args.source)
 
+    # create new MOT folder if txt file already exists
     txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
+    if txt_path.exists():
+        args.exp_folder_path = increment_path(path=args.exp_folder_path, sep="_", exist_ok=False)
+        txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
+        
     all_mot_results = []
 
     for frame_idx, d in enumerate(tqdm(dataset, desc="Frames")):
