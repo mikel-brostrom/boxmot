@@ -82,6 +82,7 @@ In inverse chronological order:
 
 #### News
 
+* Hyperparameter search for all trackers using RayTune (July 2024)
 * Added Improved Association Pipeline Tracker by [rolson24](https://github.com/rolson24) in [#1527](https://github.com/mikel-brostrom/boxmot/pull/1527) (July 2024)
 
 
