@@ -9,7 +9,7 @@ from tracking.val import (
     run_trackeval,
     parse_opt as parse_optt
 )
-from boxmot.utils import ROOT
+from boxmot.utils import ROOT, NUM_THREADS
 
 checker = RequirementsChecker()
 checker.check_packages(('ray[tune]',))  # install
@@ -37,7 +37,6 @@ class Tracker:
         # Generate new set of params
         self.get_new_config(config)
         # Run trial, get HOTA, MOTA, IDF1 combined results
-        run_generate_dets_embs(self.opt)
         run_generate_mot_results(self.opt)
         results = run_trackeval(self.opt)
         # Extract objective results of the current trial
@@ -62,6 +61,7 @@ search_space = {
 opt = parse_optt()
 opt.source = Path(opt.source).resolve()
 tracker = Tracker(opt, search_space)
+run_generate_dets_embs(opt)
 
 def train(config):
     return tracker.objective_function(config)
@@ -80,7 +80,7 @@ asha_scheduler = ASHAScheduler(
 results_dir = os.path.abspath("results/")
 # Run Ray Tune
 tuner = tune.Tuner(
-    tune.with_resources(train, {"cpu": 1, "gpu": 0}),  # Adjust resources as needed
+    tune.with_resources(train, {"cpu": NUM_THREADS, "gpu": 0}),  # Adjust resources as needed
     param_space=search_space,
     tune_config=tune.TuneConfig(scheduler=asha_scheduler, num_samples=opt.n_trials),
     run_config=RunConfig(storage_path=results_dir)
