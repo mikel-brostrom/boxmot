@@ -22,6 +22,7 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
             cfg = yaml.load(f.read(), Loader=yaml.FullLoader)
         cfg = SimpleNamespace(**cfg)  # easier dict access by dot, instead of ['']
     else:
+        print('passing this strongsort config', evolve_param_dict)
         cfg = SimpleNamespace(**evolve_param_dict)  # Use provided dict
 
     if tracker_type == 'strongsort':
@@ -43,6 +44,7 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
 
     elif tracker_type == 'ocsort':
         from boxmot.trackers.ocsort.ocsort import OCSort
+        print(cfg)
         ocsort = OCSort(
             per_class=per_class,
             det_thresh=cfg.det_thresh,
