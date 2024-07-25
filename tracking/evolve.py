@@ -1,6 +1,7 @@
 
 import os
 import yaml
+from pathlib import Path
 from boxmot.utils.checks import RequirementsChecker
 from tracking.val import (
     run_generate_dets_embs,
@@ -59,6 +60,7 @@ search_space = {
 }
 
 opt = parse_optt()
+opt.source = Path(opt.source).resolve()
 tracker = Tracker(opt, search_space)
 
 def train(config):
