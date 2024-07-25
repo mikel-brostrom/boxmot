@@ -2,7 +2,12 @@
 import os
 import yaml
 from boxmot.utils.checks import RequirementsChecker
-from tracking.val import run_generate_mot_results, run_trackeval, parse_opt as parse_optt
+from tracking.val import (
+    run_generate_dets_embs,
+    run_generate_mot_results,
+    run_trackeval,
+    parse_opt as parse_optt
+)
 from boxmot.utils import ROOT
 
 checker = RequirementsChecker()
@@ -29,14 +34,15 @@ class Tracker:
 
     def objective_function(self, config):
         # Generate new set of params
-        # self.get_new_config(config)
-        # # Run trial, get HOTA, MOTA, IDF1 combined results
-        # run_generate_mot_results(self.opt)
-        # results = run_trackeval(self.opt)
-        # # Extract objective results of the current trial
-        # combined_results = {key: results.get(key) for key in self.opt['objectives']}
-        #return combined_results
-        return {"HOTA": 0.1, "MOTA": 0.1, "IDF1": 0.1}
+        self.get_new_config(config)
+        # Run trial, get HOTA, MOTA, IDF1 combined results
+        run_generate_dets_embs(self.opt)
+        run_generate_mot_results(self.opt)
+        results = run_trackeval(self.opt)
+        # Extract objective results of the current trial
+        combined_results = {key: results.get(key) for key in self.opt.objectives}
+        return combined_results
+        #return {"HOTA": 0.1, "MOTA": 0.1, "IDF1": 0.1}
 
 # Define the search space for hyperparameters
 search_space = {
@@ -74,7 +80,7 @@ results_dir = os.path.abspath("results/")
 tuner = tune.Tuner(
     tune.with_resources(train, {"cpu": 1, "gpu": 0}),  # Adjust resources as needed
     param_space=search_space,
-    tune_config=tune.TuneConfig(scheduler=asha_scheduler, num_samples=10),
+    tune_config=tune.TuneConfig(scheduler=asha_scheduler, num_samples=opt.n_trials),
     run_config=RunConfig(storage_path=results_dir)
 )
 
