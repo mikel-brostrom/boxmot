@@ -147,7 +147,7 @@ def generate_dets_embs(args, y):
                 np.savetxt(f, embs, fmt='%f')  # save as ints instead of scientific notation
 
 
-def generate_mot_results(args):
+def generate_mot_results(args, config_dict=None):
     args.device = select_device(args.device)
     tracker = create_tracker(
         args.tracking_method,
@@ -155,7 +155,8 @@ def generate_mot_results(args):
         args.reid_model[0].with_suffix('.pt'),
         args.device,
         False,
-        False
+        False,
+        config_dict
     )
 
     with open(args.dets_file_path, 'r') as file:
@@ -172,9 +173,6 @@ def generate_mot_results(args):
 
     # create new MOT folder if txt file already exists
     txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
-    if txt_path.exists():
-        args.exp_folder_path = increment_path(path=args.exp_folder_path, sep="_", exist_ok=False)
-        txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
         
     all_mot_results = []
 
@@ -242,6 +240,8 @@ def trackeval(args, seq_paths, save_dir, MOT_results_folder, gt_folder, metrics=
     # Define paths
     d = [seq_path.parent.name for seq_path in seq_paths]
     # Prepare arguments for subprocess call
+    print('str(gt_folder)', str(gt_folder))
+    print('args.exp_folder_path', args.exp_folder_path)
     args = [
         sys.executable, EXAMPLES / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
@@ -290,7 +290,7 @@ def run_generate_dets_embs(opt):
             generate_dets_embs(opt, y)
 
 
-def run_generate_mot_results(opt):
+def run_generate_mot_results(opt, evolve_config=None):
     for y in opt.yolo_model:
         exp_folder_path = opt.project / 'mot' / (str(y.stem) + "_" + str(opt.reid_model[0].stem) + "_" + str(opt.tracking_method))
         exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
@@ -307,7 +307,7 @@ def run_generate_mot_results(opt):
                     continue
             opt.dets_file_path = d
             opt.embs_file_path = e
-            generate_mot_results(opt)
+            generate_mot_results(opt, evolve_config)
 
 
 def run_trackeval(opt):
