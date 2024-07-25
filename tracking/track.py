@@ -58,8 +58,11 @@ def on_predict_start(predictor, persist=False):
 def run(args):
 
     yolo = YOLO(
-        args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
+         args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
     )
+    # yolo = YOLO(
+    #     args.yolo_model,
+    # )
 
     results = yolo.track(
         source=args.source,
@@ -111,7 +114,7 @@ def run(args):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolov8n.pt',
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='reid model path')

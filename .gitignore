@@ -11,6 +11,7 @@ __pycache__/
 # experiment results
 runs/
 videos/
+*.mp4
 
 # experiment files
 *.pkl

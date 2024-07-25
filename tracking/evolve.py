@@ -175,7 +175,8 @@ class Objective():
         elif self.opt.tracking_method == 'deepocsort':
 
             det_thresh = trial.suggest_int("det_thresh", 0.3, 0.6)
-            max_age = trial.suggest_int("max_age", 10, 60, step=10)
+            # max_age = trial.suggest_int("max_age", 10, 60, step=10)
+            max_age = trial.suggest_int("max_age", 10, 10000, step=10)
             min_hits = trial.suggest_int("min_hits", 1, 5, step=1)
             iou_thresh = trial.suggest_float("iou_thresh", 0.1, 0.4)
             delta_t = trial.suggest_int("delta_t", 1, 5, step=1)
