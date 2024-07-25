@@ -2,6 +2,7 @@
 import os
 import yaml
 from pathlib import Path
+
 from boxmot.utils.checks import RequirementsChecker
 from tracking.val import (
     run_generate_dets_embs,
@@ -23,21 +24,12 @@ from ray.air import RunConfig
 class Tracker:
     def __init__(self, opt, parameters):
         self.opt = opt
-        self.parameters = parameters
-
-    def get_new_config(self, config):
-        # Update the options with the current config
-        self.parameters.update(config)
-        # Overwrite the local file with the new parameters
-        tracking_config = ROOT / 'boxmot' / 'configs' / (self.opt.tracking_method + '.yaml')
-        with open(tracking_config, 'w') as f:
-            yaml.dump(self.parameters, f)
 
     def objective_function(self, config):
+        config.update(config)
         # Generate new set of params
-        self.get_new_config(config)
         # Run trial, get HOTA, MOTA, IDF1 combined results
-        run_generate_mot_results(self.opt)
+        run_generate_mot_results(self.opt, config)
         results = run_trackeval(self.opt)
         # Extract objective results of the current trial
         combined_results = {key: results.get(key) for key in self.opt.objectives}
@@ -77,7 +69,7 @@ asha_scheduler = ASHAScheduler(
     reduction_factor=3
 )
 
-results_dir = os.path.abspath("results/")
+results_dir = os.path.abspath("ray/")
 # Run Ray Tune
 tuner = tune.Tuner(
     tune.with_resources(train, {"cpu": NUM_THREADS, "gpu": 0}),  # Adjust resources as needed
@@ -87,3 +79,5 @@ tuner = tune.Tuner(
 )
 
 tuner.fit()
+
+print(tuner.get_results())
