@@ -131,6 +131,8 @@ def get_search_space(tracking_method):
         
 opt = parse_optt()
 opt.source = Path(opt.source).resolve()
+opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
+opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
 search_space = get_search_space(opt.tracking_method)
 tracker = Tracker(opt, search_space)
 run_generate_dets_embs(opt)
