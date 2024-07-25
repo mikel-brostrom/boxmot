@@ -91,7 +91,7 @@ def generate_dets_embs(args, y):
             weights=args.reid_model, device=yolo.predictor.device, half=args.half
         ).model
         reids.append(model)
-        embs_path = opt.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
+        embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
         embs_path.touch(exist_ok=True)
         
@@ -102,7 +102,7 @@ def generate_dets_embs(args, y):
     # store custom args in predictor
     yolo.predictor.custom_args = args
 
-    dets_path = opt.project / 'dets_n_embs' / y.stem / 'dets' / (Path(args.source).parent.name + '.txt')
+    dets_path = args.project / 'dets_n_embs' / y.stem / 'dets' / (Path(args.source).parent.name + '.txt')
     
     # create parent folder and txt files
     dets_path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,12 +142,12 @@ def generate_dets_embs(args, y):
 
         for reid, reid_model_name in zip(reids, args.reid_model):
             embs = reid.get_features(dets[:, 1:5], img)
-            embs_path = opt.project / "dets_n_embs" / y.stem / 'embs' / reid_model_name.stem / (Path(args.source).parent.name + '.txt')
+            embs_path = args.project / "dets_n_embs" / y.stem / 'embs' / reid_model_name.stem / (Path(args.source).parent.name + '.txt')
             with open(str(embs_path), 'ab+') as f:  # append binary mode
                 np.savetxt(f, embs, fmt='%f')  # save as ints instead of scientific notation
 
 
-def generate_mot_results(args):
+def generate_mot_results(args, config_dict=None):
     args.device = select_device(args.device)
     tracker = create_tracker(
         args.tracking_method,
@@ -155,7 +155,8 @@ def generate_mot_results(args):
         args.reid_model[0].with_suffix('.pt'),
         args.device,
         False,
-        False
+        False,
+        config_dict
     )
 
     with open(args.dets_file_path, 'r') as file:
@@ -170,7 +171,9 @@ def generate_mot_results(args):
 
     dataset = LoadImages(args.source)
 
+    # create new MOT folder if txt file already exists
     txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
+        
     all_mot_results = []
 
     for frame_idx, d in enumerate(tqdm(dataset, desc="Frames")):
@@ -237,6 +240,8 @@ def trackeval(args, seq_paths, save_dir, MOT_results_folder, gt_folder, metrics=
     # Define paths
     d = [seq_path.parent.name for seq_path in seq_paths]
     # Prepare arguments for subprocess call
+    print('str(gt_folder)', str(gt_folder))
+    print('args.exp_folder_path', args.exp_folder_path)
     args = [
         sys.executable, EXAMPLES / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
@@ -268,6 +273,7 @@ def trackeval(args, seq_paths, save_dir, MOT_results_folder, gt_folder, metrics=
 
 
 def run_generate_dets_embs(opt):
+    print('opt.source', opt.source)
     mot_folder_paths = [item for item in Path(opt.source).iterdir()]
     for y in opt.yolo_model:
         for i, mot_folder_path in enumerate(mot_folder_paths):
@@ -284,7 +290,7 @@ def run_generate_dets_embs(opt):
             generate_dets_embs(opt, y)
 
 
-def run_generate_mot_results(opt):
+def run_generate_mot_results(opt, evolve_config=None):
     for y in opt.yolo_model:
         exp_folder_path = opt.project / 'mot' / (str(y.stem) + "_" + str(opt.reid_model[0].stem) + "_" + str(opt.tracking_method))
         exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
@@ -301,7 +307,7 @@ def run_generate_mot_results(opt):
                     continue
             opt.dets_file_path = d
             opt.embs_file_path = e
-            generate_mot_results(opt)
+            generate_mot_results(opt, evolve_config)
 
 
 def run_trackeval(opt):
@@ -352,9 +358,7 @@ def parse_opt():
     parser.add_argument('--verbose', action='store_true', help='print results')
     parser.add_argument('--agnostic-nms', default=False, action='store_true', help='class-agnostic NMS')
     parser.add_argument('--n-trials', type=int, default=4, help='nr of trials for evolution')
-    parser.add_argument('--resume', action='store_true', help='resume hparam search')
-    parser.add_argument('--processes-per-device', type=int, default=2, help='how many subprocesses can be invoked per GPU (to manage memory consumption)')
-    parser.add_argument('--objectives', type=str, default='HOTA,MOTA,IDF1', help='set of objective metrics: HOTA,MOTA,IDF1')
+    parser.add_argument('--objectives', type=str, nargs='+', default=["HOTA", "MOTA", "IDF1"], help='set of objective metrics: HOTA,MOTA,IDF1')
 
     subparsers = parser.add_subparsers(dest='command')
 

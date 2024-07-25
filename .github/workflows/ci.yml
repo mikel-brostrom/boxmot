@@ -95,13 +95,10 @@ jobs:
           poetry lock --no-update
           poetry install --with yolo,evolve
 
-      - name: Generate detections and embeddings
-        run: |
-          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
-
       - name: Evolve set of parameters for selected tracking method
         run: |
-          python tracking/evolve.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 9 --tracking-method bytetrack
+          # reuse first set of generated det and prod
+          python tracking/evolve.py --benchmark MOT17-mini --yolo-model yolox_x.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 5 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
 
 
   mot-metrics-benchmark:
