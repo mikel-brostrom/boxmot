@@ -91,7 +91,7 @@ def generate_dets_embs(args, y):
             weights=args.reid_model, device=yolo.predictor.device, half=args.half
         ).model
         reids.append(model)
-        embs_path = opt.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
+        embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
         embs_path.touch(exist_ok=True)
         
@@ -102,7 +102,7 @@ def generate_dets_embs(args, y):
     # store custom args in predictor
     yolo.predictor.custom_args = args
 
-    dets_path = opt.project / 'dets_n_embs' / y.stem / 'dets' / (Path(args.source).parent.name + '.txt')
+    dets_path = args.project / 'dets_n_embs' / y.stem / 'dets' / (Path(args.source).parent.name + '.txt')
     
     # create parent folder and txt files
     dets_path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,7 +142,7 @@ def generate_dets_embs(args, y):
 
         for reid, reid_model_name in zip(reids, args.reid_model):
             embs = reid.get_features(dets[:, 1:5], img)
-            embs_path = opt.project / "dets_n_embs" / y.stem / 'embs' / reid_model_name.stem / (Path(args.source).parent.name + '.txt')
+            embs_path = args.project / "dets_n_embs" / y.stem / 'embs' / reid_model_name.stem / (Path(args.source).parent.name + '.txt')
             with open(str(embs_path), 'ab+') as f:  # append binary mode
                 np.savetxt(f, embs, fmt='%f')  # save as ints instead of scientific notation
 
@@ -269,6 +269,7 @@ def trackeval(args, seq_paths, save_dir, MOT_results_folder, gt_folder, metrics=
 
 
 def run_generate_dets_embs(opt):
+    print('opt.source', opt.source)
     mot_folder_paths = [item for item in Path(opt.source).iterdir()]
     for y in opt.yolo_model:
         for i, mot_folder_path in enumerate(mot_folder_paths):
