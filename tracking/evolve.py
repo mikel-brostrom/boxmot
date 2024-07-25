@@ -26,7 +26,6 @@ class Tracker:
         self.opt = opt
 
     def objective_function(self, config):
-        config.update(config)
         # Generate new set of params
         # Run trial, get HOTA, MOTA, IDF1 combined results
         run_generate_mot_results(self.opt, config)
