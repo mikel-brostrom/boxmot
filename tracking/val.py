@@ -34,11 +34,22 @@ checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 
-def prompt_overwrite(path_type, path, ci=False):
+def prompt_overwrite(path_type: str, path: str, ci: bool = False) -> bool:
+    """
+    Prompts the user to confirm overwriting an existing file.
+
+    Args:
+        path_type (str): Type of the path (e.g., 'Detections and Embeddings', 'MOT Result').
+        path (str): The path to check.
+        ci (bool): If True, automatically reuse existing file without prompting (for CI environments).
+
+    Returns:
+        bool: True if user confirms to overwrite, False otherwise.
+    """
     if ci:
         print(f"{path_type} {path} already exists. Use existing due to no UI mode.")
         return False
-    
+
     def input_with_timeout(prompt, timeout=3.0):
         print(prompt, end='', flush=True)
         inputs, _, _ = select.select([sys.stdin], [], [], timeout)
@@ -48,16 +59,21 @@ def prompt_overwrite(path_type, path, ci=False):
         else:
             print("\nNo response, not proceeding with overwrite...")
             return False
-    
+
     return input_with_timeout(f"{path_type} {path} already exists. Overwrite? [y/N]: ")
 
 
-def generate_dets_embs(args, y):
+def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
+    """
+    Generates detections and embeddings for the specified YOLO model and arguments.
+
+    Args:
+        args (Namespace): Parsed command line arguments.
+        y (Path): Path to the YOLO model file.
+    """
     WEIGHTS.mkdir(parents=True, exist_ok=True)
 
-    yolo = YOLO(
-        y if 'yolov8' in str(y) else 'yolov8n.pt',
-    )
+    yolo = YOLO(y if 'yolov8' in str(y) else 'yolov8n.pt')
 
     results = yolo(
         source=args.source,
@@ -76,58 +92,44 @@ def generate_dets_embs(args, y):
     )
 
     if 'yolov8' not in str(y):
-        # replace yolov8 model
         m = get_yolo_inferer(y)
-        model = m(
-            model=y,
-            device=yolo.predictor.device,
-            args=yolo.predictor.args
-        )
+        model = m(model=y, device=yolo.predictor.device, args=yolo.predictor.args)
         yolo.predictor.model = model
 
     reids = []
     for r in args.reid_model:
-        model = ReidAutoBackend(
-            weights=args.reid_model, device=yolo.predictor.device, half=args.half
-        ).model
+        model = ReidAutoBackend(weights=args.reid_model, device=yolo.predictor.device, half=args.half).model
         reids.append(model)
         embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
         embs_path.touch(exist_ok=True)
-        
-        # Truncate the embeddings file if it is not empty
+
         if os.path.getsize(embs_path) > 0:
             open(embs_path, 'w').close()
 
-    # store custom args in predictor
     yolo.predictor.custom_args = args
 
     dets_path = args.project / 'dets_n_embs' / y.stem / 'dets' / (Path(args.source).parent.name + '.txt')
-    
-    # create parent folder and txt files
     dets_path.parent.mkdir(parents=True, exist_ok=True)
     dets_path.touch(exist_ok=True)
-    
-    # Truncate the detections file if it is not empty
+
     if os.path.getsize(dets_path) > 0:
         open(dets_path, 'w').close()
-    
-    with open(str(dets_path), 'ab+') as f:  # append binary mode
-        np.savetxt(f, [], fmt='%f', header=str(args.source))  # save as ints instead of scientific notation
+
+    with open(str(dets_path), 'ab+') as f:
+        np.savetxt(f, [], fmt='%f', header=str(args.source))
 
     for frame_idx, r in enumerate(tqdm(results, desc="Frames")):
-
         nr_dets = len(r.boxes)
-        frame_idx = torch.full((1, 1), frame_idx + 1)
-        frame_idx = frame_idx.repeat(nr_dets, 1)
+        frame_idx = torch.full((1, 1), frame_idx + 1).repeat(nr_dets, 1)
 
         if r.boxes.data.is_cpu:
             dets = r.boxes.data[:, 0:4].numpy()
         else:
             dets = r.boxes.data[:, 0:4].cpu().numpy()
-            
+
         img = r.orig_img
-        
+
         dets = np.concatenate(
             [
                 frame_idx,
@@ -137,17 +139,24 @@ def generate_dets_embs(args, y):
             ], axis=1
         )
 
-        with open(str(dets_path), 'ab+') as f:  # append binary mode
-            np.savetxt(f, dets, fmt='%f')  # save as ints instead of scientific notation
+        with open(str(dets_path), 'ab+') as f:
+            np.savetxt(f, dets, fmt='%f')
 
         for reid, reid_model_name in zip(reids, args.reid_model):
             embs = reid.get_features(dets[:, 1:5], img)
             embs_path = args.project / "dets_n_embs" / y.stem / 'embs' / reid_model_name.stem / (Path(args.source).parent.name + '.txt')
-            with open(str(embs_path), 'ab+') as f:  # append binary mode
-                np.savetxt(f, embs, fmt='%f')  # save as ints instead of scientific notation
+            with open(str(embs_path), 'ab+') as f:
+                np.savetxt(f, embs, fmt='%f')
 
 
-def generate_mot_results(args, config_dict=None):
+def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> None:
+    """
+    Generates MOT results for the specified arguments and configuration.
+
+    Args:
+        args (Namespace): Parsed command line arguments.
+        config_dict (dict, optional): Additional configuration dictionary.
+    """
     args.device = select_device(args.device)
     tracker = create_tracker(
         args.tracking_method,
@@ -160,39 +169,32 @@ def generate_mot_results(args, config_dict=None):
     )
 
     with open(args.dets_file_path, 'r') as file:
-        args.source = file.readline().strip().replace("# ", "")  # .strip() removes leading/trailing whitespace and newline characters
+        args.source = file.readline().strip().replace("# ", "")
 
     LOGGER.info(f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})\nusing\n\t{args.tracking_method}")
 
-    dets = np.loadtxt(args.dets_file_path, skiprows=1)  # skiprows=1 skips the header row
-    embs = np.loadtxt(args.embs_file_path)  # skiprows=1 skips the header row
+    dets = np.loadtxt(args.dets_file_path, skiprows=1)
+    embs = np.loadtxt(args.embs_file_path)
 
     dets_n_embs = np.concatenate([dets, embs], axis=1)
 
     dataset = LoadImages(args.source)
 
-    # create new MOT folder if txt file already exists
     txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
-        
     all_mot_results = []
 
     for frame_idx, d in enumerate(tqdm(dataset, desc="Frames")):
-
-        # don't generate dets_n_emb for the last frame
         if (frame_idx + 1) == len(dataset):
             break
 
         im = d[1][0]
-
-        # get dets and embedding associated to this frame
         frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_idx + 1]
 
-        # frame id, x1, y1, x2, y2, conf, cls
         dets = frame_dets_n_embs[:, 1:7]
         embs = frame_dets_n_embs[:, 7:]
         tracks = tracker.update(dets, im, embs)
 
-        if tracks.size > 0:  # Check if tracks is not an empty array
+        if tracks.size > 0:
             mot_results = convert_to_mot_format(tracks, frame_idx + 1)
             all_mot_results.append(mot_results)
 
@@ -201,47 +203,42 @@ def generate_mot_results(args, config_dict=None):
         write_mot_results(txt_path, all_mot_results)
 
 
-def parse_mot_results(results):
-    """Extract the COMBINED HOTA, MOTA, IDF1 from the results generate by the
-       run_mot_challenge.py script.
+def parse_mot_results(results: str) -> dict:
+    """
+    Extracts the COMBINED HOTA, MOTA, IDF1 from the results generated by the run_mot_challenge.py script.
 
     Args:
-        str: mot_results
+        results (str): MOT results as a string.
 
     Returns:
-        (dict): {'HOTA': x, 'MOTA':y, 'IDF1':z}
+        dict: A dictionary containing HOTA, MOTA, and IDF1 scores.
     """
     combined_results = results.split('COMBINED')[2:-1]
-    
-    # robust way of getting first ints/float in string
     combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
-    
-    # pack everything in dict
+
     results_dict = {}
     for key, value in zip(["HOTA", "MOTA", "IDF1"], combined_results):
-        results_dict[key]= value 
-    
+        results_dict[key] = value
+
     return results_dict
 
 
-def trackeval(args, seq_paths, save_dir, MOT_results_folder, gt_folder, metrics=["HOTA", "CLEAR", "Identity"]):
+def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_results_folder: Path, gt_folder: Path, metrics: list = ["HOTA", "CLEAR", "Identity"]) -> str:
     """
     Executes a Python script to evaluate MOT challenge tracking results using specified metrics.
-    
-    Parameters:
-        script_path (str): The path to the evaluation script to run.
-        trackers_folder (str): The folder where tracker results are stored.
-        metrics (list): A list of metrics to use for evaluation. Defaults to ["HOTA", "CLEAR", "Identity"].
-        num_parallel_cores (int): The number of parallel cores to use for evaluation. Defaults to 4.
-    
-    Outputs:
-        Prints the standard output and standard error from the evaluation script.
+
+    Args:
+        seq_paths (list): List of sequence paths.
+        save_dir (Path): Directory to save evaluation results.
+        MOT_results_folder (Path): Folder containing MOT results.
+        gt_folder (Path): Folder containing ground truth data.
+        metrics (list, optional): List of metrics to use for evaluation. Defaults to ["HOTA", "CLEAR", "Identity"].
+
+    Returns:
+        str: Standard output from the evaluation script.
     """
-    # Define paths
     d = [seq_path.parent.name for seq_path in seq_paths]
-    # Prepare arguments for subprocess call
-    print('str(gt_folder)', str(gt_folder))
-    print('args.exp_folder_path', args.exp_folder_path)
+
     args = [
         sys.executable, EXAMPLES / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
@@ -257,7 +254,6 @@ def trackeval(args, seq_paths, save_dir, MOT_results_folder, gt_folder, metrics=
         "--SEQ_INFO", *d
     ]
 
-    # Execute the evaluation script
     p = subprocess.Popen(
         args=args,
         stdout=subprocess.PIPE,
@@ -272,8 +268,13 @@ def trackeval(args, seq_paths, save_dir, MOT_results_folder, gt_folder, metrics=
     return stdout
 
 
-def run_generate_dets_embs(opt):
-    print('opt.source', opt.source)
+def run_generate_dets_embs(opt: argparse.Namespace) -> None:
+    """
+    Runs the generate_dets_embs function for all YOLO models and source directories.
+
+    Args:
+        opt (Namespace): Parsed command line arguments.
+    """
     mot_folder_paths = [item for item in Path(opt.source).iterdir()]
     for y in opt.yolo_model:
         for i, mot_folder_path in enumerate(mot_folder_paths):
@@ -290,13 +291,20 @@ def run_generate_dets_embs(opt):
             generate_dets_embs(opt, y)
 
 
-def run_generate_mot_results(opt, evolve_config=None):
+def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
+    """
+    Runs the generate_mot_results function for all YOLO models and detection/embedding files.
+
+    Args:
+        opt (Namespace): Parsed command line arguments.
+        evolve_config (dict, optional): Additional configuration dictionary.
+    """
     for y in opt.yolo_model:
         exp_folder_path = opt.project / 'mot' / (str(y.stem) + "_" + str(opt.reid_model[0].stem) + "_" + str(opt.tracking_method))
         exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
         opt.exp_folder_path = exp_folder_path
         dets_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt') if not item.name.startswith('.')]
-        embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' /  opt.reid_model[0].stem).glob('*.txt') if not item.name.startswith('.')]
+        embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt') if not item.name.startswith('.')]
         for d, e in zip(dets_file_paths, embs_file_paths):
             mot_result_path = exp_folder_path / (d.stem + '.txt')
             if mot_result_path.exists():
@@ -310,12 +318,14 @@ def run_generate_mot_results(opt, evolve_config=None):
             generate_mot_results(opt, evolve_config)
 
 
-def run_trackeval(opt):
-    val_tools_path = EXAMPLES / 'val_utils'
-    download_mot_eval_tools(val_tools_path)
-    zip_path = download_mot_dataset(val_tools_path, opt.benchmark)
-    unzip_mot_dataset(zip_path, val_tools_path, opt.benchmark)
-    seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, val_tools_path)
+def run_trackeval(opt: argparse.Namespace) -> dict:
+    """
+    Runs the trackeval function to evaluate tracking results.
+
+    Args:
+        opt (Namespace): Parsed command line arguments.
+    """
+    seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, opt.val_tools_path)
     trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
     if opt.verbose:
@@ -325,13 +335,20 @@ def run_trackeval(opt):
     print(json.dumps(hota_mota_idf1))
     return hota_mota_idf1
 
-def run_all(opt):
+
+def run_all(opt: argparse.Namespace) -> None:
+    """
+    Runs all stages of the pipeline: generate_dets_embs, generate_mot_results, and trackeval.
+
+    Args:
+        opt (Namespace): Parsed command line arguments.
+    """
     run_generate_dets_embs(opt)
     run_generate_mot_results(opt)
     run_trackeval(opt)
     
 
-def parse_opt():
+def parse_opt() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
     # Global arguments
@@ -386,6 +403,13 @@ def parse_opt():
 
 if __name__ == "__main__":
     opt = parse_opt()
+
+    # download MOT benchmark
+    opt.val_tools_path = EXAMPLES / 'val_utils'
+    download_mot_eval_tools(opt.val_tools_path)
+    zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)
+    unzip_mot_dataset(zip_path, opt.val_tools_path, opt.benchmark)
+
     if opt.command == 'generate_dets_embs':
         run_generate_dets_embs(opt)
     elif opt.command == 'generate_mot_results':
