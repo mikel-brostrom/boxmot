@@ -325,6 +325,7 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     Args:
         opt (Namespace): Parsed command line arguments.
     """
+    opt.val_tools_path = EXAMPLES / 'val_utils'
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, opt.val_tools_path)
     trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
@@ -376,6 +377,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--agnostic-nms', default=False, action='store_true', help='class-agnostic NMS')
     parser.add_argument('--n-trials', type=int, default=4, help='nr of trials for evolution')
     parser.add_argument('--objectives', type=str, nargs='+', default=["HOTA", "MOTA", "IDF1"], help='set of objective metrics: HOTA,MOTA,IDF1')
+    parser.add_argument('--val-tools-path', type=str, default=EXAMPLES / 'val_utils', help='path to download trackeval tools')
 
     subparsers = parser.add_subparsers(dest='command')
 
@@ -396,6 +398,8 @@ def parse_opt() -> argparse.Namespace:
     # Subparser for trackeval
     trackeval_parser = subparsers.add_parser('trackeval', help='Evaluate tracking results')
     trackeval_parser.add_argument('--exp-folder-path', type=Path, required=True, help='path to experiment folder')
+    trackeval_parser.add_argument('--val-tools-path', type=str, default=EXAMPLES / 'val_utils', help='path to download trackeval tools')
+
 
     opt = parser.parse_args()
     return opt
@@ -405,7 +409,6 @@ if __name__ == "__main__":
     opt = parse_opt()
 
     # download MOT benchmark
-    opt.val_tools_path = EXAMPLES / 'val_utils'
     download_mot_eval_tools(opt.val_tools_path)
     zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)
     unzip_mot_dataset(zip_path, opt.val_tools_path, opt.benchmark)
