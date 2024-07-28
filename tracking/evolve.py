@@ -130,6 +130,7 @@ def get_search_space(tracking_method):
     return search_space
         
 opt = parse_optt()
+opt.val_tools_path = EXAMPLES / 'val_utils'
 opt.source = Path(opt.source).resolve()
 opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
 opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
