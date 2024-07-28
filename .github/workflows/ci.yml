@@ -143,12 +143,6 @@ jobs:
         run: |
           python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
 
-      - name: Generate MOT results for all trackers
-        run: |
-          for tracker in $TRACKERS; do
-            python tracking/val.py generate_mot_results  --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
-          done
-
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
