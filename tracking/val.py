@@ -370,7 +370,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--dets-file-path', type=Path, help='path to detections file')
     parser.add_argument('--embs-file-path', type=Path, help='path to embeddings file')
     parser.add_argument('--exp-folder-path', type=Path, help='path to experiment folder')
-    parser.add_argument('--benchmark', type=str, default='MOT17', help='MOT16, MOT17, MOT20')
+    parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--verbose', action='store_true', help='print results')
     parser.add_argument('--agnostic-nms', default=False, action='store_true', help='class-agnostic NMS')
