@@ -4,6 +4,7 @@ import yaml
 from pathlib import Path
 
 from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils import EXAMPLES
 from tracking.val import (
     run_generate_dets_embs,
     run_generate_mot_results,
