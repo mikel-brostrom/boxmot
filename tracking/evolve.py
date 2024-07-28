@@ -9,7 +9,8 @@ from tracking.val import (
     run_generate_dets_embs,
     run_generate_mot_results,
     run_trackeval,
-    parse_opt as parse_optt
+    parse_opt as parse_optt,
+    download_mot_eval_tools
 )
 from boxmot.utils import ROOT, NUM_THREADS
 
@@ -27,6 +28,7 @@ class Tracker:
         self.opt = opt
 
     def objective_function(self, config):
+        download_mot_eval_tools(self.opt.val_tools_path)
         # generate new set of mot challenge compliant results with
         # new set of generated tracker parameters
         run_generate_mot_results(self.opt, config)
