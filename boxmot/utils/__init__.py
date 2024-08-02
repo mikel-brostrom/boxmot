@@ -59,7 +59,6 @@ class PerClassDecorator:
                 class_embs = None
         return class_dets, class_embs
         
-
     def __get__(self, instance, owner):
         # This makes PerClassDecorator a non-data descriptor that binds the method to the instance
         def wrapper(*args, **kwargs):
@@ -81,7 +80,7 @@ class PerClassDecorator:
  
                     class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
                     
-                    logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings {class_embs.shape}")
+                    logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings {class_embs.shape if class_embs is not None else None}")
 
                     # activate the specific active tracks for this class id
                     instance.active_tracks = self.per_class_active_tracks[cls_id]
