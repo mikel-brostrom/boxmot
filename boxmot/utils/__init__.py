@@ -61,7 +61,7 @@ class PerClassDecorator:
                     else:
                         class_dets = np.empty((0, 6))
                         class_embs = np.empty((0, embs.shape[1]))  # Assuming embeddings have the same number of columns
-                    logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape}")
+                    logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings {class_embs.shape}")
 
                     # activate the specific active tracks for this class id
                     instance.active_tracks = self.per_class_active_tracks[cls_id]
