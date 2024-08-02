@@ -134,9 +134,10 @@ def test_per_class_tracker_output_size(tracker_type):
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.72, 65]])
+    embs = np.random.random(size=(2, 512))
 
-    output = tracker.update(det, rgb)
-    output = tracker.update(det, rgb)
+    output = tracker.update(det, rgb, embs)
+    output = tracker.update(det, rgb, embs)
     assert output.shape == (2, 8)  # two inputs should give two outputs
 
 

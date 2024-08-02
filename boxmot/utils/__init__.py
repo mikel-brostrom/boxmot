@@ -33,6 +33,25 @@ class PerClassDecorator:
         self.per_class_active_tracks = {}
         for i in range(self.nr_classes):
             self.per_class_active_tracks[i] = []
+        self.last_emb_size = None
+            
+    def get_class_dets_n_embs(dets, embs, cls_id):
+        # can be that there are detections but no embeddings
+        if dets.size > 0:
+            class_indices = np.where(dets[:, 5] == cls_id)[0]
+            class_dets = dets[class_indices]
+            if embs is not None:
+                if embs.size > 0:
+                    class_embs = embs[class_indices]
+                    self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
+        else:
+            class_dets = np.empty((0, 6))
+            if self.last_emb_size is not None:
+                class_embs = np.empty((0, self.last_emb_size))  # Use the last known embedding size
+            else:
+                class_embs = None
+        return class_dets, class_embs
+        
 
     def __get__(self, instance, owner):
         # This makes PerClassDecorator a non-data descriptor that binds the method to the instance
@@ -53,14 +72,8 @@ class PerClassDecorator:
 
                 for i, cls_id in enumerate(range(self.nr_classes)):
  
-                    if dets.size > 0:
-                        # Get the indices of the detections for the current class
-                        class_indices = np.where(dets[:, 5] == cls_id)[0]
-                        class_dets = dets[class_indices]
-                        class_embs = embs[class_indices]  # Filter embeddings based on indices
-                    else:
-                        class_dets = np.empty((0, 6))
-                        class_embs = np.empty((0, embs.shape[1]))  # Assuming embeddings have the same number of columns
+                    class_dets, class_embs = get_class_dets_n_embs(dets, embs, cls_id)
+                    
                     logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings {class_embs.shape}")
 
                     # activate the specific active tracks for this class id
