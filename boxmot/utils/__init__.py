@@ -35,12 +35,14 @@ class PerClassDecorator:
             self.per_class_active_tracks[i] = []
         self.last_emb_size = None
             
-    def get_class_dets_n_embs(dets, embs, cls_id):
+    def get_class_dets_n_embs(self, dets, embs, cls_id):
         # can be that there are detections but no embeddings
         if dets.size > 0:
             class_indices = np.where(dets[:, 5] == cls_id)[0]
             class_dets = dets[class_indices]
             if embs is not None:
+                # Assert that if embeddings are provided, they have the same number of elements as detections
+                assert dets.shape[0] == embs.shape[0], "Detections and embeddings must have the same number of elements"
                 if embs.size > 0:
                     class_embs = embs[class_indices]
                     self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
@@ -72,7 +74,7 @@ class PerClassDecorator:
 
                 for i, cls_id in enumerate(range(self.nr_classes)):
  
-                    class_dets, class_embs = get_class_dets_n_embs(dets, embs, cls_id)
+                    class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
                     
                     logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings {class_embs.shape}")
 
