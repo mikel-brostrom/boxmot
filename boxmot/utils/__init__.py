@@ -42,10 +42,15 @@ class PerClassDecorator:
             class_dets = dets[class_indices]
             if embs is not None:
                 # Assert that if embeddings are provided, they have the same number of elements as detections
-                assert dets.shape[0] == embs.shape[0], "Detections and embeddings must have the same number of elements"
+                assert dets.shape[0] == embs.shape[0], "Detections and embeddings must have the same number of elements when both are provided"
                 if embs.size > 0:
                     class_embs = embs[class_indices]
                     self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
+                else:
+                    class_embs = None
+            else:
+                class_embs = None
+
         else:
             class_dets = np.empty((0, 6))
             if self.last_emb_size is not None:
