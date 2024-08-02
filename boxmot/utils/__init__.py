@@ -41,6 +41,7 @@ class PerClassDecorator:
             args = list(args)
             dets = args[0]
             im = args[1]
+            embs = args[2] if len(args) > 2 else None
             
             if instance.per_class is True:
 
@@ -65,7 +66,7 @@ class PerClassDecorator:
                     instance.frame_count = frame_count
                     
                     # Update detections using the decorated method
-                    tracks = self.update(instance, class_dets, im)
+                    tracks = self.update(instance, dets=class_dets, img=im, embs=embs)
 
                     # save the updated active tracks
                     self.per_class_active_tracks[cls_id] = instance.active_tracks
@@ -82,7 +83,7 @@ class PerClassDecorator:
                 tracks = np.vstack(per_class_tracks) if per_class_tracks else np.empty((0, 8))
             else:
                 # Process all detections at once if per_class is False or detections are empty
-                tracks = self.update(instance, dets, im)
+                tracks = self.update(instance, dets=dets, img=im, embs=embs)
             
             return tracks
 
