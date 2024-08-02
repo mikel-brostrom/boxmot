@@ -54,9 +54,13 @@ class PerClassDecorator:
                 for i, cls_id in enumerate(range(self.nr_classes)):
  
                     if dets.size > 0:
-                        class_dets = dets[dets[:, 5] == cls_id]
+                        # Get the indices of the detections for the current class
+                        class_indices = np.where(dets[:, 5] == cls_id)[0]
+                        class_dets = dets[class_indices]
+                        class_embs = embs[class_indices]  # Filter embeddings based on indices
                     else:
                         class_dets = np.empty((0, 6))
+                        class_embs = np.empty((0, embs.shape[1]))  # Assuming embeddings have the same number of columns
                     logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape}")
 
                     # activate the specific active tracks for this class id
@@ -66,7 +70,7 @@ class PerClassDecorator:
                     instance.frame_count = frame_count
                     
                     # Update detections using the decorated method
-                    tracks = self.update(instance, dets=class_dets, img=im, embs=embs)
+                    tracks = self.update(instance, dets=class_dets, img=im, embs=class_embs)
 
                     # save the updated active tracks
                     self.per_class_active_tracks[cls_id] = instance.active_tracks
