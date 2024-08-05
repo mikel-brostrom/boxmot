@@ -36,27 +36,24 @@ class PerClassDecorator:
         self.last_emb_size = None
             
     def get_class_dets_n_embs(self, dets, embs, cls_id):
-        # can be that there are detections but no embeddings
+        # Initialize empty arrays for detections and embeddings
+        class_dets = np.empty((0, 6))
+        class_embs = np.empty((0, self.last_emb_size)) if self.last_emb_size is not None else None
+
+        # Check if there are detections
         if dets.size > 0:
             class_indices = np.where(dets[:, 5] == cls_id)[0]
             class_dets = dets[class_indices]
+            
             if embs is not None:
                 # Assert that if embeddings are provided, they have the same number of elements as detections
                 assert dets.shape[0] == embs.shape[0], "Detections and embeddings must have the same number of elements when both are provided"
+                
                 if embs.size > 0:
                     class_embs = embs[class_indices]
                     self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
                 else:
                     class_embs = None
-            else:
-                class_embs = None
-
-        else:
-            class_dets = np.empty((0, 6))
-            if self.last_emb_size is not None:
-                class_embs = np.empty((0, self.last_emb_size))  # Use the last known embedding size
-            else:
-                class_embs = None
         return class_dets, class_embs
         
     def __get__(self, instance, owner):
