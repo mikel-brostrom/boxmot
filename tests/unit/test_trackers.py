@@ -157,9 +157,11 @@ def test_per_class_tracker_active_tracks(tracker_type):
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.72, 65]])
+    embs = np.random.random(size=(2, 512))
 
-    tracker.update(det, rgb)
+    tracker.update(det, rgb, embs)
 
-    # check that tracks are created under the class tracks
-    assert tracker.per_class_active_tracks[0] and tracker.per_class_active_tracks[65]
+    # Check that tracks are created under the class tracks
+    assert tracker.per_class_active_tracks[0], "No active tracks for class 0"
+    assert tracker.per_class_active_tracks[65], "No active tracks for class 65"
 
