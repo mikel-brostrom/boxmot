@@ -33,7 +33,29 @@ class PerClassDecorator:
         self.per_class_active_tracks = {}
         for i in range(self.nr_classes):
             self.per_class_active_tracks[i] = []
+        self.last_emb_size = None
+            
+    def get_class_dets_n_embs(self, dets, embs, cls_id):
+        # Initialize empty arrays for detections and embeddings
+        class_dets = np.empty((0, 6))
+        class_embs = np.empty((0, self.last_emb_size)) if self.last_emb_size is not None else None
 
+        # Check if there are detections
+        if dets.size > 0:
+            class_indices = np.where(dets[:, 5] == cls_id)[0]
+            class_dets = dets[class_indices]
+            
+            if embs is not None:
+                # Assert that if embeddings are provided, they have the same number of elements as detections
+                assert dets.shape[0] == embs.shape[0], "Detections and embeddings must have the same number of elements when both are provided"
+                
+                if embs.size > 0:
+                    class_embs = embs[class_indices]
+                    self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
+                else:
+                    class_embs = None
+        return class_dets, class_embs
+        
     def __get__(self, instance, owner):
         # This makes PerClassDecorator a non-data descriptor that binds the method to the instance
         def wrapper(*args, **kwargs):
@@ -53,11 +75,9 @@ class PerClassDecorator:
 
                 for i, cls_id in enumerate(range(self.nr_classes)):
  
-                    if dets.size > 0:
-                        class_dets = dets[dets[:, 5] == cls_id]
-                    else:
-                        class_dets = np.empty((0, 6))
-                    logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape}")
+                    class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
+                    
+                    logger.debug(f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings {class_embs.shape if class_embs is not None else None}")
 
                     # activate the specific active tracks for this class id
                     instance.active_tracks = self.per_class_active_tracks[cls_id]
@@ -66,7 +86,7 @@ class PerClassDecorator:
                     instance.frame_count = frame_count
                     
                     # Update detections using the decorated method
-                    tracks = self.update(instance, dets=class_dets, img=im, embs=embs)
+                    tracks = self.update(instance, dets=class_dets, img=im, embs=class_embs)
 
                     # save the updated active tracks
                     self.per_class_active_tracks[cls_id] = instance.active_tracks
