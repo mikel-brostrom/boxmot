@@ -386,6 +386,9 @@ class HybridSORT(BaseTracker):
         Returns the a similar array, where the last column is the object ID.
         NOTE: The number of objects returned may differ from the number of detections provided.
         """
+        
+        self.check_inputs(dets, img)
+        
         if dets is None:
             return np.empty((0, 7))
 

@@ -60,6 +60,20 @@ class BaseTracker(ABC):
         """
         raise NotImplementedError("The update method needs to be implemented by the subclass.")
 
+    def check_inputs(self, dets, im):
+        assert isinstance(
+            dets, np.ndarray
+        ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
+        assert isinstance(
+            img, np.ndarray
+        ), f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
+        assert (
+            len(dets.shape) == 2
+        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert (
+            dets.shape[1] == 6
+        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+
     def id_to_color(self, id: int, saturation: float = 0.75, value: float = 0.95) -> tuple:
         """
         Generates a consistent unique BGR color for a given ID using hashing.
