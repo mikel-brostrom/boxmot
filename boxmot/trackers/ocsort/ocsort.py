@@ -226,15 +226,7 @@ class OCSort(BaseTracker):
         NOTE: The number of objects returned may differ from the number of detections provided.
         """
 
-        assert isinstance(
-            dets, np.ndarray
-        ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
-        assert (
-            len(dets.shape) == 2
-        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
-        assert (
-            dets.shape[1] == 6
-        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        self.check_inputs(dets, img)
 
         self.frame_count += 1
         h, w = img.shape[0:2]
