@@ -60,7 +60,7 @@ class BaseTracker(ABC):
         """
         raise NotImplementedError("The update method needs to be implemented by the subclass.")
 
-    def check_inputs(self, dets, im):
+    def check_inputs(self, dets, img):
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
