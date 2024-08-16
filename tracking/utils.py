@@ -211,7 +211,7 @@ def convert_to_mot_format(results: Union[Results, np.ndarray], frame_idx: int) -
         if isinstance(results, np.ndarray):
             # Convert numpy array results to MOT format
             tlwh = ops.xyxy2ltwh(results[:, 0:4])
-            frame_idx_column = np.full((results.shape[0], 1), frame_idx + 1, dtype=np.int32)
+            frame_idx_column = np.full((results.shape[0], 1), frame_idx, dtype=np.int32)
             mot_results = np.column_stack((
                 frame_idx_column, # frame index
                 results[:, 4].astype(np.int32),  # track id
