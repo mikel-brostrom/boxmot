@@ -184,7 +184,7 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
     all_mot_results = []
 
     for frame_idx, d in enumerate(tqdm(dataset, desc="Frames")):
-        if (frame_idx + 1) == len(dataset):
+        if frame_idx == len(dataset):
             break
 
         im = d[1][0]
