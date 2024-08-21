@@ -52,10 +52,22 @@ def prompt_overwrite(path_type: str, path: str, ci: bool = False) -> bool:
 
     def input_with_timeout(prompt, timeout=3.0):
         print(prompt, end='', flush=True)
-        inputs, _, _ = select.select([sys.stdin], [], [], timeout)
-        if inputs:
-            result = sys.stdin.readline().strip().lower()
-            return result in ['y', 'yes']
+        
+        result = []
+        input_received = threading.Event()
+
+        def get_input():
+            user_input = sys.stdin.readline().strip().lower()
+            result.append(user_input)
+            input_received.set()
+
+        input_thread = threading.Thread(target=get_input)
+        input_thread.daemon = True  # Ensure thread does not prevent program exit
+        input_thread.start()
+        input_thread.join(timeout)
+
+        if input_received.is_set():
+            return result[0] in ['y', 'yes']
         else:
             print("\nNo response, not proceeding with overwrite...")
             return False
