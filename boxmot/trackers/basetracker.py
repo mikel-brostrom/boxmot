@@ -109,7 +109,7 @@ class BaseTracker(ABC):
         
         return bgr
 
-    def plot_box_on_img(self, img: np.ndarray, box: tuple, conf: float, cls: int, id: int) -> np.ndarray:
+    def plot_box_on_img(self, img: np.ndarray, box: tuple, conf: float, cls: int, id: int, thickness: int = 2, fontscale: float = 0.5) -> np.ndarray:
         """
         Draws a bounding box with ID, confidence, and class information on an image.
 
@@ -119,13 +119,12 @@ class BaseTracker(ABC):
         - conf (float): Confidence score of the detection.
         - cls (int): Class ID of the detection.
         - id (int): Unique identifier for the detection.
+        - thickness (int): The thickness of the bounding box.
+        - fontscale (float): The font scale for the text.
 
         Returns:
         - np.ndarray: The image array with the bounding box drawn on it.
         """
-
-        thickness = 2
-        fontscale = 0.5
 
         img = cv.rectangle(
             img,
@@ -174,7 +173,7 @@ class BaseTracker(ABC):
         return img
 
 
-    def plot_results(self, img: np.ndarray, show_trajectories: bool) -> np.ndarray:
+    def plot_results(self, img: np.ndarray, show_trajectories: bool, thickness: int = 2, fontscale: float = 0.5) -> np.ndarray:
         """
         Visualizes the trajectories of all active tracks on the image. For each track,
         it draws the latest bounding box and the path of movement if the history of
@@ -183,6 +182,9 @@ class BaseTracker(ABC):
 
         Parameters:
         - img (np.ndarray): The image array on which to draw the trajectories and bounding boxes.
+        - show_trajectories (bool): Whether to show the trajectories.
+        - thickness (int): The thickness of the bounding box.
+        - fontscale (float): The font scale for the text.
 
         Returns:
         - np.ndarray: The image array with trajectories and bounding boxes of all active tracks.
@@ -196,7 +198,7 @@ class BaseTracker(ABC):
                     if a.history_observations:
                         if len(a.history_observations) > 2:
                             box = a.history_observations[-1]
-                            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id)
+                            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
                             if show_trajectories:
                                 img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
         else:
@@ -204,7 +206,7 @@ class BaseTracker(ABC):
                 if a.history_observations:
                     if len(a.history_observations) > 2:
                         box = a.history_observations[-1]
-                        img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id)
+                        img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
                         if show_trajectories:
                             img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
                 
