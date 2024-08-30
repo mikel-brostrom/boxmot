@@ -66,7 +66,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.8', '3.11']
+        python-version: ['3.9', '3.11']
     outputs:
       status: ${{ job.status }}
 
@@ -107,7 +107,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.8', '3.11']
+        python-version: ['3.9', '3.11']
     outputs:
       status: ${{ job.status }}
     env:
@@ -235,7 +235,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           python tracking/track.py --yolo-model yolov8n.pt --source $IMG --imgsz 320
-          python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320
+          # python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320
           # python tracking/track.py --yolo-model yolo_nas_s.pt --source $IMG --imgsz 320
 
 

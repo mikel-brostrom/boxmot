@@ -88,7 +88,7 @@ class YoloXStrategy(YoloInterface):
         self.model.eval()
 
     @torch.no_grad()
-    def __call__(self, im, augment, visualize):
+    def __call__(self, im, augment, visualize, embed):
         preds = self.model(im)
         return preds
 
