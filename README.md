@@ -82,6 +82,7 @@ In inverse chronological order:
 
 #### News
 
+* Added YOLOv9 and YOLOv10 support
 * Hyperparameter search for all trackers using RayTune (July 2024)
 * Added Improved Association Pipeline Tracker by [rolson24](https://github.com/rolson24) in [#1527](https://github.com/mikel-brostrom/boxmot/pull/1527) (July 2024)
 
@@ -92,7 +93,7 @@ Today's multi-object tracking options are heavily dependant on the computation c
 
 ## Installation
 
-Start with [**Python>=3.8**](https://www.python.org/) environment.
+Start with [**Python>=3.9**](https://www.python.org/) environment.
 
 If you want to run the YOLOv8, YOLOv9 or YOLOv10 examples:
 
