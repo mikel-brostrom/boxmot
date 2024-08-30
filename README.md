@@ -18,7 +18,7 @@
 
 ## Introduction
 
-This repo contains a collections of pluggable state-of-the-art multi-object trackers for segmentation, object detection and pose estimation models. For the methods using appearance description, both heavy ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight state-of-the-art ReID models ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf) and more) are available for automatic download. We provide examples on how to use this package together with popular object detection models such as: [Yolov8](https://github.com/ultralytics), [Yolo-NAS](https://github.com/Deci-AI/super-gradients) and [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX).
+This repo contains a collections of pluggable state-of-the-art multi-object trackers for segmentation, object detection and pose estimation models. For the methods using appearance description, both heavy ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight state-of-the-art ReID models ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf) and more) are available for automatic download. We provide examples on how to use this package together with popular object detection models such as: [YOLOv8, YOLOv9 and YOLOv10](https://github.com/ultralytics)
 
 <div align="center">
 
@@ -94,7 +94,7 @@ Today's multi-object tracking options are heavily dependant on the computation c
 
 Start with [**Python>=3.8**](https://www.python.org/) environment.
 
-If you want to run the YOLOv8, YOLO-NAS or YOLOX examples:
+If you want to run the YOLOv8, YOLOv9 or YOLOv10 examples:
 
 ```
 git clone https://github.com/mikel-brostrom/boxmot.git
@@ -110,7 +110,7 @@ but if you only want to import the tracking modules you can simply:
 pip install boxmot
 ```
 
-## YOLOv8 | YOLO-NAS | YOLOX examples
+## YOLOv8 | YOLOv9 | YOLOv10 examples
 
 <details>
 <summary>Tracking</summary>
@@ -121,9 +121,9 @@ pip install boxmot
 
 
 ```bash
-$ python tracking/track.py --yolo-model yolov8n       # bboxes only
-  python tracking/track.py --yolo-model yolo_nas_s    # bboxes only
-  python tracking/track.py --yolo-model yolox_n       # bboxes only
+$ python tracking/track.py --yolo-model yolov10n      # bboxes only
+  python tracking/track.py --yolo-model yolov9s       # bboxes only
+  python tracking/track.py --yolo-model yolov8n       # bboxes only
                                         yolov8n-seg   # bboxes + segmentation masks
                                         yolov8n-pose  # bboxes + pose estimation
 
