@@ -52,12 +52,12 @@ jobs:
 
       - name: Generate detections and embeddings
         run: |
-          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
 
       - name: Run tracking method
         run: |
           for tracker in $TRACKERS; do
-            python tracking/val.py generate_mot_results  --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
+            python tracking/val.py generate_mot_results  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
           done
 
   evolution:
@@ -141,7 +141,7 @@ jobs:
 
       - name: Generate detections and embeddings
         run: |
-          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
 
       - name: Evaluation and Summarize Results
         shell: bash
@@ -149,7 +149,7 @@ jobs:
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
 
           for tracker in $TRACKERS; do
-            if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
+            if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
               STATUS="✅"
             else
               STATUS="❌"
@@ -234,7 +234,7 @@ jobs:
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
-          python tracking/track.py --yolo-model yolov8n.pt --source $IMG --imgsz 320
+          python tracking/track.py --yolo-model yolov10n.pt --source $IMG --imgsz 320
           # python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320
           # python tracking/track.py --yolo-model yolo_nas_s.pt --source $IMG --imgsz 320
 
