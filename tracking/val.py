@@ -84,9 +84,11 @@ def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
         y (Path): Path to the YOLO model file.
     """
     WEIGHTS.mkdir(parents=True, exist_ok=True)
+    
+    ul_models = ['yolov8', 'yolov9', 'yolov10', 'rtdetr', 'sam']
 
-    yolo = YOLO(y if 'yolov8' in str(y) else 'yolov8n.pt')
-
+    yolo = YOLO(y if any(yolo in str(args.yolo_model) for yolo in ul_models) else 'yolov8n.pt')
+    
     results = yolo(
         source=args.source,
         conf=args.conf,
@@ -103,7 +105,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
         vid_stride=args.vid_stride,
     )
 
-    if 'yolov8' not in str(y):
+    if not any(yolo in str(args.yolo_model) for yolo in ul_models):
         m = get_yolo_inferer(y)
         model = m(model=y, device=yolo.predictor.device, args=yolo.predictor.args)
         yolo.predictor.model = model
