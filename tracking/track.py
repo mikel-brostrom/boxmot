@@ -57,7 +57,7 @@ def on_predict_start(predictor, persist=False):
 @torch.no_grad()
 def run(args):
     
-    ul_models = ['yolov8', 'yolov9', 'yolov10']
+    ul_models = ['yolov8', 'yolov9', 'yolov10', 'rtdetr', 'sam']
 
     yolo = YOLO(
         args.yolo_model if any(yolo in str(args.yolo_model) for yolo in ul_models) else 'yolov8n.pt',
