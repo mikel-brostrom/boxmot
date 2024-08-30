@@ -98,7 +98,7 @@ jobs:
       - name: Evolve set of parameters for selected tracking method
         run: |
           # reuse first set of generated det and prod
-          python tracking/evolve.py --benchmark MOT17-mini --yolo-model yolov10x.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
+          python tracking/evolve.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
 
 
   mot-metrics-benchmark:
@@ -149,7 +149,7 @@ jobs:
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
 
           for tracker in $TRACKERS; do
-            if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
+            if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
               STATUS="✅"
             else
               STATUS="❌"
