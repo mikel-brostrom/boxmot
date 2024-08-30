@@ -22,7 +22,7 @@ from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 
 from ultralytics import YOLO
-from ultralytics.data.loaders import LoadImages
+from ultralytics.data.loaders import LoadImagesAndVideos
 from ultralytics.utils.files import increment_path
 from ultralytics.data.utils import VID_FORMATS
 
@@ -190,7 +190,7 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
 
     dets_n_embs = np.concatenate([dets, embs], axis=1)
 
-    dataset = LoadImages(args.source)
+    dataset = LoadImagesAndVideos(args.source)
 
     txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
     all_mot_results = []
