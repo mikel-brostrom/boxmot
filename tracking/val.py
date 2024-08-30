@@ -22,7 +22,7 @@ from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 
 from ultralytics import YOLO
-from ultralytics.data.loaders import LoadImages
+from ultralytics.data.loaders import LoadImagesAndVideos
 from ultralytics.utils.files import increment_path
 from ultralytics.data.utils import VID_FORMATS
 
