@@ -56,9 +56,11 @@ def on_predict_start(predictor, persist=False):
 
 @torch.no_grad()
 def run(args):
+    
+    ul_models = ['yolov8', 'yolov9', 'yolov10']
 
     yolo = YOLO(
-        args.yolo_model if 'yolov8' in str(args.yolo_model) else 'yolov8n.pt',
+        args.yolo_model if any(yolo in str(args.yolo_model) for yolo in ul_models) else 'yolov8n.pt',
     )
 
     results = yolo.track(
@@ -85,7 +87,7 @@ def run(args):
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
 
-    if 'yolov8' not in str(args.yolo_model):
+    if not any(yolo in str(args.yolo_model) for yolo in ul_models):
         # replace yolov8 model
         m = get_yolo_inferer(args.yolo_model)
         model = m(
