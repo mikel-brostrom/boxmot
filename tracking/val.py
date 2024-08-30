@@ -190,7 +190,7 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
 
     dets_n_embs = np.concatenate([dets, embs], axis=1)
 
-    dataset = LoadImages(args.source)
+    dataset = LoadImagesAndVideos(args.source)
 
     txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
     all_mot_results = []
