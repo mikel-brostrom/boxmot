@@ -58,7 +58,7 @@ class YoloNASStrategy(YoloInterface):
         self.device = device
 
     @torch.no_grad()
-    def __call__(self, im, augment, visualize):
+    def __call__(self, im, augment, visualize, embed):
 
         im = im[0].permute(1, 2, 0).cpu().numpy() * 255
 
