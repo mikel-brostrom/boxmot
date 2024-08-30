@@ -26,7 +26,7 @@ keywords = ["tracking", "tracking-by-detection", "machine-learning", "deep-learn
 
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.9"
 filterpy = "^1.4.5"
 gdown = "^5.1.0"
 lapx = "^0.5.5"
