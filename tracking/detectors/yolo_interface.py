@@ -43,14 +43,6 @@ class YoloInterface(ABC):
 
         return preds
 
-    def preds_to_yolov8_results(self, path, preds, im, im0s, names):
-        return Results(
-            path=path,
-            boxes=preds,
-            orig_img=im0s[0],
-            names=names
-        )
-
     def get_model_from_weigths(self, l, model):
         model_type = None
         for key in l:
