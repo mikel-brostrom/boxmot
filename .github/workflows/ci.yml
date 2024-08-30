@@ -66,7 +66,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.8', '3.11']
+        python-version: ['3.9', '3.11']
     outputs:
       status: ${{ job.status }}
 
@@ -107,7 +107,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.8', '3.11']
+        python-version: ['3.9', '3.11']
     outputs:
       status: ${{ job.status }}
     env:
