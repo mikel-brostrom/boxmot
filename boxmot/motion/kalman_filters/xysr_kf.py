@@ -229,7 +229,7 @@ class KalmanFilterXYSR(object):
         # append the observation
         self.history_obs.append(z)
         
-        if z is None:
+        if z is None: 
             if self.observed:
                 """
                 Got no observation so freeze the current parameters for future
