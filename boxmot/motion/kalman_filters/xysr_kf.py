@@ -106,6 +106,7 @@ class KalmanFilterXYSR(object):
 
         self.attr_saved = None
         self.observed = False
+        self.last_measurement = None
 
 
     def apply_affine_correction(self, m, t):
@@ -114,7 +115,7 @@ class KalmanFilterXYSR(object):
 
         Messy due to internal logic for kalman filter being messy.
         """
-        
+
         scale = np.linalg.norm(m[:, 0])
         self.x[:2] = m @ self.x[:2] + t
         self.x[4:6] = m @ self.x[4:6]
@@ -220,21 +221,48 @@ class KalmanFilterXYSR(object):
         H : np.array, or None
             Measurement function. If None, the filter's self.H value is used.
         """
+        
+        # set to None to force recompute
+        self._log_likelihood = None
+        self._likelihood = None
+        self._mahalanobis = None
+
+        # append the observation
+        self.history_obs.append(z)
+        
         if z is None:
-            self.history_obs.append(z)
+            if self.observed:
+                """
+                Got no observation so freeze the current parameters for future
+                potential online smoothing.
+                """
+                self.last_measurement = self.history_obs[-2]
+                self.freeze()
             self.observed = False
+            self.z = np.array([[None] * self.dim_z]).T
+            self.x_post = self.x.copy()
+            self.P_post = self.P.copy()
+            self.y = zeros((self.dim_z, 1))
             return
 
+        # self.observed = True
+        if not self.observed:
+            """
+            Get observation, use online smoothing to re-update parameters
+            """
+            self.unfreeze()
         self.observed = True
+        
         if R is None:
             R = self.R
+        elif isscalar(R):
+            R = eye(self.dim_z) * R
         if H is None:
+            z = reshape_z(z, self.dim_z, self.x.ndim)
             H = self.H
-        H = np.asarray(H)
 
         # y = z - Hx
         # error (residual) between measurement and prediction
-        z = reshape_z(z, self.dim_z, self.x.ndim)
         self.y = z - dot(H, self.x)
 
         # common subexpression for speed
@@ -321,76 +349,111 @@ class KalmanFilterXYSR(object):
 
         return self._likelihood
 
-    def batch_filter(self, zs, us=None, Bs=None, Fs=None, Qs=None, Hs=None, Rs=None):
-        """ Batch processes a sequence of measurements.
 
-        Parameters
-        ----------
-        zs : list-like
-            list of measurements at each time step. Missing measurements must be
-            represented by NaNs.
+def batch_filter(x, P, zs, Fs, Qs, Hs, Rs, Bs=None, us=None, update_first=False, saver=None):
+    """
+    Batch processes a sequences of measurements.
+    Parameters
+    ----------
+    zs : list-like
+        list of measurements at each time step. Missing measurements must be
+        represented by None.
+    Fs : list-like
+        list of values to use for the state transition matrix matrix.
+    Qs : list-like
+        list of values to use for the process error
+        covariance.
+    Hs : list-like
+        list of values to use for the measurement matrix.
+    Rs : list-like
+        list of values to use for the measurement error
+        covariance.
+    Bs : list-like, optional
+        list of values to use for the control transition matrix;
+        a value of None in any position will cause the filter
+        to use `self.B` for that time step.
+    us : list-like, optional
+        list of values to use for the control input vector;
+        a value of None in any position will cause the filter to use
+        0 for that time step.
+    update_first : bool, optional
+        controls whether the order of operations is update followed by
+        predict, or predict followed by update. Default is predict->update.
+        saver : filterpy.common.Saver, optional
+            filterpy.common.Saver object. If provided, saver.save() will be
+            called after every epoch
+    Returns
+    -------
+    means : np.array((n,dim_x,1))
+        array of the state for each time step after the update. Each entry
+        is an np.array. In other words `means[k,:]` is the state at step
+        `k`.
+    covariance : np.array((n,dim_x,dim_x))
+        array of the covariances for each time step after the update.
+        In other words `covariance[k,:,:]` is the covariance at step `k`.
+    means_predictions : np.array((n,dim_x,1))
+        array of the state for each time step after the predictions. Each
+        entry is an np.array. In other words `means[k,:]` is the state at
+        step `k`.
+    covariance_predictions : np.array((n,dim_x,dim_x))
+        array of the covariances for each time step after the prediction.
+        In other words `covariance[k,:,:]` is the covariance at step `k`.
+    Examples
+    --------
+    .. code-block:: Python
+        zs = [t + random.randn()*4 for t in range (40)]
+        Fs = [kf.F for t in range (40)]
+        Hs = [kf.H for t in range (40)]
+        (mu, cov, _, _) = kf.batch_filter(zs, Rs=R_list, Fs=Fs, Hs=Hs, Qs=None,
+                                          Bs=None, us=None, update_first=False)
+        (xs, Ps, Ks, Pps) = kf.rts_smoother(mu, cov, Fs=Fs, Qs=None)
+    """
 
-        us : list-like, optional, default=None
-            If not None, contains control inputs for each time step. If
-            None, defers to self.u.
+    n = np.size(zs, 0)
+    dim_x = x.shape[0]
 
-        Bs : list-like, optional, default=None
-            If not None, contains the control transition matrix for each time
-            step. If None, defers to self.B.
+    # mean estimates from Kalman Filter
+    if x.ndim == 1:
+        means = zeros((n, dim_x))
+        means_p = zeros((n, dim_x))
+    else:
+        means = zeros((n, dim_x, 1))
+        means_p = zeros((n, dim_x, 1))
 
-        Fs : list-like, optional, default=None
-            If not None, contains the state transition matrix for each time
-            step. If None, defers to self.F.
+    # state covariances from Kalman Filter
+    covariances = zeros((n, dim_x, dim_x))
+    covariances_p = zeros((n, dim_x, dim_x))
 
-        Qs : list-like, optional, default=None
-            If not None, contains the process noise matrix for each time step.
-            If None, defers to self.Q.
+    if us is None:
+        us = [0.0] * n
+        Bs = [0.0] * n
 
-        Hs : list-like, optional, default=None
-            If not None, contains the measurement function matrix for each time
-            step. If None, defers to self.H.
+    if update_first:
+        for i, (z, F, Q, H, R, B, u) in enumerate(zip(zs, Fs, Qs, Hs, Rs, Bs, us)):
 
-        Rs : list-like, optional, default=None
-            If not None, contains the measurement noise matrix for each time step.
-            If None, defers to self.R.
+            x, P = update(x, P, z, R=R, H=H)
+            means[i, :] = x
+            covariances[i, :, :] = P
 
-        Returns
-        -------
-        means : np.array((n,dim_x))
-            array of the state for each time step
-        covariances : np.array((n,dim_x,dim_x))
-            array of the covariance matrix for each time step
-        """
+            x, P = predict(x, P, u=u, B=B, F=F, Q=Q)
+            means_p[i, :] = x
+            covariances_p[i, :, :] = P
+            if saver is not None:
+                saver.save()
+    else:
+        for i, (z, F, Q, H, R, B, u) in enumerate(zip(zs, Fs, Qs, Hs, Rs, Bs, us)):
 
-        n = np.size(zs, 0)
+            x, P = predict(x, P, u=u, B=B, F=F, Q=Q)
+            means_p[i, :] = x
+            covariances_p[i, :, :] = P
 
-        if us is None:
-            us = [0.] * n
-        if Bs is None:
-            Bs = [self.B] * n
-        if Fs is None:
-            Fs = [self.F] * n
-        if Qs is None:
-            Qs = [self.Q] * n
-        if Hs is None:
-            Hs = [self.H] * n
-        if Rs is None:
-            Rs = [self.R] * n
+            x, P = update(x, P, z, R=R, H=H)
+            means[i, :] = x
+            covariances[i, :, :] = P
+            if saver is not None:
+                saver.save()
 
-        # mean estimates from Kalman filter
-        means = np.zeros((n, self.dim_x, 1))
-
-        # state covariances from Kalman filter
-        covariances = np.zeros((n, self.dim_x, self.dim_x))
-
-        for i, (z, u, B, F, Q, H, R) in enumerate(zip(zs, us, Bs, Fs, Qs, Hs, Rs)):
-            self.predict(u=u, B=B, F=F, Q=Q)
-            self.update(z=z, H=H, R=R)
-
-            means[i, :] = self.x
-            covariances[i, :, :] = self.P
-
-        return (means, covariances)
+    return (means, covariances, means_p, covariances_p)
 
     def batch_filter(self, zs, Rs=None):
         """
