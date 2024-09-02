@@ -106,6 +106,7 @@ class KalmanFilterXYSR(object):
 
         self.attr_saved = None
         self.observed = False
+        self.last_measurement = None
 
 
     def apply_affine_correction(self, m, t):
