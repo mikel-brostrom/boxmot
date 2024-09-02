@@ -107,15 +107,16 @@ class KalmanFilterXYSR(object):
         self.attr_saved = None
         self.observed = False
         self.last_measurement = None
+        self.new_kf = True
 
 
-    def apply_affine_correction(self, m, t, new_kf):
+    def apply_affine_correction(self, m, t):
         """
         Apply to both last state and last observation for OOS smoothing.
 
         Messy due to internal logic for kalman filter being messy.
         """
-        if new_kf:
+        if self.new_kf:
             big_m = np.kron(np.eye(4, dtype=float), m)
             self.x = big_m @ self.x
             self.x[:2] += t
@@ -248,6 +249,7 @@ class KalmanFilterXYSR(object):
         self._log_likelihood = None
         self._likelihood = None
         self._mahalanobis = None
+        self.new_kf = False
 
         # append the observation
         self.history_obs.append(z)
