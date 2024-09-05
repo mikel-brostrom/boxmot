@@ -224,6 +224,7 @@ class ImprAssocTrack(BaseTracker):
         self.lambda_ = lambda_
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
+        self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilterXYWH()
 
         # ReID module
@@ -423,7 +424,7 @@ class ImprAssocTrack(BaseTracker):
 
         """ Step 6: Update state"""
         for track in self.lost_stracks:
-            if self.frame_count - track.end_frame > self.max_age:
+            if self.frame_count - track.end_frame > self.max_time_lost:
                 track.mark_removed()
                 removed_stracks.append(track)
 
