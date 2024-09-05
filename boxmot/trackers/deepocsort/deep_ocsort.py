@@ -10,7 +10,6 @@ from boxmot.motion.kalman_filters.xywh_kf import KalmanFilterXYWH
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.iou import get_asso_func
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils import PerClassDecorator
 from boxmot.utils.ops import xyxy2xysr
 
 
@@ -274,7 +273,7 @@ class DeepOCSort(BaseTracker):
         self.cmc_off = cmc_off
         self.aw_off = aw_off
 
-    @PerClassDecorator
+    @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         Params:

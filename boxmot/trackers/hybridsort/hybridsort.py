@@ -16,7 +16,6 @@ from boxmot.trackers.hybridsort.association import (
 from boxmot.utils import PerClassDecorator
 from boxmot.utils.iou import get_asso_func
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils import PerClassDecorator
 
 
 np.random.seed(0)
@@ -376,7 +375,7 @@ class HybridSORT(BaseTracker):
         for tracker in trackers:
             tracker.camera_update(warp_matrix)
 
-    @PerClassDecorator
+    @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         Params:
