@@ -229,22 +229,22 @@ class DeepOCSort(BaseTracker):
         model_weights (str): Path to the model weights for ReID (Re-Identification).
         device (str): Device on which to run the model (e.g., 'cpu' or 'cuda').
         fp16 (bool): Whether to use half-precision (fp16) for faster inference on compatible devices.
-        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class. Default is False.
-        det_thresh (float, optional): Detection confidence threshold. Detections below this threshold will be ignored. Default is 0.3.
-        max_age (int, optional): Maximum number of frames to keep a track alive without any detections. Default is 30.
-        min_hits (int, optional): Minimum number of hits required to confirm a track. Default is 3.
-        iou_threshold (float, optional): Intersection over Union (IoU) threshold for data association. Default is 0.3.
-        delta_t (int, optional): Time delta for velocity estimation in Kalman Filter. Default is 3.
-        asso_func (str, optional): Association function to use for data association. Options include "iou" for IoU-based association. Default is "iou".
-        inertia (float, optional): Weight for inertia in motion modeling. Higher values make tracks less responsive to changes. Default is 0.2.
-        w_association_emb (float, optional): Weight for the embedding-based association score. Default is 0.5.
-        alpha_fixed_emb (float, optional): Fixed alpha for updating embeddings. Controls the contribution of new and old embeddings in the ReID model. Default is 0.95.
-        aw_param (float, optional): Parameter for adaptive weighting between association costs. Default is 0.5.
-        embedding_off (bool, optional): Whether to turn off the embedding-based association. Default is False.
-        cmc_off (bool, optional): Whether to turn off camera motion compensation (CMC). Default is False.
-        aw_off (bool, optional): Whether to turn off adaptive weighting. Default is False.
-        Q_xy_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for position coordinates. Default is 0.01.
-        Q_s_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for scale coordinates. Default is 0.0001.
+        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class.
+        det_thresh (float, optional): Detection confidence threshold. Detections below this threshold will be ignored.
+        max_age (int, optional): Maximum number of frames to keep a track alive without any detections.
+        min_hits (int, optional): Minimum number of hits required to confirm a track.
+        iou_threshold (float, optional): Intersection over Union (IoU) threshold for data association.
+        delta_t (int, optional): Time delta for velocity estimation in Kalman Filter.
+        asso_func (str, optional): Association function to use for data association. Options include "iou" for IoU-based association.
+        inertia (float, optional): Weight for inertia in motion modeling. Higher values make tracks less responsive to changes.
+        w_association_emb (float, optional): Weight for the embedding-based association score.
+        alpha_fixed_emb (float, optional): Fixed alpha for updating embeddings. Controls the contribution of new and old embeddings in the ReID model.
+        aw_param (float, optional): Parameter for adaptive weighting between association costs.
+        embedding_off (bool, optional): Whether to turn off the embedding-based association.
+        cmc_off (bool, optional): Whether to turn off camera motion compensation (CMC).
+        aw_off (bool, optional): Whether to turn off adaptive weighting.
+        Q_xy_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for position coordinates.
+        Q_s_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for scale coordinates.
         **kwargs: Additional arguments for future extensions or parameters.
     """
     def __init__(

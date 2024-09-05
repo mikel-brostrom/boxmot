@@ -340,16 +340,16 @@ class HybridSORT(BaseTracker):
         device (str): Device on which to run the model (e.g., 'cpu' or 'cuda').
         half (bool): Whether to use half-precision (fp16) for faster inference on compatible devices.
         det_thresh (float): Detection confidence threshold. Detections below this threshold will be ignored in the first association step.
-        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class. Default is False.
-        max_age (int, optional): Maximum number of frames to keep a track alive without any detections. Default is 30.
-        min_hits (int, optional): Minimum number of hits required to confirm a track. Default is 3.
-        iou_threshold (float, optional): Intersection over Union (IoU) threshold for data association. Default is 0.3.
-        delta_t (int, optional): Time delta for velocity estimation in Kalman Filter. Default is 3.
-        asso_func (str, optional): Association function to use for data association. Options include "iou" for IoU-based association. Default is "iou".
-        inertia (float, optional): Weight for inertia in motion modeling. Higher values make tracks less responsive to changes. Default is 0.2.
-        longterm_reid_weight (float, optional): Weight for the long-term ReID feature in the association process. Default is 0.
-        TCM_first_step_weight (float, optional): Weight for the Temporal Consistency Model (TCM) in the first association step. Default is 0.
-        use_byte (bool, optional): Whether to use BYTE association in the second association step. Default is False.
+        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class.
+        max_age (int, optional): Maximum number of frames to keep a track alive without any detections.
+        min_hits (int, optional): Minimum number of hits required to confirm a track.
+        iou_threshold (float, optional): Intersection over Union (IoU) threshold for data association.
+        delta_t (int, optional): Time delta for velocity estimation in Kalman Filter.
+        asso_func (str, optional): Association function to use for data association. Options include "iou" for IoU-based association.
+        inertia (float, optional): Weight for inertia in motion modeling. Higher values make tracks less responsive to changes.
+        longterm_reid_weight (float, optional): Weight for the long-term ReID feature in the association process.
+        TCM_first_step_weight (float, optional): Weight for the Temporal Consistency Model (TCM) in the first association step.
+        use_byte (bool, optional): Whether to use BYTE association in the second association step.
     """
     def __init__(self, reid_weights, device, half, det_thresh, per_class=False, max_age=30, min_hits=3,
                  iou_threshold=0.3, delta_t=3, asso_func="iou", inertia=0.2, longterm_reid_weight=0, TCM_first_step_weight=0, use_byte=False):
