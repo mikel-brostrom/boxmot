@@ -1,6 +1,8 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import numpy as np
+from torch import device
+from pathlib import Path
 
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
@@ -30,10 +32,10 @@ class StrongSORT(object):
     """
     def __init__(
         self,
-        model_weights,
-        device,
-        fp16,
-        per_class=False,
+        model_weights: Path,
+        device: device,
+        fp16: bool,
+        per_class: bool = False,
         max_dist=0.2,
         max_iou_dist=0.7,
         max_age=30,

@@ -1,6 +1,8 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import numpy as np
+import torch
+from pathlib import Path
 from collections import deque
 
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
@@ -249,26 +251,26 @@ class DeepOCSort(BaseTracker):
     """
     def __init__(
         self,
-        model_weights,
-        device,
-        fp16,
-        per_class=False,
-        det_thresh=0.3,
-        max_age=30,
-        min_hits=3,
-        iou_threshold=0.3,
-        delta_t=3,
-        asso_func="iou",
-        inertia=0.2,
-        w_association_emb=0.5,
-        alpha_fixed_emb=0.95,
-        aw_param=0.5,
-        embedding_off=False,
-        cmc_off=False,
-        aw_off=False,
-        Q_xy_scaling=0.01,
-        Q_s_scaling=0.0001,
-        **kwargs
+        model_weights: Path,
+        device: torch.device,
+        fp16: bool,
+        per_class: bool = False,
+        det_thresh: float = 0.3,
+        max_age: int = 30,
+        min_hits: int = 3,
+        iou_threshold: float = 0.3,
+        delta_t: int = 3,
+        asso_func: str = "iou",
+        inertia: float = 0.2,
+        w_association_emb: float = 0.5,
+        alpha_fixed_emb: float = 0.95,
+        aw_param: float = 0.5,
+        embedding_off: bool = False,
+        cmc_off: bool = False,
+        aw_off: bool = False,
+        Q_xy_scaling: float = 0.01,
+        Q_s_scaling: float = 0.0001,
+        **kwargs: dict
     ):
         super().__init__(max_age=max_age, per_class=per_class)
         """
