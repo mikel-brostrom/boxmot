@@ -42,6 +42,7 @@ class BaseTracker(ABC):
 
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
+        self.per_class_active_tracks = None
         
         # Initialize per-class active tracks
         if self.per_class:
@@ -266,7 +267,7 @@ class BaseTracker(ABC):
         """
 
         # if values in dict
-        if self.per_class_active_tracks:
+        if self.per_class_active_tracks is not None:
             for k in self.per_class_active_tracks.keys():
                 active_tracks = self.per_class_active_tracks[k]
                 for a in active_tracks:
