@@ -2,6 +2,8 @@
 
 import numpy as np
 from collections import deque
+from pathlib import Path
+from torch import device
 
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
@@ -210,10 +212,10 @@ class ImprAssocTrack(BaseTracker):
     """
     def __init__(
         self,
-        model_weights,
-        device,
-        fp16,
-        per_class=False,
+        model_weights: Path,
+        device: device,
+        fp16: bool,
+        per_class: bool = False,
         track_high_thresh: float = 0.6,
         track_low_thresh: float = 0.1,
         new_track_thresh: float = 0.7,

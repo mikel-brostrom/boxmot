@@ -358,31 +358,31 @@ class HybridSORT(BaseTracker):
         """
         Sets key parameters for SORT
         """
-        self.max_age = max_age
-        self.min_hits = min_hits
-        self.iou_threshold = iou_threshold
-        self.per_class = per_class
-        self.frame_count = 0
-        self.det_thresh = det_thresh
-        self.delta_t = delta_t
-        self.asso_func = get_asso_func(asso_func)
-        self.inertia = inertia
-        self.use_byte = use_byte
-        self.low_thresh = 0.1
-        self.EG_weight_high_score = 1.3
-        self.EG_weight_low_score = 1.2
-        self.TCM_first_step = True
-        self.with_longterm_reid = True
-        self.with_longterm_reid_correction = True
-        self.longterm_reid_weight = longterm_reid_weight
-        self.TCM_first_step_weight = TCM_first_step_weight
-        self.high_score_matching_thresh = 0.8
-        self.longterm_reid_correction_thresh = 0.4
-        self.longterm_reid_correction_thresh_low = 0.4
-        self.TCM_byte_step = True
-        self.TCM_byte_step_weight = 1.0
-        self.dataset = 'dancetrack'
-        self.ECC = False
+        self.max_age: int = max_age
+        self.min_hits: int = min_hits
+        self.iou_threshold: float = iou_threshold
+        self.per_class: bool = per_class
+        self.frame_count: int = 0
+        self.det_thresh: float = det_thresh
+        self.delta_t: int = delta_t
+        self.asso_func: str = get_asso_func(asso_func)  # assuming get_asso_func returns a callable function
+        self.inertia: float = inertia
+        self.use_byte: bool = use_byte
+        self.low_thresh: float = 0.1
+        self.EG_weight_high_score: float = 1.3
+        self.EG_weight_low_score: float = 1.2
+        self.TCM_first_step: bool = True
+        self.with_longterm_reid: bool = True
+        self.with_longterm_reid_correction: bool = True
+        self.longterm_reid_weight: float = longterm_reid_weight
+        self.TCM_first_step_weight: float = TCM_first_step_weight
+        self.high_score_matching_thresh: float = 0.8
+        self.longterm_reid_correction_thresh: float = 0.4
+        self.longterm_reid_correction_thresh_low: float = 0.4
+        self.TCM_byte_step: bool = True
+        self.TCM_byte_step_weight: float = 1.0
+        self.dataset: str = 'dancetrack'
+        self.ECC: bool = False
         KalmanBoxTracker.count = 0
 
         self.model = ReidAutoBackend(
