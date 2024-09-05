@@ -128,11 +128,11 @@ class BYTETracker(BaseTracker):
     """
     def __init__(
         self,
-        track_thresh=0.45,
-        match_thresh=0.8,
-        track_buffer=25,
-        frame_rate=30,
-        per_class=False,
+        track_thresh: float = 0.45,
+        match_thresh: float = 0.8,
+        track_buffer: int = 25,
+        frame_rate: int = 30,
+        per_class: bool = False,
     ):
         super().__init__(per_class=per_class)
         self.active_tracks = []  # type: list[STrack]

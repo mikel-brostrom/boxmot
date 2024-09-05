@@ -200,17 +200,17 @@ class OCSort(BaseTracker):
     """
     def __init__(
         self,
-        per_class=False,
-        det_thresh=0.2,
-        max_age=30,
-        min_hits=3,
-        asso_threshold=0.3,
-        delta_t=3,
-        asso_func="iou",
-        inertia=0.2,
-        use_byte=False,
-        Q_xy_scaling=0.01,
-        Q_s_scaling=0.0001
+        per_class: bool = False,
+        det_thresh: float = 0.2,
+        max_age: int = 30,
+        min_hits: int = 3,
+        asso_threshold: float = 0.3,
+        delta_t: int = 3,
+        asso_func: str = "iou",
+        inertia: float = 0.2,
+        use_byte: bool = False,
+        Q_xy_scaling: float = 0.01,
+        Q_s_scaling: float = 0.0001
     ):
         super().__init__(max_age=max_age, per_class=per_class)
         """
