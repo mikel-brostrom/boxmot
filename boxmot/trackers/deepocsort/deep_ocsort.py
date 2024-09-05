@@ -245,7 +245,7 @@ class DeepOCSort(BaseTracker):
         Q_s_scaling=0.0001,
         **kwargs
     ):
-        super().__init__(max_age=max_age)
+        super().__init__(max_age=max_age, per_class=per_class)
         """
         Sets key parameters for SORT
         """
