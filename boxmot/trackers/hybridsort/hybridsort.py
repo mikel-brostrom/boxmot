@@ -333,7 +333,7 @@ class KalmanBoxTracker(object):
 class HybridSORT(BaseTracker):
     def __init__(self, reid_weights, device, half, det_thresh, per_class=False, max_age=30, min_hits=3,
                  iou_threshold=0.3, delta_t=3, asso_func="iou", inertia=0.2, longterm_reid_weight=0, TCM_first_step_weight=0, use_byte=False):
-        super().__init__(max_age=max_age)
+        super().__init__(max_age=max_age, per_class=per_class)
 
         """
         Sets key parameters for SORT
