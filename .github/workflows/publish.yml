@@ -9,6 +9,10 @@ on:
         description: 'Target repository (pypi or testpypi)'
         required: true
         default: 'pypi'
+      bump_type:
+        description: 'Version bump type (patch, minor, major)'
+        required: true
+        default: 'patch'
 
 jobs:
   pypi-upload:
@@ -34,7 +38,8 @@ jobs:
         run: |
           git config --local user.email yolov5.deepsort.pytorch@gmail.com
           git config --local user.name mikel-brostrom
-          commit_message=$(poetry version patch)
+          bump_type=${{ github.event.inputs.bump_type }}
+          commit_message=$(poetry version $bump_type)
           new_version=$(echo $commit_message | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
           git add pyproject.toml
           poetry build
