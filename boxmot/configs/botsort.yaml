@@ -4,7 +4,6 @@ appearance_thresh: 0.7636154550757781
 cmc_method: sparseOptFlow
 conf: 0.4828271520496597
 frame_rate: 30
-max_age: 30
 lambda_: 0.9764964093204093
 match_thresh: 0.22182609980772128
 new_track_thresh: 0.25855770885476126
