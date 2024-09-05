@@ -206,7 +206,7 @@ class ImprAssocTrack(BaseTracker):
         frame_rate=30,
         with_reid: bool = True
     ):
-        super().__init__()
+        super().__init__(per_class=per_class)
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
