@@ -116,13 +116,23 @@ class STrack(BaseTrack):
 
 
 class BYTETracker(BaseTracker):
+    """
+    BYTETracker: A tracking algorithm based on ByteTrack, which utilizes motion-based tracking.
+
+    Args:
+        track_thresh (float, optional): Threshold for detection confidence. Detections above this threshold are considered for tracking in the first association round.
+        match_thresh (float, optional): Threshold for the matching step in data association. Controls the maximum distance allowed between tracklets and detections for a match.
+        track_buffer (int, optional): Number of frames to keep a track alive after it was last detected. A longer buffer allows for more robust tracking but may increase identity switches.
+        frame_rate (int, optional): Frame rate of the video being processed. Used to scale the track buffer size.
+        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class.
+    """
     def __init__(
         self,
-        track_thresh=0.45,
-        match_thresh=0.8,
-        track_buffer=25,
-        frame_rate=30,
-        per_class=False,
+        track_thresh: float = 0.45,
+        match_thresh: float = 0.8,
+        track_buffer: int = 25,
+        frame_rate: int = 30,
+        per_class: bool = False,
     ):
         super().__init__(per_class=per_class)
         self.active_tracks = []  # type: list[STrack]

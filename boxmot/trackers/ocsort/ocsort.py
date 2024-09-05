@@ -182,19 +182,35 @@ class KalmanBoxTracker(object):
 
 
 class OCSort(BaseTracker):
+    """
+    OCSort Tracker: A tracking algorithm that utilizes motion-based tracking.
+
+    Args:
+        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class.
+        det_thresh (float, optional): Detection confidence threshold. Detections below this threshold are ignored in the first association step.
+        max_age (int, optional): Maximum number of frames to keep a track alive without any detections.
+        min_hits (int, optional): Minimum number of hits required to confirm a track.
+        asso_threshold (float, optional): Threshold for the association step in data association. Controls the maximum distance allowed between tracklets and detections for a match.
+        delta_t (int, optional): Time delta for velocity estimation in Kalman Filter.
+        asso_func (str, optional): Association function to use for data association. Options include "iou" for IoU-based association.
+        inertia (float, optional): Weight for inertia in motion modeling. Higher values make tracks less responsive to changes.
+        use_byte (bool, optional): Whether to use BYTE association in the second association step.
+        Q_xy_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for position coordinates.
+        Q_s_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for scale coordinates.
+    """
     def __init__(
         self,
-        per_class=False,
-        det_thresh=0.2,
-        max_age=30,
-        min_hits=3,
-        asso_threshold=0.3,
-        delta_t=3,
-        asso_func="iou",
-        inertia=0.2,
-        use_byte=False,
-        Q_xy_scaling=0.01,
-        Q_s_scaling=0.0001
+        per_class: bool = False,
+        det_thresh: float = 0.2,
+        max_age: int = 30,
+        min_hits: int = 3,
+        asso_threshold: float = 0.3,
+        delta_t: int = 3,
+        asso_func: str = "iou",
+        inertia: float = 0.2,
+        use_byte: bool = False,
+        Q_xy_scaling: float = 0.01,
+        Q_s_scaling: float = 0.0001
     ):
         super().__init__(max_age=max_age, per_class=per_class)
         """
