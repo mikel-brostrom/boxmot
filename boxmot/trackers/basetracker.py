@@ -91,7 +91,7 @@ class BaseTracker(ABC):
                     class_embs = None
         return class_dets, class_embs
     
-    
+    @staticmethod
     def per_class_decorator(update_method):
         """
         Decorator for the update method to handle per-class processing.
