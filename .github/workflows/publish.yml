@@ -6,13 +6,22 @@ on:
   workflow_dispatch:
     inputs:
       pypi:
-        description: 'Target repository (pypi or testpypi)'
+        description: 'Target repository'
         required: true
+        type: choice
         default: 'pypi'
+        options:
+          - pypi
+          - testpypi
       bump_type:
-        description: 'Version bump type (patch, minor, major)'
+        description: 'Version bump type'
         required: true
+        type: choice
         default: 'patch'
+        options:
+          - patch
+          - minor
+          - major
 
 jobs:
   pypi-upload:
