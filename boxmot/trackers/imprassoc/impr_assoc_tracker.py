@@ -193,6 +193,7 @@ class ImprAssocTrack(BaseTracker):
         device,
         fp16,
         per_class=False,
+        max_age: int = 30,
         track_high_thresh: float = 0.6,
         track_low_thresh: float = 0.1,
         new_track_thresh: float = 0.7,
