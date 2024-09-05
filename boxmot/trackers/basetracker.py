@@ -38,7 +38,6 @@ class BaseTracker(ABC):
         self.per_class = per_class  # Track per class or not
         self.nr_classes = nr_classes
         self.iou_threshold = iou_threshold
-        self.per_class_active_tracks = {}
         self.last_emb_size = None
 
         self.frame_count = 0
@@ -46,6 +45,7 @@ class BaseTracker(ABC):
         
         # Initialize per-class active tracks
         if self.per_class:
+            self.per_class_active_tracks = {}
             for i in range(self.nr_classes):
                 self.per_class_active_tracks[i] = []
         
@@ -124,9 +124,6 @@ class BaseTracker(ABC):
 
                     if tracks.size > 0:
                         per_class_tracks.append(tracks)
-                                        
-                # When all active tracks lists have been updated
-                self.per_class_active_tracks = self.per_class_active_tracks
                 
                 # Increase frame count by 1
                 self.frame_count = frame_count + 1
