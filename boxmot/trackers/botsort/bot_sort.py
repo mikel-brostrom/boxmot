@@ -186,6 +186,26 @@ class STrack(BaseTrack):
 
 
 class BoTSORT(BaseTracker):
+    """
+    BoTSORT Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
+
+    Args:
+        model_weights (str): Path to the model weights for ReID (Re-Identification).
+        device (str): Device on which to run the model (e.g., 'cpu' or 'cuda').
+        fp16 (bool): Whether to use half-precision (fp16) for faster inference on compatible devices.
+        per_class (bool, optional): Whether to perform per-class tracking. Default is False.
+        track_high_thresh (float, optional): High threshold for detection confidence. Detections above this threshold are used in the first association round. Default is 0.5.
+        track_low_thresh (float, optional): Low threshold for detection confidence. Detections below this threshold are ignored. Default is 0.1.
+        new_track_thresh (float, optional): Threshold for creating a new track. Detections above this threshold will be considered as potential new tracks. Default is 0.6.
+        track_buffer (int, optional): Number of frames to keep a track alive after it was last detected. Default is 30.
+        match_thresh (float, optional): Threshold for the matching step in data association. Default is 0.8.
+        proximity_thresh (float, optional): Threshold for IoU (Intersection over Union) distance in first-round association. Default is 0.5.
+        appearance_thresh (float, optional): Threshold for appearance embedding distance in the ReID module. Default is 0.25.
+        cmc_method (str, optional): Method for correcting camera motion. Options include "sof" (simple optical flow). Default is "sof".
+        frame_rate (int, optional): Frame rate of the video being processed. Used to scale the track buffer size. Default is 30.
+        fuse_first_associate (bool, optional): Whether to fuse appearance and motion information during the first association step. Default is False.
+        with_reid (bool, optional): Whether to use ReID (Re-Identification) features for association. Default is True.
+    """
     def __init__(
         self,
         model_weights,
