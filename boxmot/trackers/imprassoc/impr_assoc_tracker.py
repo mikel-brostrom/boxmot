@@ -186,6 +186,28 @@ class STrack(BaseTrack):
 
 
 class ImprAssocTrack(BaseTracker):
+    """
+    ImprAssocTrack Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
+
+    Args:
+        model_weights (str): Path to the model weights for ReID (Re-Identification).
+        device (str): Device on which to run the model (e.g., 'cpu' or 'cuda').
+        fp16 (bool): Whether to use half-precision (fp16) for faster inference on compatible devices.
+        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class. Default is False.
+        track_high_thresh (float, optional): High threshold for detection confidence. Detections above this threshold are used in the first association round. Default is 0.6.
+        track_low_thresh (float, optional): Low threshold for detection confidence. Detections below this threshold are ignored. Default is 0.1.
+        new_track_thresh (float, optional): Threshold for creating a new track. Detections above this threshold will be considered as potential new tracks. Default is 0.7.
+        match_thresh (float, optional): Threshold for the matching step in data association. Controls the maximum distance allowed between tracklets and detections for a match. Default is 0.65.
+        second_match_thresh (float, optional): Threshold for the second round of matching, used to associate low confidence detections. Default is 0.19.
+        overlap_thresh (float, optional): Threshold for discarding overlapping detections after association. Default is 0.55.
+        lambda_ (float, optional): Weighting factor for combining different association costs (e.g., IoU and ReID distance). Default is 0.2.
+        track_buffer (int, optional): Number of frames to keep a track alive after it was last detected. A longer buffer allows for more robust tracking but may increase identity switches. Default is 35.
+        proximity_thresh (float, optional): Threshold for IoU (Intersection over Union) distance in first-round association. Default is 0.1.
+        appearance_thresh (float, optional): Threshold for appearance embedding distance in the ReID module. Default is 0.25.
+        cmc_method (str, optional): Method for correcting camera motion. Options include "sparseOptFlow" (Sparse Optical Flow). Default is "sparseOptFlow".
+        frame_rate (int, optional): Frame rate of the video being processed. Used to scale the track buffer size. Default is 30.
+        with_reid (bool, optional): Whether to use ReID (Re-Identification) features for association. Default is True.
+    """
     def __init__(
         self,
         model_weights,

@@ -12,6 +12,22 @@ from boxmot.trackers.basetracker import BaseTracker
 
 
 class StrongSORT(object):
+    """
+    StrongSORT Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
+
+    Args:
+        model_weights (str): Path to the model weights for ReID (Re-Identification).
+        device (str): Device on which to run the model (e.g., 'cpu' or 'cuda').
+        fp16 (bool): Whether to use half-precision (fp16) for faster inference on compatible devices.
+        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class. Default is False.
+        max_dist (float, optional): Maximum cosine distance for ReID feature matching in Nearest Neighbor Distance Metric. Default is 0.2.
+        max_iou_dist (float, optional): Maximum Intersection over Union (IoU) distance for data association. Controls the maximum allowed distance between tracklets and detections for a match. Default is 0.7.
+        max_age (int, optional): Maximum number of frames to keep a track alive without any detections. Default is 30.
+        n_init (int, optional): Number of consecutive frames required to confirm a track. Default is 1.
+        nn_budget (int, optional): Maximum size of the feature library for Nearest Neighbor Distance Metric. If the library size exceeds this value, the oldest features are removed. Default is 100.
+        mc_lambda (float, optional): Weight for motion consistency in the track state estimation. Higher values give more weight to motion information. Default is 0.995.
+        ema_alpha (float, optional): Alpha value for exponential moving average (EMA) update of appearance features. Controls the contribution of new and old embeddings in the ReID model. Default is 0.9.
+    """
     def __init__(
         self,
         model_weights,
