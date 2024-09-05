@@ -193,7 +193,6 @@ class BoTSORT(BaseTracker):
         device,
         fp16,
         per_class=False,
-        max_age: int = 30,
         track_high_thresh: float = 0.5,
         track_low_thresh: float = 0.1,
         new_track_thresh: float = 0.6,
@@ -218,6 +217,7 @@ class BoTSORT(BaseTracker):
         self.match_thresh = match_thresh
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
+        self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilterXYWH()
 
         # ReID module
@@ -388,7 +388,7 @@ class BoTSORT(BaseTracker):
 
         """ Step 5: Update state"""
         for track in self.lost_stracks:
-            if self.frame_count - track.end_frame > self.max_age:
+            if self.frame_count - track.end_frame > self.max_time_lost:
                 track.mark_removed()
                 removed_stracks.append(track)
 
