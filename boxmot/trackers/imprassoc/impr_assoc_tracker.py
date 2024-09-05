@@ -12,7 +12,6 @@ from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    d_iou_distance)
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils import PerClassDecorator
 
 
 class STrack(BaseTrack):
@@ -241,7 +240,7 @@ class ImprAssocTrack(BaseTracker):
         self.cmc = SOF()
 
 
-    @PerClassDecorator
+    @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         self.check_inputs(dets, img)
 

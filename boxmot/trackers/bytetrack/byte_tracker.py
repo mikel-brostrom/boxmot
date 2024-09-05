@@ -8,7 +8,6 @@ from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
 from boxmot.utils.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils import PerClassDecorator
 
 
 class STrack(BaseTrack):
@@ -141,7 +140,7 @@ class BYTETracker(BaseTracker):
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilterXYAH()
 
-    @PerClassDecorator
+    @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None) -> np.ndarray:
         
         self.check_inputs(dets, img)
