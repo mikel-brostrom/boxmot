@@ -67,7 +67,7 @@ openvino-dev = ">=2023.3,<2025.0"
 
 
 [tool.poetry.group.evolve.dependencies]
-optuna = "^3.5.0"
+ray = "^2.35.0"
 plotly = "^5.19.0"
 joblib = "^1.3.2"
 
