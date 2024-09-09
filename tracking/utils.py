@@ -66,8 +66,17 @@ def download_mot_dataset(val_tools_path, benchmark):
     Returns:
         Path: The path to the downloaded zip file.
     """
-    url = f'https://motchallenge.net/data/{benchmark}.zip'
-    zip_dst = val_tools_path / f'{benchmark}.zip'
+    if 'MOT' in benchmark:
+        # MOT Challenge datasets
+        url = f'https://motchallenge.net/data/{benchmark}.zip'
+        zip_dst = val_tools_path / f'{benchmark}.zip'
+    elif 'KITTI' in benchmark:
+        # KITTI datasets
+        url = 'http://www.cvlibs.net/download.php?file=data_tracking_image_2.zip'
+        zip_dst = val_tools_path / 'KITTI.zip'
+    else:
+        LOGGER.error(f'Unsupported benchmark: {benchmark}')
+        return None
 
     if not zip_dst.exists():
         try:
