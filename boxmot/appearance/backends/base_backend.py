@@ -12,6 +12,7 @@ from boxmot.appearance.reid_model_factory import (
     show_downloadable_models
 )
 from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.iou import iou_batch
 
 
 class BaseModelBackend:
@@ -33,6 +34,8 @@ class BaseModelBackend:
         )
         self.checker = RequirementsChecker()
         self.load_model(self.weights)
+        self.iou_threshold = 0.15
+        self.ars_threshold=0.6
 
     def get_crops(self, xyxys, img):
         crops = []
@@ -75,7 +78,7 @@ class BaseModelBackend:
         crops = crops.to(dtype=torch.half if self.half else torch.float, device=self.device)
 
         return crops
-
+    
     @torch.no_grad()
     def get_features(self, xyxys, img):
         if xyxys.size != 0:
@@ -87,6 +90,75 @@ class BaseModelBackend:
             features = np.array([])
         features = features / np.linalg.norm(features)
         return features
+    
+    def aspect_ratio_similarity(self, box1, box2):
+        # Ensure both boxes are 1D arrays of length 4
+        if len(box1.shape) == 2 and box1.shape[0] == 1:
+            box1 = box1.squeeze(0)  # Convert (1, 4) to (4,)
+        if len(box2.shape) == 2 and box2.shape[0] == 1:
+            box2 = box2.squeeze(0)  # Convert (1, 4) to (4,)
+        # Calculate width and height for box1
+        w1, h1 = box1[2] - box1[0], box1[3] - box1[1]
+        # Calculate width and height for box2
+        w2, h2 = box2[2] - box2[0], box2[3] - box2[1]
+        
+        # Calculate aspect ratios
+        aspect_ratio1 = w1 / h1
+        aspect_ratio2 = w2 / h2
+        
+        # Compute aspect ratio similarity using the formula provided
+        similarity = 4 / (np.pi ** 2) * (np.arctan(aspect_ratio1) - np.arctan(aspect_ratio2)) ** 2
+        return similarity
+
+    @torch.no_grad()
+    def get_features_fast(self, xyxy, img, active_tracks, embs):
+
+        risky_detections = []
+        non_risky_matches = {}
+        for i, det in enumerate(xyxy):
+            matching_tracks = []
+            for at in active_tracks:
+                iou = iou_batch(det.reshape(1, -1), at.to_tlbr().reshape(1, -1))[0][0]
+                if iou > self.iou_threshold:
+                    matching_tracks.append((at, iou))
+
+            if len(matching_tracks) == 1:
+                track, iou = matching_tracks[0]
+                ars = self.aspect_ratio_similarity(det, track.to_tlbr())
+                v = ars
+                alpha = v / ((1 - iou) + v)
+                if alpha <= self.ars_threshold:
+                    # Non-risky detection, use track's features
+                    non_risky_matches[i] = track
+                    continue
+
+            # Risky detection, needs feature extraction
+            risky_detections.append(i)
+            
+        # Extract features only for risky detections otherwise use last feature
+        if embs is not None:
+            features = embs[risky_detections]
+        else:
+            features = self.get_features(xyxy[risky_detections], img)
+
+        # Prepare detections
+        feats = []
+        for i, _ in enumerate(xyxy):
+            if i in risky_detections:
+                print('riskyyy!')
+                feat = features[risky_detections.index(i)]
+            else:
+                # For non-risky detections, use the matching track's features
+                feat = non_risky_matches[i].features[-1]  # Use the latest feature from the matching track
+            feats.append(feat)
+            
+        # Check if the total number of features matches the number of detections
+        if len(feats) != len(xyxy):
+            raise ValueError(f"Mismatch between number of detections ({len(xyxy)}) and number of features ({len(feats)}).")
+    
+        feats = torch.tensor(feats, dtype=torch.float32)
+            
+        return feats
 
     def warmup(self, imgsz=[(256, 128, 3)]):
         # warmup model by running inference once
