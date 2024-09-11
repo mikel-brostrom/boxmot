@@ -18,6 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     outputs:
       status: ${{ job.status }}
+    env:
+      TRACKERS: "ocsort bytetrack botsort hybridsort deepocsort imprassoc faststrongsort"
     strategy:
       fail-fast: false
       matrix:
