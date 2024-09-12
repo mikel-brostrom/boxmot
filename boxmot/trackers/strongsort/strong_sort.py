@@ -106,7 +106,7 @@ class StrongSORT(object):
         # output bbox identities
         outputs = []
         for track in self.tracker.tracks:
-            if not track.is_confirmed():
+            if not track.is_confirmed() or track.time_since_update >= 1:
                 continue
 
             x1, y1, x2, y2 = track.to_tlbr()
