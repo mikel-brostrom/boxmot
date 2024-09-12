@@ -36,12 +36,12 @@ class StrongSORT(object):
         device: device,
         fp16: bool,
         per_class: bool = False,
-        max_dist=0.2,
+        max_cos_dist=0.2,
         max_iou_dist=0.7,
         max_age=30,
         n_init=3,
         nn_budget=100,
-        mc_lambda=0.995,
+        mc_lambda=0.98,
         ema_alpha=0.9,
     ):
 
@@ -51,7 +51,7 @@ class StrongSORT(object):
         ).model
 
         self.tracker = Tracker(
-            metric=NearestNeighborDistanceMetric("cosine", max_dist, nn_budget),
+            metric=NearestNeighborDistanceMetric("cosine", max_cos_dist, nn_budget),
             max_iou_dist=max_iou_dist,
             max_age=max_age,
             n_init=n_init,
