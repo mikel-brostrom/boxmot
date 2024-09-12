@@ -1,9 +1,9 @@
 ecc: false
-ema_alpha: 0.8979312595206661
+ema_alpha: 0.9
 iou_thresh: 0.18179688837403396
-max_age: 140.0
-max_dist: 0.2586684759258714
-max_iou_dist: 0.7556200524922695
-mc_lambda: 0.9086258006704525
-n_init: 1.1420721163957739
+max_age: 30
+max_cos_dist: 0.3
+max_iou_dist: 0.7
+mc_lambda: 0.98
+n_init: 1
 nn_budget: 100
