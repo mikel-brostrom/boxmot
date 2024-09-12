@@ -82,7 +82,7 @@ class Track:
         self.det_ind = detection.det_ind
         self.hits = 1
         self.age = 1
-        self.time_since_update = 1
+        self.time_since_update = 0
         self.ema_alpha = ema_alpha
 
         self.state = TrackState.Confirmed
