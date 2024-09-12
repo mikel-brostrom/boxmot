@@ -31,7 +31,7 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
             reid_weights,
             device,
             half,
-            max_dist=cfg.max_dist,
+            max_cos_dist=cfg.max_cos_dist,
             max_iou_dist=cfg.max_iou_dist,
             max_age=cfg.max_age,
             n_init=cfg.n_init,
