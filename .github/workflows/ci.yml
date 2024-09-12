@@ -166,8 +166,11 @@ jobs:
             echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
           done
 
-          # Create a pretty table from the results.csv file
-          column -s, -t results.csv > pretty_results.txt
+          # Sort the results by HOTA in descending order
+          (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
+
+          # Create a pretty table from the sorted_results.csv file
+          column -s, -t sorted_results.csv > pretty_results.txt
 
       - name: Show Results
         shell: bash
