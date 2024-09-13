@@ -25,6 +25,44 @@ def iou_batch(bboxes1, bboxes2) -> np.ndarray:
     return o
 
 
+def hmiou_batch(bboxes1, bboxes2):
+    """
+    :param bbox_p: predict of bbox(N,4)(x1,y1,x2,y2)
+    :param bbox_g: groundtruth of bbox(N,4)(x1,y1,x2,y2)
+    :return:
+    """
+    # for details should go to https://arxiv.org/pdf/1902.09630.pdf
+    # ensure predict's bbox form
+    bboxes1 = np.expand_dims(bboxes1, 0)
+    bboxes1[..., 2:] += bboxes1[..., 0:2]
+    bboxes2[..., 2:] += bboxes2[..., 0:2]
+
+    ious = np.zeros((len(bboxes1), len(bboxes2)), dtype=np.float)
+    if ious.size == 0:
+        return ious
+    bboxes2 = np.expand_dims(bboxes2, 0)
+    bboxes1 = np.expand_dims(bboxes1, 0)
+
+    yy11 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
+    yy12 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
+
+    yy21 = np.minimum(bboxes1[..., 1], bboxes2[..., 1])
+    yy22 = np.maximum(bboxes1[..., 3], bboxes2[..., 3])
+    o = (yy12 - yy11) / (yy22 - yy21)
+
+    xx1 = np.maximum(bboxes1[..., 0], bboxes2[..., 0])
+    yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
+    xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
+    yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
+    w = np.maximum(0., xx2 - xx1)
+    h = np.maximum(0., yy2 - yy1)
+    wh = w * h
+    iou = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+                + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)
+    iou *= o
+    return iou
+
+
 def giou_batch(bboxes1, bboxes2) -> np.ndarray:
     """
     :param bbox_p: predict of bbox(N,4)(x1,y1,x2,y2)
@@ -215,6 +253,7 @@ def run_asso_func(func, *args):
 def get_asso_func(asso_mode):
     ASSO_FUNCS = {
         "iou": iou_batch,
+        "mhiou": mhiou_batch,
         "giou": giou_batch,
         "ciou": ciou_batch,
         "diou": diou_batch,
