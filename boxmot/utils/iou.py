@@ -25,6 +25,42 @@ def iou_batch(bboxes1, bboxes2) -> np.ndarray:
     return o
 
 
+def hmiou_batch(bboxes1, bboxes2):
+    """
+    Computes Hybrid Mass Intersection over Union (HM IoU) between two sets of bounding boxes.
+    :param bboxes1: Predicted bounding boxes (N, 4) in the format [x1, y1, x2, y2].
+    :param bboxes2: Ground truth bounding boxes (M, 4) in the format [x1, y1, x2, y2].
+    :return: HM IoU matrix of shape (N, M).
+    """
+    # Ensure bounding boxes are in correct format
+    bboxes1 = np.expand_dims(bboxes1, 1)
+    bboxes2 = np.expand_dims(bboxes2, 0)
+    
+    # Calculate vertical overlap term `o`
+    yy11 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
+    yy12 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
+    yy21 = np.minimum(bboxes1[..., 1], bboxes2[..., 1])
+    yy22 = np.maximum(bboxes1[..., 3], bboxes2[..., 3])
+    
+    o = np.maximum(0, yy12 - yy11) / np.maximum(1e-10, yy22 - yy21)  # Avoid division by zero
+
+    # Calculate standard IoU
+    xx1 = np.maximum(bboxes1[..., 0], bboxes2[..., 0])
+    yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
+    xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
+    yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
+    w = np.maximum(0., xx2 - xx1)
+    h = np.maximum(0., yy2 - yy1)
+    wh = w * h
+    iou = wh / (
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
+        (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh
+    )
+    
+    iou *= o  # Multiply IoU by vertical overlap term
+    return iou
+
+
 def giou_batch(bboxes1, bboxes2) -> np.ndarray:
     """
     :param bbox_p: predict of bbox(N,4)(x1,y1,x2,y2)
@@ -197,10 +233,10 @@ def run_asso_func(func, *args):
     func: The batch function to call (either *iou*_batch or centroid_batch).
     *args: Variable length argument list, containing either bounding boxes and optionally size parameters.
     """
-    if func not in [iou_batch, giou_batch, diou_batch, ciou_batch, centroid_batch]:
+    if func not in [iou_batch, giou_batch, diou_batch, ciou_batch, centroid_batch, hmiou_batch]:
         raise ValueError("Invalid function specified. Must be either '(g,d,c, )iou_batch' or 'centroid_batch'.")
 
-    if func in (iou_batch, giou_batch, diou_batch, ciou_batch):
+    if func in (iou_batch, giou_batch, diou_batch, ciou_batch, centroid_batch, hmiou_batch):
         if len(args) != 4 or not all(isinstance(arg, (list, np.ndarray)) for arg in args[0:2]):
             raise ValueError("Invalid arguments for iou_batch. Expected two bounding boxes.")
         return func(*args[0:2])
@@ -215,6 +251,7 @@ def run_asso_func(func, *args):
 def get_asso_func(asso_mode):
     ASSO_FUNCS = {
         "iou": iou_batch,
+        "hmiou": hmiou_batch,
         "giou": giou_batch,
         "ciou": ciou_batch,
         "diou": diou_batch,
