@@ -253,7 +253,7 @@ def run_asso_func(func, *args):
 def get_asso_func(asso_mode):
     ASSO_FUNCS = {
         "iou": iou_batch,
-        "mhiou": mhiou_batch,
+        "hmiou": hmiou_batch,
         "giou": giou_batch,
         "ciou": ciou_batch,
         "diou": diou_batch,
