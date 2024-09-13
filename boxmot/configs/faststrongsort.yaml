@@ -7,3 +7,5 @@ max_iou_dist: 0.7556200524922695
 mc_lambda: 0.9086258006704525
 n_init: 1.1420721163957739
 nn_budget: 100
+iou_threshold: 0.2
+ars_threshold: 0.6

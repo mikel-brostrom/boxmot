@@ -52,6 +52,22 @@ def get_search_space(tracking_method):
             "mc_lambda": tune.uniform(0.90, 0.999),
             "nn_budget": tune.choice([100]),
         }
+
+    if tracking_method == 'faststrongsort':
+        search_space = {
+            "iou_thresh": tune.uniform(0.1, 0.4),
+            "ecc": tune.choice([True, False]),
+            "ema_alpha": tune.uniform(0.7, 0.95),
+            "max_dist": tune.uniform(0.1, 0.4),
+            "max_iou_dist": tune.uniform(0.5, 0.95),
+            "max_age": tune.randint(10, 151),  # The upper bound is exclusive in randint
+            "n_init": tune.randint(1, 4),  # The upper bound is exclusive in randint
+            "mc_lambda": tune.uniform(0.90, 0.999),
+            "nn_budget": tune.choice([100]),
+            "iou_threshold": tune.uniform(0.0, 0.5),
+            "ars_threshold": tune.uniform(0.5, 1.0),
+        }
+
     elif tracking_method == 'hybridsort':
         search_space = {
             "det_thresh": tune.uniform(0, 0.6),

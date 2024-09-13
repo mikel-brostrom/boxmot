@@ -84,6 +84,7 @@ class Track:
         self.age = 1
         self.time_since_update = 0
         self.ema_alpha = ema_alpha
+        self.alpha_prime = ema_alpha  # Initialize alpha_prime for feature decay
 
         self.state = TrackState.Tentative
         self.features = []
@@ -167,11 +168,16 @@ class Track:
 
         feature = detection.feat / np.linalg.norm(detection.feat)
 
-        smooth_feat = (
-            self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
-        )
-        smooth_feat /= np.linalg.norm(smooth_feat)
-        self.features = [smooth_feat]
+        # Implement feature decay
+        if detection.is_risky:
+            smooth_feat = (
+                self.alpha_prime * self.features[-1] + (1 - self.alpha_prime) * feature
+            )
+            smooth_feat /= np.linalg.norm(smooth_feat)
+            self.features = [smooth_feat]
+            self.alpha_prime = self.ema_alpha  # Reset alpha_prime after feature update
+        else:
+            self.alpha_prime *= self.ema_alpha
 
         self.hits += 1
         self.time_since_update = 0

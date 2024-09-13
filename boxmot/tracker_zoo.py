@@ -31,7 +31,7 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
             reid_weights,
             device,
             half,
-            max_cos_dist=cfg.max_cos_dist,
+            max_dist=cfg.max_dist,
             max_iou_dist=cfg.max_iou_dist,
             max_age=cfg.max_age,
             n_init=cfg.n_init,
@@ -41,6 +41,24 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
 
         )
         return strongsort
+
+    if tracker_type == 'faststrongsort':
+        from boxmot.trackers.faststrongsort.fast_strong_sort import FastStrongSORT
+        faststrongsort = FastStrongSORT(
+            reid_weights,
+            device,
+            half,
+            max_dist=cfg.max_dist,
+            max_iou_dist=cfg.max_iou_dist,
+            max_age=cfg.max_age,
+            n_init=cfg.n_init,
+            nn_budget=cfg.nn_budget,
+            mc_lambda=cfg.mc_lambda,
+            ema_alpha=cfg.ema_alpha,
+            iou_threshold=cfg.iou_threshold,
+            ars_threshold=cfg.ars_threshold
+        )
+        return faststrongsort
 
     elif tracker_type == 'ocsort':
         from boxmot.trackers.ocsort.ocsort import OCSort
