@@ -45,7 +45,7 @@ def get_search_space(tracking_method):
             "iou_thresh": tune.uniform(0.1, 0.4),
             "ecc": tune.choice([True, False]),
             "ema_alpha": tune.uniform(0.7, 0.95),
-            "max_dist": tune.uniform(0.1, 0.4),
+            "max_cos_dist": tune.uniform(0.1, 0.4),
             "max_iou_dist": tune.uniform(0.5, 0.95),
             "max_age": tune.randint(10, 151),  # The upper bound is exclusive in randint
             "n_init": tune.randint(1, 4),  # The upper bound is exclusive in randint
