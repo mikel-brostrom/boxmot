@@ -1,5 +1,5 @@
 # name of the workflow, what it is doing (optional)
-name: Ben chmark
+name: Benchmark
 
 # events that trigger the workflow (required)
 on:
