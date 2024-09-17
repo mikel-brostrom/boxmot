@@ -1,0 +1,166 @@
+# name of the workflow, what it is doing (optional)
+name: Ben chmark
+
+# events that trigger the workflow (required)
+on:
+  push:
+    # pushes to the following branches
+    branches:
+      - master
+  pull_request:
+    # pull request where master is target
+    branches:
+      - master
+  workflow_dispatch:  # Add this line to allow manual triggering
+
+
+jobs:
+
+  generate-detections-embeddings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: 'pip'
+
+      - name: Install requirements
+        run: |
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          fi
+          sudo apt-get install -y jq
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry config virtualenvs.create false
+          poetry lock --no-update
+          poetry install --with yolo
+
+      - name: Generate detections and embeddings
+        run: |
+          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+
+      - name: Upload Detections and Embeddings
+        uses: actions/upload-artifact@v3
+        with:
+          name: run-folder
+          path: runs/
+
+  mot-metrics-benchmark:
+    runs-on: ${{ matrix.os }}
+    needs: generate-detections-embeddings
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ['3.9', '3.11']
+        tracker: ["ocsort", "bytetrack", "botsort", "hybridsort", "deepocsort", "imprassoc", "strongsort"]
+    timeout-minutes: 50
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install requirements
+        run: |
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+          fi
+          sudo apt-get install -y jq
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry config virtualenvs.create false
+          poetry lock --no-update
+          poetry install --with yolo
+
+      - name: Download Detections and Embeddings
+        uses: actions/download-artifact@v3
+        with:
+          name: run-folder
+          path: runs/
+
+      - name: Evaluation and Summarize Results
+        run: |
+
+          if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./assets/MOT17-mini/train --ci; then
+            STATUS="✅"
+          else
+            STATUS="❌"
+          fi
+
+          if [ -f ${{ matrix.tracker }}_output.json ]; then
+            HOTA=$(jq -r '.HOTA' ${{ matrix.tracker }}_output.json)
+            MOTA=$(jq -r '.MOTA' ${{ matrix.tracker }}_output.json)
+            IDF1=$(jq -r '.IDF1' ${{ matrix.tracker }}_output.json)
+          else
+            HOTA=""
+            MOTA=""
+            IDF1=""
+          fi
+
+          mkdir results
+          TRACKER_NAME=$(echo ${{ matrix.tracker }} | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}.txt
+
+      - name: Show Results
+        run: cat results/${{ matrix.tracker }}.txt
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: results
+          path: results/${{ matrix.tracker }}.txt
+
+  combine-results:
+    runs-on: ubuntu-latest
+    needs: mot-metrics-benchmark
+    steps:
+      - name: Download all results
+        uses: actions/download-artifact@v3
+        with:
+          name: results
+          path: results
+
+      - name: Check downloaded files
+        run: |
+          echo "Downloaded files in the results directory:"
+          ls -la results/
+
+      - name: Combine results
+        run: |
+          echo "Format,Status❔,HOTA,MOTA,IDF1" > combined_results.csv
+          for file in results/*; do
+            if [ -f "$file" ]; then
+              cat "$file" >> combined_results.csv  # Use cat instead of tail to include all lines
+            fi
+          done
+
+          # Sort the results by HOTA in descending order
+          (head -n 1 combined_results.csv && tail -n +2 combined_results.csv | sort -t, -k3 -nr) > sorted_results.csv
+
+          # Create a pretty table from the sorted_results.csv file
+          column -s, -t sorted_results.csv > pretty_results.txt
+
+      - name: Show Combined Results
+        run: cat pretty_results.txt
+
+      - name: Upload Combined Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: sorted-combined-results
+          path: pretty_results.txt
