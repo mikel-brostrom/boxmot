@@ -56,49 +56,77 @@ jobs:
           python tracking/evolve.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
 
 
+  generate-detections-embeddings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: 'pip'
+
+      - name: Install requirements
+        run: |
+          case "$OSTYPE" in
+            darwin*) sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml ;;
+            linux*) sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml ;;
+          esac
+          sudo apt-get install -y jq
+          python -m pip install --upgrade pip setuptools wheel poetry
+          poetry config virtualenvs.create false
+          poetry install --no-interaction --no-ansi
+
+      - name: Generate detections and embeddings
+        run: |
+          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+
+      - name: Upload Detections and Embeddings
+        uses: actions/upload-artifact@v3
+        with:
+          name: run-folder
+          path: run/
+
   mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
+    needs: generate-detections-embeddings
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
         python-version: ['3.9', '3.11']
-        tracker: ["ocsort", "bytetrack", "botsort", "hybridsort", "deepocsort", "imprassoc", "strongsort"] # Each tracker runs in parallel
-    outputs:
-      status: ${{ job.status }}
+        tracker: ["ocsort", "bytetrack", "botsort", "hybridsort", "deepocsort", "imprassoc", "strongsort"]
     timeout-minutes: 50
 
     steps:
-      - uses: actions/checkout@v4  # Check out the repository
-      
+      - uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v5  # Prepare environment with python 3.9
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
+          cache: 'pip'
 
       - name: Install requirements
-        shell: bash  # for Windows compatibility
         run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          fi
+          case "$OSTYPE" in
+            darwin*) sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml ;;
+            linux*) sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml ;;
+          esac
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry lock --no-update
-          poetry install
+          poetry install --no-interaction --no-ansi
 
-      - name: Generate detections and embeddings
-        run: |
-          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+      - name: Download Detections and Embeddings
+        uses: actions/download-artifact@v3
+        with:
+          name: run-folder
+          path: run/
 
       - name: Evaluation and Summarize Results
-        shell: bash
         run: |
           tracker="${{ matrix.tracker }}"
           if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
@@ -107,23 +135,23 @@ jobs:
             STATUS="❌"
           fi
 
-          cat ${tracker}_output.json
-
-          # Extract the relevant parts of the JSON
-          HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
-          MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
-          IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
+          if [ -f ${tracker}_output.json ]; then
+            HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
+            MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
+            IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
+          else
+            echo "Output JSON not found for tracker: $tracker" >&2
+            HOTA=MISSING
+            MOTA=MISSING
+            IDF1=MISSING
+          fi
 
           TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results_${tracker}.csv
-
-          # Create a pretty table from the results_${tracker}.csv file
           column -s, -t results_${tracker}.csv > pretty_results_${tracker}.txt
 
       - name: Show Results
-        shell: bash
-        run: |
-          cat pretty_results_${{ matrix.tracker }}.txt
+        run: cat pretty_results_${{ matrix.tracker }}.txt
 
       - name: Upload Results
         uses: actions/upload-artifact@v3
@@ -141,23 +169,19 @@ jobs:
           path: results
 
       - name: Combine results
-        shell: bash
         run: |
           echo "Format,Status❔,HOTA,MOTA,IDF1" > combined_results.csv
           for file in results/*; do
-            tail -n +2 "$file" >> combined_results.csv
+            if [ -f "$file" ]; then
+              tail -n +2 "$file" >> combined_results.csv
+            fi
           done
 
-          # Sort the results by HOTA in descending order
           (head -n 1 combined_results.csv && tail -n +2 combined_results.csv | sort -t, -k3 -nr) > sorted_combined_results.csv
-
-          # Create a pretty table from the sorted_combined_results.csv file
           column -s, -t sorted_combined_results.csv > pretty_sorted_combined_results.txt
 
       - name: Show Combined Results
-        shell: bash
-        run: |
-          cat pretty_sorted_combined_results.txt
+        run: cat pretty_sorted_combined_results.txt
 
       - name: Upload Combined Results
         uses: actions/upload-artifact@v3
