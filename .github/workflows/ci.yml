@@ -125,7 +125,8 @@ jobs:
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry install --no-interaction --no-ansi
+          poetry lock --no-update
+          poetry install
 
       - name: Download Detections and Embeddings
         uses: actions/download-artifact@v3
@@ -148,9 +149,9 @@ jobs:
             IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
           else
             echo "Output JSON not found for tracker: $tracker" >&2
-            HOTA=MISSING
-            MOTA=MISSING
-            IDF1=MISSING
+            HOTA=""
+            MOTA=""
+            IDF1=""
           fi
 
           TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
