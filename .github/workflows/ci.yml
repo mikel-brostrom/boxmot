@@ -81,7 +81,7 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
-          poetry install
+          poetry install --with yolo
 
       - name: Generate detections and embeddings
         run: |
@@ -126,7 +126,7 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
-          poetry install
+          poetry install --only main
 
       - name: Download Detections and Embeddings
         uses: actions/download-artifact@v3
