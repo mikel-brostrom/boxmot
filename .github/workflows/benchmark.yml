@@ -52,7 +52,7 @@ jobs:
 
       - name: Download run.zip from GitHub release and unzip
         run: |
-          wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/run.zip -O run.zip
+          wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/runs.zip -O run.zip
           unzip run.zip -d run
 
       - name: Evaluation and Summarize Results
