@@ -85,6 +85,7 @@ class Track:
         self.time_since_update = 0
         self.ema_alpha = ema_alpha
 
+        # start with confirmed such that it outputs for every input since first frame
         self.state = TrackState.Confirmed if n_init <= 1 else TrackState.Tentative
         self.features = []
         if detection.feat is not None:
