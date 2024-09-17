@@ -85,7 +85,7 @@ class Track:
         self.time_since_update = 0
         self.ema_alpha = ema_alpha
 
-        self.state = TrackState.Tentative
+        self.state = TrackState.Confirmed if n_init <= 1 else TrackState.Tentative
         self.features = []
         if detection.feat is not None:
             detection.feat /= np.linalg.norm(detection.feat)
