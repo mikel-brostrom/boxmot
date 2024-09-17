@@ -156,7 +156,7 @@ jobs:
           mkdir results
           TRACKER_NAME=$(echo ${{ matrix.tracker }} | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}_tmp.txt
-          column -s, -t > results/${{ matrix.tracker }}_tmp.txt > results/${{ matrix.tracker }}.txt
+          column -s, -t results/${{ matrix.tracker }}_tmp.txt > results/${{ matrix.tracker }}.txt
 
       - name: Show Results
         run: cat results/${{ matrix.tracker }}.txt
