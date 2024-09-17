@@ -158,7 +158,7 @@ jobs:
           mkdir results
           TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${tracker}.txt
-          column -s, -t > results/${tracker}.txt > > results/${tracker}.txt
+          column -s, -t > results/${tracker}.txt > results/${tracker}.txt
 
       - name: Show Results
         run: cat results/${tracker}.txt
@@ -176,6 +176,7 @@ jobs:
       - name: Download all results
         uses: actions/download-artifact@v3
         with:
+          name: results
           path: results
 
       - name: Combine results
