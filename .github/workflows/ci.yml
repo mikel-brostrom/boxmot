@@ -155,8 +155,8 @@ jobs:
           fi
 
           TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
-          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results_${tracker}.csv
-          column -s, -t results_${tracker}.csv > pretty_results_${tracker}.txt
+          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/pretty_results_${tracker}.txt
+          column -s, -t results/pretty_results_${tracker}.txt > results/pretty_results_${tracker}.txt
 
       - name: Show Results
         run: cat pretty_results_${{ matrix.tracker }}.txt
@@ -165,7 +165,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: results-csv-${{ matrix.tracker }}
-          path: pretty_results_${{ matrix.tracker }}.txt
+          path: results/pretty_results_${{ matrix.tracker }}.txt
 
   combine-results:
     runs-on: ubuntu-latest
