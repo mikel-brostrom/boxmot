@@ -162,13 +162,13 @@ jobs:
           column -s, -t > results/${tracker}.txt > > results/${tracker}.txt
 
       - name: Show Results
-        run: cat pretty_results_${{ matrix.tracker }}.txt
+        run: cat results/${tracker}.txt
 
       - name: Upload Results
         uses: actions/upload-artifact@v3
         with:
-          name: results-csv-${{ matrix.tracker }}
-          path: results/pretty_results_${{ matrix.tracker }}.txt
+          name: results
+          path: results/${tracker}.txt
 
   combine-results:
     runs-on: ubuntu-latest
