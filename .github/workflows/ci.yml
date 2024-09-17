@@ -148,7 +148,6 @@ jobs:
             MOTA=$(jq -r '.MOTA' ${{ matrix.tracker }}_output.json)
             IDF1=$(jq -r '.IDF1' ${{ matrix.tracker }}_output.json)
           else
-            echo "Output JSON not found for tracker: ${{ matrix.tracker }} >&2
             HOTA=""
             MOTA=""
             IDF1=""
