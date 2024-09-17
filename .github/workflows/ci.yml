@@ -187,7 +187,7 @@ jobs:
           echo "Format,Status❔,HOTA,MOTA,IDF1" > combined_results.csv
           for file in results/*; do
             if [ -f "$file" ]; then
-              tail -n +2 "$file" >> combined_results.csv
+              cat "$file" >> combined_results.csv  # Use cat instead of tail to include all lines
             fi
           done
 
