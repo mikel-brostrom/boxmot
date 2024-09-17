@@ -132,7 +132,7 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: run-folder
-          path: run/
+          path: runs/
 
       - name: Evaluation and Summarize Results
         run: |
