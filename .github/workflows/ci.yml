@@ -136,7 +136,6 @@ jobs:
 
       - name: Evaluation and Summarize Results
         run: |
-          tracker="${{ matrix.tracker }}"
 
           if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./assets/MOT17-mini/train --ci; then
             STATUS="✅"
@@ -145,18 +144,18 @@ jobs:
           fi
 
           if [ -f ${tracker}_output.json ]; then
-            HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
-            MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
-            IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
+            HOTA=$(jq -r '.HOTA' ${{ matrix.tracker }}_output.json)
+            MOTA=$(jq -r '.MOTA' ${{ matrix.tracker }}_output.json)
+            IDF1=$(jq -r '.IDF1' ${{ matrix.tracker }}_output.json)
           else
-            echo "Output JSON not found for tracker: $tracker" >&2
+            echo "Output JSON not found for tracker: ${{ matrix.tracker }} >&2
             HOTA=""
             MOTA=""
             IDF1=""
           fi
 
           mkdir results
-          TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+          TRACKER_NAME=$(echo ${{ matrix.tracker }} | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}.txt
           column -s, -t > results/${{ matrix.tracker }}.txt > results/${{ matrix.tracker }}.txt
 
