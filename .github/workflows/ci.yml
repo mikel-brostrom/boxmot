@@ -179,6 +179,11 @@ jobs:
           name: results
           path: results
 
+      - name: Check downloaded files
+        run: |
+          echo "Downloaded files in the results directory:"
+          ls -la results/
+
       - name: Combine results
         run: |
           echo "Format,Status❔,HOTA,MOTA,IDF1" > combined_results.csv
