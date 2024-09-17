@@ -138,8 +138,6 @@ jobs:
         run: |
           tracker="${{ matrix.tracker }}"
 
-          echo "Format,Status❔,HOTA,MOTA,IDF1" > results/${tracker}.txt
-
           if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
             STATUS="✅"
           else
@@ -157,6 +155,7 @@ jobs:
             IDF1=""
           fi
 
+          mkdir results
           TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${tracker}.txt
           column -s, -t > results/${tracker}.txt > > results/${tracker}.txt
