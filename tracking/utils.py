@@ -209,7 +209,7 @@ def eval_setup(opt, val_tools_path):
     # Handling different benchmarks
     if opt.benchmark == 'MOT17':
         # Filter for FRCNN sequences in MOT17
-        seq_paths = [p / 'img1' for p in mot_seqs_path.iterdir() if p.is_dir() and 'FRCNN' in str(p)]
+        seq_paths = [p / 'img1' for p in mot_seqs_path.iterdir() if p.is_dir()]
     elif opt.benchmark == 'MOT17-mini':
         # Adjust paths for MOT17-mini
         base_path = ROOT / 'assets' / opt.benchmark / opt.split
