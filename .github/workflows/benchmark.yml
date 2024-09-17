@@ -6,11 +6,11 @@ on:
   push:
     # pushes to the following branches
     branches:
-      - master
+      - main
   pull_request:
     # pull request where master is target
     branches:
-      - master
+      - main
   workflow_dispatch:  # Add this line to allow manual triggering
 
 
