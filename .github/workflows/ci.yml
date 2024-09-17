@@ -79,8 +79,13 @@ jobs:
           fi
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel poetry
+          # Install required system dependencies
+
+          # Regenerate poetry.lock file to sync with pyproject.toml
+          poetry lock --no-update
+
+          # Install Python dependencies using Poetry
           poetry config virtualenvs.create false
-          poetry install --no-interaction --no-ansi
 
       - name: Generate detections and embeddings
         run: |
