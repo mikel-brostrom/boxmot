@@ -143,7 +143,7 @@ jobs:
             STATUS="❌"
           fi
 
-          if [ -f ${tracker}_output.json ]; then
+          if [ -f ${{ matrix.tracker }}_output.json ]; then
             HOTA=$(jq -r '.HOTA' ${{ matrix.tracker }}_output.json)
             MOTA=$(jq -r '.MOTA' ${{ matrix.tracker }}_output.json)
             IDF1=$(jq -r '.IDF1' ${{ matrix.tracker }}_output.json)
