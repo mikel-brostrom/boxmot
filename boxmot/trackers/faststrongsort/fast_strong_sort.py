@@ -18,7 +18,7 @@ from boxmot.trackers.basetracker import BaseTracker
 
 class FastStrongSORT(object):
     """
-    StrongSORT Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
+    Fast-StrongSORT Tracker: StrongSORT with selective feature extraction mechanism
 
     Args:
         model_weights (str): Path to the model weights for ReID (Re-Identification).
@@ -32,6 +32,8 @@ class FastStrongSORT(object):
         nn_budget (int, optional): Maximum size of the feature library for Nearest Neighbor Distance Metric. If the library size exceeds this value, the oldest features are removed.
         mc_lambda (float, optional): Weight for motion consistency in the track state estimation. Higher values give more weight to motion information.
         ema_alpha (float, optional): Alpha value for exponential moving average (EMA) update of appearance features. Controls the contribution of new and old embeddings in the ReID model.
+        iou_threshold (float, optional): Threshold to determine if a tracklet can be a candidate for the detection. iou_threshold = 1.0 means that the tracker is identical to StrongSORT
+        ars_threshold (float, optional): Threshold to eliminate possibly false candidates
     """
     def __init__(
         self,
