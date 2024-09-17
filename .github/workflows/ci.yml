@@ -87,6 +87,8 @@ jobs:
           # Install Python dependencies using Poetry
           poetry config virtualenvs.create false
 
+          poetry install
+
       - name: Generate detections and embeddings
         run: |
           python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
