@@ -155,8 +155,7 @@ jobs:
 
           mkdir results
           TRACKER_NAME=$(echo ${{ matrix.tracker }} | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
-          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}_tmp.txt
-          column -s, -t results/${{ matrix.tracker }}_tmp.txt > results/${{ matrix.tracker }}.txt
+          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}.txt
 
       - name: Show Results
         run: cat results/${{ matrix.tracker }}.txt
@@ -191,17 +190,20 @@ jobs:
             fi
           done
 
-          (head -n 1 combined_results.csv && tail -n +2 combined_results.csv | sort -t, -k3 -nr) > sorted_combined_results.csv
-          column -s, -t sorted_combined_results.csv > pretty_sorted_combined_results.txt
+          # Sort the results by HOTA in descending order
+          (head -n 1 combined_results.csv && tail -n +2 combined_results.csv | sort -t, -k3 -nr) > sorted_results.csv
+
+          # Create a pretty table from the sorted_results.csv file
+          column -s, -t sorted_results.csv > pretty_results.txt
 
       - name: Show Combined Results
-        run: cat pretty_sorted_combined_results.txt
+        run: cat pretty_results.txt
 
       - name: Upload Combined Results
         uses: actions/upload-artifact@v3
         with:
           name: sorted-combined-results
-          path: pretty_sorted_combined_results.txt
+          path: pretty_results.txt
 
 
   tracking-with-pose:
