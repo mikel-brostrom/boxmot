@@ -133,7 +133,7 @@ jobs:
 
   combine-results:
     runs-on: ubuntu-latest
-    needs: benchmark
+    needs: mot-metrics-benchmark
     steps:
       - name: Download all results
         uses: actions/download-artifact@v3
