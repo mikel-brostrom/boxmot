@@ -16,46 +16,8 @@ on:
 
 jobs:
 
-  generate-detections-embeddings:
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-          cache: 'pip'
-
-      - name: Install requirements
-        run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          fi
-          sudo apt-get install -y jq
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock --no-update
-          poetry install --with yolo
-
-      - name: Generate detections and embeddings
-        run: |
-          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
-
-      - name: Upload Detections and Embeddings
-        uses: actions/upload-artifact@v3
-        with:
-          name: run-folder
-          path: runs/
-
   mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
-    needs: generate-detections-embeddings
     strategy:
       fail-fast: false
       matrix:
@@ -73,6 +35,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Download run.zip from GitHub release
+        uses: actions/download-artifact@v3
+        with:
+          # URL of the specific release asset
+          url: https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/run.zip
+          path: run.zip
+
       - name: Install requirements
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -82,17 +51,14 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          sudo apt-get install -y jq
+          sudo apt-get install -y jq unzip
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
           poetry lock --no-update
           poetry install --with yolo
 
-      - name: Download Detections and Embeddings
-        uses: actions/download-artifact@v3
-        with:
-          name: run-folder
-          path: runs/
+      - name: Extract run.zip
+        run: unzip run.zip -d run
 
       - name: Evaluation and Summarize Results
         run: |
