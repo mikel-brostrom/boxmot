@@ -35,13 +35,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
-      - name: Download run.zip from GitHub release
-        uses: actions/download-artifact@v3
-        with:
-          # URL of the specific release asset
-          url: https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/run.zip
-          path: run.zip
-
       - name: Install requirements
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -57,8 +50,10 @@ jobs:
           poetry lock --no-update
           poetry install --with yolo
 
-      - name: Extract run.zip
-        run: unzip run.zip -d run
+      - name: Download run.zip from GitHub release and unzip
+        run: |
+          wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/run.zip -O run.zip
+          unzip run.zip -d run
 
       - name: Evaluation and Summarize Results
         run: |
