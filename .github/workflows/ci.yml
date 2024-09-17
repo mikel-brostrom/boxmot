@@ -138,7 +138,7 @@ jobs:
         run: |
           tracker="${{ matrix.tracker }}"
 
-          if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
+          if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./assets/MOT17-mini/train --ci; then
             STATUS="✅"
           else
             STATUS="❌"
@@ -157,17 +157,17 @@ jobs:
 
           mkdir results
           TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
-          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${tracker}.txt
-          column -s, -t > results/${tracker}.txt > results/${tracker}.txt
+          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}.txt
+          column -s, -t > results/${{ matrix.tracker }}.txt > results/${{ matrix.tracker }}.txt
 
       - name: Show Results
-        run: cat results/${tracker}.txt
+        run: cat results/${{ matrix.tracker }}.txt
 
       - name: Upload Results
         uses: actions/upload-artifact@v3
         with:
           name: results
-          path: results/${tracker}.txt
+          path: results/${{ matrix.tracker }}.txt
 
   combine-results:
     runs-on: ubuntu-latest
@@ -177,7 +177,7 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: results
-          path: results
+          path: results/${{ matrix.tracker }}.txt
 
       - name: Combine results
         run: |
