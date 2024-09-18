@@ -51,34 +51,34 @@ jobs:
       #     poetry config virtualenvs.create false
       #     poetry lock --no-update
       #     poetry install --with yolo
-      - name: Download MOT17
+
+      - name: Download eval tools repo
         run: |
-          curl -O -C - --retry 5 https://motchallenge.net/data/MOT17.zip
-
-      - name: Cache MOT17 dataset
-        uses: actions/cache@v3
-        with:
-          path: tracking/val_utils/data/MOT17
-          key: mot17-dataset-cache
-
-
+          git clone https://github.com/JonathonLuiten/TrackEval.git tracking/val_utils
 
       # Step 2: Restore the cached dataset (if available)
       - name: Restore MOT17 dataset cache
         uses: actions/cache@v3
         with:
           # Specify the path where the dataset is stored
-          path: tracking/val_utils/data/MOT17
+          path: tracking/val_utils/MOT17.zip
           # Create a cache key, you can use a fixed key if the dataset is static
           key: mot17-dataset-cache
 
-      - name: Download run.zip from GitHub release and unzip
+      - name: Download eval data
         run: |
-          git clone https://github.com/JonathonLuiten/TrackEval.git tracking/val_utils
           wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/runs.zip -O runs.zip
           wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip -O tracking/val_utils/MOT17.zip
           unzip runs.zip -d runs
           unzip tracking/val_utils/MOT17.zip -d tracking/val_utils/data/MOT17
+
+      # Cache data for future runs (only if the cache was not already restored)
+      - name: Cache MOT17.zip if not already cached
+        if: steps.cache-restore.outputs.cache-hit != 'true'  # Only run if the cache was not hit
+        uses: actions/cache@v3
+        with:
+          path: tracking/val_utils/MOT17.zip
+          key: mot17-dataset-cache
 
       - name: Evaluation and Summarize Results
         run: |
