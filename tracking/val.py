@@ -28,7 +28,7 @@ from ultralytics.utils.files import increment_path
 from ultralytics.data.utils import VID_FORMATS
 
 from tracking.detectors import get_yolo_inferer
-from tracking.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup
+from tracking.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
 checker = RequirementsChecker()
@@ -439,6 +439,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--n-trials', type=int, default=4, help='nr of trials for evolution')
     parser.add_argument('--objectives', type=str, nargs='+', default=["HOTA", "MOTA", "IDF1"], help='set of objective metrics: HOTA,MOTA,IDF1')
     parser.add_argument('--val-tools-path', type=Path, default=EXAMPLES / 'val_utils', help='path to store trackeval repo in')
+    parser.add_argument('--split-dataset', action='store_true', help='Use the second half of the dataset')
 
     subparsers = parser.add_subparsers(dest='command')
 
@@ -476,6 +477,9 @@ if __name__ == "__main__":
     
     if opt.benchmark == 'MOT17':
         cleanup_mot17(opt.source)
+        
+    if opt.split_dataset:
+        opt.source, opt.benchmark = split_dataset(opt.source)
 
     if opt.command == 'generate_dets_embs':
         run_generate_dets_embs(opt)
