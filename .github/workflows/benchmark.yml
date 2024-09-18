@@ -61,9 +61,9 @@ jobs:
         uses: actions/cache@v3
         with:
           # Specify the path where the dataset is stored
-          path: tracking/val_utils/MOT17.zip
+          path: tracking/val_utils/MOT17-50.zip
           # Create a cache key, you can use a fixed key if the dataset is static
-          key: mot17-dataset-cache
+          key: mot17-50-dataset-cache
 
       - name: Download eval data
         run: |
@@ -78,8 +78,8 @@ jobs:
         if: steps.cache-restore.outputs.cache-hit != 'true'  # Only run if the cache was not hit
         uses: actions/cache@v3
         with:
-          path: tracking/val_utils/MOT17.zip
-          key: mot17-dataset-cache
+          path: tracking/val_utils/MOT17-50.zip
+          key: mot17-50-dataset-cache
 
       - name: Evaluation and Summarize Results
         run: |
@@ -104,8 +104,6 @@ jobs:
           TRACKER_NAME=$(echo ${{ matrix.tracker }} | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}.txt
         
-      
-
       - name: Show Results
         run: cat results/${{ matrix.tracker }}.txt
 
