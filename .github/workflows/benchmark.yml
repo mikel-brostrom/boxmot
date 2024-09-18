@@ -168,7 +168,7 @@ jobs:
           README_FILE="README.md"
 
           # Backup original README in case needed
-          cp $README_FILE "${README_FILE}.bak"
+          cp "$README_FILE" "${README_FILE}.bak"
 
           # Extract the new table from the pretty_results.txt file
           new_table="|  Tracker | HOTA↑ | MOTA↑ | IDF1↑ |\n"
@@ -176,43 +176,49 @@ jobs:
 
           while read -r line; do
               # Match lines with tracker data and handle missing values
-              if [[ $line =~ ^(Strongsort|Ocsort|Deepocsort|Bytetrack|Botsort|Imprassoc|Hybridsort)[[:space:]]+([[:graph:]]*)[[:space:]]+([[:graph:]]*)[[:space:]]+([[:graph:]]*)[[:space:]]*([[:graph:]]*) ]]; then
+              if [[ $line =~ ^(Strongsort|Ocsort|Deepocsort|Bytetrack|Botsort|Imprassoc|Hybridsort)[[:space:]]+([[:graph:]]*)[[:space:]]+([[:graph:]]*)[[:space:]]+([[:graph:]]*) ]]; then
                   tracker=${BASH_REMATCH[1]}
-                  hota=${BASH_REMATCH[3]:-N/A}  # Default to N/A if missing
-                  mota=${BASH_REMATCH[4]:-N/A}  # Default to N/A if missing
-                  idf1=${BASH_REMATCH[5]:-N/A}  # Default to N/A if missing
-                  new_table+="| [$tracker](https://arxiv.org/pdf/$tracker.pdf) | $hota | $mota | $idf1 |\n"
+                  hota=${BASH_REMATCH[2]:-N/A}  # Default to N/A if missing
+                  mota=${BASH_REMATCH[3]:-N/A}  # Default to N/A if missing
+                  idf1=${BASH_REMATCH[4]:-N/A}  # Default to N/A if missing
+                  if [[ "$tracker" == "Imprassoc" ]]; then
+                      new_table+="| [$tracker](https://ieeexplore.ieee.org/document/10223159) | $hota | $mota | $idf1 |\n"
+                  else
+                      new_table+="| [$tracker](https://arxiv.org/pdf/$tracker.pdf) | $hota | $mota | $idf1 |\n"
+                  fi
               fi
           done < "$RESULTS_FILE"
 
-          # Define markers to locate the table
-          start_marker="|  Tracker | HOTA↑ | MOTA↑ | IDF1↑ |"
-          end_marker="</sub>"  # Keeping the marker that ends the section of interest
+          # Add any additional rows (like image placeholders) if needed
+          new_table+="| <img width=200/> | <img width=100/> | <img width=100/> | <img width=100/> |\n"
+
+          # Define unique markers to locate the table
+          start_marker="<!-- START TRACKER TABLE -->"
+          end_marker="<!-- END TRACKER TABLE -->"
 
           # Use awk to replace lines between markers, preserving non-table content
           awk -v start_marker="$start_marker" -v end_marker="$end_marker" -v new_table="$new_table" '
               BEGIN { in_table=0 }
               {
-                  # Match start of the table
-                  if ($0 ~ start_marker) {
-                      print $0;        # Print the start marker
-                      print new_table;  # Insert the new table
-                      in_table=1;       # Start skipping lines in the old table
+                  if ($0 == start_marker) {
+                      print $0      # Print the start marker
+                      print new_table  # Insert the new table
+                      in_table=1    # Start skipping lines in the old table
+                      next
                   }
-                  # Match end of the table
-                  else if ($0 ~ end_marker) {
-                      in_table=0;       # End skipping when reaching end_marker
-                      print $0;  # Print end marker
+                  else if ($0 == end_marker) {
+                      in_table=0    # End skipping when reaching end_marker
+                      print $0      # Print end marker
+                      next
                   }
-                  # Skip old table content but continue printing other lines
-                  else if (!in_table) {
-                      print $0;
+                  if (!in_table) {
+                      print $0  # Continue printing lines outside the table
                   }
               }
           ' "$README_FILE" > temp_readme.md
 
           # Replace original README with updated version
-          mv temp_readme.md $README_FILE
+          mv temp_readme.md "$README_FILE"
 
       # Check for changes
       - name: Check for changes
