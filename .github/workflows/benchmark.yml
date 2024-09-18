@@ -50,6 +50,15 @@ jobs:
           poetry lock --no-update
           poetry install --with yolo
 
+      # Step 2: Restore the cached dataset (if available)
+      - name: Restore MOT17 dataset cache
+        uses: actions/cache@v3
+        with:
+          # Specify the path where the dataset is stored
+          path: tracking/val_utils/data/MOT17
+          # Create a cache key, you can use a fixed key if the dataset is static
+          key: mot17-dataset-cache
+
       - name: Download run.zip from GitHub release and unzip
         run: |
           wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/runs.zip -O run.zip
@@ -58,7 +67,7 @@ jobs:
       - name: Evaluation and Summarize Results
         run: |
 
-          if python3 tracking/val.py --benchmark MOT17-mini --yolo-model yolov8x.pt --reid-model osnet_x1_0_dukemtmcreid.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./assets/MOT17-mini/train --ci; then
+          if python3 tracking/val.py --benchmark MOT17 --yolo-model yolov8x.pt --reid-model osnet_x1_0_dukemtmcreid.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./tracking/val_utils/data/MOT17/train --ci; then
             STATUS="✅"
           else
             STATUS="❌"
@@ -77,6 +86,12 @@ jobs:
           mkdir results
           TRACKER_NAME=$(echo ${{ matrix.tracker }} | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}.txt
+        
+      - name: Cache MOT17 dataset
+        uses: actions/cache@v3
+        with:
+          path: tracking/val_utils/data/MOT17
+          key: mot17-dataset-cache
 
       - name: Show Results
         run: cat results/${{ matrix.tracker }}.txt
