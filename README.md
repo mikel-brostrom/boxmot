@@ -22,6 +22,7 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 <div align="center">
 
+<!-- START TRACKER TABLE -->
 |  Tracker | HOTA↑ | MOTA↑ | IDF1↑ |
 | -------- | ----- | ----- | ----- |
 | [BoTSORT](https://arxiv.org/pdf/2206.14651.pdf)    | 77.8 | 78.9 | 88.9 |
@@ -32,6 +33,7 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 | [StrongSORT](https://arxiv.org/pdf/2202.13514.pdf) |      | | |
 | [ImprAssoc](https://ieeexplore.ieee.org/document/10223159)| | |
 | <img width=200/>                                   | <img width=100/> | <img width=100/> | <img width=100/> |
+<!-- END TRACKER TABLE -->
 
 <sub> NOTES: performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on: CrowdHuman, MOT17, Cityperson and ETHZ. Each tracker is configured with its original parameters found in their respective official repository.</sub>
 
