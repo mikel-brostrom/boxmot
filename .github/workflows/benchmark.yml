@@ -64,7 +64,7 @@ jobs:
           wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/runs.zip -O runs.zip
           unzip runs.zip -d runs
           pwd
-          ls run
+          ls runs
 
       - name: Evaluation and Summarize Results
         run: |
