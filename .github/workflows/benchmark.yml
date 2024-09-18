@@ -37,18 +37,20 @@ jobs:
 
       - name: Install requirements
         run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          fi
           sudo apt-get install -y jq unzip
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock --no-update
-          poetry install --with yolo
+      #   run: |
+      #     if [[ "$OSTYPE" == "darwin"* ]]; then
+      #       # macOS
+      #       sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+      #     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+      #       # Linux
+      #       sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+      #     fi
+      #     
+      #     python -m pip install --upgrade pip setuptools wheel poetry
+      #     poetry config virtualenvs.create false
+      #     poetry lock --no-update
+      #     poetry install --with yolo
 
       # Step 2: Restore the cached dataset (if available)
       - name: Restore MOT17 dataset cache
