@@ -73,14 +73,6 @@ jobs:
           mkdir -p tracking/val_utils/data
           unzip tracking/val_utils/MOT17-50.zip -d ./tracking/val_utils/data/
 
-      - name: Content
-        run: |
-          pwd
-          cat ./runs/mot/yolov8x_osnet_x1_0_dukemtmcreid_deepocsort/MOT17-02.txt
-          ls -l ./runs
-          ls -l ./tracking/val_utils/data/
-          ls -l ./tracking/val_utils/data/MOT17-50/train
-
       # Cache data for future runs (only if the cache was not already restored)
       - name: Cache MOT17.zip if not already cached
         if: steps.cache-restore.outputs.cache-hit != 'true'  # Only run if the cache was not hit
