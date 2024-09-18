@@ -35,7 +35,7 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 <!-- END TRACKER TABLE -->
 
-<sub> NOTES: performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on: CrowdHuman, MOT17, Cityperson and ETHZ. Each tracker is configured with its original parameters found in their respective official repository.</sub>
+<sub> NOTES: performed on the second half of MOT17. The detector used is a default Yolov8x trained on COCO. Each tracker is configured with its original parameters found in their respective official repository.</sub>
 
 </div>
 
