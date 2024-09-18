@@ -188,8 +188,9 @@ jobs:
           start_marker="|  Tracker | HOTA↑ | MOTA↑ | IDF1↑ |"
           end_marker="</sub>"
 
-          # Replace the content between the markers
-          sed -i "/$start_marker/,/$end_marker/c\\$new_table\n$end_marker" $README_FILE
+          # Replace the content between the markers using sed
+          escaped_table=$(echo -e "$new_table" | sed -e 's/[\/&]/\\&/g')
+          sed -i "/$start_marker/,/$end_marker/c\\$escaped_table" $README_FILE
 
       # Check for changes
       - name: Check for changes
