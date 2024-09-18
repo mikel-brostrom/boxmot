@@ -1,5 +1,3 @@
-# Trial number:      0
-# HOTA, MOTA, IDF1:  [27.884, 11.425, 21.545]
 alpha_fixed_emb: 0.95
 asso_func: iou
 aw_off: false
