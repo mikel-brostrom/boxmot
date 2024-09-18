@@ -154,8 +154,69 @@ jobs:
       - name: Show Combined Results
         run: cat pretty_results.txt
 
-      - name: Upload Combined Results
-        uses: actions/upload-artifact@v3
+      - name: Set up Git
+        run: |
+          git config --local user.email "yolov5.deepsort.pytorch@gmail.com"
+          git config --local user.name "mikel-brostrom"
+
+      - name: Update README with tracker results
+        run: |
+          # Paths
+          RESULTS_FILE="pretty_results.txt"
+          README_FILE="README.md"
+
+          # Backup original README in case needed
+          cp $README_FILE "${README_FILE}.bak"
+
+          # Extract the new table from the pretty_results.txt file
+          new_table="|  Tracker | HOTA↑ | MOTA↑ | IDF1↑ |\n"
+          new_table+="| -------- | ----- | ----- | ----- |\n"
+
+          while read -r line; do
+              if [[ $line =~ ^(Strongsort|Ocsort|Deepocsort|Bytetrack|Botsort|Imprassoc|Hybridsort)[[:space:]]+([[:graph:]]+)[[:space:]]+([[:graph:]]+)[[:space:]]+([[:graph:]]+)[[:space:]]+([[:graph:]]+) ]]; then
+                  tracker=${BASH_REMATCH[1]}
+                  hota=${BASH_REMATCH[3]}
+                  mota=${BASH_REMATCH[4]}
+                  idf1=${BASH_REMATCH[5]}
+                  new_table+="| [$tracker](https://arxiv.org/pdf/$tracker.pdf) | $hota | $mota | $idf1 |\n"
+              fi
+          done < "$RESULTS_FILE"
+
+          # Overwrite the table in README.md
+          start_marker="|  Tracker | HOTA↑ | MOTA↑ | IDF1↑ |"
+          end_marker="</sub>"
+
+          # Replace the content between the markers
+          sed -i "/$start_marker/,/$end_marker/c\\$new_table\n$end_marker" $README_FILE
+
+      # Check for changes
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            echo "::set-output name=changed::false"
+          else
+            echo "::set-output name=changed::true"
+          fi
+
+      # Commit and push changes if there are any
+      - name: Commit changes
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          BRANCH_NAME="update-tracker-results-$(date +%Y%m%d%H%M%S)"
+          git checkout -b "$BRANCH_NAME"
+          git add README.md
+          git commit -m "Overwrote tracker results in README.md"
+          git push origin "$BRANCH_NAME"
+
+      # Create a pull request (PR)
+      - name: Create Pull Request
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v5
         with:
-          name: sorted-combined-results
-          path: pretty_results.txt
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+          commit-message: Overwrote tracker results in README.md
+          title: Overwrite tracker results in README.md
+          body: "This PR updates the tracker results table in the README.md."
