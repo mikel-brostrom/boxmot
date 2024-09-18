@@ -170,27 +170,10 @@ jobs:
           # Backup original README in case needed
           cp "$README_FILE" "${README_FILE}.bak"
 
-          # Extract the new table from the pretty_results.txt file
+          # Read the pretty_results.txt and convert it into a markdown table format
           new_table="|  Tracker   | Status | HOTA   | MOTA   | IDF1   |\n"
           new_table+="| ---------- | ------ | ------ | ------ | ------ |\n"
-
-          while read -r line; do
-              # Match lines with tracker data and handle missing values
-              if [[ $line =~ ^(Strongsort|Ocsort|Deepocsort|Bytetrack|Botsort|Imprassoc|Hybridsort)[[:space:]]+([[:graph:]]*)[[:space:]]+([[:graph:]]*)[[:space:]]+([[:graph:]]*) ]]; then
-                  tracker=${BASH_REMATCH[1]}
-                  status=${BASH_REMATCH[2]:-N/A}  # Default to N/A if missing
-                  hota=${BASH_REMATCH[3]:-N/A}    # Default to N/A if missing
-                  mota=${BASH_REMATCH[4]:-N/A}    # Default to N/A if missing
-                  idf1=${BASH_REMATCH[5]:-N/A}    # Default to N/A if missing
-
-                  # Format tracker names and add correct links
-                  if [[ "$tracker" == "Imprassoc" ]]; then
-                      new_table+="| [$tracker](https://ieeexplore.ieee.org/document/10223159) | $status | $hota | $mota | $idf1 |\n"
-                  else
-                      new_table+="| [$tracker](https://arxiv.org/pdf/$tracker.pdf) | $status | $hota | $mota | $idf1 |\n"
-                  fi
-              fi
-          done < "$RESULTS_FILE"
+          new_table+="$(cat "$RESULTS_FILE" | awk '{print "| " $1 " | " $2 " | " $3 " | " $4 " | " $5 " |"}')\n"
 
           # Add any additional rows (like image placeholders) if needed
           new_table+="| <img width=200/> | <img width=100/> | <img width=100/> | <img width=100/> | <img width=100/> |\n"
