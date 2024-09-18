@@ -163,44 +163,48 @@ jobs:
       - name: Update README with tracker results
         run: |
           # Paths
-          RESULTS_FILE="pretty_results.txt"
-          README_FILE="README.md"
+        RESULTS_FILE="pretty_results.txt"
+        README_FILE="README.md"
 
-          # Backup original README in case needed
-          cp "$README_FILE" "${README_FILE}.bak"
+        # Backup original README in case needed
+        cp "$README_FILE" "${README_FILE}.bak"
 
-          # Read the pretty_results.txt and convert it into a markdown table format
-          new_table= "| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ |\n"
-          new_table+="| ------- | ------- | ----- | ----- | ----- |\n"
-          new_table+="$(cat "$RESULTS_FILE" | awk '{print "| " $1 " | " $2 " | " $3 " | " $4 " | " $5 " |"}')\n"
+        # Create the markdown table header
+        new_table="| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ |\n"
+        new_table+="| ------- | ------- | ----- | ----- | ----- |\n"
 
-          # Define unique markers to locate the table
-          start_marker="<!-- START TRACKER TABLE -->"
-          end_marker="<!-- END TRACKER TABLE -->"
+        # Append the contents of pretty_results.txt to the table
+        while read -r line; do
+            new_table+="| $(echo "$line" | awk '{print $1}') | $(echo "$line" | awk '{print $2}') | $(echo "$line" | awk '{print $3}') | $(echo "$line" | awk '{print $4}') | $(echo "$line" | awk '{print $5}') |\n"
+        done < "$RESULTS_FILE"
 
-          # Use awk to replace lines between markers, preserving non-table content
-          awk -v start_marker="$start_marker" -v end_marker="$end_marker" -v new_table="$new_table" '
-              BEGIN { in_table=0 }
-              {
-                  if ($0 == start_marker) {
-                      print $0      # Print the start marker
-                      print new_table  # Insert the new table
-                      in_table=1    # Start skipping lines in the old table
-                      next
-                  }
-                  else if ($0 == end_marker) {
-                      in_table=0    # End skipping when reaching end_marker
-                      print $0      # Print end marker
-                      next
-                  }
-                  if (!in_table) {
-                      print $0  # Continue printing lines outside the table
-                  }
-              }
-          ' "$README_FILE" > temp_readme.md
+        # Define unique markers to locate the table
+        start_marker="<!-- START TRACKER TABLE -->"
+        end_marker="<!-- END TRACKER TABLE -->"
 
-          # Replace original README with updated version
-          mv temp_readme.md "$README_FILE"
+        # Use awk to replace lines between markers, preserving non-table content
+        awk -v start_marker="$start_marker" -v end_marker="$end_marker" -v new_table="$new_table" '
+            BEGIN { in_table=0 }
+            {
+                if ($0 == start_marker) {
+                    print $0      # Print the start marker
+                    print new_table  # Insert the new table
+                    in_table=1    # Start skipping lines in the old table
+                    next
+                }
+                else if ($0 == end_marker) {
+                    in_table=0    # End skipping when reaching end_marker
+                    print $0      # Print end marker
+                    next
+                }
+                if (!in_table) {
+                    print $0  # Continue printing lines outside the table
+                }
+            }
+        ' "$README_FILE" > temp_readme.md
+
+        # Replace original README with updated version
+        mv temp_readme.md "$README_FILE"
 
       # Check for changes
       - name: Check for changes
