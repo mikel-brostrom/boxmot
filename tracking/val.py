@@ -82,7 +82,7 @@ def cleanup_mot17(data_dir, keep_detection='FRCNN'):
     print("MOT17 Cleanup completed!")
 
 
-def prompt_overwrite(path_type: str, path: str, ci: bool = False) -> bool:
+def prompt_overwrite(path_type: str, path: str, ci: bool = True) -> bool:
     """
     Prompts the user to confirm overwriting an existing file.
 
