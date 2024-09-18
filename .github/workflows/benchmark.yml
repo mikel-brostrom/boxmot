@@ -69,7 +69,7 @@ jobs:
         run: |
           wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/runs.zip -O runs.zip
           wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip -O tracking/val_utils/MOT17-50.zip
-          unzip runs.zip -d runs
+          unzip ./runs.zip -d ./
           mkdir -p tracking/val_utils/data
           unzip tracking/val_utils/MOT17-50.zip -d tracking/val_utils/data/
 
@@ -78,7 +78,7 @@ jobs:
           pwd
           ls ./runs
           ls ./tracking/val_utils/data/
-          ls ./tracking/val_utils/data/MOT17-50
+          ls ./tracking/val_utils/data/MOT17-50/train
 
       # Cache data for future runs (only if the cache was not already restored)
       - name: Cache MOT17.zip if not already cached
