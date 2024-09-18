@@ -1,13 +1,12 @@
 # Trial number:      137
 # HOTA, MOTA, IDF1:  [55.567]
-asso_func: giou
-conf_thres: 0.5122620708221085
+asso_func: iou
 delta_t: 3
-det_thresh: 0
+det_thresh: 0.6
 inertia: 0.2
 iou_thresh: 0.3
 max_age: 30
-min_hits: 1
+min_hits: 3
 use_byte: false
 Q_xy_scaling: 0.01
 Q_s_scaling: 0.0001
