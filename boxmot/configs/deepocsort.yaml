@@ -1,18 +1,17 @@
 # Trial number:      0
 # HOTA, MOTA, IDF1:  [27.884, 11.425, 21.545]
 alpha_fixed_emb: 0.95
-asso_func: giou
+asso_func: iou
 aw_off: false
 aw_param: 0.5
 cmc_off: false
-conf: 0.5
 delta_t: 3
-det_thresh: 0
+det_thresh: 0.6
 embedding_off: false
 inertia: 0.2
 iou_thresh: 0.3
 max_age: 30
-min_hits: 1
+min_hits: 3
 w_association_emb: 0.75
 Q_xy_scaling: 0.01
 Q_s_scaling: 0.0001
