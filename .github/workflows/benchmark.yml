@@ -170,8 +170,8 @@ jobs:
           cp "$README_FILE" "${README_FILE}.bak"
 
           # Read the pretty_results.txt and convert it into a markdown table format
-          new_table="|  Tracker   | Status | HOTA   | MOTA   | IDF1   |\n"
-          new_table+="| ---------- | ------ | ------ | ------ | ------ |\n"
+          new_table= "| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ |\n"
+          new_table+="| ------- | ------- | ----- | ----- | ----- |\n"
           new_table+="$(cat "$RESULTS_FILE" | awk '{print "| " $1 " | " $2 " | " $3 " | " $4 " | " $5 " |"}')\n"
 
           # Define unique markers to locate the table
