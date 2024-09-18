@@ -140,7 +140,6 @@ jobs:
 
       - name: Combine results
         run: |
-          echo "Format,Status❔,HOTA,MOTA,IDF1" > combined_results.csv
           for file in results/*; do
             if [ -f "$file" ]; then
               cat "$file" >> combined_results.csv  # Use cat instead of tail to include all lines
@@ -174,9 +173,6 @@ jobs:
           new_table="|  Tracker   | Status | HOTA   | MOTA   | IDF1   |\n"
           new_table+="| ---------- | ------ | ------ | ------ | ------ |\n"
           new_table+="$(cat "$RESULTS_FILE" | awk '{print "| " $1 " | " $2 " | " $3 " | " $4 " | " $5 " |"}')\n"
-
-          # Add any additional rows (like image placeholders) if needed
-          new_table+="| <img width=200/> | <img width=100/> | <img width=100/> | <img width=100/> | <img width=100/> |\n"
 
           # Define unique markers to locate the table
           start_marker="<!-- START TRACKER TABLE -->"
