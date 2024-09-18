@@ -1,5 +1,3 @@
-# Trial number:      137
-# HOTA, MOTA, IDF1:  [55.567]
 asso_func: iou
 delta_t: 3
 det_thresh: 0.6
