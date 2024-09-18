@@ -23,16 +23,16 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 <div align="center">
 
 <!-- START TRACKER TABLE -->
-|  Tracker | HOTA↑ | MOTA↑ | IDF1↑ |
-| -------- | ----- | ----- | ----- |
-| [BoTSORT](https://arxiv.org/pdf/2206.14651.pdf)    | 77.8 | 78.9 | 88.9 |
-| [DeepOCSORT](https://arxiv.org/pdf/2302.11813.pdf) | 77.4 | 78.4 | 89.0 |
-| [OCSORT](https://arxiv.org/pdf/2203.14360.pdf)     | 77.4 | 78.4 | 89.0 |
-| [HybridSORT](https://arxiv.org/pdf/2308.00783.pdf) | 77.3 | 77.9 | 88.8 |
-| [ByteTrack](https://arxiv.org/pdf/2110.06864.pdf)  | 75.6 | 74.6 | 86.0 |
-| [StrongSORT](https://arxiv.org/pdf/2202.13514.pdf) |      | | |
-| [ImprAssoc](https://ieeexplore.ieee.org/document/10223159)| | |
-| <img width=200/>                                   | <img width=100/> | <img width=100/> | <img width=100/> |
+| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ |
+| ------- | ------- | ----- | ----- | ----- |
+| Botsort | ✅ | 33.838 | 24.187 | 34.365 |
+| Strongsort | ✅ | 36.415 | 24.74 | 38.683 |
+| Ocsort | ✅ | 35.45 | 24.451 | 37.188 |
+| Deepocsort | ✅ | 35.195 | 24.509 | 37.096 |
+| Bytetrack | ✅ | 34.223 | 23.996 | 35.955 |
+| Imprassoc | ✅ | 31.636 | 24.327 | 31.446 |
+| Hybridsort | ❌ |  |  |  |
+
 <!-- END TRACKER TABLE -->
 
 <sub> NOTES: performed on the 10 first frames of each MOT17 sequence. The detector used is ByteTrack's YoloXm, trained on: CrowdHuman, MOT17, Cityperson and ETHZ. Each tracker is configured with its original parameters found in their respective official repository.</sub>
