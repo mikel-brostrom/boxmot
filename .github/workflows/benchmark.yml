@@ -142,12 +142,12 @@ jobs:
         run: |
           for file in results/*; do
             if [ -f "$file" ]; then
-              cat "$file" >> combined_results.csv  # Use cat instead of tail to include all lines
+              cat "$file" >> combined_results.csv  # Use cat to include all lines
             fi
           done
 
-          # Sort the results by HOTA in descending order
-          (head -n 1 combined_results.csv && tail -n +2 combined_results.csv | sort -t, -k3 -nr) > sorted_results.csv
+          # Sort the results by the third column (HOTA) in descending order
+          (head -n 1 combined_results.csv && tail -n +2 combined_results.csv | sort -t',' -k3,3nr) > sorted_results.csv
 
           # Create a pretty table from the sorted_results.csv file
           column -s, -t sorted_results.csv > pretty_results.txt
