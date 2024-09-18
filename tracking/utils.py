@@ -2,6 +2,7 @@
 
 import numpy as np
 import torch
+import pandas as pd
 from ultralytics.utils import ops
 from ultralytics.engine.results import Results
 from typing import Union
@@ -16,6 +17,84 @@ from git import Repo, exc
 from boxmot.utils import logger as LOGGER
 from tqdm import tqdm
 from boxmot.utils import EXAMPLES, ROOT
+
+
+def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> None:
+    """
+    Copies the dataset to a new location and removes a specified percentage of images and annotations,
+    adjusting the frame index to start at 1.
+
+    Args:
+        src_fldr (Path): Source folder containing the dataset.
+        percent_to_delete (float): Percentage of images and annotations to remove.
+    """
+    # Ensure source path is a Path object
+    src_fldr = Path(src_fldr)
+
+    # Generate the destination path by replacing "MOT17" with "MOT17-half" in the source path
+    new_benchmark_name = f'MOT17-{int(percent_to_delete * 100)}'
+    dst_fldr = Path(str(src_fldr).replace('MOT17', new_benchmark_name))
+
+    # Copy the dataset to a new location manually using pathlib if it doesn't already exist
+    if not dst_fldr.exists():
+        dst_fldr.mkdir(parents=True)
+        for item in src_fldr.rglob('*'):
+            if item.is_dir():
+                (dst_fldr / item.relative_to(src_fldr)).mkdir(parents=True, exist_ok=True)
+            else:
+                (dst_fldr / item.relative_to(src_fldr)).write_bytes(item.read_bytes())
+
+    # List all sequences in the destination folder
+    seq_paths = [f for f in dst_fldr.iterdir() if f.is_dir()]
+
+    # Iterate over each sequence and remove a percentage of images and annotations
+    for seq_path in seq_paths:
+        seq_gt_path = seq_path / 'gt' / 'gt.txt'
+        
+        # Check if the gt.txt file exists
+        if not seq_gt_path.exists():
+            print(f"Ground truth file not found for {seq_path}. Skipping...")
+            continue
+
+        df = pd.read_csv(seq_gt_path, sep=",", header=None)
+        nr_seq_imgs = df[0].unique().max()
+        split = int(nr_seq_imgs * (1 - percent_to_delete))
+        
+        # Check if the sequence is already split
+        if nr_seq_imgs <= split:
+            print(f'Sequence {seq_path} already split. Skipping...')
+            continue
+        
+        print(f'Number of annotated frames in {seq_path}: Keeping from frame {split + 1} to {nr_seq_imgs}')
+
+        # Keep rows from the ground truth file beyond the split point
+        df = df[df[0] > split]
+        
+        # Adjust the frame indices to start from 1
+        df[0] = df[0] - split
+
+        df.to_csv(seq_gt_path, header=None, index=None, sep=',')
+
+        # Remove images before the split point using pathlib
+        jpg_folder_path = seq_path / 'img1'
+        jpg_paths = list(jpg_folder_path.glob('*.jpg'))
+        for jpg_path in jpg_paths:
+            # Extract frame number from image file name (e.g., '000300.jpg' -> 300)
+            frame_number = int(jpg_path.stem)
+            # Check if this frame number is in the removed range
+            if frame_number <= split:
+                jpg_path.unlink()
+
+        # Rename the remaining images to have a continuous sequence starting from 1
+        remaining_jpg_paths = sorted(jpg_folder_path.glob('*.jpg'))
+        for new_index, jpg_path in enumerate(remaining_jpg_paths, start=1):
+            new_jpg_name = f"{new_index:06}.jpg"  # zero-padded to 6 digits
+            jpg_path.rename(jpg_folder_path / new_jpg_name)
+
+        remaining_images = len(list(jpg_folder_path.glob('*.jpg')))
+        print(f'Number of images in {seq_path} after delete: {remaining_images}')
+        
+    return dst_fldr, new_benchmark_name
 
 
 def download_mot_eval_tools(val_tools_path):
