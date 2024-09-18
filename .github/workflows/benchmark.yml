@@ -37,7 +37,7 @@ jobs:
 
       - name: Install requirements
         run: |
-          sudo apt-get install -y jq unzip
+          sudo apt-get install -y jq unzip curl
       #   run: |
       #     if [[ "$OSTYPE" == "darwin"* ]]; then
       #       # macOS
@@ -51,6 +51,17 @@ jobs:
       #     poetry config virtualenvs.create false
       #     poetry lock --no-update
       #     poetry install --with yolo
+      - name: Download MOT17
+        run: |
+          curl -O -C - --retry 5 https://motchallenge.net/data/MOT17.zip
+
+      - name: Cache MOT17 dataset
+        uses: actions/cache@v3
+        with:
+          path: tracking/val_utils/data/MOT17
+          key: mot17-dataset-cache
+
+
 
       # Step 2: Restore the cached dataset (if available)
       - name: Restore MOT17 dataset cache
@@ -63,10 +74,11 @@ jobs:
 
       - name: Download run.zip from GitHub release and unzip
         run: |
+          git clone https://github.com/JonathonLuiten/TrackEval.git tracking/val_utils
           wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/runs.zip -O runs.zip
+          wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip -O tracking/val_utils/MOT17.zip
           unzip runs.zip -d runs
-          pwd
-          ls runs
+          unzip tracking/val_utils/MOT17.zip -d tracking/val_utils/data/MOT17
 
       - name: Evaluation and Summarize Results
         run: |
@@ -91,11 +103,7 @@ jobs:
           TRACKER_NAME=$(echo ${{ matrix.tracker }} | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}.txt
         
-      - name: Cache MOT17 dataset
-        uses: actions/cache@v3
-        with:
-          path: tracking/val_utils/data/MOT17
-          key: mot17-dataset-cache
+      
 
       - name: Show Results
         run: cat results/${{ matrix.tracker }}.txt
