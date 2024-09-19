@@ -175,7 +175,6 @@ jobs:
           end_marker="<!-- END TRACKER TABLE -->"
 
           # Use awk to replace lines between markers, preserving non-table content
-          # Use awk to replace lines between markers, preserving non-table content
           awk -v start_marker="$start_marker" -v end_marker="$end_marker" -v new_table="$new_table" '
               $0 == start_marker { print $0; print new_table; in_table=1; next }
               $0 == end_marker { in_table=0; print $0; next }
