@@ -8,5 +8,5 @@ overlap_thresh: 0.55
 proximity_thresh: 0.1
 second_match_thresh: 0.19
 track_buffer: 35
-track_high_thresh: 0.5
-track_low_thresh: 0.1
+track_high_thresh: 0.3
+track_low_thresh: 0.05
