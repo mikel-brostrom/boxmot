@@ -208,6 +208,8 @@ jobs:
           git add README.md
           git commit -m "Overwrote tracker results in README.md"
           git push origin "$BRANCH_NAME"
+        env:
+          BRANCH_NAME: ${{ steps.create_branch.outputs.BRANCH_NAME }}
 
       # Create a pull request (PR)
       - name: Create Pull Request
@@ -215,7 +217,7 @@ jobs:
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ github.ref }}
+          branch: ${{ env.BRANCH_NAME }}  # Use the created branch
           commit-message: Overwrote tracker results in README.md
           title: Overwrite tracker results in README.md
           body: "This PR updates the tracker results table in the README.md."
