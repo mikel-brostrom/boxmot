@@ -63,7 +63,7 @@ jobs:
           # Specify the path where the dataset is stored
           path: tracking/val_utils/MOT17-50.zip
           # Create a cache key, you can use a fixed key if the dataset is static
-          key: mot17-50-dataset-cache
+          key: mot17-50-dataset-cache-v2
 
       - name: Download eval data
         run: |
@@ -79,7 +79,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: tracking/val_utils/MOT17-50.zip
-          key: mot17-50-dataset-cache
+          key: mot17-50-dataset-cache-v2
 
       - name: Evaluation and Summarize Results
         run: |
