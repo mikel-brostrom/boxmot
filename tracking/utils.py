@@ -2,6 +2,7 @@
 
 import numpy as np
 import torch
+import time
 import pandas as pd
 from ultralytics.utils import ops
 from ultralytics.engine.results import Results
