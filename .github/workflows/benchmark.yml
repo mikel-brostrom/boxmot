@@ -199,11 +199,11 @@ jobs:
             echo "::set-output name=changed::true"
           fi
 
-      # Commit and push changes if there are any
       - name: Commit changes
         if: steps.check_changes.outputs.changed == 'true'
         run: |
           BRANCH_NAME="update-tracker-results-$(date +%Y%m%d%H%M%S)"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV  # Set BRANCH_NAME in GitHub environment
           git checkout -b "$BRANCH_NAME"
           git add README.md
           git commit -m "Overwrote tracker results in README.md"
