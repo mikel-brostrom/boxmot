@@ -210,7 +210,7 @@ jobs:
           # remove untracked files
           git clean -f -d
           
-          git add README.md
+          git add --force README.md
           git commit -m "Overwrote tracker results in README.md"
           git push origin "$BRANCH_NAME"
 
