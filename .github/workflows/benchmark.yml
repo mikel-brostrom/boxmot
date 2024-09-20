@@ -84,6 +84,10 @@ jobs:
       - name: Evaluation and Summarize Results
         run: |
 
+          pwd
+          ls tracking/val_utils
+          ls tracking/val_utils/data
+
           if python3 tracking/val.py --imgsz 320 --classes 0 --benchmark MOT17-50 --yolo-model yolov8x.pt --reid-model osnet_x1_0_dukemtmcreid.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./tracking/val_utils/data/MOT17-50/train; then
             STATUS="✅"
           else
