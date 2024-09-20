@@ -1,10 +1,10 @@
 appearance_thresh: 0.25
-cmc_method: sparseOptFlow
+cmc_method: ecc
 frame_rate: 30
 lambda_: 0.98
-match_thresh: 0.7
-new_track_thresh: 0.4
+match_thresh: 0.8
+new_track_thresh: 0.7
 proximity_thresh: 0.5
 track_buffer: 30
-track_high_thresh: 0.3
-track_low_thresh: 0.05
+track_high_thresh: 0.6
+track_low_thresh: 0.1
