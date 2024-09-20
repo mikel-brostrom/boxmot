@@ -25,12 +25,12 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 <!-- START TRACKER TABLE -->
 | Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ |
 | ------- | ------- | ----- | ----- | ----- |
-| Strongsort | ✅ | 48.153 | 38.936 | 56.834 |
-| Ocsort | ✅ | 46.841 | 39.395 | 54.692 |
-| Deepocsort | ✅ | 46.517 | 39.647 | 54.104 |
-| Bytetrack | ✅ | 45.757 | 38.753 | 53.284 |
-| Botsort | ✅ | 45.128 | 39.323 | 51.563 |
-| Imprassoc | ✅ | 44.664 | 39.571 | 50.264 |
+| Botsort | ✅ | 68.058 | 77.074 | 79.723 |
+| Strongsort | ✅ | 66.935 | 76.246 | 77.356 |
+| Bytetrack | ✅ | 66.432 | 76.782 | 77.705 |
+| Ocsort | ✅ | 64.525 | 74.604 | 75.374 |
+| Imprassoc | ✅ | 64.096 | 76.552 | 71.922 |
+| Deepocsort | ✅ | 63.082 | 74.717 | 73.491 |
 | Hybridsort | ❌ |  |  |  |
 
 <!-- END TRACKER TABLE -->
