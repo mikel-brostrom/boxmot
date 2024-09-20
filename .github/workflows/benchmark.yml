@@ -63,7 +63,7 @@ jobs:
           # Specify the path where the dataset is stored
           path: tracking/val_utils/MOT17-50.zip
           # Create a cache key, you can use a fixed key if the dataset is static
-          key: mot17-50-dataset-cache
+          key: mot17-50-dataset-cache-v3
 
       - name: Download eval data
         run: |
@@ -79,10 +79,14 @@ jobs:
         uses: actions/cache@v3
         with:
           path: tracking/val_utils/MOT17-50.zip
-          key: mot17-50-dataset-cache
+          key: mot17-50-dataset-cache-v3
 
       - name: Evaluation and Summarize Results
         run: |
+
+          pwd
+          ls tracking/val_utils
+          ls tracking/val_utils/data
 
           if python3 tracking/val.py --imgsz 320 --classes 0 --benchmark MOT17-50 --yolo-model yolov8x.pt --reid-model osnet_x1_0_dukemtmcreid.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./tracking/val_utils/data/MOT17-50/train; then
             STATUS="✅"
@@ -204,6 +208,8 @@ jobs:
           git add README.md
           git commit -m "Overwrote tracker results in README.md"
           git push origin "$BRANCH_NAME"
+        env:
+          BRANCH_NAME: ${{ steps.create_branch.outputs.BRANCH_NAME }}
 
       # Create a pull request (PR)
       - name: Create Pull Request
@@ -211,7 +217,7 @@ jobs:
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ github.ref }}
+          branch: ${{ env.BRANCH_NAME }}  # Use the created branch
           commit-message: Overwrote tracker results in README.md
           title: Overwrite tracker results in README.md
           body: "This PR updates the tracker results table in the README.md."
