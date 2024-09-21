@@ -126,7 +126,7 @@ jobs:
       - name: Download all results
         uses: actions/download-artifact@v4
         with:
-          name: results
+          name: 'results-*'  # Use a wildcard to match all tracker result artifacts
           path: results
 
       - name: Check downloaded files
