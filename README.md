@@ -86,6 +86,7 @@ In inverse chronological order:
 #### News
 
 * Trackers MOT metrics, on 2nd half of MOT17 training set, updated in README from CI
+* Metrics for all trackers generated in CI on CPU by using pre-computed detections and embeddings
 * Added YOLOv9 and YOLOv10 support
 * Hyperparameter search for all trackers using RayTune (July 2024)
 * Added Improved Association Pipeline Tracker by [rolson24](https://github.com/rolson24) in [#1527](https://github.com/mikel-brostrom/boxmot/pull/1527) (July 2024)
