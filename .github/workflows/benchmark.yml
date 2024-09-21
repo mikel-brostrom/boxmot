@@ -112,7 +112,7 @@ jobs:
         run: cat results/${{ matrix.tracker }}.txt
 
       - name: Upload Results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: results
           path: results/${{ matrix.tracker }}.txt
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download all results
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: results
           path: results
