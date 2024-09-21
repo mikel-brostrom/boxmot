@@ -136,6 +136,7 @@ jobs:
 
       - name: Combine results
         run: |
+          touch combined_results.csv  # Ensure the file exists
           for file in results/*; do
             if [ -f "$file" ]; then
               cat "$file" >> combined_results.csv  # Use cat to include all lines
