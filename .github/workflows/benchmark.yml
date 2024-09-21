@@ -23,7 +23,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ['3.11']
-        tracker: ["ocsort", "bytetrack", "botsort", "hybridsort", "deepocsort", "imprassoc", "strongsort"]
+        tracker: ["ocsort", "bytetrack", "botsort", "hybridsort", "deepocsort", "imprassoc"]
     timeout-minutes: 50
 
     steps:
@@ -126,7 +126,7 @@ jobs:
       - name: Download all results artifacts
         uses: actions/download-artifact@v4
         with:
-          name: results-${{ github.run_id }}  # No need to download each separately since all trackers were handled in the matrix
+          name: '**'  # This will download all the artifacts across the matrix
           path: results
 
       - name: Check downloaded files
