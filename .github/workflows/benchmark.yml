@@ -123,11 +123,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all results
-        uses: actions/download-artifact@v4
-        with:
-          name: 'results-*'  # Use a wildcard to match all tracker result artifacts
-          path: results
+      - name: Download results for each tracker
+        run: |
+          trackers=("ocsort" "bytetrack" "botsort" "hybridsort" "deepocsort" "imprassoc" "strongsort")
+          for tracker in "${trackers[@]}"; do
+            echo "Downloading results for $tracker..."
+            artifact_name="results-${{ github.run_id }}-$tracker"
+            gh run download ${{ github.run_id }} --name "$artifact_name" --dir results
+          done
 
       - name: Check downloaded files
         run: |
