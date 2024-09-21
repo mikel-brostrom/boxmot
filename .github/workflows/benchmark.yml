@@ -132,8 +132,7 @@ jobs:
       - name: Check downloaded files
         run: |
           echo "Downloaded files in the results directory:"
-          ls -la results/
-          cat results-${{ github.run_id }}-ocsort
+          ls -la results/*/
 
       - name: Combine results
         run: |
