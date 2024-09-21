@@ -133,11 +133,12 @@ jobs:
         run: |
           echo "Downloaded files in the results directory:"
           ls -la results/
+          cat results-${{ github.run_id }}-ocsort
 
       - name: Combine results
         run: |
           touch combined_results.csv  # Ensure the file exists
-          for file in results/*; do
+          for file in results/*/*; do
             if [ -f "$file" ]; then
               cat "$file" >> combined_results.csv  # Use cat to include all lines
             fi
