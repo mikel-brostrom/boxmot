@@ -54,8 +54,9 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 <details>
 <summary>Experiments</summary>
-
 In inverse chronological order:
+
+* [Impact of Selective Mechanism for Feature Extraction](https://github.com/mikel-brostrom/boxmot/wiki/Impact-of-Selective-Mechanism-for-Feature-Extraction)
 
 * [Evaluation of the params evolved for first half of MOT17 on the complete MOT17](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/Evaluation-of-the-params-evolved-for-first-half-of-MOT17-on-the-complete-MOT17)
 
