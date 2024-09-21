@@ -35,7 +35,7 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 <!-- END TRACKER TABLE -->
 
-<sub> NOTES: performed on the second half of the MOT17 train set. The detector used is Yolov8x (imgsz 1280, conf 0.2). Each tracker is configured with its original parameters found in their respective official repository.</sub>
+<sub> NOTES: performed on the second half of the MOT17 train set. Each tracker is configured with its original parameters found in their respective official repository.</sub>
 
 </div>
 
