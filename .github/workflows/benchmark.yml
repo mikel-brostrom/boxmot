@@ -212,7 +212,7 @@ jobs:
           git clean -f -d
           
           git add --force README.md
-          git commit -m "Overwrote tracker results in README.md"
+          git commit -m "Update tracker results"
           git push origin "$BRANCH_NAME"
 
       # Create a pull request (PR)
