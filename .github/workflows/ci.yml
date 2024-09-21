@@ -141,7 +141,7 @@ jobs:
 
       - name: Generate detections and embeddings
         run: |
-          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
+          python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
 
       - name: Evaluation and Summarize Results
         shell: bash
