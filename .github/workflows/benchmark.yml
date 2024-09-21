@@ -126,8 +126,8 @@ jobs:
       - name: Download all results artifacts
         uses: actions/download-artifact@v4
         with:
-          name: '**'  # This will download all the artifacts across the matrix
-          path: results
+          path: results  # Specify the path where you want to store the artifacts
+          run-id: ${{ github.run_id }}
 
       - name: Check downloaded files
         run: |
