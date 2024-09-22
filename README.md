@@ -25,8 +25,8 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 <!-- START TRACKER TABLE -->
 | Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ |
 | ------- | ------- | ----- | ----- | ----- |
+| Strongsort | ✅ | 68.329 | 76.348 | 81.206 |
 | Botsort | ✅ | 68.058 | 77.074 | 79.723 |
-| Strongsort | ✅ | 66.935 | 76.246 | 77.356 |
 | Bytetrack | ✅ | 66.432 | 76.782 | 77.705 |
 | Ocsort | ✅ | 64.525 | 74.604 | 75.374 |
 | Imprassoc | ✅ | 64.096 | 76.552 | 71.922 |
@@ -35,7 +35,7 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 <!-- END TRACKER TABLE -->
 
-<sub> NOTES: performed on the second half of the MOT17 train set. The detector used is Yolov8x (imgsz 1280, conf 0.2). Each tracker is configured with its original parameters found in their respective official repository.</sub>
+<sub> NOTES: The evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly accessible. Each tracker was configured with the original parameters provided in their official repositories. </sub>
 
 </div>
 
@@ -54,8 +54,9 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 <details>
 <summary>Experiments</summary>
-
 In inverse chronological order:
+
+* [Impact of Selective Mechanism for Feature Extraction](https://github.com/mikel-brostrom/boxmot/wiki/Impact-of-Selective-Mechanism-for-Feature-Extraction)
 
 * [Evaluation of the params evolved for first half of MOT17 on the complete MOT17](https://github.com/mikel-brostrom/Yolov5_StrongSORT_OSNet/wiki/Evaluation-of-the-params-evolved-for-first-half-of-MOT17-on-the-complete-MOT17)
 
@@ -84,6 +85,8 @@ In inverse chronological order:
 
 #### News
 
+* Trackers MOT metrics, on 2nd half of MOT17 training set, updated in README from CI
+* Metrics for all trackers generated in CI on CPU by using pre-computed detections and embeddings
 * Added YOLOv9 and YOLOv10 support
 * Hyperparameter search for all trackers using RayTune (July 2024)
 * Added Improved Association Pipeline Tracker by [rolson24](https://github.com/rolson24) in [#1527](https://github.com/mikel-brostrom/boxmot/pull/1527) (July 2024)

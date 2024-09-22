@@ -112,9 +112,9 @@ jobs:
         run: cat results/${{ matrix.tracker }}.txt
 
       - name: Upload Results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: results
+          name: results-${{ github.run_id }}-${{ matrix.tracker }}
           path: results/${{ matrix.tracker }}.txt
 
   combine-results:
@@ -123,20 +123,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all results
-        uses: actions/download-artifact@v3
+      - name: Download all results artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: results
-          path: results
+          path: results  # Specify the path where you want to store the artifacts
+          run-id: ${{ github.run_id }}
 
       - name: Check downloaded files
         run: |
           echo "Downloaded files in the results directory:"
-          ls -la results/
+          ls -la results/*/
 
       - name: Combine results
         run: |
-          for file in results/*; do
+          touch combined_results.csv  # Ensure the file exists
+          for file in results/*/*; do
             if [ -f "$file" ]; then
               cat "$file" >> combined_results.csv  # Use cat to include all lines
             fi
@@ -194,14 +195,14 @@ jobs:
         run: |
           if git diff --quiet; then
             echo "No changes to commit."
-            echo "::set-output name=changed::false"
+            echo "changed=false" >> $GITHUB_ENV  # Writing to the environment file
           else
-            echo "::set-output name=changed::true"
+            echo "changed=true" >> $GITHUB_ENV  # Writing to the environment file
           fi
 
       # Commit and push changes if there are any
       - name: Commit changes
-        if: steps.check_changes.outputs.changed == 'true'
+        if: env.changed == 'true'
         run: |
           BRANCH_NAME="update-tracker-results-$(date +%Y%m%d%H%M%S)"
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV  # Store the branch name in the GitHub environment
@@ -211,12 +212,12 @@ jobs:
           git clean -f -d
           
           git add --force README.md
-          git commit -m "Overwrote tracker results in README.md"
+          git commit -m "Update tracker results"
           git push origin "$BRANCH_NAME"
 
       # Create a pull request (PR)
       - name: Create Pull Request
-        if: steps.check_changes.outputs.changed == 'true'
+        if: env.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
