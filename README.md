@@ -35,7 +35,7 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 <!-- END TRACKER TABLE -->
 
-<sub> NOTES: The second half of the MOT17 training set was used for this evaluation, as the validation set is not publicly available. Each tracker was configured using the original parameters specified in its official repository</sub>
+<sub> NOTES: The evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly accessible. Each tracker was configured with the original parameters provided in their official repositories. </sub>
 
 </div>
 
