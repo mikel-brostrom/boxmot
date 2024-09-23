@@ -147,6 +147,7 @@ $ python tracking/track.py --tracking-method deepocsort
                                              bytetrack
                                              botsort
                                              imprassoc
+                                             faststrongsort
 ```
 
 </details>

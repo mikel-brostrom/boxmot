@@ -84,11 +84,10 @@ class Track:
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
+        self.time_since_feature_update = 0
         self.ema_alpha = ema_alpha
 
-
-        # start with confirmed in Ci as test expect equal amount of outputs as inputs
-        self.state = TrackState.Confirmed if (os.getenv('GITHUB_ACTIONS') == 'true' and os.getenv('GITHUB_JOB') != 'mot-metrics-benchmark') else TrackState.Tentative
+        self.state = TrackState.Confirmed if os.getenv('GITHUB_ACTIONS') == 'true' else TrackState.Tentative
         self.features = []
         if detection.feat is not None:
             detection.feat /= np.linalg.norm(detection.feat)
@@ -168,13 +167,19 @@ class Track:
             self.mean, self.covariance, self.bbox, self.conf
         )
 
-        feature = detection.feat / np.linalg.norm(detection.feat)
+        if not detection.decay_ema:
+            feature = detection.feat / np.linalg.norm(detection.feat)
+            effective_ema_alpha = self.ema_alpha ** (self.time_since_feature_update + 1)
+            self.time_since_feature_update = 0
 
-        smooth_feat = (
-            self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
-        )
-        smooth_feat /= np.linalg.norm(smooth_feat)
-        self.features = [smooth_feat]
+
+            smooth_feat = (
+                effective_ema_alpha * self.features[-1] + (1 - effective_ema_alpha) * feature
+            )
+            smooth_feat /= np.linalg.norm(smooth_feat)
+            self.features = [smooth_feat]
+        else:
+            self.time_since_feature_update += 1
 
         self.hits += 1
         self.time_since_update = 0
