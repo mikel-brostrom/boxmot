@@ -1,23 +1,37 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-
-
-from types import SimpleNamespace
 import yaml
 from boxmot.utils import BOXMOT
 
 def get_tracker_config(tracker_type):
-    tracking_config = BOXMOT / 'configs' / (tracker_type + '.yaml')
-    return tracking_config
+    """Returns the path to the tracker configuration file."""
+    return BOXMOT / 'configs' / f'{tracker_type}.yaml'
 
 def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=None, half=None, per_class=None, evolve_param_dict=None):
-    # Load the configuration from file or use the provided dictionary
+    """
+    Creates and returns an instance of the specified tracker type.
+    
+    Parameters:
+    - tracker_type: The type of the tracker (e.g., 'strongsort', 'ocsort').
+    - tracker_config: Path to the tracker configuration file.
+    - reid_weights: Weights for ReID (re-identification).
+    - device: Device to run the tracker on (e.g., 'cpu', 'cuda').
+    - half: Boolean indicating whether to use half-precision.
+    - per_class: Boolean for class-specific tracking (optional).
+    - evolve_param_dict: A dictionary of parameters for evolving the tracker.
+    
+    Returns:
+    - An instance of the selected tracker.
+    """
+    
+    # Load configuration from file or use provided dictionary
     if evolve_param_dict is None:
         with open(tracker_config, "r") as f:
-            tracker_args = yaml.load(f.read(), Loader=yaml.FullLoader)
+            tracker_args = yaml.load(f, Loader=yaml.FullLoader)
     else:
         tracker_args = evolve_param_dict
 
+    # Arguments specific to ReID models
     reid_args = {
         'reid_weights': reid_weights,
         'device': device,
@@ -25,40 +39,31 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
         'per_class': per_class
     }
 
-    if tracker_type == 'strongsort':
-        from boxmot.trackers.strongsort.strong_sort import StrongSORT
-        tracker_args.update(reid_args)
-        tracker_args.pop('per_class')
-        return StrongSORT(**tracker_args)
+    # Map tracker types to their corresponding classes
+    tracker_mapping = {
+        'strongsort': 'boxmot.trackers.strongsort.strong_sort.StrongSORT',
+        'ocsort': 'boxmot.trackers.ocsort.ocsort.OCSort',
+        'bytetrack': 'boxmot.trackers.bytetrack.byte_tracker.BYTETracker',
+        'botsort': 'boxmot.trackers.botsort.bot_sort.BoTSORT',
+        'deepocsort': 'boxmot.trackers.deepocsort.deep_ocsort.DeepOCSort',
+        'hybridsort': 'boxmot.trackers.hybridsort.hybridsort.HybridSORT',
+        'imprassoc': 'boxmot.trackers.imprassoc.impr_assoc_tracker.ImprAssocTrack'
+    }
 
-    elif tracker_type == 'ocsort':
-        from boxmot.trackers.ocsort.ocsort import OCSort
-        return OCSort(**tracker_args)
-
-    elif tracker_type == 'bytetrack':
-        from boxmot.trackers.bytetrack.byte_tracker import BYTETracker
-        return BYTETracker(**tracker_args)
-
-    elif tracker_type == 'botsort':
-        from boxmot.trackers.botsort.bot_sort import BoTSORT
-        tracker_args.update(reid_args)
-        return BoTSORT(**tracker_args)
-
-    elif tracker_type == 'deepocsort':
-        from boxmot.trackers.deepocsort.deep_ocsort import DeepOCSort
-        tracker_args.update(reid_args)
-        return DeepOCSort(**tracker_args)
-
-    elif tracker_type == 'hybridsort':
-        from boxmot.trackers.hybridsort.hybridsort import HybridSORT
-        tracker_args.update(reid_args)
-        return HybridSORT(**tracker_args)
-
-    elif tracker_type == 'imprassoc':
-        from boxmot.trackers.imprassoc.impr_assoc_tracker import ImprAssocTrack
-        tracker_args.update(reid_args)
-        return ImprAssocTrack(**tracker_args)
-
-    else:
-        print('No such tracker')
+    # Check if the tracker type exists in the mapping
+    if tracker_type not in tracker_mapping:
+        print('Error: No such tracker found.')
         exit()
+
+    # Dynamically import and instantiate the correct tracker class
+    module_path, class_name = tracker_mapping[tracker_type].rsplit('.', 1)
+    tracker_class = getattr(__import__(module_path, fromlist=[class_name]), class_name)
+    
+    # For specific trackers, update tracker arguments with ReID parameters
+    if tracker_type in ['strongsort', 'botsort', 'deepocsort', 'hybridsort', 'imprassoc']:
+        tracker_args.update(reid_args)
+        if tracker_type == 'strongsort':
+            tracker_args.pop('per_class')  # Remove per_class if not needed
+
+    # Return the instantiated tracker class with arguments
+    return tracker_class(**tracker_args)
