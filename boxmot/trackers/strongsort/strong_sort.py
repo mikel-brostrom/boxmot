@@ -32,9 +32,9 @@ class StrongSORT(object):
     """
     def __init__(
         self,
-        model_weights: Path,
+        reid_weights: Path,
         device: device,
-        fp16: bool,
+        half: bool,
         per_class: bool = False,
         max_cos_dist=0.2,
         max_iou_dist=0.7,
@@ -47,7 +47,7 @@ class StrongSORT(object):
 
         self.per_class = per_class
         self.model = ReidAutoBackend(
-            weights=model_weights, device=device, half=fp16
+            weights=reid_weights, device=device, half=half
         ).model
 
         self.tracker = Tracker(

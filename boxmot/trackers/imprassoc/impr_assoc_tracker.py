@@ -212,9 +212,9 @@ class ImprAssocTrack(BaseTracker):
     """
     def __init__(
         self,
-        model_weights: Path,
+        reid_weights: Path,
         device: device,
-        fp16: bool,
+        half: bool,
         per_class: bool = False,
         track_high_thresh: float = 0.6,
         track_low_thresh: float = 0.1,
@@ -257,7 +257,7 @@ class ImprAssocTrack(BaseTracker):
         self.with_reid = with_reid
         if self.with_reid:
             rab = ReidAutoBackend(
-                weights=model_weights, device=device, half=fp16
+                weights=reid_weights, device=device, half=half
             )
             self.model = rab.get_backend()
 
