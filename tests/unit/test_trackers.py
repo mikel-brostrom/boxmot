@@ -23,9 +23,9 @@ PER_CLASS_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'imprassoc']
 @pytest.mark.parametrize("Tracker", MOTION_N_APPEARANCE_TRACKING_METHODS)
 def test_motion_n_appearance_trackers_instantiation(Tracker):
     Tracker(
-        model_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
+        reid_weights=Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         device='cpu',
-        fp16=True,
+        half=True,
     )
 
 
@@ -92,9 +92,9 @@ TRACKER_CREATORS = {
 @pytest.mark.parametrize("Tracker, init_args", [
     (OCSORT, {}),
     (DeepOCSORT, {
-        'model_weights': Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
+        'reid_weights': Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         'device': 'cpu',
-        'fp16': True
+        'half': True
     }),
 ])
 def test_Q_matrix_scaling(Tracker, init_args):
