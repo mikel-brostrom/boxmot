@@ -42,7 +42,6 @@ class Tracker:
 def get_search_space(tracking_method):
     if tracking_method == 'strongsort':
         search_space = {
-            "iou_thresh": tune.uniform(0.1, 0.4),
             "ecc": tune.choice([True, False]),
             "ema_alpha": tune.uniform(0.7, 0.95),
             "max_cos_dist": tune.uniform(0.1, 0.4),
