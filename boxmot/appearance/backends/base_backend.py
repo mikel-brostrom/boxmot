@@ -15,7 +15,7 @@ from boxmot.utils.checks import RequirementsChecker
 
 
 class BaseModelBackend:
-    def __init__(self, weights, device, half):
+    def __new__(self, weights, device, half):
         self.weights = weights[0] if isinstance(weights, list) else weights
         self.device = device
         self.half = half
@@ -33,6 +33,8 @@ class BaseModelBackend:
         )
         self.checker = RequirementsChecker()
         self.load_model(self.weights)
+        
+        return self.model
 
     def get_crops(self, xyxys, img):
         crops = []
