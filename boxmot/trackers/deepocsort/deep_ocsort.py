@@ -251,9 +251,9 @@ class DeepOCSort(BaseTracker):
     """
     def __init__(
         self,
-        model_weights: Path,
+        reid_weights: Path,
         device: torch.device,
-        fp16: bool,
+        half: bool,
         per_class: bool = False,
         det_thresh: float = 0.3,
         max_age: int = 30,
@@ -292,7 +292,7 @@ class DeepOCSort(BaseTracker):
         KalmanBoxTracker.count = 1
 
         self.model = ReidAutoBackend(
-            weights=model_weights, device=device, half=fp16
+            weights=reid_weights, device=device, half=half
         ).model
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = get_cmc_method('sof')()
