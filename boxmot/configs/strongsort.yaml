@@ -1,4 +1,3 @@
-ecc: false
 ema_alpha: 0.9
 max_age: 30
 max_cos_dist: 0.4
