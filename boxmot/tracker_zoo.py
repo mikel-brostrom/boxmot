@@ -1,11 +1,11 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import yaml
-from boxmot.utils import BOXMOT
+from boxmot.utils import BOXMOT, TRACKER_CONFIGS
 
 def get_tracker_config(tracker_type):
     """Returns the path to the tracker configuration file."""
-    return BOXMOT / 'configs' / f'{tracker_type}.yaml'
+    return TRACKER_CONFIGS / f'{tracker_type}.yaml'
 
 def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=None, half=None, per_class=None, evolve_param_dict=None):
     """
