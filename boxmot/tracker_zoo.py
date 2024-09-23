@@ -36,7 +36,6 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
         'reid_weights': reid_weights,
         'device': device,
         'half': half,
-        'per_class': per_class
     }
 
     # Map tracker types to their corresponding classes
@@ -61,9 +60,12 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
     
     # For specific trackers, update tracker arguments with ReID parameters
     if tracker_type in ['strongsort', 'botsort', 'deepocsort', 'hybridsort', 'imprassoc']:
+        tracker_args['per_class'] = per_class
         tracker_args.update(reid_args)
         if tracker_type == 'strongsort':
-            tracker_args.pop('per_class')  # Remove per_class if not needed
+            tracker_args.pop('per_class')  # per class not supported by
+    else:
+        tracker_args['per_class'] = per_class
 
     # Return the instantiated tracker class with arguments
     return tracker_class(**tracker_args)
