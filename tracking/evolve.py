@@ -89,7 +89,6 @@ def get_search_space(tracking_method):
             "det_thresh": tune.uniform(0, 0.6),
             "max_age": tune.grid_search([10, 20, 30, 40, 50, 60]),  # Since step is 10, using grid_search for these discrete values
             "min_hits": tune.grid_search([1, 2, 3, 4, 5]),  # Since step is 1, using grid_search for these discrete values
-            "iou_thresh": tune.uniform(0.1, 0.4),
             "delta_t": tune.grid_search([1, 2, 3, 4, 5]),  # Since step is 1, using grid_search for these discrete values
             "asso_func": tune.choice(['iou', 'giou', 'centroid']),
             "use_byte": tune.choice([True, False]),
@@ -155,7 +154,15 @@ asha_scheduler = ASHAScheduler(
     reduction_factor=3
 )
 
-results_dir = os.path.abspath("ray/")
+# RunConfig with checkpointing enabled
+run_config = RunConfig(
+    storage_path=(ROOT / "ray/").resolve(),  # Path to save checkpoints
+    checkpoint_config=CheckpointConfig(
+        checkpoint_at_end=True,  # Ensure a checkpoint at the end of each trial
+        checkpoint_frequency=5  # Adjust the frequency (e.g., every 5 iterations)
+    )
+)
+
 # Run Ray Tune
 tuner = tune.Tuner(
     tune.with_resources(_tune, {"cpu": NUM_THREADS, "gpu": 0}),  # Adjust resources as needed
