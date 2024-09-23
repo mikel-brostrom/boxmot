@@ -12,6 +12,7 @@ DATA = ROOT / 'data'
 BOXMOT = ROOT / "boxmot"
 EXAMPLES = ROOT / "tracking"
 TRACKER_CONFIGS = ROOT / "boxmot" / "configs" / "defaults"
+TRACKER_SEARCH_SPACES = ROOT / "boxmot" / "configs" / "search"
 WEIGHTS = ROOT / "tracking" / "weights"
 REQUIREMENTS = ROOT / "requirements.txt"
 

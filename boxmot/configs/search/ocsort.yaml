@@ -1,0 +1,37 @@
+# ocsort_search_space.yaml
+
+det_thresh:
+  type: uniform
+  range: [0, 0.6]
+
+max_age:
+  type: grid_search
+  values: [10, 20, 30, 40, 50, 60]  # Discrete values using grid search
+
+min_hits:
+  type: grid_search
+  values: [1, 2, 3, 4, 5]  # Discrete values using grid search
+
+delta_t:
+  type: grid_search
+  values: [1, 2, 3, 4, 5]  # Discrete values using grid search
+
+asso_func:
+  type: choice
+  options: ['iou', 'giou', 'centroid']
+
+use_byte:
+  type: choice
+  options: [True, False]
+
+inertia:
+  type: uniform
+  range: [0.1, 0.4]
+
+Q_xy_scaling:
+  type: loguniform
+  range: [0.01, 1]
+
+Q_s_scaling:
+  type: loguniform
+  range: [0.0001, 1]

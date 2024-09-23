@@ -1,0 +1,41 @@
+# hybridsort_search_space.yaml
+
+det_thresh:
+  type: uniform
+  range: [0, 0.6]
+
+max_age:
+  type: randint
+  range: [10, 151, 10]  # The upper bound is exclusive, step size of 10
+
+min_hits:
+  type: randint
+  range: [1, 6]  # The upper bound is exclusive
+
+delta_t:
+  type: randint
+  range: [1, 6]  # The upper bound is exclusive
+
+asso_func:
+  type: choice
+  options: ['iou', 'giou', 'diou']
+
+iou_thresh:
+  type: uniform
+  range: [0.1, 0.4]
+
+inertia:
+  type: uniform
+  range: [0.1, 0.4]
+
+TCM_first_step_weight:
+  type: uniform
+  range: [0, 0.5]
+
+longterm_reid_weight:
+  type: uniform
+  range: [0, 0.5]
+
+use_byte:
+  type: choice
+  options: [True, False]

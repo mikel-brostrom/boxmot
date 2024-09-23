@@ -1,0 +1,29 @@
+# strongsort_search_space.yaml
+
+ema_alpha:
+  type: uniform
+  range: [0.7, 0.95]
+
+max_cos_dist:
+  type: uniform
+  range: [0.1, 0.4]
+
+max_iou_dist:
+  type: uniform
+  range: [0.5, 0.95]
+
+max_age:
+  type: randint
+  range: [10, 151]  # The upper bound is exclusive
+
+n_init:
+  type: randint
+  range: [1, 4]  # The upper bound is exclusive
+
+mc_lambda:
+  type: uniform
+  range: [0.90, 0.999]
+
+nn_budget:
+  type: choice
+  options: [100]
