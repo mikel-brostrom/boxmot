@@ -70,7 +70,7 @@ def get_search_space(tracking_method):
             "track_high_thresh": tune.uniform(0.3, 0.7),
             "track_low_thresh": tune.uniform(0.1, 0.3),
             "new_track_thresh": tune.uniform(0.1, 0.8),
-            "track_buffer": tune.randint(20, 81),  # The upper bound is exclusive in randint
+            "track_buffer": tune.randint(20, 81, 10),  # The upper bound is exclusive in randint
             "match_thresh": tune.uniform(0.1, 0.9),
             "proximity_thresh": tune.uniform(0.25, 0.75),
             "appearance_thresh": tune.uniform(0.1, 0.8),
@@ -154,15 +154,7 @@ asha_scheduler = ASHAScheduler(
     reduction_factor=3
 )
 
-# RunConfig with checkpointing enabled
-run_config = RunConfig(
-    storage_path=(ROOT / "ray/").resolve(),  # Path to save checkpoints
-    checkpoint_config=CheckpointConfig(
-        checkpoint_at_end=True,  # Ensure a checkpoint at the end of each trial
-        checkpoint_frequency=5  # Adjust the frequency (e.g., every 5 iterations)
-    )
-)
-
+results_dir = os.path.abspath("ray/")
 # Run Ray Tune
 tuner = tune.Tuner(
     tune.with_resources(_tune, {"cpu": NUM_THREADS, "gpu": 0}),  # Adjust resources as needed
