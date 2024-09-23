@@ -1,0 +1,61 @@
+# deepocsort_search_space.yaml
+
+det_thresh:
+  type: uniform
+  range: [0.3, 0.6]
+
+max_age:
+  type: randint
+  range: [10, 61, 10]  # The upper bound is exclusive, step size of 10
+
+min_hits:
+  type: randint
+  range: [1, 6]  # The upper bound is exclusive
+
+iou_thresh:
+  type: uniform
+  range: [0.1, 0.4]
+
+delta_t:
+  type: randint
+  range: [1, 6]  # The upper bound is exclusive
+
+asso_func:
+  type: choice
+  options: ['iou', 'giou']
+
+inertia:
+  type: uniform
+  range: [0.1, 0.4]
+
+w_association_emb:
+  type: uniform
+  range: [0.5, 0.9]
+
+alpha_fixed_emb:
+  type: uniform
+  range: [0.9, 0.999]
+
+aw_param:
+  type: uniform
+  range: [0.3, 0.7]
+
+embedding_off:
+  type: choice
+  options: [True, False]
+
+cmc_off:
+  type: choice
+  options: [True, False]
+
+aw_off:
+  type: choice
+  options: [True, False]
+
+Q_xy_scaling:
+  type: uniform
+  range: [0.01, 1]
+
+Q_s_scaling:
+  type: uniform
+  range: [0.0001, 1]
