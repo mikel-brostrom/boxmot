@@ -70,7 +70,7 @@ def get_search_space(tracking_method):
             "track_high_thresh": tune.uniform(0.3, 0.7),
             "track_low_thresh": tune.uniform(0.1, 0.3),
             "new_track_thresh": tune.uniform(0.1, 0.8),
-            "track_buffer": tune.randint(20, 81, 10),  # The upper bound is exclusive in randint
+            "track_buffer": tune.randint(20, 81),  # The upper bound is exclusive in randint
             "match_thresh": tune.uniform(0.1, 0.9),
             "proximity_thresh": tune.uniform(0.25, 0.75),
             "appearance_thresh": tune.uniform(0.1, 0.8),
