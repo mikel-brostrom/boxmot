@@ -1,7 +1,0 @@
-ema_alpha: 0.9
-max_age: 30
-max_cos_dist: 0.4
-max_iou_dist: 0.7
-mc_lambda: 0.98
-n_init: 3
-nn_budget: 100
