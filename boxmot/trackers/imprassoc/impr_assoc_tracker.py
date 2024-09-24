@@ -256,10 +256,7 @@ class ImprAssocTrack(BaseTracker):
 
         self.with_reid = with_reid
         if self.with_reid:
-            rab = ReidAutoBackend(
-                weights=reid_weights, device=device, half=half
-            )
-            self.model = rab.get_backend()
+            self.model = ReidAutoBackend(weights=reid_weights, device=device, half=half)
 
         self.cmc = SOF()
 

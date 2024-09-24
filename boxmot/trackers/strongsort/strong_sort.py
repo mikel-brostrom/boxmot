@@ -46,9 +46,7 @@ class StrongSORT(object):
     ):
 
         self.per_class = per_class
-        self.model = ReidAutoBackend(
-            weights=reid_weights, device=device, half=half
-        ).model
+        self.model = ReidAutoBackend(weights=reid_weights, device=device, half=half)
 
         self.tracker = Tracker(
             metric=NearestNeighborDistanceMetric("cosine", max_cos_dist, nn_budget),

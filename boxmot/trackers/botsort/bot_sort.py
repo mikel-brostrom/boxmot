@@ -247,9 +247,7 @@ class BoTSORT(BaseTracker):
 
         self.with_reid = with_reid
         if self.with_reid:
-            self.model = ReidAutoBackend(
-                weights=reid_weights, device=device, half=half
-            ).model
+            self.model = ReidAutoBackend(weights=reid_weights, device=device, half=half)
 
         self.cmc = SOF()
         self.fuse_first_associate = fuse_first_associate
