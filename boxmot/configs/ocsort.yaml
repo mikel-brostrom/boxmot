@@ -1,0 +1,44 @@
+det_thresh:
+  type: uniform
+  default: 0.6  # from the default parameters
+  range: [0, 0.6]
+
+max_age:
+  type: grid_search
+  default: 30  # from the default parameters
+  values: [10, 20, 30, 40, 50, 60]
+
+min_hits:
+  type: grid_search
+  default: 3  # from the default parameters
+  values: [1, 2, 3, 4, 5]
+
+delta_t:
+  type: grid_search
+  default: 3  # from the default parameters
+  values: [1, 2, 3, 4, 5]
+
+asso_func:
+  type: choice
+  default: iou  # from the default parameters
+  options: ['iou', 'giou', 'centroid']
+
+use_byte:
+  type: choice
+  default: false  # from the default parameters
+  options: [True, False]
+
+inertia:
+  type: uniform
+  default: 0.2  # from the default parameters
+  range: [0.1, 0.4]
+
+Q_xy_scaling:
+  type: loguniform
+  default: 0.01  # from the default parameters
+  range: [0.01, 1]
+
+Q_s_scaling:
+  type: loguniform
+  default: 0.0001  # from the default parameters
+  range: [0.0001, 1]

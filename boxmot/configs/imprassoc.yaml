@@ -1,0 +1,59 @@
+track_high_thresh:
+  type: uniform
+  default: 0.5  # from the default parameters
+  range: [0.3, 0.7]
+
+track_low_thresh:
+  type: uniform
+  default: 0.1  # from the default parameters
+  range: [0.05, 0.3]
+
+new_track_thresh:
+  type: uniform
+  default: 0.5  # from the default parameters
+  range: [0.5, 0.9]
+
+track_buffer:
+  type: qrandint
+  default: 35  # from the default parameters
+  range: [20, 80, 10]  # step size of 10, upper bound exclusive
+
+match_thresh:
+  type: uniform
+  default: 0.65  # from the default parameters
+  range: [0.1, 0.9]
+
+second_match_thresh:
+  type: uniform
+  default: 0.19  # from the default parameters
+  range: [0.1, 0.4]
+
+overlap_thresh:
+  type: uniform
+  default: 0.55  # from the default parameters
+  range: [0.3, 0.6]
+
+proximity_thresh:
+  type: uniform
+  default: 0.1  # from the default parameters
+  range: [0.1, 0.8]
+
+appearance_thresh:
+  type: uniform
+  default: 0.25  # from the default parameters
+  range: [0.1, 0.8]
+
+cmc_method:
+  type: choice
+  default: sparseOptFlow  # from the default parameters
+  options: ['sparseOptFlow']
+
+frame_rate:
+  type: choice
+  default: 30  # from the default parameters
+  options: [30]
+
+lambda_:
+  type: uniform
+  default: 0.05  # from the default parameters
+  range: [0.05, 0.3]

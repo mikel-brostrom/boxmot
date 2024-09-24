@@ -1,0 +1,74 @@
+det_thresh:
+  type: uniform
+  default: 0.5  # from the default parameters
+  range: [0.3, 0.6]
+
+max_age:
+  type: randint
+  default: 30  # from the default parameters
+  range: [10, 61, 10]  # step size of 10, upper bound exclusive
+
+min_hits:
+  type: randint
+  default: 3  # from the default parameters
+  range: [1, 6]  # upper bound exclusive
+
+iou_thresh:
+  type: uniform
+  default: 0.3  # from the default parameters
+  range: [0.1, 0.4]
+
+delta_t:
+  type: randint
+  default: 3  # from the default parameters
+  range: [1, 6]  # upper bound exclusive
+
+asso_func:
+  type: choice
+  default: iou  # from the default parameters
+  options: ['iou', 'giou']
+
+inertia:
+  type: uniform
+  default: 0.2  # from the default parameters
+  range: [0.1, 0.4]
+
+w_association_emb:
+  type: uniform
+  default: 0.75  # from the default parameters
+  range: [0.5, 0.9]
+
+alpha_fixed_emb:
+  type: uniform
+  default: 0.95  # from the default parameters
+  range: [0.9, 0.999]
+
+aw_param:
+  type: uniform
+  default: 0.5  # from the default parameters
+  range: [0.3, 0.7]
+
+embedding_off:
+  type: choice
+  default: false  # from the default parameters
+  options: [True, False]
+
+cmc_off:
+  type: choice
+  default: false  # from the default parameters
+  options: [True, False]
+
+aw_off:
+  type: choice
+  default: false  # from the default parameters
+  options: [True, False]
+
+Q_xy_scaling:
+  type: uniform
+  default: 0.01  # from the default parameters
+  range: [0.01, 1]
+
+Q_s_scaling:
+  type: uniform
+  default: 0.0001  # from the default parameters
+  range: [0.0001, 1]
