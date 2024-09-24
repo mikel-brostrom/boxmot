@@ -1,0 +1,49 @@
+det_thresh:
+  type: uniform
+  default: 0.12442660055370669  # from the default parameters
+  range: [0, 0.6]
+
+max_age:
+  type: randint
+  default: 30  # from the default parameters
+  range: [10, 151, 10]  # step size of 10, upper bound exclusive
+
+min_hits:
+  type: randint
+  default: 1  # from the default parameters
+  range: [1, 6]  # upper bound exclusive
+
+delta_t:
+  type: randint
+  default: 5  # from the default parameters
+  range: [1, 6]  # upper bound exclusive
+
+asso_func:
+  type: choice
+  default: hmiou  # from the default parameters
+  options: ['iou', 'giou', 'diou']
+
+iou_threshold:
+  type: uniform
+  default: 0.3  # from the default parameters
+  range: [0.1, 0.4]
+
+inertia:
+  type: uniform
+  default: 0.369525477649008  # from the default parameters
+  range: [0.1, 0.4]
+
+TCM_first_step_weight:
+  type: uniform
+  default: 0.2866529225304586  # from the default parameters
+  range: [0, 0.5]
+
+longterm_reid_weight:
+  type: uniform
+  default: 0.0509704360503877  # from the default parameters
+  range: [0, 0.5]
+
+use_byte:
+  type: choice
+  default: False  # from the default parameters
+  options: [True, False]

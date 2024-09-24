@@ -27,7 +27,8 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
     # Load configuration from file or use provided dictionary
     if evolve_param_dict is None:
         with open(tracker_config, "r") as f:
-            tracker_args = yaml.load(f, Loader=yaml.FullLoader)
+            yaml_config = yaml.load(f, Loader=yaml.FullLoader)
+            tracker_args = {param: details['default'] for param, details in yaml_config.items()}
     else:
         tracker_args = evolve_param_dict
 
