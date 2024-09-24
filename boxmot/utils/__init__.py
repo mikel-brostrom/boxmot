@@ -11,8 +11,7 @@ ROOT = FILE.parents[2]  # root directory
 DATA = ROOT / 'data'
 BOXMOT = ROOT / "boxmot"
 EXAMPLES = ROOT / "tracking"
-TRACKER_CONFIGS = ROOT / "boxmot" / "configs" / "defaults"
-TRACKER_SEARCH_SPACES = ROOT / "boxmot" / "configs" / "search"
+TRACKER_CONFIGS = ROOT / "boxmot" / "configs"
 WEIGHTS = ROOT / "tracking" / "weights"
 REQUIREMENTS = ROOT / "requirements.txt"
 
