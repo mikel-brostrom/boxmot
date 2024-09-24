@@ -4,7 +4,7 @@ import yaml
 from pathlib import Path
 
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils import EXAMPLES, TRACKER_SEARCH_SPACES
+from boxmot.utils import EXAMPLES, TRACKER_CONFIGS
 from tracking.val import (
     run_generate_dets_embs,
     run_generate_mot_results,
@@ -40,7 +40,7 @@ class Tracker:
 
 
 def load_yaml_config(tracking_method):
-    config_path = TRACKER_SEARCH_SPACES / f"{tracking_method}.yaml"  # Example: 'botsort_search_space.yaml'
+    config_path = TRACKER_CONFIGS / f"{tracking_method}.yaml"  # Example: 'botsort_search_space.yaml'
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
     return config
