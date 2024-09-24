@@ -23,7 +23,7 @@ asso_func:
   default: hmiou  # from the default parameters
   options: ['iou', 'giou', 'diou']
 
-iou_thresh:
+iou_threshold:
   type: uniform
   default: 0.3  # from the default parameters
   range: [0.1, 0.4]
