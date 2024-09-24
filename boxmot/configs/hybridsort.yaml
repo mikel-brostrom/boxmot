@@ -25,6 +25,7 @@ asso_func:
 
 iou_thresh:
   type: uniform
+  default: 0.3  # from the default parameters
   range: [0.1, 0.4]
 
 inertia:
