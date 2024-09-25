@@ -193,7 +193,7 @@ jobs:
       - name: Check for changes in README.md
         id: check_changes
         run: |
-          if git diff README.md; then
+          if git diff --quiet README.md; then
             echo "No changes to commit."
             echo "changed=false" >> $GITHUB_ENV  # Writing to the environment file
           else
