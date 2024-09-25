@@ -267,9 +267,9 @@ from boxmot import DeepOCSORT
 
 
 tracker = DeepOCSORT(
-    model_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
-    device='cuda:0',
-    fp16=False,
+    reid_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
+    device='cpu',
+    half=False,
 )
 
 vid = cv2.VideoCapture(0)
@@ -315,9 +315,9 @@ from boxmot import DeepOCSORT
 
 
 tracker = DeepOCSORT(
-    model_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
-    device='cuda:0',
-    fp16=True,
+    reid_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
+    device='cpu',
+    half=False,
 )
 
 vid = cv2.VideoCapture(0)
@@ -370,9 +370,9 @@ from boxmot import DeepOCSORT
 
 
 tracker = DeepOCSORT(
-    model_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
+    reid_weights=Path('osnet_x0_25_msmt17.pt'), # which ReID model to use
     device='cpu',
-    fp16=False,
+    half=False,
 )
 
 detection_model = AutoDetectionModel.from_pretrained(
