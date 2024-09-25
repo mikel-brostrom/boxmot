@@ -58,7 +58,7 @@ class SOF(BaseCMC):
         self.draw_optical_flow = draw_optical_flow
 
         self.detector = cv2.FastFeatureDetector_create(threshold=20)
-        self.extractor = cv2.ORB_create(nfeatures=5)
+        self.extractor = cv2.ORB_create(nfeatures=500)
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
 
     def apply(self, img: np.ndarray, dets: np.ndarray) -> np.ndarray:
