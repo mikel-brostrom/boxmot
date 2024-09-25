@@ -96,7 +96,7 @@ class BoTSORT(BaseTracker):
         if self.with_reid and embs is None:
             features_high = self.model.get_features(dets_first[:, 0:4], img)
         else:
-            features_high = embs_first if embs is not None else []
+            features_high = embs_first if embs_first is not None else []
 
         # Create detections
         detections = self._create_detections(dets_first, features_high)
@@ -131,7 +131,7 @@ class BoTSORT(BaseTracker):
         dets_second = dets[second_mask]
         first_mask = confs > self.track_high_thresh
         dets_first = dets[first_mask]
-        embs_first = embs[first_mask]
+        embs_first = embs[first_mask] if embs is not None else None
         return dets, dets_first, embs_first, dets_second
 
     def _create_detections(self, dets_first, features_high):
