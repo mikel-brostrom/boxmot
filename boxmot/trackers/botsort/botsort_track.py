@@ -148,3 +148,9 @@ class STrack(BaseTrack):
         """Convert bounding box format to `(min x, min y, max x, max y)`."""
         ret = self.mean[:4].copy() if self.mean is not None else self.xywh.copy()
         return xywh2xyxy(ret)
+
+
+    def to_xywh(self):
+        """Convert bounding box format to `(min x, min y, max x, max y)`."""
+        ret = self.mean[:4].copy() if self.mean is not None else self.xywh.copy()
+        return ret
