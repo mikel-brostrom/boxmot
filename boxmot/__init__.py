@@ -4,7 +4,7 @@ __version__ = '11.0.0'
 
 from boxmot.postprocessing.gsi import gsi
 from boxmot.tracker_zoo import create_tracker, get_tracker_config
-from boxmot.trackers.botsort.bot_sort import BoTSORT
+from boxmot.trackers.botsort.botsort import BoTSORT
 from boxmot.trackers.bytetrack.byte_tracker import BYTETracker
 from boxmot.trackers.deepocsort.deep_ocsort import DeepOCSort as DeepOCSORT
 from boxmot.trackers.hybridsort.hybridsort import HybridSORT

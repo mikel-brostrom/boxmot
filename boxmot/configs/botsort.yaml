@@ -32,3 +32,8 @@ appearance_thresh:
   type: uniform
   default: 0.25  # from the default parameters
   range: [0.1, 0.8]
+
+cmc_method:
+  type: choice
+  default: sof  # from the default parameters
+  options: [sof, cmc]
