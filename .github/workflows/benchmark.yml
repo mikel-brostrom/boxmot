@@ -202,19 +202,19 @@ jobs:
           fi
 
       # Commit and push changes if there are any
-      - name: Commit changes
-        if: env.changed == 'true'
-        run: |
-          BRANCH_NAME="update-tracker-results-$(date +%Y%m%d%H%M%S)"
-          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV  # Store the branch name in the GitHub environment
-          git checkout -b "$BRANCH_NAME"
+      # - name: Commit changes
+      #   if: env.changed == 'true'
+      #   run: |
+      #     BRANCH_NAME="update-tracker-results-$(date +%Y%m%d%H%M%S)"
+      #     echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV  # Store the branch name in the GitHub environment
+      #     git checkout -b "$BRANCH_NAME"
           
-          # remove untracked files
-          git clean -f -d
+      #     # remove untracked files
+      #     git clean -f -d
           
-          git add README.md
-          git commit -m "Update tracker results"
-          git push origin "$BRANCH_NAME"
+      #     git add README.md
+      #     git commit -m "Update tracker results"
+      #     git push origin "$BRANCH_NAME"
 
       # Create a pull request (PR)
       - name: Create Pull Request
