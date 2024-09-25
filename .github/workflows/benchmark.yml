@@ -23,7 +23,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ['3.11']
-        tracker: ["ocsort", "bytetrack", "botsort", "hybridsort", "deepocsort", "imprassoc", "strongsort"]
+        tracker: ["ocsort", "bytetrack", "botsort", "hybridsort", "deepocsort", "imprassoc"]
     timeout-minutes: 50
 
     steps:
@@ -211,7 +211,7 @@ jobs:
           # remove untracked files
           git clean -f -d
           
-          git add --force README.md
+          git add README.md
           git commit -m "Update tracker results"
           git push origin "$BRANCH_NAME"
 
