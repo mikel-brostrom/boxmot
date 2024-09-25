@@ -210,7 +210,7 @@ class BoTSORT(BaseTracker):
             det = detections_second[idet]
             if track.state == TrackState.Tracked:
                 track.update(det, self.frame_count)
-                activated_starcks.append(track)
+                activated_stracks.append(track)
             else:
                 track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
