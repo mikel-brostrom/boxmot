@@ -208,6 +208,7 @@ jobs:
         if: env.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
+          add-paths: README.md
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ env.BRANCH_NAME }}  # Use the created branch
           base: master  # Base branch for the pull request, replace with your actual base branch (e.g., main or develop)
