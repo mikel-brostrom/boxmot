@@ -90,13 +90,13 @@ class BoTSORT(BaseTracker):
         activated_stracks, refind_stracks, lost_stracks, removed_stracks = [], [], [], []
 
         # Preprocess detections
-        dets, dets_first, dets_second = self._split_detections(dets)
+        dets, dets_first, embs_first, dets_second = self._split_detections(dets, embs)
 
         # Extract appearance features
         if self.with_reid and embs is None:
             features_high = self.model.get_features(dets_first[:, 0:4], img)
         else:
-            features_high = embs[first_mask] if embs is not None else []
+            features_high = embs_first if embs is not None else []
 
         # Create detections
         detections = self._create_detections(dets_first, features_high)
@@ -105,13 +105,13 @@ class BoTSORT(BaseTracker):
         unconfirmed, active_tracks = self._separate_tracks()
 
         # First association
-        self._first_association(dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks)
+        matches_first, u_track_first, u_detection_first, strack_pool = self._first_association(dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks)
 
         # Second association
-        self._second_association(dets_second, activated_stracks, lost_stracks, refind_stracks)
+        matches_second, u_track_second, u_detection_second = self._second_association(dets_second, activated_stracks, lost_stracks, refind_stracks, u_track_first, strack_pool)
 
         # Handle unconfirmed tracks
-        self._handle_unconfirmed_tracks(unconfirmed, detections, activated_stracks, removed_stracks)
+        self._handle_unconfirmed_tracks(u_detection_first, detections, activated_stracks, removed_stracks, unconfirmed)
 
         # Initialize new tracks
         self._initialize_new_tracks(detections, activated_stracks)
@@ -122,14 +122,15 @@ class BoTSORT(BaseTracker):
         # Merge and prepare output
         return self._prepare_output(activated_stracks, refind_stracks, lost_stracks, removed_stracks)
 
-    def _split_detections(self, dets):
+    def _split_detections(self, dets, embs):
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         confs = dets[:, 4]
         second_mask = np.logical_and(confs > self.track_low_thresh, confs < self.track_high_thresh)
         dets_second = dets[second_mask]
         first_mask = confs > self.track_high_thresh
         dets_first = dets[first_mask]
-        return dets, dets_first, dets_second
+        embs_first = embs[first_mask]
+        return dets, dets_first, embs_first, dets_second
 
     def _create_detections(self, dets_first, features_high):
         if len(dets_first) > 0:
@@ -186,19 +187,24 @@ class BoTSORT(BaseTracker):
             else:
                 track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
+                
+        return matches, u_track, u_detection, strack_pool
 
-    def _second_association(self, dets_second, activated_stracks, lost_stracks, refind_stracks):
+    def _second_association(self, dets_second, activated_stracks, lost_stracks, refind_stracks, u_track_first, strack_pool):
         if len(dets_second) > 0:
             detections_second = [STrack(det, max_obs=self.max_obs) for det in dets_second]
         else:
             detections_second = []
 
         r_tracked_stracks = [
-            strack for strack in self.active_tracks if strack.state == TrackState.Tracked
+            strack_pool[i]
+            for i in u_track_first
+            if strack_pool[i].state == TrackState.Tracked
         ]
 
         dists = iou_distance(r_tracked_stracks, detections_second)
         matches, u_track, u_detection_second = linear_assignment(dists, thresh=0.5)
+        
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
             det = detections_second[idet]
@@ -214,22 +220,51 @@ class BoTSORT(BaseTracker):
             if not track.state == TrackState.Lost:
                 track.mark_lost()
                 lost_stracks.append(track)
+                
+        return matches, u_track, u_detection_second
 
-    def _handle_unconfirmed_tracks(self, unconfirmed, detections, activated_stracks, removed_stracks):
+    def _handle_unconfirmed_tracks(self, u_detection, detections, activated_stracks, removed_stracks, unconfirmed):
+        """
+        Handle unconfirmed tracks (tracks with only one detection frame).
+
+        Args:
+            u_detection: Unconfirmed detection indices.
+            detections: Current list of detections.
+            activated_stracks: List of newly activated tracks.
+            removed_stracks: List of tracks to remove.
+        """
+        # Only use detections that are unconfirmed (filtered by u_detection)
+        detections = [detections[i] for i in u_detection]
+        
+        # Calculate IoU distance between unconfirmed tracks and detections
         ious_dists = iou_distance(unconfirmed, detections)
+        
+        # Apply IoU mask to filter out distances that exceed proximity threshold
         ious_dists_mask = ious_dists > self.proximity_thresh
-        ious_dists = fuse_score(ious_dists, detections)
+        ious_dists[ious_dists_mask] = 1.0  # Set distances higher than threshold to 1.0
 
+        # Fuse scores for IoU-based and embedding-based matching (if applicable)
         if self.with_reid:
             emb_dists = embedding_distance(unconfirmed, detections) / 2.0
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
-            emb_dists[ious_dists_mask] = 1.0
+            emb_dists[ious_dists_mask] = 1.0  # Apply the IoU mask to embedding distances
             dists = np.minimum(ious_dists, emb_dists)
         else:
             dists = ious_dists
 
+        # Perform data association using linear assignment on the combined distances
         matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)
-        self._update_tracks(matches, unconfirmed, detections, activated_stracks, removed_stracks, mark_removed=True)
+        
+        # Update matched unconfirmed tracks
+        for itracked, idet in matches:
+            unconfirmed[itracked].update(detections[idet], self.frame_count)
+            activated_stracks.append(unconfirmed[itracked])
+
+        # Mark unmatched unconfirmed tracks as removed
+        for it in u_unconfirmed:
+            track = unconfirmed[it]
+            track.mark_removed()
+            removed_stracks.append(track)
 
     def _initialize_new_tracks(self, detections, activated_stracks):
         for detection in detections:
