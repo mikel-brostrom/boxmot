@@ -13,6 +13,8 @@ from boxmot.utils.matching import (embedding_distance, fuse_score,
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.botsort.botsort_utils import joint_stracks, sub_stracks, remove_duplicate_stracks 
 from boxmot.trackers.botsort.botsort_track import STrack
+from boxmot.motion.cmc import get_cmc_method
+
 
 
 class BoTSORT(BaseTracker):
@@ -79,7 +81,7 @@ class BoTSORT(BaseTracker):
                 weights=reid_weights, device=device, half=half
             ).model
 
-        self.cmc = SOF()
+        self.cmc = get_cmc_method('ecc')()
         self.fuse_first_associate = fuse_first_associate
 
     @BaseTracker.per_class_decorator
@@ -107,7 +109,7 @@ class BoTSORT(BaseTracker):
         strack_pool = joint_stracks(active_tracks, self.lost_stracks)
 
         # First association
-        matches_first, u_track_first, u_detection_first = self._first_association(dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks, strack_pool)
+        matches_first, u_track_first, u_detection_first = self._first_association(dets, dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks, strack_pool)
 
         # Second association
         matches_second, u_track_second, u_detection_second = self._second_association(dets_second, activated_stracks, lost_stracks, refind_stracks, u_track_first, strack_pool)
@@ -153,12 +155,12 @@ class BoTSORT(BaseTracker):
                 active_tracks.append(track)
         return unconfirmed, active_tracks
 
-    def _first_association(self, dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks, strack_pool):
+    def _first_association(self, dets, dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks, strack_pool):
         
         STrack.multi_predict(strack_pool)
 
         # Fix camera motion
-        warp = self.cmc.apply(img, dets_first)
+        warp = self.cmc.apply(img, dets)
         STrack.multi_gmc(strack_pool, warp)
         STrack.multi_gmc(unconfirmed, warp)
 
