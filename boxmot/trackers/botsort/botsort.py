@@ -103,18 +103,20 @@ class BoTSORT(BaseTracker):
 
         # Separate unconfirmed and active tracks
         unconfirmed, active_tracks = self._separate_tracks()
+        
+        strack_pool = joint_stracks(active_tracks, self.lost_stracks)
 
         # First association
-        matches_first, u_track_first, u_detection_first, strack_pool = self._first_association(dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks)
+        matches_first, u_track_first, u_detection_first = self._first_association(dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks, strack_pool)
 
         # Second association
         matches_second, u_track_second, u_detection_second = self._second_association(dets_second, activated_stracks, lost_stracks, refind_stracks, u_track_first, strack_pool)
 
         # Handle unconfirmed tracks
-        self._handle_unconfirmed_tracks(u_detection_first, detections, activated_stracks, removed_stracks, unconfirmed)
+        matches_unc, u_track_unc, u_detection_unc = self._handle_unconfirmed_tracks(u_detection_first, detections, activated_stracks, removed_stracks, unconfirmed)
 
         # Initialize new tracks
-        self._initialize_new_tracks(detections, activated_stracks)
+        self._initialize_new_tracks(u_detection_unc, activated_stracks, [detections[i] for i in u_detection_first])
 
         # Update lost and removed tracks
         self._update_track_states(lost_stracks, removed_stracks)
@@ -151,8 +153,8 @@ class BoTSORT(BaseTracker):
                 active_tracks.append(track)
         return unconfirmed, active_tracks
 
-    def _first_association(self, dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks):
-        strack_pool = joint_stracks(active_tracks, self.lost_stracks)
+    def _first_association(self, dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks, strack_pool):
+        
         STrack.multi_predict(strack_pool)
 
         # Fix camera motion
@@ -175,9 +177,7 @@ class BoTSORT(BaseTracker):
             dists = ious_dists
 
         matches, u_track, u_detection = linear_assignment(dists, thresh=self.match_thresh)
-        
-        #self._update_tracks(matches, strack_pool, detections, activated_stracks, refind_stracks)
-        
+                
         for itracked, idet in matches:
             track = strack_pool[itracked]
             det = detections[idet]
@@ -188,7 +188,7 @@ class BoTSORT(BaseTracker):
                 track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
                 
-        return matches, u_track, u_detection, strack_pool
+        return matches, u_track, u_detection
 
     def _second_association(self, dets_second, activated_stracks, lost_stracks, refind_stracks, u_track_first, strack_pool):
         if len(dets_second) > 0:
@@ -203,7 +203,7 @@ class BoTSORT(BaseTracker):
         ]
 
         dists = iou_distance(r_tracked_stracks, detections_second)
-        matches, u_track, u_detection_second = linear_assignment(dists, thresh=0.5)
+        matches, u_track, u_detection = linear_assignment(dists, thresh=0.5)
         
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
@@ -221,7 +221,8 @@ class BoTSORT(BaseTracker):
                 track.mark_lost()
                 lost_stracks.append(track)
                 
-        return matches, u_track, u_detection_second
+        return matches, u_track, u_detection
+
 
     def _handle_unconfirmed_tracks(self, u_detection, detections, activated_stracks, removed_stracks, unconfirmed):
         """
@@ -241,8 +242,8 @@ class BoTSORT(BaseTracker):
         
         # Apply IoU mask to filter out distances that exceed proximity threshold
         ious_dists_mask = ious_dists > self.proximity_thresh
-        ious_dists[ious_dists_mask] = 1.0  # Set distances higher than threshold to 1.0
-
+        ious_dists = fuse_score(ious_dists, detections)
+        
         # Fuse scores for IoU-based and embedding-based matching (if applicable)
         if self.with_reid:
             emb_dists = embedding_distance(unconfirmed, detections) / 2.0
@@ -265,13 +266,17 @@ class BoTSORT(BaseTracker):
             track = unconfirmed[it]
             track.mark_removed()
             removed_stracks.append(track)
+            
+        return matches, u_unconfirmed, u_detection
 
-    def _initialize_new_tracks(self, detections, activated_stracks):
-        for detection in detections:
-            if detection.conf < self.new_track_thresh:
+    def _initialize_new_tracks(self, u_detections, activated_stracks, detections):
+        for inew in u_detections:
+            track = detections[inew]
+            if track.conf < self.new_track_thresh:
                 continue
-            detection.activate(self.kalman_filter, self.frame_count)
-            activated_stracks.append(detection)
+
+            track.activate(self.kalman_filter, self.frame_count)
+            activated_stracks.append(track)
 
     def _update_tracks(self, matches, strack_pool, detections, activated_stracks, refind_stracks, mark_removed=False):
         # Update or reactivate matched tracks
