@@ -96,7 +96,7 @@ class BoTSORT(BaseTracker):
         if self.with_reid and embs is None:
             features_high = self.model.get_features(dets_first[:, 0:4], img)
         else:
-            features_high = embs if embs is not None else []
+            features_high = embs[first_mask] if embs is not None else []
 
         # Create detections
         detections = self._create_detections(dets_first, features_high)
@@ -174,7 +174,18 @@ class BoTSORT(BaseTracker):
             dists = ious_dists
 
         matches, u_track, u_detection = linear_assignment(dists, thresh=self.match_thresh)
-        self._update_tracks(matches, strack_pool, detections, activated_stracks, refind_stracks)
+        
+        #self._update_tracks(matches, strack_pool, detections, activated_stracks, refind_stracks)
+        
+        for itracked, idet in matches:
+            track = strack_pool[itracked]
+            det = detections[idet]
+            if track.state == TrackState.Tracked:
+                track.update(detections[idet], self.frame_count)
+                activated_stracks.append(track)
+            else:
+                track.re_activate(det, self.frame_count, new_id=False)
+                refind_stracks.append(track)
 
     def _second_association(self, dets_second, activated_stracks, lost_stracks, refind_stracks):
         if len(dets_second) > 0:
@@ -188,7 +199,15 @@ class BoTSORT(BaseTracker):
 
         dists = iou_distance(r_tracked_stracks, detections_second)
         matches, u_track, u_detection_second = linear_assignment(dists, thresh=0.5)
-        self._update_tracks(matches, r_tracked_stracks, detections_second, activated_stracks, refind_stracks)
+        for itracked, idet in matches:
+            track = r_tracked_stracks[itracked]
+            det = detections_second[idet]
+            if track.state == TrackState.Tracked:
+                track.update(det, self.frame_count)
+                activated_starcks.append(track)
+            else:
+                track.re_activate(det, self.frame_count, new_id=False)
+                refind_stracks.append(track)
 
         for it in u_track:
             track = r_tracked_stracks[it]
@@ -220,6 +239,7 @@ class BoTSORT(BaseTracker):
             activated_stracks.append(detection)
 
     def _update_tracks(self, matches, strack_pool, detections, activated_stracks, refind_stracks, mark_removed=False):
+        # Update or reactivate matched tracks
         for itracked, idet in matches:
             track = strack_pool[itracked]
             det = detections[idet]
@@ -229,7 +249,11 @@ class BoTSORT(BaseTracker):
             else:
                 track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
-            if mark_removed:
+        
+        # Mark only unmatched tracks as removed, if mark_removed flag is True
+        if mark_removed:
+            unmatched_tracks = [strack_pool[i] for i in range(len(strack_pool)) if i not in [m[0] for m in matches]]
+            for track in unmatched_tracks:
                 track.mark_removed()
 
     def _update_track_states(self, lost_stracks, removed_stracks):
