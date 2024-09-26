@@ -5,7 +5,8 @@ import numpy as np
 import scipy
 import torch
 from scipy.spatial.distance import cdist
-from boxmot.utils.iou import iou_batch, diou_batch
+from boxmot.utils.iou import AssociationFunction
+
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -111,7 +112,7 @@ def d_iou_distance(atracks, btracks):
     ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
     if ious.size == 0:
         return ious
-    _ious = diou_batch(atlbrs, btlbrs)
+    _ious = AssociationFunction.diou_batch(atlbrs, btlbrs)
 
     cost_matrix = 1 - _ious
 
@@ -138,7 +139,7 @@ def iou_distance(atracks, btracks):
     ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
     if ious.size == 0:
         return ious
-    _ious = iou_batch(atlbrs, btlbrs)
+    _ious = AssociationFunction.iou_batch(atlbrs, btlbrs)
 
     cost_matrix = 1 - _ious
 
