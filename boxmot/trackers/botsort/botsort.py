@@ -52,7 +52,7 @@ class BoTSORT(BaseTracker):
         match_thresh: float = 0.8,
         proximity_thresh: float = 0.5,
         appearance_thresh: float = 0.25,
-        cmc_method: str = "sof",
+        cmc_method: str = "ecc",
         frame_rate=30,
         fuse_first_associate: bool = False,
         with_reid: bool = True,
@@ -81,7 +81,7 @@ class BoTSORT(BaseTracker):
                 weights=reid_weights, device=device, half=half
             ).model
 
-        self.cmc = get_cmc_method('ecc')()
+        self.cmc = get_cmc_method(cmc_method)()
         self.fuse_first_associate = fuse_first_associate
 
     @BaseTracker.on_first_frame_setup
