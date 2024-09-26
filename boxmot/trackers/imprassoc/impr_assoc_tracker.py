@@ -264,6 +264,7 @@ class ImprAssocTrack(BaseTracker):
         self.cmc = SOF()
 
 
+    @BaseTracker.on_first_frame_setup
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         self.check_inputs(dets, img)
