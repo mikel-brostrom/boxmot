@@ -9,8 +9,6 @@ from collections import deque
 
 from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
 from boxmot.utils.association import associate, linear_assignment
-from boxmot.utils.iou import get_asso_func
-from boxmot.utils.iou import run_asso_func
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.ops import xyxy2xysr
 
@@ -212,7 +210,7 @@ class OCSort(BaseTracker):
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001
     ):
-        super().__init__(max_age=max_age, per_class=per_class)
+        super().__init__(max_age=max_age, per_class=per_class, asso_func=asso_func)
         """
         Sets key parameters for SORT
         """
@@ -223,13 +221,13 @@ class OCSort(BaseTracker):
         self.frame_count = 0
         self.det_thresh = det_thresh
         self.delta_t = delta_t
-        self.asso_func = get_asso_func(asso_func)
         self.inertia = inertia
         self.use_byte = use_byte
         self.Q_xy_scaling = Q_xy_scaling
         self.Q_s_scaling = Q_s_scaling
         KalmanBoxTracker.count = 0
 
+    @BaseTracker.on_first_frame_setup
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
@@ -327,7 +325,7 @@ class OCSort(BaseTracker):
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]
             left_trks = last_boxes[unmatched_trks]
-            iou_left = run_asso_func(self.asso_func, left_dets, left_trks, w, h)
+            iou_left = self.asso_func(left_dets, left_trks)
             iou_left = np.array(iou_left)
             if iou_left.max() > self.asso_threshold:
                 """
