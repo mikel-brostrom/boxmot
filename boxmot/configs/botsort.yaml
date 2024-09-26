@@ -35,5 +35,5 @@ appearance_thresh:
 
 cmc_method:
   type: choice
-  default: sof  # from the default parameters
-  options: [sof, cmc]
+  default: ecc  # from the default parameters
+  options: [sof, ecc]

@@ -10,7 +10,6 @@ from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
 from boxmot.motion.kalman_filters.xywh_kf import KalmanFilterXYWH
 from boxmot.utils.association import associate, linear_assignment
-from boxmot.utils.iou import get_asso_func
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.ops import xyxy2xysr
 
@@ -272,7 +271,7 @@ class DeepOCSort(BaseTracker):
         Q_s_scaling: float = 0.0001,
         **kwargs: dict
     ):
-        super().__init__(max_age=max_age, per_class=per_class)
+        super().__init__(max_age=max_age, per_class=per_class, asso_func=asso_func)
         """
         Sets key parameters for SORT
         """
@@ -281,7 +280,7 @@ class DeepOCSort(BaseTracker):
         self.iou_threshold = iou_threshold
         self.det_thresh = det_thresh
         self.delta_t = delta_t
-        self.asso_func = get_asso_func(asso_func)
+        self.asso_func = asso_func
         self.inertia = inertia
         self.w_association_emb = w_association_emb
         self.alpha_fixed_emb = alpha_fixed_emb
@@ -300,6 +299,7 @@ class DeepOCSort(BaseTracker):
         self.cmc_off = cmc_off
         self.aw_off = aw_off
 
+    @BaseTracker.on_first_frame_setup
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
