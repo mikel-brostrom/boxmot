@@ -21,7 +21,7 @@ delta_t:
 asso_func:
   type: choice
   default: iou  # from the default parameters
-  options: ['iou', 'giou', 'centroid']
+  options: ['iou', 'giou']
 
 use_byte:
   type: choice
