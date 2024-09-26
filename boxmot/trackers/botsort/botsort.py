@@ -84,6 +84,7 @@ class BoTSORT(BaseTracker):
         self.cmc = get_cmc_method('ecc')()
         self.fuse_first_associate = fuse_first_associate
 
+    @BaseTracker.on_first_frame_setup
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         self.check_inputs(dets, img)
