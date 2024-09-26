@@ -150,6 +150,7 @@ class BYTETracker(BaseTracker):
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilterXYAH()
 
+    @BaseTracker.on_first_frame_setup
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None) -> np.ndarray:
         
