@@ -32,10 +32,9 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 | Imprassoc | ✅ | 64.096 | 76.511 | 71.875 |
 | Deepocsort | ✅ | 62.913 | 74.483 | 73.459 |
 | Hybridsort | ❌ |  |  |  |
-
 <!-- END TRACKER TABLE -->
 
-<sub> NOTES: The evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly accessible. Each tracker was configured with the original parameters provided in their official repositories. </sub>
+<sub> NOTES: The evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly accessible. The pre-generated detections and embeddings used, were sourced from [here](https://drive.google.com/drive/folders/1zzzUROXYXt8NjxO1WUcwSzqD-nn7rPNr). Each tracker was configured with the original parameters provided in their official repositories. </sub>
 
 </div>
 
