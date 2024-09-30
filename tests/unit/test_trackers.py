@@ -165,3 +165,22 @@ def test_per_class_tracker_active_tracks(tracker_type):
     assert tracker.per_class_active_tracks[0], "No active tracks for class 0"
     assert tracker.per_class_active_tracks[65], "No active tracks for class 65"
 
+
+@pytest.mark.parametrize("tracker_type", ALL_TRACKERS)
+@pytest.mark.parametrize("dets", [None, np.array([])])
+def test_tracker_with_no_detections(tracker_type, dets):
+    tracker_conf = get_tracker_config(tracker_type)
+    tracker = create_tracker(
+        tracker_type=tracker_type,
+        tracker_config=tracker_conf,
+        reid_weights=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt',
+        device='cpu',
+        half=False,
+        per_class=False
+    )
+
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    embs = np.random.random(size=(2, 512))
+    
+    output = tracker.update(dets, rgb, embs)
+    assert output.size == 0, "Output should be empty when no detections are provided"
