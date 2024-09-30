@@ -209,9 +209,9 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 
 | Example Description | Notebook |
 |---------------------|----------|
-| Bounding box tracking with BoxMOT using torchvision | [![Notebook](https://img.shields.io/badge/Notebook-torchvision_det_boxmot.ipynb-blue)](examples/torchvision_det_boxmot.ipynb) |
-| Pose tracking with BoxMOT using torchvision | [![Notebook](https://img.shields.io/badge/Notebook-torchvision_pose_boxmot.ipynb-blue)](examples/torchvision_pose_boxmot.ipynb) |
-| Segmentation tracking with BoxMOT using torchvision | [![Notebook](https://img.shields.io/badge/Notebook-torchvision_seg_boxmot.ipynb-blue)](examples/torchvision_seg_boxmot.ipynb) |
+| Torchvision bounding box tracking with BoxMOT | [![Notebook](https://img.shields.io/badge/Notebook-torchvision_det_boxmot.ipynb-blue)](examples/torchvision_det_boxmot.ipynb) |
+| Torchvision pose tracking with BoxMOT | [![Notebook](https://img.shields.io/badge/Notebook-torchvision_pose_boxmot.ipynb-blue)](examples/torchvision_pose_boxmot.ipynb) |
+| Torchvision segmentation tracking with BoxMOT | [![Notebook](https://img.shields.io/badge/Notebook-torchvision_seg_boxmot.ipynb-blue)](examples/torchvision_seg_boxmot.ipynb) |
 
 </div>
 
