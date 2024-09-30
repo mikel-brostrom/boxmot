@@ -205,8 +205,6 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 
 ## Custom tracking examples
 
-## Examples
-
 <div align="center">
 
 | Example Description | Notebook |
