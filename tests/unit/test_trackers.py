@@ -84,8 +84,8 @@ def create_kalman_box_tracker_deepocsort(bbox, cls, det_ind, tracker):
 
 
 TRACKER_CREATORS = {
-    OCSORT: create_kalman_box_tracker_ocsort,
-    DeepOCSORT: create_kalman_box_tracker_deepocsort,
+    OcSort: create_kalman_box_tracker_ocsort,
+    DeepOcSort: create_kalman_box_tracker_deepocsort,
 }
 
 
