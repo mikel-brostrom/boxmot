@@ -10,8 +10,8 @@ from boxmot import (
     StrongSort, BotSort, DeepOcSort, OcSort, ByteTrack, ImprAssocTrack, get_tracker_config, create_tracker,
 )
 
-MOTION_ONLY_TRACKING_METHODS=[OcSort, ByteTrack]
-MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSort, BotSort, DeepOcSort, ImprAssocTrack]
+MOTION_N_APPEARANCE_TRACKING_METHODS=['botsort', 'deepocsort', 'strongsort', 'imprassoc']
+MOTION_ONLY_TRACKING_METHODS=['ocsort', 'bytetrack']
 
 @pytest.mark.parametrize("tracker_type", MOTION_ONLY_TRACKING_METHODS)
 def test_motion_tracker_update_time(tracker_type):
