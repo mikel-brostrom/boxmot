@@ -56,7 +56,7 @@ def test_tracker_output_size(tracker_type):
     
 def test_dynamic_max_obs_based_on_max_age():
     max_age = 400
-    ocsort = OCSORT(
+    ocsort = OcSort(
         max_age=max_age
     )
 
@@ -90,8 +90,8 @@ TRACKER_CREATORS = {
 
 
 @pytest.mark.parametrize("Tracker, init_args", [
-    (OCSORT, {}),
-    (DeepOCSORT, {
+    (OcSort, {}),
+    (DeepOcSort, {
         'reid_weights': Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         'device': 'cpu',
         'half': True
