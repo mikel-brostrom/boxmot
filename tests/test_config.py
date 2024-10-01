@@ -5,8 +5,8 @@ from boxmot import (
 MOTION_N_APPEARANCE_TRACKING_METHODS = ['botsort', 'deepocsort', 'strongsort', 'imprassoc']
 MOTION_ONLY_TRACKING_METHODS = ['ocsort', 'bytetrack']
 
-MOTION_N_APPEARANCE_TRACKER_CLASSES = [StrongSort, BotSort, DeepOcSort, ImprAssocTrack]
-MOTION_ONLY_TRACKER_CLASSES = [OCSORT, BYTETracker]
+MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSort, BotSort, DeepOcSort, ImprAssocTrack]
+MOTION_ONLY_TRACKING_METHODS=[OcSort, ByteTrack]
 
 ALL_TRACKERS = ['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'strongsort', 'imprassoc']
 PER_CLASS_TRACKERS = ['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'imprassoc']
