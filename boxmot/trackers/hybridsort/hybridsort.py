@@ -329,7 +329,7 @@ class KalmanBoxTracker(object):
         return convert_x_to_bbox(self.kf.x)
 
 
-class HybridSORT(BaseTracker):
+class HybridSort(BaseTracker):
     """
     HybridSORT Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking
     and temporal consistency models (TCM) for improved tracking accuracy and robustness.
