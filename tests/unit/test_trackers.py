@@ -14,7 +14,7 @@ from boxmot.trackers.deepocsort.deep_ocsort import KalmanBoxTracker as DeepOCSor
 
 
 
-MOTION_ONLY_TRACKING_METHODS=[OcSort, ByteTrac]
+MOTION_ONLY_TRACKING_METHODS=[OcSort, ByteTrack]
 MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSort, BotSort, DeepOcSort, ImprAssocTrack]
 ALL_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'strongsort', 'imprassoc']
 PER_CLASS_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'imprassoc']
