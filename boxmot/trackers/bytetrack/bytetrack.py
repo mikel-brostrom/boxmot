@@ -115,7 +115,7 @@ class STrack(BaseTrack):
         return ret
 
 
-class BYTETracker(BaseTracker):
+class ByteTrack(BaseTracker):
     """
     BYTETracker: A tracking algorithm based on ByteTrack, which utilizes motion-based tracking.
 

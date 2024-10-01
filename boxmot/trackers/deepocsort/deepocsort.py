@@ -222,7 +222,7 @@ class KalmanBoxTracker(object):
         return self.kf.md_for_measurement(self.bbox_to_z_func(bbox))
 
 
-class DeepOCSort(BaseTracker):
+class DeepOcSort(BaseTracker):
     """
     DeepOCSort Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
 

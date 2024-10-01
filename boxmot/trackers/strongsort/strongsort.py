@@ -13,7 +13,7 @@ from boxmot.utils.ops import xyxy2tlwh
 from boxmot.trackers.basetracker import BaseTracker
 
 
-class StrongSORT(object):
+class StrongSort(object):
     """
     StrongSORT Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
 

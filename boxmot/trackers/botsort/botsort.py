@@ -17,7 +17,7 @@ from boxmot.motion.cmc import get_cmc_method
 
 
 
-class BoTSORT(BaseTracker):
+class BotSort(BaseTracker):
     """
     BoTSORT Tracker: A tracking algorithm that combines appearance and motion-based tracking.
 
