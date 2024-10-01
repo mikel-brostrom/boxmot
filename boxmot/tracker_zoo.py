@@ -41,13 +41,13 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
 
     # Map tracker types to their corresponding classes
     tracker_mapping = {
-        'strongsort': 'boxmot.trackers.strongsort.strong_sort.StrongSort',
+        'strongsort': 'boxmot.trackers.strongsort.strongsort.StrongSort',
         'ocsort': 'boxmot.trackers.ocsort.ocsort.OcSort',
-        'bytetrack': 'boxmot.trackers.bytetrack.byte_tracker.ByteTrack',
+        'bytetrack': 'boxmot.trackers.bytetrack.bytetrack.ByteTrack',
         'botsort': 'boxmot.trackers.botsort.botsort.BotSort',
-        'deepocsort': 'boxmot.trackers.deepocsort.deep_ocsort.DeepOcSort',
+        'deepocsort': 'boxmot.trackers.deepocsort.deepocsort.DeepOcSort',
         'hybridsort': 'boxmot.trackers.hybridsort.hybridsort.HybridSort',
-        'imprassoc': 'boxmot.trackers.imprassoc.impr_assoc_tracker.ImprAssocTrack'
+        'imprassoc': 'boxmot.trackers.imprassoc.imprassoctrack.ImprAssocTrack'
     }
 
     # Check if the tracker type exists in the mapping
