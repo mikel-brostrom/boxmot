@@ -179,7 +179,7 @@ class KalmanBoxTracker(object):
         return convert_x_to_bbox(self.kf.x)
 
 
-class OCSort(BaseTracker):
+class OcSort(BaseTracker):
     """
     OCSort Tracker: A tracking algorithm that utilizes motion-based tracking.
 
