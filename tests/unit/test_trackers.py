@@ -10,7 +10,7 @@ from boxmot import (
 )
 
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
-from boxmot.trackers.deepocsort.deep_ocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
+from boxmot.trackers.deepocsort.deepocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
 
 
 
