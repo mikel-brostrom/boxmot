@@ -6,18 +6,12 @@ from boxmot.utils import WEIGHTS
 
 from numpy.testing import assert_allclose
 from boxmot import (
-    StrongSORT, BoTSORT, DeepOCSORT, OCSORT, BYTETracker, ImprAssocTrack, get_tracker_config, create_tracker,
+    StrongSort, BotSort, DeepOcSort, OcSort, ByteTrack, ImprAssocTrack, get_tracker_config, create_tracker,
 )
 
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
-from boxmot.trackers.deepocsort.deep_ocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
-
-
-
-MOTION_ONLY_TRACKING_METHODS=[OCSORT, BYTETracker]
-MOTION_N_APPEARANCE_TRACKING_METHODS=[StrongSORT, BoTSORT, DeepOCSORT, ImprAssocTrack]
-ALL_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'strongsort', 'imprassoc']
-PER_CLASS_TRACKERS=['botsort', 'deepocsort', 'ocsort', 'bytetrack', 'imprassoc']
+from boxmot.trackers.deepocsort.deepocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
+from tests.test_config import MOTION_ONLY_TRACKING_METHODS, MOTION_N_APPEARANCE_TRACKING_METHODS, ALL_TRACKERS, PER_CLASS_TRACKERS
 
 
 @pytest.mark.parametrize("Tracker", MOTION_N_APPEARANCE_TRACKING_METHODS)
@@ -56,7 +50,7 @@ def test_tracker_output_size(tracker_type):
     
 def test_dynamic_max_obs_based_on_max_age():
     max_age = 400
-    ocsort = OCSORT(
+    ocsort = OcSort(
         max_age=max_age
     )
 
@@ -84,14 +78,14 @@ def create_kalman_box_tracker_deepocsort(bbox, cls, det_ind, tracker):
 
 
 TRACKER_CREATORS = {
-    OCSORT: create_kalman_box_tracker_ocsort,
-    DeepOCSORT: create_kalman_box_tracker_deepocsort,
+    OcSort: create_kalman_box_tracker_ocsort,
+    DeepOcSort: create_kalman_box_tracker_deepocsort,
 }
 
 
 @pytest.mark.parametrize("Tracker, init_args", [
-    (OCSORT, {}),
-    (DeepOCSORT, {
+    (OcSort, {}),
+    (DeepOcSort, {
         'reid_weights': Path(WEIGHTS / 'osnet_x0_25_msmt17.pt'),
         'device': 'cpu',
         'half': True
