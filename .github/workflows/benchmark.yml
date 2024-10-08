@@ -105,7 +105,7 @@ jobs:
           fi
 
           mkdir results
-          TRACKER_NAME=$(echo ${{ matrix.tracker }} | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+          TRACKER_NAME=$(echo "${{ matrix.tracker }}" | awk '{print tolower($0)}')
           echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}.txt
         
       - name: Show Results
