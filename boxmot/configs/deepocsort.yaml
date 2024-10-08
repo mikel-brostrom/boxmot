@@ -26,7 +26,7 @@ delta_t:
 asso_func:
   type: choice
   default: iou  # from the default parameters
-  options: ['iou', 'giou']
+  options: ['iou', 'giou', 'diou', 'ciou', 'hmiou']
 
 inertia:
   type: uniform
