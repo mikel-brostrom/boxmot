@@ -166,13 +166,36 @@ jobs:
           # Backup original README in case needed
           cp "$README_FILE" "${README_FILE}.bak"
 
+          # Define paper names and their corresponding URLs
+          declare -A paper_links
+          paper_links["deepocsort"]="https://arxiv.org/abs/2302.11813"
+          paper_links["bytetrack"]="https://arxiv.org/abs/2110.06864"
+          paper_links["ocsort"]="https://arxiv.org/abs/2203.14360"
+          paper_links["strongsort"]="https://arxiv.org/abs/2202.13514"
+          paper_links["botsort"]="https://arxiv.org/abs/2206.14651"
+          paper_links["hybridsort"]="https://arxiv.org/abs/2308.00783"
+          paper_links["imprassoc"]="https://openaccess.thecvf.com/content/CVPR2023W/E2EAD/papers/Stadler_An_Improved_Association_Pipeline_for_Multi-Person_Tracking_CVPRW_2023_paper.pdf"
+
+
           # Create the markdown table header
           new_table="| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ |\n"
           new_table+="| ------- | ------- | ----- | ----- | ----- |\n"
 
           # Append the contents of pretty_results.txt to the table
           while read -r line; do
-              new_table+="| $(echo "$line" | awk '{print $1}') | $(echo "$line" | awk '{print $2}') | $(echo "$line" | awk '{print $3}') | $(echo "$line" | awk '{print $4}') | $(echo "$line" | awk '{print $5}') |\n"
+              tracker=$(echo "$line" | awk '{print $1}')
+              status=$(echo "$line" | awk '{print $2}')
+              hota=$(echo "$line" | awk '{print $3}')
+              mota=$(echo "$line" | awk '{print $4}')
+              idf1=$(echo "$line" | awk '{print $5}')
+              
+              # Retrieve the paper URL for the tracker
+              paper_url=${paper_links[$tracker]}
+              
+              # Create a markdown hyperlink for the tracker name
+              tracker_link="[$tracker]($paper_url)"
+              
+              new_table+="| $tracker_link | $status | $hota | $mota | $idf1 |\n"
           done < "$RESULTS_FILE"
 
           # Define unique markers to locate the table
