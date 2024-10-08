@@ -10,7 +10,7 @@ track_buffer:
 
 match_thresh:
   type: uniform
-  default: 0.8  # from the default parameters
+  default: 0.9  # from the default parameters
   range: [0.7, 0.9]
 
 frame_rate:
