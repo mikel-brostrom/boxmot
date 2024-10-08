@@ -179,7 +179,7 @@ jobs:
 
           # Create the markdown table header
           new_table="| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ |\n"
-          new_table+="| ------- | ------- | ----- | ----- | ----- |\n"
+          new_table+="| :-----: | :-----: | :---: | :---: | :---: |\n"
 
           # Append the contents of pretty_results.txt to the table
           while read -r line; do
