@@ -1,6 +1,6 @@
 track_thresh:
   type: uniform
-  default: 0.5  # from the default parameters
+  default: 0.6  # from the default parameters
   range: [0.4, 0.6]
 
 track_buffer:
