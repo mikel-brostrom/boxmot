@@ -21,7 +21,7 @@ delta_t:
 asso_func:
   type: choice
   default: iou  # from the default parameters
-  options: ['iou', 'giou']
+  options: ['iou', 'giou', 'diou', 'ciou', 'hmiou']
 
 use_byte:
   type: choice
@@ -30,7 +30,7 @@ use_byte:
 
 inertia:
   type: uniform
-  default: 0.2  # from the default parameters
+  default: 0.1  # from the default parameters
   range: [0.1, 0.4]
 
 Q_xy_scaling:
