@@ -13,9 +13,10 @@ on:
       - main
   workflow_dispatch:  # Add this line to allow manual triggering
 
+permissions:
+  contents: write        # Allows reading and writing repository contents
 
 jobs:
-
   mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
     strategy:
