@@ -35,29 +35,56 @@ class AssociationFunction:
         )
         return o
 
+
     @staticmethod
     def hmiou_batch(bboxes1, bboxes2):
-        bboxes1 = np.expand_dims(bboxes1, 1)
-        bboxes2 = np.expand_dims(bboxes2, 0)
-        yy11 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
-        yy12 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
-        yy21 = np.minimum(bboxes1[..., 1], bboxes2[..., 1])
-        yy22 = np.maximum(bboxes1[..., 3], bboxes2[..., 3])
-        o = np.maximum(0, yy12 - yy11) / np.maximum(1e-10, yy22 - yy21)
+        """
+        Compute a modified Intersection over Union (hIoU) between two batches of bounding boxes,
+        incorporating a vertical overlap ratio.
 
-        xx1 = np.maximum(bboxes1[..., 0], bboxes2[..., 0])
-        yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
-        xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
-        yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
-        w = np.maximum(0., xx2 - xx1)
-        h = np.maximum(0., yy2 - yy1)
-        wh = w * h
-        iou = wh / (
-            (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
-            (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh
-        )
-        iou *= o
-        return iou
+        Parameters:
+        - bboxes1: (N, 4) array of bounding boxes [x1, y1, x2, y2]
+        - bboxes2: (M, 4) array of bounding boxes [x1, y1, x2, y2]
+
+        Returns:
+        - hmiou: (N, M) array where hmiou[i, j] is the modified IoU between bboxes1[i] and bboxes2[j]
+        """
+        # Expand dimensions for broadcasting
+        bboxes1 = np.expand_dims(bboxes1, axis=1)  # Shape: (N, 1, 4)
+        bboxes2 = np.expand_dims(bboxes2, axis=0)  # Shape: (1, M, 4)
+
+        # Compute vertical overlap ratio 'o'
+        intersect_y1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
+        intersect_y2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
+        intersection_height = np.maximum(0.0, intersect_y2 - intersect_y1)
+
+        union_y1 = np.minimum(bboxes1[..., 1], bboxes2[..., 1])
+        union_y2 = np.maximum(bboxes1[..., 3], bboxes2[..., 3])
+        union_height = np.maximum(1e-10, union_y2 - union_y1)
+
+        o = intersection_height / union_height
+
+        # Compute standard IoU
+        inter_x1 = np.maximum(bboxes1[..., 0], bboxes2[..., 0])
+        inter_y1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
+        inter_x2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
+        inter_y2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
+
+        inter_w = np.maximum(0.0, inter_x2 - inter_x1)
+        inter_h = np.maximum(0.0, inter_y2 - inter_y1)
+        inter_area = inter_w * inter_h
+
+        area1 = (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])  # Shape: (N, 1)
+        area2 = (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])  # Shape: (1, M)
+
+        union_area = area1 + area2 - inter_area
+
+        iou = inter_area / (union_area + 1e-10)
+
+        # Modify IoU with vertical overlap ratio
+        hmiou = iou * o
+
+        return hmiou
 
     @staticmethod
     def giou_batch(bboxes1, bboxes2) -> np.ndarray:
@@ -113,18 +140,22 @@ class AssociationFunction:
         return 1 - normalized_distances
     
     
+    @staticmethod
     def ciou_batch(bboxes1, bboxes2) -> np.ndarray:
         """
-        :param bbox_p: predict of bbox(N,4)(x1,y1,x2,y2)
-        :param bbox_g: groundtruth of bbox(N,4)(x1,y1,x2,y2)
-        :return:
-        """
-        # for details should go to https://arxiv.org/pdf/1902.09630.pdf
-        # ensure predict's bbox form
-        bboxes2 = np.expand_dims(bboxes2, 0)
-        bboxes1 = np.expand_dims(bboxes1, 1)
+        Calculate Complete Intersection over Union (CIoU) for batches of bounding boxes.
 
-        # calculate the intersection box
+        :param bboxes1: Predicted bounding boxes of shape (N, 4) as (x1, y1, x2, y2)
+        :param bboxes2: Ground truth bounding boxes of shape (N, 4) as (x1, y1, x2, y2)
+        :return: CIoU scores scaled between 0 and 1
+        """
+        epsilon = 1e-7  # Small value to prevent division by zero
+
+        # Expand dimensions for broadcasting
+        bboxes2 = np.expand_dims(bboxes2, 0)  # Shape: (1, M, 4)
+        bboxes1 = np.expand_dims(bboxes1, 1)  # Shape: (N, 1, 4)
+
+        # Calculate the intersection box
         xx1 = np.maximum(bboxes1[..., 0], bboxes2[..., 0])
         yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
         xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
@@ -132,41 +163,50 @@ class AssociationFunction:
         w = np.maximum(0.0, xx2 - xx1)
         h = np.maximum(0.0, yy2 - yy1)
         wh = w * h
-        iou = wh / (
-            (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
-            (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) -
-            wh
-        )
 
+        # Calculate IoU
+        area1 = (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        area2 = (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
+        iou = wh / (area1 + area2 - wh + epsilon)
+
+        # Calculate center points
         centerx1 = (bboxes1[..., 0] + bboxes1[..., 2]) / 2.0
         centery1 = (bboxes1[..., 1] + bboxes1[..., 3]) / 2.0
         centerx2 = (bboxes2[..., 0] + bboxes2[..., 2]) / 2.0
         centery2 = (bboxes2[..., 1] + bboxes2[..., 3]) / 2.0
 
+        # Calculate squared center distance
         inner_diag = (centerx1 - centerx2) ** 2 + (centery1 - centery2) ** 2
 
+        # Calculate smallest enclosing box diagonal
         xxc1 = np.minimum(bboxes1[..., 0], bboxes2[..., 0])
         yyc1 = np.minimum(bboxes1[..., 1], bboxes2[..., 1])
         xxc2 = np.maximum(bboxes1[..., 2], bboxes2[..., 2])
         yyc2 = np.maximum(bboxes1[..., 3], bboxes2[..., 3])
+        outer_diag = (xxc2 - xxc1) ** 2 + (yyc2 - yyc1) ** 2 + epsilon
 
-        outer_diag = (xxc2 - xxc1) ** 2 + (yyc2 - yyc1) ** 2
-
+        # Calculate aspect ratio consistency
         w1 = bboxes1[..., 2] - bboxes1[..., 0]
         h1 = bboxes1[..., 3] - bboxes1[..., 1]
         w2 = bboxes2[..., 2] - bboxes2[..., 0]
         h2 = bboxes2[..., 3] - bboxes2[..., 1]
 
-        # prevent dividing over zero. add one pixel shift
-        h2 = h2 + 1.0
-        h1 = h1 + 1.0
-        arctan = np.arctan(w2 / h2) - np.arctan(w1 / h1)
-        v = (4 / (np.pi**2)) * (arctan**2)
-        S = 1 - iou
-        alpha = v / (S + v)
-        ciou = iou - inner_diag / outer_diag - alpha * v
+        # Prevent division by zero
+        h2 = h2 + epsilon
+        h1 = h1 + epsilon
+        arctan_diff = np.arctan(w2 / h2) - np.arctan(w1 / h1)
+        v = (4 / (np.pi ** 2)) * (arctan_diff ** 2)
 
+        # Calculate alpha
+        S = 1 - iou
+        alpha = v / (S + v + epsilon)
+
+        # Compute CIoU
+        ciou = iou - (inner_diag / outer_diag) + (alpha * v)
+
+        # Scale CIoU to [0, 1]
         return (ciou + 1) / 2.0
+
     
     def diou_batch(bboxes1, bboxes2) -> np.ndarray:
         """
