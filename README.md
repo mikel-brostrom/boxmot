@@ -27,8 +27,8 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 | :-----: | :-----: | :---: | :---: | :---: |
 | [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 68.504 | 77.165 | 80.986 |
 | [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.329 | 76.348 | 81.206 |
-| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 66.432 | 76.782 | 77.705 |
-| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 64.525 | 74.604 | 75.374 |
+| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 66.536 | 76.909 | 77.855 |
+| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 65.187 | 74.819 | 75.957 |
 | [imprassoc](https://openaccess.thecvf.com/content/CVPR2023W/E2EAD/papers/Stadler_An_Improved_Association_Pipeline_for_Multi-Person_Tracking_CVPRW_2023_paper.pdf) | ✅ | 64.096 | 76.511 | 71.875 |
 | [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 62.913 | 74.483 | 73.459 |
 | [hybridsort](https://arxiv.org/abs/2308.00783) | ❌ |  |  |  |
