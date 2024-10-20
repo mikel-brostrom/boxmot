@@ -133,7 +133,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
     """
     WEIGHTS.mkdir(parents=True, exist_ok=True)
     
-    ul_models = ['yolov8', 'yolov9', 'yolov10', 'rtdetr', 'sam']
+    ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'rtdetr', 'sam']
 
     yolo = YOLO(y if any(yolo in str(args.yolo_model) for yolo in ul_models) else 'yolov8n.pt')
     
