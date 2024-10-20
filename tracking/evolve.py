@@ -104,6 +104,27 @@ tuner = tune.Tuner(
     run_config=RunConfig(storage_path=results_dir)
 )
 
-tuner.fit()
+tuner_result = tuner.fit()
 
-print(tuner.get_results())
+# Get the best result and the corresponding configuration
+best_result = tuner_result.get_best_result(metric="HOTA", mode="max")
+best_config = best_result.config  # This will give the best configuration
+
+# Update YAML config with best results from GA and overwrite the default values
+for key, new_value in best_config.items():
+    if key in yaml_config:
+        yaml_config[key]['default'] = new_value  # Update only the 'default' field
+
+
+
+# Custom representer to enforce flow-style for sequences (lists)
+def represent_list_flow(dumper, data):
+    return dumper.represent_sequence('tag:yaml.org,2002:seq', data, flow_style=True)
+
+yaml.add_representer(list, represent_list_flow)
+
+config_path = TRACKER_CONFIGS / f"{opt.tracking_method}.yaml"  # Overwrite the same config file
+with open(config_path, 'w') as file:
+    yaml.safe_dump(yaml_config, file, default_flow_style=False)
+
+print("New configuration saved to YAML file.")
