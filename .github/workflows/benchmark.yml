@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write        # Allows reading and writing repository contents
+  pull-requests: write
 
 jobs:
   mot-metrics-benchmark:
@@ -236,6 +237,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ env.BRANCH_NAME }}  # Use the created branch
           base: master  # Base branch for the pull request, replace with your actual base branch (e.g., main or develop)
-          commit-message: Overwrote tracker results in README.md
+          commit-message: Overwrite tracker results in README.md
           title: Overwrite tracker results in README.md
           body: "This PR updates the tracker results table in the README.md."
