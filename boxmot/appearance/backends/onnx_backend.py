@@ -15,7 +15,6 @@ class ONNXBackend(BaseModelBackend):
 
             if self.device == "mps":
                 self.checker.check_packages(("onnxruntime-silicon==1.16.3",))
-                print("Using MPS (onnxruntime-silicon) for inference.")
                 providers = ["MPSExecutionProvider", "CPUExecutionProvider"]
             elif self.device == "cuda":
                 self.checker.check_packages(("onnxruntime-gpu==1.16.3",))
