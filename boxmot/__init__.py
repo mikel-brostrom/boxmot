@@ -1,6 +1,6 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-__version__ = '10.0.84'
+__version__ = '11.0.4'
 
 from boxmot.postprocessing.gsi import gsi
 from boxmot.tracker_zoo import create_tracker, get_tracker_config
