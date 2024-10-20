@@ -56,11 +56,14 @@ class BaseModelBackend:
             crop = cv2.resize(crop, resize_dims, interpolation=interpolation_method)
             crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
             
-            # Convert to tensor and normalize
-            crop = torch.from_numpy(crop).to(self.device, dtype=torch.half if self.half else torch.float) / 255.0
+            # Convert to tensor and normalize (convert to [0, 1] by dividing by 255 in batch later)
+            crop = torch.from_numpy(crop).to(self.device, dtype=torch.half if self.half else torch.float)
             crops[i] = torch.permute(crop, (2, 0, 1))  # Change to (C, H, W)
         
-        # Normalize and standardize in batch
+        # Normalize the entire batch in one go
+        crops = crops / 255.0
+
+        # Standardize the batch
         crops = (crops - mean_array) / std_array
         
         return crops
