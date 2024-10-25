@@ -15,6 +15,9 @@ videos/
 # experiment files
 *.pkl
 
+# partial downlaods
+*.part
+
 # Downloaded weights
 weights/*.pt
 weights/*.torchscript
