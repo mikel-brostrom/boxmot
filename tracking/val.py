@@ -22,9 +22,9 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMP
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.data.loader import LoadImagesAndVideos
+from boxmot.utils.misc import increment_path
 
 from ultralytics import YOLO
-from ultralytics.utils.files import increment_path
 
 from tracking.detectors import get_yolo_inferer
 from tracking.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
