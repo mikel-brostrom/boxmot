@@ -7,6 +7,9 @@ from pathlib import Path
 from PIL import Image
 
 
+VID_FORMATS = "asf", "avi", "gif", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "wmv"  # include video suffixes
+
+
 class LoadImagesAndVideos:
     """
     A data loader for handling both images and videos, providing batches of frames or images for processing.
