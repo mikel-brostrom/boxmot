@@ -21,9 +21,9 @@ from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES, DATA
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
+from boxmot.data.loaders import LoadImagesAndVideos
 
 from ultralytics import YOLO
-from ultralytics.data.loaders import LoadImagesAndVideos
 from ultralytics.utils.files import increment_path
 from ultralytics.data.utils import VID_FORMATS
 
