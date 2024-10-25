@@ -25,7 +25,7 @@ from boxmot.utils.torch_utils import select_device
 from boxmot.utils import LoadImagesAndVideos
 
 from ultralytics import YOLO
-from ultralytics.utils.files import increment_path
+from ultralytics.utils.files import increment_path 
 from ultralytics.data.utils import VID_FORMATS
 
 from tracking.detectors import get_yolo_inferer
