@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 import shutil
-import time
 import json
 import queue
 import select
@@ -22,9 +21,9 @@ from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES, DATA
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
-from boxmot.utils import LoadImagesAndVideos
 
 from ultralytics import YOLO
+from ultralytics.data.loaders import LoadImagesAndVideos
 from ultralytics.utils.files import increment_path
 from ultralytics.data.utils import VID_FORMATS
 
@@ -368,7 +367,6 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         opt.exp_folder_path = exp_folder_path
         dets_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt') if not item.name.startswith('.')]
         embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt') if not item.name.startswith('.')]
-        start_time = time.time()  # Start the timer
         for d, e in zip(dets_file_paths, embs_file_paths):
             mot_result_path = exp_folder_path / (d.stem + '.txt')
             if mot_result_path.exists():
@@ -380,9 +378,6 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
             opt.dets_file_path = d
             opt.embs_file_path = e
             generate_mot_results(opt, evolve_config)
-        # Stop the timer and calculate the elapsed time
-        track_time = time.time() - start_time
-        print('total time', track_time)
 
 
 def run_trackeval(opt: argparse.Namespace) -> dict:
