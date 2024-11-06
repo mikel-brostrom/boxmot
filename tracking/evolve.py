@@ -69,8 +69,10 @@ def yaml_to_search_space(config):
 opt = parse_optt()
 opt.val_tools_path = EXAMPLES / 'val_utils'
 opt.source = Path(opt.source).resolve()
-opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
-opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
+opt.yolo_model = 'tracking/weights/yolov8l_bestmodel_dataset3131_cls7_416_416_renamecls.pt'
+# opt.reid_model = 'tracking/weights/berry_reid_resnet50.pt'
+# opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
+# opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
 
 # Load the appropriate YAML configuration
 yaml_config = load_yaml_config(opt.tracking_method)

@@ -14,7 +14,6 @@ EXAMPLES = ROOT / "tracking"
 TRACKER_CONFIGS = ROOT / "boxmot" / "configs"
 WEIGHTS = ROOT / "tracking" / "weights"
 REQUIREMENTS = ROOT / "requirements.txt"
-
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of BoxMOT multiprocessing threads
 
 
@@ -22,4 +21,4 @@ NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of BoxMOT multiproces
 from loguru import logger
 
 logger.remove()
-logger.add(sys.stderr, colorize=True, level="INFO")
+logger.add(sys.stderr, colorize=True, level="DEBUG")

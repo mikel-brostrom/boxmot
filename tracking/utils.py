@@ -51,7 +51,7 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> None:
     # Iterate over each sequence and remove a percentage of images and annotations
     for seq_path in seq_paths:
         seq_gt_path = seq_path / 'gt' / 'gt.txt'
-        
+
         # Check if the gt.txt file exists
         if not seq_gt_path.exists():
             print(f"Ground truth file not found for {seq_path}. Skipping...")
@@ -60,17 +60,17 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> None:
         df = pd.read_csv(seq_gt_path, sep=",", header=None)
         nr_seq_imgs = df[0].unique().max()
         split = int(nr_seq_imgs * (1 - percent_to_delete))
-        
+
         # Check if the sequence is already split
         if nr_seq_imgs <= split:
             print(f'Sequence {seq_path} already split. Skipping...')
             continue
-        
+
         print(f'Number of annotated frames in {seq_path}: Keeping from frame {split + 1} to {nr_seq_imgs}')
 
         # Keep rows from the ground truth file beyond the split point
         df = df[df[0] > split]
-        
+
         # Adjust the frame indices to start from 1
         df[0] = df[0] - split
 
@@ -94,7 +94,7 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> None:
 
         remaining_images = len(list(jpg_folder_path.glob('*.jpg')))
         print(f'Number of images in {seq_path} after delete: {remaining_images}')
-        
+
     return dst_fldr, new_benchmark_name
 
 
@@ -119,7 +119,7 @@ def download_mot_eval_tools(val_tools_path):
 
     # Fix deprecated np.float, np.int & np.bool by replacing them with native Python types
     deprecated_types = {'np.float': 'float', 'np.int': 'int', 'np.bool': 'bool'}
-    
+
     for file_path in val_tools_path.rglob('*'):
         if file_path.suffix in {'.py', '.txt'}:  # only consider .py and .txt files
             try:
@@ -127,7 +127,7 @@ def download_mot_eval_tools(val_tools_path):
                 updated_content = content
                 for old_type, new_type in deprecated_types.items():
                     updated_content = updated_content.replace(old_type, new_type)
-                
+
                 if updated_content != content:  # Only write back if there were changes
                     file_path.write_text(updated_content, encoding='utf-8')
                     LOGGER.info(f'Replaced deprecated types in {file_path}.')
@@ -160,16 +160,16 @@ def download_mot_dataset(val_tools_path, benchmark, max_retries=5, backoff_facto
             if response.status_code < 400:
                 # Get the total size of the file from the server
                 total_size_in_bytes = int(response.headers.get('content-length', 0))
-                
+
                 # Check if there is already a partially or fully downloaded file
                 if zip_dst.exists():
                     current_size = zip_dst.stat().st_size
-                    
+
                     # If the file is fully downloaded, skip the download
                     if current_size >= total_size_in_bytes:
                         LOGGER.info(f"{benchmark}.zip is already fully downloaded.")
                         return zip_dst
-                    
+
                     # If the file is partially downloaded, set the range header to resume
                     resume_header = {'Range': f'bytes={current_size}-'}
                     LOGGER.info(f"Resuming download for {benchmark}.zip from byte {current_size}...")
@@ -182,12 +182,12 @@ def download_mot_dataset(val_tools_path, benchmark, max_retries=5, backoff_facto
                 response.raise_for_status()  # Check for HTTP request errors
 
                 with open(zip_dst, 'ab') as file, tqdm(
-                    desc=zip_dst.name,
-                    total=total_size_in_bytes,
-                    initial=current_size,
-                    unit='iB',
-                    unit_scale=True,
-                    unit_divisor=1024,
+                        desc=zip_dst.name,
+                        total=total_size_in_bytes,
+                        initial=current_size,
+                        unit='iB',
+                        unit_scale=True,
+                        unit_divisor=1024,
                 ) as bar:
                     for data in response.iter_content(chunk_size=1024):
                         size = file.write(data)
@@ -281,11 +281,11 @@ def eval_setup(opt, val_tools_path):
 
     # Convert val_tools_path to Path object if it's not already one
     val_tools_path = Path(val_tools_path)
-    
+
     # Initial setup for paths based on benchmark and split options
     mot_seqs_path = val_tools_path / 'data' / opt.benchmark / opt.split
     gt_folder = mot_seqs_path  # Assuming gt_folder is the same as mot_seqs_path initially
-    
+
     # Handling different benchmarks
     if opt.benchmark == 'MOT17':
         # Filter for FRCNN sequences in MOT17
@@ -302,11 +302,10 @@ def eval_setup(opt, val_tools_path):
     # Determine save directory
     save_dir = Path(opt.project) / opt.name
 
-
     # Setup MOT results folder
     MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
     MOT_results_folder.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-    
+
     return seq_paths, save_dir, MOT_results_folder, gt_folder
 
 
@@ -333,7 +332,7 @@ def convert_to_mot_format(results: Union[Results, np.ndarray], frame_idx: int) -
             tlwh = ops.xyxy2ltwh(results[:, 0:4])
             frame_idx_column = np.full((results.shape[0], 1), frame_idx, dtype=np.int32)
             mot_results = np.column_stack((
-                frame_idx_column, # frame index
+                frame_idx_column,  # frame index
                 results[:, 4].astype(np.int32),  # track id
                 tlwh.astype(np.int32),  # top,left,width,height
                 np.ones((results.shape[0], 1), dtype=np.int32),  # "not ignored"
@@ -348,12 +347,12 @@ def convert_to_mot_format(results: Union[Results, np.ndarray], frame_idx: int) -
             not_ignored = torch.ones((num_detections, 1), dtype=torch.int32)
 
             mot_results = torch.cat([
-                frame_indices, # frame index
-                results.boxes.id.unsqueeze(1).astype(np.int32), # track id
+                frame_indices,  # frame index
+                results.boxes.id.unsqueeze(1).astype(np.int32),  # track id
                 ops.xyxy2ltwh(results.boxes.xyxy).astype(np.int32),  ## top,left,width,height
-                not_ignored, # "not ignored"
-                results.boxes.cls.unsqueeze(1).astype(np.int32), # class
-                results.boxes.conf.unsqueeze(1).astype(np.float32), # confidence (float)
+                not_ignored,  # "not ignored"
+                results.boxes.cls.unsqueeze(1).astype(np.int32),  # class
+                results.boxes.conf.unsqueeze(1).astype(np.float32),  # confidence (float)
             ], dim=1)
 
             return mot_results.numpy()
@@ -381,4 +380,3 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), 'a') as file:
                 np.savetxt(file, mot_results, fmt='%d,%d,%d,%d,%d,%d,%d,%d,%.6f')
-

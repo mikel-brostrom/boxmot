@@ -240,8 +240,9 @@ class DeepOcSort(BaseTracker):
         inertia (float, optional): Weight for inertia in motion modeling. Higher values make tracks less responsive to changes.
         w_association_emb (float, optional): Weight for the embedding-based association score.
         alpha_fixed_emb (float, optional): Fixed alpha for updating embeddings. Controls the contribution of new and old embeddings in the ReID model.
+        更新reid模型
         aw_param (float, optional): Parameter for adaptive weighting between association costs.
-        embedding_off (bool, optional): Whether to turn off the embedding-based association.
+        embedding_off (bool, optional): Whether to turn off the embedding-based association. 是否关闭基于嵌入的关联
         cmc_off (bool, optional): Whether to turn off camera motion compensation (CMC).
         aw_off (bool, optional): Whether to turn off adaptive weighting.
         Q_xy_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for position coordinates.
@@ -256,7 +257,7 @@ class DeepOcSort(BaseTracker):
         per_class: bool = False,
         det_thresh: float = 0.3,
         max_age: int = 30,
-        min_hits: int = 3,
+        min_hits: int = 3,  #
         iou_threshold: float = 0.3,
         delta_t: int = 3,
         asso_func: str = "iou",
@@ -303,6 +304,7 @@ class DeepOcSort(BaseTracker):
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
+        每一帧更新
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
         Requires: this method must be called once for each frame even with empty detections
@@ -314,10 +316,10 @@ class DeepOcSort(BaseTracker):
         #print(dets, s, c)
         self.check_inputs(dets, img)
 
-        self.frame_count += 1
-        self.height, self.width = img.shape[:2]
+        self.frame_count += 1  #
+        self.height, self.width = img.shape[:2]  #
 
-        scores = dets[:, 4]
+        scores = dets[:, 4]  #
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         assert dets.shape[1] == 7
         remain_inds = scores > self.det_thresh
@@ -370,7 +372,7 @@ class DeepOcSort(BaseTracker):
         k_observations = np.array([k_previous_obs(trk.observations, trk.age, self.delta_t) for trk in self.active_tracks])
 
         """
-            First round of association
+            First round of association 第一轮关联
         """
         # (M detections X N tracks, final score)
         if self.embedding_off or dets.shape[0] == 0 or trk_embs.shape[0] == 0:
@@ -385,8 +387,8 @@ class DeepOcSort(BaseTracker):
             velocities,
             k_observations,
             self.inertia,
-            img.shape[1], # w
-            img.shape[0], # h
+            img.shape[1],  # w
+            img.shape[0],  # h
             stage1_emb_cost,
             self.w_association_emb,
             self.aw_off,
@@ -397,7 +399,7 @@ class DeepOcSort(BaseTracker):
             self.active_tracks[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
 
         """
-            Second round of associaton by OCR
+            Second round of associaton by OCR 第二轮关联
         """
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]

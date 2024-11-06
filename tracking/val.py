@@ -337,7 +337,9 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
         opt (Namespace): Parsed command line arguments.
     """
     mot_folder_paths = [item for item in Path(opt.source).iterdir()]
-    for y in opt.yolo_model:
+
+
+    for y in opt.yolo_model :
         for i, mot_folder_path in enumerate(mot_folder_paths):
             dets_path = Path(opt.project) / 'dets_n_embs' / y.stem / 'dets' / (mot_folder_path.name + '.txt')
             embs_path = Path(opt.project) / 'dets_n_embs' / y.stem / 'embs' / (opt.reid_model[0].stem) / (mot_folder_path.name + '.txt')
@@ -415,7 +417,7 @@ def parse_opt() -> argparse.Namespace:
     # Global arguments
     parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n.pt', help='yolo model path')
     parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt', help='reid model path')
-    parser.add_argument('--source', type=str, help='file/dir/URL/glob, 0 for webcam')
+    parser.add_argument('--source', type=str, default=str(ROOT / "assets/MOT17-mini/train"), help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--conf', type=float, default=0.5, help='confidence threshold')
     parser.add_argument('--iou', type=float, default=0.7, help='intersection over union (IoU) threshold for NMS')
@@ -433,7 +435,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--exp-folder-path', type=Path, help='path to experiment folder')
     parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
     parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
-    parser.add_argument('--verbose', action='store_true', help='print results')
+    parser.add_argument('--verbose', default=True, action='store_true', help='print results')
     parser.add_argument('--agnostic-nms', default=False, action='store_true', help='class-agnostic NMS')
     parser.add_argument('--n-trials', type=int, default=4, help='nr of trials for evolution')
     parser.add_argument('--objectives', type=str, nargs='+', default=["HOTA", "MOTA", "IDF1"], help='set of objective metrics: HOTA,MOTA,IDF1')
@@ -468,7 +470,10 @@ def parse_opt() -> argparse.Namespace:
 
 if __name__ == "__main__":
     opt = parse_opt()
-
+    if not isinstance(opt.yolo_model, list):
+        opt.yolo_model = [opt.yolo_model]
+    if not isinstance(opt.reid_model, list):
+        opt.reid_model = [opt.reid_model]
     # download MOT benchmark
     download_mot_eval_tools(opt.val_tools_path)
     zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)

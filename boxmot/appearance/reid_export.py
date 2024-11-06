@@ -26,14 +26,15 @@ def parse_args():
     parser.add_argument("--opset", type=int, default=12, help="ONNX: opset version")
     parser.add_argument("--workspace", type=int, default=4, help="TensorRT: workspace size (GB)")
     parser.add_argument("--verbose", action="store_true", help="TensorRT: verbose log")
-    parser.add_argument("--weights", type=Path, default=WEIGHTS / "osnet_x0_25_msmt17.pt", help="model.pt path(s)")
+    # parser.add_argument("--weights", type=Path, default=WEIGHTS / "osnet_x0_25_msmt17.pt", help="model.pt path(s)")
+    # parser.add_argument("--weights", type=Path, default=WEIGHTS / "osnet_x0_25_msmt17.pt", help="model.pt path(s)")
+    parser.add_argument("--weights", type=Path, help="model.pt path(s)")
     parser.add_argument("--half", action="store_true", help="FP16 half-precision export")
     parser.add_argument("--include", nargs="+", default=["torchscript"], help="torchscript, onnx, openvino, engine")
     return parser.parse_args()
 
 def main():
     args = parse_args()
-
     t = time.time()
     WEIGHTS.mkdir(parents=False, exist_ok=True)
 
@@ -57,7 +58,7 @@ def main():
         use_gpu=args.device,
     ).to(args.device)
     load_pretrained_weights(model, args.weights)
-    model.eval()
+    model.eval()  # 把模型设置为评估模式
 
     if args.optimize:
         assert args.device.type == "cpu", "--optimize not compatible with cuda devices, i.e. use --device cpu"

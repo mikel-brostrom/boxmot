@@ -30,6 +30,7 @@ class BaseModelBackend:
             num_classes=get_nr_classes(self.weights),
             pretrained=not (self.weights and self.weights.is_file()),
             use_gpu=device,
+            add="add" in str(self.weights)
         )
         self.checker = RequirementsChecker()
         self.load_model(self.weights)

@@ -3,27 +3,27 @@ ema_alpha:
   default: 0.9  # from the default parameters
   range: [0.7, 0.95]
 
-max_cos_dist:
+max_cos_dist:  # 相似度阈值
   type: uniform
   default: 0.4  # from the default parameters
   range: [0.1, 0.4]
 
-max_iou_dist:
+max_iou_dist:  #
   type: uniform
   default: 0.7  # from the default parameters
   range: [0.5, 0.95]
 
 max_age:
   type: randint
-  default: 30  # from the default parameters
+  default: 30  # from the default parameters 连续多少帧没有检测到目标就移除
   range: [10, 151]  # upper bound exclusive
 
-n_init:
+n_init:  # 目标出现几帧后确认追踪
   type: randint
   default: 3  # from the default parameters
   range: [1, 4]  # upper bound exclusive
 
-mc_lambda:
+mc_lambda:  #
   type: uniform
   default: 0.98  # from the default parameters
   range: [0.90, 0.999]

@@ -99,7 +99,8 @@ NR_CLASSES_DICT = {
     'market1501': 751,
     'duke': 702,
     'veri': 576,
-    'vehicleid': 576
+    'vehicleid': 576,
+    'berry': 673
 }
 
 __model_factory = {
@@ -142,50 +143,59 @@ def get_model_url(model):
         None
 
 
-def load_pretrained_weights(model, weight_path):
-    """Loads pretrained weights to a model."""
+def load_pretrained_weights(model, weight_path):  # 模型 模型路径
+    """Loads pretrained weights to a model.
+    读取预训练模型
+    """
     if not torch.cuda.is_available():
         checkpoint = torch.load(weight_path, map_location=torch.device("cpu"))
     else:
-        checkpoint = torch.load(weight_path)
+        checkpoint = torch.load(weight_path)  # gpu读入模型 赋值给checkpoint
 
     if "state_dict" in checkpoint:
         state_dict = checkpoint["state_dict"]
     else:
-        state_dict = checkpoint
+        state_dict = checkpoint  # 把模型赋值给state_dict
 
-    model_dict = model.state_dict()
+    model.load_state_dict(state_dict, strict=True)
 
-    if "lmbn" in str(weight_path):
-        model.load_state_dict(model_dict, strict=True)
-    else:
-        new_state_dict = OrderedDict()
-        matched_layers, discarded_layers = [], []
-
-        for k, v in state_dict.items():
-            if k.startswith("module."):
-                k = k[7:]  # remove 'module.' prefix if present
-
-            if k in model_dict and model_dict[k].size() == v.size():
-                new_state_dict[k] = v
-                matched_layers.append(k)
-            else:
-                discarded_layers.append(k)
-
-        model_dict.update(new_state_dict)
-        model.load_state_dict(model_dict)
-
-        if len(matched_layers) == 0:
-            LOGGER.debug(
-                f"Pretrained weights from {weight_path} cannot be loaded. Check key names manually."
-            )
-        else:
-            LOGGER.success(f"Loaded pretrained weights from {weight_path}")
-
-        if len(discarded_layers) > 0:
-            LOGGER.debug(
-                f"Discarded layers due to unmatched keys or layer size: {discarded_layers}"
-            )
+    # model_dict = model.state_dict()  # 获取模型当前的权重字典
+    #
+    # if "lmbn" in str(weight_path):
+    #     model.load_state_dict(model_dict, strict=True)
+    # else:
+    #     new_state_dict = OrderedDict()
+    #     matched_layers, discarded_layers = [], []  # 初始化
+    #
+    #     for k, v in state_dict.items():  # k
+    #         if k.startswith("model."):
+    #             k = k[6:]  # remove 'module.' prefix if present
+    #         else:
+    #             pass
+    #
+    #         if k in model_dict and model_dict[k].size() == v.size():
+    #             new_state_dict[k] = v
+    #             matched_layers.append(k)
+    #         else:
+    #             LOGGER.debug(
+    #                 f"k: {k} error. Check key names manually."
+    #             )
+    #             discarded_layers.append(k)
+    #
+    #     model_dict.update(new_state_dict)
+    #     model.load_state_dict(model_dict, strict=True)
+    #
+    #     if len(matched_layers) == 0:
+    #         LOGGER.debug(
+    #             f"Pretrained weights from {weight_path} cannot be loaded. Check key names manually."
+    #         )
+    #     else:
+    #         LOGGER.success(f"Loaded pretrained weights from {weight_path}")
+    #
+    #     if len(discarded_layers) > 0:
+    #         LOGGER.debug(
+    #             f"Discarded layers due to unmatched keys or layer size: {discarded_layers}"
+    #         )
 
 
 def show_available_models():
@@ -200,7 +210,7 @@ def get_nr_classes(weights):
     return num_classes
 
 
-def build_model(name, num_classes, loss="softmax", pretrained=True, use_gpu=True):
+def build_model(name, num_classes, loss="softmax", pretrained=True, use_gpu=True, **kwargs):
     """Builds a model based on specified parameters."""
     available_models = list(__model_factory.keys())
 
@@ -213,5 +223,5 @@ def build_model(name, num_classes, loss="softmax", pretrained=True, use_gpu=True
         return __model_factory[name](cfg, num_class=num_classes, camera_num=2, view_num=1)
 
     return __model_factory[name](
-        num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu
+        num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu, **kwargs
     )

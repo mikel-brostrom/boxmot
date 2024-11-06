@@ -115,7 +115,9 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolov8n',
                         help='yolo model path')
-    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+    # parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+    #                     help='reid model path')
+    parser.add_argument('--reid-model', type=Path,
                         help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='deepocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
