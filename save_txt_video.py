@@ -141,7 +141,7 @@ def save_txt_1(track_results, txt_file):
                         int(bbox[2] - bbox[0]), int(bbox[3] - bbox[1]), -1, -1, -1, 0)
                 texts.append(("%g,%s,%g,%g,%g,%g,%g,%g,%g,%g,%g" % line))
 
-    if texts:
+    if texts and save_txt_opt:
         Path(txt_file).parent.mkdir(parents=True, exist_ok=True)  # 创建目录
         with open(txt_file, "w") as f:
             f.writelines(text + "\n" for text in texts)
@@ -240,13 +240,14 @@ if __name__ == "__main__":
     track_id_set = set()  # 用于记录已统计的track_id
 
     opt = parse_opt()
-    opt.save = False
+    opt.save = False  # 是否保存视频（推理结果）
+    save_txt_opt = False  # 是否保存txt
     opt.agnostic_nms = True
     opt.tracking_method = 'strongsort'  # help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc'
-    opt.reid_model = WEIGHTS / 'resnet50_berry_add_1.pth'  # reid model path
-    # opt.reid_model = WEIGHTS / 'osnet_x0_25_msmt17.pt'
+    # opt.reid_model = WEIGHTS / 'resnet50_berry_add_6.pt'  # reid model path
+    opt.reid_model = WEIGHTS / 'osnet_x0_25_msmt17.pt'
     # opt.reid_model = WEIGHTS / 'resnet50_market1501.pt'
-    save_name = '_track_results_strong_berry_1.txt'
+    save_name = '_track_results_strong_osnet_7.txt'
     opt.source = r'/home/xplv/huanghanyang/Track_Datasets/1_艾维/20240113-103852_rack-1_left_RGB.mp4'
     # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/1_艾维/20240113-104949_rack-5_right_RGB.mp4'
     # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/2_工厂_phone/0726_redBerry_7_QR.mp4'
@@ -263,5 +264,6 @@ if __name__ == "__main__":
     source_path = Path(opt.source)
     source_dir = source_path.parent
     source_name = source_path.stem
-    result_file = source_dir / f"{source_name}_result_strong_berry_1.txt"
-    save_statistics_to_txt(result_file)
+    result_file = source_dir / f"{source_name}_result_strong_osnet_7.txt"
+    if save_txt_opt:
+        save_statistics_to_txt(result_file)

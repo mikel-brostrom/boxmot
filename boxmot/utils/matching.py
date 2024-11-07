@@ -356,7 +356,7 @@ class NearestNeighborDistanceMetric(object):
         that have been observed so far.
     """
 
-    def __init__(self, metric, matching_threshold, budget=None):
+    def __init__(self, metric, matching_threshold, budget=None):  #
         if metric == "euclidean":
             self._metric = _nn_euclidean_distance
         elif metric == "cosine":

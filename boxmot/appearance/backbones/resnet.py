@@ -151,62 +151,62 @@ class Bottleneck(nn.Module):
         return out
 
 
-def weights_init_kaiming(m):
-    classname = m.__class__.__name__
-    # print(classname)
-    if classname.find('Conv') != -1:
-        init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')  # For old pytorch, you may use kaiming_normal.
-    elif classname.find('Linear') != -1:
-        init.kaiming_normal_(m.weight.data, a=0, mode='fan_out')
-    elif classname.find('BatchNorm1d') != -1:
-        init.normal_(m.weight.data, 1.0, 0.02)
-    if hasattr(m, 'bias') and m.bias is not None:
-        init.constant_(m.bias.data, 0.0)
+# def weights_init_kaiming(m):
+#     classname = m.__class__.__name__
+#     # print(classname)
+#     if classname.find('Conv') != -1:
+#         init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')  # For old pytorch, you may use kaiming_normal.
+#     elif classname.find('Linear') != -1:
+#         init.kaiming_normal_(m.weight.data, a=0, mode='fan_out')
+#     elif classname.find('BatchNorm1d') != -1:
+#         init.normal_(m.weight.data, 1.0, 0.02)
+#     if hasattr(m, 'bias') and m.bias is not None:
+#         init.constant_(m.bias.data, 0.0)
 
 
-def weights_init_classifier(m):
-    classname = m.__class__.__name__
-    if classname.find('Linear') != -1:
-        init.normal_(m.weight.data, std=0.001)
-        init.constant_(m.bias.data, 0.0)
+# def weights_init_classifier(m):
+#     classname = m.__class__.__name__
+#     if classname.find('Linear') != -1:
+#         init.normal_(m.weight.data, std=0.001)
+#         init.constant_(m.bias.data, 0.0)
 
 
-class ClassBlock(nn.Module):
-    def __init__(self, input_dim, class_num, droprate, relu=False, bnorm=True, linear=512, return_f=False):
-        super(ClassBlock, self).__init__()
-        self.return_f = return_f
-        add_block = []
-        if linear > 0:
-            add_block += [nn.Linear(input_dim, linear)]
-        else:
-            linear = input_dim
-        if bnorm:
-            add_block += [nn.BatchNorm1d(linear)]
-        if relu:
-            add_block += [nn.LeakyReLU(0.1)]
-        if droprate > 0:
-            add_block += [nn.Dropout(p=droprate)]
-        add_block = nn.Sequential(*add_block)
-        add_block.apply(weights_init_kaiming)
-
-        classifier = []
-        classifier += [nn.Linear(linear, class_num)]
-        classifier = nn.Sequential(*classifier)
-        classifier.apply(weights_init_classifier)
-
-        self.linear_num = linear
-        self.add_block = add_block
-        self.classifier = classifier
-
-    def forward(self, x):
-        x = self.add_block(x)
-        if self.return_f:
-            f = x
-            x = self.classifier(x)
-            return [x, f]
-        else:
-            x = self.classifier(x)
-            return x
+# class ClassBlock(nn.Module):
+#     def __init__(self, input_dim, class_num, droprate, relu=False, bnorm=True, linear=512, return_f=False):
+#         super(ClassBlock, self).__init__()
+#         self.return_f = return_f
+#         add_block = []
+#         if linear > 0:
+#             add_block += [nn.Linear(input_dim, linear)]
+#         else:
+#             linear = input_dim
+#         if bnorm:
+#             add_block += [nn.BatchNorm1d(linear)]
+#         if relu:
+#             add_block += [nn.LeakyReLU(0.1)]
+#         if droprate > 0:
+#             add_block += [nn.Dropout(p=droprate)]
+#         add_block = nn.Sequential(*add_block)
+#         add_block.apply(weights_init_kaiming)
+#
+#         classifier = []
+#         classifier += [nn.Linear(linear, class_num)]
+#         classifier = nn.Sequential(*classifier)
+#         classifier.apply(weights_init_classifier)
+#
+#         self.linear_num = linear
+#         self.add_block = add_block
+#         self.classifier = classifier
+#
+#     def forward(self, x):
+#         x = self.add_block(x)
+#         if self.return_f:
+#             f = x
+#             x = self.classifier(x)
+#             return [x, f]
+#         else:
+#             x = self.classifier(x)
+#             return x
 
 
 class ResNet(nn.Module):
@@ -241,7 +241,6 @@ class ResNet(nn.Module):
             last_stride=2,
             fc_dims=None,
             dropout_p=None,
-            circle=False,
             **kwargs
     ):
         super(ResNet, self).__init__()
@@ -284,13 +283,16 @@ class ResNet(nn.Module):
             dilate=replace_stride_with_dilation[2],
         )
         self.global_avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        # self.fc = self._construct_fc_layer(fc_dims, 512 * block.expansion, dropout_p)
+        # if kwargs["add"]:
+        #     self.fc = nn.Linear(self.feature_dim, 1000)
+        #     self.classifier = ClassBlock(self.feature_dim, num_classes, droprate=0.5, linear=512, return_f=circle)
+        # else:
+        #     self.fc = self._construct_fc_layer(fc_dims, 512 * block.expansion, dropout_p)
+        #     self.classifier = nn.Linear(self.feature_dim, num_classes)
+
         self.fc = self._construct_fc_layer(fc_dims, 512 * block.expansion, dropout_p)
-        if kwargs["add"]:
-            self.fc = nn.Linear(self.feature_dim, 1000)
-            self.classifier = ClassBlock(self.feature_dim, num_classes, droprate=0.5, linear=512, return_f=circle)
-        else:
-            self.fc = self._construct_fc_layer(fc_dims, 512 * block.expansion, dropout_p)
-            self.classifier = nn.Linear(self.feature_dim, num_classes)
+        self.classifier = nn.Linear(self.feature_dim, num_classes)
 
         self._init_params()
 
@@ -365,7 +367,7 @@ class ResNet(nn.Module):
         for dim in fc_dims:
             layers.append(nn.Linear(input_dim, dim))
             layers.append(nn.BatchNorm1d(dim))
-            layers.append(nn.ReLU(inplace=True))
+            layers.append(nn.LeakyReLU(inplace=True))  # relu
             if dropout_p is not None:
                 layers.append(nn.Dropout(p=dropout_p))
             input_dim = dim
@@ -407,8 +409,8 @@ class ResNet(nn.Module):
         v = self.global_avgpool(f)
         v = v.view(v.size(0), -1)
 
-        # if self.fc is not None:
-        #     v = self.fc(v)
+        if self.fc is not None:
+            v = self.fc(v)
 
         if not self.training:
             # return v
@@ -480,13 +482,15 @@ def resnet50(num_classes, loss="softmax", pretrained=True, **kwargs):
         loss=loss,
         block=Bottleneck,
         layers=[3, 4, 6, 3],
-        last_stride=2,
-        fc_dims=None,
+        # last_stride=2,
+        # fc_dims=None,
+        last_stride=1,
+        fc_dims=[512],
         dropout_p=None,
         **kwargs
     )
     if pretrained:
-        init_pretrained_weights(model, model_urls["resnet50"])
+        init_pretrained_weights(model, model_urls["resnet50"])  # 初始化权重
     return model
 
 

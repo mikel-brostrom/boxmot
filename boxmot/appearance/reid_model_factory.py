@@ -157,45 +157,46 @@ def load_pretrained_weights(model, weight_path):  # 模型 模型路径
     else:
         state_dict = checkpoint  # 把模型赋值给state_dict
 
-    model.load_state_dict(state_dict, strict=True)
+    # model.load_state_dict(state_dict, strict=True)
 
-    # model_dict = model.state_dict()  # 获取模型当前的权重字典
-    #
-    # if "lmbn" in str(weight_path):
-    #     model.load_state_dict(model_dict, strict=True)
-    # else:
-    #     new_state_dict = OrderedDict()
-    #     matched_layers, discarded_layers = [], []  # 初始化
-    #
-    #     for k, v in state_dict.items():  # k
-    #         if k.startswith("model."):
-    #             k = k[6:]  # remove 'module.' prefix if present
-    #         else:
-    #             pass
-    #
-    #         if k in model_dict and model_dict[k].size() == v.size():
-    #             new_state_dict[k] = v
-    #             matched_layers.append(k)
-    #         else:
-    #             LOGGER.debug(
-    #                 f"k: {k} error. Check key names manually."
-    #             )
-    #             discarded_layers.append(k)
-    #
-    #     model_dict.update(new_state_dict)
-    #     model.load_state_dict(model_dict, strict=True)
-    #
-    #     if len(matched_layers) == 0:
-    #         LOGGER.debug(
-    #             f"Pretrained weights from {weight_path} cannot be loaded. Check key names manually."
-    #         )
-    #     else:
-    #         LOGGER.success(f"Loaded pretrained weights from {weight_path}")
-    #
-    #     if len(discarded_layers) > 0:
-    #         LOGGER.debug(
-    #             f"Discarded layers due to unmatched keys or layer size: {discarded_layers}"
-    #         )
+    model_dict = model.state_dict()  # 获取模型当前的权重字典
+
+    if "berry" in str(weight_path):
+        model.load_state_dict(model_dict, strict=True)
+        LOGGER.success(f"Loaded pretrained weights from {weight_path}")
+    else:
+        new_state_dict = OrderedDict()
+        matched_layers, discarded_layers = [], []  # 初始化
+
+        for k, v in state_dict.items():  # k
+            if k.startswith("model."):
+                k = k[6:]  # remove 'module.' prefix if present
+            else:
+                pass
+
+            if k in model_dict and model_dict[k].size() == v.size():
+                new_state_dict[k] = v
+                matched_layers.append(k)
+            else:
+                LOGGER.debug(
+                    f"k: {k} error. Check key names manually."
+                )
+                discarded_layers.append(k)
+
+        model_dict.update(new_state_dict)
+        model.load_state_dict(model_dict, strict=True)
+
+        if len(matched_layers) == 0:
+            LOGGER.debug(
+                f"Pretrained weights from {weight_path} cannot be loaded. Check key names manually."
+            )
+        else:
+            LOGGER.success(f"Loaded pretrained weights from {weight_path}")
+
+        if len(discarded_layers) > 0:
+            LOGGER.debug(
+                f"Discarded layers due to unmatched keys or layer size: {discarded_layers}"
+            )
 
 
 def show_available_models():

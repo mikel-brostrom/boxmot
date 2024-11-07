@@ -30,7 +30,6 @@ class BaseModelBackend:
             num_classes=get_nr_classes(self.weights),
             pretrained=not (self.weights and self.weights.is_file()),
             use_gpu=device,
-            add="add" in str(self.weights)
         )
         self.checker = RequirementsChecker()
         self.load_model(self.weights)
@@ -71,11 +70,11 @@ class BaseModelBackend:
 
 
     @torch.no_grad()
-    def get_features(self, xyxys, img):
+    def get_features(self, xyxys, img):  #
         if xyxys.size != 0:
-            crops = self.get_crops(xyxys, img)
-            crops = self.inference_preprocess(crops)
-            features = self.forward(crops)
+            crops = self.get_crops(xyxys, img)  # 从图像中获取crop
+            crops = self.inference_preprocess(crops)  # 对crop进行预处理
+            features = self.forward(crops)  #
             features = self.inference_postprocess(features)
         else:
             features = np.array([])
@@ -90,7 +89,7 @@ class BaseModelBackend:
                 [[0, 0, 64, 64], [0, 0, 128, 128]]),
                 img=im
             )
-            crops = self.inference_preprocess(crops)
+            crops = self.inference_preprocess(crops)  #
             self.forward(crops)  # warmup
 
     def to_numpy(self, x):
