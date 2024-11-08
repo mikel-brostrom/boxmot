@@ -23,4 +23,4 @@ class PyTorchBackend(BaseModelBackend):
 
     def forward(self, im_batch):
         features = self.model(im_batch)
-        return features
+        return features  # (2,673)

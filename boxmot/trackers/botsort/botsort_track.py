@@ -62,7 +62,7 @@ class STrack(BaseTrack):
             self.cls_hist.append([cls, conf])
             self.cls = cls
 
-    def predict(self):
+    def predict(self):  # 卡尔曼滤波追踪结果
         """Predict the next state using Kalman filter."""
         mean_state = self.mean.copy()
         if self.state != TrackState.Tracked:
@@ -70,7 +70,7 @@ class STrack(BaseTrack):
         self.mean, self.covariance = self.kalman_filter.predict(mean_state, self.covariance)
 
     @staticmethod
-    def multi_predict(stracks):
+    def multi_predict(stracks):  # 对多个轨道进行批量预测
         """Perform batch prediction for multiple tracks."""
         if not stracks:
             return

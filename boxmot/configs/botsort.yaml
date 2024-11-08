@@ -10,7 +10,7 @@ track_low_thresh:
 
 new_track_thresh:
   type: uniform
-  default: 0.7  # from the default parameters
+  default: 0.7  # from the default parameters 0.7
   range: [0.1, 0.8]
 
 track_buffer:

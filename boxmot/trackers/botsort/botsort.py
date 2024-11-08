@@ -26,17 +26,17 @@ class BotSort(BaseTracker):
         device (torch.device): Device to run the model on (e.g., 'cpu' or 'cuda').
         half (bool): Use half-precision (fp16) for faster inference.
         per_class (bool, optional): Whether to perform per-class tracking.
-        track_high_thresh (float, optional): Detection confidence threshold for first association.
-        track_low_thresh (float, optional): Detection confidence threshold for ignoring detections.
-        new_track_thresh (float, optional): Threshold for creating a new track.
-        track_buffer (int, optional): Frames to keep a track alive after last detection.
-        match_thresh (float, optional): Matching threshold for data association.
-        proximity_thresh (float, optional): IoU threshold for first-round association.
-        appearance_thresh (float, optional): Appearance embedding distance threshold for ReID.
-        cmc_method (str, optional): Method for correcting camera motion, e.g., "sof" (simple optical flow).
-        frame_rate (int, optional): Video frame rate, used to scale the track buffer.
-        fuse_first_associate (bool, optional): Fuse appearance and motion in the first association step.
-        with_reid (bool, optional): Use ReID features for association.
+        track_high_thresh (float, optional): Detection confidence threshold for first association.第一次关联的检测置信度
+        track_low_thresh (float, optional): Detection confidence threshold for ignoring detections. 低于这个置信度的不追踪
+        new_track_thresh (float, optional): Threshold for creating a new track.  建立追踪的阈值
+        track_buffer (int, optional): Frames to keep a track alive after last detection. 追踪缓冲 丢了之后追踪器保留几帧
+        match_thresh (float, optional): Matching threshold for data association.  数据关联的阈值
+        proximity_thresh (float, optional): IoU threshold for first-round association.  第一次关联的iou阈值
+        appearance_thresh (float, optional): Appearance embedding distance threshold for ReID.  reid相似度关联阈值
+        cmc_method (str, optional): Method for correcting camera motion, e.g., "sof" (simple optical flow). 校正相机运动的算法选择
+        frame_rate (int, optional): Video frame rate, used to scale the track buffer.  帧率
+        fuse_first_associate (bool, optional): Fuse appearance and motion in the first association step. 第一次关联时是否融合运动和关联
+        with_reid (bool, optional): Use ReID features for association. 是否使用reid模型
     """
 
     def __init__(
@@ -46,15 +46,15 @@ class BotSort(BaseTracker):
         half: bool,
         per_class: bool = False,
         track_high_thresh: float = 0.5,
-        track_low_thresh: float = 0.1,
-        new_track_thresh: float = 0.6,
+        track_low_thresh: float = 0.1,  #
+        new_track_thresh: float = 0.6,  #
         track_buffer: int = 30,
         match_thresh: float = 0.8,
         proximity_thresh: float = 0.5,
         appearance_thresh: float = 0.25,
         cmc_method: str = "ecc",
         frame_rate=30,
-        fuse_first_associate: bool = False,
+        fuse_first_associate: bool = False,  #
         with_reid: bool = True,
     ):
         super().__init__(per_class=per_class)
@@ -68,15 +68,16 @@ class BotSort(BaseTracker):
         self.new_track_thresh = new_track_thresh
         self.match_thresh = match_thresh
 
-        self.buffer_size = int(frame_rate / 30.0 * track_buffer)
-        self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilterXYWH()
+        self.buffer_size = int(frame_rate / 30.0 * track_buffer)  # 30
+        self.max_time_lost = self.buffer_size  # 最大丢失时间 30
+        self.kalman_filter = KalmanFilterXYWH()  #
 
         # ReID module
-        self.proximity_thresh = proximity_thresh
-        self.appearance_thresh = appearance_thresh
-        self.with_reid = with_reid
-        if self.with_reid:
+        self.proximity_thresh = proximity_thresh  # 第一次关联的iou阈值
+        self.appearance_thresh = appearance_thresh  # 相似度关联阈值
+        self.with_reid = with_reid  # 是否使用reid模型
+        # self.with_reid = False
+        if self.with_reid:   # 使用reid
             self.model = ReidAutoBackend(
                 weights=reid_weights, device=device, half=half
             ).model
@@ -86,7 +87,7 @@ class BotSort(BaseTracker):
 
     @BaseTracker.on_first_frame_setup
     @BaseTracker.per_class_decorator
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:  # 更新追踪器
         self.check_inputs(dets, img)
         self.frame_count += 1
 
@@ -97,28 +98,28 @@ class BotSort(BaseTracker):
 
         # Extract appearance features
         if self.with_reid and embs is None:
-            features_high = self.model.get_features(dets_first[:, 0:4], img)
+            features_high = self.model.get_features(dets_first[:, 0:4], img)  # 获取相似度
         else:
             features_high = embs_first if embs_first is not None else []
 
-        # Create detections
+        # Create detections 创建追踪
         detections = self._create_detections(dets_first, features_high)
 
-        # Separate unconfirmed and active tracks
+        # Separate unconfirmed and active tracks 将已经追踪上的和没追踪上的分开
         unconfirmed, active_tracks = self._separate_tracks()
         
         strack_pool = joint_stracks(active_tracks, self.lost_stracks)
 
-        # First association
+        # First association 第一次关联
         matches_first, u_track_first, u_detection_first = self._first_association(dets, dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks, strack_pool)
 
-        # Second association
+        # Second association 第二次关联
         matches_second, u_track_second, u_detection_second = self._second_association(dets_second, activated_stracks, lost_stracks, refind_stracks, u_track_first, strack_pool)
 
-        # Handle unconfirmed tracks
+        # Handle unconfirmed tracks 处理没有关联的
         matches_unc, u_track_unc, u_detection_unc = self._handle_unconfirmed_tracks(u_detection_first, detections, activated_stracks, removed_stracks, unconfirmed)
 
-        # Initialize new tracks
+        # Initialize new tracks 初始化新的追踪
         self._initialize_new_tracks(u_detection_unc, activated_stracks, [detections[i] for i in u_detection_first])
 
         # Update lost and removed tracks
@@ -140,7 +141,7 @@ class BotSort(BaseTracker):
     def _create_detections(self, dets_first, features_high):
         if len(dets_first) > 0:
             if self.with_reid:
-                detections = [STrack(det, f, max_obs=self.max_obs) for (det, f) in zip(dets_first, features_high)]
+                detections = [STrack(det, f, max_obs=self.max_obs) for (det, f) in zip(dets_first, features_high)]  #
             else:
                 detections = [STrack(det, max_obs=self.max_obs) for det in dets_first]
         else:
@@ -157,8 +158,8 @@ class BotSort(BaseTracker):
         return unconfirmed, active_tracks
 
     def _first_association(self, dets, dets_first, active_tracks, unconfirmed, img, detections, activated_stracks, refind_stracks, strack_pool):
-        
-        STrack.multi_predict(strack_pool)
+        # 第一次关联
+        STrack.multi_predict(strack_pool)  # 批量处理
 
         # Fix camera motion
         warp = self.cmc.apply(img, dets)

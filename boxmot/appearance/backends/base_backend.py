@@ -74,11 +74,11 @@ class BaseModelBackend:
         if xyxys.size != 0:
             crops = self.get_crops(xyxys, img)  # 从图像中获取crop
             crops = self.inference_preprocess(crops)  # 对crop进行预处理
-            features = self.forward(crops)  #
+            features = self.forward(crops)  # 把crops放入模型中进行计算
             features = self.inference_postprocess(features)
         else:
             features = np.array([])
-        features = features / np.linalg.norm(features)
+        features = features / np.linalg.norm(features)  # 归一化
         return features
 
     def warmup(self, imgsz=[(256, 128, 3)]):
@@ -111,7 +111,7 @@ class BaseModelBackend:
                 x = np.transpose(x, (0, 2, 3, 1))  # Convert from NCHW to NHWC
         return x
     
-    def inference_postprocess(self, features):
+    def inference_postprocess(self, features):  # 推理后处理
         if isinstance(features, (list, tuple)):
             return (
                 self.to_numpy(features[0]) if len(features) == 1 else [self.to_numpy(x) for x in features]

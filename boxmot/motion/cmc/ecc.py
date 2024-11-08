@@ -89,7 +89,7 @@ class ECC(BaseCMC):
                 None,
                 1
             )
-        except Exception as e:
+        except Exception as e:  #
             LOGGER.warning(f'Affine matrix could not be generated: {e}. Returning identity')
             return warp_matrix
 
