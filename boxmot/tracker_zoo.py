@@ -23,7 +23,7 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
     Returns:
     - An instance of the selected tracker.
     """
-    
+
     # Load configuration from file or use provided dictionary
     if evolve_param_dict is None:
         with open(tracker_config, "r") as f:
@@ -57,8 +57,8 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
 
     # Dynamically import and instantiate the correct tracker class 动态导入并实例化正确的跟踪器类
     module_path, class_name = tracker_mapping[tracker_type].rsplit('.', 1)
-    tracker_class = getattr(__import__(module_path, fromlist=[class_name]), class_name)
-    
+    tracker_class = getattr(__import__(module_path, fromlist=[class_name]), class_name)  # 把(botsort类)赋给tracker_class
+
     # For specific trackers, update tracker arguments with ReID parameters 对于特定跟踪链接，使用 ReID 参数更新跟踪链接参数
     if tracker_type in ['strongsort', 'botsort', 'deepocsort', 'hybridsort', 'imprassoc']:
         tracker_args['per_class'] = per_class

@@ -272,7 +272,7 @@ class AssociationFunction:
         Returns:
         function: The appropriate function for the association calculation.
         """
-        ASSO_FUNCS = {
+        ASSO_FUNCS = {  # 关联方法
             "iou": AssociationFunction.iou_batch,
             "hmiou": AssociationFunction.hmiou_batch,
             "giou": AssociationFunction.giou_batch,

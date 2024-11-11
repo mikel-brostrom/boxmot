@@ -38,7 +38,7 @@ class BaseModelBackend:
     def get_crops(self, xyxys, img):
         h, w = img.shape[:2]
         resize_dims = (128, 256)
-        interpolation_method = cv2.INTER_LINEAR
+        interpolation_method = cv2.INTER_LINEAR  # 选用最近邻插值
         mean_array = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
         std_array = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
         

@@ -54,7 +54,7 @@ def _indices_to_matches(cost_matrix, indices, thresh):
     return matches, unmatched_a, unmatched_b
 
 
-def linear_assignment(cost_matrix, thresh):
+def linear_assignment(cost_matrix, thresh):  # 线性分配 thresh = 0.8
     if cost_matrix.size == 0:
         return (
             np.empty((0, 2), dtype=int),
