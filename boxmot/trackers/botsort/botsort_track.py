@@ -104,7 +104,7 @@ class STrack(BaseTrack):
         self.id = self.next_id()
         self.mean, self.covariance = self.kalman_filter.initiate(self.xywh)
         self.tracklet_len = 0
-        self.state = TrackState.Tracked
+        self.state = TrackState.Tracked  # 状态为被追踪
         if frame_id == 1:
             self.is_activated = True
         self.frame_id = frame_id

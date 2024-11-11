@@ -10,7 +10,7 @@ from boxmot.utils.iou import AssociationFunction
 class BaseTracker(ABC):
     def __init__(
         self, 
-        det_thresh: float = 0.3,
+        det_thresh: float = 0.3,  #
         max_age: int = 30,
         min_hits: int = 3,
         iou_threshold: float = 0.3,
@@ -109,7 +109,7 @@ class BaseTracker(ABC):
                 img = args[1]
                 self.h, self.w = img.shape[0:2]
                 self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
-
+                # asso_mode = iou
                 # Mark that the first frame setup has been done
                 self._first_frame_processed = True
 
