@@ -122,15 +122,16 @@ def prompt_overwrite(path_type: str, path: str, ci: bool = True) -> bool:
     return input_with_timeout(f"{path_type} {path} already exists. Overwrite? [y/N]: ")
 
 
-def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
+def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
     """
-    Generates detections and embeddings for the specified YOLO model and arguments.
+    Generates detections and embeddings for the specified 
+    arguments, YOLO model and source.
 
     Args:
         args (Namespace): Parsed command line arguments.
         y (Path): Path to the YOLO model file.
+        source (Path): Path to the source directory.
     """
-    source = Path(args.source) / "img1"
     WEIGHTS.mkdir(parents=True, exist_ok=True)
     
     ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'rtdetr', 'sam']
@@ -349,8 +350,7 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
                     LOGGER.info(f'Skipping generation for {mot_folder_path} as they already exist.')
                     continue
             LOGGER.info(f'Generating detections and embeddings for data under {mot_folder_path} [{i + 1}/{len(mot_folder_paths)} seqs]')
-            # opt.source = mot_folder_path / 'img1'
-            generate_dets_embs(opt, y)
+            generate_dets_embs(opt, y, source=mot_folder_path / 'img1')
 
 
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
