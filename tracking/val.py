@@ -364,8 +364,15 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         exp_folder_path = opt.project / 'mot' / (str(y.stem) + "_" + str(opt.reid_model[0].stem) + "_" + str(opt.tracking_method))
         exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
         opt.exp_folder_path = exp_folder_path
-        dets_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt') if not item.name.startswith('.')]
-        embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt') if not item.name.startswith('.')]
+
+        mot_folder_names = [item.stem for item in Path(opt.source).iterdir()]
+        dets_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt') 
+                           if not item.name.startswith('.') 
+                           and item.stem in mot_folder_names]
+        embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt') 
+                           if not item.name.startswith('.')
+                           and item.stem in mot_folder_names]
+        
         for d, e in zip(dets_file_paths, embs_file_paths):
             mot_result_path = exp_folder_path / (d.stem + '.txt')
             if mot_result_path.exists():
