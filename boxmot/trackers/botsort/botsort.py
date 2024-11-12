@@ -87,6 +87,7 @@ class BotSort(BaseTracker):
     @BaseTracker.on_first_frame_setup
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:  # 更新追踪器
+        print("det_num:", dets.shape[0])
         self.check_inputs(dets, img)
         self.frame_count += 1
 
@@ -103,11 +104,11 @@ class BotSort(BaseTracker):
 
         # Create detections 创建追踪
         detections = self._create_detections(dets_first, features_high)
-
+        # 分数高的追踪
         # Separate unconfirmed and active tracks 将已经追踪上的和没追踪上的分开
-        unconfirmed, active_tracks = self._separate_tracks()
+        unconfirmed, active_tracks = self._separate_tracks()  #
 
-        strack_pool = joint_stracks(active_tracks, self.lost_stracks)
+        strack_pool = joint_stracks(active_tracks, self.lost_stracks)  # 被追踪
 
         # First association 第一次关联
         matches_first, u_track_first, u_detection_first = self._first_association(dets, dets_first, active_tracks,
@@ -128,7 +129,7 @@ class BotSort(BaseTracker):
         # Initialize new tracks 初始化新的追踪
         self._initialize_new_tracks(u_detection_unc, activated_stracks, [detections[i] for i in u_detection_first])  #
 
-        # Update lost and removed tracks
+        # Update lost and removed tracks 处理超时的追踪
         self._update_track_states(lost_stracks, removed_stracks)
 
         # Merge and prepare output
@@ -137,7 +138,8 @@ class BotSort(BaseTracker):
     def _split_detections(self, dets, embs):
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])  # 新增编号 为每个框添加ID
         confs = dets[:, 4]  # 添加置信度
-        second_mask = np.logical_and(confs > self.track_low_thresh, confs < self.track_high_thresh)  # 标记出置信度在track_low_thresh之间的(0.1-0.6)
+        second_mask = np.logical_and(confs > self.track_low_thresh,
+                                     confs < self.track_high_thresh)  # 标记出置信度在track_low_thresh之间的(0.1-0.6)
         dets_second = dets[second_mask]  # 中间置信度的放入第二次det
         first_mask = confs > self.track_high_thresh
         dets_first = dets[first_mask]  # 置信度高于track_high_thresh(0.6)的放入第一次det
@@ -158,37 +160,48 @@ class BotSort(BaseTracker):
         unconfirmed, active_tracks = [], []
         for track in self.active_tracks:
             if not track.is_activated:
-                unconfirmed.append(track)
+                unconfirmed.append(track)  # 前一帧没被追踪
             else:
-                active_tracks.append(track)
+                active_tracks.append(track)  # 前一帧追踪
         return unconfirmed, active_tracks
 
     def _first_association(self, dets, dets_first, active_tracks, unconfirmed, img, detections, activated_stracks,
                            refind_stracks, strack_pool):
         # 第一次关联
-        STrack.multi_predict(strack_pool)  # 批量处理
+        STrack.multi_predict(strack_pool)  # 批量计算卡尔曼滤波
 
-        # Fix camera motion  相机运动修正
-        warp = self.cmc.apply(img, dets)
+        # Fix camera motion  相机运动修正 cmc
+        warp = self.cmc.apply(img, dets)  # 减少相机运动带来误差
         STrack.multi_gmc(strack_pool, warp)  #
         STrack.multi_gmc(unconfirmed, warp)  #
 
         # Associate with high confidence detection boxes 关联高置信度检测框
-        ious_dists = iou_distance(strack_pool, detections)
-        ious_dists_mask = ious_dists > self.proximity_thresh
-        if self.fuse_first_associate:
+        ious_dists = iou_distance(strack_pool, detections)  # 计算iou距离
+        # print("iou_dist:")
+        # print(ious_dists)
+        ious_dists_mask = ious_dists > self.proximity_thresh  # 大于iou阈值的不采用
+        if self.fuse_first_associate:  # 是否融合置信度 false
             ious_dists = fuse_score(ious_dists, detections)
 
-        if self.with_reid:
+        if self.with_reid:  # 基于reid计算
             emb_dists = embedding_distance(strack_pool, detections) / 2.0  #
-            emb_dists[emb_dists > self.appearance_thresh] = 1.0  #
-            emb_dists[ious_dists_mask] = 1.0  #
-            dists = np.minimum(ious_dists, emb_dists)  # iou和emb都为1时关联
+            emb_dists_1 =emb_dists.copy()
+            # print("emb_dist: ")
+            # print(emb_dists)
+            emb_dists[emb_dists > self.appearance_thresh] = 1.0  # 相似度高于阈值的不采用
+            emb_dists[ious_dists_mask] = 1.0  # iou满足的时候emb_dist也为1
+            dists = np.minimum(ious_dists, emb_dists)  # 取iou和相似度的最小作为dist
         else:
             dists = ious_dists
 
-        matches, u_track, u_detection = linear_assignment(dists, thresh=self.match_thresh)  # 0.8
-
+        matches, u_track, u_detection = linear_assignment(dists, thresh=self.match_thresh)  # 进行匹配 0.8
+        if not matches.any() and len(u_detection) > 0:
+            print("first_not_match")
+            print("first_iou_dist:")
+            print(ious_dists)
+            print("first_emb_dist: ")
+            print(emb_dists_1)
+        # dists为不同轨迹和检测目标之间的距离 距离小于0.8的进行匹配
         for itracked, idet in matches:
             track = strack_pool[itracked]  # 已追踪的对象
             det = detections[idet]
@@ -210,12 +223,14 @@ class BotSort(BaseTracker):
 
         r_tracked_stracks = [
             strack_pool[i]
-            for i in u_track_first
+            for i in u_track_first  # 用第一次没追踪上的?
             if strack_pool[i].state == TrackState.Tracked
         ]
 
-        dists = iou_distance(r_tracked_stracks, detections_second)
-        matches, u_track, u_detection = linear_assignment(dists, thresh=0.5)
+        dists = iou_distance(r_tracked_stracks, detections_second)  # 直接用iou阈值
+        matches, u_track, u_detection = linear_assignment(dists, thresh=0.5)  # 0.5 ?
+        if not matches.any() and len(u_detection) > 0:
+            print("second_not_match_dist:", dists)
 
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
@@ -249,15 +264,17 @@ class BotSort(BaseTracker):
         detections = [detections[i] for i in u_detection]
 
         # Calculate IoU distance between unconfirmed tracks and detections
-        ious_dists = iou_distance(unconfirmed, detections)
-
+        ious_dists = iou_distance(unconfirmed, detections)  # 计算iou
+        # print("second_iou_dist:")
+        # print(ious_dists)
         # Apply IoU mask to filter out distances that exceed proximity threshold
-        ious_dists_mask = ious_dists > self.proximity_thresh
-        ious_dists = fuse_score(ious_dists, detections)
+        ious_dists_mask = ious_dists > self.proximity_thresh  #
+        ious_dists = fuse_score(ious_dists, detections)  # 融合置信度分数(不应该添加?)
 
         # Fuse scores for IoU-based and embedding-based matching (if applicable)
         if self.with_reid:
             emb_dists = embedding_distance(unconfirmed, detections) / 2.0
+            emb_dists_1 = emb_dists.copy()
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
             emb_dists[ious_dists_mask] = 1.0  # Apply the IoU mask to embedding distances
             dists = np.minimum(ious_dists, emb_dists)
@@ -265,8 +282,13 @@ class BotSort(BaseTracker):
             dists = ious_dists
 
         # Perform data association using linear assignment on the combined distances
-        matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)
-
+        matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)  #
+        if not matches.any() and len(u_detection) > 0:
+            print("handle_not_match")
+            print("handle_iou_dist:")
+            print(ious_dists)
+            print("handle_emb_dist: ")
+            print(emb_dists_1)
         # Update matched unconfirmed tracks
         for itracked, idet in matches:
             unconfirmed[itracked].update(detections[idet], self.frame_count)

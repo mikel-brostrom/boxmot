@@ -103,15 +103,15 @@ class BaseKalmanFilter:
         """
         Run Kalman filter prediction step (Vectorized version).
         """
-        std_pos, std_vel = self._get_multi_process_noise_std(mean)
-        sqr = np.square(np.r_[std_pos, std_vel]).T
+        std_pos, std_vel = self._get_multi_process_noise_std(mean)  # 获取位置和速度的噪声标准差
+        sqr = np.square(np.r_[std_pos, std_vel]).T  # 方差
 
-        motion_cov = [np.diag(sqr[i]) for i in range(len(mean))]
+        motion_cov = [np.diag(sqr[i]) for i in range(len(mean))]  # 构建噪声协方差矩阵
         motion_cov = np.asarray(motion_cov)
 
-        mean = np.dot(mean, self._motion_mat.T)
-        left = np.dot(self._motion_mat, covariance).transpose((1, 0, 2))
-        covariance = np.dot(left, self._motion_mat.T) + motion_cov
+        mean = np.dot(mean, self._motion_mat.T)  # 均值预测
+        left = np.dot(self._motion_mat, covariance).transpose((1, 0, 2))  # 协方差预测
+        covariance = np.dot(left, self._motion_mat.T) + motion_cov  # 协方差矩阵 两个向量一起变化情况
 
         return mean, covariance
 

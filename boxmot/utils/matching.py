@@ -62,7 +62,7 @@ def linear_assignment(cost_matrix, thresh):  # 线性分配 thresh = 0.8
             tuple(range(cost_matrix.shape[1])),
         )
     matches, unmatched_a, unmatched_b = [], [], []
-    cost, x, y = lap.lapjv(cost_matrix, extend_cost=True, cost_limit=thresh)
+    cost, x, y = lap.lapjv(cost_matrix, extend_cost=True, cost_limit=thresh)  #
     for ix, mx in enumerate(x):
         if mx >= 0:
             matches.append([ix, mx])
@@ -237,13 +237,13 @@ def fuse_iou(cost_matrix, tracks, detections):
     return fuse_cost
 
 
-def fuse_score(cost_matrix, detections):
+def fuse_score(cost_matrix, detections):  # 融合分数
     if cost_matrix.size == 0:
         return cost_matrix
-    iou_sim = 1 - cost_matrix
-    det_confs = np.array([det.conf for det in detections])
-    det_confs = np.expand_dims(det_confs, axis=0).repeat(cost_matrix.shape[0], axis=0)
-    fuse_sim = iou_sim * det_confs
+    iou_sim = 1 - cost_matrix  # 相似度矩阵
+    det_confs = np.array([det.conf for det in detections])  #
+    det_confs = np.expand_dims(det_confs, axis=0).repeat(cost_matrix.shape[0], axis=0)  # 创建置信度矩阵
+    fuse_sim = iou_sim * det_confs  # 相乘得到融合相似度矩阵
     fuse_cost = 1 - fuse_sim
     return fuse_cost
 

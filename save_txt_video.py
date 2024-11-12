@@ -117,12 +117,6 @@ def save_txt_1(track_results, txt_file):
                 cls = int(box.cls.item())  # 类别
                 class_name = result.names[cls] if cls < len(result.names) else "unknown"  # 获取类别名
 
-                # if box.id is None:
-                #     track_id = 0
-                #     # continue
-                # else:
-                #     track_id = int(box.id.item())
-
                 if box.id is None:
                     continue
                 track_id = int(box.id.item())
@@ -154,10 +148,6 @@ def parse_opt():
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default='tracking/weights/resnet50_berry_add_1.pth',
                         help='reid model path')
-    # parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
-    #                     help='reid model path')
-    # parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'clip_market1501.pt',
-    #                     help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='strongsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
     parser.add_argument('--source', type=str,
@@ -240,16 +230,16 @@ if __name__ == "__main__":
     track_id_set = set()  # 用于记录已统计的track_id
 
     opt = parse_opt()
-    opt.save = True  # 是否保存视频（推理结果）
+    opt.save = False  # 是否保存视频（推理结果）
     save_txt_opt = False  # 是否保存txt
     opt.agnostic_nms = True
     opt.tracking_method = 'botsort'  # help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc'
     opt.reid_model = WEIGHTS / 'resnet50_berry_add_6.pt'  # reid model path
     # opt.reid_model = WEIGHTS / 'osnet_x0_25_msmt17.pt'
     # opt.reid_model = WEIGHTS / 'resnet50_market1501.pt'
-    save_name = '_track_results_bot_berry_conf070_1.txt'
+    save_name = '_track_results_bot_berry_conf060.txt'
     # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/1_艾维/20240113-103852_rack-1_left_RGB.mp4'
-    opt.source = r'/home/xplv/huanghanyang/Track_Datasets/1_艾维/20240113-104949_rack-5_right_RGB.mp4'
+    # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/1_艾维/20240113-104949_rack-5_right_RGB.mp4'
     # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/2_工厂_phone/0726_redBerry_7_QR.mp4'
     # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/2_工厂_phone/0804_redBerry_6.mp4'
     # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/3_工厂_相机/0725_2.mp4'
@@ -257,13 +247,13 @@ if __name__ == "__main__":
     # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/4_工厂_v04/strawberryVideo_20222023testDS_v040_L4_1.mp4'
     # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/6_工厂_v04/part2_1.mp4'
     # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/train/strawberryVideo_20222023testDS_v040_L2_2.mp4'
-    # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/bot_test/20240113-103852_rack-1_left_RGB.mp4'
-    # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/bot_test/aiwei_2.mp4'
+    opt.source = r'/home/xplv/huanghanyang/Track_Datasets/bot_test/aiwei_2.mp4'
+    # opt.source = r'/home/xplv/huanghanyang/Track_Datasets/test/aiwei_2_cut.mp4'
     run(opt)  # 进行跟踪
     print_fruit_statistics()
     source_path = Path(opt.source)
     source_dir = source_path.parent
     source_name = source_path.stem
-    result_file = source_dir / f"{source_name}_result_bot_berry_conf070_1.txt"
+    result_file = source_dir / f"{source_name}_result_bot_berry_conf060.txt"
     if save_txt_opt:
         save_statistics_to_txt(result_file)

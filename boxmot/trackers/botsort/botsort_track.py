@@ -74,12 +74,12 @@ class STrack(BaseTrack):
         """Perform batch prediction for multiple tracks."""
         if not stracks:
             return
-        multi_mean = np.asarray([st.mean.copy() for st in stracks])
-        multi_covariance = np.asarray([st.covariance for st in stracks])
+        multi_mean = np.asarray([st.mean.copy() for st in stracks])  # 获取均值
+        multi_covariance = np.asarray([st.covariance for st in stracks])  # 获取协方差
         for i, st in enumerate(stracks):
-            if st.state != TrackState.Tracked:
-                multi_mean[i][6:8] = 0  # Reset velocities
-        multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(multi_mean, multi_covariance)
+            if st.state != TrackState.Tracked:  # 没追踪上
+                multi_mean[i][6:8] = 0  # Reset velocities 重置速度为0
+        multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(multi_mean, multi_covariance)  #
         for st, mean, cov in zip(stracks, multi_mean, multi_covariance):
             st.mean, st.covariance = mean, cov
 

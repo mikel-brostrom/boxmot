@@ -58,7 +58,7 @@ class ECC(BaseCMC):
 
     def apply(self, img: np.ndarray, dets: np.ndarray = None) -> np.ndarray:
         """Apply sparse optical flow to compute the warp matrix.
-
+        应用稀疏光流来计算 warp 矩阵
         Parameters:
             img (ndarray): The input image.
             dets: Description of dets parameter.
