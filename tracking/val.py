@@ -122,13 +122,15 @@ def prompt_overwrite(path_type: str, path: str, ci: bool = True) -> bool:
     return input_with_timeout(f"{path_type} {path} already exists. Overwrite? [y/N]: ")
 
 
-def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
+def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
     """
-    Generates detections and embeddings for the specified YOLO model and arguments.
+    Generates detections and embeddings for the specified 
+    arguments, YOLO model and source.
 
     Args:
         args (Namespace): Parsed command line arguments.
         y (Path): Path to the YOLO model file.
+        source (Path): Path to the source directory.
     """
     WEIGHTS.mkdir(parents=True, exist_ok=True)
     
@@ -137,7 +139,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
     yolo = YOLO(y if any(yolo in str(args.yolo_model) for yolo in ul_models) else 'yolov8n.pt')
     
     results = yolo(
-        source=args.source,
+        source=source,
         conf=args.conf,
         iou=args.iou,
         agnostic_nms=args.agnostic_nms,
@@ -161,7 +163,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
     for r in args.reid_model:
         model = ReidAutoBackend(weights=args.reid_model, device=yolo.predictor.device, half=args.half).model
         reids.append(model)
-        embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (Path(args.source).parent.name + '.txt')
+        embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (source.parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
         embs_path.touch(exist_ok=True)
 
@@ -170,7 +172,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
 
     yolo.predictor.custom_args = args
 
-    dets_path = args.project / 'dets_n_embs' / y.stem / 'dets' / (Path(args.source).parent.name + '.txt')
+    dets_path = args.project / 'dets_n_embs' / y.stem / 'dets' / (source.parent.name + '.txt')
     dets_path.parent.mkdir(parents=True, exist_ok=True)
     dets_path.touch(exist_ok=True)
 
@@ -178,7 +180,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
         open(dets_path, 'w').close()
 
     with open(str(dets_path), 'ab+') as f:
-        np.savetxt(f, [], fmt='%f', header=str(args.source))
+        np.savetxt(f, [], fmt='%f', header=str(source))
 
     for frame_idx, r in enumerate(tqdm(results, desc="Frames")):
         nr_dets = len(r.boxes)
@@ -205,7 +207,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path) -> None:
 
         for reid, reid_model_name in zip(reids, args.reid_model):
             embs = reid.get_features(dets[:, 1:5], img)
-            embs_path = args.project / "dets_n_embs" / y.stem / 'embs' / reid_model_name.stem / (Path(args.source).parent.name + '.txt')
+            embs_path = args.project / "dets_n_embs" / y.stem / 'embs' / reid_model_name.stem / (source.parent.name + '.txt')
             with open(str(embs_path), 'ab+') as f:
                 np.savetxt(f, embs, fmt='%f')
 
@@ -230,18 +232,18 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
     )
 
     with open(args.dets_file_path, 'r') as file:
-        args.source = file.readline().strip().replace("# ", "")
+        source = Path(file.readline().strip().replace("# ", ""))
 
-    LOGGER.info(f"\nStarting tracking on:\n\t{args.source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})\nusing\n\t{args.tracking_method}")
+    LOGGER.info(f"\nStarting tracking on:\n\t{source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})\nusing\n\t{args.tracking_method}")
 
     dets = np.loadtxt(args.dets_file_path, skiprows=1)
     embs = np.loadtxt(args.embs_file_path)
 
     dets_n_embs = np.concatenate([dets, embs], axis=1)
 
-    dataset = LoadImagesAndVideos(args.source)
+    dataset = LoadImagesAndVideos(source)
 
-    txt_path = args.exp_folder_path / (Path(args.source).parent.name + '.txt')
+    txt_path = args.exp_folder_path / (source.parent.name + '.txt')
     all_mot_results = []
 
     for frame_idx, d in enumerate(tqdm(dataset, desc="Frames")):
@@ -348,8 +350,7 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
                     LOGGER.info(f'Skipping generation for {mot_folder_path} as they already exist.')
                     continue
             LOGGER.info(f'Generating detections and embeddings for data under {mot_folder_path} [{i + 1}/{len(mot_folder_paths)} seqs]')
-            opt.source = mot_folder_path / 'img1'
-            generate_dets_embs(opt, y)
+            generate_dets_embs(opt, y, source=mot_folder_path / 'img1')
 
 
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
@@ -364,8 +365,15 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         exp_folder_path = opt.project / 'mot' / (str(y.stem) + "_" + str(opt.reid_model[0].stem) + "_" + str(opt.tracking_method))
         exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
         opt.exp_folder_path = exp_folder_path
-        dets_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt') if not item.name.startswith('.')]
-        embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt') if not item.name.startswith('.')]
+
+        mot_folder_names = [item.stem for item in Path(opt.source).iterdir()]
+        dets_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt') 
+                           if not item.name.startswith('.') 
+                           and item.stem in mot_folder_names]
+        embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt') 
+                           if not item.name.startswith('.')
+                           and item.stem in mot_folder_names]
+        
         for d, e in zip(dets_file_paths, embs_file_paths):
             mot_result_path = exp_folder_path / (d.stem + '.txt')
             if mot_result_path.exists():
