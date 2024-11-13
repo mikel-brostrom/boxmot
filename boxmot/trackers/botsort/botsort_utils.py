@@ -51,7 +51,7 @@ def sub_stracks(tlista: List['STrack'], tlistb: List['STrack']) -> List['STrack'
 def remove_duplicate_stracks(stracksa: List['STrack'], stracksb: List['STrack']) -> Tuple[List['STrack'], List['STrack']]:
     """
     Removes duplicate tracks between two lists based on their IoU distance and track duration.
-
+    根据两个列表的 IoU 距离和轨道持续时间删除两个列表之间的重复轨道
     Args:
         stracksa (List[STrack]): The first list of tracks.
         stracksb (List[STrack]): The second list of tracks.

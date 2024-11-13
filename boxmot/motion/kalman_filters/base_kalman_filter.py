@@ -29,7 +29,7 @@ class BaseKalmanFilter:
         self.dt = 1.
 
         # Create Kalman filter model matrices. 创建 Kalman 滤波器模型矩阵
-        self._motion_mat = np.eye(2 * ndim, 2 * ndim)  # State transition matrix 状态转换矩阵
+        self._motion_mat = np.eye(2 * ndim, 2 * ndim)  # State transition matrix 状态转移矩阵
         for i in range(ndim):
             self._motion_mat[i, ndim + i] = self.dt
         self._update_mat = np.eye(ndim, 2 * ndim)  # Observation matrix
@@ -42,12 +42,12 @@ class BaseKalmanFilter:
         """
         Create track from unassociated measurement.
         """
-        mean_pos = measurement  # 卡尔曼滤波预测位置
-        mean_vel = np.zeros_like(mean_pos)  #
-        mean = np.r_[mean_pos, mean_vel]
+        mean_pos = measurement  # xywh 初始位置
+        mean_vel = np.zeros_like(mean_pos)  # 初始速度为0
+        mean = np.r_[mean_pos, mean_vel]  #
 
-        std = self._get_initial_covariance_std(measurement)  #
-        covariance = np.diag(np.square(std))  # 获取协方差矩阵
+        std = self._get_initial_covariance_std(measurement)  # 计算标准差 2 x 0.05 x w和2 x 0.05 x h
+        covariance = np.diag(np.square(std))  # 获取协方差矩阵 先平方再构建对角矩阵
         return mean, covariance
 
     def _get_initial_covariance_std(self, measurement: np.ndarray) -> np.ndarray:
@@ -61,12 +61,12 @@ class BaseKalmanFilter:
         """
         Run Kalman filter prediction step.
         """
-        std_pos, std_vel = self._get_process_noise_std(mean)
-        motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
+        std_pos, std_vel = self._get_process_noise_std(mean)  # 0.05 x w/h 和 0.00625 x w/h
+        motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))  # 连起来 平方 对角矩阵
 
-        mean = np.dot(mean, self._motion_mat.T)
+        mean = np.dot(mean, self._motion_mat.T)  # 使用运动模型矩阵预测当前状态均值
         covariance = np.linalg.multi_dot((
-            self._motion_mat, covariance, self._motion_mat.T)) + motion_cov
+            self._motion_mat, covariance, self._motion_mat.T)) + motion_cov  # 对当前协方差矩阵和运动矩阵使用三矩阵乘法+噪声
 
         return mean, covariance
 

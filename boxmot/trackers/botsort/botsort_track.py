@@ -79,24 +79,25 @@ class STrack(BaseTrack):
         for i, st in enumerate(stracks):
             if st.state != TrackState.Tracked:  # 没追踪上
                 multi_mean[i][6:8] = 0  # Reset velocities 重置速度为0
-        multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(multi_mean, multi_covariance)  #
+        multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(multi_mean, multi_covariance)  # 预测当前帧位置
         for st, mean, cov in zip(stracks, multi_mean, multi_covariance):
             st.mean, st.covariance = mean, cov
 
     @staticmethod
     def multi_gmc(stracks, H=np.eye(2, 3)):
         """Apply geometric motion compensation to multiple tracks."""
+        # 将运动补偿应用于多个轨迹 H是补偿矩阵 2x3
         if not stracks:
             return
-        R = H[:2, :2]
-        R8x8 = np.kron(np.eye(4), R)
-        t = H[:2, 2]
+        R = H[:2, :2]  # 前2x2 旋转矩阵
+        R8x8 = np.kron(np.eye(4), R)  # 拓展变成8x8的旋转矩阵
+        t = H[:2, 2]  # 第三列 表示平移向量
 
         for st in stracks:
-            mean = R8x8.dot(st.mean)
-            mean[:2] += t
+            mean = R8x8.dot(st.mean)  # 旋转
+            mean[:2] += t  # 更新平移部分
             st.mean = mean
-            st.covariance = R8x8.dot(st.covariance).dot(R8x8.T)
+            st.covariance = R8x8.dot(st.covariance).dot(R8x8.T)  #
 
     def activate(self, kalman_filter, frame_id):
         """Activate a new track."""

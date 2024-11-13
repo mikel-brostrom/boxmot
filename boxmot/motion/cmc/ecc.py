@@ -68,19 +68,19 @@ class ECC(BaseCMC):
                 If the motion model is homography, the warp matrix will be 3x3; otherwise, it will be 2x3.
         """
 
-        if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
+        if self.warp_mode == cv2.MOTION_HOMOGRAPHY:  # false
             warp_matrix = np.eye(3, 3, dtype=np.float32)
         else:
-            warp_matrix = np.eye(2, 3, dtype=np.float32)
+            warp_matrix = np.eye(2, 3, dtype=np.float32)  # 欧式变换
 
-        if self.prev_img is None:
-            self.prev_img = self.preprocess(img)
-            return warp_matrix
+        if self.prev_img is None:  # 第一帧
+            self.prev_img = self.preprocess(img)  # 等于这一帧
+            return warp_matrix  # 返回
 
-        img = self.preprocess(img)
+        img = self.preprocess(img)  # 预处理
 
         try:
-            (ret_val, warp_matrix) = cv2.findTransformECC(
+            (ret_val, warp_matrix) = cv2.findTransformECC(  # 估算变换矩阵 返回 相关性度量 变换矩阵
                 self.prev_img,  # already processed
                 img,
                 warp_matrix,
@@ -89,16 +89,16 @@ class ECC(BaseCMC):
                 None,
                 1
             )
-        except Exception as e:  #
+        except Exception as e:  # 满足迭代终止条件
             LOGGER.warning(f'Affine matrix could not be generated: {e}. Returning identity')
             return warp_matrix
 
-        # upscale warp matrix to original images size
+        # upscale warp matrix to original images size 将 Warp 矩阵放大到原始图像大小
         if self.scale < 1:
-            warp_matrix[0, 2] /= self.scale
-            warp_matrix[1, 2] /= self.scale
+            warp_matrix[0, 2] /= self.scale  # 第三列 x 10
+            warp_matrix[1, 2] /= self.scale  # 第三列 x 10
 
-        if self.align:
+        if self.align:  # 图像对齐 false
             h, w = self.prev_img.shape
             if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
                 # Use warpPerspective for Homography
