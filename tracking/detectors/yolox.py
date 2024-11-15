@@ -121,20 +121,20 @@ class YoloXStrategy(YoloInterface):
                 "Only ultralytics predictors are supported")
         self.im_paths = predictor.batch[0]
 
-    def preprocess(self, imgs) -> torch.Tensor:
-        assert isinstance(imgs, list)
-        imgs_preprocessed = []
+    def preprocess(self, im) -> torch.Tensor:
+        assert isinstance(im, list)
+        im_preprocessed = []
         self._preproc_data = []
-        for i, img in enumerate(imgs):
+        for i, img in enumerate(im):
             img_pre, ratio = bytetrack_preprocess(img, input_size=self.imgsz)
             img_pre = torch.Tensor(img_pre).unsqueeze(0).to(self.device)
 
-            imgs_preprocessed.append(img_pre)
+            im_preprocessed.append(img_pre)
             self._preproc_data.append(ratio)
 
-        imgs_preprocessed = torch.vstack(imgs_preprocessed)
+        im_preprocessed = torch.vstack(im_preprocessed)
 
-        return imgs_preprocessed
+        return im_preprocessed
 
     def postprocess(self, preds, im, im0s):
 
