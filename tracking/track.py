@@ -14,6 +14,7 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import RequirementsChecker
 from tracking.detectors import (is_ultralytics_model, get_yolo_inferer,
                                 default_imgsz)
+from tracking.detectors.yolox import YoloXStrategy
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
@@ -93,12 +94,20 @@ def run(args):
     if not is_ultralytics_model(args.yolo_model):
         # replace yolov8 model
         m = get_yolo_inferer(args.yolo_model)
-        model = m(
-            model=args.yolo_model,
-            device=yolo.predictor.device,
-            args=yolo.predictor.args
-        )
-        yolo.predictor.model = model
+        yolo_model = m(model=args.yolo_model, device=yolo.predictor.device,
+                       args=yolo.predictor.args)
+        yolo.predictor.model = yolo_model
+
+        # If current model is YOLOX, change the preprocess and postprocess
+        if isinstance(yolo_model, YoloXStrategy):
+            # add callback to save image paths for further processing
+            yolo.add_callback("on_predict_batch_start",
+                              lambda p: yolo_model.update_im_paths(p))
+            yolo.predictor.preprocess = (
+                lambda imgs: yolo_model.preprocess(imgs=imgs))
+            yolo.predictor.postprocess = (
+                lambda preds, im, im0s:
+                yolo_model.postprocess(preds=preds, im=im, im0s=im0s))
 
     # store custom args in predictor
     yolo.predictor.custom_args = args
