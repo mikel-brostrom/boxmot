@@ -371,13 +371,13 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
     path to the file will be created as well if necessary.
     """
     if mot_results is not None:
+        # Ensure the parent directory of the txt_path exists
+        txt_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Ensure the file exists before opening
+        txt_path.touch(exist_ok=True)
+
         if mot_results.size != 0:
-            # Ensure the parent directory of the txt_path exists
-            txt_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Ensure the file exists before opening
-            txt_path.touch(exist_ok=True)
-
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), 'a') as file:
                 np.savetxt(file, mot_results, fmt='%d,%d,%d,%d,%d,%d,%d,%d,%.6f')
