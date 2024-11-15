@@ -4,11 +4,13 @@ import gdown
 import torch
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
+from ultralytics.models.yolo.detect import DetectionPredictor
 from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.ops import bytetrack_preprocess
 from tracking.detectors.yolo_interface import YoloInterface
 
 # default model weigths for these model names
@@ -48,6 +50,7 @@ class YoloXStrategy(YoloInterface):
     def __init__(self, model, device, args):
 
         self.args = args
+        self.imgsz = args.imgsz
         self.pt = False
         self.stride = 32  # max stride in YOLOX
 
@@ -80,25 +83,60 @@ class YoloXStrategy(YoloInterface):
             map_location=torch.device('cpu')
         )
 
+        self.device = device
         self.model = exp.get_model()
         self.model.eval()
         self.model.load_state_dict(ckpt["model"])
         self.model = fuse_model(self.model)
-        self.model.to(device)
+        self.model.to(self.device)
         self.model.eval()
+        self.im_paths = []
+        self._preproc_data = []
 
     @torch.no_grad()
     def __call__(self, im, augment, visualize, embed):
+        if isinstance(im, list):
+            if len(im[0].shape) == 3:
+                im = torch.stack(im)
+            else:
+                im = torch.vstack(im)
+
+        assert len(im.shape) == 4, f"Expected 4D tensor as input, got {
+            im.shape}"
+
         preds = self.model(im)
         return preds
 
     def warmup(self, imgsz):
         pass
 
-    def postprocess(self, path, preds, im, im0s):
+    def update_im_paths(self, predictor: DetectionPredictor):
+        """
+        This function saves image paths for the current batch,
+        being passed as callback on_predict_batch_start
+        """
+        assert (isinstance(predictor, DetectionPredictor),
+                "Only ultralytics predictors are supported")
+        self.im_paths = predictor.batch[0]
+
+    def preprocess(self, imgs) -> torch.Tensor:
+        assert isinstance(imgs, list)
+        imgs_preprocessed = []
+        self._preproc_data = []
+        for i, img in enumerate(imgs):
+            img_pre, ratio = bytetrack_preprocess(img, input_size=self.imgsz)
+            img_pre = torch.Tensor(img_pre).unsqueeze(0).to(self.device)
+
+            imgs_preprocessed.append(img_pre)
+            self._preproc_data.append(ratio)
+
+        return imgs_preprocessed
+
+    def postprocess(self, preds, im, im0s):
 
         results = []
         for i, pred in enumerate(preds):
+            im_path = self.im_paths[i] if len(self.im_paths) else ""
 
             pred = postprocess(
                 pred.unsqueeze(0),  # YOLOX postprocessor expects 3D arary
@@ -111,25 +149,27 @@ class YoloXStrategy(YoloInterface):
             if pred is None:
                 pred = torch.empty((0, 6))
                 r = Results(
-                    path=path,
+                    path=im_path,
                     boxes=pred,
                     orig_img=im0s[i],
                     names=self.names
                 )
                 results.append(r)
             else:
-                # (x, y, x, y, conf, obj, cls) --> (x, y, x, y, conf, cls)
-                pred[:, 4] = pred[:, 4] * pred[:, 5]
+                ratio = self._preproc_data[i]
+                pred[:, 0] = pred[:, 0] / ratio
+                pred[:, 1] = pred[:, 1] / ratio
+                pred[:, 2] = pred[:, 2] / ratio
+                pred[:, 3] = pred[:, 3] / ratio
+                pred[:, 4] *= pred[:, 5]
                 pred = pred[:, [0, 1, 2, 3, 4, 6]]
-
-                pred[:, :4] = ops.scale_boxes(im.shape[2:], pred[:, :4], im0s[i].shape)
 
                 # filter boxes by classes
                 if self.args.classes:
                     pred = pred[torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))]
 
                 r = Results(
-                    path=path,
+                    path=im_path,
                     boxes=pred,
                     orig_img=im0s[i],
                     names=self.names

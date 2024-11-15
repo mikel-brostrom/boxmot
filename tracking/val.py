@@ -162,8 +162,20 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
 
     if not is_ultralytics_model(args.yolo_model):
         m = get_yolo_inferer(y)
-        model = m(model=y, device=yolo.predictor.device, args=yolo.predictor.args)
-        yolo.predictor.model = model
+        yolo_model = m(model=y, device=yolo.predictor.device,
+                       args=yolo.predictor.args)
+        yolo.predictor.model = yolo_model
+
+        # If current model is YOLOX, change the preprocess and postprocess
+        if isinstance(yolo_model, YoloXStrategy):
+            # add callback to save image paths for further processing
+            yolo.add_callback("on_predict_batch_start",
+                              lambda p: yolo_model.update_im_paths(p))
+            yolo.predictor.preprocess = (
+                lambda imgs: yolo_model.preprocess(imgs=imgs))
+            yolo.predictor.postprocess = (
+                lambda preds, im, im0s:
+                yolo_model.postprocess(preds=preds, im=im, im0s=im0s))
 
     reids = []
     for r in args.reid_model:
