@@ -101,8 +101,10 @@ class YoloXStrategy(YoloInterface):
             else:
                 im = torch.vstack(im)
 
-        assert len(im.shape) == 4, f"Expected 4D tensor as input, got {
-            im.shape}"
+        if len(im.shape) == 3:
+            im = im.unsqueeze(0)
+
+        assert len(im.shape) == 4, f"Expected 4D tensor as input, got {im.shape}"
 
         preds = self.model(im)
         return preds
