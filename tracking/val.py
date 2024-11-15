@@ -135,8 +135,9 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
         source (Path): Path to the source directory.
     """
     WEIGHTS.mkdir(parents=True, exist_ok=True)
-    
-    ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'rtdetr', 'sam']
+
+    if args.imgsz is None:
+        args.imgsz = default_imgsz(args.yolo_model)
 
     yolo = YOLO(
         args.yolo_model if is_ultralytics_model(args.yolo_model)
@@ -429,7 +430,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n.pt', help='yolo model path')
     parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt', help='reid model path')
     parser.add_argument('--source', type=str, help='file/dir/URL/glob, 0 for webcam')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
+    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=None, help='inference size h,w')
     parser.add_argument('--conf', type=float, default=0.5, help='confidence threshold')
     parser.add_argument('--iou', type=float, default=0.7, help='intersection over union (IoU) threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')

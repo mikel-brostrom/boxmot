@@ -57,8 +57,9 @@ def on_predict_start(predictor, persist=False):
 
 @torch.no_grad()
 def run(args):
-    
-    ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'rtdetr', 'sam']
+
+    if args.imgsz is None:
+        args.imgsz = default_imgsz(args.yolo_model)
 
     yolo = YOLO(
         args.yolo_model if is_ultralytics_model(args.yolo_model)
@@ -123,7 +124,7 @@ def parse_opt():
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
     parser.add_argument('--source', type=str, default='0',
                         help='file/dir/URL/glob, 0 for webcam')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
+    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=None,
                         help='inference size h,w')
     parser.add_argument('--conf', type=float, default=0.5,
                         help='confidence threshold')
