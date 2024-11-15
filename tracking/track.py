@@ -124,6 +124,7 @@ def run(args):
 
 
 def parse_opt():
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolov8n',
                         help='yolo model path')
