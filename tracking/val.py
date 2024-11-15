@@ -26,7 +26,8 @@ from boxmot.utils.misc import increment_path
 
 from ultralytics import YOLO
 
-from tracking.detectors import get_yolo_inferer
+from tracking.detectors import (get_yolo_inferer, default_imgsz,
+                                is_ultralytics_model, is_yolox_model)
 from tracking.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
@@ -38,12 +39,12 @@ def cleanup_mot17(data_dir, keep_detection='FRCNN'):
     """
     Cleans up the MOT17 dataset to resemble the MOT16 format by keeping only one detection folder per sequence.
     Skips sequences that have already been cleaned.
-    
+
     Args:
     - data_dir (str): Path to the MOT17 train directory.
     - keep_detection (str): Detection type to keep (options: 'DPM', 'FRCNN', 'SDP'). Default is 'DPM'.
     """
-    
+
     # Get all folders in the train directory
     all_dirs = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
 
@@ -53,23 +54,24 @@ def cleanup_mot17(data_dir, keep_detection='FRCNN'):
     for seq in unique_sequences:
         # Directory path to the cleaned sequence
         cleaned_seq_dir = os.path.join(data_dir, seq)
-        
+
         # Skip if the sequence is already cleaned
         if os.path.exists(cleaned_seq_dir):
             print(f"Sequence {seq} is already cleaned. Skipping.")
             continue
-        
+
         # Directories for each detection method
-        seq_dirs = [os.path.join(data_dir, d) for d in all_dirs if d.startswith(seq)]
-        
+        seq_dirs = [os.path.join(data_dir, d)
+                    for d in all_dirs if d.startswith(seq)]
+
         # Directory path for the detection folder to keep
         keep_dir = os.path.join(data_dir, f"{seq}-{keep_detection}")
-        
+
         if os.path.exists(keep_dir):
             # Move the directory to a new name (removing the detection suffix)
             shutil.move(keep_dir, cleaned_seq_dir)
             print(f"Moved {keep_dir} to {cleaned_seq_dir}")
-            
+
             # Remove other detection directories
             for seq_dir in seq_dirs:
                 if os.path.exists(seq_dir) and seq_dir != keep_dir:
@@ -77,7 +79,7 @@ def cleanup_mot17(data_dir, keep_detection='FRCNN'):
                     print(f"Removed {seq_dir}")
         else:
             print(f"Directory for {seq} with {keep_detection} detection does not exist. Skipping.")
-            
+
     print("MOT17 Cleanup completed!")
 
 
@@ -99,7 +101,7 @@ def prompt_overwrite(path_type: str, path: str, ci: bool = True) -> bool:
 
     def input_with_timeout(prompt, timeout=3.0):
         print(prompt, end='', flush=True)
-        
+
         result = []
         input_received = threading.Event()
 
@@ -133,11 +135,15 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
         source (Path): Path to the source directory.
     """
     WEIGHTS.mkdir(parents=True, exist_ok=True)
-    
-    ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'rtdetr', 'sam']
 
-    yolo = YOLO(y if any(yolo in str(args.yolo_model) for yolo in ul_models) else 'yolov8n.pt')
-    
+    if args.imgsz is None:
+        args.imgsz = default_imgsz(y)
+
+    yolo = YOLO(
+        y if is_ultralytics_model(y)
+        else 'yolov8n.pt',
+    )
+
     results = yolo(
         source=source,
         conf=args.conf,
@@ -154,15 +160,29 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
         vid_stride=args.vid_stride,
     )
 
-    if not any(yolo in str(args.yolo_model) for yolo in ul_models):
+    if not is_ultralytics_model(y):
         m = get_yolo_inferer(y)
-        model = m(model=y, device=yolo.predictor.device, args=yolo.predictor.args)
-        yolo.predictor.model = model
+        yolo_model = m(model=y, device=yolo.predictor.device,
+                       args=yolo.predictor.args)
+        yolo.predictor.model = yolo_model
+
+        # If current model is YOLOX, change the preprocess and postprocess
+        if is_yolox_model(y):
+            # add callback to save image paths for further processing
+            yolo.add_callback("on_predict_batch_start",
+                              lambda p: yolo_model.update_im_paths(p))
+            yolo.predictor.preprocess = (
+                lambda imgs: yolo_model.preprocess(imgs=imgs))
+            yolo.predictor.postprocess = (
+                lambda preds, im, im0s:
+                yolo_model.postprocess(preds=preds, im=im, im0s=im0s))
 
     reids = []
     for r in args.reid_model:
-        model = ReidAutoBackend(weights=args.reid_model, device=yolo.predictor.device, half=args.half).model
-        reids.append(model)
+        reid_model = ReidAutoBackend(weights=args.reid_model,
+                                     device=yolo.predictor.device,
+                                     half=args.half).model
+        reids.append(reid_model)
         embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (source.parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
         embs_path.touch(exist_ok=True)
@@ -263,7 +283,10 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
 
     if all_mot_results:
         all_mot_results = np.vstack(all_mot_results)
-        write_mot_results(txt_path, all_mot_results)
+    else:
+        all_mot_results = np.empty((0, 0))
+
+    write_mot_results(txt_path, all_mot_results)
 
 
 def parse_mot_results(results: str) -> dict:
@@ -277,7 +300,8 @@ def parse_mot_results(results: str) -> dict:
         dict: A dictionary containing HOTA, MOTA, and IDF1 scores.
     """
     combined_results = results.split('COMBINED')[2:-1]
-    combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0]) for f in combined_results]
+    combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0])
+                        for f in combined_results]
 
     results_dict = {}
     for key, value in zip(["HOTA", "MOTA", "IDF1"], combined_results):
@@ -367,13 +391,13 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         opt.exp_folder_path = exp_folder_path
 
         mot_folder_names = [item.stem for item in Path(opt.source).iterdir()]
-        dets_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt') 
-                           if not item.name.startswith('.') 
-                           and item.stem in mot_folder_names]
-        embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt') 
+        dets_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt')
                            if not item.name.startswith('.')
                            and item.stem in mot_folder_names]
-        
+        embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt')
+                           if not item.name.startswith('.')
+                           and item.stem in mot_folder_names]
+
         for d, e in zip(dets_file_paths, embs_file_paths):
             mot_result_path = exp_folder_path / (d.stem + '.txt')
             if mot_result_path.exists():
@@ -415,7 +439,7 @@ def run_all(opt: argparse.Namespace) -> None:
     run_generate_dets_embs(opt)
     run_generate_mot_results(opt)
     run_trackeval(opt)
-    
+
 
 def parse_opt() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -424,7 +448,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n.pt', help='yolo model path')
     parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt', help='reid model path')
     parser.add_argument('--source', type=str, help='file/dir/URL/glob, 0 for webcam')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
+    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=None, help='inference size h,w')
     parser.add_argument('--conf', type=float, default=0.5, help='confidence threshold')
     parser.add_argument('--iou', type=float, default=0.7, help='intersection over union (IoU) threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
@@ -458,7 +482,6 @@ def parse_opt() -> argparse.Namespace:
     generate_dets_embs_parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     generate_dets_embs_parser.add_argument('--classes', nargs='+', type=int, default=0, help='filter by class: --classes 0, or --classes 0 2 3')
 
-    
     # Subparser for generate_mot_results
     generate_mot_results_parser = subparsers.add_parser('generate_mot_results', help='Generate MOT results')
     generate_mot_results_parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n.pt', help='yolo model path')
@@ -481,10 +504,10 @@ if __name__ == "__main__":
     download_mot_eval_tools(opt.val_tools_path)
     zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)
     unzip_mot_dataset(zip_path, opt.val_tools_path, opt.benchmark)
-    
+
     if opt.benchmark == 'MOT17':
         cleanup_mot17(opt.source)
-        
+
     if opt.split_dataset:
         opt.source, opt.benchmark = split_dataset(opt.source)
 
@@ -496,4 +519,3 @@ if __name__ == "__main__":
         run_trackeval(opt)
     else:
         run_all(opt)
-        
