@@ -141,7 +141,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
         args.imgsz = default_imgsz(args.yolo_model)
 
     yolo = YOLO(
-        args.yolo_model if is_ultralytics_model(args.yolo_model)
+        y if is_ultralytics_model(args.yolo_model)
         else 'yolov8n.pt',
     )
 

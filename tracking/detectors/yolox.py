@@ -130,6 +130,8 @@ class YoloXStrategy(YoloInterface):
             imgs_preprocessed.append(img_pre)
             self._preproc_data.append(ratio)
 
+        imgs_preprocessed = torch.vstack(imgs_preprocessed)
+
         return imgs_preprocessed
 
     def postprocess(self, preds, im, im0s):
