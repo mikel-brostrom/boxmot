@@ -6,7 +6,6 @@ import cv2
 from typing import Tuple, Union
 
 
-
 def xyxy2xywh(x):
     """
     Convert bounding box coordinates from (x1, y1, x2, y2) format to (x, y, width, height) format.
