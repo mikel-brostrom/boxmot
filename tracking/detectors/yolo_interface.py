@@ -15,6 +15,10 @@ class YoloInterface(ABC):
         pass
 
     @abstractmethod
+    def preprocess(self, ims):
+        pass
+
+    @abstractmethod
     def postprocess(self, preds):
         pass
 
