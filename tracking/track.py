@@ -12,9 +12,8 @@ from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import RequirementsChecker
-from tracking.detectors import (is_ultralytics_model, get_yolo_inferer,
-                                default_imgsz)
-from tracking.detectors.yolox import YoloXStrategy
+from tracking.detectors import (get_yolo_inferer, default_imgsz,
+                                is_ultralytics_model, is_yolox_model)
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
@@ -99,12 +98,12 @@ def run(args):
         yolo.predictor.model = yolo_model
 
         # If current model is YOLOX, change the preprocess and postprocess
-        if isinstance(yolo_model, YoloXStrategy):
+        if is_yolox_model(args.yolo_model):
             # add callback to save image paths for further processing
             yolo.add_callback("on_predict_batch_start",
                               lambda p: yolo_model.update_im_paths(p))
             yolo.predictor.preprocess = (
-                lambda imgs: yolo_model.preprocess(imgs=imgs))
+                lambda imgs: yolo_model.preprocess(im=imgs))
             yolo.predictor.postprocess = (
                 lambda preds, im, im0s:
                 yolo_model.postprocess(preds=preds, im=im, im0s=im0s))

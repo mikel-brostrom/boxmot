@@ -27,8 +27,7 @@ from boxmot.utils.misc import increment_path
 from ultralytics import YOLO
 
 from tracking.detectors import (get_yolo_inferer, default_imgsz,
-                                is_ultralytics_model)
-from tracking.detectors.yolox import YoloXStrategy
+                                is_ultralytics_model, is_yolox_model)
 from tracking.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
@@ -138,10 +137,10 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
     WEIGHTS.mkdir(parents=True, exist_ok=True)
 
     if args.imgsz is None:
-        args.imgsz = default_imgsz(args.yolo_model)
+        args.imgsz = default_imgsz(y)
 
     yolo = YOLO(
-        y if is_ultralytics_model(args.yolo_model)
+        y if is_ultralytics_model(y)
         else 'yolov8n.pt',
     )
 
@@ -161,14 +160,14 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
         vid_stride=args.vid_stride,
     )
 
-    if not is_ultralytics_model(args.yolo_model):
+    if not is_ultralytics_model(y):
         m = get_yolo_inferer(y)
         yolo_model = m(model=y, device=yolo.predictor.device,
                        args=yolo.predictor.args)
         yolo.predictor.model = yolo_model
 
         # If current model is YOLOX, change the preprocess and postprocess
-        if isinstance(yolo_model, YoloXStrategy):
+        if is_yolox_model(y):
             # add callback to save image paths for further processing
             yolo.add_callback("on_predict_batch_start",
                               lambda p: yolo_model.update_im_paths(p))
