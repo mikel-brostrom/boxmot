@@ -5,10 +5,29 @@ from boxmot.utils.checks import RequirementsChecker
 
 checker = RequirementsChecker()
 
+UL_MODELS = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'rtdetr', 'sam']
+
+
+def is_ultralytics_model(yolo_name):
+    return any(yolo in str(yolo_name) for yolo in UL_MODELS)
+
+
+def is_yolox_model(yolo_name):
+    return 'yolox' in str(yolo_name)
+
+
+def default_imgsz(yolo_name):
+    if is_ultralytics_model(yolo_name):
+        return [640, 640]
+    elif is_yolox_model(yolo_name):
+        return [800, 1440]
+    else:
+        return [640, 640]
+
 
 def get_yolo_inferer(yolo_model):
 
-    if 'yolox' in str(yolo_model):
+    if is_yolox_model(yolo_model):
         try:
             import yolox  # for linear_assignment
             assert yolox.__version__
