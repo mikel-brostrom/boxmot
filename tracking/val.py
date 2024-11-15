@@ -284,7 +284,10 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
 
     if all_mot_results:
         all_mot_results = np.vstack(all_mot_results)
-        write_mot_results(txt_path, all_mot_results)
+    else:
+        all_mot_results = np.empty((0, 0))
+
+    write_mot_results(txt_path, all_mot_results)
 
 
 def parse_mot_results(results: str) -> dict:
