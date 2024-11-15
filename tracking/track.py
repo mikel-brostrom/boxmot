@@ -12,7 +12,8 @@ from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import RequirementsChecker
-from tracking.detectors import get_yolo_inferer
+from tracking.detectors import (is_ultralytics_model, get_yolo_inferer,
+                                default_imgsz)
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
@@ -60,7 +61,8 @@ def run(args):
     ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'rtdetr', 'sam']
 
     yolo = YOLO(
-        args.yolo_model if any(yolo in str(args.yolo_model) for yolo in ul_models) else 'yolov8n.pt',
+        args.yolo_model if is_ultralytics_model(args.yolo_model)
+        else 'yolov8n.pt',
     )
 
     results = yolo.track(
@@ -87,7 +89,7 @@ def run(args):
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
 
-    if not any(yolo in str(args.yolo_model) for yolo in ul_models):
+    if not is_ultralytics_model(args.yolo_model):
         # replace yolov8 model
         m = get_yolo_inferer(args.yolo_model)
         model = m(
