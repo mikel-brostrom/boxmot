@@ -26,7 +26,9 @@ from boxmot.utils.misc import increment_path
 
 from ultralytics import YOLO
 
-from tracking.detectors import get_yolo_inferer
+from tracking.detectors import (get_yolo_inferer, default_imgsz,
+                                is_ultralytics_model)
+from tracking.detectors.yolox import YoloXStrategy
 from tracking.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
@@ -136,8 +138,11 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
     
     ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'rtdetr', 'sam']
 
-    yolo = YOLO(y if any(yolo in str(args.yolo_model) for yolo in ul_models) else 'yolov8n.pt')
-    
+    yolo = YOLO(
+        args.yolo_model if is_ultralytics_model(args.yolo_model)
+        else 'yolov8n.pt',
+    )
+
     results = yolo(
         source=source,
         conf=args.conf,
@@ -154,7 +159,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
         vid_stride=args.vid_stride,
     )
 
-    if not any(yolo in str(args.yolo_model) for yolo in ul_models):
+    if not is_ultralytics_model(args.yolo_model):
         m = get_yolo_inferer(y)
         model = m(model=y, device=yolo.predictor.device, args=yolo.predictor.args)
         yolo.predictor.model = model
