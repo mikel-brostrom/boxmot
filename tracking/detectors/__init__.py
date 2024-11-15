@@ -27,7 +27,7 @@ def default_imgsz(yolo_name):
 
 def get_yolo_inferer(yolo_model):
 
-    if 'yolox' in str(yolo_model):
+    if is_yolox_model(yolo_model):
         try:
             import yolox  # for linear_assignment
             assert yolox.__version__
