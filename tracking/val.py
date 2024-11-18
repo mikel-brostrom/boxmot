@@ -491,6 +491,8 @@ def parse_opt() -> argparse.Namespace:
     trackeval_parser = subparsers.add_parser('trackeval', help='Evaluate tracking results')
     trackeval_parser.add_argument('--exp-folder-path', type=Path, required=True, help='path to experiment folder')
 
+    opt.benchmark, opt.split = source_path.parent.name, source_path.name
+
     opt = parser.parse_args()
     return opt
 
@@ -499,8 +501,7 @@ if __name__ == "__main__":
     opt = parse_opt()
 
     source_path = Path(opt.source)
-    opt.benchmark, opt.split = source_path.parent.name, source_path.name
-
+    
     # download MOT benchmark
     download_mot_eval_tools(opt.val_tools_path)
     zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)
