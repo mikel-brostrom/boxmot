@@ -491,10 +491,10 @@ def parse_opt() -> argparse.Namespace:
     trackeval_parser = subparsers.add_parser('trackeval', help='Evaluate tracking results')
     trackeval_parser.add_argument('--exp-folder-path', type=Path, required=True, help='path to experiment folder')
 
+    opt = parser.parse_args()
     source_path = Path(opt.source)
     opt.benchmark, opt.split = source_path.parent.name, source_path.name
 
-    opt = parser.parse_args()
     return opt
 
 
