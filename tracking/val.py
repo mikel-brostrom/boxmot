@@ -172,7 +172,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
             yolo.add_callback("on_predict_batch_start",
                               lambda p: yolo_model.update_im_paths(p))
             yolo.predictor.preprocess = (
-                lambda imgs: yolo_model.preprocess(imgs=imgs))
+                lambda im: yolo_model.preprocess(im=im))
             yolo.predictor.postprocess = (
                 lambda preds, im, im0s:
                 yolo_model.postprocess(preds=preds, im=im, im0s=im0s))
@@ -463,8 +463,6 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--dets-file-path', type=Path, help='path to detections file')
     parser.add_argument('--embs-file-path', type=Path, help='path to embeddings file')
     parser.add_argument('--exp-folder-path', type=Path, help='path to experiment folder')
-    parser.add_argument('--benchmark', type=str, default='MOT17-mini', help='MOT16, MOT17, MOT20')
-    parser.add_argument('--split', type=str, default='train', help='existing project/name ok, do not increment')
     parser.add_argument('--verbose', action='store_true', help='print results')
     parser.add_argument('--agnostic-nms', default=False, action='store_true', help='class-agnostic NMS')
     parser.add_argument('--n-trials', type=int, default=4, help='nr of trials for evolution')
@@ -499,6 +497,9 @@ def parse_opt() -> argparse.Namespace:
 
 if __name__ == "__main__":
     opt = parse_opt()
+
+    source_path = Path(opt.source)
+    opt.benchmark, opt.split = source_path.parent.name, source_path.name
 
     # download MOT benchmark
     download_mot_eval_tools(opt.val_tools_path)
