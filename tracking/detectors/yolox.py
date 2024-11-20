@@ -10,7 +10,7 @@ from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.ops import bytetrack_preprocess
+from boxmot.utils.ops import yolox_preprocess
 from tracking.detectors.yolo_interface import YoloInterface
 
 # default model weigths for these model names
@@ -126,7 +126,7 @@ class YoloXStrategy(YoloInterface):
         im_preprocessed = []
         self._preproc_data = []
         for i, img in enumerate(im):
-            img_pre, ratio = bytetrack_preprocess(img, input_size=self.imgsz)
+            img_pre, ratio = yolox_preprocess(img, input_size=self.imgsz)
             img_pre = torch.Tensor(img_pre).unsqueeze(0).to(self.device)
 
             im_preprocessed.append(img_pre)
