@@ -190,7 +190,7 @@ def letterbox(
 
 # This preprocess differs from the current version of YOLOX preprocess, but ByteTrack uses it
 # https://github.com/ifzhang/ByteTrack/blob/d1bf0191adff59bc8fcfeaa0b33d3d1642552a99/yolox/data/data_augment.py#L189
-def bytetrack_preprocess(image, input_size, 
+def yolox_preprocess(image, input_size, 
                          mean=(0.485, 0.456, 0.406), 
                          std=(0.229, 0.224, 0.225), 
                          swap=(2, 0, 1)):
