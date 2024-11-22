@@ -89,12 +89,11 @@ class AssociationFunction:
     @staticmethod
     def giou_batch(bboxes1, bboxes2) -> np.ndarray:
         """
-        :param bbox_p: predict of bbox(N,4)(x1,y1,x2,y2)
-        :param bbox_g: groundtruth of bbox(N,4)(x1,y1,x2,y2)
+        :param bboxes1: predict of bbox(N,4)(x1,y1,x2,y2)
+        :param bboxes2: groundtruth of bbox(N,4)(x1,y1,x2,y2)
         :return:
         """
-        # for details should go to https://arxiv.org/pdf/1902.09630.pdf
-        # ensure predict's bbox form
+        # Ensure predict's bbox form
         bboxes2 = np.expand_dims(bboxes2, 0)
         bboxes1 = np.expand_dims(bboxes1, 1)
 
@@ -104,12 +103,16 @@ class AssociationFunction:
         yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
         w = np.maximum(0.0, xx2 - xx1)
         h = np.maximum(0.0, yy2 - yy1)
-        wh = w * h
-        iou = wh / (
-            (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
-            (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) -
-            wh
-        )
+        wh = w * h  # Intersection area
+
+        # Compute areas of individual boxes
+        area1 = (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        area2 = (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
+
+        # Union area
+        union_area = area1 + area2 - wh
+
+        iou = wh / union_area
 
         xxc1 = np.minimum(bboxes1[..., 0], bboxes2[..., 0])
         yyc1 = np.minimum(bboxes1[..., 1], bboxes2[..., 1])
@@ -118,9 +121,11 @@ class AssociationFunction:
         wc = xxc2 - xxc1
         hc = yyc2 - yyc1
         assert (wc > 0).all() and (hc > 0).all()
-        area_enclose = wc * hc
-        giou = iou - (area_enclose - wh) / area_enclose
-        giou = (giou + 1.0) / 2.0  # resize from (-1,1) to (0,1)
+        area_enclose = wc * hc  # Area of the smallest enclosing box
+
+        # Corrected GIoU computation
+        giou = iou - (area_enclose - union_area) / area_enclose
+        giou = (giou + 1.0) / 2.0  # Resize from (-1,1) to (0,1)
         return giou
 
 
