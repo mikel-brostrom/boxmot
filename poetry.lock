@@ -1761,58 +1761,53 @@ numpy = [
 
 [[package]]
 name = "openvino"
-version = "2024.4.0"
+version = "2024.5.0"
 description = "OpenVINO(TM) Runtime"
 optional = false
 python-versions = "*"
 files = [
-    {file = "openvino-2024.4.0-16579-cp310-cp310-macosx_10_15_x86_64.whl", hash = "sha256:8f19d4200ea04ab315a02f8279268851362f434beaa1a70b4f35d2eea1efa402"},
-    {file = "openvino-2024.4.0-16579-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:4a1da4c8db12559bf2760c8a7c8455e0b4373a20364eaee2c9832a6bb23c88a9"},
-    {file = "openvino-2024.4.0-16579-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:98325dec5ca8bd79f19ea10fd45ad4631a33d9ab50e30659a91a6239ae02d8f4"},
-    {file = "openvino-2024.4.0-16579-cp310-cp310-manylinux_2_31_aarch64.whl", hash = "sha256:61f68366017262603be0d876e2e9b7015789ee6b319da8f1792da28b733193f8"},
-    {file = "openvino-2024.4.0-16579-cp310-cp310-win_amd64.whl", hash = "sha256:a5499d6daa91c358803441561b8792231dd964c5432e838df653c1e5df8de945"},
-    {file = "openvino-2024.4.0-16579-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:e333a5f8155ae357f74e54b664d52d85fa4036a5ccea5da49a7df7f78826c1ce"},
-    {file = "openvino-2024.4.0-16579-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:b59fb073da74c7ab6d89f2559e3024044f340750b3e519e25975426beb154942"},
-    {file = "openvino-2024.4.0-16579-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:4bd3e21a70eff12166bae3b5ea824787b8c766f975f39e3f2d93729b47b74cb6"},
-    {file = "openvino-2024.4.0-16579-cp311-cp311-manylinux_2_31_aarch64.whl", hash = "sha256:49b578c4d7325e4a519eb66ee5655871a2b7cd5be9d2de0d5109df23301d10a9"},
-    {file = "openvino-2024.4.0-16579-cp311-cp311-win_amd64.whl", hash = "sha256:ab42204c185a4f0df5600a0adb4a4a0c97cebdf630696f94f9d06732714385bc"},
-    {file = "openvino-2024.4.0-16579-cp312-cp312-macosx_10_15_x86_64.whl", hash = "sha256:d67d30f830fa3147eb37f31f53c9eaee424a4e93f33eed00d8288f304ef0250a"},
-    {file = "openvino-2024.4.0-16579-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:50e05d59a90f7950c205d95bb1559e9a8a7d655fe843449d3d426c579fe665f1"},
-    {file = "openvino-2024.4.0-16579-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:d4cf229fb240b8af44d14686b5bdd94f9eabc70120b9808fc804252fac9ef615"},
-    {file = "openvino-2024.4.0-16579-cp312-cp312-manylinux_2_31_aarch64.whl", hash = "sha256:5c8ceeb537019280f69dbe86049c3136e648e94fa9f3da9ef0433975e479ad09"},
-    {file = "openvino-2024.4.0-16579-cp312-cp312-win_amd64.whl", hash = "sha256:83af7df6f9b7e2a96dfc5d63a774e6ca3f87d64c7372d14f7ae339387474fc5c"},
-    {file = "openvino-2024.4.0-16579-cp38-cp38-macosx_10_15_x86_64.whl", hash = "sha256:b23fd5114bf42f04773f293b16965a541d58e46e6847053f1417cd6e47acddf5"},
-    {file = "openvino-2024.4.0-16579-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:fa6e9fffd31c095e052f6cecb9ac3ff95e0c122418b81b9926b7687465475742"},
-    {file = "openvino-2024.4.0-16579-cp38-cp38-manylinux2014_x86_64.whl", hash = "sha256:24b28379bd8d43963829b0b4df957d659269fa647f4f842bd0b3d2f8db76782b"},
-    {file = "openvino-2024.4.0-16579-cp38-cp38-manylinux_2_31_aarch64.whl", hash = "sha256:4ed049ab7a2ffb624690e6cf38366383630cd58736320953cc62c78e8b31eae5"},
-    {file = "openvino-2024.4.0-16579-cp38-cp38-win_amd64.whl", hash = "sha256:0cccaa53a61629b44408fe0c7537db637be913697b0f3c54c78756e95dfc4498"},
-    {file = "openvino-2024.4.0-16579-cp39-cp39-macosx_10_15_x86_64.whl", hash = "sha256:3b0834492ff5bc129debb506a705d26b640bca99a10e641af8f710bd081c9af0"},
-    {file = "openvino-2024.4.0-16579-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:0e01c22a9989470ebcbb7b05fd07e4297bf6c5ecdca202b05f5dc9d2b3186f39"},
-    {file = "openvino-2024.4.0-16579-cp39-cp39-manylinux2014_x86_64.whl", hash = "sha256:fb4781dd9691dc4cfbc6b69f56f724286699e309d4ddc7894fed3ee77b683e2f"},
-    {file = "openvino-2024.4.0-16579-cp39-cp39-manylinux_2_31_aarch64.whl", hash = "sha256:74094f8ad81c2ae8500d3361ac087455316a6583016f693d7e1dd1500217ceec"},
-    {file = "openvino-2024.4.0-16579-cp39-cp39-win_amd64.whl", hash = "sha256:be834d95405fe3724f104b54f3836e7053646d952c4f8a5dad2267665f55d88f"},
+    {file = "openvino-2024.5.0-17288-cp310-cp310-macosx_10_15_x86_64.whl", hash = "sha256:3200fa738c8c8c5ea5cc88e55b7f96f296f413e3b7df40996b7efba17bbc994e"},
+    {file = "openvino-2024.5.0-17288-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:498aa2f441c8e368e693343552e40927750a82c9b716e679eae445d0850259ba"},
+    {file = "openvino-2024.5.0-17288-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:31209a50f87b062135b4140fda4a467f9086be1f98e3859deb9485548de93eaa"},
+    {file = "openvino-2024.5.0-17288-cp310-cp310-manylinux_2_31_aarch64.whl", hash = "sha256:6d342ed759a40480f18fe1e1b67c638b76776a7d1b69b915320a7a58f73fb5e6"},
+    {file = "openvino-2024.5.0-17288-cp310-cp310-win_amd64.whl", hash = "sha256:2d388d4e3b17d3c8fcc0fe26cdf4bf84458c5de0f22694460ad96c0e6c9191f4"},
+    {file = "openvino-2024.5.0-17288-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:23c781b3538371f304ba1276edc8bfee2d0ca74b928c220bb4406a3c193787dd"},
+    {file = "openvino-2024.5.0-17288-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:d2b8ec4e38fd3e547e9feed009db2aa2d0939b7bfe69c898cef47c3e450ae848"},
+    {file = "openvino-2024.5.0-17288-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:5a9109046fc11a55bcdf85075a589b67145a81f3bbfb216225d5784812d8a954"},
+    {file = "openvino-2024.5.0-17288-cp311-cp311-manylinux_2_31_aarch64.whl", hash = "sha256:6c5783f2966147117e001fbc0cbfb5a2781fdb2d889bfd007ee57934f010bf0f"},
+    {file = "openvino-2024.5.0-17288-cp311-cp311-win_amd64.whl", hash = "sha256:599b74dc2dcf1e72e7483551cf8120491b55f4f573eae507c32fa0c4c08f34ab"},
+    {file = "openvino-2024.5.0-17288-cp312-cp312-macosx_10_15_x86_64.whl", hash = "sha256:a99f321fe0e454b14e7955b5573cfc141a028675548077f97553503e2ffbff3d"},
+    {file = "openvino-2024.5.0-17288-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:694e3996015b15ac43936313f2a403e934a62f169b85b17f95362cf8f8abb81d"},
+    {file = "openvino-2024.5.0-17288-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:a1b9de4ae4cd71dc9c2af53a7e347782dc9dd0ce469cf71aa3526daebe9e22bb"},
+    {file = "openvino-2024.5.0-17288-cp312-cp312-manylinux_2_31_aarch64.whl", hash = "sha256:3ead7bed64a32d7fa186e707acf8e4a79974d40fc750322ee36487c9c1171eed"},
+    {file = "openvino-2024.5.0-17288-cp312-cp312-win_amd64.whl", hash = "sha256:e527eeca3a6c902885ddfda10bedbb4eab5104d99f18912b2a8672db992ec66d"},
+    {file = "openvino-2024.5.0-17288-cp39-cp39-macosx_10_15_x86_64.whl", hash = "sha256:842dc373c4a92a3c2a9bf924464390e0db980447d2370a2dbf9875c46275b169"},
+    {file = "openvino-2024.5.0-17288-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:3fb4608bd1f6ba4f9320eede1d6cce6cf7e563c1146ed15e6310fa17adb7bfaf"},
+    {file = "openvino-2024.5.0-17288-cp39-cp39-manylinux2014_x86_64.whl", hash = "sha256:54411e20c90b42614ed02762e4fc038268f08c0c78d56a94b1f99a5d5a41d293"},
+    {file = "openvino-2024.5.0-17288-cp39-cp39-manylinux_2_31_aarch64.whl", hash = "sha256:b1d2551c5d4f9e28d72e2f0d48ee091223082bf6ebb3a6d6e6712cbdbab60511"},
+    {file = "openvino-2024.5.0-17288-cp39-cp39-win_amd64.whl", hash = "sha256:bbd224a7a4c1611608a8e30a39e7be6dc8f66b1385325a8dcbc9c78cc2e6d195"},
 ]
 
 [package.dependencies]
-numpy = ">=1.16.6,<2.1.0"
+numpy = ">=1.16.6,<2.2.0"
 openvino-telemetry = ">=2023.2.1"
 packaging = "*"
 
 [[package]]
 name = "openvino-dev"
-version = "2024.4.0"
+version = "2024.5.0"
 description = "OpenVINO(TM) Development Tools"
 optional = false
 python-versions = "*"
 files = [
-    {file = "openvino_dev-2024.4.0-16579-py3-none-any.whl", hash = "sha256:7f53620feaa3b5ba7eb9eea993d24406db3d5778864407a9f0f6e38ab3732b4f"},
+    {file = "openvino_dev-2024.5.0-17288-py3-none-any.whl", hash = "sha256:6dd0731003371d2baee0a20945fdab97afb1cff87237e94e7b0b4a3ef39303ca"},
 ]
 
 [package.dependencies]
 defusedxml = ">=0.7.1"
 networkx = "<=3.1.0"
 numpy = ">=1.16.6,<2.0.0"
-openvino = "2024.4.0"
+openvino = "2024.5.0"
 openvino-telemetry = ">=2023.2.1"
 packaging = "*"
 pyyaml = ">=5.4.1"
@@ -1820,12 +1815,11 @@ requests = ">=2.25.1"
 
 [package.extras]
 caffe = ["defusedxml (>=0.7.1)", "fastjsonschema (>=2.15.1,<2.18)", "networkx (<=3.1.0)", "numpy (>=1.16.6,<1.27)", "protobuf (>=3.18.1,<4.0.0)", "requests (>=2.25.1)"]
-kaldi = ["defusedxml (>=0.7.1)", "fastjsonschema (>=2.15.1,<2.18)", "networkx (<=3.1.0)", "numpy (>=1.16.6,<1.27)", "requests (>=2.25.1)"]
-mxnet = ["defusedxml (>=0.7.1)", "fastjsonschema (>=2.15.1,<2.18)", "mxnet (>=1.2.0,<1.3.0)", "mxnet (>=1.7.0.post2,<=1.9.1)", "networkx (<=3.1.0)", "numpy (>=1.16.6,<1.27)", "requests (>=2.25.1)", "urllib3 (>=1.26.4)"]
-onnx = ["defusedxml (>=0.7.1)", "fastjsonschema (>=2.15.1,<2.18)", "networkx (<=3.1.0)", "numpy (>=1.16.6,<1.27)", "onnx (>=1.8.1,<=1.16.0)", "protobuf (>=3.18.1,<4.0.0)", "requests (>=2.25.1)"]
+kaldi = ["defusedxml (>=0.7.1)", "fastjsonschema (>=2.15.1,<2.18)", "networkx (<=3.1.0)", "numpy (>=1.16.6,<1.25)", "numpy (>=1.16.6,<1.27)", "requests (>=2.25.1)"]
+onnx = ["defusedxml (>=0.7.1)", "fastjsonschema (>=2.15.1,<2.18)", "networkx (<=3.1.0)", "numpy (>=1.16.6,<1.27)", "onnx (>=1.8.1,<=1.17.0)", "protobuf (>=3.18.1,<4.0.0)", "requests (>=2.25.1)"]
 pytorch = ["mpmath (<1.4)", "onnx (>=1.13)", "scipy (>=1.5.4)", "torch (>=1.8.1)", "torchvision (>=0.17)", "yacs (>=0.1.8)"]
-tensorflow = ["defusedxml (>=0.7.1)", "fastjsonschema (>=2.15.1,<2.18)", "h5py (>=3.1.0,<3.11.0)", "networkx (<=3.1.0)", "numpy (>=1.16.6,<1.27)", "requests (>=2.25.1)", "tensorflow (>=1.15.5,<2.18.0)"]
-tensorflow2 = ["defusedxml (>=0.7.1)", "fastjsonschema (>=2.15.1,<2.18)", "h5py (>=3.1.0,<3.11.0)", "networkx (<=3.1.0)", "numpy (>=1.16.6,<1.27)", "requests (>=2.25.1)", "tensorflow (>=2.5,<2.18.0)"]
+tensorflow = ["defusedxml (>=0.7.1)", "fastjsonschema (>=2.15.1,<2.18)", "h5py (>=3.1.0,<3.11.0)", "networkx (<=3.1.0)", "numpy (>=1.16.6,<1.27)", "requests (>=2.25.1)", "tensorflow (>=1.15.5,<2.19.0)"]
+tensorflow2 = ["defusedxml (>=0.7.1)", "fastjsonschema (>=2.15.1,<2.18)", "h5py (>=3.1.0,<3.11.0)", "networkx (<=3.1.0)", "numpy (>=1.16.6,<1.27)", "requests (>=2.25.1)", "tensorflow (>=2.5,!=2.13.1,<2.18.0)", "tensorflow (>=2.5,<2.18.0)", "tensorflow (>=2.5,<2.19.0)"]
 
 [[package]]
 name = "openvino-telemetry"
