@@ -246,7 +246,7 @@ class OcSort(BaseTracker):
         h, w = img.shape[0:2]
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
-        confs = dets[:, 4]
+        confs = dets[:, 4+self.is_obb] 
 
         inds_low = confs > 0.1
         inds_high = confs < self.det_thresh
@@ -258,12 +258,12 @@ class OcSort(BaseTracker):
         dets = dets[remain_inds]
 
         # get predicted locations from existing trackers.
-        trks = np.zeros((len(self.active_tracks), 5))
+        trks = np.zeros((len(self.active_tracks), 5+self.is_obb))
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
             pos = self.active_tracks[t].predict()[0]
-            trk[:] = [pos[0], pos[1], pos[2], pos[3], 0]
+            trk[:] = [pos[i] for i in range(4+self.is_obb)] + [0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
@@ -288,10 +288,10 @@ class OcSort(BaseTracker):
             First round of association
         """
         matched, unmatched_dets, unmatched_trks = associate(
-            dets[:, 0:5], trks, self.asso_func, self.asso_threshold, velocities, k_observations, self.inertia, w, h
+            dets[:, 0:5+self.is_obb], trks, self.asso_func, self.asso_threshold, velocities, k_observations, self.inertia, w, h
         )
         for m in matched:
-            self.active_tracks[m[1]].update(dets[m[0], :5], dets[m[0], 5], dets[m[0], 6])
+            self.active_tracks[m[1]].update(dets[m[0], :5+self.is_obb], dets[m[0], 5+self.is_obb], dets[m[0], 6+self.is_obb])
 
         """
             Second round of associaton by OCR
@@ -316,7 +316,7 @@ class OcSort(BaseTracker):
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
                     self.active_tracks[trk_ind].update(
-                        dets_second[det_ind, :5], dets_second[det_ind, 5], dets_second[det_ind, 6]
+                        dets_second[det_ind, :5+self.is_obb], dets_second[det_ind, 5+self.is_obb], dets_second[det_ind, 6+self.is_obb]
                     )
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_trks = np.setdiff1d(
@@ -341,7 +341,7 @@ class OcSort(BaseTracker):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
-                    self.active_tracks[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5], dets[det_ind, 6])
+                    self.active_tracks[trk_ind].update(dets[det_ind, :5+self.is_obb], dets[det_ind, 5+self.is_obb], dets[det_ind, 6+self.is_obb])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_dets = np.setdiff1d(
@@ -356,7 +356,7 @@ class OcSort(BaseTracker):
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_s_scaling=self.Q_s_scaling, max_obs=self.max_obs)
+            trk = KalmanBoxTracker(dets[i, :5+self.is_obb], dets[i, 5+self.is_obb], dets[i, 6+self.is_obb], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_s_scaling=self.Q_s_scaling, max_obs=self.max_obs)
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
         for trk in reversed(self.active_tracks):
@@ -367,7 +367,7 @@ class OcSort(BaseTracker):
                 this is optional to use the recent observation or the kalman filter prediction,
                 we didn't notice significant difference here
                 """
-                d = trk.last_observation[:4]
+                d = trk.last_observation[:4+self.is_obb]
             if (trk.time_since_update < 1) and (
                 trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
             ):
