@@ -144,6 +144,19 @@ class AssociationFunction:
 
         return 1 - normalized_distances
     
+    def centroid_batch_obb(self, bboxes1, bboxes2) -> np.ndarray:
+        centroids1 = np.stack((bboxes1[..., 0], bboxes1[..., 1]),axis=-1)
+        centroids2 = np.stack((bboxes2[..., 0], bboxes2[..., 1]),axis=-1)
+
+        centroids1 = np.expand_dims(centroids1, 1)
+        centroids2 = np.expand_dims(centroids2, 0)
+
+        distances = np.sqrt(np.sum((centroids1 - centroids2) ** 2, axis=-1))
+        norm_factor = np.sqrt(self.w ** 2 + self.h ** 2)
+        normalized_distances = distances / norm_factor
+
+        return 1 - normalized_distances
+    
     
     @staticmethod
     def ciou_batch(bboxes1, bboxes2) -> np.ndarray:
