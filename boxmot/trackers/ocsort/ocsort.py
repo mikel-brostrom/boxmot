@@ -8,6 +8,7 @@ from collections import deque
 
 
 from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
+from boxmot.motion.kalman_filters.xywha_kf import KalmanFilterXYWHA
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.ops import xyxy2xysr
@@ -44,6 +45,13 @@ def convert_x_to_bbox(x, score=None):
 def speed_direction(bbox1, bbox2):
     cx1, cy1 = (bbox1[0] + bbox1[2]) / 2.0, (bbox1[1] + bbox1[3]) / 2.0
     cx2, cy2 = (bbox2[0] + bbox2[2]) / 2.0, (bbox2[1] + bbox2[3]) / 2.0
+    speed = np.array([cy2 - cy1, cx2 - cx1])
+    norm = np.sqrt((cy2 - cy1) ** 2 + (cx2 - cx1) ** 2) + 1e-6
+    return speed / norm
+
+def speed_direction_obb(bbox1, bbox2):
+    cx1, cy1 = bbox1[0], bbox1[1]
+    cx2, cy2 = bbox2[0], bbox2[1]
     speed = np.array([cy2 - cy1, cx2 - cx1])
     norm = np.sqrt((cy2 - cy1) ** 2 + (cx2 - cx1) ** 2) + 1e-6
     return speed / norm
@@ -186,7 +194,7 @@ class KalmanBoxTrackerOBB(object):
 
     count = 0
 
-    def __init__(self, bbox, cls, det_ind, delta_t=3, max_obs=50, Q_xy_scaling = 0.01, Q_s_scaling = 0.0001):
+    def __init__(self, bbox, cls, det_ind, delta_t=3, max_obs=50, Q_xy_scaling = 0.01, Q_a_scaling = 0.01):
         """
         Initialises a tracker using initial bounding box.
 
@@ -195,42 +203,46 @@ class KalmanBoxTrackerOBB(object):
         self.det_ind = det_ind
 
         self.Q_xy_scaling = Q_xy_scaling
-        self.Q_s_scaling = Q_s_scaling
+        self.Q_a_scaling = Q_a_scaling
 
-        self.kf = KalmanFilterXYSR(dim_x=7, dim_z=4, max_obs=max_obs)
+        self.kf = KalmanFilterXYSR(dim_x=10, dim_z=5, max_obs=max_obs)
         self.kf.F = np.array(
             [
-                [1, 0, 0, 0, 1, 0, 0],
-                [0, 1, 0, 0, 0, 1, 0],
-                [0, 0, 1, 0, 0, 0, 1],
-                [0, 0, 0, 1, 0, 0, 0],
-                [0, 0, 0, 0, 1, 0, 0],
-                [0, 0, 0, 0, 0, 1, 0],
-                [0, 0, 0, 0, 0, 0, 1],
-            ]
-        )
+                [1, 0, 0, 0, 0, 1, 0, 0, 0, 0],  # cx = cx + vx
+                [0, 1, 0, 0, 0, 0, 1, 0, 0, 0],  # cy = cy + vy
+                [0, 0, 1, 0, 0, 0, 0, 1, 0, 0],  # w = w + vw
+                [0, 0, 0, 1, 0, 0, 0, 0, 1, 0],  # h = h + vh
+                [0, 0, 0, 0, 1, 0, 0, 0, 0, 1],  # a = a + va
+                [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], 
+                [0, 0, 0, 0, 0, 0, 1, 0, 0, 0], 
+                [0, 0, 0, 0, 0, 0, 0, 1, 0, 0], 
+                [0, 0, 0, 0, 0, 0, 0, 0, 1, 0], 
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+        ] 
+    )
         self.kf.H = np.array(
             [
-                [1, 0, 0, 0, 0, 0, 0],
-                [0, 1, 0, 0, 0, 0, 0],
-                [0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 1, 0, 0, 0],
-            ]
+                [1, 0, 0, 0, 0, 0, 0, 0, 0 ,0],  # cx
+                [0, 1, 0, 0, 0, 0, 0, 0, 0, 0],  # cy
+                [0, 0, 1, 0, 0, 0, 0, 0, 0, 0],  # w
+                [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],  # h
+                [0, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # angle
+    ]
         )
 
         self.kf.R[2:, 2:] *= 10.0
         self.kf.P[
-            4:, 4:
+            5:, 5:
         ] *= 1000.0  # give high uncertainty to the unobservable initial velocities
         self.kf.P *= 10.0
 
-        self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
-        self.kf.Q[-1, -1] *= self.Q_s_scaling
+        self.kf.Q[5:7, 5:7] *= self.Q_xy_scaling
+        self.kf.Q[-1, -1] *= self.Q_a_scaling
 
-        self.kf.x[:4] = xyxy2xysr(bbox)
+        self.kf.x[:5] = bbox
         self.time_since_update = 0
-        self.id = KalmanBoxTracker.count
-        KalmanBoxTracker.count += 1
+        self.id = KalmanBoxTrackerOBB.count
+        KalmanBoxTrackerOBB.count += 1
         self.max_obs = max_obs
         self.history = deque([], maxlen=self.max_obs)
         self.hits = 0
@@ -244,7 +256,7 @@ class KalmanBoxTrackerOBB(object):
         fast and unified way, which you would see below k_observations = np.array([k_previous_obs(...]]),
         let's bear it for now.
         """
-        self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
+        self.last_observation = np.array([-1, -1, -1, -1, -1, -1])  #WARNING : -1 is a valid angle value 
         self.observations = dict()
         self.history_observations = deque([], maxlen=self.max_obs)
         self.velocity = None
