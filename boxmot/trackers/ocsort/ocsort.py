@@ -211,7 +211,7 @@ class OcSort(BaseTracker):
         Q_s_scaling: float = 0.0001,
         is_obb: bool = False
     ):
-        super().__init__(max_age=max_age, per_class=per_class, asso_func=asso_func)
+        super().__init__(max_age=max_age, per_class=per_class, asso_func=asso_func, is_obb=is_obb)
         """
         Sets key parameters for SORT
         """

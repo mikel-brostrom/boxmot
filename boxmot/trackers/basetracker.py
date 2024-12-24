@@ -17,7 +17,8 @@ class BaseTracker(ABC):
         max_obs: int = 50,
         nr_classes: int = 80,
         per_class: bool = False,
-        asso_func: str = 'iou'
+        asso_func: str = 'iou',
+        is_obb: bool = False
     ):
         """
         Initialize the BaseTracker object with detection threshold, maximum age, minimum hits, 
