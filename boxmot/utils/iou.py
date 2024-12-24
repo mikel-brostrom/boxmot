@@ -34,8 +34,7 @@ class AssociationFunction:
             wh
         )
         return o
-
-
+    
     @staticmethod
     def hmiou_batch(bboxes1, bboxes2):
         """
@@ -296,7 +295,8 @@ class AssociationFunction:
             "giou": AssociationFunction.giou_batch,
             "ciou": AssociationFunction.ciou_batch,
             "diou": AssociationFunction.diou_batch,
-            "centroid": self.centroid_batch  # only not being staticmethod
+            "centroid": self.centroid_batch,  # only not being staticmethod
+            "centroid_obb": self.centroid_batch_obb
         }
 
         if self.asso_mode not in ASSO_FUNCS:
