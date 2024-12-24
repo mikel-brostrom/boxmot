@@ -282,7 +282,7 @@ class KalmanBoxTrackerOBB(object):
                 """
                   Estimate the track speed direction with observations \Delta t steps away
                 """
-                self.velocity = speed_direction(previous_box, bbox)
+                self.velocity = speed_direction_obb(previous_box, bbox)
 
             """
               Insert new observations. This is a ugly way to maintain both self.observations
@@ -295,7 +295,7 @@ class KalmanBoxTrackerOBB(object):
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
-            self.kf.update(xyxy2xysr(bbox))
+            self.kf.update(bbox)
         else:
             self.kf.update(bbox)
 
