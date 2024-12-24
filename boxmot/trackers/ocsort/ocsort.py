@@ -208,7 +208,8 @@ class OcSort(BaseTracker):
         inertia: float = 0.2,
         use_byte: bool = False,
         Q_xy_scaling: float = 0.01,
-        Q_s_scaling: float = 0.0001
+        Q_s_scaling: float = 0.0001,
+        is_obb: bool = False
     ):
         super().__init__(max_age=max_age, per_class=per_class, asso_func=asso_func)
         """
