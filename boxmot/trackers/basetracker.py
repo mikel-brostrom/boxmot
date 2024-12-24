@@ -42,7 +42,7 @@ class BaseTracker(ABC):
         self.nr_classes = nr_classes
         self.iou_threshold = iou_threshold
         self.last_emb_size = None
-        self.asso_func_name = asso_func
+        self.asso_func_name = asso_func+"_obb" if is_obb else asso_func
 
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
