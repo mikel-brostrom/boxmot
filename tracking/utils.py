@@ -10,6 +10,8 @@ from typing import Union
 from pathlib import Path
 import os
 import sys
+import shutil
+import configparser
 import git
 import requests
 import zipfile
@@ -383,3 +385,99 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
             with open(str(txt_path), 'a') as file:
                 np.savetxt(file, mot_results, fmt='%d,%d,%d,%d,%d,%d,%d,%d,%.6f')
 
+
+def decrease_frame_rate(orig_frames: list, orig_frame_rate: int,
+                        new_frame_rate: int) -> list:
+    return [orig_frames[i]
+            for i in np.arange(
+                0, len(orig_frames),
+                orig_frame_rate/new_frame_rate).astype(int)]
+
+
+def decrease_mot_dataset_fps(ds_path: Path, new_fps: int, 
+                             replace_if_exists: bool = False) -> Path:
+
+    new_ds_name = ds_path.name + f"_{new_fps}FPS"
+    new_ds_path = ds_path.parent / new_ds_name
+
+    if new_ds_path.exists() and not replace_if_exists:
+        return new_ds_path
+
+    for part_path in ds_path.iterdir():
+        part_name = part_path.name
+        for vid_path in part_path.iterdir():
+            vid_name = vid_path.name
+
+            gt_path = vid_path / "gt"
+
+            if not gt_path.exists():
+                print(f"No GTs found for {part_name} part of video {vid_name}")
+                continue
+
+            ims_path = vid_path / "img1"
+
+            im_paths = sorted(ims_path.iterdir())
+
+            if len(im_paths) == 0:
+                print(f"No images found for {part_name} part of video {vid_name}")
+                continue
+
+            new_vid_name = vid_name + f"_{new_fps}FPS"
+
+            new_vid_path = new_ds_path / part_name / new_vid_name
+            new_vid_path.mkdir(parents=True, exist_ok=True)
+
+            # Get config
+            conf_path = vid_path / "seqinfo.ini"
+            conf = configparser.ConfigParser()
+            conf.read(conf_path)
+
+            orig_fps = int(conf.get("Sequence", "frameRate"))
+
+            assert orig_fps >= new_fps, "New fps must be lower than original fps"
+
+            conf.set("Sequence", "frameRate", str(new_fps))
+
+            save_im_paths: list[Path] = decrease_frame_rate(
+                im_paths, orig_fps, new_fps)
+            
+            conf.set("Sequence", "seqLength", str(len(save_im_paths)))
+
+            with open(new_vid_path / conf_path.name, "w") as conf_file:
+                conf.write(conf_file)
+
+            save_im_numbers = [int(im_path.stem) for im_path in save_im_paths]
+            translation = {num: i for i, num in enumerate(save_im_numbers, 
+                                                          start=1)}
+
+            zfill_len = len(save_im_paths[0].stem)
+
+            # Process images
+            new_ims_path = new_vid_path / "img1"
+            new_ims_path.mkdir(parents=True, exist_ok=True)
+
+            for im_path in save_im_paths:
+                new_im_name = f"{str(translation[int(im_path.stem)]).zfill(zfill_len)}.jpg"
+                shutil.copy(im_path, new_ims_path / new_im_name)
+
+            # Process ground truth
+            new_gt_path = new_vid_path / "gt"
+            new_gt_path.mkdir(parents=True, exist_ok=True)
+
+            shutil.copytree(gt_path, new_gt_path, dirs_exist_ok=True)
+
+            with open(new_gt_path / "gt.txt", "r+") as f:
+                lines = f.readlines()
+                new_lines = []
+                f.seek(0)
+                for line in lines:
+                    if line:
+                        line = line.split(",")
+                        if int(line[0]) in translation:
+                            line[0] = str(translation[int(line[0])])
+                            new_line = ",".join(line)
+                            new_lines.append(new_line)
+                f.writelines(new_lines)
+                f.truncate()
+
+    return new_ds_path
