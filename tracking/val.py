@@ -503,8 +503,10 @@ if __name__ == "__main__":
     
     # download MOT benchmark
     download_mot_eval_tools(opt.val_tools_path)
-    zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)
-    unzip_mot_dataset(zip_path, opt.val_tools_path, opt.benchmark)
+
+    if not Path(opt.source).exists():
+        zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)
+        unzip_mot_dataset(zip_path, opt.val_tools_path, opt.benchmark)
 
     if opt.benchmark == 'MOT17':
         cleanup_mot17(opt.source)
