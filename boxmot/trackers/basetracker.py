@@ -183,12 +183,13 @@ class BaseTracker(ABC):
         if self.is_obb :
 
             assert (
-                dets.shape[1] == 6
-            ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6 (x1,y1,x2,y2,conf,cls)"
-        else :
-            assert (
                 dets.shape[1] == 7
             ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6 (cx,cy,w,h,angle,conf,cls)"
+            
+        else :
+            assert (
+                dets.shape[1] == 6
+            ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6 (x1,y1,x2,y2,conf,cls)"
 
 
     def id_to_color(self, id: int, saturation: float = 0.75, value: float = 0.95) -> tuple:
