@@ -14,9 +14,12 @@ from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.ops import xyxy2xysr
 
 
-def k_previous_obs(observations, cur_age, k):
+def k_previous_obs(observations, cur_age, k, is_obb=False):
     if len(observations) == 0:
-        return [-1, -1, -1, -1, -1]
+        if is_obb:
+            return [-1, -1, -1, -1, -1, -1]
+        else :
+            return [-1, -1, -1, -1, -1]
     for i in range(k):
         dt = k - i
         if cur_age - dt in observations:
