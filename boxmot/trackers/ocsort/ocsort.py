@@ -205,7 +205,7 @@ class KalmanBoxTrackerOBB(object):
         self.Q_xy_scaling = Q_xy_scaling
         self.Q_a_scaling = Q_a_scaling
 
-        self.kf = KalmanFilterXYSR(dim_x=10, dim_z=5, max_obs=max_obs)
+        self.kf = KalmanFilterXYWHA(dim_x=10, dim_z=5, max_obs=max_obs)
         self.kf.F = np.array(
             [
                 [1, 0, 0, 0, 0, 1, 0, 0, 0, 0],  # cx = cx + vx
@@ -239,7 +239,7 @@ class KalmanBoxTrackerOBB(object):
         self.kf.Q[5:7, 5:7] *= self.Q_xy_scaling
         self.kf.Q[-1, -1] *= self.Q_a_scaling
 
-        self.kf.x[:5] = bbox
+        self.kf.x[:5] = bbox[:5].reshape((5, 1)) # x, y, w, h, angle   (dont take confidence score)
         self.time_since_update = 0
         self.id = KalmanBoxTrackerOBB.count
         KalmanBoxTrackerOBB.count += 1
@@ -295,7 +295,7 @@ class KalmanBoxTrackerOBB(object):
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
-            self.kf.update(bbox)
+            self.kf.update(bbox[:5].reshape((5, 1))) # x, y, w, h, angle as column vector   (dont take confidence score)
         else:
             self.kf.update(bbox)
 
@@ -312,14 +312,14 @@ class KalmanBoxTrackerOBB(object):
         if self.time_since_update > 0:
             self.hit_streak = 0
         self.time_since_update += 1
-        self.history.append(self.kf.x)
+        self.history.append(self.kf.x[0:5].reshape((1, 5)))
         return self.history[-1]
 
     def get_state(self):
         """
         Returns the current bounding box estimate.
         """
-        return self.kf.x
+        return self.kf.x[0:5].reshape((1, 5))
 
 
 class OcSort(BaseTracker):
@@ -499,7 +499,10 @@ class OcSort(BaseTracker):
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(dets[i, :5+self.is_obb], dets[i, 5+self.is_obb], dets[i, 6+self.is_obb], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_s_scaling=self.Q_s_scaling, max_obs=self.max_obs)
+            if self.is_obb:
+                trk = KalmanBoxTrackerOBB(dets[i, :5+self.is_obb], dets[i, 5+self.is_obb], dets[i, 6+self.is_obb], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_a_scaling=self.Q_s_scaling, max_obs=self.max_obs)
+            else:
+                trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_s_scaling=self.Q_s_scaling, max_obs=self.max_obs)
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
         for trk in reversed(self.active_tracks):
