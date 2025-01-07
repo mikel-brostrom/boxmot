@@ -47,7 +47,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry lock --no-update
           poetry install --with yolo
 
       - name: Generate detections and embeddings
@@ -92,7 +91,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry lock --no-update
           poetry install --with yolo,evolve
 
       - name: Evolve set of parameters for selected tracking method
@@ -136,7 +134,6 @@ jobs:
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry lock --no-update
           poetry install
 
       - name: Generate detections and embeddings
@@ -198,7 +195,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry lock --no-update
           poetry install --with yolo
       - name: Test tracking with pose models
         env:
@@ -225,7 +221,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry lock --no-update
           poetry install --with yolo
       - name: Test tracking with pose models
         env:
@@ -259,7 +254,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry lock --no-update
           poetry install --with yolo
       - name: Test tracking with seg models
         env:
@@ -290,7 +284,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry lock --no-update
           poetry install --with export
 
           # needed for TFLite export
@@ -337,7 +330,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry lock --no-update
           poetry install --with test
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic

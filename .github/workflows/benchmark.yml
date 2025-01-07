@@ -51,7 +51,6 @@ jobs:
           
           python -m pip install --upgrade pip setuptools wheel poetry
           poetry config virtualenvs.create false
-          poetry lock --no-update
           poetry install --with yolo
 
       - name: Download eval tools repo

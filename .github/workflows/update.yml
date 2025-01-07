@@ -23,7 +23,6 @@ jobs:
         run: |
           poetry install
           poetry update
-          poetry lock --no-update
 
       - name: Commit changes
         run: |
