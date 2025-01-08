@@ -6,6 +6,7 @@
 import numpy as np
 from collections import deque
 
+import cv2 as cv
 
 from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
 from boxmot.motion.kalman_filters.xywha_kf import KalmanFilterXYWHA
@@ -423,9 +424,10 @@ class OcSort(BaseTracker):
             ]
         )
         last_boxes = np.array([trk.last_observation for trk in self.active_tracks])
+
         k_observations = np.array(
             [
-                k_previous_obs(trk.observations, trk.age, self.delta_t)
+                k_previous_obs(trk.observations, trk.age, self.delta_t, is_obb=self.is_obb)
                 for trk in self.active_tracks
             ]
         )
@@ -533,3 +535,139 @@ class OcSort(BaseTracker):
         if len(ret) > 0:
             return np.concatenate(ret)
         return np.array([])
+    
+    def plot_box_on_img(self, img: np.ndarray, box: tuple, conf: float, cls: int, id: int, thickness: int = 2, fontscale: float = 0.5) -> np.ndarray:
+        """
+        Draws a bounding box with ID, confidence, and class information on an image.
+
+        Parameters:
+        - img (np.ndarray): The image array to draw on.
+        - box (tuple): The bounding box coordinates as (x1, y1, x2, y2).
+        - conf (float): Confidence score of the detection.
+        - cls (int): Class ID of the detection.
+        - id (int): Unique identifier for the detection.
+        - thickness (int): The thickness of the bounding box.
+        - fontscale (float): The font scale for the text.
+
+        Returns:
+        - np.ndarray: The image array with the bounding box drawn on it.
+        """
+        if self.is_obb:
+            
+            angle = box[4] * 180.0 / np.pi  # Convert radians to degrees
+            box_poly = ((box[0], box[1]), (box[2], box[3]), angle)
+            # print((width, height))
+            rotrec = cv.boxPoints(box_poly)
+            box_poly = np.int_(rotrec)  # Convert to integer
+
+            # Draw the rectangle on the image
+            img = cv.polylines(img, [box_poly], isClosed=True, color=self.id_to_color(id), thickness=thickness)
+
+            img = cv.putText(
+                img,
+                f'id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}, a: {box[4]:.2f}',
+                (int(box[0]), int(box[1]) - 10),
+                cv.FONT_HERSHEY_SIMPLEX,
+                fontscale,
+                self.id_to_color(id),
+                thickness
+            )
+        else :
+
+            img = cv.rectangle(
+                img,
+                (int(box[0]), int(box[1])),
+                (int(box[2]), int(box[3])),
+                self.id_to_color(id),
+                thickness
+            )
+            img = cv.putText(
+                img,
+                f'id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}',
+                (int(box[0]), int(box[1]) - 10),
+                cv.FONT_HERSHEY_SIMPLEX,
+                fontscale,
+                self.id_to_color(id),
+                thickness
+            )
+        return img
+
+
+    def plot_trackers_trajectories(self, img: np.ndarray, observations: list, id: int) -> np.ndarray:
+        """
+        Draws the trajectories of tracked objects based on historical observations. Each point
+        in the trajectory is represented by a circle, with the thickness increasing for more
+        recent observations to visualize the path of movement.
+
+        Parameters:
+        - img (np.ndarray): The image array on which to draw the trajectories.
+        - observations (list): A list of bounding box coordinates representing the historical
+        observations of a tracked object. Each observation is in the format (x1, y1, x2, y2).
+        - id (int): The unique identifier of the tracked object for color consistency in visualization.
+
+        Returns:
+        - np.ndarray: The image array with the trajectories drawn on it.
+        """
+        for i, box in enumerate(observations):
+            trajectory_thickness = int(np.sqrt(float (i + 1)) * 1.2)
+            if self.is_obb:
+                img = cv.circle(
+                    img,
+                    (int(box[0]), int(box[1])),
+                    2,
+                    color=self.id_to_color(int(id)),
+                    thickness=trajectory_thickness 
+                )
+            else:
+
+                img = cv.circle(
+                    img,
+                    (int((box[0] + box[2]) / 2),
+                    int((box[1] + box[3]) / 2)), 
+                    2,
+                    color=self.id_to_color(int(id)),
+                    thickness=trajectory_thickness
+                )
+        return img
+    
+    def plot_results(self, img: np.ndarray, show_trajectories: bool, thickness: int = 2, fontscale: float = 0.5) -> np.ndarray:
+        """
+        Visualizes the trajectories of all active tracks on the image. For each track,
+        it draws the latest bounding box and the path of movement if the history of
+        observations is longer than two. This helps in understanding the movement patterns
+        of each tracked object.
+
+        Parameters:
+        - img (np.ndarray): The image array on which to draw the trajectories and bounding boxes.
+        - show_trajectories (bool): Whether to show the trajectories.
+        - thickness (int): The thickness of the bounding box.
+        - fontscale (float): The font scale for the text.
+
+        Returns:
+        - np.ndarray: The image array with trajectories and bounding boxes of all active tracks.
+        """
+
+        # if values in dict
+        if self.per_class_active_tracks is not None:
+            for k in self.per_class_active_tracks.keys():
+                active_tracks = self.per_class_active_tracks[k]
+                for a in active_tracks:
+                    if a.history_observations:
+                        if a.hit_streak >= self.min_hits:
+                            if len(a.history_observations) > 2:
+                                box = a.history_observations[-1]
+                                img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
+                                if show_trajectories:
+                                    img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
+        else:
+            for a in self.active_tracks:
+                if a.history_observations:
+                    if a.hit_streak >= self.min_hits:
+                        if len(a.history_observations) > 2:
+                            box = a.history_observations[-1]
+                            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
+                            if show_trajectories:
+                                img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
+                
+        return img
+    
