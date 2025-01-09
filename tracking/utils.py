@@ -3,6 +3,7 @@
 import numpy as np
 import torch
 import time
+import warnings
 import pandas as pd
 from ultralytics.utils import ops
 from ultralytics.engine.results import Results
@@ -434,14 +435,17 @@ def decrease_mot_dataset_fps(ds_path: Path, new_fps: int,
 
             orig_fps = int(conf.get("Sequence", "frameRate"))
 
-            assert orig_fps >= new_fps, "New fps must be lower than original fps"
-
-            conf.set("Sequence", "frameRate", str(new_fps))
-
-            save_im_paths: list[Path] = decrease_frame_rate(
-                im_paths, orig_fps, new_fps)
-            
-            conf.set("Sequence", "seqLength", str(len(save_im_paths)))
+            if new_fps <= orig_fps:
+                save_im_paths: list[Path] = decrease_frame_rate(
+                    im_paths, orig_fps, new_fps)
+                conf.set("Sequence", "frameRate", str(new_fps))
+                conf.set("Sequence", "seqLength", str(len(save_im_paths)))
+            else:
+                warnings.warn(
+                    "Cannot decrease FPS of dataset lower or equal to original. "
+                    "Using original FPS.")
+                save_im_paths = im_paths
+                
 
             with open(new_vid_path / conf_path.name, "w") as conf_file:
                 conf.write(conf_file)
