@@ -71,15 +71,12 @@ def run_val_script(yolo_model, tracking_method, reid_model, source, val_args):
 
     def process_stream(stream):
         try:
-            progress_started = False
             for line in iter(stream.readline, ''):
                 line = line.strip()
                 if line:
                     with lock:
                         if line.startswith('Frames:'):
-                            if not progress_started:
-                                print(f'{CLR}')
-                                progress_started = True
+                            print(f'{UP}{line}{CLR}\n{CLR}\n', flush=True)
                         else:
                             # For regular output, use tqdm.write
                             output_lines.append(line)
@@ -296,7 +293,7 @@ def main():
 
     fps_values = ['original']
     if args.fps_check:
-        fps_values = args.fps_values + fps_values
+        fps_values = fps_values + args.fps_values
 
     source_path = Path(args.source)
 
