@@ -166,6 +166,17 @@ $ python3 tracking/val.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt1
 ```
 
 Detections and embeddings are stored for the selected YOLO and ReID model respectively, which then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
+
+Evaluate combinations of detectors, tracking methods and ReID models with/without different FPS on standard MOT dataset or you custom one by
+
+```bash
+$ python3 tracking/eval.py --yolo-models yolov8n.pt yolo11n.pt --reid-models osnet_x0_25_msmt17.pt --tracking-methods bytetrack deepocsort botsort --source ./assets/MOT17-mini/train --no-fps-check --verbose
+$ python3 tracking/eval.py --yolo-models yolov8n.pt yolo11n.pt --reid-models osnet_x0_25_msmt17.pt --tracking-methods bytetrack deepocsort botsort --source ./tracking/val_utils/data/MOT17/train --verbose
+```
+
+Plots and results are saved in `runs/eval` folder.
+
+
 </details>
 
 
