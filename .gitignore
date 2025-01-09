@@ -26,6 +26,12 @@ weights/*_openvino_model
 weights/*.engine
 weights/*.tflite
 
+# Additional FPS folders for MOT17-mini
+assets/MOT17-mini_*FPS
+
+# Tracker output files
+*_output.json
+
 # evaluation tools folder
 val_utils/
 
