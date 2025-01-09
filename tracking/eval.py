@@ -130,13 +130,19 @@ def parse_output(output):
     return None
 
 
+def fps_sort_key(value):
+    if value == "original":
+        return float('inf')  # Treat "original" as the largest value
+    return int(value)  # Convert numerical strings to integers for sorting
+
+
 def plot_results(results,
                  ds_name: str):
     for yolo_model, reid_models in results.items():
         for reid_model, tracking_methods in reid_models.items():
             plt.figure()
             for tracking_method, fps_metrics in tracking_methods.items():
-                fps_values = list(fps_metrics.keys())
+                fps_values = sorted(list(fps_metrics.keys()), key=fps_sort_key)
                 hota_values = [fps_metrics[fps]['HOTA'] for fps in fps_values]
 
                 plt.plot(fps_values, hota_values,
