@@ -653,7 +653,7 @@ class OcSort(BaseTracker):
                 active_tracks = self.per_class_active_tracks[k]
                 for a in active_tracks:
                     if a.history_observations:
-                        if a.hit_streak >= self.min_hits:
+                        if a.hits >= self.min_hits:
                             if len(a.history_observations) > 2:
                                 box = a.history_observations[-1]
                                 img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
@@ -662,7 +662,7 @@ class OcSort(BaseTracker):
         else:
             for a in self.active_tracks:
                 if a.history_observations:
-                    if a.hit_streak >= self.min_hits:
+                    if a.hits >= self.min_hits:
                         if len(a.history_observations) > 2:
                             box = a.history_observations[-1]
                             img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
