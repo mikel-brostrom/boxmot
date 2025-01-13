@@ -439,7 +439,7 @@ class OcSort(BaseTracker):
             dets[:, 0:5+self.is_obb], trks, self.asso_func, self.asso_threshold, velocities, k_observations, self.inertia, w, h
         )
         for m in matched:
-            self.active_tracks[m[1]].update(dets[m[0], :5+self.is_obb], dets[m[0], 5+self.is_obb], dets[m[0], 6+self.is_obb])
+            self.active_tracks[m[1]].update(dets[m[0], :-2], dets[m[0], -2], dets[m[0], -1])
 
         """
             Second round of associaton by OCR
@@ -464,7 +464,7 @@ class OcSort(BaseTracker):
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
                     self.active_tracks[trk_ind].update(
-                        dets_second[det_ind, :5+self.is_obb], dets_second[det_ind, 5+self.is_obb], dets_second[det_ind, 6+self.is_obb]
+                        dets_second[det_ind, :-2], dets_second[det_ind, -2], dets_second[det_ind, -1]
                     )
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_trks = np.setdiff1d(
@@ -489,7 +489,7 @@ class OcSort(BaseTracker):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
-                    self.active_tracks[trk_ind].update(dets[det_ind, :5+self.is_obb], dets[det_ind, 5+self.is_obb], dets[det_ind, 6+self.is_obb])
+                    self.active_tracks[trk_ind].update(dets[det_ind, :-2], dets[det_ind, -2], dets[det_ind, -1])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_dets = np.setdiff1d(
@@ -505,7 +505,7 @@ class OcSort(BaseTracker):
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
             if self.is_obb:
-                trk = KalmanBoxTrackerOBB(dets[i, :5+self.is_obb], dets[i, 5+self.is_obb], dets[i, 6+self.is_obb], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_a_scaling=self.Q_s_scaling, max_obs=self.max_obs)
+                trk = KalmanBoxTrackerOBB(dets[i, :-2], dets[i, -2], dets[i, -1], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_a_scaling=self.Q_s_scaling, max_obs=self.max_obs)
             else:
                 trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_s_scaling=self.Q_s_scaling, max_obs=self.max_obs)
             self.active_tracks.append(trk)
