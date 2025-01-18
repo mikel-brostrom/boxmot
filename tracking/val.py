@@ -300,7 +300,7 @@ def parse_mot_results(results: str) -> dict:
         dict: A dictionary containing HOTA, MOTA, and IDF1 scores.
     """
     combined_results = results.split('COMBINED')[2:-1]
-    combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0])
+    combined_results = [float(re.findall(r"[-+]?(?:\d*\.*\d+)", f)[0])
                         for f in combined_results]
 
     results_dict = {}
