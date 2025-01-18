@@ -21,10 +21,10 @@ from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES, DATA
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
-from boxmot.data.loader import LoadImagesAndVideos
 from boxmot.utils.misc import increment_path
 
 from ultralytics import YOLO
+from ultralytics.data.loaders import LoadImagesAndVideos
 
 from tracking.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model, is_yolox_model)
@@ -300,7 +300,7 @@ def parse_mot_results(results: str) -> dict:
         dict: A dictionary containing HOTA, MOTA, and IDF1 scores.
     """
     combined_results = results.split('COMBINED')[2:-1]
-    combined_results = [float(re.findall(r"[-+]?(?:\d*\.*\d+)", f)[0])
+    combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0])
                         for f in combined_results]
 
     results_dict = {}
