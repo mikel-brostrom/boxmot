@@ -19,6 +19,7 @@ class EngineExporter(BaseExporter):
 
         onnx_file = self.export_onnx()
         LOGGER.info(f"\nStarting export with TensorRT {trt.__version__}...")
+        is_trt10 = int(trt.__version__.split(".")[0]) >= 10  # is TensorRT >= 10
         assert onnx_file.exists(), f"Failed to export ONNX file: {onnx_file}"
         f = self.file.with_suffix(".engine")
         logger = trt.Logger(trt.Logger.INFO)
@@ -27,7 +28,11 @@ class EngineExporter(BaseExporter):
 
         builder = trt.Builder(logger)
         config = builder.create_builder_config()
-        config.max_workspace_size = self.workspace * 1 << 30
+        workspace = int(self.workspace * (1 << 30))
+        if is_trt10:
+            config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace)
+        else:  # TensorRT versions 7, 8
+            config.max_workspace_size = workspace
 
         flag = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
         network = builder.create_network(flag)
@@ -62,8 +67,11 @@ class EngineExporter(BaseExporter):
         if builder.platform_has_fast_fp16 and self.half:
             config.set_flag(trt.BuilderFlag.FP16)
             config.default_device_type = trt.DeviceType.GPU
-        with builder.build_engine(network, config) as engine, open(f, "wb") as t:
-            t.write(engine.serialize())
+
+        build = builder.build_serialized_network if is_trt10 else builder.build_engine
+        with build(network, config) as engine, open(f, "wb") as t:
+            t.write(engine if is_trt10 else engine.serialize())
+
         return f
 
 
