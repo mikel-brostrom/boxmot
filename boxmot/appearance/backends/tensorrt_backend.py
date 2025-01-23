@@ -18,7 +18,7 @@ class TensorRTBackend(BaseModelBackend):
 
     def load_model(self, w):
         LOGGER.info(f"Loading {w} for TensorRT inference...")
-        # self.checker.check_packages(("nvidia-tensorrt",))
+        self.checker.check_packages(("nvidia-tensorrt",))
         try:
             import tensorrt as trt  # TensorRT library
         except ImportError:
