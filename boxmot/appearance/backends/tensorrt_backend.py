@@ -7,6 +7,7 @@ from boxmot.appearance.backends.base_backend import BaseModelBackend
 
 class TensorRTBackend(BaseModelBackend):
     def __init__(self, weights, device, half):
+        self.is_trt10 = False
         super().__init__(weights, device, half)
         self.nhwc = False
         self.half = half
@@ -40,22 +41,37 @@ class TensorRTBackend(BaseModelBackend):
         self.context = self.model_.create_execution_context()
         self.bindings = OrderedDict()
 
+        self.is_trt10 = not hasattr(self.model_, "num_bindings")
+        num = range(self.model_.num_io_tensors) if self.is_trt10 else range(self.model_.num_bindings)
+
         # Parse bindings
-        for index in range(self.model_.num_bindings):
-            name = self.model_.get_binding_name(index)
-            dtype = trt.nptype(self.model_.get_binding_dtype(index))
-            is_input = self.model_.binding_is_input(index)
+        for index in num:
+            if self.is_trt10:
+                name = self.model_.get_tensor_name(index)
+                dtype = trt.nptype(self.model_.get_tensor_dtype(name))
+                is_input = self.model_.get_tensor_mode(name) == trt.TensorIOMode.INPUT
+                if is_input and -1 in tuple(self.model_.get_tensor_shape(name)):
+                        self.context.set_input_shape(name, tuple(self.model_.get_tensor_profile_shape(name, 0)[1]))
+                if is_input and dtype == np.float16:
+                    self.fp16 = True
 
-            # Handle dynamic shapes
-            if is_input and -1 in self.model_.get_binding_shape(index):
-                profile_index = 0
-                min_shape, opt_shape, max_shape = self.model_.get_profile_shape(profile_index, index)
-                self.context.set_binding_shape(index, opt_shape)
+                shape = tuple(self.context.get_tensor_shape(name))
 
-            if is_input and dtype == np.float16:
-                self.fp16 = True
+            else:
+                name = self.model_.get_binding_name(index)
+                dtype = trt.nptype(self.model_.get_binding_dtype(index))
+                is_input = self.model_.binding_is_input(index)
 
-            shape = tuple(self.context.get_binding_shape(index))
+                # Handle dynamic shapes
+                if is_input and -1 in self.model_.get_binding_shape(index):
+                    profile_index = 0
+                    min_shape, opt_shape, max_shape = self.model_.get_profile_shape(profile_index, index)
+                    self.context.set_binding_shape(index, opt_shape)
+
+                if is_input and dtype == np.float16:
+                    self.fp16 = True
+
+                shape = tuple(self.context.get_binding_shape(index))
             data = torch.from_numpy(np.empty(shape, dtype=dtype)).to(self.device)
             self.bindings[name] = Binding(name, dtype, shape, data, int(data.data_ptr()))
 
@@ -64,12 +80,17 @@ class TensorRTBackend(BaseModelBackend):
     def forward(self, im_batch):
         # Adjust for dynamic shapes
         if im_batch.shape != self.bindings["images"].shape:
-            i_in = self.model_.get_binding_index("images")
-            i_out = self.model_.get_binding_index("output")
-            self.context.set_binding_shape(i_in, im_batch.shape)
-            self.bindings["images"] = self.bindings["images"]._replace(shape=im_batch.shape)
-            output_shape = tuple(self.context.get_binding_shape(i_out))
-            self.bindings["output"].data.resize_(output_shape)
+            if self.is_trt10:
+                self.context.set_input_shape("images", im_batch.shape)
+                self.bindings["images"] = self.bindings["images"]._replace(shape=im_batch.shape)
+                self.bindings["output"].data.resize_(tuple(self.context.get_tensor_shape("output")))
+            else:
+                i_in = self.model_.get_binding_index("images")
+                i_out = self.model_.get_binding_index("output")
+                self.context.set_binding_shape(i_in, im_batch.shape)
+                self.bindings["images"] = self.bindings["images"]._replace(shape=im_batch.shape)
+                output_shape = tuple(self.context.get_binding_shape(i_out))
+                self.bindings["output"].data.resize_(output_shape)
 
         s = self.bindings["images"].shape
         assert im_batch.shape == s, f"Input size {im_batch.shape} does not match model size {s}"
