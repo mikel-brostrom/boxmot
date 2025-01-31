@@ -111,12 +111,13 @@ class BaseTracker(ABC):
             # Even if dets is empty (e.g., shape (0, 7)), this check will still pass if it's Nx7
             if not self._first_dets_processed:
                 dets = args[0]
-                if dets.ndim == 2 and dets.shape[1] == 6:
-                    self.is_obb = False
-                    self._first_dets_processed = True
-                elif dets.ndim == 2 and dets.shape[1] == 7:
-                    self.is_obb = True
-                    self._first_dets_processed = True
+                if dets is not None:
+                    if dets.ndim == 2 and dets.shape[1] == 6:
+                        self.is_obb = False
+                        self._first_dets_processed = True
+                    elif dets.ndim == 2 and dets.shape[1] == 7:
+                        self.is_obb = True
+                        self._first_dets_processed = True
 
             if not self._first_frame_processed:
                 img = args[1]
@@ -191,12 +192,10 @@ class BaseTracker(ABC):
         assert (
             len(dets.shape) == 2
         ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
-        if self.is_obb :
-
+        if self.is_obb:
             assert (
                 dets.shape[1] == 7
             ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6 (cx,cy,w,h,angle,conf,cls)"
-            
         else :
             assert (
                 dets.shape[1] == 6
