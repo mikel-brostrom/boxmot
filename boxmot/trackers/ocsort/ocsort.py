@@ -7,15 +7,19 @@ import numpy as np
 from collections import deque
 
 
-from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
+from boxmot.motion.kalman_filters.aabb.xysr_kf import KalmanFilterXYSR
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.ops import xyxy2xysr
+from boxmot.motion.kalman_filters.obb.xywha_kf import KalmanBoxTrackerOBB
 
 
-def k_previous_obs(observations, cur_age, k):
+def k_previous_obs(observations, cur_age, k, is_obb=False):
     if len(observations) == 0:
-        return [-1, -1, -1, -1, -1]
+        if is_obb:
+            return [-1, -1, -1, -1, -1, -1]
+        else :
+            return [-1, -1, -1, -1, -1]
     for i in range(k):
         dt = k - i
         if cur_age - dt in observations:
@@ -208,7 +212,7 @@ class OcSort(BaseTracker):
         inertia: float = 0.2,
         use_byte: bool = False,
         Q_xy_scaling: float = 0.01,
-        Q_s_scaling: float = 0.0001
+        Q_s_scaling: float = 0.0001,
     ):
         super().__init__(max_age=max_age, per_class=per_class, asso_func=asso_func)
         """
@@ -227,7 +231,7 @@ class OcSort(BaseTracker):
         self.Q_s_scaling = Q_s_scaling
         KalmanBoxTracker.count = 0
 
-    @BaseTracker.on_first_frame_setup
+    @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
@@ -245,7 +249,7 @@ class OcSort(BaseTracker):
         h, w = img.shape[0:2]
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
-        confs = dets[:, 4]
+        confs = dets[:, 4+self.is_obb] 
 
         inds_low = confs > 0.1
         inds_high = confs < self.det_thresh
@@ -257,12 +261,12 @@ class OcSort(BaseTracker):
         dets = dets[remain_inds]
 
         # get predicted locations from existing trackers.
-        trks = np.zeros((len(self.active_tracks), 5))
+        trks = np.zeros((len(self.active_tracks), 5+self.is_obb))
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
             pos = self.active_tracks[t].predict()[0]
-            trk[:] = [pos[0], pos[1], pos[2], pos[3], 0]
+            trk[:] = [pos[i] for i in range(4+self.is_obb)] + [0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
@@ -276,9 +280,10 @@ class OcSort(BaseTracker):
             ]
         )
         last_boxes = np.array([trk.last_observation for trk in self.active_tracks])
+
         k_observations = np.array(
             [
-                k_previous_obs(trk.observations, trk.age, self.delta_t)
+                k_previous_obs(trk.observations, trk.age, self.delta_t, is_obb=self.is_obb)
                 for trk in self.active_tracks
             ]
         )
@@ -287,10 +292,10 @@ class OcSort(BaseTracker):
             First round of association
         """
         matched, unmatched_dets, unmatched_trks = associate(
-            dets[:, 0:5], trks, self.asso_func, self.asso_threshold, velocities, k_observations, self.inertia, w, h
+            dets[:, 0:5+self.is_obb], trks, self.asso_func, self.asso_threshold, velocities, k_observations, self.inertia, w, h
         )
         for m in matched:
-            self.active_tracks[m[1]].update(dets[m[0], :5], dets[m[0], 5], dets[m[0], 6])
+            self.active_tracks[m[1]].update(dets[m[0], :-2], dets[m[0], -2], dets[m[0], -1])
 
         """
             Second round of associaton by OCR
@@ -315,7 +320,7 @@ class OcSort(BaseTracker):
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
                     self.active_tracks[trk_ind].update(
-                        dets_second[det_ind, :5], dets_second[det_ind, 5], dets_second[det_ind, 6]
+                        dets_second[det_ind, :-2], dets_second[det_ind, -2], dets_second[det_ind, -1]
                     )
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_trks = np.setdiff1d(
@@ -340,7 +345,7 @@ class OcSort(BaseTracker):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
-                    self.active_tracks[trk_ind].update(dets[det_ind, :5], dets[det_ind, 5], dets[det_ind, 6])
+                    self.active_tracks[trk_ind].update(dets[det_ind, :-2], dets[det_ind, -2], dets[det_ind, -1])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_dets = np.setdiff1d(
@@ -355,7 +360,10 @@ class OcSort(BaseTracker):
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_s_scaling=self.Q_s_scaling, max_obs=self.max_obs)
+            if self.is_obb:
+                trk = KalmanBoxTrackerOBB(dets[i, :-2], dets[i, -2], dets[i, -1], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_a_scaling=self.Q_s_scaling, max_obs=self.max_obs)
+            else:
+                trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_s_scaling=self.Q_s_scaling, max_obs=self.max_obs)
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
         for trk in reversed(self.active_tracks):
@@ -366,7 +374,7 @@ class OcSort(BaseTracker):
                 this is optional to use the recent observation or the kalman filter prediction,
                 we didn't notice significant difference here
                 """
-                d = trk.last_observation[:4]
+                d = trk.last_observation[:4+self.is_obb]
             if (trk.time_since_update < 1) and (
                 trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
             ):

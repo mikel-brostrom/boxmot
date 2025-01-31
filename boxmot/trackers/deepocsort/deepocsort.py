@@ -7,8 +7,7 @@ from collections import deque
 
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.motion.kalman_filters.xysr_kf import KalmanFilterXYSR
-from boxmot.motion.kalman_filters.xywh_kf import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.aabb.xysr_kf import KalmanFilterXYSR
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.ops import xyxy2xysr
@@ -299,7 +298,7 @@ class DeepOcSort(BaseTracker):
         self.cmc_off = cmc_off
         self.aw_off = aw_off
 
-    @BaseTracker.on_first_frame_setup
+    @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
