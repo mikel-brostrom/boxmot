@@ -4,7 +4,7 @@ import torch
 import numpy as np
 from pathlib import Path
 
-from boxmot.motion.kalman_filters.xywh_kf import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
@@ -84,7 +84,7 @@ class BotSort(BaseTracker):
         self.cmc = get_cmc_method(cmc_method)()
         self.fuse_first_associate = fuse_first_associate
 
-    @BaseTracker.on_first_frame_setup
+    @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         self.check_inputs(dets, img)
