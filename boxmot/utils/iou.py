@@ -1,4 +1,35 @@
 import numpy as np
+import cv2 as cv
+
+def iou_obb_pair(i, j, bboxes1, bboxes2):
+    """
+    Compute IoU for the rotated rectangles at index i and j in the batches `bboxes1`, `bboxes2` .
+    """
+    rect1 = bboxes1[int(i)]
+    rect2 = bboxes2[int(j)]
+    
+    (cx1, cy1, w1, h1, angle1) = rect1[0:5]
+    (cx2, cy2, w2, h2, angle2) = rect2[0:5]
+    
+    
+    r1 = ((cx1, cy1), (w1, h1), angle1)
+    r2 = ((cx2, cy2), (w2, h2), angle2)
+    
+    # Compute intersection
+    ret, intersect = cv.rotatedRectangleIntersection(r1, r2)
+    if ret == 0 or intersect is None:
+        return 0.0  # No intersection
+    
+    # Calculate intersection area
+    intersection_area = cv.contourArea(intersect)
+    
+    # Calculate union area
+    area1 = w1 * h1
+    area2 = w2 * h2
+    union_area = area1 + area2 - intersection_area
+    
+    # Compute IoU
+    return intersection_area / union_area if union_area > 0 else 0.0
 
 class AssociationFunction:
     def __init__(self, w, h, asso_mode="iou"):
@@ -34,7 +65,17 @@ class AssociationFunction:
             wh
         )
         return o
+    
+    @staticmethod
+    def iou_batch_obb(bboxes1, bboxes2) -> np.ndarray:
 
+        N, M = len(bboxes1), len(bboxes2)
+
+        def wrapper(i, j):
+            return iou_obb_pair(i, j, bboxes1, bboxes2)
+        
+        iou_matrix = np.fromfunction(np.vectorize(wrapper), shape=(N, M), dtype=int)
+        return iou_matrix
 
     @staticmethod
     def hmiou_batch(bboxes1, bboxes2):
@@ -134,6 +175,19 @@ class AssociationFunction:
                                (bboxes1[..., 1] + bboxes1[..., 3]) / 2), axis=-1)
         centroids2 = np.stack(((bboxes2[..., 0] + bboxes2[..., 2]) / 2,
                                (bboxes2[..., 1] + bboxes2[..., 3]) / 2), axis=-1)
+
+        centroids1 = np.expand_dims(centroids1, 1)
+        centroids2 = np.expand_dims(centroids2, 0)
+
+        distances = np.sqrt(np.sum((centroids1 - centroids2) ** 2, axis=-1))
+        norm_factor = np.sqrt(self.w ** 2 + self.h ** 2)
+        normalized_distances = distances / norm_factor
+
+        return 1 - normalized_distances
+    
+    def centroid_batch_obb(self, bboxes1, bboxes2) -> np.ndarray:
+        centroids1 = np.stack((bboxes1[..., 0], bboxes1[..., 1]),axis=-1)
+        centroids2 = np.stack((bboxes2[..., 0], bboxes2[..., 1]),axis=-1)
 
         centroids1 = np.expand_dims(centroids1, 1)
         centroids2 = np.expand_dims(centroids2, 0)
@@ -279,11 +333,13 @@ class AssociationFunction:
         """
         ASSO_FUNCS = {
             "iou": AssociationFunction.iou_batch,
+            "iou_obb": AssociationFunction.iou_batch_obb,
             "hmiou": AssociationFunction.hmiou_batch,
             "giou": AssociationFunction.giou_batch,
             "ciou": AssociationFunction.ciou_batch,
             "diou": AssociationFunction.diou_batch,
-            "centroid": self.centroid_batch  # only not being staticmethod
+            "centroid": self.centroid_batch,  # only not being staticmethod
+            "centroid_obb": self.centroid_batch_obb
         }
 
         if self.asso_mode not in ASSO_FUNCS:
