@@ -3,7 +3,7 @@
 import os
 import numpy as np
 
-from boxmot.motion.kalman_filters.xyah_kf import KalmanFilterXYAH
+from boxmot.motion.kalman_filters.aabb.xyah_kf import KalmanFilterXYAH
 
 
 class TrackState:

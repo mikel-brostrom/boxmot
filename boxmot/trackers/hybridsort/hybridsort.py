@@ -392,7 +392,7 @@ class HybridSort(BaseTracker):
         for tracker in trackers:
             tracker.camera_update(warp_matrix)
 
-    @BaseTracker.on_first_frame_setup
+    @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
