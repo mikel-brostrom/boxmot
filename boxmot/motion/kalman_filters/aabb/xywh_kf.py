@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Tuple
-from boxmot.motion.kalman_filters.base_kalman_filter import BaseKalmanFilter
+from boxmot.motion.kalman_filters.aabb.base_kalman_filter import BaseKalmanFilter
 
 
 class KalmanFilterXYWH(BaseKalmanFilter):
