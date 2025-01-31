@@ -49,6 +49,7 @@ class BaseTracker(ABC):
         self.active_tracks = []  # This might be handled differently in derived classes
         self.per_class_active_tracks = None
         self._first_frame_processed = False  # Flag to track if the first frame has been processed
+        self._first_dets_processed = False
         
         # Initialize per-class active tracks
         if self.per_class:
@@ -99,7 +100,7 @@ class BaseTracker(ABC):
         return class_dets, class_embs
     
     @staticmethod
-    def on_first_frame_setup(method):
+    def setup_decorator(method):
         """
         Decorator to perform setup on the first frame only.
         This ensures that initialization tasks (like setting the association function) only
@@ -107,6 +108,16 @@ class BaseTracker(ABC):
         """
         def wrapper(self, *args, **kwargs):
             # If setup hasn't been done yet, perform it
+            # Even if dets is empty (e.g., shape (0, 7)), this check will still pass if it's Nx7
+            if not self._first_dets_processed:
+                dets = args[0]
+                if dets.ndim == 2 and dets.shape[1] == 6:
+                    self.is_obb = False
+                    self._first_dets_processed = True
+                elif dets.ndim == 2 and dets.shape[1] == 7:
+                    self.is_obb = True
+                    self._first_dets_processed = True
+
             if not self._first_frame_processed:
                 img = args[1]
                 self.h, self.w = img.shape[0:2]
@@ -243,23 +254,44 @@ class BaseTracker(ABC):
         Returns:
         - np.ndarray: The image array with the bounding box drawn on it.
         """
+        if self.is_obb:
+            
+            angle = box[4] * 180.0 / np.pi  # Convert radians to degrees
+            box_poly = ((box[0], box[1]), (box[2], box[3]), angle)
+            # print((width, height))
+            rotrec = cv.boxPoints(box_poly)
+            box_poly = np.int_(rotrec)  # Convert to integer
 
-        img = cv.rectangle(
-            img,
-            (int(box[0]), int(box[1])),
-            (int(box[2]), int(box[3])),
-            self.id_to_color(id),
-            thickness
-        )
-        img = cv.putText(
-            img,
-            f'id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}',
-            (int(box[0]), int(box[1]) - 10),
-            cv.FONT_HERSHEY_SIMPLEX,
-            fontscale,
-            self.id_to_color(id),
-            thickness
-        )
+            # Draw the rectangle on the image
+            img = cv.polylines(img, [box_poly], isClosed=True, color=self.id_to_color(id), thickness=thickness)
+
+            img = cv.putText(
+                img,
+                f'id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}, a: {box[4]:.2f}',
+                (int(box[0]), int(box[1]) - 10),
+                cv.FONT_HERSHEY_SIMPLEX,
+                fontscale,
+                self.id_to_color(id),
+                thickness
+            )
+        else :
+
+            img = cv.rectangle(
+                img,
+                (int(box[0]), int(box[1])),
+                (int(box[2]), int(box[3])),
+                self.id_to_color(id),
+                thickness
+            )
+            img = cv.putText(
+                img,
+                f'id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}',
+                (int(box[0]), int(box[1]) - 10),
+                cv.FONT_HERSHEY_SIMPLEX,
+                fontscale,
+                self.id_to_color(id),
+                thickness
+            )
         return img
 
 
@@ -280,14 +312,24 @@ class BaseTracker(ABC):
         """
         for i, box in enumerate(observations):
             trajectory_thickness = int(np.sqrt(float (i + 1)) * 1.2)
-            img = cv.circle(
-                img,
-                (int((box[0] + box[2]) / 2),
-                int((box[1] + box[3]) / 2)), 
-                2,
-                color=self.id_to_color(int(id)),
-                thickness=trajectory_thickness
-            )
+            if self.is_obb:
+                img = cv.circle(
+                    img,
+                    (int(box[0]), int(box[1])),
+                    2,
+                    color=self.id_to_color(int(id)),
+                    thickness=trajectory_thickness 
+                )
+            else:
+
+                img = cv.circle(
+                    img,
+                    (int((box[0] + box[2]) / 2),
+                    int((box[1] + box[3]) / 2)), 
+                    2,
+                    color=self.id_to_color(int(id)),
+                    thickness=trajectory_thickness
+                )
         return img
 
 
