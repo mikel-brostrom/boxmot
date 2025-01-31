@@ -7,7 +7,7 @@ from torch import device
 
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
-from boxmot.motion.kalman_filters.xywh_kf import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
 from boxmot.trackers.imprassoc.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment,
@@ -264,7 +264,7 @@ class ImprAssocTrack(BaseTracker):
         self.cmc = SOF()
 
 
-    @BaseTracker.on_first_frame_setup
+    @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         self.check_inputs(dets, img)
