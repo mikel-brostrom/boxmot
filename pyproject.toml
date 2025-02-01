@@ -52,7 +52,7 @@ torchvision = [
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.0.2"
-isort = "^5.13.2"
+isort = "^6.0.0"
 pytest-cov = "^6.0.0"
 
 
