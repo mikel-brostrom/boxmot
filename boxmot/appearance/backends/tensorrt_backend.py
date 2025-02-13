@@ -78,27 +78,49 @@ class TensorRTBackend(BaseModelBackend):
         self.binding_addrs = OrderedDict((n, d.ptr) for n, d in self.bindings.items())
 
     def forward(self, im_batch):
-        # Adjust for dynamic shapes
-        if im_batch.shape != self.bindings["images"].shape:
-            if self.is_trt10:
-                self.context.set_input_shape("images", im_batch.shape)
-                self.bindings["images"] = self.bindings["images"]._replace(shape=im_batch.shape)
-                self.bindings["output"].data.resize_(tuple(self.context.get_tensor_shape("output")))
-            else:
-                i_in = self.model_.get_binding_index("images")
-                i_out = self.model_.get_binding_index("output")
-                self.context.set_binding_shape(i_in, im_batch.shape)
-                self.bindings["images"] = self.bindings["images"]._replace(shape=im_batch.shape)
-                output_shape = tuple(self.context.get_binding_shape(i_out))
-                self.bindings["output"].data.resize_(output_shape)
+        temp_im_batch = im_batch.clone()
+        batch_array = []
+        inp_batch = im_batch.shape[0]
+        out_batch = self.bindings["output"].shape[0]
+        resultant_features = []
 
-        s = self.bindings["images"].shape
-        assert im_batch.shape == s, f"Input size {im_batch.shape} does not match model size {s}"
+        # Divide batch to sub batches
+        while inp_batch > out_batch:
+            batch_array.append(temp_im_batch[:out_batch])
+            temp_im_batch = temp_im_batch[out_batch:]
+            inp_batch = temp_im_batch.shape[0]
+        if temp_im_batch.shape[0] > 0:
+            batch_array.append(temp_im_batch)
+        
+        for temp_batch in batch_array:
+            # Adjust for dynamic shapes
+            if temp_batch.shape != self.bindings["images"].shape:
+                if self.is_trt10:
+                    
+                    self.context.set_input_shape("images", temp_batch.shape)
+                    self.bindings["images"] = self.bindings["images"]._replace(shape=temp_batch.shape)
+                    self.bindings["output"].data.resize_(tuple(self.context.get_tensor_shape("output")))
+                else:
+                    i_in = self.model_.get_binding_index("images")
+                    i_out = self.model_.get_binding_index("output")
+                    self.context.set_binding_shape(i_in, temp_batch.shape)
+                    self.bindings["images"] = self.bindings["images"]._replace(shape=temp_batch.shape)
+                    output_shape = tuple(self.context.get_binding_shape(i_out))
+                    self.bindings["output"].data.resize_(output_shape)
 
-        # Set input buffer
-        self.binding_addrs["images"] = int(im_batch.data_ptr())
+            s = self.bindings["images"].shape
+            assert temp_batch.shape == s, f"Input size {temp_batch.shape} does not match model size {s}"
 
-        # Execute inference
-        self.context.execute_v2(list(self.binding_addrs.values()))
-        features = self.bindings["output"].data
-        return features
+            self.binding_addrs["images"] = int(temp_batch.data_ptr())
+
+            # Execute inference
+            self.context.execute_v2(list(self.binding_addrs.values()))
+            features = self.bindings["output"].data
+            resultant_features.append(features)
+
+        if len(resultant_features)== 1:
+            return resultant_features[0]
+        else:
+            rslt_features = torch.cat(resultant_features,dim=0)
+            rslt_features= rslt_features[:im_batch.shape[0]]
+            return rslt_features
