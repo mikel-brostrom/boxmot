@@ -116,7 +116,7 @@ class TensorRTBackend(BaseModelBackend):
             # Execute inference
             self.context.execute_v2(list(self.binding_addrs.values()))
             features = self.bindings["output"].data
-            resultant_features.append(features)
+            resultant_features.append(features.clone())
 
         if len(resultant_features)== 1:
             return resultant_features[0]
