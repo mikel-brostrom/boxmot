@@ -157,8 +157,11 @@ class LayerNorm(nn.LayerNorm):
 
     def forward(self, x: torch.Tensor):
         orig_type = x.dtype
-        ret = super().forward(x.type(torch.float32))
-        return ret.type(orig_type)
+        for param in self.parameters():
+            if param.dtype == torch.float16:
+                param.data = param.data.to(torch.float32)
+        ret = super().forward(x.to(torch.float32))
+        return ret.to(orig_type)
 
 
 class QuickGELU(nn.Module):
