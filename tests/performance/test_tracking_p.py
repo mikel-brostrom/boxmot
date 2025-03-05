@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 from boxmot.utils import WEIGHTS
 import time
-
+import subprocess
 
 from numpy.testing import assert_allclose
 from boxmot import (
@@ -43,6 +43,13 @@ def test_motion_tracker_update_time(tracker_type):
     
     # Print FPS for each tracker type
     print(f"Tracker type: {tracker_type} - FPS: {fps:.2f}")
+    result = subprocess.run(
+        "cat /proc/cpuinfo | grep 'model name' | head -1",
+        shell=True,
+        capture_output=True,
+        text=True
+    )
+    print(result.stdout.strip())
     max_allowed_time = 0.005  # maximum allowed time per iteration in seconds
     
     assert elapsed_time_per_iteration < max_allowed_time, (
