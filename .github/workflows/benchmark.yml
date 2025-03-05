@@ -126,7 +126,7 @@ jobs:
             fps=${tracker_fps[$TRACKER_NAME]}
           fi
 
-          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}.txt
+          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}.txt
         
       - name: Show Results
         run: cat results/${{ matrix.tracker }}.txt
