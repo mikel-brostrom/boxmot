@@ -153,6 +153,7 @@ def download_mot_dataset(val_tools_path, benchmark, max_retries=5, backoff_facto
 
     retries = 0  # Initialize retry counter
 
+    response = None
     while retries <= max_retries:
         try:
             response = requests.head(url, allow_redirects=True)
@@ -201,7 +202,7 @@ def download_mot_dataset(val_tools_path, benchmark, max_retries=5, backoff_facto
                 return None
 
         except (requests.HTTPError, requests.ConnectionError) as e:
-            if response.status_code == 416:  # Handle "Requested Range Not Satisfiable" error
+            if response and response.status_code == 416:  # Handle "Requested Range Not Satisfiable" error
                 LOGGER.info(f"{benchmark}.zip is already fully downloaded.")
                 return zip_dst
             LOGGER.error(f'Error occurred while downloading {benchmark}.zip: {e}')
