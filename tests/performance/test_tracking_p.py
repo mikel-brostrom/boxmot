@@ -39,6 +39,7 @@ def test_motion_tracker_update_time(tracker_type):
     end = time.perf_counter()
     
     elapsed_time_per_iteration = (end - start) / n_runs
+    print(f"Tracker type: {tracker_type} - Average elapsed time per iteration: {elapsed_time_per_iteration:.6f} seconds")
     max_allowed_time = 0.005  # maximum allowed time per iteration in seconds
     
     assert elapsed_time_per_iteration < max_allowed_time, (
@@ -74,6 +75,7 @@ def test_motion_n_appearance_tracker_update_time(tracker_type):
     end = time.perf_counter()
     
     elapsed_time_per_iteration = (end - start) / n_runs
+    print(f"Tracker type: {tracker_type} - Average elapsed time per iteration: {elapsed_time_per_iteration:.6f} seconds")
     max_allowed_time = 6  # maximum allowed time per iteration in seconds
     
     assert elapsed_time_per_iteration < max_allowed_time, (
