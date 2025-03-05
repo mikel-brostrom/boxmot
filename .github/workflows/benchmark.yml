@@ -207,9 +207,7 @@ jobs:
               hota=$(echo "$line" | awk '{print $3}')
               mota=$(echo "$line" | awk '{print $4}')
               idf1=$(echo "$line" | awk '{print $5}')
-              
-              # Retrieve FPS from associative array
-              fps=${tracker_fps[$tracker]}
+              fps=$(echo "$line" | awk '{print $6}')
 
               # Retrieve the paper URL for the tracker
               paper_url=${paper_links[$tracker]}
@@ -217,7 +215,7 @@ jobs:
               # Create a markdown hyperlink for the tracker name
               tracker_link="[$tracker]($paper_url)"
               
-              new_table+="| $tracker_link | $status | $hota | $mota | $idf1 |\n"
+              new_table+="| $tracker_link | $status | $hota | $mota | $idf1 | $fps |\n"
           done < "$RESULTS_FILE"
 
           # Define unique markers to locate the table
