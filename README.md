@@ -23,8 +23,8 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 <div align="center">
 
 <!-- START TRACKER TABLE -->
-| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ |
-| :-----: | :-----: | :---: | :---: | :---: |
+| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
+| :-----: | :-----: | :---: | :---: | :---: | :---: |
 | [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 68.504 | 77.165 | 80.986 |
 | [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.329 | 76.348 | 81.206 |
 | [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 66.536 | 76.909 | 77.855 |
