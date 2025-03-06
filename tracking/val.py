@@ -300,7 +300,7 @@ def parse_mot_results(results: str) -> dict:
         dict: A dictionary containing HOTA, MOTA, and IDF1 scores.
     """
     combined_results = results.split('COMBINED')[2:-1]
-    combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0])
+    combined_results = [float(re.findall(r"[-+]?(?:\d*\.*\d+)", f)[0])
                         for f in combined_results]
 
     results_dict = {}
@@ -362,7 +362,7 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
     Args:
         opt (Namespace): Parsed command line arguments.
     """
-    mot_folder_paths = [item for item in Path(opt.source).iterdir()]
+    mot_folder_paths = sorted([item for item in Path(opt.source).iterdir()])
     for y in opt.yolo_model:
         for i, mot_folder_path in enumerate(mot_folder_paths):
             dets_path = Path(opt.project) / 'dets_n_embs' / y.stem / 'dets' / (mot_folder_path.name + '.txt')
@@ -391,12 +391,12 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         opt.exp_folder_path = exp_folder_path
 
         mot_folder_names = [item.stem for item in Path(opt.source).iterdir()]
-        dets_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt')
+        dets_file_paths = sorted([item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt')
                            if not item.name.startswith('.')
-                           and item.stem in mot_folder_names]
-        embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt')
+                           and item.stem in mot_folder_names])
+        embs_file_paths = sorted([item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt')
                            if not item.name.startswith('.')
-                           and item.stem in mot_folder_names]
+                           and item.stem in mot_folder_names])
 
         for d, e in zip(dets_file_paths, embs_file_paths):
             mot_result_path = exp_folder_path / (d.stem + '.txt')
