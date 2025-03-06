@@ -20,7 +20,7 @@ iou_threshold:
 
 use_ecc:
   type: choice
-  default: False
+  default: True
   options: [False, True]
 
 min_box_area:
