@@ -111,7 +111,7 @@ jobs:
     outputs:
       status: ${{ job.status }}
     env:
-      TRACKERS: "ocsort bytetrack botsort hybridsort deepocsort imprassoc strongsort"
+      TRACKERS: "ocsort bytetrack botsort hybridsort deepocsort imprassoc strongsort boosttrack"
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
