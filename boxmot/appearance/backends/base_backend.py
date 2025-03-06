@@ -78,7 +78,7 @@ class BaseModelBackend:
             features = self.inference_postprocess(features)
         else:
             features = np.array([])
-        features = features / np.linalg.norm(features)
+        features = features / np.linalg.norm(features, axis=-1, keepdims=True)
         return features
 
     def warmup(self, imgsz=[(256, 128, 3)]):
