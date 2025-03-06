@@ -70,21 +70,21 @@ s_sim_corr:
 
 use_rich_s:
   type: choice
-  default: False
+  default: True # True for BoostTrack++
   options: [False, True]
 
 use_sb:
   type: choice
-  default: False
+  default: True # True for BoostTrack++
   options: [False, True]
 
 use_vt:
   type: choice
-  default: False
+  default: True # True for BoostTrack++
   options: [False, True]
 
 with_reid:
   type: choice
-  default: False
+  default: True # True for BoostTrack+ and BoostTrack++
   options: [False, True]
 
