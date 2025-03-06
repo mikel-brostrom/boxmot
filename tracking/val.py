@@ -300,7 +300,7 @@ def parse_mot_results(results: str) -> dict:
         dict: A dictionary containing HOTA, MOTA, and IDF1 scores.
     """
     combined_results = results.split('COMBINED')[2:-1]
-    combined_results = [float(re.findall("[-+]?(?:\d*\.*\d+)", f)[0])
+    combined_results = [float(re.findall(r"[-+]?(?:\d*\.*\d+)", f)[0])
                         for f in combined_results]
 
     results_dict = {}
@@ -362,7 +362,7 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
     Args:
         opt (Namespace): Parsed command line arguments.
     """
-    mot_folder_paths = [item for item in Path(opt.source).iterdir()]
+    mot_folder_paths = sorted([item for item in Path(opt.source).iterdir()])
     for y in opt.yolo_model:
         for i, mot_folder_path in enumerate(mot_folder_paths):
             dets_path = Path(opt.project) / 'dets_n_embs' / y.stem / 'dets' / (mot_folder_path.name + '.txt')
@@ -391,12 +391,12 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         opt.exp_folder_path = exp_folder_path
 
         mot_folder_names = [item.stem for item in Path(opt.source).iterdir()]
-        dets_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt')
+        dets_file_paths = sorted([item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt')
                            if not item.name.startswith('.')
-                           and item.stem in mot_folder_names]
-        embs_file_paths = [item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt')
+                           and item.stem in mot_folder_names])
+        embs_file_paths = sorted([item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt')
                            if not item.name.startswith('.')
-                           and item.stem in mot_folder_names]
+                           and item.stem in mot_folder_names])
 
         for d, e in zip(dets_file_paths, embs_file_paths):
             mot_result_path = exp_folder_path / (d.stem + '.txt')
@@ -459,7 +459,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
     parser.add_argument('--ci', action='store_true', help='Automatically reuse existing due to no UI in CI')
-    parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
+    parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc, boosttrack')
     parser.add_argument('--dets-file-path', type=Path, help='path to detections file')
     parser.add_argument('--embs-file-path', type=Path, help='path to embeddings file')
     parser.add_argument('--exp-folder-path', type=Path, help='path to experiment folder')
@@ -484,7 +484,7 @@ def parse_opt() -> argparse.Namespace:
     generate_mot_results_parser = subparsers.add_parser('generate_mot_results', help='Generate MOT results')
     generate_mot_results_parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n.pt', help='yolo model path')
     generate_mot_results_parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt', help='reid model path')
-    generate_mot_results_parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
+    generate_mot_results_parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc, boosttrack')
     generate_mot_results_parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
 
     # Subparser for trackeval
@@ -503,8 +503,10 @@ if __name__ == "__main__":
     
     # download MOT benchmark
     download_mot_eval_tools(opt.val_tools_path)
-    zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)
-    unzip_mot_dataset(zip_path, opt.val_tools_path, opt.benchmark)
+
+    if not Path(opt.source).exists():
+        zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)
+        unzip_mot_dataset(zip_path, opt.val_tools_path, opt.benchmark)
 
     if opt.benchmark == 'MOT17':
         cleanup_mot17(opt.source)
