@@ -209,20 +209,23 @@ class BoostTrack:
             dets = self.duo_confidence_boost(dets)
 
         if dets.size > 0:
-            valid_inds = dets[:, 4] >= self.det_thresh
-            dets = dets[valid_inds]
+            remain_inds = dets[:, 4] >= self.det_thresh
+            dets = dets[remain_inds]
             scores = dets[:, 4]
+
+            if self.with_reid:
+                if embs is not None:
+                    dets_embs = embs[remain_inds]
+                else:
+                    dets_embs = self.reid_model.get_features(dets[:, :4], img)
         else:
             scores = np.empty(0)
-
-        if self.with_reid and dets.shape[0] > 0:
-            dets_embs = self.reid_model.get_features(dets[:, :4], img)
-        else:
             dets_embs = np.ones((dets.shape[0], 1))
+            
 
         if self.with_reid and len(self.trackers) > 0:
             tracker_embs = np.array([trk.get_emb() for trk in self.trackers])
-            emb_cost = dets_embs @ tracker_embs.T
+            emb_cost = dets_embs.reshape(dets_embs.shape[0], -1) @ tracker_embs.reshape((tracker_embs.shape[0], -1)).T
         else:
             emb_cost = None
 
@@ -353,7 +356,7 @@ class BoostTrack:
 
         if self.use_rich_s:
             mhd_sim = MhDist_similarity(self.get_mh_dist_matrix(detections), 1)
-            shape_sim = shape_similarity(detections, trackers)
+            shape_sim = shape_similarity(detections, trackers, self.s_sim_corr)
             S = (mhd_sim + shape_sim + sbiou_matrix) / 3
         else:
             S = self.get_iou_matrix(detections, False)
