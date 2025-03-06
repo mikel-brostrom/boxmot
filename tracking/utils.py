@@ -153,6 +153,7 @@ def download_mot_dataset(val_tools_path, benchmark, max_retries=5, backoff_facto
 
     retries = 0  # Initialize retry counter
 
+    response = None
     while retries <= max_retries:
         try:
             response = requests.head(url, allow_redirects=True)
@@ -201,7 +202,7 @@ def download_mot_dataset(val_tools_path, benchmark, max_retries=5, backoff_facto
                 return None
 
         except (requests.HTTPError, requests.ConnectionError) as e:
-            if response.status_code == 416:  # Handle "Requested Range Not Satisfiable" error
+            if response and response.status_code == 416:  # Handle "Requested Range Not Satisfiable" error
                 LOGGER.info(f"{benchmark}.zip is already fully downloaded.")
                 return zip_dst
             LOGGER.error(f'Error occurred while downloading {benchmark}.zip: {e}')
@@ -335,7 +336,7 @@ def convert_to_mot_format(results: Union[Results, np.ndarray], frame_idx: int) -
             mot_results = np.column_stack((
                 frame_idx_column, # frame index
                 results[:, 4].astype(np.int32),  # track id
-                tlwh.astype(np.int32),  # top,left,width,height
+                tlwh.round().astype(np.int32),  # top,left,width,height
                 np.ones((results.shape[0], 1), dtype=np.int32),  # "not ignored"
                 results[:, 6].astype(np.int32),  # class
                 results[:, 5],  # confidence (float)

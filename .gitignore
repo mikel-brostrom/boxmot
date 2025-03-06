@@ -54,3 +54,6 @@ dist/
 
 # cmc debug images
 boxmot/motion/cmc/*.jpg
+
+# json outputs
+*_output.json
