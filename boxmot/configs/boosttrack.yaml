@@ -1,0 +1,90 @@
+max_age:
+  type: uniform
+  default: 60
+  range: [15, 90]
+
+min_hits:
+  type: uniform
+  default: 3
+  range: [1, 5]
+
+det_thresh:
+  type: uniform
+  default: 0.6
+  range: [0.1, 0.9]
+
+iou_threshold:
+  type: uniform
+  default: 0.3
+  range: [0.1, 0.9]
+
+use_ecc:
+  type: choice
+  default: True
+  options: [False, True]
+
+min_box_area:
+  type: uniform
+  default: 10
+  range: [5, 100]
+
+aspect_ratio_thresh:
+  type: uniform
+  default: 1.6
+  range: [0.1, 2.0]
+
+lambda_iou:
+  type: uniform
+  default: 0.5
+  range: [0.3, 2.0]
+
+lambda_mhd:
+  type: uniform
+  default: 0.25
+  range: [0.5, 2.0]
+
+lambda_shape:
+  type: uniform
+  default: 0.25
+  range: [0.5, 2.0]
+
+use_dlo_boost:
+  type: choice
+  default: True
+  options: [False, True]
+
+use_duo_boost:
+  type: choice
+  default: True
+  options: [False, True]
+
+dlo_boost_coef:
+  type: uniform
+  default: 0.65
+  range: [0.3, 2.0]
+
+s_sim_corr:
+  type: choice
+  default: False
+  options: [False, True]
+
+use_rich_s:
+  type: choice
+  default: True # True for BoostTrack++
+  options: [False, True]
+
+use_sb:
+  type: choice
+  default: True # True for BoostTrack++
+  options: [False, True]
+
+use_vt:
+  type: choice
+  default: True # True for BoostTrack++
+  options: [False, True]
+
+with_reid:
+  type: choice
+  default: True # True for BoostTrack+ and BoostTrack++
+  options: [False, True]
+
