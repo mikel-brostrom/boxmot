@@ -107,29 +107,29 @@ class BoostTrack:
         device,
         half: bool,
 
-        max_age: int,
-        min_hits: int,
-        det_thresh: float,
-        iou_threshold: float,
-        use_ecc: bool,
-        min_box_area: int,
-        aspect_ratio_thresh: 1.6,
+        max_age: int = 60,
+        min_hits: int = 3,
+        det_thresh: float = 0.6,
+        iou_threshold: float = 0.3,
+        use_ecc: bool = True,
+        min_box_area: int = 10,
+        aspect_ratio_thresh: bool = 1.6,
 
         # BoostTrack parameters
-        lambda_iou: float,
-        lambda_mhd: float,
-        lambda_shape: float,
-        use_dlo_boost: bool,
-        use_duo_boost: bool,
-        dlo_boost_coef: float,
-        s_sim_corr: bool,
+        lambda_iou: float = 0.5,
+        lambda_mhd: float = 0.25,
+        lambda_shape: float = 0.25,
+        use_dlo_boost: bool = True,
+        use_duo_boost: bool = True,
+        dlo_boost_coef: float = 0.65,
+        s_sim_corr: bool = False,
     
         # BoostTrack++ parameters
-        use_rich_s: bool,
-        use_sb: bool,
-        use_vt: bool,
+        use_rich_s: bool = False,
+        use_sb: bool = False,
+        use_vt: bool = False,
 
-        with_reid: bool = True,
+        with_reid: bool = False,
     ):
         self.frame_count = 0
         self.trackers: List[KalmanBoxTracker] = []
