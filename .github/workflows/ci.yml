@@ -349,7 +349,7 @@ jobs:
           COVERAGE_FAIL_UNDER: 25
         shell: bash  # for Windows compatibility
         run: |
-          pytest --cov=$PACKAGE_DIR --cov-report=html -v tests
+          pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
 
 

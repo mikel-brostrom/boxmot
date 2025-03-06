@@ -108,7 +108,25 @@ jobs:
 
           mkdir results
           TRACKER_NAME=$(echo "${{ matrix.tracker }}" | awk '{print tolower($0)}')
-          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" > results/${{ matrix.tracker }}.txt
+
+          if [ "$STATUS" == "❌" ]; then
+            fps=""
+          else
+            # Define static FPS values per tracker
+            declare -A tracker_fps
+            tracker_fps["deepocsort"]=12
+            tracker_fps["bytetrack"]=1265
+            tracker_fps["ocsort"]=1483
+            tracker_fps["strongsort"]=17
+            tracker_fps["botsort"]=46
+            tracker_fps["hybridsort"]=25
+            tracker_fps["imprassoc"]=26
+
+            # Retrieve the static FPS value for the current tracker
+            fps=${tracker_fps[$TRACKER_NAME]}
+          fi
+
+          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}.txt
         
       - name: Show Results
         run: cat results/${{ matrix.tracker }}.txt
@@ -178,10 +196,9 @@ jobs:
           paper_links["hybridsort"]="https://arxiv.org/abs/2308.00783"
           paper_links["imprassoc"]="https://openaccess.thecvf.com/content/CVPR2023W/E2EAD/papers/Stadler_An_Improved_Association_Pipeline_for_Multi-Person_Tracking_CVPRW_2023_paper.pdf"
 
-
           # Create the markdown table header
-          new_table="| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ |\n"
-          new_table+="| :-----: | :-----: | :---: | :---: | :---: |\n"
+          new_table="| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |\n"
+          new_table+="| :-----: | :-----: | :---: | :---: | :---: | :---: |\n"
 
           # Append the contents of pretty_results.txt to the table
           while read -r line; do
@@ -190,14 +207,15 @@ jobs:
               hota=$(echo "$line" | awk '{print $3}')
               mota=$(echo "$line" | awk '{print $4}')
               idf1=$(echo "$line" | awk '{print $5}')
-              
+              fps=$(echo "$line" | awk '{print $6}')
+
               # Retrieve the paper URL for the tracker
               paper_url=${paper_links[$tracker]}
               
               # Create a markdown hyperlink for the tracker name
               tracker_link="[$tracker]($paper_url)"
               
-              new_table+="| $tracker_link | $status | $hota | $mota | $idf1 |\n"
+              new_table+="| $tracker_link | $status | $hota | $mota | $idf1 | $fps |\n"
           done < "$RESULTS_FILE"
 
           # Define unique markers to locate the table
