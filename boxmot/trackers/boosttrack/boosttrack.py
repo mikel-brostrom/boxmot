@@ -208,9 +208,12 @@ class BoostTrack:
         if self.use_duo_boost:
             dets = self.duo_confidence_boost(dets)
 
-        valid_inds = dets[:, 4] >= self.det_thresh
-        dets = dets[valid_inds]
-        scores = dets[:, 4]
+        if dets.size > 0:
+            valid_inds = dets[:, 4] >= self.det_thresh
+            dets = dets[valid_inds]
+            scores = dets[:, 4]
+        else:
+            scores = np.empty(0)
 
         if self.with_reid and dets.shape[0] > 0:
             dets_embs = self.reid_model.get_features(dets[:, :4], img)
@@ -239,9 +242,12 @@ class BoostTrack:
             s_sim_corr=self.s_sim_corr
         )
 
-        trust = (dets[:, 4] - self.det_thresh) / (1 - self.det_thresh)
-        af = 0.95
-        dets_alpha = af + (1 - af) * (1 - trust)
+        if dets.size > 0:   
+            trust = (dets[:, 4] - self.det_thresh) / (1 - self.det_thresh)
+            af = 0.95
+            dets_alpha = af + (1 - af) * (1 - trust)
+        else:
+            dets_alpha = np.empty(0)
 
         for m in matched:
             self.trackers[m[1]].update(dets[m[0], :], scores[m[0]])
@@ -304,6 +310,9 @@ class BoostTrack:
                 sigma_inv.reshape((1, -1, n_dims))).sum(axis=2)
 
     def duo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:
+        if len(detections) == 0:
+            return detections
+
         n_dims = 4
         limit = 13.2767
         mh_dist = self.get_mh_dist_matrix(detections, n_dims)
@@ -330,6 +339,9 @@ class BoostTrack:
         return detections
 
     def dlo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:
+        if len(detections) == 0:
+            return detections
+        
         sbiou_matrix = self.get_iou_matrix(detections, True)
         if sbiou_matrix.size == 0:
             return detections
