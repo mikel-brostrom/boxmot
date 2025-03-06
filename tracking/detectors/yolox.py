@@ -75,7 +75,7 @@ class YoloXStrategy(YoloInterface):
             # needed for bytetrack yolox people models
             # update with your custom model needs
             exp.num_classes = 1
-        elif model.stem == model_type:
+        elif model.stem.startswith(model_type):
             exp.num_classes = 1
 
         ckpt = torch.load(
