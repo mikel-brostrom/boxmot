@@ -48,8 +48,8 @@ class BaseModelBackend:
                             dtype=torch.half if self.half else torch.float, device=self.device)
         
         for i, box in enumerate(xyxys):
-            x1, y1, x2, y2 = box.astype('int')
-            x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w - 1, x2), min(h - 1, y2)
+            x1, y1, x2, y2 = box.round().astype('int')
+            x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w, x2), min(h, y2)
             crop = img[y1:y2, x1:x2]
             
             # Resize and convert color in one step

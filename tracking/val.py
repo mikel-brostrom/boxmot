@@ -205,12 +205,6 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
     for frame_idx, r in enumerate(tqdm(results, desc="Frames")):
         nr_dets = len(r.boxes)
         frame_idx = torch.full((1, 1), frame_idx + 1).repeat(nr_dets, 1)
-
-        if r.boxes.data.is_cpu:
-            dets = r.boxes.data[:, 0:4].numpy()
-        else:
-            dets = r.boxes.data[:, 0:4].cpu().numpy()
-
         img = r.orig_img
 
         dets = np.concatenate(
@@ -221,6 +215,12 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
                 r.boxes.cls.unsqueeze(1).to('cpu'),
             ], axis=1
         )
+
+        # Filter dets with incorrect boxes: (x2 < x1 or y2 < y1)
+        boxes = r.boxes.xyxy.to('cpu').numpy().round().astype(int)
+        boxes_filter = ((np.maximum(0, boxes[:, 0]) < np.minimum(boxes[:, 2], img.shape[1])) &
+                        (np.maximum(0, boxes[:, 1]) < np.minimum(boxes[:, 3], img.shape[0])))
+        dets = dets[boxes_filter]
 
         with open(str(dets_path), 'ab+') as f:
             np.savetxt(f, dets, fmt='%f')
@@ -449,7 +449,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--reid-model', nargs='+', type=Path, default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'], help='reid model path')
     parser.add_argument('--source', type=str, help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=None, help='inference size h,w')
-    parser.add_argument('--conf', type=float, default=0.5, help='confidence threshold')
+    parser.add_argument('--conf', type=float, default=0.01, help='min confidence threshold')
     parser.add_argument('--iou', type=float, default=0.7, help='intersection over union (IoU) threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--classes', nargs='+', type=int, default=0, help='filter by class: --classes 0, or --classes 0 2 3')
