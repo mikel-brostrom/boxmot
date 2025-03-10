@@ -208,6 +208,7 @@ class BoostTrack:
         if self.use_duo_boost:
             dets = self.duo_confidence_boost(dets)
 
+        dets_embs = np.ones((dets.shape[0], 1))
         if dets.size > 0:
             remain_inds = dets[:, 4] >= self.det_thresh
             dets = dets[remain_inds]
@@ -220,10 +221,8 @@ class BoostTrack:
                     dets_embs = self.reid_model.get_features(dets[:, :4], img)
         else:
             scores = np.empty(0)
-            dets_embs = np.ones((dets.shape[0], 1))
-            
 
-        if self.with_reid and len(self.trackers) > 0:
+        if self.with_reid and len(self.trackers) > 0 and len(dets_embs) > 0:
             tracker_embs = np.array([trk.get_emb() for trk in self.trackers])
             emb_cost = dets_embs.reshape(dets_embs.shape[0], -1) @ tracker_embs.reshape((tracker_embs.shape[0], -1)).T
         else:
