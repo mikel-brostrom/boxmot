@@ -203,6 +203,7 @@ class OcSort(BaseTracker):
     def __init__(
         self,
         per_class: bool = False,
+        min_conf: float = 0.1,
         det_thresh: float = 0.2,
         max_age: int = 30,
         min_hits: int = 3,
@@ -219,6 +220,7 @@ class OcSort(BaseTracker):
         Sets key parameters for SORT
         """
         self.per_class = per_class
+        self.min_conf = min_conf
         self.max_age = max_age
         self.min_hits = min_hits
         self.asso_threshold = asso_threshold
@@ -251,7 +253,7 @@ class OcSort(BaseTracker):
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         confs = dets[:, 4+self.is_obb] 
 
-        inds_low = confs > 0.1
+        inds_low = confs > self.min_conf
         inds_high = confs < self.det_thresh
         inds_second = np.logical_and(
             inds_low, inds_high
