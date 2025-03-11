@@ -200,8 +200,6 @@ $ python3 boxmot/appearance/reid_export.py --include openvino --device cpu
 $ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
 ```
 
-The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
-
 </details>
 
 
