@@ -1,3 +1,8 @@
+min_conf:
+  type: uniform
+  default: 0.1  # from the default parameters
+  range: [0.1, 0.3]
+
 det_thresh:
   type: uniform
   default: 0.6  # from the default parameters
