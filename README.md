@@ -45,13 +45,13 @@ This repository contains a collection of pluggable, state-of-the-art multi-objec
 
 ## Why BOXMOT?
 
-Today's multi-object tracking options are heavily dependant on the computation capabilities of the underlaying hardware. BoxMOT provides a great variety of tracking methods that meet different hardware limitations, all the way from CPU only to larger GPUs. Morover, we provide scripts for ultra fast experimentation by saving detections and embeddings, which then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
+Multi-object tracking solutions today depend heavily on the computational capabilities of the underlying hardware. BoxMOT offers a wide range of tracking methods designed to accommodate various hardware constraints—from CPU-only setups to high-end GPUs. Additionally, we provide scripts for rapid experimentation that allow you to save detections and embeddings once, and then load them into any tracking algorithm, eliminating the need to repeatedly generate this data.
 
 ## Installation
 
 Start with [**Python>=3.9**](https://www.python.org/) environment.
 
-If you want to run the YOLOv8, YOLOv9 or YOLOv10 examples:
+If you want to run the YOLOX, YOLOv10 or YOLOv11 examples:
 
 ```
 git clone https://github.com/mikel-brostrom/boxmot.git
@@ -98,6 +98,7 @@ $ python tracking/track.py --tracking-method deepocsort
                                              bytetrack
                                              botsort
                                              imprassoc
+                                             boosttrack
 ```
 
 </details>
