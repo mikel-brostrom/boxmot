@@ -121,6 +121,7 @@ jobs:
             tracker_fps["botsort"]=46
             tracker_fps["hybridsort"]=25
             tracker_fps["imprassoc"]=26
+            tracker_fps["boosttrack"]=25
 
             # Retrieve the static FPS value for the current tracker
             fps=${tracker_fps[$TRACKER_NAME]}
