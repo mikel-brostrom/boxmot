@@ -18,7 +18,7 @@
 
 ## Introduction
 
-This repo contains a collections of pluggable state-of-the-art multi-object trackers for segmentation, object detection and pose estimation models. For the methods using appearance description, both heavy ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight state-of-the-art ReID models ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf) and more) are available for automatic download. We provide examples on how to use this package together with popular object detection models such as: [YOLOv8, YOLOv9 and YOLOv10](https://github.com/ultralytics)
+This repository contains a collection of pluggable, state-of-the-art multi-object trackers designed to seamlessly integrate with segmentation, object detection, and pose estimation models. For methods leveraging appearance-based tracking, we offer both heavyweight  ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf)) state-of-the-art ReID models, available via automatic download. Additionally, we provide clear examples demonstrating integration with popular object detection models.
 
 <div align="center">
 
@@ -35,7 +35,7 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 <!-- END TRACKER TABLE -->
 
-<sub> NOTES: The evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly accessible. The pre-generated detections and embeddings used, were sourced from [here](https://drive.google.com/drive/folders/1zzzUROXYXt8NjxO1WUcwSzqD-nn7rPNr). Each tracker was configured with the original parameters provided in their official repositories. </sub>
+<sub> NOTES: Evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly available. We employed [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip). Each tracker was configured using the default parameters from their official repositories. </sub>
 
 </div>
 
