@@ -18,7 +18,7 @@
 
 ## Introduction
 
-This repository contains a collection of pluggable, state-of-the-art multi-object trackers designed to seamlessly integrate with segmentation, object detection, and pose estimation models. For methods leveraging appearance-based tracking, we offer both heavyweight  ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf)) state-of-the-art ReID models, available via automatic download. Additionally, we provide clear examples demonstrating integration with popular object detection models.
+This repository contains a collection of pluggable, state-of-the-art multi-object trackers designed to seamlessly integrate with segmentation, object detection, and pose estimation models. For methods leveraging appearance-based tracking, we offer both heavyweight  ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf)) state-of-the-art ReID models, available via automatic download. Additionally, clear and practical examples demonstrate how to effectively integrate these trackers with various popular models, enabling versatility across diverse vision tasks.
 
 <div align="center">
 
