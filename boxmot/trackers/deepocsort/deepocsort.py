@@ -326,7 +326,7 @@ class DeepOcSort(BaseTracker):
         if self.embedding_off or dets.shape[0] == 0:
             dets_embs = np.ones((dets.shape[0], 1))
         elif embs is not None:
-            dets_embs = embs
+            dets_embs = embs[remain_inds]
         else:
             # (Ndets x X) [512, 1024, 2048]
             dets_embs = self.model.get_features(dets[:, 0:4], img)
