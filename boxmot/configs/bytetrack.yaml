@@ -1,6 +1,6 @@
-min_thresh:
+min_conf:
   type: uniform
-  default: 0.2  # from the default parameters
+  default: 0.1  # from the default parameters
   range: [0.1, 0.3]
 
 track_thresh:
