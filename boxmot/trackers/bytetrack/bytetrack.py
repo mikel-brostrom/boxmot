@@ -120,7 +120,7 @@ class ByteTrack(BaseTracker):
     BYTETracker: A tracking algorithm based on ByteTrack, which utilizes motion-based tracking.
 
     Args:
-        min_thresh (float, optional): Threshold for detection confidence. Detections below this threshold are discarded.
+        min_conf (float, optional): Threshold for detection confidence. Detections below this threshold are discarded.
         track_thresh (float, optional): Threshold for detection confidence. Detections above this threshold are considered for tracking in the first association round.
         match_thresh (float, optional): Threshold for the matching step in data association. Controls the maximum distance allowed between tracklets and detections for a match.
         track_buffer (int, optional): Number of frames to keep a track alive after it was last detected. A longer buffer allows for more robust tracking but may increase identity switches.
@@ -129,7 +129,7 @@ class ByteTrack(BaseTracker):
     """
     def __init__(
         self,
-        min_thresh: float = 0.1,
+        min_conf: float = 0.1,
         track_thresh: float = 0.45,
         match_thresh: float = 0.8,
         track_buffer: int = 25,
@@ -145,7 +145,7 @@ class ByteTrack(BaseTracker):
         self.track_buffer = track_buffer
 
         self.per_class = per_class
-        self.min_thresh = min_thresh
+        self.min_conf = min_conf
         self.track_thresh = track_thresh
         self.match_thresh = match_thresh
         self.det_thresh = track_thresh
@@ -169,7 +169,7 @@ class ByteTrack(BaseTracker):
 
         remain_inds = confs > self.track_thresh
 
-        inds_low = confs > 0.1
+        inds_low = confs > self.min_conf
         inds_high = confs < self.track_thresh
         inds_second = np.logical_and(inds_low, inds_high)
 

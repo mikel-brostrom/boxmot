@@ -1,3 +1,8 @@
+min_conf:
+  type: uniform
+  default: 0.6  # from the default parameters
+  range: [0.2, 0.8]
+
 ema_alpha:
   type: uniform
   default: 0.9  # from the default parameters
