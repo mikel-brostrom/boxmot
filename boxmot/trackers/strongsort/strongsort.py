@@ -36,6 +36,7 @@ class StrongSort(object):
         device: device,
         half: bool,
         per_class: bool = False,
+        min_conf: float = 0.1,
         max_cos_dist=0.2,
         max_iou_dist=0.7,
         max_age=30,
@@ -46,6 +47,7 @@ class StrongSort(object):
     ):
 
         self.per_class = per_class
+        self.min_conf = min_conf
         self.model = ReidAutoBackend(
             weights=reid_weights, device=device, half=half
         ).model
@@ -76,6 +78,9 @@ class StrongSort(object):
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
+        remain_inds = dets[:, 4] >= self.min_conf
+        dets = dets[remain_inds]
+
         xyxy = dets[:, 0:4]
         confs = dets[:, 4]
         clss = dets[:, 5]
@@ -88,7 +93,7 @@ class StrongSort(object):
 
         # extract appearance information for each detection
         if embs is not None:
-            features = embs
+            features = embs[remain_inds]
         else:
             features = self.model.get_features(xyxy, img)
 
