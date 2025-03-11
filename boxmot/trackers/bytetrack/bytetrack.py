@@ -146,6 +146,7 @@ class ByteTrack(BaseTracker):
 
         self.per_class = per_class
         self.min_conf = min_conf
+
         self.track_thresh = track_thresh
         self.match_thresh = match_thresh
         self.det_thresh = track_thresh
