@@ -69,7 +69,7 @@ jobs:
 
       - name: Download eval data
         run: |
-          wget https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip -O runs.zip
+          wget https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip -O runs2.zip
           wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip -O tracking/val_utils/MOT17-50.zip
           unzip runs2.zip -d ./
           mkdir -p tracking/val_utils/data
