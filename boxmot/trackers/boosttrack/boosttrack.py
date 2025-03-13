@@ -189,11 +189,9 @@ class BoostTrack(BaseTracker):
                       [x1, y1, x2, y2, id, confidence, cls, det_ind]
                       (with cls and det_ind set to -1 if unused)
         """
-        if dets is None:
-            return np.empty((0, 5))
-        if not isinstance(dets, np.ndarray):
-            dets = dets.cpu().detach().numpy()
-        
+        if dets is None or dets.size == 0:
+            dets = np.empty((0, 6))
+
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
 
         self.frame_count += 1
@@ -274,7 +272,7 @@ class BoostTrack(BaseTracker):
         for trk in self.trackers:
             d = trk.get_state()[0]
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
-                # Format to match BotSort output: [x1, y1, x2, y2, id, confidence, cls, det_ind]
+                # Format: [x1, y1, x2, y2, id, confidence, cls, det_ind]
                 outputs.append(np.array([d[0], d[1], d[2], d[3], trk.id + 1, trk.conf, trk.cls, trk.det_ind]))
                 self.active_tracks.append(trk)
             
