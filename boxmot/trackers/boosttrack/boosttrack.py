@@ -1,7 +1,6 @@
 import numpy as np
-from copy import deepcopy
 from typing import Optional, List
-import cv2
+from collections import deque
 
 from boxmot.trackers.boosttrack.assoc import (
     associate,
@@ -10,9 +9,10 @@ from boxmot.trackers.boosttrack.assoc import (
     shape_similarity,
     soft_biou_batch,
 )
+from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.trackers.boosttrack.kalmanfilter import KalmanFilter
 from boxmot.trackers.boosttrack.ecc import ECC
-from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+from boxmot.trackers.basetracker import BaseTracker
 
 
 def convert_bbox_to_z(bbox):
@@ -48,18 +48,21 @@ class KalmanBoxTracker:
     """
     count = 0
 
-    def __init__(self, bbox, emb: Optional[np.ndarray] = None):
+    def __init__(self, det, max_obs, emb: Optional[np.ndarray] = None):
         self.bbox_to_z_func = convert_bbox_to_z
         self.x_to_bbox_func = convert_x_to_bbox
-
-        self.time_since_update = 0
-        self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
 
-        self.kf = KalmanFilter(self.bbox_to_z_func(bbox))
+        self.time_since_update = 0
+        self.id = KalmanBoxTracker.count 
+        self.kf = KalmanFilter(self.bbox_to_z_func(det[:4]))
+        self.conf = det[4]
+        self.cls = det[5]
+        self.det_ind = det[6]
         self.emb = emb
         self.hit_streak = 0
         self.age = 0
+        self.history_observations = deque([], maxlen=max_obs)
 
     def get_confidence(self, coef: float = 0.9) -> float:
         n = 7
@@ -67,10 +70,14 @@ class KalmanBoxTracker:
             return coef ** (n - self.age)
         return coef ** (self.time_since_update - 1)
 
-    def update(self, bbox: np.ndarray, score: float = 0):
+    def update(self, det: np.ndarray, score: float = 0):
         self.time_since_update = 0
         self.hit_streak += 1
-        self.kf.update(self.bbox_to_z_func(bbox), score)
+        self.history_observations.append(self.get_state()[0])
+        self.kf.update(self.bbox_to_z_func(det), score)
+        self.conf = det[4]
+        self.cls = det[5]
+        self.det_ind = det[6]
 
     def camera_update(self, transform: np.ndarray):
         x1, y1, x2, y2 = self.get_state()[0]
@@ -99,7 +106,7 @@ class KalmanBoxTracker:
         return self.emb
 
 
-class BoostTrack:
+class BoostTrack(BaseTracker):
 
     def __init__(
         self,
@@ -131,6 +138,7 @@ class BoostTrack:
 
         with_reid: bool = False,
     ):
+        super().__init__()
         self.frame_count = 0
         self.trackers: List[KalmanBoxTracker] = []
 
@@ -181,10 +189,10 @@ class BoostTrack:
                       [x1, y1, x2, y2, id, confidence, cls, det_ind]
                       (with cls and det_ind set to -1 if unused)
         """
-        if dets is None:
-            return np.empty((0, 5))
-        if not isinstance(dets, np.ndarray):
-            dets = dets.cpu().detach().numpy()
+        if dets is None or dets.size == 0:
+            dets = np.empty((0, 6))
+
+        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
 
         self.frame_count += 1
 
@@ -257,14 +265,16 @@ class BoostTrack:
 
         for i in unmatched_dets:
             if dets[i, 4] >= self.det_thresh:
-                self.trackers.append(KalmanBoxTracker(dets[i, :], emb=dets_embs[i]))
+                self.trackers.append(KalmanBoxTracker(dets[i, :], max_obs=self.max_obs, emb=dets_embs[i]))
 
         outputs = []
+        self.active_tracks = []
         for trk in self.trackers:
             d = trk.get_state()[0]
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
-                # Format to match BotSort output: [x1, y1, x2, y2, id, confidence, cls, det_ind]
-                outputs.append(np.array([d[0], d[1], d[2], d[3], trk.id + 1, trk.get_confidence(), -1, -1]))
+                # Format: [x1, y1, x2, y2, id, confidence, cls, det_ind]
+                outputs.append(np.array([d[0], d[1], d[2], d[3], trk.id + 1, trk.conf, trk.cls, trk.det_ind]))
+                self.active_tracks.append(trk)
             
         self.trackers = [trk for trk in self.trackers if trk.time_since_update <= self.max_age]
 
