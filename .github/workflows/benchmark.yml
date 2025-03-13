@@ -69,9 +69,9 @@ jobs:
 
       - name: Download eval data
         run: |
-          wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/runs.zip -O runs.zip
+          wget https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip -O runs2.zip
           wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip -O tracking/val_utils/MOT17-50.zip
-          unzip runs.zip -d ./
+          unzip runs2.zip -d ./
           mkdir -p tracking/val_utils/data
           unzip tracking/val_utils/MOT17-50.zip -d ./tracking/val_utils/data/
 
@@ -90,7 +90,7 @@ jobs:
           ls tracking/val_utils
           ls tracking/val_utils/data
 
-          if python3 tracking/val.py --imgsz 320 --classes 0 --yolo-model yolov8x.pt --reid-model osnet_x1_0_dukemtmcreid.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./tracking/val_utils/data/MOT17-50/train; then
+          if python3 tracking/val.py --classes 0 --yolo-model yolox_x_ablation.pth --reid-model osnet_x1_0_dukemtmcreid.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./tracking/val_utils/data/MOT17-50/train; then
             STATUS="✅"
           else
             STATUS="❌"
@@ -121,6 +121,7 @@ jobs:
             tracker_fps["botsort"]=46
             tracker_fps["hybridsort"]=25
             tracker_fps["imprassoc"]=26
+            tracker_fps["boosttrack"]=25
 
             # Retrieve the static FPS value for the current tracker
             fps=${tracker_fps[$TRACKER_NAME]}
@@ -188,6 +189,7 @@ jobs:
 
           # Define paper names and their corresponding URLs
           declare -A paper_links
+          paper_links["boosttrack"]="https://arxiv.org/abs/2408.13003"
           paper_links["deepocsort"]="https://arxiv.org/abs/2302.11813"
           paper_links["bytetrack"]="https://arxiv.org/abs/2110.06864"
           paper_links["ocsort"]="https://arxiv.org/abs/2203.14360"
