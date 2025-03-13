@@ -18,24 +18,24 @@
 
 ## Introduction
 
-This repo contains a collections of pluggable state-of-the-art multi-object trackers for segmentation, object detection and pose estimation models. For the methods using appearance description, both heavy ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight state-of-the-art ReID models ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf) and more) are available for automatic download. We provide examples on how to use this package together with popular object detection models such as: [YOLOv8, YOLOv9 and YOLOv10](https://github.com/ultralytics)
+This repository contains a collection of pluggable, state-of-the-art multi-object trackers designed to seamlessly integrate with segmentation, object detection, and pose estimation models. For methods leveraging appearance-based tracking, we offer both heavyweight  ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf)) state-of-the-art ReID models, available via automatic download. Additionally, clear and practical examples demonstrate how to effectively integrate these trackers with various popular models, enabling versatility across diverse vision tasks.
 
 <div align="center">
 
 <!-- START TRACKER TABLE -->
 | Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
 | :-----: | :-----: | :---: | :---: | :---: | :---: |
-| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 68.504 | 77.165 | 80.986 | 46 |
-| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.329 | 76.348 | 81.206 | 17 |
-| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 66.536 | 76.909 | 77.855 | 1265 |
-| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 65.187 | 74.819 | 75.957 | 1483 |
-| [imprassoc](https://openaccess.thecvf.com/content/CVPR2023W/E2EAD/papers/Stadler_An_Improved_Association_Pipeline_for_Multi-Person_Tracking_CVPRW_2023_paper.pdf) | ✅ | 64.096 | 76.511 | 71.875 | 26 |
-| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 62.913 | 74.483 | 73.459 | 12 |
-| [hybridsort](https://arxiv.org/abs/2308.00783) | ❌ |  |  |  |  |
+| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 68.649 | 76.042 | 81.923 | 25 |
+| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 68.251 | 78.328 | 80.622 | 46 |
+| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.619 | 78.081 | 79.188 | 1265 |
+| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 67.394 | 76.413 | 79.017 | 17 |
+| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 67.348 | 75.832 | 79.584 | 12 |
+| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.546 | 77.892 | 1483 |
+| [imprassoc](https://openaccess.thecvf.com/content/CVPR2023W/E2EAD/papers/Stadler_An_Improved_Association_Pipeline_for_Multi-Person_Tracking_CVPRW_2023_paper.pdf) | ✅ | 63.699 | 76.407 | 70.837 | 26 |
 
 <!-- END TRACKER TABLE -->
 
-<sub> NOTES: The evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly accessible. The pre-generated detections and embeddings used, were sourced from [here](https://drive.google.com/drive/folders/1zzzUROXYXt8NjxO1WUcwSzqD-nn7rPNr). Each tracker was configured with the original parameters provided in their official repositories. </sub>
+<sub> NOTES: Evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly available. We employed [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip). Each tracker was configured using the default parameters from their official repositories. </sub>
 
 </div>
 
@@ -45,13 +45,13 @@ This repo contains a collections of pluggable state-of-the-art multi-object trac
 
 ## Why BOXMOT?
 
-Today's multi-object tracking options are heavily dependant on the computation capabilities of the underlaying hardware. BoxMOT provides a great variety of tracking methods that meet different hardware limitations, all the way from CPU only to larger GPUs. Morover, we provide scripts for ultra fast experimentation by saving detections and embeddings, which then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
+Multi-object tracking solutions today depend heavily on the computational capabilities of the underlying hardware. BoxMOT offers a wide range of tracking methods designed to accommodate various hardware constraints—from CPU-only setups to high-end GPUs. Additionally, we provide scripts for rapid experimentation that allow you to save detections and embeddings once, and then load them into any tracking algorithm, eliminating the need to repeatedly generate this data.
 
 ## Installation
 
 Start with [**Python>=3.9**](https://www.python.org/) environment.
 
-If you want to run the YOLOv8, YOLOv9 or YOLOv10 examples:
+If you want to run the YOLOX, YOLOv10 or YOLOv11 examples:
 
 ```
 git clone https://github.com/mikel-brostrom/boxmot.git
@@ -98,6 +98,7 @@ $ python tracking/track.py --tracking-method deepocsort
                                              bytetrack
                                              botsort
                                              imprassoc
+                                             boosttrack
 ```
 
 </details>
@@ -198,8 +199,6 @@ $ python3 boxmot/appearance/reid_export.py --include openvino --device cpu
 # export to TensorRT with dynamic input
 $ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
 ```
-
-The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
 
 </details>
 
