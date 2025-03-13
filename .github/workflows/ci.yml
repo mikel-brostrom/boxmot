@@ -98,7 +98,7 @@ jobs:
       - name: Evolve set of parameters for selected tracking method
         run: |
           # reuse first set of generated det and prod
-          python tracking/evolve.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method ocsort --source ./assets/MOT17-mini/train --ci
+          python tracking/evolve.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
 
 
   mot-metrics-benchmark:
