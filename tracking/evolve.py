@@ -9,6 +9,10 @@ import os
 from pathlib import Path
 import yaml
 
+# Check required packages
+checker = RequirementsChecker()
+checker.check_packages(('ray[tune]',))  # Install ray[tune] if not already present
+
 import ray
 from ray import tune
 from ray.air import RunConfig
@@ -22,10 +26,6 @@ from tracking.val import (
     parse_opt as parse_optt,
     download_mot_eval_tools
 )
-
-# Check required packages
-checker = RequirementsChecker()
-checker.check_packages(('ray[tune]',))  # Install ray[tune] if not already present
 
 
 class Tracker:
