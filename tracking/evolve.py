@@ -19,7 +19,6 @@ checker.check_packages(('ray[tune]',))  # install
 
 import ray
 from ray import tune
-from ray.tune.schedulers import ASHAScheduler
 from ray.air import RunConfig
 
 
@@ -84,23 +83,12 @@ run_generate_dets_embs(opt)
 def _tune(config):
     return tracker.objective_function(config)
 
-# Asynchronous Successive Halving Algorithm Scheduler
-# particularly well-suited for distributed and parallelized environments
-# it prunes poorly performing trials focusing on promising configurations
-asha_scheduler = ASHAScheduler(
-    metric="HOTA",
-    mode="max",
-    max_t=100,
-    grace_period=10,
-    reduction_factor=3
-)
-
 results_dir = os.path.abspath("ray/")
 # Run Ray Tune
 tuner = tune.Tuner(
     tune.with_resources(_tune, {"cpu": NUM_THREADS, "gpu": 0}),  # Adjust resources as needed
     param_space=search_space,
-    tune_config=tune.TuneConfig(scheduler=asha_scheduler, num_samples=opt.n_trials),
+    tune_config=tune.TuneConfig(num_samples=opt.n_trials),
     run_config=RunConfig(storage_path=results_dir)
 )
 
