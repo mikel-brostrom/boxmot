@@ -1,10 +1,25 @@
+#!/usr/bin/env python3
+"""
+This script runs a hyperparameter tuning process for a multi-object tracking (MOT) tracker using Ray Tune.
+It loads the tracker configuration from a YAML file, sets up the search space for hyperparameters, and evaluates
+the tracker to optimize selected metrics (e.g., MOTA, HOTA, IDF1).
+"""
 
 import os
-import yaml
 from pathlib import Path
+import yaml
+
+# Check required packages
+from boxmot.utils.checks import RequirementsChecker
+checker = RequirementsChecker()
+checker.check_packages(('ray[tune]',))  # Install ray[tune] if not already present
+
+import ray
+from ray import tune
+from ray.air import RunConfig
 
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils import EXAMPLES, TRACKER_CONFIGS
+from boxmot.utils import EXAMPLES, TRACKER_CONFIGS, ROOT, NUM_THREADS
 from tracking.val import (
     run_generate_dets_embs,
     run_generate_mot_results,
@@ -12,44 +27,65 @@ from tracking.val import (
     parse_opt as parse_optt,
     download_mot_eval_tools
 )
-from boxmot.utils import ROOT, NUM_THREADS
-
-checker = RequirementsChecker()
-checker.check_packages(('ray[tune]',))  # install
-
-import ray
-from ray import tune
-from ray.air import RunConfig
 
 
 class Tracker:
-    def __init__(self, opt, parameters):
+    """
+    Encapsulates the evaluation of a tracking configuration.
+    """
+    def __init__(self, opt):
         self.opt = opt
 
-    def objective_function(self, config):
+    def objective_function(self, config: dict) -> dict:
+        """
+        Evaluates a given tracker configuration.
+
+        Args:
+            config (dict): A dictionary of tracker hyperparameters.
+
+        Returns:
+            dict: Combined evaluation metrics extracted from run_trackeval.
+        """
+        # Ensure evaluation tools are available
         download_mot_eval_tools(self.opt.val_tools_path)
-        # generate new set of mot challenge compliant results with
-        # new set of generated tracker parameters
+        # Generate MOT-compliant results with the specified tracker parameters
         run_generate_mot_results(self.opt, config)
-        # get MOTA, HOTA, IDF1 results
+        # Retrieve evaluation metrics (e.g., MOTA, HOTA, IDF1)
         results = run_trackeval(self.opt)
-        # Extract objective results
+        # Extract only the desired objective results
         combined_results = {key: results.get(key) for key in self.opt.objectives}
         return combined_results
 
 
-def load_yaml_config(tracking_method):
-    config_path = TRACKER_CONFIGS / f"{tracking_method}.yaml"  # Example: 'botsort_search_space.yaml'
+def load_yaml_config(tracking_method: str) -> dict:
+    """
+    Loads the YAML configuration file for the given tracking method.
+
+    Args:
+        tracking_method (str): Name of the tracking method.
+
+    Returns:
+        dict: Configuration parameters loaded from the YAML file.
+    """
+    config_path = TRACKER_CONFIGS / f"{tracking_method}.yaml"
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
     return config
 
 
-# Define the search space for hyperparameters
-def yaml_to_search_space(config):
+def yaml_to_search_space(config: dict) -> dict:
+    """
+    Converts a YAML configuration dictionary to a Ray Tune search space.
+
+    Args:
+        config (dict): YAML configuration parameters.
+
+    Returns:
+        dict: A dictionary representing the search space for hyperparameters.
+    """
     search_space = {}
     for param, details in config.items():
-        search_type = details['type']
+        search_type = details.get('type')
         if search_type == 'uniform':
             search_space[param] = tune.uniform(*details['range'])
         elif search_type == 'randint':
@@ -64,34 +100,43 @@ def yaml_to_search_space(config):
             search_space[param] = tune.loguniform(*details['range'])
     return search_space
 
-        
-opt = parse_optt()
-opt.val_tools_path = EXAMPLES / 'val_utils'
-opt.source = Path(opt.source).resolve()
-opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
-opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
 
-# Load the appropriate YAML configuration
-yaml_config = load_yaml_config(opt.tracking_method)
+def main():
+    # Parse options and set necessary paths
+    opt = parse_optt()
+    opt.val_tools_path = EXAMPLES / 'val_utils'
+    opt.source = Path(opt.source).resolve()
+    opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
+    opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
 
-# Convert YAML config to Ray Tune search space
-search_space = yaml_to_search_space(yaml_config)
+    # Load YAML configuration and convert it to a Ray Tune search space
+    yaml_config = load_yaml_config(opt.tracking_method)
+    search_space = yaml_to_search_space(yaml_config)
 
-tracker = Tracker(opt, search_space)
-run_generate_dets_embs(opt)
+    # Create a Tracker instance
+    tracker = Tracker(opt)
 
-def _tune(config):
-    return tracker.objective_function(config)
+    # Generate detection and embedding files required for evaluation
+    run_generate_dets_embs(opt)
 
-results_dir = os.path.abspath("ray/")
-# Run Ray Tune
-tuner = tune.Tuner(
-    tune.with_resources(_tune, {"cpu": NUM_THREADS, "gpu": 0}),  # Adjust resources as needed
-    param_space=search_space,
-    tune_config=tune.TuneConfig(num_samples=opt.n_trials),
-    run_config=RunConfig(storage_path=results_dir)
-)
+    # Define a wrapper for the objective function for Ray Tune
+    def tune_wrapper(config):
+        return tracker.objective_function(config)
 
-tuner.fit()
+    results_dir = os.path.abspath("ray/")
 
-print(tuner.get_results())
+    # Set up and run the hyperparameter tuning using Ray Tune
+    tuner = tune.Tuner(
+        tune.with_resources(tune_wrapper, {"cpu": NUM_THREADS, "gpu": 0}),
+        param_space=search_space,
+        tune_config=tune.TuneConfig(num_samples=opt.n_trials),
+        run_config=RunConfig(storage_path=results_dir)
+    )
+    tuner.fit()
+
+    # Print the tuning results
+    print(tuner.get_results())
+
+
+if __name__ == "__main__":
+    main()
