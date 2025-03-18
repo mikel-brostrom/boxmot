@@ -35,7 +35,7 @@ This repository contains a collection of pluggable, state-of-the-art multi-objec
 
 <!-- END TRACKER TABLE -->
 
-<sub> NOTES: Evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly available. We employed [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip). Each tracker was configured using the default parameters from their official repositories. </sub>
+<sub> NOTES: Evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly available and the ablation detector was trained on the first half. We employed [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip). Each tracker was configured using the default parameters from their official repositories. </sub>
 
 </div>
 
