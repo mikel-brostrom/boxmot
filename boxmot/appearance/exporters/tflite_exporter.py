@@ -16,6 +16,7 @@ class TFLiteExporter(BaseExporter):
         "flatbuffers>=23.5.26",
         "psutil==5.9.5",
         "ml_dtypes==0.3.2",
+        "ai_edge_litert>=1.2.0"
     )
     cmds = '--extra-index-url https://pypi.ngc.nvidia.com'
     
