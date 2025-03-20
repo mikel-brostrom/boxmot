@@ -72,10 +72,6 @@ pip install boxmot
 <details>
 <summary>Tracking</summary>
 
-<details>
-<summary>Yolo models</summary>
-
-
 
 ```bash
 $ python tracking/track.py --yolo-model yolov10n      # bboxes only
