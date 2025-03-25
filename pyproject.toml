@@ -30,7 +30,7 @@ filterpy = "^1.4.5"
 gdown = "^5.1.0"
 lapx = "^0.5.5"
 loguru = "^0.7.2"
-numpy = "1.26.4"
+numpy = "^1.26.4"
 pyyaml = "^6.0.1"
 regex = "^2024.0.0"
 yacs = "^0.1.8"
@@ -40,12 +40,12 @@ opencv-python = "^4.7.0"
 ftfy = "^6.1.3"
 gitpython = "^3.1.42"
 torch = [
-    {version = "^2.5.1", source="pypi", markers = "sys_platform == 'darwin'"},
-    {version = "^2.5.1", source="torch_cuda121", markers = "sys_platform == 'linux' or sys_platform == 'win32'"},
+    {version = "^2.2.1", source="pypi", markers = "sys_platform == 'darwin'"},
+    {version = "^2.2.1", source="torch_cuda121", markers = "sys_platform == 'linux' or sys_platform == 'win32'"},
 ]
 torchvision = [
-    {version = "^0.20.1", source="pypi", markers = "sys_platform == 'darwin'"},
-    {version = "^0.20.1", source="torch_cuda121", markers = "sys_platform == 'linux' or sys_platform == 'win32'"},
+    {version = "^0.17.1", source="pypi", markers = "sys_platform == 'darwin'"},
+    {version = "^0.17.1", source="torch_cuda121", markers = "sys_platform == 'linux' or sys_platform == 'win32'"},
 ]
 
 
