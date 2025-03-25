@@ -40,12 +40,12 @@ opencv-python = "^4.7.0"
 ftfy = "^6.1.3"
 gitpython = "^3.1.42"
 torch = [
-    {version = "^2.6.0", source="pypi", markers = "sys_platform == 'darwin'"},
-    {version = "^2.6.0", source="torch_cuda124", markers = "sys_platform == 'linux' or sys_platform == 'win32'"},
+    {version = "^2.5.1", source="pypi", markers = "sys_platform == 'darwin'"},
+    {version = "^2.5.1", source="torch_cuda124", markers = "sys_platform == 'linux' or sys_platform == 'win32'"},
 ]
 torchvision = [
-    {version = "^0.21.0", source="pypi", markers = "sys_platform == 'darwin'"},
-    {version = "^0.21.0", source="torch_cuda124", markers = "sys_platform == 'linux' or sys_platform == 'win32'"},
+    {version = "^0.20.1", source="pypi", markers = "sys_platform == 'darwin'"},
+    {version = "^0.20.1", source="torch_cuda124", markers = "sys_platform == 'linux' or sys_platform == 'win32'"},
 ]
 
 
