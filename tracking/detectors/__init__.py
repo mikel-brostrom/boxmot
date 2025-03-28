@@ -42,7 +42,10 @@ def get_yolo_inferer(yolo_model):
         from .yolov8 import Yolov8Strategy
         return Yolov8Strategy
     elif 'rf-detr' in str(yolo_model):
-        checker.check_packages(('rfdetr',))  # needed dependency
+        try:
+            import rfdetr
+        except (ImportError, AssertionError, AttributeError):
+            checker.check_packages(('rfdetr',))  # needed dependency
         from .rfdetr import RFDETRStrategy
         return RFDETRStrategy
     elif 'yolo_nas' in str(yolo_model):
