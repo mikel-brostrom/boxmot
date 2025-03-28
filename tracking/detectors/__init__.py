@@ -41,6 +41,10 @@ def get_yolo_inferer(yolo_model):
         # ultralytics already installed when running track.py
         from .yolov8 import Yolov8Strategy
         return Yolov8Strategy
+    elif 'rf-detr' in str(yolo_model):
+        checker.check_packages(('rfdetr',))  # needed dependency
+        from .rfdetr import RFDETRStrategy
+        return RFDETRStrategy
     elif 'yolo_nas' in str(yolo_model):
         try:
             import super_gradients  # for linear_assignment
