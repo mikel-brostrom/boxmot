@@ -26,6 +26,7 @@ keywords = ["tracking", "tracking-by-detection", "machine-learning", "deep-learn
 
 
 [tool.poetry.dependencies]
+setuptools = "^69.5.1"
 python = "^3.9"
 filterpy = "^1.4.5"
 gdown = "^5.1.0"
@@ -89,7 +90,7 @@ priority = "explicit"
 
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core", "setuptools"]
 build-backend = "poetry.core.masonry.api"
 
 
