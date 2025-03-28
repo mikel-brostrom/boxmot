@@ -227,12 +227,14 @@ jobs:
           poetry config virtualenvs.create false
           poetry lock
           poetry install --with yolo
+          pip install yolox --no-deps
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           python tracking/track.py --yolo-model yolov10n.pt --source $IMG --imgsz 320
-          # python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320
+          python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320
+          python tracking/track.py --yolo-model rf-detr-base.pt --source $IMG --imgsz 320
           # python tracking/track.py --yolo-model yolo_nas_s.pt --source $IMG --imgsz 320
 
 
