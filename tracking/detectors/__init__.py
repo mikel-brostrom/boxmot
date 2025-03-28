@@ -47,7 +47,7 @@ def get_yolo_inferer(yolo_model):
         except (ImportError, AssertionError, AttributeError):
             checker.check_packages(('rfdetr',))  # needed dependency
             #checker.check_packages(('pydantic',))  # needed dependency
-            checker.check_packages(('wandb=0.12.10',))  # needed dependency
+            checker.check_packages(('wandb==0.12.10',))  # needed dependency
         from .rfdetr import RFDETRStrategy
         return RFDETRStrategy
     elif 'yolo_nas' in str(yolo_model):
