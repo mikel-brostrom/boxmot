@@ -3,16 +3,18 @@
 import pkg_resources
 import logging
 from pathlib import Path
-import pip
+import subprocess
 
 logger = logging.getLogger(__name__)
 REQUIREMENTS = Path('requirements.txt')
 
 class RequirementsChecker:
-
+    
     def check_requirements(self):
-        requirements = pkg_resources.parse_requirements(REQUIREMENTS.open())
-        self.check_packages(requirements)
+        # Use a context manager to open the requirements file safely.
+        with REQUIREMENTS.open() as f:
+            requirements = pkg_resources.parse_requirements(f)
+            self.check_packages(requirements)
 
     def check_packages(self, requirements, cmds=''):
         """Test that each required package is available."""
@@ -29,10 +31,14 @@ class RequirementsChecker:
 
     def install_packages(self, packages, cmds=''):
         try:
-            logger.warning(f'\nMissing packages: {", ".join(packages)}\nAttempting installation...')
+            logger.warning(
+                f'\nMissing packages: {", ".join(packages)}\nAttempting installation...'
+            )
+            # Construct pip command arguments.
             pip_args = ['install', '--no-cache-dir'] + packages + cmds.split()
-            pip.main(pip_args)
+            # Use subprocess to call pip.
+            subprocess.check_call(['pip'] + pip_args)
             logger.info('All the missing packages were installed successfully')
         except Exception as e:
             logger.error(f'Failed to install packages: {e}')
-            exit()
+            raise RuntimeError(f'Failed to install packages: {e}')
