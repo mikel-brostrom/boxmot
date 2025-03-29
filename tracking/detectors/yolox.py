@@ -2,6 +2,8 @@
 
 import gdown
 import torch
+import numpy as np
+import cv2
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
 from ultralytics.models.yolo.detect import DetectionPredictor
@@ -10,7 +12,6 @@ from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.ops import yolox_preprocess
 from tracking.detectors.yolo_interface import YoloInterface
 
 # default model weigths for these model names
@@ -122,13 +123,47 @@ class YoloXStrategy(YoloInterface):
         assert (isinstance(predictor, DetectionPredictor),
                 "Only ultralytics predictors are supported")
         self.im_paths = predictor.batch[0]
+        
+    # This preprocess differs from the current version of YOLOX preprocess, but ByteTrack uses it
+    # https://github.com/ifzhang/ByteTrack/blob/d1bf0191adff59bc8fcfeaa0b33d3d1642552a99/yolox/data/data_augment.py#L189
+    def yolox_preprocess(
+        self,
+        image,
+        input_size, 
+        mean=(0.485, 0.456, 0.406), 
+        std=(0.229, 0.224, 0.225), 
+        swap=(2, 0, 1)
+    ):
+        if len(image.shape) == 3:
+            padded_img = np.ones((input_size[0], input_size[1], 3)) * 114.0
+        else:
+            padded_img = np.ones(input_size) * 114.0
+        img = np.array(image)
+        r = min(input_size[0] / img.shape[0], input_size[1] / img.shape[1])
+        resized_img = cv2.resize(
+            img,
+            (int(img.shape[1] * r), int(img.shape[0] * r)),
+            interpolation=cv2.INTER_LINEAR,
+        ).astype(np.float32)
+        padded_img[: int(img.shape[0] * r), : int(img.shape[1] * r)] = resized_img
+
+        padded_img = padded_img[:, :, ::-1]
+        padded_img /= 255.0
+        if mean is not None:
+            padded_img -= mean
+        if std is not None:
+            padded_img /= std
+        padded_img = padded_img.transpose(swap)
+        padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
+        return padded_img, r
+
 
     def preprocess(self, im) -> torch.Tensor:
         assert isinstance(im, list)
         im_preprocessed = []
         self._preproc_data = []
         for i, img in enumerate(im):
-            img_pre, ratio = yolox_preprocess(img, input_size=self.imgsz)
+            img_pre, ratio = self.yolox_preprocess(img, input_size=self.imgsz)
             img_pre = torch.Tensor(img_pre).unsqueeze(0).to(self.device)
 
             im_preprocessed.append(img_pre)
