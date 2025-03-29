@@ -2,6 +2,7 @@
 
 import gdown
 import torch
+import numpy as np
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
 from ultralytics.models.yolo.detect import DetectionPredictor
