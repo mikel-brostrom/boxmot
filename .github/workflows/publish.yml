@@ -71,8 +71,9 @@ jobs:
 
       - name: Commit and push updated version
         run: |
-          git commit -m "${{ steps.get_version.outputs.commit_message }}"
-          git push
+          if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
+            git commit -m "${{ steps.get_version.outputs.commit_message }}"
+            git push
         if: ${{ success() }}
 
       - name: Publish to PyPI
