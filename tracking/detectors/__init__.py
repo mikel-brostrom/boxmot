@@ -5,7 +5,7 @@ from boxmot.utils.checks import RequirementsChecker
 
 checker = RequirementsChecker()
 
-UL_MODELS = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'rtdetr', 'sam']
+UL_MODELS = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'yolo12', 'rtdetr', 'sam']
 
 
 def is_ultralytics_model(yolo_name):
