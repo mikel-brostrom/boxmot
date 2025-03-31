@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "boxmot"
-version = "12.0.3"
+version = "12.0.2"
 description = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 authors = ["Mikel Broström"]
 license = "AGPL-3.0"
