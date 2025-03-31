@@ -54,6 +54,7 @@ jobs:
           poetry build
           echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          du -sh dist/*
         if: ${{ success() }}
 
       - name: Update __init__.py version and add
