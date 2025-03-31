@@ -2,7 +2,7 @@
 
 <div align="center">
   <p>
-  <img src="assets/images/output_640.gif" width="400"/>
+  <img src="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.0/output_640.gif" width="400"/>
   </p>
   <br>
   <div>
