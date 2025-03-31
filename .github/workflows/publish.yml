@@ -54,6 +54,7 @@ jobs:
           poetry build
           echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          du -sh dist/*
         if: ${{ success() }}
 
       - name: Update __init__.py version and add
@@ -70,8 +71,10 @@ jobs:
 
       - name: Commit and push updated version
         run: |
-          git commit -m "${{ steps.get_version.outputs.commit_message }}"
-          git push
+          if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
+            git commit -m "${{ steps.get_version.outputs.commit_message }}"
+            git push
+          fi
         if: ${{ success() }}
 
       - name: Publish to PyPI
