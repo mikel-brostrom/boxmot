@@ -74,6 +74,7 @@ jobs:
           if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
             git commit -m "${{ steps.get_version.outputs.commit_message }}"
             git push
+          fi
         if: ${{ success() }}
 
       - name: Publish to PyPI
