@@ -59,7 +59,7 @@ pytest-cov = "^6.0.0"
 
 [tool.poetry.group.yolo.dependencies]
 ultralytics = {git = "https://github.com/mikel-brostrom/ultralytics.git"}
-
+rfdetr = "^1.0.8"
 
 [tool.poetry.group.export.dependencies]
 onnx = "^1.15.0"
