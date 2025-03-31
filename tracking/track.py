@@ -60,7 +60,6 @@ def run(args):
 
     if args.imgsz is None:
         args.imgsz = default_imgsz(args.yolo_model)
-
     yolo = YOLO(
         args.yolo_model if is_ultralytics_model(args.yolo_model)
         else 'yolov8n.pt',
@@ -98,10 +97,12 @@ def run(args):
         yolo.predictor.model = yolo_model
 
         # If current model is YOLOX, change the preprocess and postprocess
-        if is_yolox_model(args.yolo_model):
+        if not is_ultralytics_model(args.yolo_model):
             # add callback to save image paths for further processing
-            yolo.add_callback("on_predict_batch_start",
-                              lambda p: yolo_model.update_im_paths(p))
+            yolo.add_callback(
+                "on_predict_batch_start",
+                lambda p: yolo_model.update_im_paths(p)
+            )
             yolo.predictor.preprocess = (
                 lambda imgs: yolo_model.preprocess(im=imgs))
             yolo.predictor.postprocess = (
@@ -111,7 +112,7 @@ def run(args):
     # store custom args in predictor
     yolo.predictor.custom_args = args
 
-    for r in results:
+    for i, r in enumerate(results):
 
         img = yolo.predictor.trackers[0].plot_results(r.orig_img, args.show_trajectories)
 
@@ -120,6 +121,11 @@ def run(args):
             key = cv2.waitKey(1) & 0xFF
             if key == ord(' ') or key == ord('q'):
                 break
+        if args.save:
+            print('saving')
+            frame_filename = f'./output_rfdetr/frame_{i:04d}.png'
+            cv2.imwrite(frame_filename, img)
+            
 
 
 def parse_opt():
