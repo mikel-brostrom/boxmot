@@ -335,7 +335,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group test
+          uv sync --group test --group export
       - name: Test export models
         run: |
           source .venv/bin/activate
