@@ -230,6 +230,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
+          uv pip list
           python tracking/track.py --yolo-model yolov10n.pt --source $IMG --imgsz 320
           python tracking/track.py --yolo-model rf-detr-base.pt --source $IMG --imgsz 320
           python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320 320
