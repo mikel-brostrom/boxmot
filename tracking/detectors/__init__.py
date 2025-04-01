@@ -32,7 +32,7 @@ def get_yolo_inferer(yolo_model):
             import yolox  # for linear_assignment
             assert yolox.__version__
         except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(('yolox==0.3.0',), cmds='--no-dependencies')
+            checker.check_packages(('yolox',))
             checker.check_packages(('tabulate',))  # needed dependency
             checker.check_packages(('thop',))  # needed dependency
         from .yolox import YoloXStrategy
@@ -45,8 +45,8 @@ def get_yolo_inferer(yolo_model):
         try:
             import rfdetr
         except (ImportError, AssertionError, AttributeError):
+            checker.check_packages(('onnxruntime',))  # needed dependency
             checker.check_packages(('rfdetr',))  # needed dependency
-            #checker.check_packages(('pydantic',))  # needed dependency
         from .rfdetr import RFDETRStrategy
         return RFDETRStrategy
     elif 'yolo_nas' in str(yolo_model):
