@@ -231,8 +231,8 @@ jobs:
         run: |
           source .venv/bin/activate
           python tracking/track.py --yolo-model yolov10n.pt --source $IMG --imgsz 320
-          python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320 320
           python tracking/track.py --yolo-model rf-detr-base.pt --source $IMG --imgsz 320
+          python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320 320
 
 
   tracking-with-seg:
