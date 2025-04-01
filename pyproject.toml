@@ -96,6 +96,7 @@ test = [
 yolo = [
     "ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git",
     "rfdetr<2.0.0,>=1.0.8",
+    "yolox==0.3.0",
 ]
 export = [
     "onnx<2.0.0,>=1.17.0",
