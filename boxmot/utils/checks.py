@@ -8,6 +8,9 @@ import subprocess
 logger = logging.getLogger(__name__)
 REQUIREMENTS = Path('requirements.txt')
 
+# Construct the path to the uv executable in your virtual environment.
+uv_executable = os.path.join(sys.prefix, "bin", "uv")
+
 class RequirementsChecker:
     
     def check_requirements(self):
@@ -37,7 +40,7 @@ class RequirementsChecker:
             # Construct pip command arguments.
             pip_args = ['install', '--no-cache-dir'] + packages + cmds.split()
             # Use subprocess to call pip.
-            subprocess.check_call(['uv', 'pip'] + pip_args)
+            subprocess.check_call([uv_executable, 'pip'] + pip_args)
             logger.info('All the missing packages were installed successfully')
         except Exception as e:
             logger.error(f'Failed to install packages: {e}')
