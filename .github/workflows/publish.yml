@@ -80,7 +80,7 @@ jobs:
       - name: Publish to PyPI
         run: |
           if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
-            poetry publish --token ${{ secrets.PYPI_TOKEN }}
+            uv publish --token ${{ secrets.PYPI_TOKEN }}
           else
             uv publish --index testpypi --token ${{ secrets.TEST_PYPI_TOKEN }}
           fi
