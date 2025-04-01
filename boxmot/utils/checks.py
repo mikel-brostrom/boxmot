@@ -8,9 +8,6 @@ import subprocess
 logger = logging.getLogger(__name__)
 REQUIREMENTS = Path('requirements.txt')
 
-# Construct the path to the uv executable in your virtual environment.
-uv_executable = os.path.join(sys.prefix, "bin", "uv")
-
 class RequirementsChecker:
     
     def check_requirements(self):
