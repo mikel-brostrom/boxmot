@@ -205,7 +205,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.1,<7.0.0" },
     { name = "regex", specifier = ">=2024.0.0,<2025.0.0" },
     { name = "scikit-learn", specifier = ">=1.3.0,<2.0.0" },
-    { name = "setuptools", specifier = ">=70.0.0,<71.0.0" },
+    { name = "setuptools", specifier = ">=78.0.0" },
     { name = "torch", marker = "sys_platform == 'darwin'", specifier = ">=2.2.1,<3.0.0" },
     { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.2.1,<3.0.0" },
     { name = "torchvision", marker = "sys_platform == 'darwin'", specifier = ">=0.17.1,<1.0.0" },
@@ -235,7 +235,7 @@ yolo = [
     { name = "ultralytics", git = "https://github.com/mikel-brostrom/ultralytics.git" },
 ]
 yolox-build-deps = [
-    { name = "setuptools", specifier = ">=70.0.0,<71.0.0" },
+    { name = "setuptools", specifier = ">=78.0.0" },
     { name = "torch", specifier = ">=2.2.1,<3.0.0" },
 ]
 
@@ -2697,11 +2697,11 @@ wheels = [
 
 [[package]]
 name = "setuptools"
-version = "70.3.0"
+version = "78.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/65/d8/10a70e86f6c28ae59f101a9de6d77bf70f147180fbf40c3af0f64080adc3/setuptools-70.3.0.tar.gz", hash = "sha256:f171bab1dfbc86b132997f26a119f6056a57950d058587841a0082e8830f9dc5", size = 2333112 }
+sdist = { url = "https://files.pythonhosted.org/packages/a9/5a/0db4da3bc908df06e5efae42b44e75c81dd52716e10192ff36d0c1c8e379/setuptools-78.1.0.tar.gz", hash = "sha256:18fd474d4a82a5f83dac888df697af65afa82dec7323d09c3e37d1f14288da54", size = 1367827 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ef/15/88e46eb9387e905704b69849618e699dc2f54407d8953cc4ec4b8b46528d/setuptools-70.3.0-py3-none-any.whl", hash = "sha256:fe384da74336c398e0d956d1cae0669bc02eed936cdb1d49b57de1990dc11ffc", size = 931070 },
+    { url = "https://files.pythonhosted.org/packages/54/21/f43f0a1fa8b06b32812e0975981f4677d28e0f3271601dc88ac5a5b83220/setuptools-78.1.0-py3-none-any.whl", hash = "sha256:3e386e96793c8702ae83d17b853fb93d3e09ef82ec62722e61da5cd22376dcd8", size = 1256108 },
 ]
 
 [[package]]
