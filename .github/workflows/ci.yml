@@ -47,14 +47,15 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-          source .venv/bin/activate
 
       - name: Generate detections and embeddings
         run: |
+          source .venv/bin/activate
           python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
 
       - name: Run tracking method
         run: |
+          source .venv/bin/activate
           for tracker in $TRACKERS; do
             python tracking/val.py generate_mot_results  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
           done
@@ -91,10 +92,10 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --group evolve
-          source .venv/bin/activate
 
       - name: Evolve set of parameters for selected tracking method
         run: |
+          source .venv/bin/activate
           # reuse first set of generated det and prod
           python tracking/evolve.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
 
@@ -134,15 +135,16 @@ jobs:
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync
-          source .venv/bin/activate
 
       - name: Generate detections and embeddings
         run: |
+          source .venv/bin/activate
           python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
 
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
+          source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
 
           for tracker in $TRACKERS; do
@@ -195,11 +197,12 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-          source .venv/bin/activate
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
-        run: python tracking/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
+        run:  |
+          source .venv/bin/activate
+          python tracking/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
 
   tracking-with-yolos:
     runs-on: ubuntu-latest
@@ -221,11 +224,11 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-          source .venv/bin/activate
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
+          source .venv/bin/activate
           python tracking/track.py --yolo-model yolov10n.pt --source $IMG --imgsz 320
           python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320 320
           python tracking/track.py --yolo-model rf-detr-base.pt --source $IMG --imgsz 320
@@ -254,11 +257,12 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-          source .venv/bin/activate
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
-        run: python tracking/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
+        run: |
+          source .venv/bin/activate
+          python tracking/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
 
   
   export-reid-models:
@@ -284,7 +288,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group export
-          source .venv/bin/activate
 
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
@@ -295,6 +298,7 @@ jobs:
 
       - name: Test export models
         run: | 
+          source .venv/bin/activate
           python boxmot/appearance/reid_export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
       - name: Check export TFLite models
         run: |
@@ -303,6 +307,7 @@ jobs:
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
+          source .venv/bin/activate
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript    --source $IMG --imgsz 320
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17.onnx           --source $IMG --imgsz 320
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --source $IMG --imgsz 320 
@@ -330,9 +335,10 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group test
-          source .venv/bin/activate
       - name: Test export models
-        run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
+        run: |
+          source .venv/bin/activate
+          python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
       - name: Pytest tests  # after tracking options as this does not download models
         env:
           # directory of PyPi package to be tested
@@ -341,6 +347,7 @@ jobs:
           COVERAGE_FAIL_UNDER: 25
         shell: bash  # for Windows compatibility
         run: |
+          source .venv/bin/activate
           pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
 
