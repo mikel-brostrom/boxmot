@@ -45,10 +45,8 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock
-          poetry install --with yolo
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --with yolo
 
       - name: Generate detections and embeddings
         run: |
@@ -90,10 +88,8 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock
-          poetry install --with yolo,evolve
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --with yolo
 
       - name: Evolve set of parameters for selected tracking method
         run: |
@@ -134,10 +130,8 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           sudo apt-get install -y jq
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock
-          poetry install
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --with yolo
 
       - name: Generate detections and embeddings
         run: |
@@ -196,10 +190,8 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock
-          poetry install --with yolo
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --with yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -223,10 +215,8 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock
-          poetry install --with yolo
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --with yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -257,10 +247,8 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock
-          poetry install --with yolo
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --with yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -288,10 +276,8 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock
-          poetry install --with export
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --with yolo
 
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
@@ -335,10 +321,8 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock
-          poetry install --with test
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --with yolo
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
       - name: Pytest tests  # after tracking options as this does not download models
