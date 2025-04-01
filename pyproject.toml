@@ -11,6 +11,14 @@ verify_ssl = true
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
 
+[[tool.uv.dependency-metadata]]
+name = "yolox"
+version = "0.3.0"
+requires-dist = ["onnx>=1.17.0"]
+
+[tool.uv]
+no-build-isolation-package = ["yolox"]
+
 [tool.flake8]
 max-line-length = 120
 exclude = [".tox", "*.egg", "build", "temp"]
@@ -100,4 +108,8 @@ evolve = [
 ]
 dev = [
     "ipykernel<7.0.0,>=6.29.5",
+]
+yolox-build-deps = [
+    "setuptools>=70.0.0,<71.0.0",
+    "torch<3.0.0,>=2.2.1",
 ]
