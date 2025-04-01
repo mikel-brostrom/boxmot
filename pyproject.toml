@@ -62,7 +62,7 @@ ultralytics = {git = "https://github.com/mikel-brostrom/ultralytics.git"}
 rfdetr = "^1.0.8"
 
 [tool.poetry.group.export.dependencies]
-onnx = "^1.15.0"
+onnx = "^1.17.0"
 onnxsim = "^0.4.36"
 openvino-dev = ">=2023.3,<2025.0"
 
