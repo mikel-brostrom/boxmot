@@ -134,7 +134,7 @@ jobs:
           fi
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync
+          uv sync --group yolo
 
       - name: Generate detections and embeddings
         run: |
