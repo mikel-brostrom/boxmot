@@ -53,6 +53,8 @@ dependencies = [
     "torch<3.0.0,>=2.2.1; sys_platform == \"linux\" or sys_platform == \"win32\"",
     "torchvision<1.0.0,>=0.17.1; sys_platform == \"darwin\"",
     "torchvision<1.0.0,>=0.17.1; sys_platform == \"linux\" or sys_platform == \"win32\"",
+    "protobuf>=6.30.0"
+
 ]
 name = "boxmot"
 version = "12.0.2"
