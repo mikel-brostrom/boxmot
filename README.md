@@ -49,16 +49,16 @@ Multi-object tracking solutions today depend heavily on the computational capabi
 
 ## Installation
 
-Start with [**Python>=3.9**](https://www.python.org/) environment.
+Start with a [**Python>=3.9**](https://www.python.org/) environment.
 
-If you want to run the YOLOX, YOLOv10 or YOLOv11 examples:
+If you want to run the RFDETR, YOLOX or YOLOv12 examples:
 
 ```
 git clone https://github.com/mikel-brostrom/boxmot.git
 cd boxmot
-pip install poetry
-poetry install --with yolo  # installed boxmot + yolo dependencies
-poetry shell  # activates the newly created environment with the installed dependencies
+pip install uv
+uv sync --group yolo
+activate .venv/bin/activate
 ```
 
 but if you only want to import the tracking modules you can simply:
@@ -67,18 +67,21 @@ but if you only want to import the tracking modules you can simply:
 pip install boxmot
 ```
 
-## YOLOv8 | YOLOv9 | YOLOv10 examples
+## RFDETR | YOLOX | YOLOv12 examples
 
 <details>
 <summary>Tracking</summary>
 
 
 ```bash
-$ python tracking/track.py --yolo-model yolov10n      # bboxes only
-  python tracking/track.py --yolo-model yolov9s       # bboxes only
-  python tracking/track.py --yolo-model yolov8n       # bboxes only
-                                        yolov8n-seg   # bboxes + segmentation masks
-                                        yolov8n-pose  # bboxes + pose estimation
+yolox_s.pt
+$ python tracking/track.py --yolo-model rf-detr-base.pt  # bboxes only
+  python tracking/track.py --yolo-model yolox_s.pt       # bboxes only
+  python tracking/track.py --yolo-model yolov10n         # bboxes only
+  python tracking/track.py --yolo-model yolov9s          # bboxes only
+  python tracking/track.py --yolo-model yolov8n          # bboxes only
+                                        yolov8n-seg      # bboxes + segmentation masks
+                                        yolov8n-pose     # bboxes + pose estimation
 
 ```
 
