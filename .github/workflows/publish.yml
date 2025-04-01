@@ -51,7 +51,7 @@ jobs:
           commit_message=$(poetry version $bump_type)
           new_version=$(echo $commit_message | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
           git add pyproject.toml
-          uv build
+          uv build --no-sources
           echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
           du -sh dist/*
