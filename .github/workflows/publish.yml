@@ -38,20 +38,20 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry install
+          python -m pip install --upgrade pip setuptools wheel uv poetry
+          uv sync
 
-      - name: Increase poetry path version and add
+      - name: Increase uv path version and add
         id: get_version
         run: |
+          source .venv/bin/activate
           git config --local user.email yolov5.deepsort.pytorch@gmail.com
           git config --local user.name mikel-brostrom
           bump_type=${{ github.event.inputs.bump_type }}
           commit_message=$(poetry version $bump_type)
           new_version=$(echo $commit_message | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
           git add pyproject.toml
-          poetry build
+          uv build --no-sources
           echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
           du -sh dist/*
@@ -78,16 +78,11 @@ jobs:
         if: ${{ success() }}
 
       - name: Publish to PyPI
-        env:
-          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
         run: |
           if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
-            poetry publish
+            poetry publish --token ${{ secrets.PYPI_TOKEN }}
           else
-            poetry config repositories.testpypi https://test.pypi.org/legacy/
-            # poetry config pypi-token.testpypi ${{ secrets.TEST_PYPI_TOKEN }}
-            poetry config http-basic.testpypi "__token__" ${{ secrets.TEST_PYPI_TOKEN }}
-            poetry publish --repository testpypi
+            uv publish --index testpypi --token ${{ secrets.TEST_PYPI_TOKEN }}
           fi
         if: ${{ success() }}
 
