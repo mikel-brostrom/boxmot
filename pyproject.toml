@@ -24,7 +24,7 @@ authors = [
     {name = "Mikel Broström"},
 ]
 license = {text = "AGPL-3.0"}
-requires-python = "<4.0,>=3.9"
+requires-python = "<3.12,>=3.9"
 dependencies = [
     "setuptools<71.0.0,>=70.0.0",
     "filterpy<2.0.0,>=1.4.5",
