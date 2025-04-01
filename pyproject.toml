@@ -34,7 +34,7 @@ authors = [
 license = {text = "AGPL-3.0"}
 requires-python = "<3.12,>=3.9"
 dependencies = [
-    "setuptools<71.0.0,>=70.0.0",
+    "setuptools>=78.0.0",
     "filterpy<2.0.0,>=1.4.5",
     "gdown<6.0.0,>=5.1.0",
     "lapx<1.0.0,>=0.5.5",
@@ -110,6 +110,6 @@ dev = [
     "ipykernel<7.0.0,>=6.29.5",
 ]
 yolox-build-deps = [
-    "setuptools>=70.0.0,<71.0.0",
+    "setuptools>=78.0.0",
     "torch<3.0.0,>=2.2.1",
 ]
