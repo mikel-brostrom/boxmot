@@ -17,7 +17,6 @@ from tracking.detectors.yolo_interface import YoloInterface
 
 
 class RFDETRStrategy(YoloInterface):
-    print(COCO_CLASSES)
     pt = False
     stride = 32
     fp16 = False
