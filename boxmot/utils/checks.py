@@ -1,7 +1,5 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-import sys
-import os
 import pkg_resources
 import logging
 from pathlib import Path
@@ -42,7 +40,7 @@ class RequirementsChecker:
             # Construct pip command arguments.
             pip_args = ['install', '--no-cache-dir'] + packages + cmds.split()
             # Use subprocess to call pip.
-            subprocess.check_call([uv_executable, 'pip'] + pip_args)
+            subprocess.check_call(['uv', 'pip'] + pip_args)
             logger.info('All the missing packages were installed successfully')
         except Exception as e:
             logger.error(f'Failed to install packages: {e}')
