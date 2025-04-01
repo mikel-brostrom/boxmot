@@ -47,7 +47,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-          source .venv/bin/activate
 
       - name: Generate detections and embeddings
         run: |
@@ -91,7 +90,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --group evolve
-          source .venv/bin/activate
 
       - name: Evolve set of parameters for selected tracking method
         run: |
@@ -134,7 +132,6 @@ jobs:
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync
-          source .venv/bin/activate
 
       - name: Generate detections and embeddings
         run: |
@@ -195,7 +192,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-          source .venv/bin/activate
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -220,7 +216,6 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -253,7 +248,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-          source .venv/bin/activate
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -283,7 +277,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group export
-          source .venv/bin/activate
 
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
@@ -329,7 +322,6 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group test
-          source .venv/bin/activate
       - name: Test export models
         run: python boxmot/appearance/reid_export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
       - name: Pytest tests  # after tracking options as this does not download models
