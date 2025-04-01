@@ -1,5 +1,6 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
+import sys
 import os
 import pkg_resources
 import logging
