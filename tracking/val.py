@@ -15,6 +15,8 @@ import torch
 from functools import partial
 import threading
 import sys
+import copy
+import concurrent.futures
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
@@ -325,11 +327,8 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_res
     Returns:
         str: Standard output from the evaluation script.
     """
-    print(seq_paths)
-    print(MOT_results_folder)
+
     d = [seq_path.parent.name for seq_path in seq_paths]
-    print(d)
-    print(args.exp_folder_path)
 
     args = [
         sys.executable, EXAMPLES / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
@@ -382,40 +381,55 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
             generate_dets_embs(opt, y, source=mot_folder_path / 'img1')
 
 
+def process_single_mot(opt: argparse.Namespace, d: Path, e: Path, evolve_config: dict):
+    # Create a deep copy of opt so each task works independently
+    new_opt = copy.deepcopy(opt)
+    new_opt.dets_file_path = d
+    new_opt.embs_file_path = e
+    generate_mot_results(new_opt, evolve_config)
+
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
     """
-    Runs the generate_mot_results function for all YOLO models and detection/embedding files.
-
-    Args:
-        opt (Namespace): Parsed command line arguments.
-        evolve_config (dict, optional): Additional configuration dictionary.
+    Runs the generate_mot_results function for all YOLO models and detection/embedding files
+    in parallel.
     """
     for y in opt.yolo_model:
-        exp_folder_path = opt.project / 'mot' / (str(y.stem) + "_" + str(opt.reid_model[0].stem) + "_" + str(opt.tracking_method))
+        exp_folder_path = opt.project / 'mot' / (f"{y.stem}_{opt.reid_model[0].stem}_{opt.tracking_method}")
         exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
         opt.exp_folder_path = exp_folder_path
 
         mot_folder_names = [item.stem for item in Path(opt.source).iterdir()]
-        dets_file_paths = sorted([item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt')
-                           if not item.name.startswith('.')
-                           and item.stem in mot_folder_names])
-        embs_file_paths = sorted([item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt')
-                           if not item.name.startswith('.')
-                           and item.stem in mot_folder_names])
+        dets_file_paths = sorted([
+            item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt')
+            if not item.name.startswith('.') and item.stem in mot_folder_names
+        ])
+        embs_file_paths = sorted([
+            item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt')
+            if not item.name.startswith('.') and item.stem in mot_folder_names
+        ])
 
-        for d, e in zip(dets_file_paths, embs_file_paths):
-            mot_result_path = exp_folder_path / (d.stem + '.txt')
-            if mot_result_path.exists():
-                if prompt_overwrite('MOT Result', mot_result_path, opt.ci):
-                    LOGGER.info(f'Overwriting MOT result for {d.stem}...')
-                else:
-                    LOGGER.info(f'Skipping MOT result generation for {d.stem} as it already exists.')
-                    continue
-            opt.dets_file_path = d
-            opt.embs_file_path = e
-            generate_mot_results(opt, evolve_config)
-        
-    # postprocess data with gsi    
+        tasks = []
+        # Create a thread pool to run each file pair in parallel
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for d, e in zip(dets_file_paths, embs_file_paths):
+                mot_result_path = exp_folder_path / (d.stem + '.txt')
+                if mot_result_path.exists():
+                    if prompt_overwrite('MOT Result', mot_result_path, opt.ci):
+                        LOGGER.info(f'Overwriting MOT result for {d.stem}...')
+                    else:
+                        LOGGER.info(f'Skipping MOT result generation for {d.stem} as it already exists.')
+                        continue
+                # Submit the task to process this file pair in parallel
+                tasks.append(executor.submit(process_single_mot, opt, d, e, evolve_config))
+            
+            # Wait for all tasks to complete and log any exceptions
+            for future in concurrent.futures.as_completed(tasks):
+                try:
+                    future.result()
+                except Exception as exc:
+                    LOGGER.error(f'Error processing file pair: {exc}')
+    
+    # Postprocess data with gsi if requested
     if opt.gsi:
         gsi(mot_results_folder=opt.exp_folder_path)
         
