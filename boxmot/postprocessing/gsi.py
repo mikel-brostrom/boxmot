@@ -1,21 +1,13 @@
 from pathlib import Path
 import numpy as np
+import argparse
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.gaussian_process.kernels import RBF
 from boxmot.utils import logger as LOGGER
-
+import concurrent.futures
+from tqdm import tqdm
 
 def linear_interpolation(input_, interval):
-    """
-    Perform linear interpolation on the input data to fill in missing frames within the specified interval.
-
-    Args:
-        input_ (np.ndarray): Input array with shape (n, m) where n is the number of rows and m is the number of columns.
-        interval (int): The maximum frame gap to interpolate.
-
-    Returns:
-        np.ndarray: Interpolated array with additional rows for the interpolated frames.
-    """
     input_ = input_[np.lexsort((input_[:, 0], input_[:, 1]))]
     output_ = input_.copy()
 
@@ -30,18 +22,7 @@ def linear_interpolation(input_, interval):
         id_pre, row_pre, f_pre = id_curr, row, f_curr
     return output_[np.lexsort((output_[:, 0], output_[:, 1]))]
 
-
 def gaussian_smooth(input_, tau):
-    """
-    Apply Gaussian smoothing to the input data.
-
-    Args:
-        input_ (np.ndarray): Input array with shape (n, m) where n is the number of rows and m is the number of columns.
-        tau (float): Time constant for Gaussian smoothing.
-
-    Returns:
-        np.ndarray: Smoothed array with the same shape as the input.
-    """
     output_ = []
     ids = set(input_[:, 1])
     for id_ in ids:
@@ -50,48 +31,49 @@ def gaussian_smooth(input_, tau):
         t = tracks[:, 0].reshape(-1, 1)
         gpr = GPR(RBF(len_scale, 'fixed'))
         smoothed_data = []
-        # x, y, w, h
         for i in range(2, 6):
             data = tracks[:, i].reshape(-1, 1)
             gpr.fit(t, data)
             smoothed_data.append(gpr.predict(t).reshape(-1, 1))
         for j in range(len(t)):
             output_.append([
-                t[j, 0], id_, *[data[j, 0] for data in smoothed_data], tracks[j, 6], tracks[j, 7], -1
+                t[j, 0], id_, *[data[j, 0] for data in smoothed_data],
+                tracks[j, 6], tracks[j, 7], -1
             ])
     return np.array(output_)
 
+def process_file(p: Path, interval: int, tau: int):
+    LOGGER.info(f"Applying GSI to: {p}")
+    tracking_results = np.loadtxt(p, delimiter=',')
+    if tracking_results.size != 0:
+        li = linear_interpolation(tracking_results, interval)
+        gsi_result = gaussian_smooth(li, tau)
+        np.savetxt(p, gsi_result, fmt='%d %d %d %d %d %d %d %d %d')
+    else:
+        LOGGER.warning(f'No tracking result in {p}. Skipping...')
 
-def gsi(mot_results_folder=Path('examples/runs/val/exp87/labels'), interval=20, tau=10):
-    """
-    Apply Gaussian Smoothed Interpolation (GSI) to the tracking results files.
-
-    Args:
-        mot_results_folder (Path): Path to the folder containing the tracking results files.
-        interval (int): The maximum frame gap to interpolate.
-        tau (float): Time constant for Gaussian smoothing.
-
-    Returns:
-        None
-    """
-    tracking_results_files = mot_results_folder.glob('MOT*FRCNN.txt')
-    for p in tracking_results_files:
-        LOGGER.info(f"Applying gaussian smoothed interpolation (GSI) to: {p}")
-        tracking_results = np.loadtxt(p, dtype=int, delimiter=' ')
-        if tracking_results.size != 0:
-            li = linear_interpolation(tracking_results, interval)
-            gsi = gaussian_smooth(li, tau)
-            np.savetxt(p, gsi, fmt='%d %d %d %d %d %d %d %d %d')
-        else:
-            print(f'No tracking result in {p}. Skipping...')
-
+def gsi(mot_results_folder: Path, interval=20, tau=10):
+    tracking_results_files = list(mot_results_folder.glob('MOT*.txt'))
+    total_files = len(tracking_results_files)
+    LOGGER.info(f"Found {total_files} file(s) to process.")
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        futures = {executor.submit(process_file, p, interval, tau): p for p in tracking_results_files}
+        for future in tqdm(concurrent.futures.as_completed(futures), total=total_files, desc="Processing files"):
+            p = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                LOGGER.error(f"Error processing file {p}: {e}")
 
 def main():
-    """
-    Main function to run GSI on the specified folder.
-    """
-    gsi()
+    parser = argparse.ArgumentParser(
+        description='Apply Gaussian Smoothed Interpolation (GSI) to tracking results.'
+    )
+    parser.add_argument('--path', type=str, required=True, help='Path to MOT results folder')
+    args = parser.parse_args()
 
+    mot_results_folder = Path(args.path)
+    gsi(mot_results_folder)
 
 if __name__ == "__main__":
     main()
