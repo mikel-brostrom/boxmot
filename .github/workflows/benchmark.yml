@@ -49,10 +49,8 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           
-          python -m pip install --upgrade pip setuptools wheel poetry
-          poetry config virtualenvs.create false
-          poetry lock
-          poetry install --with yolo
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --group yolo
 
       - name: Download eval tools repo
         run: |
@@ -89,6 +87,7 @@ jobs:
           pwd
           ls tracking/val_utils
           ls tracking/val_utils/data
+          source .venv/bin/activate
 
           if python3 tracking/val.py --classes 0 --yolo-model yolox_x_ablation.pth --reid-model osnet_x1_0_dukemtmcreid.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./tracking/val_utils/data/MOT17-50/train; then
             STATUS="✅"
