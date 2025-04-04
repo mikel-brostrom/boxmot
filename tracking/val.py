@@ -22,6 +22,7 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMP
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.misc import increment_path
+from boxmot.postprocessing.gsi import gsi
 
 from ultralytics import YOLO
 from ultralytics.data.loaders import LoadImagesAndVideos
@@ -324,7 +325,11 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_res
     Returns:
         str: Standard output from the evaluation script.
     """
+    print(seq_paths)
+    print(MOT_results_folder)
     d = [seq_path.parent.name for seq_path in seq_paths]
+    print(d)
+    print(args.exp_folder_path)
 
     args = [
         sys.executable, EXAMPLES / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
@@ -409,6 +414,11 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
             opt.dets_file_path = d
             opt.embs_file_path = e
             generate_mot_results(opt, evolve_config)
+        
+    # postprocess data with gsi    
+    if opt.gsi:
+        gsi(mot_results_folder=opt.exp_folder_path)
+        
 
 
 def run_trackeval(opt: argparse.Namespace) -> dict:
@@ -465,6 +475,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--exp-folder-path', type=Path, help='path to experiment folder')
     parser.add_argument('--verbose', action='store_true', help='print results')
     parser.add_argument('--agnostic-nms', default=False, action='store_true', help='class-agnostic NMS')
+    parser.add_argument('--gsi', type=bool, default=False, help='apply Gaussian smooth interpolation postprocessing')
     parser.add_argument('--n-trials', type=int, default=4, help='nr of trials for evolution')
     parser.add_argument('--objectives', type=str, nargs='+', default=["HOTA", "MOTA", "IDF1"], help='set of objective metrics: HOTA,MOTA,IDF1')
     parser.add_argument('--val-tools-path', type=Path, default=EXAMPLES / 'val_utils', help='path to store trackeval repo in')
@@ -489,6 +500,7 @@ def parse_opt() -> argparse.Namespace:
 
     # Subparser for trackeval
     trackeval_parser = subparsers.add_parser('trackeval', help='Evaluate tracking results')
+    trackeval_parser.add_argument('--source', type=str, required=True, help='file/dir/URL/glob, 0 for webcam')
     trackeval_parser.add_argument('--exp-folder-path', type=Path, required=True, help='path to experiment folder')
 
     opt = parser.parse_args()
