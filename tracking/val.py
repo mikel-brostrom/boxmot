@@ -269,7 +269,7 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
     txt_path = args.exp_folder_path / (source.parent.name + '.txt')
     all_mot_results = []
 
-    for frame_idx, d in enumerate(tqdm(dataset, desc="Frames")):
+    for frame_idx, d in enumerate(tqdm(dataset, desc=source.parent.name)):
         if frame_idx == len(dataset):
             break
 
