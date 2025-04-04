@@ -489,7 +489,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--exp-folder-path', type=Path, help='path to experiment folder')
     parser.add_argument('--verbose', action='store_true', help='print results')
     parser.add_argument('--agnostic-nms', default=False, action='store_true', help='class-agnostic NMS')
-    parser.add_argument('--gsi', type=bool, default=False, help='apply Gaussian smooth interpolation postprocessing')
+    parser.add_argument('--gsi', action='store_true', help='apply Gaussian smooth interpolation postprocessing')
     parser.add_argument('--n-trials', type=int, default=4, help='nr of trials for evolution')
     parser.add_argument('--objectives', type=str, nargs='+', default=["HOTA", "MOTA", "IDF1"], help='set of objective metrics: HOTA,MOTA,IDF1')
     parser.add_argument('--val-tools-path', type=Path, default=EXAMPLES / 'val_utils', help='path to store trackeval repo in')
