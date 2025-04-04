@@ -165,7 +165,7 @@ $ python3 tracking/val.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt1
 $ python3 tracking/val.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method ocsort     --verbose --source ./tracking/val_utils/MOT17/train
 ```
 
-Detections and embeddings are stored for the selected YOLO and ReID model respectively, which then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
+add `--gsi` to your command for postprocessing the MOT results by gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
 </details>
 
 
