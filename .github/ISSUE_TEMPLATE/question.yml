@@ -1,5 +1,5 @@
 name: Question
-description: Ask a Yolo Tracking question
+description: Ask a BoxMOT question
 # title: " "
 labels: [question]
 body:
@@ -8,10 +8,10 @@ body:
     attributes:
       label: Search before asking
       description: >
-        Please search the [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) to see if a similar question already exists.
+        Please search the [issues](https://github.com/mikel-brostrom/boxmot/issues) to see if a similar question already exists.
       options:
         - label: >
-            I have searched the Yolo Tracking [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) and found no similar bug report.
+            I have searched the Yolo Tracking [issues](https://github.com/mikel-brostrom/boxmot/issues) and found no similar bug report.
           required: true
 
   - type: textarea
