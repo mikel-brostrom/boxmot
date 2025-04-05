@@ -1,6 +1,6 @@
 name: Bug
 # title: " "
-description: Report a Yolo Tracking bug
+description: Report a BoxMOT bug
 labels: [bug]
 body:
 
@@ -8,10 +8,10 @@ body:
     attributes:
       label: Search before asking
       description: >
-        Please search the [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolo_tracking/discussions) to see if a similar question already exists.
+        Please search the [issues](https://github.com/mikel-brostrom/boxmot/issues) and [discussions](https://github.com/mikel-brostrom/yolo_tracking/discussions) to see if a similar question already exists.
       options:
         - label: >
-            I have searched the Yolo Tracking [issues](https://github.com/mikel-brostrom/yolo_tracking/issues) and [discussions](https://github.com/mikel-brostrom/yolo_tracking/discussions) and found no similar questions.
+            I have searched the Yolo Tracking [issues](https://github.com/mikel-brostrom/boxmot/issues) and [discussions](https://github.com/mikel-brostrom/boxmot/discussions) and found no similar questions.
           required: true
 
   - type: dropdown
@@ -43,8 +43,10 @@ body:
       label: Environment
       description: Please specify the environment information you used to produce the bug.
       placeholder: |
-        - Yolo Tracking v10.0.13 🚀 Python-3.8.16 torch-1.13.1+cu117 CUDA:0 (Quadro P2000, 4032MiB)
-        - ...
+        - boxmot v12.0.0
+        - Python 3.11.5
+        - torch-2.6.0MPS
+
     validations:
       required: true
 
