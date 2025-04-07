@@ -1,11 +1,11 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import pkg_resources
-import logging
+from boxmot.utils import logger as LOGGER
 from pathlib import Path
 import subprocess
 
-logger = logging.getLogger(__name__)
+from boxmot.utils import logger as LOGGER
 REQUIREMENTS = Path('requirements.txt')
 
 class RequirementsChecker:
@@ -23,7 +23,7 @@ class RequirementsChecker:
             try:
                 pkg_resources.require(str(r))
             except Exception as e:
-                logger.error(f'{e}')
+                LOGGER.error(f'{e}')
                 missing_packages.append(str(r))
         
         if missing_packages:
@@ -31,14 +31,14 @@ class RequirementsChecker:
 
     def install_packages(self, packages, cmds=''):
         try:
-            logger.warning(
+            LOGGER.warning(
                 f'\nMissing packages: {", ".join(packages)}\nAttempting installation...'
             )
             # Construct pip command arguments.
             pip_args = ['install', '--no-cache-dir'] + packages + cmds.split()
             # Use subprocess to call pip.
             subprocess.check_call(['uv', 'pip'] + pip_args)
-            logger.info('All the missing packages were installed successfully')
+            LOGGER.info('All the missing packages were installed successfully')
         except Exception as e:
-            logger.error(f'Failed to install packages: {e}')
+            LOGGER.error(f'Failed to install packages: {e}')
             raise RuntimeError(f'Failed to install packages: {e}')
