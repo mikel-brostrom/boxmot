@@ -99,7 +99,7 @@ def prompt_overwrite(path_type: str, path: str, ci: bool = True) -> bool:
         bool: True if user confirms to overwrite, False otherwise.
     """
     if ci:
-        print(f"{path_type} {path} already exists. Use existing due to no UI mode.")
+        LOGGER.debug(f"{path_type} {path} already exists. Use existing due to no UI mode.")
         return False
 
     def input_with_timeout(prompt, timeout=3.0):
@@ -267,7 +267,7 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
     txt_path = args.exp_folder_path / (source.parent.name + '.txt')
     all_mot_results = []
 
-    for frame_idx, d in enumerate(tqdm(dataset, desc=source.parent.name)):
+    for frame_idx, d in enumerate(tqdm(dataset, desc=source.parent.name, leave=False)):
         if frame_idx == len(dataset):
             break
 
@@ -371,11 +371,11 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
             embs_path = Path(opt.project) / 'dets_n_embs' / y.stem / 'embs' / (opt.reid_model[0].stem) / (mot_folder_path.name + '.txt')
             if dets_path.exists() and embs_path.exists():
                 if prompt_overwrite('Detections and Embeddings', dets_path, opt.ci):
-                    LOGGER.info(f'Overwriting detections and embeddings for {mot_folder_path}...')
+                    LOGGER.debug(f'Overwriting detections and embeddings for {mot_folder_path}...')
                 else:
-                    LOGGER.info(f'Skipping generation for {mot_folder_path} as they already exist.')
+                    LOGGER.debug(f'Skipping generation for {mot_folder_path} as they already exist.')
                     continue
-            LOGGER.info(f'Generating detections and embeddings for data under {mot_folder_path} [{i + 1}/{len(mot_folder_paths)} seqs]')
+            LOGGER.debug(f'Generating detections and embeddings for data under {mot_folder_path} [{i + 1}/{len(mot_folder_paths)} seqs]')
             generate_dets_embs(opt, y, source=mot_folder_path / 'img1')
 
 
@@ -435,8 +435,7 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     
     # Postprocess data with gsi if requested
     if opt.gsi:
-        gsi(mot_results_folder=opt.exp_folder_path)
-        
+        gsi(mot_results_folder=opt.exp_folder_path)        
 
 
 def run_trackeval(opt: argparse.Namespace) -> dict:
@@ -450,10 +449,10 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
     if opt.verbose:
-        print(trackeval_results)
+        LOGGER.info(trackeval_results)
         with open(opt.tracking_method + "_output.json", "w") as outfile:
             outfile.write(json.dumps(hota_mota_idf1))
-    print(json.dumps(hota_mota_idf1))
+    LOGGER.info(json.dumps(hota_mota_idf1))
     return hota_mota_idf1
 
 
