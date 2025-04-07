@@ -257,8 +257,6 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
     with open(args.dets_file_path, 'r') as file:
         source = Path(file.readline().strip().replace("# ", ""))
 
-    LOGGER.info(f"\nStarting tracking on:\n\t{source}\nwith preloaded dets\n\t({args.dets_file_path.relative_to(ROOT)})\nand embs\n\t({args.embs_file_path.relative_to(ROOT)})\nusing\n\t{args.tracking_method}")
-
     dets = np.loadtxt(args.dets_file_path, skiprows=1)
     embs = np.loadtxt(args.embs_file_path)
 
@@ -393,6 +391,7 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     Runs the generate_mot_results function for all YOLO models and detection/embedding files
     in parallel.
     """
+    
     for y in opt.yolo_model:
         exp_folder_path = opt.project / 'mot' / (f"{y.stem}_{opt.reid_model[0].stem}_{opt.tracking_method}")
         exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
@@ -407,6 +406,11 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
             item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt')
             if not item.name.startswith('.') and item.stem in mot_folder_names
         ])
+        
+        dets_folder = opt.project / "dets_n_embs" / y.stem / 'dets'
+        embs_folder = opt.project / "dets_n_embs" / y.stem / 'embs'
+        
+        LOGGER.info(f"\nStarting tracking on:\n\t{opt.source}\nwith preloaded dets\n\t({dets_folder.relative_to(ROOT)})\nand embs\n\t({embs_folder.relative_to(ROOT)})\nusing\n\t{opt.tracking_method}")
 
         tasks = []
         # Create a thread pool to run each file pair in parallel
