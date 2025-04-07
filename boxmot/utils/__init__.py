@@ -3,8 +3,11 @@
 import os
 import sys
 from pathlib import Path
-
 import numpy as np
+# global logger
+from loguru import logger
+import threading
+
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[2]  # root directory
@@ -18,8 +21,9 @@ REQUIREMENTS = ROOT / "requirements.txt"
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of BoxMOT multiprocessing threads
 
 
-# global logger
-from loguru import logger
+def only_main_thread(record):
+    # Check if the current thread is the main thread
+    return threading.current_thread().name == "MainThread"
 
 logger.remove()
-logger.add(sys.stderr, colorize=True, level="INFO")
+logger.add(sys.stderr, filter=only_main_thread, colorize=True, level="INFO")
