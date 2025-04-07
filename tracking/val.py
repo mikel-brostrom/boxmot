@@ -398,17 +398,18 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         opt.exp_folder_path = exp_folder_path
 
         mot_folder_names = [item.stem for item in Path(opt.source).iterdir()]
+        
+        dets_folder = opt.project / "dets_n_embs" / y.stem / 'dets'
+        embs_folder = opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem
+        
         dets_file_paths = sorted([
-            item for item in (opt.project / "dets_n_embs" / y.stem / 'dets').glob('*.txt')
+            item for item in dets_folder.glob('*.txt')
             if not item.name.startswith('.') and item.stem in mot_folder_names
         ])
         embs_file_paths = sorted([
-            item for item in (opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem).glob('*.txt')
+            item for item in embs_folder.glob('*.txt')
             if not item.name.startswith('.') and item.stem in mot_folder_names
         ])
-        
-        dets_folder = opt.project / "dets_n_embs" / y.stem / 'dets'
-        embs_folder = opt.project / "dets_n_embs" / y.stem / 'embs'
         
         LOGGER.info(f"\nStarting tracking on:\n\t{opt.source}\nwith preloaded dets\n\t({dets_folder.relative_to(ROOT)})\nand embs\n\t({embs_folder.relative_to(ROOT)})\nusing\n\t{opt.tracking_method}")
 
