@@ -113,9 +113,9 @@ def download_mot_eval_tools(val_tools_path):
     try:
         # Clone the repository
         Repo.clone_from(val_tools_url, val_tools_path)
-        LOGGER.info('Official MOT evaluation repo downloaded successfully.')
+        LOGGER.debug('Official MOT evaluation repo downloaded successfully.')
     except exc.GitError as err:
-        LOGGER.info(f'Evaluation repo already downloaded or an error occurred: {err}')
+        LOGGER.debug(f'Evaluation repo already downloaded or an error occurred: {err}')
 
     # Fix deprecated np.float, np.int & np.bool by replacing them with native Python types
     deprecated_types = {'np.float': 'float', 'np.int': 'int', 'np.bool': 'bool'}
