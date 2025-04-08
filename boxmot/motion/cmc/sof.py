@@ -11,7 +11,7 @@ class SOF(BaseCMC):
     between consecutive frames. This class is modeled after a GMC implementation using
     the 'sparseOptFlow' method.
     """
-    def __init__(self, scale=0.3):
+    def __init__(self, scale=0.1):
         """
         Initialize the SOF object.
 
