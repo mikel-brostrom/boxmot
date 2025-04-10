@@ -1,5 +1,6 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
+import time
 import argparse
 import subprocess
 from pathlib import Path
@@ -243,6 +244,7 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
         args (Namespace): Parsed command line arguments.
         config_dict (dict, optional): Additional configuration dictionary.
     """
+    # Setup device and tracker
     args.device = select_device(args.device)
     tracker = create_tracker(
         args.tracking_method,
@@ -254,40 +256,126 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
         config_dict
     )
 
+    # Read the source file from the first line of the detections file
     with open(args.dets_file_path, 'r') as file:
         source = Path(file.readline().strip().replace("# ", ""))
 
+    # Load detections and embeddings data
     dets = np.loadtxt(args.dets_file_path, skiprows=1)
     embs = np.loadtxt(args.embs_file_path)
-
     dets_n_embs = np.concatenate([dets, embs], axis=1)
 
+    # Initialize dataset for images and videos
     dataset = LoadImagesAndVideos(source)
-
     txt_path = args.exp_folder_path / (source.parent.name + '.txt')
     all_mot_results = []
 
+    # Start the timer before processing begins
+    start_time = time.time()
+
+    # Process each frame in the dataset
     for frame_idx, d in enumerate(tqdm(dataset, desc=source.parent.name, leave=False)):
+        # This break condition is not strictly necessary since the enumerate stops at the end of the dataset.
         if frame_idx == len(dataset):
             break
 
+        # Get the frame image from the dataset
         im = d[1][0]
-        frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_idx + 1]
 
+        # Select detection and embedding rows corresponding to current frame (frame indices start at 1)
+        frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_idx + 1]
         dets = frame_dets_n_embs[:, 1:7]
         embs = frame_dets_n_embs[:, 7:]
+
+        # Update the tracker
         tracks = tracker.update(dets, im, embs)
 
+        # If any tracks are found, convert them to MOT format and store the result
         if tracks.size > 0:
             mot_results = convert_to_mot_format(tracks, frame_idx + 1)
             all_mot_results.append(mot_results)
 
+    # End the timer after processing is complete
+    end_time = time.time()
+
+    # Calculate FPS using the number of frames processed
+    total_frames = frame_idx + 1  # Since frame_idx starts at 0
+    elapsed_time = end_time - start_time
+    fps = total_frames / elapsed_time if elapsed_time > 0 else 0
+
+    # Combine all results and write to a file
     if all_mot_results:
         all_mot_results = np.vstack(all_mot_results)
     else:
         all_mot_results = np.empty((0, 0))
-
     write_mot_results(txt_path, all_mot_results)
+    
+    return fps
+
+
+def generate_fps_results(args: argparse.Namespace, config_dict: dict = None) -> None:
+    """
+    Generates MOT results for the specified arguments and configuration.
+
+    Args:
+        args (Namespace): Parsed command line arguments.
+        config_dict (dict, optional): Additional configuration dictionary.
+    """
+    # Setup device and tracker
+    args.device = select_device(args.device)
+    tracker = create_tracker(
+        args.tracking_method,
+        TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
+        args.reid_model[0].with_suffix('.pt'),
+        args.device,
+        False,
+        False,
+        config_dict
+    )
+
+    # Read the source file from the first line of the detections file
+    with open(args.dets_file_path, 'r') as file:
+        source = Path(file.readline().strip().replace("# ", ""))
+
+    # Load detections and embeddings data
+    dets = np.loadtxt(args.dets_file_path, skiprows=1)
+    embs = np.loadtxt(args.embs_file_path)
+    dets_n_embs = np.concatenate([dets, embs], axis=1)
+
+    # Initialize dataset for images and videos
+    dataset = LoadImagesAndVideos(source)
+    txt_path = args.exp_folder_path / (source.parent.name + '.txt')
+    all_mot_results = []
+
+    # Start the timer before processing begins
+    start_time = time.time()
+
+    # Process each frame in the dataset
+    for frame_idx, d in enumerate(tqdm(dataset, desc=source.parent.name, leave=False)):
+        # This break condition is not strictly necessary since the enumerate stops at the end of the dataset.
+        if frame_idx == len(dataset):
+            break
+
+        # Get the frame image from the dataset
+        im = d[1][0]
+
+        # Select detection and embedding rows corresponding to current frame (frame indices start at 1)
+        frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_idx + 1]
+        dets = frame_dets_n_embs[:, 1:7]
+        embs = frame_dets_n_embs[:, 7:]
+
+        # Update the tracker
+        tracks = tracker.update(dets, im)
+
+    # End the timer after processing is complete
+    end_time = time.time()
+
+    # Calculate FPS using the number of frames processed
+    total_frames = frame_idx + 1  # Since frame_idx starts at 0
+    elapsed_time = end_time - start_time
+    fps = total_frames / elapsed_time if elapsed_time > 0 else 0
+    
+    return fps
 
 
 def parse_mot_results(results: str) -> dict:
@@ -384,14 +472,18 @@ def process_single_mot(opt: argparse.Namespace, d: Path, e: Path, evolve_config:
     new_opt = copy.deepcopy(opt)
     new_opt.dets_file_path = d
     new_opt.embs_file_path = e
+    # Capture the FPS returned from generate_mot_results
     generate_mot_results(new_opt, evolve_config)
+    fps = generate_fps_results(new_opt, evolve_config)
+    return fps
 
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
     """
     Runs the generate_mot_results function for all YOLO models and detection/embedding files
-    in parallel.
+    in parallel and calculates the average FPS across all threads.
     """
-    
+    all_fps = []  # This will store the FPS value from each thread
+
     for y in opt.yolo_model:
         exp_folder_path = opt.project / 'mot' / (f"{y.stem}_{opt.reid_model[0].stem}_{opt.tracking_method}")
         exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
@@ -427,19 +519,29 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
                 # Submit the task to process this file pair in parallel
                 tasks.append(executor.submit(process_single_mot, opt, d, e, evolve_config))
             
-            # Wait for all tasks to complete and log any exceptions
+            # Wait for all tasks to complete and collect their FPS results
             for future in concurrent.futures.as_completed(tasks):
                 try:
-                    future.result()
+                    fps = future.result()
+                    all_fps.append(fps)
                 except Exception as exc:
                     LOGGER.error(f'Error processing file pair: {exc}')
     
+    # Calculate and log the average FPS if we have any results
+    if all_fps:
+        average_fps = int(sum(all_fps) / len(all_fps))
+    else:
+        LOGGER.info("No FPS results were collected to compute an average.")
+
     # Postprocess data with gsi if requested
     if opt.gsi:
-        gsi(mot_results_folder=opt.exp_folder_path)        
+        gsi(mot_results_folder=opt.exp_folder_path)
+        
+    return average_fps
+       
 
 
-def run_trackeval(opt: argparse.Namespace) -> dict:
+def run_trackeval(opt: argparse.Namespace, average_fps) -> dict:
     """
     Runs the trackeval function to evaluate tracking results.
 
@@ -449,12 +551,15 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, opt.val_tools_path)
     trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
+    hota_mota_idf1["fps"] = average_fps
+    hota_mota_idf1_fps = hota_mota_idf1
+    
     if opt.verbose:
         LOGGER.info(trackeval_results)
         with open(opt.tracking_method + "_output.json", "w") as outfile:
-            outfile.write(json.dumps(hota_mota_idf1))
-    LOGGER.info(json.dumps(hota_mota_idf1))
-    return hota_mota_idf1
+            outfile.write(json.dumps(hota_mota_idf1_fps))
+    LOGGER.info(json.dumps(hota_mota_idf1_fps))
+    return hota_mota_idf1_fps
 
 
 def run_all(opt: argparse.Namespace) -> None:
@@ -465,8 +570,8 @@ def run_all(opt: argparse.Namespace) -> None:
         opt (Namespace): Parsed command line arguments.
     """
     run_generate_dets_embs(opt)
-    run_generate_mot_results(opt)
-    run_trackeval(opt)
+    average_fps = run_generate_mot_results(opt)
+    run_trackeval(opt, average_fps)
 
 
 def parse_opt() -> argparse.Namespace:
