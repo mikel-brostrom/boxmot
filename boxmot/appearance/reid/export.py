@@ -2,7 +2,7 @@ import argparse
 import time
 import torch
 from pathlib import Path
-from boxmot.appearance import export_formats
+from boxmot.appearance.reid import export_formats
 from boxmot.utils.torch_utils import select_device
 
 from boxmot.appearance.reid.registry import ModelRegistry
