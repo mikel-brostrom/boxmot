@@ -4,7 +4,7 @@ import gdown
 import numpy as np
 from abc import ABC, abstractmethod
 from boxmot.utils import logger as LOGGER
-from boxmot.appearance.reid.model_factory import ModelRegistry
+from boxmot.appearance.reid.registry import ModelRegistry
 from boxmot.utils.checks import RequirementsChecker
 
 
