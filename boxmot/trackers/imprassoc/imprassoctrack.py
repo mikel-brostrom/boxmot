@@ -5,7 +5,7 @@ from collections import deque
 from pathlib import Path
 from torch import device
 
-from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
 from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
 from boxmot.trackers.imprassoc.basetrack import BaseTrack, TrackState
