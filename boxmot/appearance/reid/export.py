@@ -5,7 +5,7 @@ from pathlib import Path
 from boxmot.appearance.reid import export_formats
 from boxmot.utils.torch_utils import select_device
 
-from boxmot.appearance.reid.registry import ModelRegistry
+from boxmot.appearance.reid.registry import ReIDModelRegistry
 
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.utils import WEIGHTS, logger as LOGGER
@@ -52,13 +52,13 @@ def main():
     rab = ReidAutoBackend(weights=args.weights, device=args.device, half=args.half)
     model = rab.get_backend()
 
-    model = ModelRegistry.build_model(
-        ModelRegistry.get_model_name(args.weights),
-        num_classes=ModelRegistry.get_nr_classes(args.weights),
+    model = ReIDModelRegistry.build_model(
+        ReIDModelRegistry.get_model_name(args.weights),
+        num_classes=ReIDModelRegistry.get_nr_classes(args.weights),
         pretrained=not (args.weights and args.weights.is_file() and args.weights.suffix == ".pt"),
         use_gpu=args.device,
     ).to(args.device)
-    ModelRegistry.load_pretrained_weights(model, args.weights)
+    ReIDModelRegistry.load_pretrained_weights(model, args.weights)
     model.eval()
 
     if args.optimize:
