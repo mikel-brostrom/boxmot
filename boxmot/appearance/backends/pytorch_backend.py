@@ -2,9 +2,7 @@ import numpy as np
 from pathlib import Path
 
 from boxmot.appearance.backends.base_backend import BaseModelBackend
-from boxmot.appearance.reid_model_factory import (
-    load_pretrained_weights,
-)
+from boxmot.appearance.reid.registry import ReIDModelRegistry
 
 
 class PyTorchBackend(BaseModelBackend):
@@ -17,7 +15,7 @@ class PyTorchBackend(BaseModelBackend):
     def load_model(self, w):
         # Load a PyTorch model
         if w and w.is_file():
-            load_pretrained_weights(self.model, w)
+            ReIDModelRegistry.load_pretrained_weights(self.model, w)
         self.model.to(self.device).eval()
         self.model.half() if self.half else self.model.float()
 

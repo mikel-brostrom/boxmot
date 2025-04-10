@@ -4,13 +4,7 @@ import gdown
 import numpy as np
 from abc import ABC, abstractmethod
 from boxmot.utils import logger as LOGGER
-from boxmot.appearance.reid_model_factory import (
-    get_model_name,
-    get_model_url,
-    build_model,
-    get_nr_classes,
-    show_downloadable_models
-)
+from boxmot.appearance.reid.registry import ReIDModelRegistry
 from boxmot.utils.checks import RequirementsChecker
 
 
@@ -23,11 +17,11 @@ class BaseModelBackend:
         self.cuda = torch.cuda.is_available() and self.device.type != "cpu"
 
         self.download_model(self.weights)
-        self.model_name = get_model_name(self.weights)
+        self.model_name = ReIDModelRegistry.get_model_name(self.weights)
 
-        self.model = build_model(
+        self.model = ReIDModelRegistry.build_model(
             self.model_name,
-            num_classes=get_nr_classes(self.weights),
+            num_classes=ReIDModelRegistry.get_nr_classes(self.weights),
             pretrained=not (self.weights and self.weights.is_file()),
             use_gpu=device,
         )
@@ -130,12 +124,12 @@ class BaseModelBackend:
 
     def download_model(self, w):
         if w.suffix == ".pt":
-            model_url = get_model_url(w)
+            model_url = ReIDModelRegistry.get_model_url(w)
             if not w.exists() and model_url is not None:
                 gdown.download(model_url, str(w), quiet=False)
             elif not w.exists():
                 LOGGER.error(
                     f"No URL associated with the chosen StrongSORT weights ({w}). Choose between:"
                 )
-                show_downloadable_models()
+                ReIDModelRegistry.show_downloadable_models()
                 exit()
