@@ -4,11 +4,10 @@ import torch
 from pathlib import Path
 from boxmot.appearance import export_formats
 from boxmot.utils.torch_utils import select_device
-from boxmot.appearance.reid_registry import get_model_name, load_pretrained_weights, build_model, get_nr_classes
 
-from boxmot.appearance.reid_registry import ModelRegistry
+from boxmot.appearance.reid.registry import ModelRegistry
 
-from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.utils import WEIGHTS, logger as LOGGER
 
 from boxmot.appearance.exporters.base_exporter import BaseExporter
