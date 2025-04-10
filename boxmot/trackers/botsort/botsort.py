@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 
 from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
-from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
