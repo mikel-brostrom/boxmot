@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 from boxmot.utils import ROOT
 
-from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 
 REID_MODELS = [
     Path('mobilenetv2_x1_0_market1501.pt'),
