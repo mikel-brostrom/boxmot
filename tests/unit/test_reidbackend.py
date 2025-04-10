@@ -10,7 +10,7 @@ from boxmot.appearance.backends.tensorrt_backend import TensorRTBackend
 from boxmot.appearance.backends.tflite_backend import TFLiteBackend
 from boxmot.appearance.backends.torchscript_backend import TorchscriptBackend
 
-from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 
 # generated in previous job step
 EXPORTED_REID_MODELS = [
