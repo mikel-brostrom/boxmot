@@ -151,7 +151,7 @@ def main():
     start_time = time.time()
 
     # Create output directory if not existing
-    args.weights.parent.mkdir(parents=True, exist_ok=True)
+    WEIGHTS.mkdir(parents=False, exist_ok=True)
 
     # Determine which export formats were requested
     valid_formats = tuple(export_formats()["Argument"][1:])  # e.g., ('torchscript', 'onnx', 'openvino', 'engine', 'tflite')
