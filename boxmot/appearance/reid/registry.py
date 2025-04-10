@@ -3,8 +3,8 @@ import torch
 from collections import OrderedDict
 from boxmot.utils import logger as LOGGER
 
-from config import MODEL_TYPES, TRAINED_URLS, NR_CLASSES_DICT
-from model_factory import MODEL_FACTORY
+from boxmot.appearance.reid.config import MODEL_TYPES, TRAINED_URLS, NR_CLASSES_DICT
+from boxmot.appearance.reid.factory import MODEL_FACTORY
 
 class ReIDModelRegistry:
     """Encapsulates model registration and related utilities."""
