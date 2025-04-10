@@ -9,7 +9,7 @@ from boxmot.trackers.boosttrack.assoc import (
     shape_similarity,
     soft_biou_batch,
 )
-from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.trackers.boosttrack.kalmanfilter import KalmanFilter
 from boxmot.trackers.boosttrack.ecc import ECC
 from boxmot.trackers.basetracker import BaseTracker

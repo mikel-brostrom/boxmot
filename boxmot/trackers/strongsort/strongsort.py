@@ -4,7 +4,7 @@ import numpy as np
 from torch import device
 from pathlib import Path
 
-from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.tracker import Tracker
