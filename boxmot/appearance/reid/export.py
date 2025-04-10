@@ -4,7 +4,10 @@ import torch
 from pathlib import Path
 from boxmot.appearance import export_formats
 from boxmot.utils.torch_utils import select_device
-from boxmot.appearance.reid_model_factory import get_model_name, load_pretrained_weights, build_model, get_nr_classes
+from boxmot.appearance.reid_registry import get_model_name, load_pretrained_weights, build_model, get_nr_classes
+
+from boxmot.appearance.reid_registry import ModelRegistry
+
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 from boxmot.utils import WEIGHTS, logger as LOGGER
 
@@ -50,13 +53,13 @@ def main():
     rab = ReidAutoBackend(weights=args.weights, device=args.device, half=args.half)
     model = rab.get_backend()
 
-    model = build_model(
-        get_model_name(args.weights),
-        num_classes=get_nr_classes(args.weights),
+    model = ModelRegistry.build_model(
+        ModelRegistry.get_model_name(args.weights),
+        num_classes=ModelRegistry.get_nr_classes(args.weights),
         pretrained=not (args.weights and args.weights.is_file() and args.weights.suffix == ".pt"),
         use_gpu=args.device,
     ).to(args.device)
-    load_pretrained_weights(model, args.weights)
+    ModelRegistry.load_pretrained_weights(model, args.weights)
     model.eval()
 
     if args.optimize:
