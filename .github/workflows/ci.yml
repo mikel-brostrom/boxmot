@@ -301,7 +301,7 @@ jobs:
       - name: Test export models
         run: | 
           source .venv/bin/activate
-          python boxmot/appearance/reid_export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
+          python boxmot/appearance/reid/export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
       - name: Check export TFLite models
         run: |
           ls /home/runner/work/boxmot/boxmot/tracking/weights/osnet_x0_25_msmt17_saved_model/
