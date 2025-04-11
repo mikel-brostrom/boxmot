@@ -233,7 +233,7 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
 
     seq_frame_nums = {source.parent.name: frame_nums.copy()}
 
-    for frame_num, d in enumerate(tqdm(dataset, desc=source.parent.name), 1):
+    for frame_num, d in enumerate(tqdm(dataset, desc=source.parent.name, leave=False), 1):
         # Filter using list with needed numbers
         if len(frame_nums) > 0:
             if frame_num < frame_nums[0]:
@@ -257,10 +257,6 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
         if tracks.size > 0:
             mot_results = convert_to_mot_format(tracks, frame_num)
             all_mot_results.append(mot_results)
-    
-    end_time = time.time()
-    total_frames = frame_idx + 1
-    fps = total_frames / (end_time - start_time) if (end_time - start_time) > 0 else 0
 
     if all_mot_results:
         all_mot_results = np.vstack(all_mot_results)
@@ -268,33 +264,42 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
         all_mot_results = np.empty((0, 0))
         
     write_mot_results(txt_path, all_mot_results)
-    return fps
+
 
 def generate_fps_results(args: argparse.Namespace, config_dict: dict = None) -> float:
     """
-    Computes FPS by processing frames without writing full MOT results.
+    Computes FPS by processing frames and timing only the tracker.update() calls.
     
     Args:
         args (argparse.Namespace): Command-line arguments.
         config_dict (dict, optional): Additional configuration.
     
     Returns:
-        float: Computed FPS.
+        float: Computed FPS based solely on the tracker.update() process.
     """
     tracker, source, dets_n_embs, dataset = _setup_tracker_and_data(args, config_dict)
     
-    start_time = time.time()
+    total_update_time = 0.0
+    total_frames = 0
+    
     for frame_idx, data in enumerate(tqdm(dataset, desc=source.parent.name, leave=False)):
         im = data[1][0]
         frame_data = dets_n_embs[dets_n_embs[:, 0] == (frame_idx + 1)]
         dets_frame = frame_data[:, 1:7]
-        # For FPS calculation, embeddings are not used.
+        
+        # Start timer only for the update process
+        start_update = time.time()
         tracker.update(dets_frame, im)
-    end_time = time.time()
+        end_update = time.time()
+        
+        # Accumulate the update time and frame count
+        total_update_time += (end_update - start_update)
+        total_frames += 1
 
-    total_frames = frame_idx + 1
-    fps = total_frames / (end_time - start_time) if (end_time - start_time) > 0 else 0
+    # Calculate FPS based solely on tracker.update duration
+    fps = total_frames / total_update_time if total_update_time > 0 else 0
     return fps
+
 
 # ------------------------------------------------------------------------------
 # Generic Process Task Wrapper and Dedicated Process Functions
@@ -411,6 +416,9 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
                     future.result()
                 except Exception as exc:
                     LOGGER.error(f'Error processing MOT task: {exc}')
+                    
+            if opt.gsi:
+                gsi(mot_results_folder=opt.exp_folder_path)
             
             # Only after MOT tasks are finished, submit FPS tasks.
             fps_results = []
@@ -435,10 +443,6 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
 
     if opt.fps:
         return average_fps
-    
-                    # Run additional postprocessing if requested.
-    if opt.gsi:
-        gsi(mot_results_folder=opt.exp_folder_path)
 
 
 def parse_mot_results(results: str) -> dict:
@@ -614,7 +618,7 @@ def run_trackeval(opt: argparse.Namespace, average_fps) -> dict:
     
     # Add the FPS metric only if it was calculated (i.e. if --fps was enabled)
     if opt.fps and average_fps is not None:
-        hota_mota_idf1["fps"] = average_fps
+        hota_mota_idf1["FPS"] = average_fps
 
     if opt.verbose:
         LOGGER.info(trackeval_results)
