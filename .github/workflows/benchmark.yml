@@ -99,34 +99,18 @@ jobs:
             HOTA=$(jq -r '.HOTA' ${{ matrix.tracker }}_output.json)
             MOTA=$(jq -r '.MOTA' ${{ matrix.tracker }}_output.json)
             IDF1=$(jq -r '.IDF1' ${{ matrix.tracker }}_output.json)
+            IDF1=$(jq -r '.FPS' ${{ matrix.tracker }}_output.json)
           else
             HOTA=""
             MOTA=""
             IDF1=""
+            FPS=""
           fi
 
           mkdir results
           TRACKER_NAME=$(echo "${{ matrix.tracker }}" | awk '{print tolower($0)}')
 
-          if [ "$STATUS" == "❌" ]; then
-            fps=""
-          else
-            # Define static FPS values per tracker
-            declare -A tracker_fps
-            tracker_fps["deepocsort"]=12
-            tracker_fps["bytetrack"]=1265
-            tracker_fps["ocsort"]=1483
-            tracker_fps["strongsort"]=17
-            tracker_fps["botsort"]=46
-            tracker_fps["hybridsort"]=25
-            tracker_fps["imprassoc"]=26
-            tracker_fps["boosttrack"]=25
-
-            # Retrieve the static FPS value for the current tracker
-            fps=${tracker_fps[$TRACKER_NAME]}
-          fi
-
-          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}.txt
+          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1,$FPS" > results/${{ matrix.tracker }}.txt
         
       - name: Show Results
         run: cat results/${{ matrix.tracker }}.txt
