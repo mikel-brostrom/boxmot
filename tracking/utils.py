@@ -18,6 +18,7 @@ from git import Repo, exc
 from boxmot.utils import logger as LOGGER
 from tqdm import tqdm
 from boxmot.utils import EXAMPLES, ROOT
+import threading
 
 
 def prompt_overwrite(path_type: str, path: str, ci: bool = True) -> bool:
