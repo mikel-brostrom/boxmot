@@ -92,7 +92,6 @@ def process_file(file_path: Path, interval: int, tau: float):
         interval (int): Interval for linear interpolation.
         tau (float): Smoothing parameter for Gaussian process.
     """
-    LOGGER.info(f"Applying GSI to: {file_path}")
     tracking_results = np.loadtxt(file_path, delimiter=',')
     if tracking_results.size != 0:
         interpolated_results = linear_interpolation(tracking_results, interval)
@@ -117,7 +116,7 @@ def gsi(mot_results_folder: Path, interval: int = 20, tau: float = 10):
 
     with concurrent.futures.ProcessPoolExecutor() as executor:
         futures = {executor.submit(process_file, file_path, interval, tau): file_path for file_path in tracking_files}
-        for future in tqdm(concurrent.futures.as_completed(futures), total=total_files, desc="Processing files"):
+        for future in tqdm(concurrent.futures.as_completed(futures), total=total_files, desc="Processing MOT results with GSI"):
             file_path = futures[future]
             try:
                 future.result()

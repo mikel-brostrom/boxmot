@@ -31,7 +31,6 @@ This repository contains a collection of pluggable, state-of-the-art multi-objec
 | [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 67.394 | 76.413 | 79.017 | 17 |
 | [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 67.348 | 75.832 | 79.584 | 12 |
 | [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.546 | 77.892 | 1483 |
-| [imprassoc](https://openaccess.thecvf.com/content/CVPR2023W/E2EAD/papers/Stadler_An_Improved_Association_Pipeline_for_Multi-Person_Tracking_CVPRW_2023_paper.pdf) | ✅ | 63.699 | 76.407 | 70.837 | 26 |
 
 <!-- END TRACKER TABLE -->
 
@@ -96,7 +95,6 @@ $ python tracking/track.py --tracking-method deepocsort
                                              ocsort
                                              bytetrack
                                              botsort
-                                             imprassoc
                                              boosttrack
 ```
 

@@ -47,7 +47,6 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
         'botsort': 'boxmot.trackers.botsort.botsort.BotSort',
         'deepocsort': 'boxmot.trackers.deepocsort.deepocsort.DeepOcSort',
         'hybridsort': 'boxmot.trackers.hybridsort.hybridsort.HybridSort',
-        'imprassoc': 'boxmot.trackers.imprassoc.imprassoctrack.ImprAssocTrack',
         'boosttrack': 'boxmot.trackers.boosttrack.boosttrack.BoostTrack',
     }
 
@@ -61,7 +60,7 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
     tracker_class = getattr(__import__(module_path, fromlist=[class_name]), class_name)
     
     # For specific trackers, update tracker arguments with ReID parameters
-    if tracker_type in ['strongsort', 'botsort', 'deepocsort', 'hybridsort', 'imprassoc', 'boosttrack']:
+    if tracker_type in ['strongsort', 'botsort', 'deepocsort', 'hybridsort', 'boosttrack']:
         tracker_args['per_class'] = per_class
         tracker_args.update(reid_args)
         if tracker_type in ['strongsort', 'boosttrack']:
