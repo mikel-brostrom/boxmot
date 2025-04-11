@@ -99,7 +99,7 @@ jobs:
             HOTA=$(jq -r '.HOTA' ${{ matrix.tracker }}_output.json)
             MOTA=$(jq -r '.MOTA' ${{ matrix.tracker }}_output.json)
             IDF1=$(jq -r '.IDF1' ${{ matrix.tracker }}_output.json)
-            IDF1=$(jq -r '.FPS' ${{ matrix.tracker }}_output.json)
+            FPS=$(jq -r  '.FPS' ${{ matrix.tracker }}_output.json)
           else
             HOTA=""
             MOTA=""
