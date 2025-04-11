@@ -22,6 +22,94 @@ from tqdm import tqdm
 from boxmot.utils import EXAMPLES, ROOT
 
 
+def prompt_overwrite(path_type: str, path: str, ci: bool = True) -> bool:
+    """
+    Prompts the user to confirm overwriting an existing file.
+
+    Args:
+        path_type (str): Type of the path (e.g., 'Detections and Embeddings', 'MOT Result').
+        path (str): The path to check.
+        ci (bool): If True, automatically reuse existing file without prompting (for CI environments).
+
+    Returns:
+        bool: True if user confirms to overwrite, False otherwise.
+    """
+    if ci:
+        LOGGER.debug(f"{path_type} {path} already exists. Use existing due to no UI mode.")
+        return False
+
+    def input_with_timeout(prompt, timeout=3.0):
+        print(prompt, end='', flush=True)
+
+        result = []
+        input_received = threading.Event()
+
+        def get_input():
+            user_input = sys.stdin.readline().strip().lower()
+            result.append(user_input)
+            input_received.set()
+
+        input_thread = threading.Thread(target=get_input)
+        input_thread.daemon = True  # Ensure thread does not prevent program exit
+        input_thread.start()
+        input_thread.join(timeout)
+
+        if input_received.is_set():
+            return result[0] in ['y', 'yes']
+        else:
+            print("\nNo response, not proceeding with overwrite...")
+            return False
+
+    return input_with_timeout(f"{path_type} {path} already exists. Overwrite? [y/N]: ")
+
+
+def cleanup_mot17(data_dir, keep_detection='FRCNN'):
+    """
+    Cleans up the MOT17 dataset to resemble the MOT16 format by keeping only one detection folder per sequence.
+    Skips sequences that have already been cleaned.
+
+    Args:
+    - data_dir (str): Path to the MOT17 train directory.
+    - keep_detection (str): Detection type to keep (options: 'DPM', 'FRCNN', 'SDP'). Default is 'DPM'.
+    """
+
+    # Get all folders in the train directory
+    all_dirs = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
+
+    # Identify unique sequences by removing detection suffixes
+    unique_sequences = set(seq.split('-')[0] + '-' + seq.split('-')[1] for seq in all_dirs)
+
+    for seq in unique_sequences:
+        # Directory path to the cleaned sequence
+        cleaned_seq_dir = os.path.join(data_dir, seq)
+
+        # Skip if the sequence is already cleaned
+        if os.path.exists(cleaned_seq_dir):
+            print(f"Sequence {seq} is already cleaned. Skipping.")
+            continue
+
+        # Directories for each detection method
+        seq_dirs = [os.path.join(data_dir, d)
+                    for d in all_dirs if d.startswith(seq)]
+
+        # Directory path for the detection folder to keep
+        keep_dir = os.path.join(data_dir, f"{seq}-{keep_detection}")
+
+        if os.path.exists(keep_dir):
+            # Move the directory to a new name (removing the detection suffix)
+            shutil.move(keep_dir, cleaned_seq_dir)
+            print(f"Moved {keep_dir} to {cleaned_seq_dir}")
+
+            # Remove other detection directories
+            for seq_dir in seq_dirs:
+                if os.path.exists(seq_dir) and seq_dir != keep_dir:
+                    shutil.rmtree(seq_dir)
+                    print(f"Removed {seq_dir}")
+        else:
+            print(f"Directory for {seq} with {keep_detection} detection does not exist. Skipping.")
+
+    print("MOT17 Cleanup completed!")
+
 def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> None:
     """
     Copies the dataset to a new location and removes a specified percentage of images and annotations,
