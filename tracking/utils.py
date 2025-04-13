@@ -8,6 +8,8 @@ from ultralytics.utils import ops
 from ultralytics.engine.results import Results
 from typing import Union
 from pathlib import Path
+import json
+import shutil
 import os
 import sys
 import git
@@ -253,6 +255,25 @@ def unzip_mot_dataset(zip_path, val_tools_path, benchmark):
     else:
         LOGGER.info(f'{benchmark} folder already exists.')
         return extract_path
+    
+
+def set_gt_fps(opt, seq_paths):
+    fps_json_filepath = opt.exp_folder_path / 'seqs_frame_nums.json'
+    with open(fps_json_filepath, 'r') as f:
+        seqs_frame_nums = json.load(f)
+    
+    for seq_path in seq_paths:
+        seq_name = seq_path.parent.name
+        frame_nums = seqs_frame_nums[seq_name]
+
+        gt_dir = seq_path.parent / 'gt'
+        gt_orig_path = gt_dir / 'gt.txt' 
+        gt_temp_path = gt_dir / 'gt_temp.txt' 
+        shutil.copy(gt_orig_path, gt_temp_path)
+
+        seq = np.loadtxt(gt_temp_path, delimiter=',')
+        seq_filtered = seq[np.isin(seq[:, 0], frame_nums)]
+        np.savetxt(gt_temp_path, seq_filtered, delimiter=',')
 
 
 def eval_setup(opt, val_tools_path):
@@ -300,9 +321,11 @@ def eval_setup(opt, val_tools_path):
         # Default handling for other datasets
         seq_paths = [p / 'img1' for p in mot_seqs_path.iterdir() if p.is_dir()]
 
+    # Set FPS for GT files
+    set_gt_fps(opt, seq_paths)
+
     # Determine save directory
     save_dir = Path(opt.project) / opt.name
-
 
     # Setup MOT results folder
     MOT_results_folder = val_tools_path / 'data' / 'trackers' / 'mot_challenge' / opt.benchmark / save_dir.name / 'data'
@@ -382,4 +405,3 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), 'a') as file:
                 np.savetxt(file, mot_results, fmt='%d,%d,%d,%d,%d,%d,%d,%d,%.6f')
-
