@@ -671,7 +671,6 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--objectives', type=str, nargs='+', default=["HOTA", "MOTA", "IDF1"], help='set of objective metrics: HOTA,MOTA,IDF1')
     parser.add_argument('--val-tools-path', type=Path, default=EXAMPLES / 'val_utils', help='path to store trackeval repo in')
     parser.add_argument('--split-dataset', action='store_true', help='Use the second half of the dataset')
-    parser.add_argument('--fps', action='store_true', default=False, help='Calculate FPS in addition to HOTA, MOTA and IDF1 metrics.')
 
     subparsers = parser.add_subparsers(dest='command')
 
@@ -700,7 +699,7 @@ def parse_opt() -> argparse.Namespace:
     opt.benchmark, opt.split = source_path.parent.name, source_path.name
 
     return opt
-s
+
 
 if __name__ == "__main__":
     opt = parse_opt()
