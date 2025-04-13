@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm
+import configparser
 import shutil
 import json
 import queue
@@ -235,13 +236,16 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
                 np.savetxt(f, embs, fmt='%f')
 
 
-def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> None:
+def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> dict[str, np.ndarray]:
     """
     Generates MOT results for the specified arguments and configuration.
 
     Args:
         args (Namespace): Parsed command line arguments.
         config_dict (dict, optional): Additional configuration dictionary.
+
+    Returns:
+        dict[str, np.ndarray]: {seq_name: array} with frame ids used for MOT
     """
     args.device = select_device(args.device)
     tracker = create_tracker(
@@ -267,19 +271,51 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
     txt_path = args.exp_folder_path / (source.parent.name + '.txt')
     all_mot_results = []
 
-    for frame_idx, d in enumerate(tqdm(dataset, desc=source.parent.name, leave=False)):
-        if frame_idx == len(dataset):
-            break
+    # Change FPS
+    if args.fps:
+
+        # Extract original FPS
+        conf_path = source.parent / 'seqinfo.ini'
+        conf = configparser.ConfigParser()
+        conf.read(conf_path)
+
+        orig_fps = int(conf.get("Sequence", "frameRate"))
+    
+        if orig_fps < args.fps:
+            LOGGER.warning(f"Original FPS ({orig_fps}) is lower than "
+                           f"requested FPS ({args.fps}) for sequence "
+                           f"{source.parent.name}. Using original FPS.")
+            target_fps = orig_fps
+        else:
+            target_fps = args.fps
+
+        
+        step = orig_fps/target_fps
+    else:
+        step = 1
+    
+    # Create list with frame numbers according to needed step
+    frame_nums = np.arange(1, len(dataset) + 1, step).astype(int).tolist()
+
+    seq_frame_nums = {source.parent.name: frame_nums.copy()}
+
+    for frame_num, d in enumerate(tqdm(dataset, desc=source.parent.name), 1):
+        # Filter using list with needed numbers
+        if len(frame_nums) > 0:
+            if frame_num < frame_nums[0]:
+                continue
+            else:
+                frame_nums.pop(0)
 
         im = d[1][0]
-        frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_idx + 1]
+        frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_num]
 
         dets = frame_dets_n_embs[:, 1:7]
         embs = frame_dets_n_embs[:, 7:]
         tracks = tracker.update(dets, im, embs)
 
         if tracks.size > 0:
-            mot_results = convert_to_mot_format(tracks, frame_idx + 1)
+            mot_results = convert_to_mot_format(tracks, frame_num)
             all_mot_results.append(mot_results)
 
     if all_mot_results:
@@ -288,6 +324,8 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
         all_mot_results = np.empty((0, 0))
 
     write_mot_results(txt_path, all_mot_results)
+
+    return seq_frame_nums
 
 
 def parse_mot_results(results: str) -> dict:
@@ -340,6 +378,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_res
         "--TRACKER_SUB_FOLDER", "",
         "--NUM_PARALLEL_CORES", str(4),
         "--SKIP_SPLIT_FOL", "True",
+        "--GT_LOC_FORMAT", "{gt_folder}/{seq}/gt/gt_temp.txt",
         "--SEQ_INFO", *d
     ]
 
@@ -384,7 +423,8 @@ def process_single_mot(opt: argparse.Namespace, d: Path, e: Path, evolve_config:
     new_opt = copy.deepcopy(opt)
     new_opt.dets_file_path = d
     new_opt.embs_file_path = e
-    generate_mot_results(new_opt, evolve_config)
+    frames_dict = generate_mot_results(new_opt, evolve_config)
+    return frames_dict
 
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
     """
@@ -427,16 +467,21 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
                 # Submit the task to process this file pair in parallel
                 tasks.append(executor.submit(process_single_mot, opt, d, e, evolve_config))
             
+            # Dict with {seq_name: [frame_nums]}
+            seqs_frame_nums = {}
             # Wait for all tasks to complete and log any exceptions
             for future in concurrent.futures.as_completed(tasks):
                 try:
-                    future.result()
+                    seqs_frame_nums.update(future.result())
                 except Exception as exc:
                     LOGGER.error(f'Error processing file pair: {exc}')
     
     # Postprocess data with gsi if requested
     if opt.gsi:
-        gsi(mot_results_folder=opt.exp_folder_path)        
+        gsi(mot_results_folder=opt.exp_folder_path)
+
+    with open(opt.exp_folder_path / 'seqs_frame_nums.json', 'w') as f:
+        json.dump(seqs_frame_nums, f)
 
 
 def run_trackeval(opt: argparse.Namespace) -> dict:
@@ -477,6 +522,7 @@ def parse_opt() -> argparse.Namespace:
     parser.add_argument('--reid-model', nargs='+', type=Path, default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'], help='reid model path')
     parser.add_argument('--source', type=str, help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=None, help='inference size h,w')
+    parser.add_argument('--fps', type=int, default=None, help='video frame-rate')
     parser.add_argument('--conf', type=float, default=0.01, help='min confidence threshold')
     parser.add_argument('--iou', type=float, default=0.7, help='intersection over union (IoU) threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
