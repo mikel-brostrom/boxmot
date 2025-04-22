@@ -1,20 +1,28 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-import torch
-import numpy as np
 from pathlib import Path
+from typing import Callable
 
-from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+import numpy as np
+import torch
+
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
-from boxmot.motion.cmc.sof import SOF
-from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
-from boxmot.utils.matching import (embedding_distance, fuse_score,
-                                   iou_distance, linear_assignment)
-from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.botsort.botsort_utils import joint_stracks, sub_stracks, remove_duplicate_stracks 
-from boxmot.trackers.botsort.botsort_track import STrack
 from boxmot.motion.cmc import get_cmc_method
-
+from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
+from boxmot.trackers.botsort.botsort_track import STrack
+from boxmot.trackers.botsort.botsort_utils import (
+    joint_stracks,
+    remove_duplicate_stracks,
+    sub_stracks,
+)
+from boxmot.utils.matching import (
+    embedding_distance,
+    fuse_score,
+    iou_distance,
+    linear_assignment,
+)
 
 
 class BotSort(BaseTracker):
@@ -33,6 +41,7 @@ class BotSort(BaseTracker):
         match_thresh (float, optional): Matching threshold for data association.
         proximity_thresh (float, optional): IoU threshold for first-round association.
         appearance_thresh (float, optional): Appearance embedding distance threshold for ReID.
+        similarity_dist_func (str, optional): A function that combines IoU distance and embedding distance for first-round association.
         cmc_method (str, optional): Method for correcting camera motion, e.g., "sof" (simple optical flow).
         frame_rate (int, optional): Video frame rate, used to scale the track buffer.
         fuse_first_associate (bool, optional): Fuse appearance and motion in the first association step.
@@ -52,6 +61,9 @@ class BotSort(BaseTracker):
         match_thresh: float = 0.8,
         proximity_thresh: float = 0.5,
         appearance_thresh: float = 0.25,
+        similarity_dist_func: Callable[
+            [np.ndarray, np.ndarray], np.ndarray
+        ] = np.minimum,
         cmc_method: str = "ecc",
         frame_rate=30,
         fuse_first_associate: bool = False,
@@ -75,6 +87,7 @@ class BotSort(BaseTracker):
         # ReID module
         self.proximity_thresh = proximity_thresh
         self.appearance_thresh = appearance_thresh
+        self.similarity_dist_func = similarity_dist_func
         self.with_reid = with_reid
         if self.with_reid:
             self.model = ReidAutoBackend(
@@ -175,7 +188,7 @@ class BotSort(BaseTracker):
             emb_dists = embedding_distance(strack_pool, detections) / 2.0
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
             emb_dists[ious_dists_mask] = 1.0
-            dists = np.minimum(ious_dists, emb_dists)
+            dists = self.similarity_dist_func(ious_dists, emb_dists)
         else:
             dists = ious_dists
 
