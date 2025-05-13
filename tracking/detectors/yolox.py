@@ -164,7 +164,7 @@ class YoloXStrategy(YoloInterface):
         im_preprocessed = []
         self._preproc_data = []
         for i, img in enumerate(im):
-            img_pre, ratio = self.yolox_preprocess(img, input_size=self.imgsz)
+            img_pre, ratio = self.yolox_preprocess(image=img, input_size=self.imgsz)
             img_pre = torch.Tensor(img_pre).unsqueeze(0).to(self.device)
 
             im_preprocessed.append(img_pre)
