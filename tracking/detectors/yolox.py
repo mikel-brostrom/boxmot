@@ -128,7 +128,6 @@ class YoloXStrategy(YoloInterface):
     # https://github.com/ifzhang/ByteTrack/blob/d1bf0191adff59bc8fcfeaa0b33d3d1642552a99/yolox/data/data_augment.py#L189
     @staticmethod
     def yolox_preprocess(
-        self,
         image,
         input_size, 
         mean=(0.485, 0.456, 0.406), 
@@ -164,7 +163,7 @@ class YoloXStrategy(YoloInterface):
         im_preprocessed = []
         self._preproc_data = []
         for i, img in enumerate(im):
-            img_pre, ratio = self.yolox_preprocess(image=img, input_size=self.imgsz)
+            img_pre, ratio = yolox_preprocess(image=img, input_size=self.imgsz)
             img_pre = torch.Tensor(img_pre).unsqueeze(0).to(self.device)
 
             im_preprocessed.append(img_pre)
