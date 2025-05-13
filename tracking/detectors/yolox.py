@@ -126,6 +126,7 @@ class YoloXStrategy(YoloInterface):
         
     # This preprocess differs from the current version of YOLOX preprocess, but ByteTrack uses it
     # https://github.com/ifzhang/ByteTrack/blob/d1bf0191adff59bc8fcfeaa0b33d3d1642552a99/yolox/data/data_augment.py#L189
+    @staticmethod
     def yolox_preprocess(
         self,
         image,
