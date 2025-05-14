@@ -34,12 +34,13 @@ doctests = true
 verbose = 2
 format = "pylint"
 ignore = ["E731", "F405", "E402", "W504", "W605", "E741"]
+
 [project]
 authors = [
     {name = "Mikel Broström"},
 ]
 license = {text = "AGPL-3.0"}
-requires-python = "<=3.12,>=3.9"
+requires-python = ">=3.9,<=3.12"
 dependencies = [
     "setuptools>=78.0.0",
     "filterpy<2.0.0,>=1.4.5",
@@ -71,10 +72,10 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Software Development",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
