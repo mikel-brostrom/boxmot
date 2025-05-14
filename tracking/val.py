@@ -1,6 +1,5 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-import time
 import argparse
 import subprocess
 from pathlib import Path
@@ -33,11 +32,100 @@ from ultralytics.data.loaders import LoadImagesAndVideos
 
 from tracking.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model, is_yolox_model)
-from tracking.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset, cleanup_mot17, prompt_overwrite
+from tracking.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
+
+
+def cleanup_mot17(data_dir, keep_detection='FRCNN'):
+    """
+    Cleans up the MOT17 dataset to resemble the MOT16 format by keeping only one detection folder per sequence.
+    Skips sequences that have already been cleaned.
+
+    Args:
+    - data_dir (str): Path to the MOT17 train directory.
+    - keep_detection (str): Detection type to keep (options: 'DPM', 'FRCNN', 'SDP'). Default is 'DPM'.
+    """
+
+    # Get all folders in the train directory
+    all_dirs = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
+
+    # Identify unique sequences by removing detection suffixes
+    unique_sequences = set(seq.split('-')[0] + '-' + seq.split('-')[1] for seq in all_dirs)
+
+    for seq in unique_sequences:
+        # Directory path to the cleaned sequence
+        cleaned_seq_dir = os.path.join(data_dir, seq)
+
+        # Skip if the sequence is already cleaned
+        if os.path.exists(cleaned_seq_dir):
+            print(f"Sequence {seq} is already cleaned. Skipping.")
+            continue
+
+        # Directories for each detection method
+        seq_dirs = [os.path.join(data_dir, d)
+                    for d in all_dirs if d.startswith(seq)]
+
+        # Directory path for the detection folder to keep
+        keep_dir = os.path.join(data_dir, f"{seq}-{keep_detection}")
+
+        if os.path.exists(keep_dir):
+            # Move the directory to a new name (removing the detection suffix)
+            shutil.move(keep_dir, cleaned_seq_dir)
+            print(f"Moved {keep_dir} to {cleaned_seq_dir}")
+
+            # Remove other detection directories
+            for seq_dir in seq_dirs:
+                if os.path.exists(seq_dir) and seq_dir != keep_dir:
+                    shutil.rmtree(seq_dir)
+                    print(f"Removed {seq_dir}")
+        else:
+            print(f"Directory for {seq} with {keep_detection} detection does not exist. Skipping.")
+
+    print("MOT17 Cleanup completed!")
+
+
+def prompt_overwrite(path_type: str, path: str, ci: bool = True) -> bool:
+    """
+    Prompts the user to confirm overwriting an existing file.
+
+    Args:
+        path_type (str): Type of the path (e.g., 'Detections and Embeddings', 'MOT Result').
+        path (str): The path to check.
+        ci (bool): If True, automatically reuse existing file without prompting (for CI environments).
+
+    Returns:
+        bool: True if user confirms to overwrite, False otherwise.
+    """
+    if ci:
+        LOGGER.debug(f"{path_type} {path} already exists. Use existing due to no UI mode.")
+        return False
+
+    def input_with_timeout(prompt, timeout=3.0):
+        print(prompt, end='', flush=True)
+
+        result = []
+        input_received = threading.Event()
+
+        def get_input():
+            user_input = sys.stdin.readline().strip().lower()
+            result.append(user_input)
+            input_received.set()
+
+        input_thread = threading.Thread(target=get_input)
+        input_thread.daemon = True  # Ensure thread does not prevent program exit
+        input_thread.start()
+        input_thread.join(timeout)
+
+        if input_received.is_set():
+            return result[0] in ['y', 'yes']
+        else:
+            print("\nNo response, not proceeding with overwrite...")
+            return False
+
+    return input_with_timeout(f"{path_type} {path} already exists. Overwrite? [y/N]: ")
 
 
 def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
@@ -147,62 +235,40 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
             with open(str(embs_path), 'ab+') as f:
                 np.savetxt(f, embs, fmt='%f')
 
-def _setup_tracker_and_data(args: argparse.Namespace, config_dict: dict = None):
+
+def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> dict[str, np.ndarray]:
     """
-    Performs common setup: selects the device, creates a tracker,
-    reads the source from the detections file, loads detections/embeddings,
-    and creates the dataset.
-    
+    Generates MOT results for the specified arguments and configuration.
+
+    Args:
+        args (Namespace): Parsed command line arguments.
+        config_dict (dict, optional): Additional configuration dictionary.
+
     Returns:
-        tracker: The initialized tracker.
-        source (Path): The source path extracted from the detections file header.
-        dets_n_embs (np.ndarray): Concatenated detections and embeddings.
-        dataset: The dataset generated from source.
+        dict[str, np.ndarray]: {seq_name: array} with frame ids used for MOT
     """
-    # Select device and create the tracker.
     args.device = select_device(args.device)
     tracker = create_tracker(
         args.tracking_method,
-        TRACKER_CONFIGS / f"{args.tracking_method}.yaml",
+        TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
         args.reid_model[0].with_suffix('.pt'),
         args.device,
         False,
         False,
         config_dict
     )
-    
-    # Read the source (e.g., video file path) from the header of the detections file.
-    with args.dets_file_path.open('r') as file:
+
+    with open(args.dets_file_path, 'r') as file:
         source = Path(file.readline().strip().replace("# ", ""))
-    
-    # Load detections and embeddings then concatenate them.
+
     dets = np.loadtxt(args.dets_file_path, skiprows=1)
     embs = np.loadtxt(args.embs_file_path)
+
     dets_n_embs = np.concatenate([dets, embs], axis=1)
-    
-    # Create the dataset (e.g., images or video frames) from the source.
+
     dataset = LoadImagesAndVideos(source)
-    
-    return tracker, source, dets_n_embs, dataset
 
-# ------------------------------------------------------------------------------
-# Task Functions
-# ------------------------------------------------------------------------------
-
-def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> float:
-    """
-    Generates MOT results using detections and embeddings, writes the results,
-    and returns the computed frames per second (FPS).
-    
-    Args:
-        args (argparse.Namespace): Command-line arguments.
-        config_dict (dict, optional): Additional configuration.
-    
-    Returns:
-        float: Computed FPS.
-    """
-    tracker, source, dets_n_embs, dataset = _setup_tracker_and_data(args, config_dict)
-    txt_path = args.exp_folder_path / f"{source.parent.name}.txt"
+    txt_path = args.exp_folder_path / (source.parent.name + '.txt')
     all_mot_results = []
 
     # Change FPS
@@ -233,7 +299,7 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
 
     seq_frame_nums = {source.parent.name: frame_nums.copy()}
 
-    for frame_num, d in enumerate(tqdm(dataset, desc=source.parent.name, leave=False), 1):
+    for frame_num, d in enumerate(tqdm(dataset, desc=source.parent.name), 1):
         # Filter using list with needed numbers
         if len(frame_nums) > 0:
             if frame_num < frame_nums[0]:
@@ -241,19 +307,13 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
             else:
                 frame_nums.pop(0)
 
-        # Get the frame image from the dataset
         im = d[1][0]
         frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_num]
 
-        # Select detection and embedding rows corresponding to current frame (frame indices start at 1)
-        frame_dets_n_embs = dets_n_embs[dets_n_embs[:, 0] == frame_idx + 1]
         dets = frame_dets_n_embs[:, 1:7]
         embs = frame_dets_n_embs[:, 7:]
-
-        # Update the tracker
         tracks = tracker.update(dets, im, embs)
 
-        # If any tracks are found, convert them to MOT format and store the result
         if tracks.size > 0:
             mot_results = convert_to_mot_format(tracks, frame_num)
             all_mot_results.append(mot_results)
@@ -262,187 +322,10 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
         all_mot_results = np.vstack(all_mot_results)
     else:
         all_mot_results = np.empty((0, 0))
-        
+
     write_mot_results(txt_path, all_mot_results)
 
-
-def generate_fps_results(args: argparse.Namespace, config_dict: dict = None) -> float:
-    """
-    Computes FPS by processing frames and timing only the tracker.update() calls.
-    
-    Args:
-        args (argparse.Namespace): Command-line arguments.
-        config_dict (dict, optional): Additional configuration.
-    
-    Returns:
-        float: Computed FPS based solely on the tracker.update() process.
-    """
-    tracker, source, dets_n_embs, dataset = _setup_tracker_and_data(args, config_dict)
-    
-    total_update_time = 0.0
-    total_frames = 0
-    
-    for frame_idx, data in enumerate(tqdm(dataset, desc=source.parent.name, leave=False)):
-        im = data[1][0]
-        frame_data = dets_n_embs[dets_n_embs[:, 0] == (frame_idx + 1)]
-        dets_frame = frame_data[:, 1:7]
-        
-        # Start timer only for the update process
-        start_update = time.time()
-        tracker.update(dets_frame, im)
-        end_update = time.time()
-        
-        # Accumulate the update time and frame count
-        total_update_time += (end_update - start_update)
-        total_frames += 1
-
-    # Calculate FPS based solely on tracker.update duration
-    fps = total_frames / total_update_time if total_update_time > 0 else 0
-    return fps
-
-
-# ------------------------------------------------------------------------------
-# Generic Process Task Wrapper and Dedicated Process Functions
-# ------------------------------------------------------------------------------
-
-def process_task(opt: argparse.Namespace, det_file: Path, emb_file: Path, evolve_config: dict, task_func) -> float:
-    """
-    A generic processor that copies options, sets file paths, and executes the given task.
-    
-    Args:
-        opt (argparse.Namespace): Original options.
-        det_file (Path): Path to the detections file.
-        emb_file (Path): Path to the embeddings file.
-        evolve_config (dict): Additional configuration.
-        task_func (callable): Function to execute (e.g., generate_mot_results or generate_fps_results).
-    
-    Returns:
-        float: The result returned by the task function.
-    """
-    new_opt = copy.deepcopy(opt)
-    new_opt.dets_file_path = det_file
-    new_opt.embs_file_path = emb_file
-    return task_func(new_opt, evolve_config)
-
-def process_mot(opt: argparse.Namespace, det_file: Path, emb_file: Path, evolve_config: dict):
-    """
-    Processes a file pair to generate MOT results.
-    
-    Args:
-        opt (argparse.Namespace): Original options.
-        det_file (Path): Detections file path.
-        emb_file (Path): Embeddings file path.
-        evolve_config (dict): Additional configuration.
-    """
-    process_task(opt, det_file, emb_file, evolve_config, generate_mot_results)
-    # No return value needed, as results are written to file.
-
-def process_fps(opt: argparse.Namespace, det_file: Path, emb_file: Path, evolve_config: dict) -> float:
-    """
-    Processes a file pair to compute FPS.
-    
-    Args:
-        opt (argparse.Namespace): Original options.
-        det_file (Path): Detections file path.
-        emb_file (Path): Embeddings file path.
-        evolve_config (dict): Additional configuration.
-    
-    Returns:
-        float: The computed FPS.
-    """
-    return process_task(opt, det_file, emb_file, evolve_config, generate_fps_results)
-
-# ------------------------------------------------------------------------------
-# High-Level Process: Running Tasks in Parallel
-# ------------------------------------------------------------------------------
-
-def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> float:
-    """
-    Runs MOT result generation for all YOLO models and detection/embedding file pairs.
-    If the --fps flag is enabled, also computes FPS in parallel and averages the results.
-    
-    Args:
-        opt (argparse.Namespace): Options containing file paths and model info.
-        evolve_config (dict, optional): Additional configuration.
-    
-    Returns:
-        float: The average FPS if computed, otherwise None.
-    """
-    all_fps = []  # To store FPS values from each thread.
-
-    for y in opt.yolo_model:
-        exp_folder_path = opt.project / 'mot' / (f"{y.stem}_{opt.reid_model[0].stem}_{opt.tracking_method}")
-        exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
-        opt.exp_folder_path = exp_folder_path
-
-        mot_folder_names = [item.stem for item in Path(opt.source).iterdir()]
-        
-        dets_folder = opt.project / "dets_n_embs" / y.stem / 'dets'
-        embs_folder = opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem
-        
-        dets_file_paths = sorted([
-            item for item in dets_folder.glob('*.txt')
-            if not item.name.startswith('.') and item.stem in mot_folder_names
-        ])
-        embs_file_paths = sorted([
-            item for item in embs_folder.glob('*.txt')
-            if not item.name.startswith('.') and item.stem in mot_folder_names
-        ])
-        
-        LOGGER.info(
-            f"\nStarting tracking on:\n\t{opt.source}"
-            f"\nwith preloaded dets\n\t({dets_folder.relative_to(Path.cwd())})"
-            f"\nand embs\n\t({embs_folder.relative_to(Path.cwd())})"
-            f"\nusing\n\t{opt.tracking_method}"
-        )
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            mot_futures = []
-            # Submit all MOT tasks first.
-            for d, e in zip(dets_file_paths, embs_file_paths):
-                mot_result_path = exp_folder_path / (d.stem + '.txt')
-                if mot_result_path.exists():
-                    if prompt_overwrite('MOT Result', mot_result_path, opt.ci):
-                        LOGGER.info(f'Overwriting MOT result for {d.stem}...')
-                    else:
-                        LOGGER.info(f'Skipping MOT result generation for {d.stem} as it already exists.')
-                        continue
-
-                mot_futures.append(executor.submit(process_mot, opt, d, e, evolve_config))
-            
-            # Wait for all MOT tasks to complete.
-            for future in concurrent.futures.as_completed(mot_futures):
-                try:
-                    future.result()
-                except Exception as exc:
-                    LOGGER.error(f'Error processing MOT task: {exc}')
-                    
-            if opt.gsi:
-                gsi(mot_results_folder=opt.exp_folder_path)
-            
-            # Only after MOT tasks are finished, submit FPS tasks.
-            fps_results = []
-            if opt.fps:
-                fps_futures = []
-                for d, e in zip(dets_file_paths, embs_file_paths):
-                    fps_futures.append(executor.submit(process_fps, opt, d, e, evolve_config))
-                
-                for future in concurrent.futures.as_completed(fps_futures):
-                    try:
-                        fps_val = future.result()
-                        if fps_val is not None:
-                            fps_results.append(fps_val)
-                    except Exception as exc:
-                        LOGGER.error(f'Error processing FPS task: {exc}')
-
-                if fps_results:
-                    average_fps = int(sum(fps_results) / len(fps_results))
-                    LOGGER.info(f"Average FPS: {average_fps}")
-                else:
-                    LOGGER.info("No FPS results were computed.")
-
-    if opt.fps:
-        return average_fps
+    return seq_frame_nums
 
 
 def parse_mot_results(results: str) -> dict:
@@ -546,10 +429,9 @@ def process_single_mot(opt: argparse.Namespace, d: Path, e: Path, evolve_config:
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
     """
     Runs the generate_mot_results function for all YOLO models and detection/embedding files
-    in parallel and calculates the average FPS across all threads.
+    in parallel.
     """
-    all_fps = []  # This will store the FPS value from each thread
-
+    
     for y in opt.yolo_model:
         exp_folder_path = opt.project / 'mot' / (f"{y.stem}_{opt.reid_model[0].stem}_{opt.tracking_method}")
         exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
@@ -594,12 +476,6 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
                 except Exception as exc:
                     LOGGER.error(f'Error processing file pair: {exc}')
     
-    # Calculate and log the average FPS if we have any results
-    if all_fps:
-        average_fps = int(sum(all_fps) / len(all_fps))
-    else:
-        LOGGER.info("No FPS results were collected to compute an average.")
-
     # Postprocess data with gsi if requested
     if opt.gsi:
         gsi(mot_results_folder=opt.exp_folder_path)
@@ -608,25 +484,22 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         json.dump(seqs_frame_nums, f)
 
 
-def run_trackeval(opt: argparse.Namespace, average_fps) -> dict:
+def run_trackeval(opt: argparse.Namespace) -> dict:
     """
     Runs the trackeval function to evaluate tracking results.
+
+    Args:
+        opt (Namespace): Parsed command line arguments.
     """
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, opt.val_tools_path)
     trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
-    
-    # Add the FPS metric only if it was calculated (i.e. if --fps was enabled)
-    if opt.fps and average_fps is not None:
-        hota_mota_idf1["FPS"] = average_fps
-
     if opt.verbose:
         LOGGER.info(trackeval_results)
         with open(opt.tracking_method + "_output.json", "w") as outfile:
             outfile.write(json.dumps(hota_mota_idf1))
     LOGGER.info(json.dumps(hota_mota_idf1))
     return hota_mota_idf1
-
 
 
 def run_all(opt: argparse.Namespace) -> None:
@@ -637,8 +510,8 @@ def run_all(opt: argparse.Namespace) -> None:
         opt (Namespace): Parsed command line arguments.
     """
     run_generate_dets_embs(opt)
-    average_fps = run_generate_mot_results(opt)
-    run_trackeval(opt, average_fps)
+    run_generate_mot_results(opt)
+    run_trackeval(opt)
 
 
 def parse_opt() -> argparse.Namespace:
