@@ -5,7 +5,7 @@ from boxmot.utils import logger as LOGGER
 
 
 class OpenVINOExporter(BaseExporter):
-    required_packages = ("openvino-dev>=2023.0",)
+    required_packages = ("openvino-dev>=2023.3",)
     
     def export(self):
         
