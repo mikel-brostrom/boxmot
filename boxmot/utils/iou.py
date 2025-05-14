@@ -37,7 +37,7 @@ class AssociationFunction:
         """
         Initializes the AssociationFunction class with the necessary parameters for bounding box operations.
         The association function is selected based on the `asso_mode` string provided during class creation.
-        
+
         Parameters:
         w (int): The width of the frame, used for normalizing centroid distance.
         h (int): The height of the frame, used for normalizing centroid distance.
@@ -263,6 +263,7 @@ class AssociationFunction:
         # Scale CIoU to [0, 1]
         return (ciou + 1) / 2.0
 
+    @staticmethod
     def diou_batch(bboxes1, bboxes2) -> np.ndarray:
         """
         :param bbox_p: predict of bbox(N,4)(x1,y1,x2,y2)
@@ -309,7 +310,7 @@ class AssociationFunction:
     def run_asso_func(self, bboxes1, bboxes2):
         """
         Runs the selected association function (based on the initialization string) on the input bounding boxes.
-        
+
         Parameters:
         bboxes1: First set of bounding boxes.
         bboxes2: Second set of bounding boxes.
@@ -319,10 +320,10 @@ class AssociationFunction:
     def _get_asso_func(self, asso_mode):
         """
         Returns the corresponding association function based on the provided mode string.
-        
+
         Parameters:
         asso_mode (str): The association function to use (e.g., "iou", "giou", "centroid", etc.).
-        
+
         Returns:
         function: The appropriate function for the association calculation.
         """
