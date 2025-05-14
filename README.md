@@ -1,5 +1,10 @@
 # BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models
 
+
+
+
+
+
 <div align="center">
   <p>
   <img src="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.0/output_640.gif" width="400"/>
@@ -8,6 +13,7 @@
   <div>
   <a href="https://github.com/mikel-brostrom/yolov8_tracking/actions/workflows/ci.yml"><img src="https://github.com/mikel-brostrom/yolov8_tracking/actions/workflows/ci.yml/badge.svg" alt="CI CPU testing"></a>
   <a href="https://pepy.tech/project/boxmot"><img src="https://static.pepy.tech/badge/boxmot"></a>
+  <a><img src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fmikel-brostrom%2Fboxmot%2Frefs%2Fheads%2Fmaster%2Fpyproject.toml" alt="CI CPU testing"></a>
   <br>
   <a href="https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
 <a href="https://doi.org/10.5281/zenodo.8132989"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.8132989.svg" alt="DOI"></a>
