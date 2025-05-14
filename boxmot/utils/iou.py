@@ -1,35 +1,36 @@
 import numpy as np
 import cv2 as cv
 
+
 def iou_obb_pair(i, j, bboxes1, bboxes2):
     """
     Compute IoU for the rotated rectangles at index i and j in the batches `bboxes1`, `bboxes2` .
     """
     rect1 = bboxes1[int(i)]
     rect2 = bboxes2[int(j)]
-    
+
     (cx1, cy1, w1, h1, angle1) = rect1[0:5]
     (cx2, cy2, w2, h2, angle2) = rect2[0:5]
-    
-    
+
     r1 = ((cx1, cy1), (w1, h1), angle1)
     r2 = ((cx2, cy2), (w2, h2), angle2)
-    
+
     # Compute intersection
     ret, intersect = cv.rotatedRectangleIntersection(r1, r2)
     if ret == 0 or intersect is None:
         return 0.0  # No intersection
-    
+
     # Calculate intersection area
     intersection_area = cv.contourArea(intersect)
-    
+
     # Calculate union area
     area1 = w1 * h1
     area2 = w2 * h2
     union_area = area1 + area2 - intersection_area
-    
+
     # Compute IoU
     return intersection_area / union_area if union_area > 0 else 0.0
+
 
 class AssociationFunction:
     def __init__(self, w, h, asso_mode="iou"):
@@ -59,20 +60,19 @@ class AssociationFunction:
         h = np.maximum(0.0, yy2 - yy1)
         wh = w * h
         o = wh / (
-            (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
-            (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) -
-            wh
+                (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
+                (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) -
+                wh
         )
         return o
-    
+
     @staticmethod
     def iou_batch_obb(bboxes1, bboxes2) -> np.ndarray:
-
         N, M = len(bboxes1), len(bboxes2)
 
         def wrapper(i, j):
             return iou_obb_pair(i, j, bboxes1, bboxes2)
-        
+
         iou_matrix = np.fromfunction(np.vectorize(wrapper), shape=(N, M), dtype=int)
         return iou_matrix
 
@@ -168,7 +168,6 @@ class AssociationFunction:
         giou = (giou + 1.0) / 2.0  # Resize from (-1,1) to (0,1)
         return giou
 
-
     def centroid_batch(self, bboxes1, bboxes2) -> np.ndarray:
         centroids1 = np.stack(((bboxes1[..., 0] + bboxes1[..., 2]) / 2,
                                (bboxes1[..., 1] + bboxes1[..., 3]) / 2), axis=-1)
@@ -183,10 +182,10 @@ class AssociationFunction:
         normalized_distances = distances / norm_factor
 
         return 1 - normalized_distances
-    
+
     def centroid_batch_obb(self, bboxes1, bboxes2) -> np.ndarray:
-        centroids1 = np.stack((bboxes1[..., 0], bboxes1[..., 1]),axis=-1)
-        centroids2 = np.stack((bboxes2[..., 0], bboxes2[..., 1]),axis=-1)
+        centroids1 = np.stack((bboxes1[..., 0], bboxes1[..., 1]), axis=-1)
+        centroids2 = np.stack((bboxes2[..., 0], bboxes2[..., 1]), axis=-1)
 
         centroids1 = np.expand_dims(centroids1, 1)
         centroids2 = np.expand_dims(centroids2, 0)
@@ -196,8 +195,7 @@ class AssociationFunction:
         normalized_distances = distances / norm_factor
 
         return 1 - normalized_distances
-    
-    
+
     @staticmethod
     def ciou_batch(bboxes1, bboxes2) -> np.ndarray:
         """
@@ -265,7 +263,6 @@ class AssociationFunction:
         # Scale CIoU to [0, 1]
         return (ciou + 1) / 2.0
 
-    
     def diou_batch(bboxes1, bboxes2) -> np.ndarray:
         """
         :param bbox_p: predict of bbox(N,4)(x1,y1,x2,y2)
@@ -286,9 +283,9 @@ class AssociationFunction:
         h = np.maximum(0.0, yy2 - yy1)
         wh = w * h
         iou = wh / (
-            (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
-            (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) -
-            wh
+                (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1]) +
+                (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) -
+                wh
         )
 
         centerx1 = (bboxes1[..., 0] + bboxes1[..., 2]) / 2.0
@@ -306,8 +303,7 @@ class AssociationFunction:
         outer_diag = (xxc2 - xxc1) ** 2 + (yyc2 - yyc1) ** 2
         diou = iou - inner_diag / outer_diag
 
-        return (diou + 1) / 2.0 
-    
+        return (diou + 1) / 2.0
 
     @staticmethod
     def run_asso_func(self, bboxes1, bboxes2):
