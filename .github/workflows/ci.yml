@@ -210,6 +210,17 @@ jobs:
       status: ${{ job.status }}
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch YOLOX source & apply skip-extension patch
+        run: |
+          # clone the official YOLOX v0.3.0 tag
+          git clone --depth 1 --branch v0.3.0 \
+            https://github.com/Megvii-BaseDetection/YOLOX.git yolox-src
+
+          # in setup.py, replace get_ext_modules() with a no-op stub
+          sed -i 's@^def get_ext_modules.*@def get_ext_modules():\n    print("[WARNING] Skipping FastCOCOEvalOp build on Python " \
+                f"{sys.version_info.major}.{sys.version_info.minor})")\n    return []@' \
+              yolox-src/setup.py
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -222,19 +233,6 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          CFLAGS=$(python3 - << 'PYCODE'
-          import sysconfig
-          flags = sysconfig.get_config_var("CFLAGS") or ""
-          print(flags.replace("-fdebug-default-version=4", ""))
-          PYCODE
-          )
-          CXXFLAGS=$(python3 - << 'PYCODE'
-          import sysconfig
-          flags = sysconfig.get_config_var("CXXFLAGS") or ""
-          print(flags.replace("-fdebug-default-version=4", ""))
-          PYCODE
-          )
-          export CFLAGS CXXFLAGS
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --only-group yolox-build-deps
           uv sync --group yolo
