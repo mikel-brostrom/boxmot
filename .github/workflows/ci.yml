@@ -225,6 +225,7 @@ jobs:
           # Before pip install, override the extra compile flags
           export TORCH_CXX_FLAGS="$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("CFLAGS").replace("-fdebug-default-version=4",""))')"
           echo "TORCH_CXX_FLAGS=$TORCH_CXX_FLAGS" >> $GITHUB_ENV
+          python -m pip install --upgrade pip setuptools wheel uv
           uv sync --only-group yolox-build-deps
           uv sync --group yolo
       - name: Test tracking with pose models
