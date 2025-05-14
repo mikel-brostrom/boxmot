@@ -223,8 +223,11 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           sudo apt update
-          sudo apt install build-essential cmake ninja-build
+          sudo apt-get install -y clang ninja-build
           python -m pip install --upgrade pip setuptools wheel uv
+          # Export so that setuptools picks up clang instead of gcc
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
           uv sync --only-group yolox-build-deps
           uv sync --group yolo
       - name: Test tracking with pose models
