@@ -122,7 +122,7 @@ class KalmanFilter:
             self._update_mat, self.covariance, self._update_mat.T))
         return mean, covariance + innovation_cov
 
-    def update(self, z: np.ndarray, confidence=.0):
+    def update(self, z: np.ndarray):
         """Run Kalman filter correction step.
 
         Returns
@@ -134,7 +134,7 @@ class KalmanFilter:
 
         if z.ndim == 2:
             z = deepcopy(z.reshape((-1, )))
-        projected_mean, projected_cov = self.project(confidence)
+        projected_mean, projected_cov = self.project()
 
         chol_factor, lower = scipy.linalg.cho_factor(
             projected_cov, lower=True, check_finite=False)
