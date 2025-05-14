@@ -47,19 +47,16 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
           python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
-
       - name: Run tracking method
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
             python tracking/val.py generate_mot_results  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
           done
-
   evolution:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -92,14 +89,11 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --group evolve
-
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
           # reuse first set of generated det and prod
           python tracking/evolve.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
-
-
   mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -135,48 +129,37 @@ jobs:
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
           python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
-
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
-
           for tracker in $TRACKERS; do
             if python3 tracking/val.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
               STATUS="✅"
             else
               STATUS="❌"
             fi
-
             cat ${tracker}_output.json
-
             # Extract the relevant parts of the JSON
             HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
             MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
             IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
-
             TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
             echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
           done
-
           # Sort the results by HOTA in descending order
           (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
-
           # Create a pretty table from the sorted_results.csv file
           column -s, -t sorted_results.csv > pretty_results.txt
-
       - name: Show Results
         shell: bash
         run: |
           cat pretty_results.txt
-
-
   tracking-with-pose:
     runs-on: ubuntu-latest
     outputs:
@@ -203,24 +186,12 @@ jobs:
         run:  |
           source .venv/bin/activate
           python tracking/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
-
   tracking-with-yolos:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch YOLOX source & apply skip-extension patch
-        run: |
-          # clone the official YOLOX v0.3.0 tag
-          git clone --depth 1 https://github.com/Megvii-BaseDetection/YOLOX.git yolox-src
-
-
-          # in setup.py, replace get_ext_modules() with a no-op stub
-          sed -i 's@^def get_ext_modules.*@def get_ext_modules():\n    print("[WARNING] Skipping FastCOCOEvalOp build on Python " \
-                f"{sys.version_info.major}.{sys.version_info.minor})")\n    return []@' \
-              yolox-src/setup.py
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -233,8 +204,10 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          python -m pip install --upgrade pip setuptools wheel uv
-          python -m pip install -e yolox-src --no-deps
+          # Export so that setuptools picks up clang instead of gcc
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+          uv sync --only-group yolox-build-deps
           uv sync --group yolo
       - name: Test tracking with pose models
         env:
@@ -245,8 +218,6 @@ jobs:
           python tracking/track.py --yolo-model yolov10n.pt --source $IMG --imgsz 320
           python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320 320
           python tracking/track.py --yolo-model rf-detr-base.pt --source $IMG --imgsz 320
-
-
   tracking-with-seg:
     runs-on: ubuntu-latest
     outputs:
@@ -276,7 +247,6 @@ jobs:
         run: |
           source .venv/bin/activate
           python tracking/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
-
   
   export-reid-models:
     runs-on: ubuntu-latest
@@ -301,14 +271,12 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group export
-
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
           tar -zxvf flatc.tar.gz
           sudo chmod +x flatc
           sudo mv flatc /usr/bin/
-
       - name: Test export models
         run: | 
           source .venv/bin/activate
@@ -326,8 +294,6 @@ jobs:
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --source $IMG --imgsz 320 
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320   
                
-
-
   tests:
     runs-on: ubuntu-latest
     outputs:
@@ -363,8 +329,6 @@ jobs:
           source .venv/bin/activate
           pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
-
-
   # test-gpu:
   #   runs-on: gpu-latest
   #   outputs:
@@ -418,7 +382,6 @@ jobs:
         run: |
           summary=""
           failed=false
-
           # Print all environment variables, grep for those ending with _STATUS, then loop
           for var in $(printenv | grep '_STATUS$'); do
             job_status="${var##*=}"  # Extract the status part
@@ -428,9 +391,7 @@ jobs:
               failed=true
             fi
           done
-
           if [[ "$failed" = false ]]; then
             summary="All jobs succeeded."
           fi
-
           echo "Summary: $summary"
