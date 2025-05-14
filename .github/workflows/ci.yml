@@ -222,12 +222,9 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          sudo apt update
-          sudo apt-get install -y clang ninja-build
-          python -m pip install --upgrade pip setuptools wheel uv
-          # Export so that setuptools picks up clang instead of gcc
-          echo "CC=clang" >> $GITHUB_ENV
-          echo "CXX=clang++" >> $GITHUB_ENV
+          # Before pip install, override the extra compile flags
+          export TORCH_CXX_FLAGS="$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("CFLAGS").replace("-fdebug-default-version=4",""))')"
+          echo "TORCH_CXX_FLAGS=$TORCH_CXX_FLAGS" >> $GITHUB_ENV
           uv sync --only-group yolox-build-deps
           uv sync --group yolo
       - name: Test tracking with pose models
