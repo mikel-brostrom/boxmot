@@ -104,7 +104,7 @@ yolo = [
 ]
 export = [
     "onnx<2.0.0,>=1.17.0",
-    "onnxsim<1.0.0,>=0.4.36",
+    "onnxsim==0.4.33",
     "openvino-dev<2025.0,>=2023.3",
 ]
 evolve = [
