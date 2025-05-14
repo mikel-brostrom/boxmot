@@ -102,11 +102,6 @@ test = [
 yolo = [
     "ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git",
 ]
-export = [
-    "onnx<2.0.0,>=1.17.0",
-    "onnxsim==0.4.33",
-    "openvino-dev<2025.0,>=2023.3",
-]
 evolve = [
     "ray<3.0.0,>=2.35.0",
     "plotly<6.0.0,>=5.19.0",
