@@ -1,5 +1,5 @@
 import torch
-import onnx
+
 from boxmot.appearance.exporters.base_exporter import BaseExporter
 from boxmot.utils import logger as LOGGER
 
@@ -8,6 +8,7 @@ class ONNXExporter(BaseExporter):
     required_packages = ("onnx>=1.16.1",)
     
     def export(self):
+        import onnx
 
         f = self.file.with_suffix(".onnx")
 
@@ -36,6 +37,7 @@ class ONNXExporter(BaseExporter):
 
 
     def simplify_model(self, model_onnx, f):
+        import onnx
         try:
             cuda = torch.cuda.is_available()
             self.checker.check_packages(
