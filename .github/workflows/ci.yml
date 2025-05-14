@@ -222,6 +222,8 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
+          sudo apt update
+          sudo apt install build-essential cmake ninja-build
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --only-group yolox-build-deps
           uv sync --group yolo
