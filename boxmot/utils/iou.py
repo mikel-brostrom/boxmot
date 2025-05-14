@@ -44,7 +44,6 @@ class AssociationFunction:
         """
         self.w = w
         self.h = h
-        self.asso_mode = asso_mode
         self.asso_func = self._get_asso_func(asso_mode)
 
     @staticmethod
@@ -342,7 +341,7 @@ class AssociationFunction:
             "centroid_obb": self.centroid_batch_obb
         }
 
-        if self.asso_mode not in ASSO_FUNCS:
+        if asso_mode not in ASSO_FUNCS:
             raise ValueError(f"Invalid association mode: {self.asso_mode}. Choose from {list(ASSO_FUNCS.keys())}")
 
-        return ASSO_FUNCS[self.asso_mode]
+        return ASSO_FUNCS[asso_mode]
