@@ -222,9 +222,19 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          # Before pip install, override the extra compile flags
-          export TORCH_CXX_FLAGS="$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("CFLAGS").replace("-fdebug-default-version=4",""))')"
-          echo "TORCH_CXX_FLAGS=$TORCH_CXX_FLAGS" >> $GITHUB_ENV
+          CFLAGS=$(python3 - << 'PYCODE'
+          import sysconfig
+          flags = sysconfig.get_config_var("CFLAGS") or ""
+          print(flags.replace("-fdebug-default-version=4", ""))
+          PYCODE
+          )
+          CXXFLAGS=$(python3 - << 'PYCODE'
+          import sysconfig
+          flags = sysconfig.get_config_var("CXXFLAGS") or ""
+          print(flags.replace("-fdebug-default-version=4", ""))
+          PYCODE
+          )
+          export CFLAGS CXXFLAGS
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --only-group yolox-build-deps
           uv sync --group yolo
