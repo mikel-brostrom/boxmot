@@ -342,6 +342,6 @@ class AssociationFunction:
         }
 
         if asso_mode not in ASSO_FUNCS:
-            raise ValueError(f"Invalid association mode: {self.asso_mode}. Choose from {list(ASSO_FUNCS.keys())}")
+            raise ValueError(f"Invalid association mode: {asso_mode}. Choose from {list(ASSO_FUNCS.keys())}")
 
         return ASSO_FUNCS[asso_mode]
