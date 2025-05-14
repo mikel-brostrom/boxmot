@@ -70,11 +70,11 @@ class KalmanBoxTracker:
             return coef ** (n - self.age)
         return coef ** (self.time_since_update - 1)
 
-    def update(self, det: np.ndarray, score: float = 0):
+    def update(self, det: np.ndarray):
         self.time_since_update = 0
         self.hit_streak += 1
         self.history_observations.append(self.get_state()[0])
-        self.kf.update(self.bbox_to_z_func(det), score)
+        self.kf.update(self.bbox_to_z_func(det))
         self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
@@ -265,7 +265,7 @@ class BoostTrack(BaseTracker):
             dets_alpha = np.empty(0)
 
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :], scores[m[0]])
+            self.trackers[m[1]].update(dets[m[0], :])
             self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
 
         for i in unmatched_dets:
