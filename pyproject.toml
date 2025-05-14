@@ -98,6 +98,7 @@ test = [
     "pytest<9.0.0,>=8.0.2",
     "isort<6.0.0,>=5.13.2",
     "pytest-cov<7.0.0,>=6.0.0",
+    "onnxsim==0.4.33",
 ]
 yolo = [
     "ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git",
