@@ -1,69 +1,32 @@
-# vim: expandtab:ts=4:sw=4
-import math
-from abc import ABC, abstractmethod
 from copy import deepcopy
-from typing import Optional, Tuple, Union
+from typing import Optional
 
 import numpy as np
 import scipy.linalg
 
-"""
-Table for the 0.95 quantile of the chi-square distribution with N degrees of
-freedom (contains values for N=1, ..., 9). Taken from MATLAB/Octave's chi2inv
-function and used as Mahalanobis gating threshold.
-"""
-chi2inv95 = {
-    1: 3.8415,
-    2: 5.9915,
-    3: 7.8147,
-    4: 9.4877,
-    5: 11.070,
-    6: 12.592,
-    7: 14.067,
-    8: 15.507,
-    9: 16.919}
 
-
-class CovariancePolicy(ABC):
-
+class ConstantNoise:
     def __init__(self, x_dim: int, z_dim: int):
         self.x_dim = x_dim
         self.z_dim = z_dim
 
-    @abstractmethod
-    def get_init_state_cov(self, z: np.ndarray) -> np.ndarray:
-        pass
+    def get_init_state_cov(self) -> np.ndarray:
+        p = np.eye(self.x_dim)
+        p[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
+        p *= 10.0
+        return p
 
-    @abstractmethod
-    def get_R(self, x: np.ndarray, confidence: float = 0.0) -> np.ndarray:
-        ...
-
-    @abstractmethod
-    def get_Q(self, x: np.ndarray) -> np.ndarray:
-        ...
-
-
-class ConstantNoise(CovariancePolicy):
-
-    def get_init_state_cov(self, z: np.ndarray) -> np.ndarray:
-
-        P = np.eye(self.x_dim)
-        P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
-        P *= 10.0
-
-        return P
-
-    def get_R(self, x: np.ndarray, confidence: float = 0.0) -> np.ndarray:
+    @staticmethod
+    def get_r() -> np.ndarray:
         return np.diag([1, 1, 10, 0.01])
 
-    def get_Q(self, x: np.ndarray) -> np.ndarray:
-        Q = np.eye(self.x_dim)
-        Q[4:, 4:] *= 0.01
+    def get_q(self) -> np.ndarray:
+        q = np.eye(self.x_dim)
+        q[4:, 4:] *= 0.01
+        return q
 
-        return Q
 
-
-class KalmanFilter(object):
+class KalmanFilter:
     """
     A simple Kalman filter for tracking bounding boxes in image space.
 
@@ -80,15 +43,17 @@ class KalmanFilter(object):
 
     """
 
-    def __init__(self, z: np.ndarray, ndim: int = 8, dt: int = 1,
-                 cov_update_policy: CovariancePolicy = ConstantNoise,
-                 id: int = -1):
+    def __init__(self,
+            z: np.ndarray,
+            ndim: int = 8,
+            dt: int = 1,
+            id: int = -1):
         if z.ndim == 2:
             z = deepcopy(z.reshape((-1, )))
 
         self.dt = dt
         self.ndim = ndim
-        self.cov_update_policy: CovariancePolicy = cov_update_policy(ndim, z.size)
+        self.cov_update_policy = ConstantNoise(ndim, z.size)
         # Create Kalman filter model matrices.
         self._motion_mat = np.eye(ndim, ndim)
         for i in range(4 - (ndim % 2)):
@@ -99,7 +64,7 @@ class KalmanFilter(object):
         self.x = np.zeros((ndim,))
         self.x[:4] = z[:]
 
-        self.covariance = self.cov_update_policy.get_init_state_cov(z)
+        self.covariance = self.cov_update_policy.get_init_state_cov()
         self.id = id
 
     def predict(self, mean: Optional[np.ndarray] = None,
@@ -127,7 +92,7 @@ class KalmanFilter(object):
             mean = self.x
             covariance = self.covariance
             update = True
-        motion_cov = self.cov_update_policy.get_Q(mean)
+        motion_cov = self.cov_update_policy.get_q()
 
         mean = np.dot(self._motion_mat, mean)
         covariance = np.linalg.multi_dot((
@@ -139,7 +104,7 @@ class KalmanFilter(object):
 
         return mean, covariance
 
-    def project(self, confidence=.0):
+    def project(self):
         """Project state distribution to measurement space.
 
         Returns
@@ -150,7 +115,7 @@ class KalmanFilter(object):
 
         """
 
-        innovation_cov = self.cov_update_policy.get_R(self.x, 0)
+        innovation_cov = self.cov_update_policy.get_r()
 
         mean = np.dot(self._update_mat, self.x)
         covariance = np.linalg.multi_dot((
