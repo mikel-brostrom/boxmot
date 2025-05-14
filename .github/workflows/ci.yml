@@ -234,7 +234,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --only-group yolox-build-deps
+          python -m pip install -e yolox-src --no-deps
           uv sync --group yolo
       - name: Test tracking with pose models
         env:
