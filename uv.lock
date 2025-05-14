@@ -175,7 +175,7 @@ evolve = [
 ]
 export = [
     { name = "onnx", specifier = ">=1.17.0,<2.0.0" },
-    { name = "onnxsim", specifier = ">=0.4.36,<1.0.0" },
+    { name = "onnxsim", specifier = "==0.4.33" },
     { name = "openvino-dev", specifier = ">=2023.3,<2025.0" },
 ]
 test = [
@@ -1464,23 +1464,23 @@ wheels = [
 
 [[package]]
 name = "onnxsim"
-version = "0.4.36"
+version = "0.4.33"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "onnx" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ce/9e/f34238413ebeda9a3a8802feeaa5013934455466b9ab390b48ad9c7e184f/onnxsim-0.4.36.tar.gz", hash = "sha256:6e0ee9d6d4a83042bdef7319fbe58352d9fda5f253386be2b267c7c27f0638ee", size = 20993703 }
+sdist = { url = "https://files.pythonhosted.org/packages/29/ce/9de9cf0a929ef859318b8709e450564c03612be84dfa4326576d1a4cb6a5/onnxsim-0.4.33.tar.gz", hash = "sha256:fd644dde40e802f5825ea5a6e3a8d6867b199668a7d2bc423060397ce1afcff0", size = 20124486 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9b/55/0a0a248636cccccb7d4ed9189446e00017f411d0e13d1dd4af419ee4d529/onnxsim-0.4.36-cp310-cp310-macosx_10_15_universal2.whl", hash = "sha256:7498e7b9584c4b354b455564dfba66d460ce2c205b71dae169cfa9b6704e03fd", size = 3471278 },
-    { url = "https://files.pythonhosted.org/packages/d9/6e/80c77b5c6ec079994295e6e685097fa42732a1e7c5a22fe9c5c4ca1aac74/onnxsim-0.4.36-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ce87837f8975beebdcc98cc01d6d13e84b10900eb2c14035ce1066c3d670d96d", size = 2255237 },
-    { url = "https://files.pythonhosted.org/packages/0e/c5/6c93b354684b3fc4b520a23be3e4db5870b35dde9e9e2a1f41018ba369e8/onnxsim-0.4.36-cp310-cp310-win_amd64.whl", hash = "sha256:f92bec8c6c0d4f8463e10021277711d2faac900e4eb890238001b3eadb5c03bc", size = 1288644 },
-    { url = "https://files.pythonhosted.org/packages/2e/a3/f6cad8499f375a3acc8a7837721f82860244656cf62984cf80ebe187cc68/onnxsim-0.4.36-cp311-cp311-macosx_10_15_universal2.whl", hash = "sha256:150b9a3a409af2f3161af3fecda2113e0e6e296fb015b5205a9ddf645765acad", size = 3471242 },
-    { url = "https://files.pythonhosted.org/packages/db/94/22aab761b3d416bce02020d9ca98dc692427c2717b0325952e30ce41f83b/onnxsim-0.4.36-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fa7596e6b806ed19077f7652788a50ee576c172b4d16d421f0593aef1a6fa4c4", size = 2255003 },
-    { url = "https://files.pythonhosted.org/packages/c1/5c/aa277f45b0d8253027d1ce3269952e116b476985e5fb497e00ebd917ce29/onnxsim-0.4.36-cp311-cp311-win_amd64.whl", hash = "sha256:91fb32def04f2f89d5f76527c852332366957752e5e61ac25be0b2d7bb410f89", size = 1288684 },
-    { url = "https://files.pythonhosted.org/packages/20/3b/2230a57ee0425649b16bf8ba0a17400c9aa003f049052833055ff3bcbfa8/onnxsim-0.4.36-cp39-cp39-macosx_10_15_universal2.whl", hash = "sha256:6ae38cb9a23b759202d8ecc6c25392a2cecd156499b036fc48720d048833bece", size = 3471439 },
-    { url = "https://files.pythonhosted.org/packages/0c/c3/21c4e4a17c0dae64c0f0c02186baa198d7d5563af9a27361d2fdd75a8e04/onnxsim-0.4.36-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e937abb8e20a6609f27ae19639d21dc5e8621c4a5e44ebbafab9292451f75497", size = 2255609 },
-    { url = "https://files.pythonhosted.org/packages/ad/c4/16260e99ed9f82e33d4061a953d927bd174e0c67868e4e15ae5335cd1713/onnxsim-0.4.36-cp39-cp39-win_amd64.whl", hash = "sha256:1a23f32bc6ab3829ee69d9b737e4cfeb457d91720c4040788dabbc88e11dfacc", size = 1288184 },
+    { url = "https://files.pythonhosted.org/packages/dd/81/e227878fc294b6d4057fea50c5c10968545fb51fb3ad9a54bccd9da2583f/onnxsim-0.4.33-cp310-cp310-macosx_10_15_universal2.whl", hash = "sha256:aed2df21bbdd26ec83bdd09c8a2acabf8913de6b2bc82ba374b6342ad2302976", size = 3357956 },
+    { url = "https://files.pythonhosted.org/packages/d4/62/5660688c4d0f8ef923b387732f878f9e67f8ce03586bdd36087e86df4fb4/onnxsim-0.4.33-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9f8f09ed7bc989f8257373528d09e9e5a9241f4d506945bb69ab4a198e1bdac3", size = 2175309 },
+    { url = "https://files.pythonhosted.org/packages/1d/b0/69a28a9f762d16d1f7e1e8d7f3d37f15f5fb05ab33e92a9974012e3598ce/onnxsim-0.4.33-cp310-cp310-win_amd64.whl", hash = "sha256:c011799055a373fc5308f4cfc0927a13bd7ca5d8d2374f2284c4d47c1381ff6a", size = 1241520 },
+    { url = "https://files.pythonhosted.org/packages/89/96/93fbce9287448e8a789f833ea4fde4f1908c90fecfce0acf1b3a45c243ed/onnxsim-0.4.33-cp311-cp311-macosx_10_15_universal2.whl", hash = "sha256:a73b6ceb7532fc5b4f6e43db22f6602ae6fab0edede950ed65a40dc3075b5741", size = 3357945 },
+    { url = "https://files.pythonhosted.org/packages/ad/69/828ad55d7854b984d2589525d9c135ebc9ad2315ceb746554c61a3665a4b/onnxsim-0.4.33-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:2c6fb8e31cb8c114f34cadd322443b5645c5a020cfd61b6abd361ca027f14e03", size = 2175467 },
+    { url = "https://files.pythonhosted.org/packages/5d/55/1baa7f4849cc3e6a76554732ad44b587e90784e4a4f0ba7d963b788de6ee/onnxsim-0.4.33-cp311-cp311-win_amd64.whl", hash = "sha256:1a54be8284f27e874a87467dacb3d0606abf9c40244ab2628ed9d0eb432f20ed", size = 1241584 },
+    { url = "https://files.pythonhosted.org/packages/98/34/03bd30dda649ef661ca45906baaecfae2dce3f331d4b37e60f00199ff0c0/onnxsim-0.4.33-cp39-cp39-macosx_10_15_universal2.whl", hash = "sha256:d5b36ccd7f9f069713966a6b966db3a3da7f1ea2d80d5022e7d1df2082a12641", size = 3358398 },
+    { url = "https://files.pythonhosted.org/packages/a4/86/45e840d76137a3cc5ce692ec81c76b3986e0873c2e2e289d41be294429f2/onnxsim-0.4.33-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0307f2b52a7b33aff1d480e18f96def8014f21d2f114822fb0ca6ce013c0b532", size = 2175365 },
+    { url = "https://files.pythonhosted.org/packages/d4/41/f0a5c83ba85d5827ab698bd53d05f1cc811cf4d384763c916d60fba7fcf1/onnxsim-0.4.33-cp39-cp39-win_amd64.whl", hash = "sha256:450e53a3f63a965771d9784a6984814c0f82982576bf228ce408037e608bfded", size = 1240729 },
 ]
 
 [[package]]
