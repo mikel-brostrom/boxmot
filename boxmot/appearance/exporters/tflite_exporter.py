@@ -14,6 +14,7 @@ class TFLiteExporter(BaseExporter):
         "onnxslim>=0.1.31",
         "onnxruntime",
         "flatbuffers>=23.5.26",
+        "onnxsim==0.4.33",
         "psutil==5.9.5",
         "ml_dtypes==0.3.2",
         "ai_edge_litert>=1.2.0"
