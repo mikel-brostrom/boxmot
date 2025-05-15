@@ -55,8 +55,6 @@ Multi-object tracking solutions today depend heavily on the computational capabi
 
 ## Installation
 
-Start with a [**Python>=3.9**](https://www.python.org/) environment.
-
 If you want to run the RFDETR, YOLOX or YOLOv12 examples:
 
 ```
