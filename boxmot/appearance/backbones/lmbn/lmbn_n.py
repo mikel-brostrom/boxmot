@@ -18,7 +18,7 @@ class LMBN_n(nn.Module):
         self.chs = 512 // self.n_ch
         self.training = False
 
-        osnet = osnet_x1_0(pretrained=True)
+        osnet = osnet_x1_0(pretrained=False)
 
         self.backone = nn.Sequential(
             osnet.conv1, osnet.maxpool, osnet.conv2, osnet.conv3[0]
