@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-14]   # skip windows-latest for
-        python-version: ['3.11']
+        python-version: ['3.12']
         # leads to too many workflow which ends up queued
         # tracking-method: [hybridsort, botsort, ocsort, bytetrack] 
 
@@ -47,26 +47,23 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
           python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320
-
       - name: Run tracking method
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
             python tracking/val.py generate_mot_results  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
           done
-
   evolution:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.9', '3.11']
+        python-version: ['3.9', '3.12']
     outputs:
       status: ${{ job.status }}
 
@@ -92,21 +89,18 @@ jobs:
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --group evolve
-
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
           # reuse first set of generated det and prod
           python tracking/evolve.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
-
-
   mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.9', '3.11']
+        python-version: ['3.9', '3.12']
     outputs:
       status: ${{ job.status }}
     env:
@@ -135,48 +129,37 @@ jobs:
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
-
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
           python tracking/val.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
-
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
-
           for tracker in $TRACKERS; do
             if python3 tracking/val.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
               STATUS="✅"
             else
               STATUS="❌"
             fi
-
             cat ${tracker}_output.json
-
             # Extract the relevant parts of the JSON
             HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
             MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
             IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
-
             TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
             echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
           done
-
           # Sort the results by HOTA in descending order
           (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
-
           # Create a pretty table from the sorted_results.csv file
           column -s, -t sorted_results.csv > pretty_results.txt
-
       - name: Show Results
         shell: bash
         run: |
           cat pretty_results.txt
-
-
   tracking-with-pose:
     runs-on: ubuntu-latest
     outputs:
@@ -186,7 +169,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
             # macOS
@@ -203,7 +186,6 @@ jobs:
         run:  |
           source .venv/bin/activate
           python tracking/track.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320
-
   tracking-with-yolos:
     runs-on: ubuntu-latest
     outputs:
@@ -223,6 +205,9 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
+          # Export so that setuptools picks up clang instead of gcc
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
           uv sync --only-group yolox-build-deps
           uv sync --group yolo
       - name: Test tracking with pose models
@@ -234,8 +219,6 @@ jobs:
           python tracking/track.py --yolo-model yolov10n.pt --source $IMG --imgsz 320
           python tracking/track.py --yolo-model yolox_n.pt --source $IMG --imgsz 320 320
           python tracking/track.py --yolo-model rf-detr-base.pt --source $IMG --imgsz 320
-
-
   tracking-with-seg:
     runs-on: ubuntu-latest
     outputs:
@@ -247,7 +230,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - name: Install dependencies
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -265,7 +248,6 @@ jobs:
         run: |
           source .venv/bin/activate
           python tracking/track.py --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
-
   
   export-reid-models:
     runs-on: ubuntu-latest
@@ -278,7 +260,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
       - name: Install dependencies
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -289,15 +271,13 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group export
-
+          uv sync
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
           tar -zxvf flatc.tar.gz
           sudo chmod +x flatc
           sudo mv flatc /usr/bin/
-
       - name: Test export models
         run: | 
           source .venv/bin/activate
@@ -315,8 +295,6 @@ jobs:
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --source $IMG --imgsz 320 
           python tracking/track.py --reid-model tracking/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320   
                
-
-
   tests:
     runs-on: ubuntu-latest
     outputs:
@@ -326,7 +304,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
             # macOS
@@ -336,7 +314,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group test --group export
+          uv sync --group test
       - name: Test export models
         run: |
           source .venv/bin/activate
@@ -352,8 +330,6 @@ jobs:
           source .venv/bin/activate
           pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
-
-
   # test-gpu:
   #   runs-on: gpu-latest
   #   outputs:
@@ -363,7 +339,7 @@ jobs:
   #     - name: Set up Python
   #       uses: actions/setup-python@v5
   #       with:
-  #         python-version: '3.11'
+  #         python-version: '3.12'
   #     - run: |
   #         python -m pip install --upgrade pip setuptools wheel poetry
   #         poetry config virtualenvs.create false
@@ -407,7 +383,6 @@ jobs:
         run: |
           summary=""
           failed=false
-
           # Print all environment variables, grep for those ending with _STATUS, then loop
           for var in $(printenv | grep '_STATUS$'); do
             job_status="${var##*=}"  # Extract the status part
@@ -417,9 +392,7 @@ jobs:
               failed=true
             fi
           done
-
           if [[ "$failed" = false ]]; then
             summary="All jobs succeeded."
           fi
-
           echo "Summary: $summary"
