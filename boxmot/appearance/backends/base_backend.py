@@ -27,18 +27,18 @@ class BaseModelBackend:
         )
         self.checker = RequirementsChecker()
         self.load_model(self.weights)
+        self.input_shape = (384, 128) if "lmbn" in self.model_name else (256, 128)
 
 
     def get_crops(self, xyxys, img):
         h, w = img.shape[:2]
-        resize_dims = (128, 256)
         interpolation_method = cv2.INTER_LINEAR
         mean_array = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
         std_array = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
         
         # Preallocate tensor for crops
         num_crops = len(xyxys)
-        crops = torch.empty((num_crops, 3, resize_dims[1], resize_dims[0]), 
+        crops = torch.empty((num_crops, 3, *self.input_shape), 
                             dtype=torch.half if self.half else torch.float, device=self.device)
         
         for i, box in enumerate(xyxys):
@@ -47,7 +47,8 @@ class BaseModelBackend:
             crop = img[y1:y2, x1:x2]
             
             # Resize and convert color in one step
-            crop = cv2.resize(crop, resize_dims, interpolation=interpolation_method)
+            crop = cv2.resize(crop, (self.input_shape[1], self.input_shape[0]), 
+                              interpolation=interpolation_method)
             crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
             
             # Convert to tensor and normalize (convert to [0, 1] by dividing by 255 in batch later)
