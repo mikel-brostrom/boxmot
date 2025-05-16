@@ -89,9 +89,15 @@ class ECC(BaseCMC):
                 None,
                 1
             )
-        except Exception as e:
-            LOGGER.warning(f'Affine matrix could not be generated: {e}. Returning identity')
-            return warp_matrix
+        except cv.error as e:
+            # error 7 is StsNoConv, according to https://docs.opencv.org/3.4/d1/d0d/namespacecv_1_1Error.html
+            if e.code == cv.Error.StsNoConv:
+                LOGGER.warning(f'Affine matrix could not be generated: {e}. Returning identity')
+                return warp_matrix
+            else: # other error codes
+                raise
+
+            
 
         # upscale warp matrix to original images size
         if self.scale < 1:
