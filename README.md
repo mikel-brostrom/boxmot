@@ -31,13 +31,13 @@ This repository contains a collection of pluggable, state-of-the-art multi-objec
 <!-- START TRACKER TABLE -->
 | Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
 | :-----: | :-----: | :---: | :---: | :---: | :---: |
-| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 68.649 | 76.042 | 81.923 | 25 |
-| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 68.251 | 78.328 | 80.622 | 46 |
-| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.619 | 78.081 | 79.188 | 1265 |
-| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 67.394 | 76.413 | 79.017 | 17 |
-| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 67.348 | 75.832 | 79.584 | 12 |
-| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.546 | 77.892 | 1483 |
-| [imprassoc](https://openaccess.thecvf.com/content/CVPR2023W/E2EAD/papers/Stadler_An_Improved_Association_Pipeline_for_Multi-Person_Tracking_CVPRW_2023_paper.pdf) | ✅ | 63.699 | 76.407 | 70.837 | 26 |
+| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 69.015 | 75.957 | 82.538 | 25 |
+| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 68.367 | 78.321 | 80.7 | 46 |
+| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.038 | 76.142 | 80.731 | 17 |
+| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 1265 |
+| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 67.509 | 75.83 | 79.976 | 12 |
+| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.548 | 77.899 | 1483 |
+| [imprassoc](https://openaccess.thecvf.com/content/CVPR2023W/E2EAD/papers/Stadler_An_Improved_Association_Pipeline_for_Multi-Person_Tracking_CVPRW_2023_paper.pdf) | ✅ | 64.122 | 76.587 | 71.094 | 26 |
 
 <!-- END TRACKER TABLE -->
 
