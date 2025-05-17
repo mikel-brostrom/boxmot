@@ -1,11 +1,10 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import argparse
-import cv2
-import numpy as np
 from functools import partial
 from pathlib import Path
 
+import cv2
 import torch
 
 from boxmot import TRACKERS
@@ -13,26 +12,21 @@ from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
 from boxmot.utils.checks import RequirementsChecker
 from tracking.detectors import (get_yolo_inferer, default_imgsz,
-                                is_ultralytics_model, is_yolox_model)
+                                is_ultralytics_model)
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 
 from ultralytics import YOLO
-from ultralytics.utils.plotting import Annotator, colors
-from ultralytics.data.utils import VID_FORMATS
-from ultralytics.utils.plotting import save_one_box
 
 
 def on_predict_start(predictor, persist=False):
     """
     Initialize trackers for object tracking during prediction.
-
     Args:
         predictor (object): The predictor object to initialize trackers for.
         persist (bool, optional): Whether to persist the trackers if they already exist. Defaults to False.
     """
-
     assert predictor.custom_args.tracking_method in TRACKERS, \
         f"'{predictor.custom_args.tracking_method}' is not supported. Supported ones are {TRACKERS}"
 
@@ -47,7 +41,7 @@ def on_predict_start(predictor, persist=False):
             predictor.custom_args.half,
             predictor.custom_args.per_class
         )
-        # motion only modeles do not have
+        # motion only models do not have
         if hasattr(tracker, 'model'):
             tracker.model.warmup()
         trackers.append(tracker)
@@ -57,7 +51,6 @@ def on_predict_start(predictor, persist=False):
 
 @torch.no_grad()
 def run(args):
-
     if args.imgsz is None:
         args.imgsz = default_imgsz(args.yolo_model)
     yolo = YOLO(
@@ -113,9 +106,7 @@ def run(args):
     yolo.predictor.custom_args = args
 
     for r in results:
-
         img = yolo.predictor.trackers[0].plot_results(r.orig_img, args.show_trajectories)
-
         if args.show is True:
             cv2.imshow('BoxMOT', img)     
             key = cv2.waitKey(1) & 0xFF
