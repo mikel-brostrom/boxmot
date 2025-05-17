@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author : HuangPiao
 # Email  : huangpiao2985@163.com
 # Date   : 3/11/2019
@@ -59,8 +58,8 @@ def ecc(src, dst, warp_mode = cv2.MOTION_EUCLIDEAN, eps = 1e-5,
     if scale is not None:
         if isinstance(scale, float):
             if scale != 1:
-                src_r = cv2.resize(src, (0, 0), fx = scale, fy = scale,interpolation =  cv2.INTER_LINEAR)
-                dst_r = cv2.resize(dst, (0, 0), fx = scale, fy = scale,interpolation =  cv2.INTER_LINEAR)
+                src_r = cv2.resize(src, (0, 0), fx = scale, fy = scale,interpolation = cv2.INTER_LINEAR)
+                dst_r = cv2.resize(dst, (0, 0), fx = scale, fy = scale,interpolation = cv2.INTER_LINEAR)
                 scale = [scale, scale]
             else:
                 src_r, dst_r = src, dst
@@ -84,37 +83,40 @@ def ecc(src, dst, warp_mode = cv2.MOTION_EUCLIDEAN, eps = 1e-5,
     # Define 2x3 or 3x3 matrices and initialize the matrix to identity
     if warp_mode == cv2.MOTION_HOMOGRAPHY :
         warp_matrix = np.eye(3, 3, dtype=np.float32)
-    else :
+    else:
         warp_matrix = np.eye(2, 3, dtype=np.float32)
 
     # Define termination criteria
     criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, max_iter, eps)
 
     # Run the ECC algorithm. The results are stored in warp_matrix.
-    (cc, warp_matrix) = cv2.findTransformECC (src_r, dst_r, warp_matrix, warp_mode, criteria, None, 1)
+    (cc, warp_matrix) = cv2.findTransformECC(src_r, dst_r, warp_matrix, warp_mode, criteria, None, 1)
 
     if scale is not None:
         warp_matrix[0, 2] = warp_matrix[0, 2] / scale[0]
         warp_matrix[1, 2] = warp_matrix[1, 2] / scale[1]
 
-    if align:
-        sz = src.shape
-        if warp_mode == cv2.MOTION_HOMOGRAPHY:
-            # Use warpPerspective for Homography
-            src_aligned = cv2.warpPerspective(src, warp_matrix, (sz[1],sz[0]), flags=cv2.INTER_LINEAR)
-        else :
-            # Use warpAffine for Translation, Euclidean and Affine
-            src_aligned = cv2.warpAffine(src, warp_matrix, (sz[1],sz[0]), flags=cv2.INTER_LINEAR)
-        return warp_matrix, src_aligned
-    else:
+    if not align:
         return warp_matrix, None
+    sz = src.shape
+    if warp_mode == cv2.MOTION_HOMOGRAPHY:
+        # Use warpPerspective for Homography
+        src_aligned = cv2.warpPerspective(src, warp_matrix, (sz[1],sz[0]), flags=cv2.INTER_LINEAR)
+    else :
+        # Use warpAffine for Translation, Euclidean and Affine
+        src_aligned = cv2.warpAffine(src, warp_matrix, (sz[1],sz[0]), flags=cv2.INTER_LINEAR)
+    return warp_matrix, src_aligned
 
 
 class ECC:
-
-    def __init__(self, warp_mode = cv2.MOTION_EUCLIDEAN, eps = 1e-4,
-        max_iter = 100, scale = 0.15, align = False,
-        video_name: Optional[str] = None, use_cache: bool = True):
+    def __init__(self,
+            warp_mode=cv2.MOTION_EUCLIDEAN,
+            eps=1e-4,
+            max_iter=100,
+            scale=0.15,
+            align=False,
+            video_name: Optional[str] = None,
+            use_cache: bool = True):
         self.wrap_mode = warp_mode
         self.eps = eps
         self.max_iter = max_iter
@@ -149,7 +151,6 @@ class ECC:
 
         if self.use_cache:
             self.cache[key] = deepcopy(result)
-
         return result
 
     def save_cache(self):
