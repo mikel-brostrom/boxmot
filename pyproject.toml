@@ -1,113 +1,100 @@
-[[tool.uv.index]]
-name = "testpypi"
-url = "https://test.pypi.org/simple/"
-publish-url = "https://test.pypi.org/legacy/"
-explicit = true
-
+# ─────────────────────────────────────────
+# 1. Build system
+# ─────────────────────────────────────────
 [build-system]
-requires = ["pdm-backend"]
+requires    = ["pdm-backend"]
 build-backend = "pdm.backend"
 
-[tool.flake8]
-max-line-length = 120
-exclude = [".tox", "*.egg", "build", "temp"]
-select = ["E", "W", "F"]
-doctests = true
-verbose = 2
-format = "pylint"
-ignore = ["E731", "F405", "E402", "W504", "W605", "E741"]
-
+# ─────────────────────────────────────────
+# 2. Core project metadata (PEP 621)
+# ─────────────────────────────────────────
 [project]
-authors = [
-    {name = "Mikel Broström"},
+name             = "boxmot"
+version          = "12.0.8"
+description      = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
+readme           = "README.md"
+license          = { text = "AGPL-3.0" }
+authors          = [{ name = "Mikel Broström" }]
+requires-python  = ">=3.9,<=3.12"
+keywords         = [
+  "tracking",
+  "tracking-by-detection",
+  "machine-learning",
+  "deep-learning",
+  "vision",
+  "ML",
+  "DL",
+  "AI",
+  "YOLO",
 ]
-license = {text = "AGPL-3.0"}
-requires-python = ">=3.9,<=3.12"
+classifiers      = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Education",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+  "Topic :: Scientific/Engineering :: Image Processing",
+]
+
+# ─────────────────────────────────────────
+# 3. Core dependencies
+# ─────────────────────────────────────────
 dependencies = [
-    "setuptools>=78.0.0",
-    "filterpy<2.0.0,>=1.4.5",
-    "gdown<6.0.0,>=5.1.0",
-    "lapx<1.0.0,>=0.5.5",
-    "loguru<1.0.0,>=0.7.2",
-    "numpy==1.26.4",
-    "pyyaml<7.0.0,>=6.0.1",
-    "regex<2025.0.0,>=2024.0.0",
-    "yacs<1.0.0,>=0.1.8",
-    "scikit-learn<2.0.0,>=1.3.0",
-    "pandas<3.0.0,>=2.0.0",
-    "opencv-python<5.0.0,>=4.7.0",
-    "ftfy<7.0.0,>=6.1.3",
-    "gitpython<4.0.0,>=3.1.42",
-    "torch<3.0.0,>=2.2.1; sys_platform == \"darwin\"",
-    "torch<3.0.0,>=2.2.1; sys_platform == \"linux\" or sys_platform == \"win32\"",
-    "torchvision<1.0.0,>=0.17.1; sys_platform == \"darwin\"",
-    "torchvision<1.0.0,>=0.17.1; sys_platform == \"linux\" or sys_platform == \"win32\"",
-]
-name = "boxmot"
-version = "12.0.8"
-description = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
-readme = "README.md"
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Education",
-    "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development",
-    "Topic :: Scientific/Engineering",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Scientific/Engineering :: Image Recognition",
-    "Topic :: Scientific/Engineering :: Image Processing",
-]
-keywords = [
-    "tracking",
-    "tracking-by-detection",
-    "machine-learning",
-    "deep-learning",
-    "vision",
-    "ML",
-    "DL",
-    "AI",
-    "YOLO",
-]
-
-[dependency-groups]
-test = [
-  "pytest<9.0.0,>=8.0.2",
-  "isort<6.0.0,>=5.13.2",
-  "pytest-cov<7.0.0,>=6.0.0",
-]
-yolo = [
-  "ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git",
-]
-evolve = [
-  "ray<3.0.0,>=2.35.0",
-  "plotly<6.0.0,>=5.19.0",
-  "joblib<2.0.0,>=1.3.2",
-]
-dev = [
-  "ipykernel<7.0.0,>=6.29.5",
-]
-yolox-build-deps = [
   "setuptools>=78.0.0",
-  "torch<3.0.0,>=2.2.1",
+  "filterpy>=1.4.5,<2.0.0",
+  "gdown>=5.1.0,<6.0.0",
+  "lapx>=0.5.5,<1.0.0",
+  "loguru>=0.7.2,<1.0.0",
+  "numpy==1.26.4",
+  "pyyaml>=6.0.1,<7.0.0",
+  "regex>=2024.0.0,<2025.0.0",
+  "yacs>=0.1.8,<1.0.0",
+  "scikit-learn>=1.3.0,<2.0.0",
+  "pandas>=2.0.0,<3.0.0",
+  "opencv-python>=4.7.0,<5.0.0",
+  "ftfy>=6.1.3,<7.0.0",
+  "gitpython>=3.1.42,<4.0.0",
+  "torch>=2.2.1,<3.0.0; sys_platform == \"darwin\" or sys_platform == \"linux\" or sys_platform == \"win32\"",
+  "torchvision>=0.17.1,<1.0.0; sys_platform == \"darwin\" or sys_platform == \"linux\" or sys_platform == \"win32\"",
 ]
 
-# exporter‐specific groups
-onnx-exporter = [
+# ─────────────────────────────────────────
+# 4. Optional / grouped dependencies
+# ─────────────────────────────────────────
+[project.optional-dependencies]
+dev               = [
+  "pytest>=8.0.2,<9.0.0",
+  "isort>=5.13.2,<6.0.0",
+  "pytest-cov>=6.0.0,<7.0.0",
+  "ipykernel>=6.29.5,<7.0.0",
+]
+yolo               = [
+  "ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git",
+  "rfdetr"
+]
+evolve             = [
+  "ray>=2.35.0,<3.0.0",
+  "plotly>=5.19.0,<6.0.0",
+  "joblib>=1.3.2,<2.0.0",
+]
+"onnx-exporter"    = [
   "onnx>=1.16.1",
   "onnxruntime",
   "onnx-simplifier>=0.4.1",
 ]
-openvino-exporter = [
+"openvino-exporter" = [
   "openvino-dev>=2023.3",
 ]
-tflite-exporter = [
+"tflite-exporter"  = [
   "onnx2tf>=1.18.0",
   "onnx>=1.16.1",
   "tensorflow==2.17.0",
@@ -122,3 +109,27 @@ tflite-exporter = [
   "ml_dtypes==0.3.2",
   "ai_edge_litert>=1.2.0",
 ]
+
+# ─────────────────────────────────────────
+# 5. Custom PyPI indexes (uv)
+# ─────────────────────────────────────────
+[tool.uv]
+# add multiple [[tool.uv.index]] entries if needed
+
+[[tool.uv.index]]
+name        = "testpypi"
+url         = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit    = true
+
+# ─────────────────────────────────────────
+# 6. Linting configuration
+# ─────────────────────────────────────────
+[tool.flake8]
+max-line-length = 120
+format          = "pylint"
+doctests        = true
+verbose         = 2
+select          = ["E", "W", "F"]
+ignore          = ["E731", "F405", "E402", "W504", "W605", "E741"]
+exclude         = [".tox", "*.egg", "build", "temp"]
