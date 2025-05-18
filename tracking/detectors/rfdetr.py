@@ -22,7 +22,7 @@ class RFDETRStrategy(YoloInterface):
     def __init__(self, model, device, args):
         self.args = args
         LOGGER.info("Loading RFDETR model")
-        self.model = RFDETRBase(device=device)
+        self.model = RFDETRBase(device="cpu")
 
     @torch.no_grad()
     def __call__(self, im, augment, visualize, embed):
