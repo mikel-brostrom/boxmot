@@ -32,9 +32,9 @@ def get_yolo_inferer(yolo_model):
             import yolox  # for linear_assignment
             assert yolox.__version__
         except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(('yolox',))
-            checker.check_packages(('tabulate',))  # needed dependency
-            checker.check_packages(('thop',))  # needed dependency
+            checker.install_packages(('yolox',))
+            checker.install_packages(('tabulate',))  # needed dependency
+            checker.install_packages(('thop',))  # needed dependency
         from .yolox import YoloXStrategy
         return YoloXStrategy
     elif 'yolov8' in str(yolo_model):
@@ -45,8 +45,8 @@ def get_yolo_inferer(yolo_model):
         try:
             import rfdetr
         except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(('onnxruntime',))  # needed dependency
-            checker.check_packages(('rfdetr',))  # needed dependency
+            checker.install_packages(('onnxruntime',))  # needed dependency
+            checker.install_packages(('rfdetr',))  # needed dependency
         from .rfdetr import RFDETRStrategy
         return RFDETRStrategy
     elif 'yolo_nas' in str(yolo_model):
@@ -54,7 +54,7 @@ def get_yolo_inferer(yolo_model):
             import super_gradients  # for linear_assignment
             assert super_gradients.__version__
         except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(('super-gradients==3.1.3',))  # install
+            checker.install_packages(('super-gradients==3.1.3',))  # install
         from .yolonas import YoloNASStrategy
         return YoloNASStrategy
     else:

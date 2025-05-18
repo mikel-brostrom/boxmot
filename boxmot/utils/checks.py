@@ -40,7 +40,7 @@ class RequirementsChecker:
         if missing:
             self._install_packages(missing)
 
-    def _install_packages(self, packages):
+    def install_packages(self, packages):
         try:
             LOGGER.warning(
                 f"\nMissing packages: {', '.join(packages)}\nAttempting installation..."
@@ -52,7 +52,7 @@ class RequirementsChecker:
             LOGGER.error(f"Failed to install packages: {e}")
             raise RuntimeError(f"Failed to install packages: {e}")
 
-    def _sync_group(self, group: str):
+    def sync_group(self, group: str):
         try:
             LOGGER.warning(f"Syncing dependency-group '{group}'...")
             sync_cmd = [
