@@ -35,7 +35,7 @@ class RFDETRStrategy(YoloInterface):
         frame_rgb = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(frame_rgb)
         with torch.no_grad():
-            detections = self.model.predict(im, threshold=self.args.conf)
+            detections = self.model.predict(image, threshold=self.args.conf)
 
         preds = np.column_stack(
             [
