@@ -12,7 +12,7 @@ import yaml
 # Check required packages
 from boxmot.utils.checks import RequirementsChecker
 checker = RequirementsChecker()
-checker.check_packages(('ray[tune]',))  # Install ray[tune] if not already present
+checker.sync_group_or_extra(extra="evolve")
 
 import ray
 from ray import tune

@@ -9,7 +9,7 @@ def export_decorator(export_func):
     def wrapper(self, *args, **kwargs):
         try:
             if hasattr(self, 'uv_group'):
-                self.checker.sync_group(self.required_packages)
+                self.checker.sync_group_or_extra(extra=self.required_packages)
                 
             LOGGER.info(f"\nStarting {self.file} export with {self.__class__.__name__}...")
             result = export_func(self, *args, **kwargs)

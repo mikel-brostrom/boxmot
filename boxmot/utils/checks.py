@@ -52,19 +52,33 @@ class RequirementsChecker:
             LOGGER.error(f"Failed to install packages: {e}")
             raise RuntimeError(f"Failed to install packages: {e}")
 
-    def sync_group(self, group: str):
+    def sync_group_or_extra(self, group: Optional[str] = None, extra: Optional[str] = None):
+        """
+        Sync a uv dependency-group or an extra.
+
+        :param group: name of the [tool.uv.group] to install
+        :param extra: name of the [project.optional-dependencies] extra to install
+        """
+        if bool(group) == bool(extra):
+            # both None or both set
+            raise ValueError("Must provide exactly one of 'group' or 'extra'.")
+
+        name = group or extra
+        kind = "group" if group else "extra"
+        LOGGER.warning(f"Syncing {kind} '{name}'...")
+
+        cmd = [
+            "uv", "sync",
+            "--no-default-groups",
+            f"--{kind}", name
+        ]
+
         try:
-            LOGGER.warning(f"Syncing dependency-group '{group}'...")
-            sync_cmd = [
-                "uv", "sync",
-                "--no-default-groups",
-                "--group", group
-            ]
-            subprocess.check_call(sync_cmd)
-            LOGGER.info(f"Dependency-group '{group}' installed successfully.")
-        except Exception as e:
-            LOGGER.error(f"Failed to sync group '{group}': {e}")
-            raise RuntimeError(f"Failed to sync group '{group}': {e}")
+            subprocess.check_call(cmd)
+            LOGGER.info(f"{kind.capitalize()} '{name}' installed successfully.")
+        except subprocess.CalledProcessError as e:
+            LOGGER.error(f"Failed to sync {kind} '{name}': {e}")
+            raise RuntimeError(f"Failed to sync {kind} '{name}': {e}")
 
 
 if __name__ == "__main__":
