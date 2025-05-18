@@ -46,7 +46,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --extra yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -88,7 +88,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo --group evolve
+          uv sync --extra yolo --extra evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -128,7 +128,7 @@ jobs:
           fi
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --extra yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -179,7 +179,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --extra yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -208,8 +208,7 @@ jobs:
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync --only-group yolox-build-deps
-          uv sync --group yolo
+          uv sync --extra yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -241,7 +240,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --extra yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -314,7 +313,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group test
+          uv sync --extra dev
       - name: Test export models
         run: |
           source .venv/bin/activate
