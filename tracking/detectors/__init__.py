@@ -28,13 +28,8 @@ def default_imgsz(yolo_name):
 def get_yolo_inferer(yolo_model):
 
     if is_yolox_model(yolo_model):
-        try:
-            import yolox  # for linear_assignment
-            assert yolox.__version__
-        except (ImportError, AssertionError, AttributeError):
-            checker.install_packages(('yolox',))
-            checker.install_packages(('tabulate',))  # needed dependency
-            checker.install_packages(('thop',))  # needed dependency
+        import yolox  # for linear_assignment
+        assert yolox.__version__
         from .yolox import YoloXStrategy
         return YoloXStrategy
     elif 'yolov8' in str(yolo_model):
@@ -42,19 +37,12 @@ def get_yolo_inferer(yolo_model):
         from .yolov8 import Yolov8Strategy
         return Yolov8Strategy
     elif 'rf-detr' in str(yolo_model):
-        try:
-            import rfdetr
-        except (ImportError, AssertionError, AttributeError):
-            checker.install_packages(('onnxruntime',))  # needed dependency
-            checker.install_packages(('rfdetr',))  # needed dependency
+        import rfdetr
         from .rfdetr import RFDETRStrategy
         return RFDETRStrategy
     elif 'yolo_nas' in str(yolo_model):
-        try:
-            import super_gradients  # for linear_assignment
-            assert super_gradients.__version__
-        except (ImportError, AssertionError, AttributeError):
-            checker.install_packages(('super-gradients==3.1.3',))  # install
+        import super_gradients  # for linear_assignment
+        assert super_gradients.__version__
         from .yolonas import YoloNASStrategy
         return YoloNASStrategy
     else:
