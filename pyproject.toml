@@ -67,6 +67,7 @@ dependencies = [
   "torchvision>=0.17.1,<1.0.0; sys_platform == \"darwin\" or sys_platform == \"linux\" or sys_platform == \"win32\"",
 ]
 
+
 # ─────────────────────────────────────────
 # 4. Optional / grouped dependencies
 # ─────────────────────────────────────────
@@ -109,6 +110,9 @@ evolve             = [
   "psutil==5.9.5",
   "ml_dtypes==0.3.2",
   "ai_edge_litert>=1.2.0",
+]
+yolox-build-deps = [
+  "setuptools>=78.0.0",
 ]
 
 # ─────────────────────────────────────────
