@@ -81,7 +81,7 @@ dev               = [
 yolo               = [
   "ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git",
   "rfdetr",
-  "yolox==0.3.0"
+  #"yolox==0.3.0"
 ]
 evolve             = [
   "ray[tune]>=2.35.0,<3.0.0",

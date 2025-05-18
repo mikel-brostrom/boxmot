@@ -233,7 +233,6 @@ tflite-exporter = [
 yolo = [
     { name = "rfdetr", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64' or platform_system != 'Linux' or sys_platform != 'darwin'" },
     { name = "ultralytics", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64' or platform_system != 'Linux' or sys_platform != 'darwin'" },
-    { name = "yolox", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64' or platform_system != 'Linux' or sys_platform != 'darwin'" },
 ]
 yolox-build-deps = [
     { name = "setuptools", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64' or platform_system != 'Linux' or sys_platform != 'darwin'" },
@@ -284,7 +283,6 @@ requires-dist = [
     { name = "torchvision", marker = "sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=0.17.1,<1.0.0" },
     { name = "ultralytics", marker = "extra == 'yolo'", git = "https://github.com/mikel-brostrom/ultralytics.git" },
     { name = "yacs", specifier = ">=0.1.8,<1.0.0" },
-    { name = "yolox", marker = "extra == 'yolo'", specifier = "==0.3.0" },
 ]
 
 [[package]]
@@ -4013,16 +4011,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/44/3e/4a45cb0738da6565f
 wheels = [
     { url = "https://files.pythonhosted.org/packages/38/4f/fe9a4d472aa867878ce3bb7efb16654c5d63672b86dc0e6e953a67018433/yacs-0.1.8-py3-none-any.whl", hash = "sha256:99f893e30497a4b66842821bac316386f7bd5c4f47ad35c9073ef089aa33af32", size = 14747 },
 ]
-
-[[package]]
-name = "yolox"
-version = "0.3.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "onnx", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64' or platform_system != 'Linux' or sys_platform != 'darwin'" },
-    { name = "onnxsim", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64' or platform_system != 'Linux' or sys_platform != 'darwin'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f8/a1/08f57037146540133673aecca2c371064d567928beaebc69611e4c7745b0/yolox-0.3.0.tar.gz", hash = "sha256:1b8ee68846434408c40074f0806259fe3b9387181e562dbc435ea666533d8d08", size = 79971 }
 
 [[package]]
 name = "zipp"
