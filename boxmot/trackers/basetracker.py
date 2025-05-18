@@ -84,19 +84,22 @@ class BaseTracker(ABC):
         class_embs = np.empty((0, self.last_emb_size)) if self.last_emb_size is not None else None
 
         # Check if there are detections
-        if dets.size > 0:
-            class_indices = np.where(dets[:, 5] == cls_id)[0]
-            class_dets = dets[class_indices]
-            
-            if embs is not None:
-                # Assert that if embeddings are provided, they have the same number of elements as detections
-                assert dets.shape[0] == embs.shape[0], "Detections and embeddings must have the same number of elements when both are provided"
-                
-                if embs.size > 0:
-                    class_embs = embs[class_indices]
-                    self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
-                else:
-                    class_embs = None
+        if dets.size == 0:
+            return class_dets, class_embs
+
+        class_indices = np.where(dets[:, 5] == cls_id)[0]
+        class_dets = dets[class_indices]
+
+        if embs is None:
+            return class_dets, class_embs
+
+        # Assert that if embeddings are provided, they have the same number of elements as detections
+        assert dets.shape[0] == embs.shape[0], ("Detections and embeddings "
+                                                "must have the same number of elements when both are provided")
+        class_embs = None
+        if embs.size > 0:
+            class_embs = embs[class_indices]
+            self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
         return class_dets, class_embs
     
     @staticmethod
