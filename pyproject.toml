@@ -4,27 +4,9 @@ url = "https://test.pypi.org/simple/"
 publish-url = "https://test.pypi.org/legacy/"
 explicit = true
 
-[[tool.pdm.source]]
-name = "torchcpu"
-url = "https://download.pytorch.org/whl/cpu"
-verify_ssl = true
-
-[[tool.pdm.source]]
-name = "torch_cuda121"
-url = "https://download.pytorch.org/whl/cu121"
-verify_ssl = true
-
 [build-system]
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
-
-[[tool.uv.dependency-metadata]]
-name = "yolox"
-version = "0.3.0"
-requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
-
-[tool.uv]
-no-build-isolation-package = ["yolox"]
 
 [tool.flake8]
 max-line-length = 120

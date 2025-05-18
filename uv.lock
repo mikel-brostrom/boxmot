@@ -35,13 +35,6 @@ resolution-markers = [
     "(python_full_version >= '3.12' and platform_machine != 'aarch64' and platform_system == 'Linux' and sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32') or (python_full_version >= '3.12' and platform_system != 'Darwin' and platform_system != 'Linux' and sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32')",
 ]
 
-[manifest]
-
-[[manifest.dependency-metadata]]
-name = "yolox"
-version = "0.3.0"
-requires-dist = ["onnx>=1.17.0", "onnxsim>=0.4.36,<1.0.0"]
-
 [[package]]
 name = "absl-py"
 version = "2.2.2"
@@ -141,7 +134,7 @@ wheels = [
 
 [[package]]
 name = "boxmot"
-version = "12.0.7"
+version = "12.0.8"
 source = { editable = "." }
 dependencies = [
     { name = "filterpy" },
