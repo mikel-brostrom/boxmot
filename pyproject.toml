@@ -79,7 +79,8 @@ dev               = [
 ]
 yolo               = [
   "ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git",
-  "rfdetr"
+  "rfdetr",
+  "yolox==0.3.0"
 ]
 evolve             = [
   "ray[tune]>=2.35.0,<3.0.0",
@@ -88,7 +89,7 @@ evolve             = [
 ]
 "onnx-exporter"    = [
   "onnx>=1.16.1",
-  "onnxruntime",
+  "onnxruntime>=1.16.1,<2.0.0",
   "onnx-simplifier>=0.4.1",
 ]
 "openvino-exporter" = [
@@ -104,7 +105,7 @@ evolve             = [
   "onnxslim>=0.1.31",
   "onnxruntime",
   "flatbuffers>=23.5.26",
-  "onnxsim==0.4.33",
+  "onnxsim>=0.4.33",
   "psutil==5.9.5",
   "ml_dtypes==0.3.2",
   "ai_edge_litert>=1.2.0",
@@ -114,13 +115,18 @@ evolve             = [
 # 5. Custom PyPI indexes (uv)
 # ─────────────────────────────────────────
 [tool.uv]
-# add multiple [[tool.uv.index]] entries if needed
+no-build-isolation-package = ["yolox"]
 
 [[tool.uv.index]]
 name        = "testpypi"
 url         = "https://test.pypi.org/simple/"
 publish-url = "https://test.pypi.org/legacy/"
 explicit    = true
+
+[[tool.uv.dependency-metadata]]
+name = "yolox"
+version = "0.3.0"
+requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 
 # ─────────────────────────────────────────
 # 6. Linting configuration
