@@ -39,7 +39,7 @@ class RequirementsChecker:
                 missing.append(str(r))
 
         if missing:
-            self._install_packages(missing)
+            self.install_packages(missing)
 
     def install_packages(self, packages):
         try:
