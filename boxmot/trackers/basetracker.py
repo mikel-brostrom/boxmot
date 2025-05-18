@@ -350,25 +350,19 @@ class BaseTracker(ABC):
         - np.ndarray: The image array with trajectories and bounding boxes of all active tracks.
         """
 
-        # if values in dict
-        if self.per_class_active_tracks is not None:
-            for k in self.per_class_active_tracks.keys():
-                active_tracks = self.per_class_active_tracks[k]
-                for a in active_tracks:
-                    if a.history_observations:
-                        if len(a.history_observations) > 2:
-                            box = a.history_observations[-1]
-                            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
-                            if show_trajectories:
-                                img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
+        if self.per_class_active_tracks is None:   # dict
+            active_tracks = self.active_tracks
         else:
-            for a in self.active_tracks:
-                if a.history_observations:
-                    if len(a.history_observations) > 2:
-                        box = a.history_observations[-1]
-                        img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
-                        if show_trajectories:
-                            img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
-                
+            active_tracks = []
+            for k in self.per_class_active_tracks.keys():
+                active_tracks += self.per_class_active_tracks[k]
+
+        for a in active_tracks:
+            if not a.history_observations: continue
+            if len(a.history_observations) < 3: continue
+            box = a.history_observations[-1]
+            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
+            if not show_trajectories: continue
+            img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
         return img
 
