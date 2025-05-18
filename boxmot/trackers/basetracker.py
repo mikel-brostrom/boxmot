@@ -142,48 +142,46 @@ class BaseTracker(ABC):
         Decorator for the update method to handle per-class processing.
         """
         def wrapper(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None):
-            
-            #handle different types of inputs
+            # handle different types of inputs
             if dets is None or len(dets) == 0:
                 dets = np.empty((0, 6))
-            
-            if self.per_class:
-                # Initialize an array to store the tracks for each class
-                per_class_tracks = []
-                
-                # same frame count for all classes
-                frame_count = self.frame_count
 
-                for cls_id in range(self.nr_classes):
-                    # Get detections and embeddings for the current class
-                    class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
-                    
-                    LOGGER.debug(f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings {class_embs.shape if class_embs is not None else None}")
-
-                    # Activate the specific active tracks for this class id
-                    self.active_tracks = self.per_class_active_tracks[cls_id]
-                    
-                    # Reset frame count for every class
-                    self.frame_count = frame_count
-                    
-                    # Update detections using the decorated method
-                    tracks = update_method(self, dets=class_dets, img=img, embs=class_embs)
-
-                    # Save the updated active tracks
-                    self.per_class_active_tracks[cls_id] = self.active_tracks
-
-                    if tracks.size > 0:
-                        per_class_tracks.append(tracks)
-                
-                # Increase frame count by 1
-                self.frame_count = frame_count + 1
-
-                return np.vstack(per_class_tracks) if per_class_tracks else np.empty((0, 8))
-            else:
+            if not self.per_class:
                 # Process all detections at once if per_class is False
                 return update_method(self, dets=dets, img=img, embs=embs)
-        return wrapper
+            # else:
+            # Initialize an array to store the tracks for each class
+            per_class_tracks = []
 
+            # same frame count for all classes
+            frame_count = self.frame_count
+
+            for cls_id in range(self.nr_classes):
+                # Get detections and embeddings for the current class
+                class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
+
+                LOGGER.debug(f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings"
+                      f" {class_embs.shape if class_embs is not None else None}")
+
+                # Activate the specific active tracks for this class id
+                self.active_tracks = self.per_class_active_tracks[cls_id]
+
+                # Reset frame count for every class
+                self.frame_count = frame_count
+
+                # Update detections using the decorated method
+                tracks = update_method(self, dets=class_dets, img=img, embs=class_embs)
+
+                # Save the updated active tracks
+                self.per_class_active_tracks[cls_id] = self.active_tracks
+
+                if tracks.size > 0:
+                    per_class_tracks.append(tracks)
+
+            # Increase frame count by 1
+            self.frame_count = frame_count + 1
+            return np.vstack(per_class_tracks) if per_class_tracks else np.empty((0, 8))
+        return wrapper
 
     def check_inputs(self, dets, img):
         assert isinstance(
