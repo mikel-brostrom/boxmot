@@ -28,7 +28,7 @@ class RequirementsChecker:
             reqs = pkg_resources.parse_requirements(f)
         self._check_packages(reqs)
 
-    def _check_packages(self, requirements):
+    def check_packages(self, requirements):
         missing = []
         for r in requirements:
             try:
