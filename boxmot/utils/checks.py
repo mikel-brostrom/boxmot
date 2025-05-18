@@ -4,6 +4,7 @@ import pkg_resources
 import subprocess
 from pathlib import Path
 from boxmot.utils import logger as LOGGER
+from typing import Optional
 
 REQUIREMENTS_FILE = Path("requirements.txt")
 
