@@ -318,32 +318,34 @@ class BoostTrack(BaseTracker):
     def duo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:
         if len(detections) == 0:
             return detections
-
         n_dims = 4
-
         limit = 13.2767
         mh_dist = self.get_mh_dist_matrix(detections, n_dims)
-        if mh_dist.size > 0 and self.frame_count > 1:
-            min_dists = mh_dist.min(1)
-            mask = (min_dists > limit) & (detections[:, 4] < self.det_thresh)
-            boost_inds = np.where(mask)[0]
-            iou_limit = 0.3
-            if len(boost_inds) > 0:
-                bdiou = iou_batch(detections[boost_inds], detections[boost_inds]) - np.eye(len(boost_inds))
-                bdiou_max = bdiou.max(axis=1)
-                remaining = boost_inds[bdiou_max <= iou_limit]
-                args = np.where(bdiou_max > iou_limit)[0]
-                for i in range(len(args)):
-                    bi = args[i]
-                    tmp = np.where(bdiou[bi] > iou_limit)[0]
-                    args_tmp = np.append(np.intersect1d(boost_inds[args], boost_inds[tmp]), boost_inds[bi])
-                    conf_max = np.max(detections[args_tmp, 4])
-                    if detections[boost_inds[bi], 4] == conf_max:
-                        remaining = np.concatenate([remaining, [boost_inds[bi]]])
-                mask_boost = np.zeros_like(detections[:, 4], dtype=bool)
-                mask_boost[remaining] = True
-                detections[:, 4] = np.where(mask_boost, self.det_thresh + 1e-4, detections[:, 4])
+        if mh_dist.size == 0 and self.frame_count < 2:
+            return detections
+        min_dists = mh_dist.min(1)
+        mask = (min_dists > limit) & (detections[:, 4] < self.det_thresh)
+        boost_inds = np.where(mask)[0]
+        iou_limit = 0.3
+        if len(boost_inds) == 0:
+            return detections
+
+        bdiou = iou_batch(detections[boost_inds], detections[boost_inds]) - np.eye(len(boost_inds))
+        bdiou_max = bdiou.max(axis=1)
+        remaining = boost_inds[bdiou_max <= iou_limit]
+        args = np.where(bdiou_max > iou_limit)[0]
+        for i in range(len(args)):
+            bi = args[i]
+            tmp = np.where(bdiou[bi] > iou_limit)[0]
+            args_tmp = np.append(np.intersect1d(boost_inds[args], boost_inds[tmp]), boost_inds[bi])
+            conf_max = np.max(detections[args_tmp, 4])
+            if detections[boost_inds[bi], 4] == conf_max:
+                remaining = np.concatenate([remaining, [boost_inds[bi]]])
+        mask_boost = np.zeros_like(detections[:, 4], dtype=bool)
+        mask_boost[remaining] = True
+        detections[:, 4] = np.where(mask_boost, self.det_thresh + 1e-4, detections[:, 4])
         return detections
+
 
     def dlo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:
         if len(detections) == 0:
