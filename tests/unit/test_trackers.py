@@ -159,7 +159,7 @@ def test_tracker_with_no_detections(tracker_type, dets):
     )
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
-    embs = np.random.random(size=(2, 512))
+    embs = np.random.random(size=(0, 512))
 
     output = tracker.update(dets, rgb, embs)
     assert output.size == 0, "Output should be empty when no detections are provided"
