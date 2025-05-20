@@ -146,7 +146,7 @@ class BoostTrack(BaseTracker):
         self.min_hits = min_hits          # minimum hits to output a track
         self.det_thresh = det_thresh      # detection confidence threshold
         self.iou_threshold = iou_threshold   # association IoU threshold
-        # self.use_ecc = use_ecc            # use ECC for camera motion compensation
+        self.use_ecc = use_ecc            # use ECC for camera motion compensation
         self.min_box_area = min_box_area  # minimum box area for detections
         self.aspect_ratio_thresh = aspect_ratio_thresh  # aspect ratio threshold for detections
         self.cmc_method = cmc_method
