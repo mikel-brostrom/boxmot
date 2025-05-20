@@ -175,11 +175,13 @@ def test_id_consistency_over_two_frames(tracker_type):
         device='cpu', half=False, per_class=False
     )
     det1 = np.array([[50, 50, 100, 100, 0.9, 0]])
-    out1 = tracker.update(det1, np.zeros((640, 640, 3), dtype=np.uint8))
+    emb1 = np.random.random(size=(1, 512))
+    out1 = tracker.update(dets=det1, embs=emb1, img=np.zeros((640, 640, 3), dtype=np.uint8))
     assert out1.shape == (1, 8)
     id1 = out1[0, 4]
     det2 = np.array([[52, 52, 102, 102, 0.88, 0]])
-    out2 = tracker.update(det2, np.zeros((640, 640, 3), dtype=np.uint8))
+    emb2 = np.random.random(size=(1, 512))
+    out2 = tracker.update(dets=det2, embs=emb2, img=np.zeros((640, 640, 3), dtype=np.uint8))
     assert out2.shape == (1, 8)
     id2 = out2[0, 4]
     assert id2 == id1, "Track ID should persist across small motions"
