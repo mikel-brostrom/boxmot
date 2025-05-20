@@ -70,18 +70,19 @@ def test_motion_n_appearance_tracker_update_time(tracker_type):
         per_class=False
     )
 
-    rgb = np.random.randint(0, 255, size=(640, 640, 3), dtype=np.uint8)
-    det = np.array([[144, 212, 578, 480, 0.82, 0],
+    img = np.random.randint(0, 255, size=(640, 640, 3), dtype=np.uint8)
+    dets = np.array([[144, 212, 578, 480, 0.82, 0],
                     [425, 281, 576, 472, 0.56, 65]])
+    embs = np.random.rand(2, 512)
     
     n_runs = 100
 
     # Warm-up iteration to avoid initialization overhead in timing
-    tracker.update(det, rgb)
+    tracker.update(dets=dets, embs=embs, img=img)
     
     start = time.perf_counter()
     for _ in range(n_runs):
-        tracker.update(det, rgb)
+           tracker.update(dets=dets, embs=embs, img=img)
     end = time.perf_counter()
     
     elapsed_time_per_iteration = (end - start) / n_runs
