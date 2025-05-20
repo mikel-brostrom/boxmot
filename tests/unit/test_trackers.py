@@ -5,7 +5,7 @@ from boxmot.utils import WEIGHTS
 
 from numpy.testing import assert_allclose
 from boxmot import (
-    StrongSort, BotSort, DeepOcSort, OcSort, ByteTrack, ImprAssocTrack,
+    StrongSort, BotSort, DeepOcSort, OcSort, ByteTrack,
     get_tracker_config, create_tracker,
 )
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
@@ -184,7 +184,7 @@ def test_id_consistency_over_two_frames(tracker_type):
     id2 = out2[0, 4]
     assert id2 == id1, "Track ID should persist across small motions"
 
-# @pytest.mark.parametrize("Tracker", [OcSort, DeepOcSort, ByteTrack, ImprAssocTrack])
+# @pytest.mark.parametrize("Tracker", [OcSort, DeepOcSort, ByteTrack])
 # def test_track_deletion_after_max_age(Tracker):
 #     max_age = 3
 
