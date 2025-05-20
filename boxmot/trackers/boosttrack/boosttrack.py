@@ -11,8 +11,9 @@ from boxmot.trackers.boosttrack.assoc import (
 )
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.trackers.boosttrack.kalmanfilter import KalmanFilter
-from boxmot.trackers.boosttrack.ecc import ECC
 from boxmot.trackers.basetracker import BaseTracker
+from boxmot.motion.cmc import get_cmc_method
+
 
 
 def convert_bbox_to_z(bbox):
@@ -121,6 +122,7 @@ class BoostTrack(BaseTracker):
         use_ecc: bool = True,
         min_box_area: int = 10,
         aspect_ratio_thresh: bool = 1.6,
+        cmc_method: str = 'ecc',
 
         # BoostTrack parameters
         lambda_iou: float = 0.5,
@@ -150,6 +152,7 @@ class BoostTrack(BaseTracker):
         self.use_ecc = use_ecc            # use ECC for camera motion compensation
         self.min_box_area = min_box_area  # minimum box area for detections
         self.aspect_ratio_thresh = aspect_ratio_thresh  # aspect ratio threshold for detections
+        self.cmc_method = cmc_method
 
         self.lambda_iou = lambda_iou
         self.lambda_mhd = lambda_mhd
@@ -171,9 +174,9 @@ class BoostTrack(BaseTracker):
             self.reid_model = None
 
         if self.use_ecc:
-            self.ecc = ECC(scale=350, video_name=None, use_cache=True)
+            self.cmc = get_cmc_method(cmc_method)()
         else:
-            self.ecc = None
+            self.cmc = None
 
     def update(self, dets: np.ndarray, img: np.ndarray, embs: Optional[np.ndarray] = None) -> np.ndarray:
         """
@@ -196,8 +199,8 @@ class BoostTrack(BaseTracker):
 
         self.frame_count += 1
 
-        if self.ecc is not None:
-            transform = self.ecc(img, self.frame_count)
+        if self.cmc is not None:
+            transform = self.cmc.apply(img, dets)
             for trk in self.trackers:
                 trk.camera_update(transform)
 
@@ -298,10 +301,6 @@ class BoostTrack(BaseTracker):
         area_filter = w_arr * h_arr > self.min_box_area
 
         return outputs[vertical_filter & area_filter]
-    
-    def dump_cache(self):
-        if self.ecc is not None:
-            self.ecc.save_cache()
     
     def get_iou_matrix(self, detections: np.ndarray, buffered: bool = False) -> np.ndarray:
         trackers = np.zeros((len(self.trackers), 5))
