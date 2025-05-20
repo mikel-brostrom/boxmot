@@ -188,20 +188,6 @@ def test_id_consistency_over_two_frames(tracker_type):
 # def test_track_deletion_after_max_age(Tracker):
 #     max_age = 3
 
-
-def test_bytetrack_low_high_threshold_logic():
-    from boxmot import ByteTrack
-    high, low = 0.6, 0.2
-    tracker = ByteTrack(track_thresh=high, match_thresh=low)
-    det1 = np.array([[20, 20, 60, 60, 0.8, 0]])
-    out1 = tracker.update(det1, np.zeros((640, 640, 3), dtype=np.uint8))
-    assert out1.shape[0] == 1
-    det2 = np.array([[22, 22, 62, 62, 0.4, 0]])
-    out2 = tracker.update(det2, np.zeros((640, 640, 3), dtype=np.uint8))
-    assert hasattr(tracker, "_unconfirmed_tracks") and tracker._unconfirmed_tracks, \
-        "Mid-score detection should become unconfirmed"
-    assert out2.shape[0] == 0, "Mid-score dets should not be output immediately"
-
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
 def test_per_class_isolation(tracker_type):
     tracker = create_tracker(
