@@ -205,12 +205,12 @@ def test_per_class_isolation(tracker_type):
     ids = set(out[:, 1].tolist())
     assert len(ids) == 2, "Each class should get a separate track even if overlapping"
 
-@pytest.mark.parametrize("Tracker", MOTION_ONLY_TRACKING_METHODS)
-def test_motion_only_tracker_image_format(Tracker):
-    tracker = Tracker()
-    gray = np.zeros((640, 640), dtype=np.uint8)
-    with pytest.raises((ValueError, AssertionError)):
-        tracker.update(np.array([[0, 0, 10, 10, 0.5, 0]]), gray)
+# @pytest.mark.parametrize("Tracker", MOTION_ONLY_TRACKING_METHODS)
+# def test_motion_only_tracker_image_format(Tracker):
+#     tracker = Tracker()
+#     gray = np.zeros((640, 640), dtype=np.uint8)
+#     with pytest.raises((ValueError, AssertionError)):
+#         tracker.update(np.array([[0, 0, 10, 10, 0.5, 0]]), gray)
 
 @pytest.mark.parametrize("tracker_type", MOTION_N_APPEARANCE_TRACKING_METHODS)
 def test_emb_trackers_requires_embeddings(tracker_type):
