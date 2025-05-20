@@ -189,7 +189,7 @@ class BoostTrack(BaseTracker):
                       [x1, y1, x2, y2, id, confidence, cls, det_ind]
                       (with cls and det_ind set to -1 if unused)
         """
-        self.check_inputs(dets, embs, img)
+        self.check_inputs(dets=dets, embs=embs, img=img)
         if dets is None or dets.size == 0:
             dets = np.empty((0, 6))
 
