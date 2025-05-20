@@ -175,6 +175,8 @@ class BoostTrack(BaseTracker):
         else:
             self.cmc = None
 
+    @BaseTracker.setup_decorator
+    @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: Optional[np.ndarray] = None) -> np.ndarray:
         """
         Update the tracker with detections and an image.
