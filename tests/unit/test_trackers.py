@@ -12,7 +12,7 @@ from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTra
 from boxmot.trackers.deepocsort.deepocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
 from tests.test_config import (
     MOTION_ONLY_TRACKING_METHODS, MOTION_N_APPEARANCE_TRACKING_METHODS,
-    ALL_TRACKERS, PER_CLASS_TRACKERS
+    ALL_TRACKERS, PER_CLASS_TRACKERS, MOTION_N_APPEARANCE_TRACKING_NAMES
 )
 
 # --- existing tests ---
@@ -212,7 +212,7 @@ def test_per_class_isolation(tracker_type):
 #     with pytest.raises((ValueError, AssertionError)):
 #         tracker.update(np.array([[0, 0, 10, 10, 0.5, 0]]), gray)
 
-@pytest.mark.parametrize("tracker_type", MOTION_N_APPEARANCE_TRACKING_METHODS)
+@pytest.mark.parametrize("tracker_type", MOTION_N_APPEARANCE_TRACKING_NAMES)
 def test_emb_trackers_requires_embeddings(tracker_type):
     tracker_conf = get_tracker_config(tracker_type)
     tracker = create_tracker(
