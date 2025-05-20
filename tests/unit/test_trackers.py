@@ -248,4 +248,4 @@ def test_invalid_det_array_shape(tracker_type):
     )
     bad_det = np.random.rand(2, 5)
     with pytest.raises(AssertionError):
-        tracker.update(bad_det, np.random.rand(3, 512), np.zeros((640, 640, 3), dtype=np.uint8))
+        tracker.update(bad_det, np.random.rand(2, 512), np.zeros((640, 640, 3), dtype=np.uint8))
