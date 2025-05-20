@@ -225,8 +225,8 @@ def test_emb_trackers_requires_embeddings(tracker_type):
     )
     det = np.array([[10, 10, 20, 20, 0.7, 0]])
     rgb = np.zeros((640, 640, 3), dtype=np.uint8)
-    with pytest.raises(TypeError):
-        tracker.update(det, rgb, np.random.rand(3, 512))        
+    with pytest.raises(AssertionError):
+        tracker.update(det, np.random.rand(3, 512), rgb)        
 
 # def test_prediction_drift_with_kalman():
 #     tracker = OcSort(max_age=2)
