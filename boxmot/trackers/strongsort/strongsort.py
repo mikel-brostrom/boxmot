@@ -69,13 +69,16 @@ class StrongSort(object):
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
         assert isinstance(
             img, np.ndarray
-        ), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
+        ), f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
         assert (
             len(dets.shape) == 2
         ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
         assert (
+            dets.shape[0] == embs.shape[0]
+        ), "Missmatch between detections and embeddings sizes"
+        assert (
             dets.shape[1] == 6
-        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6 (x1,y1,x2,y2,conf,cls)"
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         remain_inds = dets[:, 4] >= self.min_conf

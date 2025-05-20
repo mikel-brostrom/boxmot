@@ -183,7 +183,7 @@ class BaseTracker(ABC):
             return np.vstack(per_class_tracks) if per_class_tracks else np.empty((0, 8))
         return wrapper
 
-    def check_inputs(self, dets, img, embs = None):
+    def check_inputs(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None):
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
@@ -197,7 +197,7 @@ class BaseTracker(ABC):
         if embs is not None:
             assert (
                 dets.shape[0] == embs.shape[0]
-            ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
+            ), "Missmatch between detections and embeddings sizes"
         
         if self.is_obb:
             assert (
