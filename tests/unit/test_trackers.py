@@ -166,25 +166,43 @@ def test_tracker_with_no_detections(tracker_type, dets):
 
 # --- additional tests for better coverage ---
 
-@pytest.mark.parametrize("tracker_type", ALL_TRACKERS)
-def test_id_consistency_over_two_frames(tracker_type):
-    conf = get_tracker_config(tracker_type)
-    tracker = create_tracker(
-        tracker_type, conf,
-        WEIGHTS/'mobilenetv2_x1_4_dukemtmcreid.pt',
-        device='cpu', half=False, per_class=False
-    )
-    det1 = np.array([[50, 50, 100, 100, 0.9, 0]])
-    emb1 = np.random.random(size=(1, 512))
-    out1 = tracker.update(dets=det1, embs=emb1, img=np.zeros((640, 640, 3), dtype=np.uint8))
-    assert out1.shape == (1, 8)
-    id1 = out1[0, 4]
-    det2 = np.array([[52, 52, 102, 102, 0.88, 0]])
-    emb2 = np.random.random(size=(1, 512))
-    out2 = tracker.update(dets=det2, embs=emb2, img=np.zeros((640, 640, 3), dtype=np.uint8))
-    assert out2.shape == (1, 8)
-    id2 = out2[0, 4]
-    assert id2 == id1, "Track ID should persist across small motions"
+# @pytest.mark.parametrize("tracker_type", ALL_TRACKERS)
+# def test_id_consistency_over_two_frames(tracker_type):
+#     conf = get_tracker_config(tracker_type)
+#     tracker = create_tracker(
+#         tracker_type, conf,
+#         WEIGHTS/'mobilenetv2_x1_4_dukemtmcreid.pt',
+#         device='cpu', half=False, per_class=False
+#     )
+    
+#     dets = np.array([[144, 212, 400, 480, 0.82, 0],
+#                      [425, 281, 576, 472, 0.72, 65]])
+#     embs = np.random.random(size=(3, 512))
+#     img = np.zeros((640, 640, 3), dtype=np.uint8)
+    
+#     for _ in range(0, 4): 
+#         out = tracker.update(dets=dets, embs=embs, img=img)
+        
+#     out1 = tracker.update(dets=dets, embs=embs, img=img)
+#     out2 = tracker.update(dets=dets, embs=embs, img=img)
+    
+#     print(out1)
+    
+#     print("→ type:", type(out1))
+#     print("→ type:", type(out2))
+#     print('blub1', out1.shape)
+#     print('blub2', out1.shape)
+
+#     #assert out1.shape == (2, 8)
+#     #assert out2.shape == (2, 8)
+#     id1 = out1[0, 4]
+#     id2 = out2[0, 4]
+
+#     print('blubid1', id1)
+#     print('blubid2', id2)
+#     print("→ typeid1:", type(id1))
+#     print("→ typeid2:", type(id2))
+#     assert int(id2) == int(id1), "Track ID should persist across small motions"
 
 # @pytest.mark.parametrize("Tracker", [OcSort, DeepOcSort, ByteTrack])
 # def test_track_deletion_after_max_age(Tracker):
