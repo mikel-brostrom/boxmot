@@ -76,6 +76,10 @@ class StrongSort(object):
         assert (
             dets.shape[1] == 6
         ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+        if embs is not None:
+            assert (
+                dets.shape[0] == embs.shape[0]
+            ), "Missmatch between detections and embeddings sizes"
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         remain_inds = dets[:, 4] >= self.min_conf
