@@ -209,3 +209,53 @@ def test_invalid_det_array_shape(tracker_type):
     bad_det = np.random.rand(2, 5)
     with pytest.raises(AssertionError):
         tracker.update(bad_det, img, embs)
+        
+def test_get_tracker_config_invalid_name():
+    """Requesting config for an unknown tracker should raise a KeyError."""
+    with pytest.raises(KeyError):
+        get_tracker_config("not_a_tracker")
+        
+@pytest.mark.parametrize("tracker_type", ALL_TRACKERS)
+def test_track_id_stable_over_frames(tracker_type):
+    """
+    If the same detection appears in successive frames,
+    the tracker should assign the same track ID.
+    """
+    cfg = get_tracker_config(tracker_type)
+    tracker = create_tracker(
+        tracker_type=tracker_type,
+        tracker_config=cfg,
+        reid_weights=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt',
+        device='cpu',
+        half=False,
+        per_class=False
+    )
+
+    det = np.array([[50, 50, 100, 100, 0.95, 3]])
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+
+    # choose embedding only if needed
+    if tracker_type in MOTION_N_APPEARANCE_TRACKING_NAMES:
+        embs = np.random.rand(1, 512)
+        out1 = tracker.update(det, rgb, embs)
+        out2 = tracker.update(det, rgb, embs)
+    else:
+        out1 = tracker.update(det, rgb)
+        out2 = tracker.update(det, rgb)
+
+    assert out1.shape == out2.shape == (1, 8), "Unexpected output shape"
+    # track ID is at column 1
+    assert out1[0, 1] == out2[0, 1], "Track ID should remain the same across frames"
+    
+def test_create_tracker_invalid_tracker_name():
+    """Creating a tracker with an unknown name should raise a ValueError."""
+    with pytest.raises(ValueError):
+        # invalid tracker_type
+        create_tracker(
+            tracker_type="nonexistent_tracker",
+            tracker_config={},
+            reid_weights=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt',
+            device='cpu',
+            half=False,
+            per_class=False
+        )
