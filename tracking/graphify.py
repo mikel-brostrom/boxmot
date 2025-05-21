@@ -52,15 +52,25 @@ class Neo4jGraph:
         logging.info("Constraints ensured.")
 
     def graphify_dataset(self, dataset_path):
+        metrics = {
+            "frames_processed": 0,
+            "entities_processed": 0,
+            "frame_nodes_created_updated": 0,
+            "entity_nodes_created_updated": 0,
+            "next_prev_rels_created": 0,
+            "detected_in_rels_created": 0,
+            "spatial_rels_created": 0,
+            "errors": []
+        }
         try:
             with open(dataset_path, 'r') as f:
                 dataset = json.load(f)
         except FileNotFoundError:
             logging.error(f"Dataset file not found: {dataset_path}")
-            return
+            return metrics
         except json.JSONDecodeError:
             logging.error(f"Error decoding JSON from dataset file: {dataset_path}")
-            return
+            return metrics
 
         self.clear_graph()
         self.create_constraints()
@@ -71,9 +81,11 @@ class Neo4jGraph:
             current_frame_idx = frame_data.get('frame_idx')
             if current_frame_idx is None:
                 logging.warning(f"Skipping frame due to missing 'frame_idx': {frame_data}")
+                metrics["errors"].append(f"Skipped frame due to missing frame_idx: {frame_data.get('timestamp')}")
                 continue
 
             logging.info(f"Processing frame_idx: {current_frame_idx}")
+            metrics["frames_processed"] += 1
 
             # Create/Update Frame node with name
             frame_name = f"Frame {current_frame_idx}"
@@ -82,7 +94,9 @@ class Neo4jGraph:
                 'timestamp': frame_data.get('timestamp'),
                 'geo': frame_data.get('geo'),
                 'latest_vector_id': frame_data.get('frame_vector_id'),
-                'name': frame_name
+                'name': frame_name,
+                'last_audio_segment_id': frame_data.get('last_audio_segment_id'),
+                'overlapping_audio_segment_ids': frame_data.get('overlapping_audio_segment_ids', [])
             }
             frame_props = {k: v for k, v in frame_props.items() if v is not None}
 
@@ -92,6 +106,7 @@ class Neo4jGraph:
             RETURN f
             """
             self.execute_query(query_frame, {'frame_idx': current_frame_idx, 'props': frame_props})
+            metrics["frame_nodes_created_updated"] += 1
 
             # Link to previous frame
             if previous_frame_idx is not None:
@@ -102,10 +117,12 @@ class Neo4jGraph:
                 MERGE (curr)-[:PREV]->(prev)
                 """
                 self.execute_query(query_link_frame, {'current_idx': current_frame_idx, 'previous_idx': previous_frame_idx})
+                metrics["next_prev_rels_created"] += 2 # one NEXT, one PREV
             previous_frame_idx = current_frame_idx
 
             # Process entities
             for entity_data in frame_data.get('entities', []):
+                metrics["entities_processed"] += 1
                 entity_id = entity_data.get('id')
                 entity_vector_id = entity_data.get('vector_id')
                 entity_class = entity_data.get('class')
@@ -128,6 +145,7 @@ class Neo4jGraph:
                 RETURN e
                 """
                 self.execute_query(query_entity, {'entity_id': str(entity_id), 'props': entity_props})
+                metrics["entity_nodes_created_updated"] += 1
 
                 # Create :DETECTED_IN relationship
                 detection_confidence = entity_data.get('confidence')
@@ -154,6 +172,7 @@ class Neo4jGraph:
                         'frame_idx': current_frame_idx,
                         'props': rel_props
                     })
+                    metrics["detected_in_rels_created"] += 1
 
             # Process inter-entity relationships
             for rel_tuple in frame_data.get('relationships', []):
@@ -191,19 +210,43 @@ class Neo4jGraph:
                         'target_id': str(target_id),
                         'properties': rel_properties
                     })
+                    metrics["spatial_rels_created"] += 1
                 except Exception as e:
                     logging.error(f"Failed to create relationship {sanitized_rel_type} between {source_id} and {target_id}: {e}")
+                    metrics["errors"].append(f"Failed relationship: {source_id}-{sanitized_rel_type}->{target_id} ({e})")
 
         logging.info("Dataset graphification complete.")
+        return metrics
 
+
+def run_graphification(args):
+    """Manages Neo4j connection and calls graphify_dataset."""
+    graph_db = None
+    try:
+        graph_db = Neo4jGraph(args.neo4j_uri, args.neo4j_user, args.neo4j_password)
+        # The dataset_path for graphification should be the enriched_dataset_path from linking step
+        # This will be passed in args from track.py, let's assume args.enriched_dataset_path exists
+        if not hasattr(args, 'enriched_dataset_path') or not args.enriched_dataset_path:
+            logging.error("enriched_dataset_path not provided in args for graphification.")
+            return {"status": "error", "message": "enriched_dataset_path missing"}
+        
+        metrics = graph_db.graphify_dataset(args.enriched_dataset_path)
+        logging.info("Graphification completed via run_graphification.")
+        return metrics
+    except Exception as e:
+        logging.critical(f"An unhandled error occurred during graphification: {e}")
+        return {"status": "error", "message": str(e), "details": metrics if 'metrics' in locals() else {}}
+    finally:
+        if graph_db and graph_db._driver:
+            graph_db.close()
 
 def main():
     parser = argparse.ArgumentParser(description="Graphify dataset.json into Neo4j.")
     parser.add_argument(
-        "--dataset-path",
+        "--dataset-path", # This will become enriched_dataset_path when called from track.py
         type=str,
-        default=os.path.join("runs", "track", "exp", "dataset", "dataset.json"),
-        help="Path to the dataset.json file."
+        default=os.path.join("runs", "track", "exp", "dataset", "enriched_dataset.json"), # Default to enriched
+        help="Path to the enriched_dataset.json file."
     )
     parser.add_argument(
         "--neo4j-uri",
@@ -227,13 +270,28 @@ def main():
     args = parser.parse_args()
 
     try:
-        graph_db = Neo4jGraph(args.neo4j_uri, args.neo4j_user, args.neo4j_password)
-        graph_db.graphify_dataset(args.dataset_path)
+        # If running graphify.py standalone, args.dataset_path is the one to use.
+        # We need to ensure `run_graphification` can accept this.
+        # Modify run_graphification to be more flexible or ensure `track.py` sets `args.enriched_dataset_path`.
+
+        # Let's assume `track.py` will pass `args` with `enriched_dataset_path` correctly set.
+        # For standalone `main`, we need to map its `--dataset-path` to `enriched_dataset_path` for `run_graphification`.
+        args_for_run = argparse.Namespace(**vars(args)) # Copy args
+        if hasattr(args_for_run, 'dataset_path') and not hasattr(args_for_run, 'enriched_dataset_path'):
+            args_for_run.enriched_dataset_path = args_for_run.dataset_path
+
+        graph_metrics = run_graphification(args_for_run)
+
+        logging.info("Graphification Metrics (from main):")
+        if graph_metrics:
+            for key, value in graph_metrics.items():
+                logging.info(f"  {key}: {value}")
+        else:
+            logging.error("Graphification returned no metrics or failed.")
+            
     except Exception as e:
-        logging.critical(f"An unhandled error occurred: {e}")
-    finally:
-        if 'graph_db' in locals() and graph_db._driver:
-            graph_db.close()
+        logging.critical(f"An unhandled error occurred in main: {e}")
+    # finally block for graph_db.close() is now inside run_graphification
 
 if __name__ == "__main__":
     main()

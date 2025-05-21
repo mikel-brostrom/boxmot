@@ -115,3 +115,11 @@ yolox-build-deps = [
     "setuptools>=78.0.0",
     "torch<3.0.0,>=2.2.1",
 ]
+
+ffmpeg-python = "*"
+pyannote.audio = "*"
+scenedetect = "*"
+PySoundFile = "*"
+SpeechRecognition = "*"
+
+minio = "*"
