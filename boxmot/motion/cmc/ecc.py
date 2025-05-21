@@ -89,9 +89,9 @@ class ECC(BaseCMC):
                 None,
                 1
             )
-        except cv.error as e:
+        except cv2.error as e:
             # error 7 is StsNoConv, according to https://docs.opencv.org/3.4/d1/d0d/namespacecv_1_1Error.html
-            if e.code == cv.Error.StsNoConv:
+            if e.code == cv2.Error.StsNoConv:
                 LOGGER.warning(f'Affine matrix could not be generated: {e}. Returning identity')
                 return warp_matrix
             else: # other error codes
