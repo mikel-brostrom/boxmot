@@ -105,7 +105,6 @@ class Yolov9Strategy(YoloInterface):
                     orig_img=im0s[i],
                     names=self.names
                 )
-                results.append(r)
             else:
                 pred = self.clip(pred, im0s[i])
                 r = Results(

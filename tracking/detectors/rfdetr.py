@@ -1,18 +1,14 @@
 # Mikel Broström 🔥 RFDETR Tracking 🧾 AGPL-3.0 license
 
+import cv2
 import numpy as np
 import torch
-import cv2
-from PIL import Image
-from rfdetr import RFDETRBase
 from rfdetr.util.coco_classes import COCO_CLASSES
 from ultralytics.engine.results import Results
-from ultralytics.utils import ops
 from ultralytics.models.yolo.detect import DetectionPredictor
 
-
-
 from boxmot.utils import logger as LOGGER
+from rfdetr import RFDETRBase
 from tracking.detectors.yolo_interface import YoloInterface
 
 
@@ -26,27 +22,19 @@ class RFDETRStrategy(YoloInterface):
     def __init__(self, model, device, args):
         self.args = args
         LOGGER.info("Loading RFDETR model")
-        self.model = RFDETRBase(device='cpu')
+        self.model = RFDETRBase(device="cpu")
 
     @torch.no_grad()
     def __call__(self, im, augment, visualize, embed):
-
-        # Convert frame to PIL Image format for RFDETR
-        frame_rgb = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
-        image = Image.fromarray(frame_rgb)
+        image = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)  # Convert frame BGR2RGB for RFDETR
         with torch.no_grad():
-            detections = self.model.predict(im, threshold=self.args.conf)
+            detections = self.model.predict(image, threshold=self.args.conf)
 
-        preds = np.column_stack(
-            [
+        return torch.from_numpy(np.column_stack([
                 detections.xyxy,
                 detections.confidence[:, np.newaxis],
                 detections.class_id[:, np.newaxis]
-            ]
-        )
-
-        preds = torch.from_numpy(preds).unsqueeze(0)
-        return preds
+            ])).unsqueeze(0)
 
     def warmup(self, imgsz):
         pass
@@ -67,17 +55,10 @@ class RFDETRStrategy(YoloInterface):
     def postprocess(self, preds, im, im0s):
         results = []
         for i, pred in enumerate(preds):
-            im_path = self.im_paths[i] if len(self.im_paths) else ""
             if pred is None or len(pred) == 0:
-                pred = torch.empty((0, 6))
-            else:
-                if self.args.classes:
-                    pred = pred[torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))]
-                r = Results(
-                    path=im_path,
-                    boxes=pred,
-                    orig_img=im0s[i],
-                    names=COCO_CLASSES
-                )
-                results.append(r)
+                continue
+            im_path = self.im_paths[i] if len(self.im_paths) else ""
+            if self.args.classes:
+                pred = pred[torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))]
+            results.append(Results(path=im_path, boxes=pred, orig_img=im0s[i], names=COCO_CLASSES))
         return results
