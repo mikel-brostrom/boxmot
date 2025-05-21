@@ -224,6 +224,8 @@ def test_invalid_det_array_shape(tracker_type):
         WEIGHTS/'mobilenetv2_x1_4_dukemtmcreid.pt',
         device='cpu', half=False, per_class=False
     )
+    img = np.zeros((640, 640, 3), dtype=np.uint8)
+    embs = np.random.rand(2, 512)
     bad_det = np.random.rand(2, 5)
     with pytest.raises(AssertionError):
-        tracker.update(bad_det, np.random.rand(2, 512), np.zeros((640, 640, 3), dtype=np.uint8))
+        tracker.update(bad_det, img, embs)
