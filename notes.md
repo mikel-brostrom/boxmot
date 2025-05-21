@@ -1,0 +1,1 @@
+python tracking/track.py --yolo-model yolov8x-pose --tracking-method botsort --save-txt --show-labels --save-id-crops --verbose --reid-model 'osnet_x1_0_msmt17.pt' --vid-stride 84 --device mps --save-dataset --save --source "input_videos/party.mp4" --show --metrics

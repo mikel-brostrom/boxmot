@@ -90,7 +90,17 @@ def ecc(src, dst, warp_mode = cv2.MOTION_EUCLIDEAN, eps = 1e-5,
     criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, max_iter, eps)
 
     # Run the ECC algorithm. The results are stored in warp_matrix.
-    (cc, warp_matrix) = cv2.findTransformECC(src_r, dst_r, warp_matrix, warp_mode, criteria, None, 1)
+    try:
+        (cc, warp_matrix) = cv2.findTransformECC(src_r, dst_r, warp_matrix, warp_mode, criteria, None, 1)
+        # Check if the correlation coefficient indicates a failure in convergence (e.g., very low or negative)
+        # The documentation mentions that a negative cc might indicate convergence to a local minimum with low correlation
+        # However, the primary issue is the exception. We will rely on catching the exception for non-convergence.
+    except cv2.error as e:
+        print(f"Warning: ECC algorithm failed to converge. Returning identity matrix. Error: {e}")
+        if warp_mode == cv2.MOTION_HOMOGRAPHY :
+            warp_matrix = np.eye(3, 3, dtype=np.float32)
+        else:
+            warp_matrix = np.eye(2, 3, dtype=np.float32)
 
     if scale is not None:
         warp_matrix[0, 2] = warp_matrix[0, 2] / scale[0]

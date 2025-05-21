@@ -57,3 +57,8 @@ boxmot/motion/cmc/*.jpg
 
 # json outputs
 *_output.json
+
+
+input_videos/
+assets/
+.env
