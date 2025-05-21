@@ -13,6 +13,8 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient, models
 from neo4j import GraphDatabase, basic_auth
+from minio import Minio
+from minio.error import S3Error
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -22,6 +24,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # --- Constants & Model Config --- (Shared with vectorize.py logic)
 ENTITY_COLLECTION_NAME = "entities"
 FRAME_COLLECTION_NAME = "frames"
+AUDIO_COLLECTION_NAME = "audio_transcripts"
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_MODEL")
 
 SUPPORTED_EMBEDDING_MODELS = {
@@ -48,6 +51,10 @@ TARGET_FRAME_TOP_K = 2
 RETRIEVAL_MULTIPLIER = 2 # Fetch this many times the target for initial selection
 MIN_SIMILARITY_THRESHOLD = 0.20 # Minimum score to consider an image relevant
 
+TARGET_AUDIO_TOP_K = 3 # How many top audio segments to retrieve
+AUDIO_RETRIEVAL_MULTIPLIER = 2 # Multiplier for audio retrieval
+MIN_AUDIO_SIMILARITY_THRESHOLD = 0.25 # Minimum score for audio segment relevance
+
 print(f"[infer.py] Using embedding model: {MODEL_NAME} (Type: {MODEL_TYPE})")
 
 # --- Logging Configuration ---
@@ -56,11 +63,19 @@ print(f"[infer.py] Using embedding model: {MODEL_NAME} (Type: {MODEL_TYPE})")
 # )
 logger = logging.getLogger(__name__)
 
+# --- MinIO Configuration (mirroring vectorize.py for consistency) ---
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+MINIO_BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME", "boxmot-images")
+MINIO_USE_SSL = os.getenv("MINIO_USE_SSL", "False").lower() == "true"
+
 # --- Global Clients and Models (to be initialized) ---
 embedding_model: Optional[SentenceTransformer] = None
 qdrant_client: Optional[QdrantClient] = None
 neo4j_driver: Optional[GraphDatabase.driver] = None  # type: ignore
 openai_client: Optional[openai.OpenAI] = None
+minio_client_infer: Optional[Minio] = None # Separate MinIO client instance for infer.py
 
 
 # --- Core Components Initialization ---
@@ -143,6 +158,50 @@ def initialize_openai_client():
         raise
 
 
+def initialize_minio_client_infer():
+    """Initializes the MinIO client for inference tasks."""
+    global minio_client_infer
+    if minio_client_infer:
+        logger.info("MinIO client (infer) already initialized.")
+        return
+    try:
+        logger.info(f"Initializing MinIO client (infer) for endpoint: {MINIO_ENDPOINT}, bucket: {MINIO_BUCKET_NAME}")
+        minio_client_infer = Minio(
+            MINIO_ENDPOINT,
+            access_key=MINIO_ACCESS_KEY,
+            secret_key=MINIO_SECRET_KEY,
+            secure=MINIO_USE_SSL
+        )
+        # Verify bucket exists (optional, as vectorize.py should create it)
+        if not minio_client_infer.bucket_exists(MINIO_BUCKET_NAME):
+            logger.warning(f"MinIO bucket '{MINIO_BUCKET_NAME}' does not exist. Image retrieval will fail. Ensure vectorize.py has run and created the bucket.")
+        else:
+            logger.info(f"MinIO client (infer) initialized and bucket '{MINIO_BUCKET_NAME}' confirmed.")
+    except Exception as e:
+        logger.error(f"Failed to initialize MinIO client (infer): {e}", exc_info=True)
+        minio_client_infer = None # Ensure client is None if initialization fails
+        raise # Re-raise to signal a critical failure if MinIO is essential
+
+
+def download_image_from_minio(object_name: str, logger_instance: logging.Logger) -> Optional[bytes]:
+    """Downloads an image from MinIO and returns its bytes."""
+    if not minio_client_infer:
+        logger_instance.error("[download_image_from_minio] MinIO client (infer) not initialized. Cannot download image.")
+        return None
+    try:
+        response = minio_client_infer.get_object(MINIO_BUCKET_NAME, object_name)
+        image_bytes = response.read()
+        logger_instance.info(f"[download_image_from_minio] Successfully downloaded {object_name} from MinIO bucket {MINIO_BUCKET_NAME}.")
+        return image_bytes
+    except S3Error as exc:
+        logger_instance.error(f"[download_image_from_minio] Error downloading {object_name} from MinIO: {exc}", exc_info=True)
+        return None
+    finally:
+        if 'response' in locals() and response: # type: ignore
+            response.close()
+            response.release_conn()
+
+
 # --- Embedding and Similarity Functions ---
 def embed_text(text: str) -> Optional[np.ndarray]:
     """Embeds text using the initialized SentenceTransformer model."""
@@ -171,37 +230,6 @@ def pil_to_base64(image: Image.Image, format="PNG") -> str:
     image.save(buffered, format=format)
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
     return f"data:image/{format.lower()};base64,{img_str}"
-
-
-def base64_to_pil(b64_str: str) -> Optional[Image.Image]:
-    """Converts a base64 encoded image string (with or without data URI) to a PIL Image."""
-    try:
-        if not b64_str:
-            logger.warning("[base64_to_pil] Received empty base64 string.")
-            return None
-        
-        encoded_b64 = b64_str
-        prefixes_to_check = [
-            "data:image/png;base64,",
-            "data:image/jpeg;base64,",
-            "data:image/jpg;base64,",
-            "data:image/gif;base64,",
-        ]
-        for prefix in prefixes_to_check:
-            if b64_str.startswith(prefix):
-                encoded_b64 = b64_str[len(prefix):]
-                logger.info(f"[base64_to_pil] Removed prefix '{prefix}'. Original len: {len(b64_str)}, Encoded len: {len(encoded_b64)}")
-                break
-        
-        if not encoded_b64:
-            logger.warning("[base64_to_pil] Base64 string became empty after prefix removal.")
-            return None
-
-        img_bytes = base64.b64decode(encoded_b64)
-        return Image.open(io.BytesIO(img_bytes))
-    except Exception as e:
-        logger.error(f"[base64_to_pil] Error decoding base64 image (original len: {len(b64_str)}, encoded part len: {len(encoded_b64)}): {e}", exc_info=True)
-        return None
 
 
 def retrieve_similar_images(
@@ -246,8 +274,17 @@ def retrieve_similar_images(
         for hit in entity_hits: # Already sorted by score by Qdrant
             if hit.score >= MIN_SIMILARITY_THRESHOLD: # Redundant if score_threshold in query_points works as expected, but good as a safeguard
                 payload = hit.payload if hit.payload else {}
-                img_b64 = payload.get("image")
-                pil_img = base64_to_pil(img_b64) if img_b64 else None
+                minio_object_id = payload.get("image_minio_id")
+                pil_img = None
+                if minio_object_id:
+                    image_bytes = download_image_from_minio(minio_object_id, logger_instance)
+                    if image_bytes:
+                        try:
+                            pil_img = Image.open(io.BytesIO(image_bytes))
+                        except Exception as e_pil:
+                            logger_instance.error(f"[retrieve_similar_images] Entity hit {hit.id} (MinIO ID: {minio_object_id}) - Failed to create PIL Image from downloaded bytes: {e_pil}")
+                else:
+                    logger_instance.info(f"[retrieve_similar_images] Entity hit {hit.id} (score: {hit.score:.4f}) had no 'image_minio_id' in payload.")
                 
                 if pil_img:
                     processed_entity_hits.append({
@@ -294,8 +331,17 @@ def retrieve_similar_images(
         for hit in frame_hits: # Already sorted by score
             if hit.score >= MIN_SIMILARITY_THRESHOLD: # Safeguard
                 payload = hit.payload if hit.payload else {}
-                img_b64 = payload.get("image")
-                pil_img = base64_to_pil(img_b64) if img_b64 else None
+                minio_object_id = payload.get("image_minio_id")
+                pil_img = None
+                if minio_object_id:
+                    image_bytes = download_image_from_minio(minio_object_id, logger_instance)
+                    if image_bytes:
+                        try:
+                            pil_img = Image.open(io.BytesIO(image_bytes))
+                        except Exception as e_pil:
+                            logger_instance.error(f"[retrieve_similar_images] Frame hit {hit.id} (MinIO ID: {minio_object_id}) - Failed to create PIL Image from downloaded bytes: {e_pil}")
+                else:
+                    logger_instance.info(f"[retrieve_similar_images] Frame hit {hit.id} (score: {hit.score:.4f}) had no 'image_minio_id' in payload.")
 
                 if pil_img:
                     processed_frame_hits.append({
@@ -324,6 +370,73 @@ def retrieve_similar_images(
     
     logger_instance.info(f"[retrieve_similar_images] Returning {len(final_results)} total images after independent selection and final sort.")
     return final_results
+
+
+def retrieve_relevant_audio_transcripts(
+    query_embedding: np.ndarray,
+    qdrant_client_instance: QdrantClient,
+    logger_instance: logging.Logger
+) -> List[Dict[str, Any]]:
+    """
+    Retrieves relevant audio transcript segments from Qdrant based on the query embedding.
+    """
+    logger_instance.info(f"[retrieve_relevant_audio_transcripts] Entered. Strategy: Top K={TARGET_AUDIO_TOP_K}, Multiplier={AUDIO_RETRIEVAL_MULTIPLIER}, Threshold={MIN_AUDIO_SIMILARITY_THRESHOLD}")
+    if not qdrant_client_instance:
+        logger_instance.error("[retrieve_relevant_audio_transcripts] Qdrant client not initialized. Cannot retrieve audio transcripts.")
+        return []
+
+    if query_embedding is None:
+        logger_instance.warning("[retrieve_relevant_audio_transcripts] Invalid query_embedding (None).")
+        return []
+
+    initial_audio_retrieve_limit = TARGET_AUDIO_TOP_K * AUDIO_RETRIEVAL_MULTIPLIER
+    logger_instance.info(f"[retrieve_relevant_audio_transcripts] Searching '{AUDIO_COLLECTION_NAME}' collection with initial limit={initial_audio_retrieve_limit}.")
+    
+    retrieved_audio_segments: List[Dict[str, Any]] = []
+
+    try:
+        audio_hits_result = qdrant_client_instance.query_points(
+            collection_name=AUDIO_COLLECTION_NAME,
+            query=query_embedding.tolist(),
+            limit=initial_audio_retrieve_limit,
+            score_threshold=MIN_AUDIO_SIMILARITY_THRESHOLD,
+            with_payload=True,
+        )
+        logger_instance.info(f"[retrieve_relevant_audio_transcripts] Raw Qdrant audio_hits_result: Count: {len(audio_hits_result.points)}")
+
+        audio_hits = audio_hits_result.points
+        logger_instance.info(f"[retrieve_relevant_audio_transcripts] Found {len(audio_hits)} hits in '{AUDIO_COLLECTION_NAME}' (after Qdrant threshold).")
+
+        for hit in audio_hits: # Already sorted by score
+            if hit.score >= MIN_AUDIO_SIMILARITY_THRESHOLD: # Safeguard
+                payload = hit.payload if hit.payload else {}
+                transcript_text = payload.get("transcript_text")
+                
+                if transcript_text:
+                    retrieved_audio_segments.append({
+                        "audio_segment_unique_id": payload.get("audio_segment_unique_id", hit.id),
+                        "transcript_text": transcript_text,
+                        "speaker_label": payload.get("speaker_label", "N/A"),
+                        "start_time_seconds": payload.get("start_time_seconds"),
+                        "end_time_seconds": payload.get("end_time_seconds"),
+                        "score": hit.score,
+                    })
+                else:
+                    logger_instance.info(f"[retrieve_relevant_audio_transcripts] Audio hit {hit.id} (score: {hit.score:.4f}) had no transcript_text.")
+            else:
+                logger_instance.info(f"[retrieve_relevant_audio_transcripts] Audio hit {hit.id} (score: {hit.score:.4f}) below explicit threshold {MIN_AUDIO_SIMILARITY_THRESHOLD}, discarding.")
+        
+        # Sort by score (Qdrant already does this, but an explicit sort after custom processing is good practice)
+        retrieved_audio_segments.sort(key=lambda x: x["score"], reverse=True)
+        # Select top K
+        selected_audio_segments = retrieved_audio_segments[:TARGET_AUDIO_TOP_K]
+        logger_instance.info(f"[retrieve_relevant_audio_transcripts] Selected {len(selected_audio_segments)} audio segments after filtering and capping at {TARGET_AUDIO_TOP_K}.")
+
+    except Exception as e:
+        logger_instance.error(f"[retrieve_relevant_audio_transcripts] Error searching Qdrant collection '{AUDIO_COLLECTION_NAME}': {e}", exc_info=True)
+        return [] # Return empty list on error
+
+    return selected_audio_segments
 
 
 def retrieve_graph_context(entity_ids: List[str]) -> str:
@@ -456,22 +569,37 @@ def retrieve_graph_context(entity_ids: List[str]) -> str:
     return (" ".join(all_summaries) if all_summaries else "No graph context found for the given entities.")
 
 
-def build_prompt(query: str, images: List[Image.Image], graph_summary: str) -> List[Dict[str, Any]]:
+def build_prompt(query: str, images: List[Image.Image], graph_summary: str, audio_transcripts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     system_message = (
         "You are a helpful multimodal assistant. Your task is to analyze the user's query, "
-        "any provided images, and a summary of graph database context to provide a comprehensive answer. "
-        "Refer to images if they are relevant to the query."
+        "any provided images, a summary of graph database context, and relevant audio transcripts "
+        "to provide a comprehensive answer. Refer to images and audio snippets if they are relevant to the query."
     )
     user_message_content: List[Dict[str, Any]] = []
+    
     text_content = f"User Query: {query}\n\nGraph Context:\n{graph_summary}"
+    
+    if audio_transcripts:
+        text_content += "\n\nRelevant Audio Snippets:"
+        for i, audio_info in enumerate(audio_transcripts):
+            text_content += f"\n  Snippet {i+1} (Speaker: {audio_info.get('speaker_label', 'Unknown')}, Time: {audio_info.get('start_time_seconds'):.2f}s - {audio_info.get('end_time_seconds'):.2f}s, Score: {audio_info.get('score'):.3f}): "
+            text_content += f'"{audio_info.get("transcript_text")}"'
+    else:
+        text_content += "\n\nNo relevant audio snippets were found for this query."
+
     if images:
         text_content += "\n\nRelevant Images are provided below:"
     else:
         text_content += "\n\nNo relevant images were found or provided for this query."
     user_message_content.append({"type": "text", "text": text_content})
+    
     for i, img in enumerate(images):
         try:
-            base64_image_uri = pil_to_base64(img)
+            # Convert PIL image to base64 data URI for the prompt
+            buffered = io.BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            base64_image_uri = f"data:image/png;base64,{img_str}"
             user_message_content.append({
                     "type": "image_url",
                     "image_url": {"url": base64_image_uri, "detail": "auto"},
@@ -515,9 +643,13 @@ def interactive_loop():
                     "target_entities": TARGET_ENTITY_TOP_K,
                     "target_frames": TARGET_FRAME_TOP_K,
                     "retrieval_multiplier": RETRIEVAL_MULTIPLIER,
-                    "min_similarity_threshold": MIN_SIMILARITY_THRESHOLD
+                    "min_similarity_threshold": MIN_SIMILARITY_THRESHOLD,
+                    "target_audio_segments": TARGET_AUDIO_TOP_K, # Log audio retrieval config
+                    "audio_retrieval_multiplier": AUDIO_RETRIEVAL_MULTIPLIER,
+                    "min_audio_similarity_threshold": MIN_AUDIO_SIMILARITY_THRESHOLD
                 },
                 "retrieved_graph_context": "",
+                "retrieved_audio_transcripts": [], # For logging
                 "llm_prompt_text": "",
                 "saved_image_filenames": [],
                 "llm_response": ""
@@ -596,7 +728,28 @@ def interactive_loop():
             interaction_log_data["retrieved_graph_context"] = graph_summary_text
 
             logger.info("Building prompt for OpenAI ChatCompletion.")
-            chat_messages = build_prompt(user_query, pil_images_for_prompt, graph_summary_text)
+            # Retrieve relevant audio transcripts
+            retrieved_audio_segments = retrieve_relevant_audio_transcripts(
+                query_embedding=query_embedding,
+                qdrant_client_instance=qdrant_client,
+                logger_instance=logger
+            )
+            interaction_log_data["retrieved_audio_transcripts"] = retrieved_audio_segments # Log retrieved audio
+            logger.info(f"Retrieved {len(retrieved_audio_segments)} audio segments for the prompt.")
+
+            if not retrieved_audio_segments:
+                logger.info("No audio segments were retrieved from Qdrant or selected for the prompt.")
+            else:
+                logger.info(f"Processing {len(retrieved_audio_segments)} retrieved audio segments for prompt:")
+                for i, audio_info in enumerate(retrieved_audio_segments):
+                    segment_id = audio_info.get("audio_segment_unique_id", "unknown_id")
+                    speaker = audio_info.get("speaker_label", "N/A")
+                    score = audio_info.get("score", 0.0)
+                    text_preview = audio_info.get("transcript_text", "")[:50] # Preview of text
+                    log_message = f"  Audio Segment {i+1}: ID={segment_id}, Speaker={speaker}, Score={score:.4f}, Text=\"{text_preview}...\" -> Added to prompt."
+                    logger.info(log_message)
+
+            chat_messages = build_prompt(user_query, pil_images_for_prompt, graph_summary_text, retrieved_audio_segments)
             if chat_messages and len(chat_messages) > 1 and isinstance(chat_messages[1].get('content'), list):
                 for content_item in chat_messages[1]['content']:
                     if content_item.get('type') == 'text':
@@ -668,6 +821,7 @@ def main():
         initialize_openai_client()
         initialize_qdrant_client(host=args.qdrant_host, port=args.qdrant_port)
         initialize_neo4j_driver(uri=args.neo4j_uri, user=args.neo4j_user, password=args.neo4j_password)
+        initialize_minio_client_infer() # Initialize MinIO client for inference
         logger.info("All components initialized successfully for interactive mode.")
         interactive_loop()
     except ValueError as ve:
