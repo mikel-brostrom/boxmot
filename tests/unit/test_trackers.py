@@ -164,8 +164,6 @@ def test_tracker_with_no_detections(tracker_type, dets):
     output = tracker.update(dets, rgb, embs)
     assert output.size == 0, "Output should be empty when no detections are provided"
 
-# --- additional tests for better coverage ---
-
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
 def test_per_class_isolation(tracker_type):
     tracker = create_tracker(
@@ -183,13 +181,6 @@ def test_per_class_isolation(tracker_type):
     ids = set(out[:, 1].tolist())
     assert len(ids) == 2, "Each class should get a separate track even if overlapping"
 
-# @pytest.mark.parametrize("Tracker", MOTION_ONLY_TRACKING_METHODS)
-# def test_motion_only_tracker_image_format(Tracker):
-#     tracker = Tracker()
-#     gray = np.zeros((640, 640), dtype=np.uint8)
-#     with pytest.raises((ValueError, AssertionError)):
-#         tracker.update(np.array([[0, 0, 10, 10, 0.5, 0]]), gray)
-
 @pytest.mark.parametrize("tracker_type", MOTION_N_APPEARANCE_TRACKING_NAMES)
 def test_emb_trackers_requires_embeddings(tracker_type):
     tracker_conf = get_tracker_config(tracker_type)
@@ -205,17 +196,6 @@ def test_emb_trackers_requires_embeddings(tracker_type):
     rgb = np.zeros((640, 640, 3), dtype=np.uint8)
     with pytest.raises(AssertionError):
         tracker.update(det, rgb, np.random.rand(2, 512))        
-
-# def test_prediction_drift_with_kalman():
-#     tracker = OcSort(max_age=2)
-#     det = np.array([[30, 30, 80, 80, 0.9, 0]])
-#     out = tracker.update(det, np.zeros((640, 640, 3), dtype=np.uint8))
-#     last_box = out[0, 2:6].copy()
-#     out2 = tracker.update(None, np.zeros((640, 640, 3), dtype=np.uint8))
-#     assert out2.shape[0] == 1
-#     new_box = out2[0, 2:6]
-#     assert not np.allclose(new_box, last_box), \
-#         "Predicted box should drift under motion model"
 
 @pytest.mark.parametrize("tracker_type", ALL_TRACKERS)
 def test_invalid_det_array_shape(tracker_type):
