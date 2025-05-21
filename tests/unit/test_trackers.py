@@ -245,7 +245,7 @@ def test_track_id_stable_over_frames(tracker_type):
 
     assert out1.shape == out2.shape == (1, 8), "Unexpected output shape"
     # track ID is at column 1
-    assert out1[0, 1] == out2[0, 1], "Track ID should remain the same across frames"
+    assert out1[0, 4] == out2[0, 4], "Track ID should remain the same across frames"
     
 def test_create_tracker_invalid_tracker_name():
     """Creating a tracker with an unknown name should raise a ValueError."""
