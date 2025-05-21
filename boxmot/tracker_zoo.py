@@ -53,7 +53,6 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
     # Check if the tracker type exists in the mapping
     if tracker_type not in tracker_mapping:
         print('Error: No such tracker found.')
-        exit()
 
     # Dynamically import and instantiate the correct tracker class
     module_path, class_name = tracker_mapping[tracker_type].rsplit('.', 1)
