@@ -192,8 +192,6 @@ class BoostTrack(BaseTracker):
                       (with cls and det_ind set to -1 if unused)
         """
         self.check_inputs(dets=dets, embs=embs, img=img)
-        if dets is None or dets.size == 0:
-            dets = np.empty((0, 6))
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
 
