@@ -290,27 +290,3 @@ def parse_audio_proc_args():
     parser.add_argument('--name', type=str, required=True, help='Experiment name')
     parser.add_argument('--hf-token', type=str, default=os.getenv('HF_TOKEN'), help='Hugging Face authentication token. Can also be set via HF_TOKEN env var.')
     return parser.parse_args()
-
-if __name__ == '__main__':
-    print("Running audio_processing.py as a standalone script.")
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("nemo_logging").setLevel(logging.WARNING) 
-    
-    args = parse_audio_proc_args()
-    if args.hf_token is None:
-        logger.warning("Hugging Face token not provided for standalone run. Diarization might fail.")
-
-    if not Path(args.source).exists():
-         logger.error(f"Source video file not found: {args.source}.")
-    else:
-        logger.info(f"Starting standalone audio processing test for source: {args.source}")
-        # Ensure vectorize.py has initialized its model if not already done via imports elsewhere
-        # For standalone, it's good practice if vectorize.py initializes its model on import or first use.
-        segments, metrics, paths = process_audio(args)
-        logger.info("Standalone audio processing completed.")
-        logger.info(f"Processed segments: {len(segments)}")
-        if segments:
-            logger.info(f"First segment example: {segments[0]}")
-        logger.info(f"Metrics: {json.dumps(metrics, indent=2) if metrics else 'No metrics'}")
-        logger.info(f"Output paths: {paths}") 

@@ -255,8 +255,18 @@ def parse_opt():
     # Arguments specific to data generation and processing stages, passed to relevant modules
     parser.add_argument('--save-dataset', action='store_true', help='Enable saving of intermediate datasets (initial_dataset.json from video)')
     parser.add_argument('--metrics', action='store_true', help='Enable calculation and saving of performance metrics for each stage')
-    parser.add_argument('--frame-similarity-threshold', type=float, default=0.98, help='Similarity threshold for reusing frame embeddings')
-    parser.add_argument('--entity-similarity-threshold', type=float, default=0.90, help='Similarity threshold for linking entity detections across frames/ReID')
+    parser.add_argument(
+        '--frame-similarity-threshold', 
+        type=float, 
+        default=float(os.getenv('FRAME_SIMILARITY_THRESHOLD', 0.8)), 
+        help='Similarity threshold for reusing frame embeddings. Env: FRAME_SIMILARITY_THRESHOLD (default: 0.98)'
+    )
+    parser.add_argument(
+        '--entity-similarity-threshold', 
+        type=float, 
+        default=float(os.getenv('ENTITY_SIMILARITY_THRESHOLD', 0.8)), 
+        help='Similarity threshold for linking entity detections across frames/ReID. Env: ENTITY_SIMILARITY_THRESHOLD (default: 0.95)'
+    )
     
     # Orchestrator-specific arguments
     parser.add_argument('--clear-prev-runs', action='store_true', help='Clear previous run data from the experiment directory (project/name) before starting.')

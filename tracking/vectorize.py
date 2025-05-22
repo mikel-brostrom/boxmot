@@ -241,6 +241,34 @@ def search_entity(embedding: np.ndarray, threshold: float = 0.95):
         return entity_id, vector_id, payload, hits[0].score
     return None, None, None, None
 
+def find_closest_entity_point(embedding: np.ndarray, threshold: float = 0.95):
+    """Search for the closest existing entity Qdrant point (embedding) above a similarity threshold.
+    Returns (point_id, payload, score) if found, otherwise (None, None, None).
+    """
+    hits = qdrant.search(
+        collection_name=COLLECTION_NAME,
+        query_vector=embedding.tolist(),
+        limit=1,
+        with_payload=True
+    )
+    if hits and hits[0].score >= threshold:
+        return hits[0].id, hits[0].payload, hits[0].score
+    return None, None, None
+
+def search_closest_frame_point(embedding: np.ndarray, threshold: float = 0.98):
+    """Search for the closest existing frame Qdrant point (embedding) above a similarity threshold.
+    Returns (point_id, payload, score) if found, otherwise (None, None, None).
+    """
+    hits = qdrant.search(
+        collection_name=FRAME_COLLECTION_NAME,
+        query_vector=embedding.tolist(),
+        limit=1,
+        with_payload=True
+    )
+    if hits and hits[0].score >= threshold:
+        return hits[0].id, hits[0].payload, hits[0].score
+    return None, None, None
+
 def add_entity(embedding: np.ndarray, crop: np.ndarray, metadata: dict, entity_id=None):
     """Add a new entity to Qdrant with embedding, metadata, and stores its image crop in MinIO. Returns vector_id."""
     minio_object_name = None
@@ -271,33 +299,29 @@ def add_entity(embedding: np.ndarray, crop: np.ndarray, metadata: dict, entity_i
     qdrant.upsert(collection_name=COLLECTION_NAME, points=[point])
     return vector_id
 
-def add_frame_embedding(embedding: np.ndarray, frame_idx: int, timestamp: float, image: np.ndarray = None, additional_metadata: dict = None):
-    """Add a new frame embedding to Qdrant. Optionally uploads the frame image to MinIO. Returns the vector_id."""
-    payload = {
-        "frame_idx": frame_idx,
-        "timestamp": timestamp,
-    }
-    if additional_metadata:
-        payload.update(additional_metadata)
-    
+def add_frame_embedding(embedding: np.ndarray, frame_idx: int, timestamp: float, image: np.ndarray = None, payload_extras: dict = None):
+    """Add a new frame to Qdrant with embedding, metadata, and optionally stores its image in MinIO. Returns vector_id."""
     minio_object_name = None
     if image is not None:
         try:
             pil_img = Image.fromarray(image[..., ::-1]) if image.ndim == 3 and image.shape[2] == 3 else Image.fromarray(image)
             buf = io.BytesIO()
-            pil_img.save(buf, format='PNG')
+            pil_img.save(buf, format='JPEG')
             image_bytes = buf.getvalue()
             minio_object_name = upload_image_to_minio(image_bytes, object_name_prefix=f"frame_{frame_idx}")
         except Exception as e:
-            print(f"Error processing or uploading frame image to MinIO for frame_idx {frame_idx}: {e}")
+            print(f"[vectorize.py] Error saving frame image to MinIO: {e}")
+            minio_object_name = None # Ensure it's None if upload failed
 
-    if minio_object_name: # Add to payload only if successfully uploaded
-        payload['image_minio_id'] = minio_object_name
-    else:
-        payload.pop('image', None) # Remove old base64 image field if it existed
-        payload.pop('image_minio_id', None) # Ensure it's not there if upload failed
+    vector_id = str(uuid.uuid4())  # Generate a unique ID for the Qdrant point
+    payload = {
+        'frame_idx': frame_idx,
+        'timestamp': timestamp,
+        'minio_image_path': minio_object_name  # Store path even if None
+    }
+    if payload_extras:
+        payload.update(payload_extras) # Merge additional payload data
 
-    vector_id = str(uuid.uuid4())
     point = PointStruct(
         id=vector_id,
         vector=embedding.tolist(),
