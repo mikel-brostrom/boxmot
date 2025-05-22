@@ -25,7 +25,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ['3.12']
-        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "imprassoc", "strongsort", "boosttrack"]
+        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "strongsort", "boosttrack"]
     timeout-minutes: 50
 
     steps:
@@ -119,7 +119,6 @@ jobs:
             tracker_fps["strongsort"]=17
             tracker_fps["botsort"]=46
             tracker_fps["hybridsort"]=25
-            tracker_fps["imprassoc"]=26
             tracker_fps["boosttrack"]=25
 
             # Retrieve the static FPS value for the current tracker
@@ -195,7 +194,6 @@ jobs:
           paper_links["strongsort"]="https://arxiv.org/abs/2202.13514"
           paper_links["botsort"]="https://arxiv.org/abs/2206.14651"
           paper_links["hybridsort"]="https://arxiv.org/abs/2308.00783"
-          paper_links["imprassoc"]="https://openaccess.thecvf.com/content/CVPR2023W/E2EAD/papers/Stadler_An_Improved_Association_Pipeline_for_Multi-Person_Tracking_CVPRW_2023_paper.pdf"
 
           # Create the markdown table header
           new_table="| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |\n"
