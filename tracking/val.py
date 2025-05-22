@@ -87,45 +87,12 @@ def cleanup_mot17(data_dir, keep_detection='FRCNN'):
     print("MOT17 Cleanup completed!")
 
 
-def prompt_overwrite(path_type: str, path: str, ci: bool = True) -> bool:
-    """
-    Prompts the user to confirm overwriting an existing file.
-
-    Args:
-        path_type (str): Type of the path (e.g., 'Detections and Embeddings', 'MOT Result').
-        path (str): The path to check.
-        ci (bool): If True, automatically reuse existing file without prompting (for CI environments).
-
-    Returns:
-        bool: True if user confirms to overwrite, False otherwise.
-    """
+def prompt_overwrite(path_type: str, path: Path, ci: bool = True) -> bool:
     if ci:
-        LOGGER.debug(f"{path_type} {path} already exists. Use existing due to no UI mode.")
+        LOGGER.debug(f"{path_type} {path} exists, skipping prompt (CI mode)")
         return False
-
-    def input_with_timeout(prompt, timeout=3.0):
-        print(prompt, end='', flush=True)
-
-        result = []
-        input_received = threading.Event()
-
-        def get_input():
-            user_input = sys.stdin.readline().strip().lower()
-            result.append(user_input)
-            input_received.set()
-
-        input_thread = threading.Thread(target=get_input)
-        input_thread.daemon = True  # Ensure thread does not prevent program exit
-        input_thread.start()
-        input_thread.join(timeout)
-
-        if input_received.is_set():
-            return result[0] in ['y', 'yes']
-        else:
-            print("\nNo response, not proceeding with overwrite...")
-            return False
-
-    return input_with_timeout(f"{path_type} {path} already exists. Overwrite? [y/N]: ")
+    resp = input(f"{path_type} {path} exists. Overwrite? [y/N]: ").strip().lower()
+    return resp in ('y','yes')
 
 
 def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
@@ -451,12 +418,19 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         futures = []
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
             for idx, (d, e) in enumerate(zip(dets_files, embs_files)):
-                fut = executor.submit(
-                    process_single_mot,
-                    opt, d, e, evolve_config,
-                    gpu_cycle[idx % len(gpu_cycle)]
+                # Reconstruct output path
+                out_path = opt.exp_folder_path / f"{d.stem}.txt"
+                if out_path.exists():
+                    if not prompt_overwrite('MOT Result', out_path, opt.ci):
+                        LOGGER.info(f"Skipping existing result for {d.stem}")
+                        continue
+                    LOGGER.info(f"Overwriting result for {d.stem}")
+                    out_path.unlink()
+                # Submit parallel task
+                gpu_id = gpu_cycle[idx % len(gpu_cycle)]
+                futures.append(
+                    executor.submit(process_single_mot, opt, d, e, evolve_config, gpu_id)
                 )
-                futures.append(fut)
 
             seq_frames = {}
             for fut in concurrent.futures.as_completed(futures):
