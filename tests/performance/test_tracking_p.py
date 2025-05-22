@@ -1,14 +1,10 @@
 import pytest
 import numpy as np
-from pathlib import Path
 from boxmot.utils import WEIGHTS
 import time
 import subprocess
 
-from numpy.testing import assert_allclose
-from boxmot import (
-    StrongSort, BotSort, DeepOcSort, OcSort, ByteTrack, get_tracker_config, create_tracker,
-)
+from boxmot import get_tracker_config, create_tracker
 from tests.test_config import MOTION_ONLY_TRACKING_NAMES, MOTION_N_APPEARANCE_TRACKING_NAMES
 
 

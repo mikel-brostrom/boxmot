@@ -10,16 +10,12 @@ from typing import Union
 from pathlib import Path
 import json
 import shutil
-import os
-import sys
-import git
 import requests
 import zipfile
-import subprocess
 from git import Repo, exc
 from boxmot.utils import logger as LOGGER
 from tqdm import tqdm
-from boxmot.utils import EXAMPLES, ROOT
+from boxmot.utils import ROOT
 
 
 def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> None:
@@ -237,7 +233,7 @@ def unzip_mot_dataset(zip_path, val_tools_path, benchmark):
         None
     """
     if zip_path is None:
-        LOGGER.warning(f'No zip file. Skipping unzipping')
+        LOGGER.warning('No zip file. Skipping unzipping')
         return None
 
     extract_path = val_tools_path / 'data' / benchmark
