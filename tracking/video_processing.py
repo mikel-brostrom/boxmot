@@ -41,8 +41,6 @@ from ultralytics import YOLO
 
 # Configure basic logging - might be configured by the calling script (track.py)
 # For now, set a basic config if this module is run directly or for testing.
-# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 
 def on_predict_start(predictor, persist=False):
     """
@@ -183,11 +181,6 @@ def process_video(args):
     total_start_time = time.time()
     frame_speeds = []
 
-    last_stored_frame_embedding = None
-    last_stored_frame_vector_id = None
-    previous_entity_count = -1
-    is_first_frame = True
-    
     num_unique_frames_embedded = 0
     num_frames_skipped_due_to_similarity = 0
     num_entity_detections_processed = 0
@@ -211,34 +204,36 @@ def process_video(args):
                 current_entity_count = len(r.boxes) if r.boxes is not None and hasattr(r.boxes, 'id') and r.boxes.id is not None else 0
                 should_store_new_frame_embedding = True
 
-                if not is_first_frame and last_stored_frame_embedding is not None:
-                    similarity = vectorize.calculate_cosine_similarity(
-                        current_frame_actual_embedding,
-                        last_stored_frame_embedding
-                    )
-                    if similarity >= args.frame_similarity_threshold and current_entity_count == previous_entity_count:
-                        frame_vector_id_for_json = last_stored_frame_vector_id
+                # Search Qdrant for a similar existing frame
+                # Assumes vectorize.search_closest_frame_point(embedding, threshold) returns (point_id, payload, similarity) or (None, None, None)
+                existing_frame_point_id, existing_frame_payload, similarity = vectorize.search_closest_frame_point(
+                    current_frame_actual_embedding, 
+                    threshold=args.frame_similarity_threshold
+                )
+
+                if existing_frame_point_id is not None and existing_frame_payload is not None:
+                    entity_count_of_existing_frame = existing_frame_payload.get('entity_count', -2) # Default to a value that won't easily match
+                    if current_entity_count == entity_count_of_existing_frame:
+                        frame_vector_id_for_json = existing_frame_point_id
                         should_store_new_frame_embedding = False
-                        logging.debug(f"Frame {frame_idx}: Reusing frame vector ID {frame_vector_id_for_json}. Sim: {similarity:.4f}, Entities: {current_entity_count}")
-                        if not is_first_frame:
-                             num_frames_skipped_due_to_similarity += 1
+                        logging.debug(f"Frame {frame_idx}: Reusing frame vector ID {frame_vector_id_for_json} from Qdrant. Sim: {similarity:.4f}, Entities: {current_entity_count}")
+                        num_frames_skipped_due_to_similarity += 1
+                    else:
+                        logging.debug(f"Frame {frame_idx}: Found similar frame {existing_frame_point_id} (Sim: {similarity:.4f}), but entity count mismatch (curr: {current_entity_count}, exist: {entity_count_of_existing_frame}). Storing new.")
                 
                 if should_store_new_frame_embedding:
+                    # Assumes add_frame_embedding can take payload_extras to store entity_count
                     new_frame_vector_id = vectorize.add_frame_embedding(
                         embedding=current_frame_actual_embedding,
                         frame_idx=frame_idx,
                         timestamp=frame_idx, # Placeholder timestamp
-                        image=clean_frame # Store image if configured in vectorize.py
+                        image=clean_frame, # Store image if configured in vectorize.py
+                        payload_extras={'entity_count': current_entity_count} 
                     )
                     frame_vector_id_for_json = new_frame_vector_id
-                    last_stored_frame_embedding = current_frame_actual_embedding
-                    last_stored_frame_vector_id = new_frame_vector_id
                     num_unique_frames_embedded +=1
                     logging.debug(f"Frame {frame_idx}: Stored new frame vector ID {frame_vector_id_for_json}. Entities: {current_entity_count}")
                 
-                previous_entity_count = current_entity_count
-                if is_first_frame:
-                    is_first_frame = False
             except Exception as e:
                 logging.error(f"Error processing frame {frame_idx} for visual embedding: {e}", exc_info=True)
                 frame_vector_id_for_json = None
@@ -271,65 +266,86 @@ def process_video(args):
                         continue
                     num_entity_detections_processed += 1
                     
-                    # current_detection_class_idx = clss[i] if clss and i < len(clss) else None
-                    # current_detection_class_name = names.get(int(clss[i])) if names and current_detection_class_idx is not None and int(clss[i]) in names else "unknown"
-                    
-                    entity_logical_id = str(tracker_id) # Initial logical ID is the tracker ID
-                    entity_qdrant_vector_id = None
+                    entity_logical_id = str(tracker_id) # Default logical ID
+                    entity_qdrant_vector_id = None # Qdrant point ID for this detection instance
                     
                     # Embed entity crop
-                    entity_embedding = vectorize.embed_crop(crop_img)
+                    current_entity_embedding = vectorize.embed_crop(crop_img)
 
-                    # Search for existing logical entity to link or update
-                    found_logical_id, _, payload_from_search, _ = vectorize.search_entity(entity_embedding, threshold=args.entity_similarity_threshold) # Add entity_similarity_threshold to args
+                    # 1. Attempt to find an existing Qdrant POINT (embedding) to reuse its vector_id
+                    # Assumes vectorize.find_closest_entity_point(embedding, threshold) returns (point_id, payload, similarity) or (None, None, None)
+                    reused_point_id, payload_of_reused_point, _ = vectorize.find_closest_entity_point(
+                        current_entity_embedding, 
+                        threshold=args.entity_similarity_threshold
+                    )
 
                     final_class_idx = clss[i]
                     final_class_name = names.get(int(clss[i]))
 
-                    if found_logical_id:
-                        entity_logical_id = found_logical_id # Use existing logical ID
-                        if payload_from_search: # Update class info from Qdrant if more reliable
-                            final_class_idx = payload_from_search.get('class', final_class_idx)
-                            final_class_name = payload_from_search.get('class_name', final_class_name)
-                    
-                    entity_metadata_for_qdrant = {
-                        'bbox': bbox, # Bbox in current frame
-                        'id': entity_logical_id, # The logical ID (tracker or found) - for Qdrant payload, not Qdrant point ID
-                        'class': final_class_idx,
-                        'class_name': final_class_name,
-                        'confidence': confs[i]
-                        # Any other persistent info for this logical entity
-                    }
+                    if reused_point_id and payload_of_reused_point:
+                        # Reuse existing Qdrant point ID and its metadata
+                        entity_qdrant_vector_id = reused_point_id
+                        entity_logical_id = payload_of_reused_point.get('id', entity_logical_id) # Fallback to tracker_id if 'id' not in payload
+                        final_class_idx = payload_of_reused_point.get('class', final_class_idx)
+                        final_class_name = payload_of_reused_point.get('class_name', final_class_name)
+                        # Confidence from current detection is more relevant than stored one for this instance
+                        logging.debug(f"Frame {frame_idx}, Entity: Reusing Qdrant point {entity_qdrant_vector_id} for logical_id {entity_logical_id}")
+                        
+                        # entity_metadata_for_qdrant is not strictly needed here if not calling add_entity,
+                        # but it's used for temp_entity_for_rel. We need current bbox.
+                        entity_metadata_for_qdrant = {
+                            'bbox': bbox, # Current bbox
+                            'id': entity_logical_id,
+                            'class': final_class_idx,
+                            'class_name': final_class_name,
+                            'confidence': confs[i] # Current confidence
+                        }
+                        # DO NOT increment num_entity_vectors_upserted
+                    else:
+                        # 2. No direct point reuse. Proceed to link to logical entity and add new Qdrant point.
+                        # Try to link to an existing LOGICAL entity ID
+                        found_logical_id_for_linking, _, payload_from_linking_search, _ = vectorize.search_entity(
+                            current_entity_embedding, threshold=args.entity_similarity_threshold
+                        )
 
-                    # Add/Update entity in Qdrant. vectorize.add_entity should handle upsert logic.
-                    # It creates a NEW Qdrant point for EACH detection's embedding, but payload contains the LOGICAL entity_id.
-                    entity_qdrant_vector_id = vectorize.add_entity(
-                        entity_embedding,
-                        crop_img,
-                        entity_metadata_for_qdrant,
-                        entity_id=entity_logical_id # Pass the logical entity ID for payload
-                    )
-                    num_entity_vectors_upserted +=1
+                        if found_logical_id_for_linking:
+                            entity_logical_id = found_logical_id_for_linking # Use existing logical ID
+                            if payload_from_linking_search: # Update class info from Qdrant if more reliable
+                                final_class_idx = payload_from_linking_search.get('class', final_class_idx)
+                                final_class_name = payload_from_linking_search.get('class_name', final_class_name)
+                        # Else, entity_logical_id remains str(tracker_id) and class info from current detection
+
+                        entity_metadata_for_qdrant = {
+                            'bbox': bbox, # Bbox in current frame
+                            'id': entity_logical_id, # The logical ID (tracker or found)
+                            'class': final_class_idx,
+                            'class_name': final_class_name,
+                            'confidence': confs[i]
+                        }
+
+                        entity_qdrant_vector_id = vectorize.add_entity(
+                            current_entity_embedding, # Use the current_entity_embedding
+                            crop_img,
+                            entity_metadata_for_qdrant,
+                            entity_id=entity_logical_id # Pass the logical entity ID for payload
+                        )
+                        num_entity_vectors_upserted +=1
+                        logging.debug(f"Frame {frame_idx}, Entity: Stored new Qdrant point {entity_qdrant_vector_id} for logical_id {entity_logical_id}")
 
                     # For dataset.json and relationship calculation
                     entity_info_for_json = {
                         'id': entity_logical_id, # Logical ID
-                        'vector_id': entity_qdrant_vector_id, # Qdrant point ID for this specific detection instance/embedding
+                        'vector_id': entity_qdrant_vector_id, # Qdrant point ID (either reused or new)
                         'class': final_class_idx,
                         'class_name': final_class_name,
                         'confidence': confs[i]
-                        # No bbox here, as it's frame-specific and relate.py will get it from metadata
                     }
                     frame_data_for_json['entities'].append(entity_info_for_json)
                     
-                    # For relationship calculation, we need the bbox in the current frame
-                    # We fetch from Qdrant to ensure consistency, or pass metadata directly.
-                    # Let's use metadata directly since we just prepared it.
-                    # Ensure 'bbox' is part of the metadata used by compute_relationships
-                    temp_entity_for_rel = entity_metadata_for_qdrant.copy() # Includes current bbox
-                    temp_entity_for_rel['id'] = entity_logical_id # Ensure logical ID is used
+                    # For relationship calculation, use the derived/updated entity_metadata_for_qdrant
+                    temp_entity_for_rel = entity_metadata_for_qdrant.copy() 
+                    # Ensure temp_entity_for_rel['id'] is the final logical_id. It should be from entity_metadata_for_qdrant.
                     processed_entities_for_relationships.append(temp_entity_for_rel)
-
 
                 if len(processed_entities_for_relationships) >= 2:
                     frame_data_for_json['relationships'] = compute_relationships(processed_entities_for_relationships)
@@ -465,41 +481,18 @@ def parse_video_proc_args():
     # Args that were specific to the main script, now for video_processing
     parser.add_argument('--save-dataset', action='store_true', help='Save per-frame dataset (initial_dataset.json)')
     parser.add_argument('--metrics', action='store_true', help='Calculate and save video processing performance metrics')
-    parser.add_argument('--frame-similarity-threshold', type=float, default=0.98, help='Threshold for frame similarity')
-    parser.add_argument('--entity-similarity-threshold', type=float, default=0.90, help='Threshold for entity ReID/linking similarity') # New arg
+    parser.add_argument(
+        '--frame-similarity-threshold', 
+        type=float, 
+        default=float(os.getenv('FRAME_SIMILARITY_THRESHOLD', 0.8)), 
+        help='Threshold for frame similarity. Env: FRAME_SIMILARITY_THRESHOLD (default: 0.98)'
+    )
+    parser.add_argument(
+        '--entity-similarity-threshold', 
+        type=float, 
+        default=float(os.getenv('ENTITY_SIMILARITY_THRESHOLD', 0.8)), 
+        help='Threshold for entity ReID/linking similarity. Env: ENTITY_SIMILARITY_THRESHOLD (default: 0.95)'
+    )
     parser.add_argument('--clear-prev-runs', action='store_true', help='Clear previous run data from the experiment directory')
 
     return parser.parse_args()
-
-if __name__ == '__main__':
-    # This allows testing video_processing.py independently
-    print("Running video_processing.py as a standalone script.")
-    # Configure basic logging for standalone run
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    # Suppress verbose INFO logs from httpx client for standalone runs
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    args = parse_video_proc_args()
-    
-    # Example: Ensure WEIGHTS and ROOT are defined if not imported correctly or paths are relative
-    if not WEIGHTS.exists() :
-        logging.warning(f"WEIGHTS path {WEIGHTS} might be incorrect for standalone run. Adjust if needed.")
-    if not TRACKER_CONFIGS.exists():
-        logging.warning(f"TRACKER_CONFIGS path {TRACKER_CONFIGS} might be incorrect. Adjust if needed.")
-        
-    # Manually set some args for a quick test if needed
-    # args.source = "path/to/your/test/video.mp4" # Or use webcam '0'
-    # args.save_dataset = True
-    # args.metrics = True
-    # args.save = True
-    # args.show = True 
-    # args.name = "video_proc_standalone_test"
-
-    if not Path(args.source).exists() and args.source != '0':
-        logging.error(f"Source file {args.source} does not exist. Exiting standalone test.")
-    else:
-        logging.info(f"Starting standalone video processing test with source: {args.source}")
-        dataset, metrics, paths = process_video(args)
-        logging.info(f"Standalone video processing completed.")
-        logging.info(f"Frames processed: {len(dataset)}")
-        logging.info(f"Metrics: {json.dumps(metrics, indent=2)}")
-        logging.info(f"Output paths: {paths}") 
