@@ -30,6 +30,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Personal Access Token (PAT) so that git push
+          # is authenticated such that you and can bypass the protected ref
+          token: ${{ secrets.RELEASE_PAT }}
 
       - name: Set up Python environment
         uses: actions/setup-python@v5
