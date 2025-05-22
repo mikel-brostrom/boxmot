@@ -47,21 +47,19 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
         'botsort': 'boxmot.trackers.botsort.botsort.BotSort',
         'deepocsort': 'boxmot.trackers.deepocsort.deepocsort.DeepOcSort',
         'hybridsort': 'boxmot.trackers.hybridsort.hybridsort.HybridSort',
-        'imprassoc': 'boxmot.trackers.imprassoc.imprassoctrack.ImprAssocTrack',
         'boosttrack': 'boxmot.trackers.boosttrack.boosttrack.BoostTrack',
     }
 
     # Check if the tracker type exists in the mapping
     if tracker_type not in tracker_mapping:
         print('Error: No such tracker found.')
-        exit()
 
     # Dynamically import and instantiate the correct tracker class
     module_path, class_name = tracker_mapping[tracker_type].rsplit('.', 1)
     tracker_class = getattr(__import__(module_path, fromlist=[class_name]), class_name)
     
     # For specific trackers, update tracker arguments with ReID parameters
-    if tracker_type in ['strongsort', 'botsort', 'deepocsort', 'hybridsort', 'imprassoc', 'boosttrack']:
+    if tracker_type in ['strongsort', 'botsort', 'deepocsort', 'hybridsort', 'boosttrack']:
         tracker_args['per_class'] = per_class
         tracker_args.update(reid_args)
         if tracker_type in ['strongsort', 'boosttrack']:
