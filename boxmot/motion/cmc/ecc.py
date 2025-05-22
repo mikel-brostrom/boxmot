@@ -13,10 +13,10 @@ from boxmot.utils import logger as LOGGER
 class ECC(BaseCMC):
     def __init__(
         self,
-        warp_mode: int = cv2.MOTION_EUCLIDEAN,
+        warp_mode: int = cv2.MOTION_TRANSLATION,
         eps: float = 1e-5,
         max_iter: int = 100,
-        scale: float = 0.1,
+        scale: float = 0.15,
         align: bool = False,
         grayscale: bool = True
     ) -> None:
