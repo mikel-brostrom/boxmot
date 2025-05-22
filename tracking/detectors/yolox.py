@@ -5,7 +5,6 @@ import torch
 import numpy as np
 import cv2
 from ultralytics.engine.results import Results
-from ultralytics.utils import ops
 from ultralytics.models.yolo.detect import DetectionPredictor
 from yolox.exp import get_exp
 from yolox.utils import postprocess
