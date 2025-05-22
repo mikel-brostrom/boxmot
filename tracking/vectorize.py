@@ -14,7 +14,26 @@ from minio.error import S3Error
 from minio.deleteobjects import DeleteObject
 from typing import Optional
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Import captioning functionality when needed
+caption_model = None
+if os.getenv("USE_CAPTIONING", "False").lower() == "true":
+    try:
+        from tracking.caption import get_captioning_model
+        print("[vectorize.py] Captioning mode enabled - will load caption model when needed")
+    except ImportError as e:
+        print(f"[vectorize.py] Warning: USE_CAPTIONING=True but failed to import caption module: {e}")
+        print("[vectorize.py] Falling back to MinIO storage mode")
+        os.environ["USE_CAPTIONING"] = "False"
+
+# --- Configuration for Image Storage vs Captioning ---
+USE_CAPTIONING = os.getenv("USE_CAPTIONING", "False").lower() == "true"
+print(f"[vectorize.py] USE_CAPTIONING mode: {USE_CAPTIONING}")
 
 # Connect to Qdrant running in Docker
 qdrant = QdrantClient(host='localhost', port=6333)
@@ -49,6 +68,40 @@ try:
 except Exception as e:
     print(f"[vectorize.py] Error initializing MinIO client: {e}. Please ensure MinIO is running and configured.")
     minio_client = None # Ensure client is None if initialization fails
+
+def get_caption_for_image(image: np.ndarray) -> Optional[str]:
+    """Generate a caption for an image using the caption model."""
+    global caption_model
+    if not USE_CAPTIONING:
+        return None
+    
+    try:
+        if caption_model is None:
+            print("[vectorize.py] Loading caption model for first use...")
+            caption_model = get_captioning_model(device='cpu')  # Will auto-detect best device
+        
+        if caption_model is None:
+            print("[vectorize.py] Caption model failed to load, returning None")
+            return None
+            
+        # Convert numpy array to PIL Image
+        pil_img = Image.fromarray(image[..., ::-1]) if image.ndim == 3 and image.shape[2] == 3 else Image.fromarray(image)
+        if pil_img.mode != 'RGB':
+            pil_img = pil_img.convert('RGB')
+        
+        # Generate caption using the caption method with streaming disabled for vectorize
+        caption_result = caption_model.caption(pil_img, length="short", stream=False)
+        caption_text = caption_result.get("caption", "").strip() if isinstance(caption_result, dict) else str(caption_result).strip()
+        
+        print(f"[vectorize.py] Generated caption: '{caption_text[:100]}{'...' if len(caption_text) > 100 else ''}'")
+        return caption_text if caption_text else None
+        
+    except Exception as e:
+        print(f"[vectorize.py] Error generating caption for image: {e}")
+        import traceback
+        print(f"[vectorize.py] Caption generation traceback: {traceback.format_exc()}")
+        return None
+
 
 def clear_minio_bucket():
     """Clears all objects from the configured MinIO bucket."""
@@ -270,24 +323,41 @@ def search_closest_frame_point(embedding: np.ndarray, threshold: float = 0.98):
     return None, None, None
 
 def add_entity(embedding: np.ndarray, crop: np.ndarray, metadata: dict, entity_id=None):
-    """Add a new entity to Qdrant with embedding, metadata, and stores its image crop in MinIO. Returns vector_id."""
-    minio_object_name = None
-    if crop is not None:
-        try:
-            pil_img = Image.fromarray(crop[..., ::-1]) if crop.ndim == 3 and crop.shape[2] == 3 else Image.fromarray(crop)
-            buf = io.BytesIO()
-            pil_img.save(buf, format='PNG')
-            image_bytes = buf.getvalue()
-            minio_object_name = upload_image_to_minio(image_bytes, object_name_prefix=f"entity_crop_{entity_id or 'unk'}")
-        except Exception as e:
-            print(f"Error processing or uploading entity crop to MinIO for entity_id {entity_id}: {e}")
-
+    """Add a new entity to Qdrant with embedding, metadata, and stores either image in MinIO or caption as text. Returns vector_id."""
     payload = metadata.copy()
-    if minio_object_name: # Only add minio id if upload was successful
-        payload['image_minio_id'] = minio_object_name
+    
+    if crop is not None:
+        if USE_CAPTIONING:
+            # Generate caption instead of storing image
+            try:
+                caption_text = get_caption_for_image(crop)
+                if caption_text:
+                    payload['image_caption'] = caption_text
+                    print(f"[vectorize.py] Stored caption for entity {entity_id}: '{caption_text[:50]}{'...' if len(caption_text) > 50 else ''}'")
+                else:
+                    print(f"[vectorize.py] Failed to generate caption for entity {entity_id}")
+            except Exception as e:
+                print(f"[vectorize.py] Error generating caption for entity_id {entity_id}: {e}")
+        else:
+            # Store image in MinIO (original behavior)
+            try:
+                pil_img = Image.fromarray(crop[..., ::-1]) if crop.ndim == 3 and crop.shape[2] == 3 else Image.fromarray(crop)
+                buf = io.BytesIO()
+                pil_img.save(buf, format='PNG')
+                image_bytes = buf.getvalue()
+                minio_object_name = upload_image_to_minio(image_bytes, object_name_prefix=f"entity_crop_{entity_id or 'unk'}")
+                if minio_object_name:
+                    payload['image_minio_id'] = minio_object_name
+                    print(f"[vectorize.py] Stored image in MinIO for entity {entity_id}: {minio_object_name}")
+            except Exception as e:
+                print(f"[vectorize.py] Error processing or uploading entity crop to MinIO for entity_id {entity_id}: {e}")
+
+    # Clean up payload - remove fields that don't apply to current mode
+    if USE_CAPTIONING:
+        payload.pop('image_minio_id', None)
     else:
-        payload.pop('image', None) # Remove old base64 image field if it existed
-        payload.pop('image_minio_id', None) # Ensure it's not there if upload failed
+        payload.pop('image_caption', None)
+        payload.pop('image', None)  # Remove old base64 image field if it existed
         
     payload['entity_id'] = entity_id # Ensure entity_id is in payload
     vector_id = str(uuid.uuid4())
@@ -300,25 +370,48 @@ def add_entity(embedding: np.ndarray, crop: np.ndarray, metadata: dict, entity_i
     return vector_id
 
 def add_frame_embedding(embedding: np.ndarray, frame_idx: int, timestamp: float, image: np.ndarray = None, payload_extras: dict = None):
-    """Add a new frame to Qdrant with embedding, metadata, and optionally stores its image in MinIO. Returns vector_id."""
-    minio_object_name = None
-    if image is not None:
-        try:
-            pil_img = Image.fromarray(image[..., ::-1]) if image.ndim == 3 and image.shape[2] == 3 else Image.fromarray(image)
-            buf = io.BytesIO()
-            pil_img.save(buf, format='JPEG')
-            image_bytes = buf.getvalue()
-            minio_object_name = upload_image_to_minio(image_bytes, object_name_prefix=f"frame_{frame_idx}")
-        except Exception as e:
-            print(f"[vectorize.py] Error saving frame image to MinIO: {e}")
-            minio_object_name = None # Ensure it's None if upload failed
-
+    """Add a new frame to Qdrant with embedding, metadata, and optionally stores image in MinIO or caption as text. Returns vector_id."""
     vector_id = str(uuid.uuid4())  # Generate a unique ID for the Qdrant point
     payload = {
         'frame_idx': frame_idx,
-        'timestamp': timestamp,
-        'minio_image_path': minio_object_name  # Store path even if None
+        'timestamp': timestamp
     }
+    
+    if image is not None:
+        if USE_CAPTIONING:
+            # Generate caption instead of storing image
+            try:
+                caption_text = get_caption_for_image(image)
+                if caption_text:
+                    payload['image_caption'] = caption_text
+                    print(f"[vectorize.py] Stored caption for frame {frame_idx}: '{caption_text[:50]}{'...' if len(caption_text) > 50 else ''}'")
+                else:
+                    print(f"[vectorize.py] Failed to generate caption for frame {frame_idx}")
+            except Exception as e:
+                print(f"[vectorize.py] Error generating caption for frame {frame_idx}: {e}")
+        else:
+            # Store image in MinIO (original behavior)
+            try:
+                pil_img = Image.fromarray(image[..., ::-1]) if image.ndim == 3 and image.shape[2] == 3 else Image.fromarray(image)
+                buf = io.BytesIO()
+                pil_img.save(buf, format='JPEG')
+                image_bytes = buf.getvalue()
+                minio_object_name = upload_image_to_minio(image_bytes, object_name_prefix=f"frame_{frame_idx}")
+                if minio_object_name:
+                    payload['minio_image_path'] = minio_object_name
+                    print(f"[vectorize.py] Stored image in MinIO for frame {frame_idx}: {minio_object_name}")
+                else:
+                    payload['minio_image_path'] = None
+            except Exception as e:
+                print(f"[vectorize.py] Error saving frame image to MinIO: {e}")
+                payload['minio_image_path'] = None
+
+    # Clean up payload - remove fields that don't apply to current mode
+    if USE_CAPTIONING:
+        payload.pop('minio_image_path', None)
+    else:
+        payload.pop('image_caption', None)
+
     if payload_extras:
         payload.update(payload_extras) # Merge additional payload data
 

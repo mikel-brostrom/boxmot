@@ -17,8 +17,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = os.environ.get("TOKENIZERS_PARALLELISM", 
 
 import cv2
 import torch
-from PIL import Image # Added for image captioning
-from transformers import AutoModelForCausalLM # Added for image captioning
+# PIL Image and AutoModelForCausalLM imports moved to vectorize.py for captioning functionality
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
@@ -28,7 +27,7 @@ from tracking.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model)
 from tracking.relate import compute_relationships
 from tracking import vectorize # This will be used for visual embeddings
-from tracking.caption import get_captioning_model # Added
+# Caption model loading is now handled in vectorize.py based on USE_CAPTIONING flag
 
 checker = RequirementsChecker()
 # Ensure these are relevant for video processing standalone or adjust if they become part of a larger setup
@@ -181,8 +180,7 @@ def process_video(args):
     # Let's defer definitive assignment of exp_dir until after the first frame if possible,
     # or rely on yolo.predictor.save_dir being set by the yolo.track() call.
 
-    # Load captioning model at the start of video processing
-    caption_model = get_captioning_model(device=args.device)
+    # Captioning model is now handled in vectorize.py based on USE_CAPTIONING flag
 
     total_start_time = time.time()
     frame_speeds = []
@@ -239,21 +237,6 @@ def process_video(args):
                     frame_vector_id_for_json = new_frame_vector_id
                     num_unique_frames_embedded +=1
                     logging.debug(f"Frame {frame_idx}: Stored new frame vector ID {frame_vector_id_for_json}. Entities: {current_entity_count}")
-
-                    # Generate and print caption for the new frame
-                    if caption_model: # caption_model is already loaded at the start of process_video
-                        try:
-                            pil_image = Image.fromarray(cv2.cvtColor(clean_frame, cv2.COLOR_BGR2RGB))
-                            # Call the new function from caption.py
-                            print("Generating caption for frame", frame_idx, ':')
-                            # The generate_caption_for_frame function handles printing and logging internally
-                            for t in caption_model.caption(pil_image, length="short", stream=True)["caption"]:
-                                # Streaming generation example, supported for caption() and detect()
-                                print(t, end="", flush=True)
-                            print()
-                        except Exception as e_caption_call:
-                            # Log error if the call to generate_caption_for_frame itself fails, though it has internal try-except
-                            logging.error(f"Error calling generate_caption_for_frame for frame {frame_idx}: {e_caption_call}", exc_info=True)
                 
             except Exception as e:
                 logging.error(f"Error processing frame {frame_idx} for visual embedding: {e}", exc_info=True)
