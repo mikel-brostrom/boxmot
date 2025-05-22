@@ -62,7 +62,7 @@ dependencies = [
     "torchvision<1.0.0,>=0.17.1; sys_platform == \"linux\" or sys_platform == \"win32\"",
 ]
 name = "boxmot"
-version = "12.0.8"
+version = "12.0.9"
 description = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme = "README.md"
 classifiers = [
