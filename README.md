@@ -226,3 +226,8 @@ $ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
 
 For BoxMOT bugs and feature requests please visit [GitHub Issues](https://github.com/mikel-brostrom/boxmot/issues).
 For business inquiries or professional support requests please send an email to: box-mot@outlook.com
+
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=mikel-brostrom/boxmot&type=Date)](https://www.star-history.com/#mikel-brostrom/boxmot&Date)
