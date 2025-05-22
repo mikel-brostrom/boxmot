@@ -436,8 +436,8 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         dets_folder = opt.project / "dets_n_embs" / y.stem / 'dets'
         embs_folder = opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem
 
-        dets_files = sorted([p for p in dets_folder.glob('*.txt') if p.stem in seq_names])
-        embs_files = sorted([p for p in embs_folder.glob('*.txt') if p.stem in seq_names])
+        dets_files = sorted([p for p in dets_folder.glob('*.txt') if p.stem in seq_names and not p.name.startswith('.')])
+        embs_files = sorted([p for p in embs_folder.glob('*.txt') if p.stem in seq_names and not p.name.startswith('.')])
 
         LOGGER.info(f"Starting tracking on {opt.source} with method {opt.tracking_method}")
 
