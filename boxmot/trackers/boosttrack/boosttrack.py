@@ -11,8 +11,9 @@ from boxmot.trackers.boosttrack.assoc import (
 )
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.trackers.boosttrack.kalmanfilter import KalmanFilter
-from boxmot.trackers.boosttrack.ecc import ECC
 from boxmot.trackers.basetracker import BaseTracker
+from boxmot.motion.cmc import get_cmc_method
+
 
 
 def convert_bbox_to_z(bbox):
@@ -100,6 +101,7 @@ class KalmanBoxTracker:
         cx, cy = x1_ + w/2, y1_ + h/2
         self.kf.x[:4] = [cx, cy, h, w/h]
 
+
     def predict(self):
         self.kf.predict()
         self.age += 1
@@ -134,6 +136,7 @@ class BoostTrack(BaseTracker):
         use_ecc: bool = True,
         min_box_area: int = 10,
         aspect_ratio_thresh: bool = 1.6,
+        cmc_method: str = 'ecc',
 
         # BoostTrack parameters
         lambda_iou: float = 0.5,
@@ -160,9 +163,10 @@ class BoostTrack(BaseTracker):
         self.min_hits = min_hits          # minimum hits to output a track
         self.det_thresh = det_thresh      # detection confidence threshold
         self.iou_threshold = iou_threshold   # association IoU threshold
-        # self.use_ecc = use_ecc            # use ECC for camera motion compensation
+        self.use_ecc = use_ecc            # use ECC for camera motion compensation
         self.min_box_area = min_box_area  # minimum box area for detections
         self.aspect_ratio_thresh = aspect_ratio_thresh  # aspect ratio threshold for detections
+        self.cmc_method = cmc_method
 
         self.lambda_iou = lambda_iou
         self.lambda_mhd = lambda_mhd
@@ -178,9 +182,18 @@ class BoostTrack(BaseTracker):
 
         self.with_reid = with_reid
 
-        self.reid_model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model if with_reid else None
-        self.ecc = ECC(scale=350, video_name=None, use_cache=True) if use_ecc else None
+        if self.with_reid:
+            self.reid_model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
+        else:
+            self.reid_model = None
 
+        if self.use_ecc:
+            self.cmc = get_cmc_method(cmc_method)()
+        else:
+            self.cmc = None
+
+    @BaseTracker.setup_decorator
+    @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: Optional[np.ndarray] = None) -> np.ndarray:
         """
         Update the tracker with detections and an image.
@@ -195,15 +208,14 @@ class BoostTrack(BaseTracker):
                       [x1, y1, x2, y2, id, confidence, cls, det_ind]
                       (with cls and det_ind set to -1 if unused)
         """
-        if dets is None or dets.size == 0:
-            dets = np.empty((0, 6))
+        self.check_inputs(dets=dets, embs=embs, img=img)
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
 
         self.frame_count += 1
 
-        if self.ecc is not None:
-            transform = self.ecc(img, self.frame_count)
+        if self.cmc is not None:
+            transform = self.cmc.apply(img, dets)
             for trk in self.trackers:
                 trk.camera_update(transform)
 
@@ -307,7 +319,7 @@ class BoostTrack(BaseTracker):
         area_filter = w_arr * h_arr > self.min_box_area
 
         return outputs[vertical_filter & area_filter]
-
+    
     def get_iou_matrix(self, detections: np.ndarray, buffered: bool = False) -> np.ndarray:
         trackers = np.zeros((len(self.trackers), 5))
         for t, trk in enumerate(trackers):
