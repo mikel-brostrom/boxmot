@@ -311,7 +311,7 @@ class DeepOcSort(BaseTracker):
         """
         #dets, s, c = dets.data
         #print(dets, s, c)
-        self.check_inputs(dets, img)
+        self.check_inputs(dets, img, embs)
 
         self.frame_count += 1
         self.height, self.width = img.shape[:2]
