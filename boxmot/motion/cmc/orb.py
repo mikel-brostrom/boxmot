@@ -16,7 +16,7 @@ class ORB(BaseCMC):
         self,
         feature_detector_threshold: int = 20,
         matcher_norm_type: int = cv2.NORM_HAMMING,
-        scale: float = 0.1,
+        scale: float = 0.15,
         grayscale: bool = True,
         draw_keypoint_matches: bool = False,
         align: bool = False
