@@ -418,70 +418,56 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
             generate_dets_embs(opt, y, source=mot_folder_path / 'img1')
 
 
-def process_single_mot(opt: argparse.Namespace, d: Path, e: Path, evolve_config: dict):
-    # Create a deep copy of opt so each task works independently
+def process_single_mot(opt: argparse.Namespace, dets_path: Path, embs_path: Path, config: dict, gpu_id: int = None):
     new_opt = copy.deepcopy(opt)
-    new_opt.dets_file_path = d
-    new_opt.embs_file_path = e
-    frames_dict = generate_mot_results(new_opt, evolve_config)
-    return frames_dict
+    if gpu_id is not None:
+        torch.cuda.set_device(gpu_id)
+        new_opt.device = str(gpu_id)
+    new_opt.dets_file_path = dets_path
+    new_opt.embs_file_path = embs_path
+    return generate_mot_results(new_opt, config)
 
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
-    """
-    Runs the generate_mot_results function for all YOLO models and detection/embedding files
-    in parallel.
-    """
-    
     for y in opt.yolo_model:
-        exp_folder_path = opt.project / 'mot' / (f"{y.stem}_{opt.reid_model[0].stem}_{opt.tracking_method}")
-        exp_folder_path = increment_path(path=exp_folder_path, sep="_", exist_ok=False)
-        opt.exp_folder_path = exp_folder_path
+        exp_folder = opt.project / 'mot' / f"{y.stem}_{opt.reid_model[0].stem}_{opt.tracking_method}"
+        opt.exp_folder_path = increment_path(exp_folder, sep="_", exist_ok=False)
 
-        mot_folder_names = [item.stem for item in Path(opt.source).iterdir()]
-        
+        seq_names = [p.stem for p in Path(opt.source).iterdir()]
         dets_folder = opt.project / "dets_n_embs" / y.stem / 'dets'
         embs_folder = opt.project / "dets_n_embs" / y.stem / 'embs' / opt.reid_model[0].stem
-        
-        dets_file_paths = sorted([
-            item for item in dets_folder.glob('*.txt')
-            if not item.name.startswith('.') and item.stem in mot_folder_names
-        ])
-        embs_file_paths = sorted([
-            item for item in embs_folder.glob('*.txt')
-            if not item.name.startswith('.') and item.stem in mot_folder_names
-        ])
-        
-        LOGGER.info(f"\nStarting tracking on:\n\t{opt.source}\nwith preloaded dets\n\t({dets_folder.relative_to(ROOT)})\nand embs\n\t({embs_folder.relative_to(ROOT)})\nusing\n\t{opt.tracking_method}")
 
-        tasks = []
-        # Create a thread pool to run each file pair in parallel
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            for d, e in zip(dets_file_paths, embs_file_paths):
-                mot_result_path = exp_folder_path / (d.stem + '.txt')
-                if mot_result_path.exists():
-                    if prompt_overwrite('MOT Result', mot_result_path, opt.ci):
-                        LOGGER.info(f'Overwriting MOT result for {d.stem}...')
-                    else:
-                        LOGGER.info(f'Skipping MOT result generation for {d.stem} as it already exists.')
-                        continue
-                # Submit the task to process this file pair in parallel
-                tasks.append(executor.submit(process_single_mot, opt, d, e, evolve_config))
-            
-            # Dict with {seq_name: [frame_nums]}
-            seqs_frame_nums = {}
-            # Wait for all tasks to complete and log any exceptions
-            for future in concurrent.futures.as_completed(tasks):
+        dets_files = sorted([p for p in dets_folder.glob('*.txt') if p.stem in seq_names])
+        embs_files = sorted([p for p in embs_folder.glob('*.txt') if p.stem in seq_names])
+
+        LOGGER.info(f"Starting tracking on {opt.source} with method {opt.tracking_method}")
+
+        # Determine parallelism
+        num_gpus = torch.cuda.device_count()
+        max_workers = num_gpus if num_gpus > 0 else os.cpu_count()
+        gpu_cycle = range(num_gpus) if num_gpus > 0 else [None]
+
+        futures = []
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            for idx, (d, e) in enumerate(zip(dets_files, embs_files)):
+                fut = executor.submit(
+                    process_single_mot,
+                    opt, d, e, evolve_config,
+                    gpu_cycle[idx % len(gpu_cycle)]
+                )
+                futures.append(fut)
+
+            seq_frames = {}
+            for fut in concurrent.futures.as_completed(futures):
                 try:
-                    seqs_frame_nums.update(future.result())
+                    seq_frames.update(fut.result())
                 except Exception as exc:
-                    LOGGER.error(f'Error processing file pair: {exc}')
-    
-    # Postprocess data with gsi if requested
-    if opt.gsi:
-        gsi(mot_results_folder=opt.exp_folder_path)
+                    LOGGER.error(f"Error in tracking task: {exc}")
 
-    with open(opt.exp_folder_path / 'seqs_frame_nums.json', 'w') as f:
-        json.dump(seqs_frame_nums, f)
+        if opt.gsi:
+            gsi(mot_results_folder=opt.exp_folder_path)
+
+        with open(opt.exp_folder_path / 'seqs_frame_nums.json', 'w') as f:
+            json.dump(seq_frames, f)
 
 
 def run_trackeval(opt: argparse.Namespace) -> dict:
