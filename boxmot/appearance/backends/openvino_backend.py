@@ -1,4 +1,3 @@
-import numpy as np
 from pathlib import Path
 from boxmot.utils import logger as LOGGER
 

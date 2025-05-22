@@ -1,9 +1,6 @@
-import cv2
 import torch
 import pytest
-import numpy as np
 from pathlib import Path
-from boxmot.utils import ROOT
 
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 

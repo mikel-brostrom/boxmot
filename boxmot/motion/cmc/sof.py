@@ -1,7 +1,5 @@
 import cv2
 import numpy as np
-import copy
-import time
 from boxmot.motion.cmc.base_cmc import BaseCMC
 
 

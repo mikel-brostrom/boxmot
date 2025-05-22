@@ -1,13 +1,13 @@
 from __future__ import absolute_import, division
 
 from copy import deepcopy
-from math import log, exp, sqrt, pi
+from math import log, exp, pi
 import sys
 import numpy as np
 from numpy import dot, zeros, eye, isscalar
 import numpy.linalg as linalg
 from filterpy.stats import logpdf
-from filterpy.common import pretty_str, reshape_z
+from filterpy.common import reshape_z
 from collections import deque
 
 

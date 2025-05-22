@@ -2,9 +2,7 @@
 
 from pathlib import Path
 
-import numpy as np
 import torch
-from ultralytics.engine.results import Results
 from abc import ABC, abstractmethod
 
 
