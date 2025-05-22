@@ -87,7 +87,7 @@ class BotSort(BaseTracker):
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
-        self.check_inputs(dets, img)
+        self.check_inputs(dets, img, embs)
         self.frame_count += 1
 
         activated_stracks, refind_stracks, lost_stracks, removed_stracks = [], [], [], []
