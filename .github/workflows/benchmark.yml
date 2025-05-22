@@ -50,7 +50,7 @@ jobs:
           fi
           
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --extra yolo
 
       - name: Download eval tools repo
         run: |
