@@ -423,6 +423,8 @@ def process_single_mot(opt: argparse.Namespace, dets_path: Path, embs_path: Path
     if gpu_id is not None:
         torch.cuda.set_device(gpu_id)
         new_opt.device = str(gpu_id)
+    else:
+        new_opt.device = 'cpu'
     new_opt.dets_file_path = dets_path
     new_opt.embs_file_path = embs_path
     return generate_mot_results(new_opt, config)
