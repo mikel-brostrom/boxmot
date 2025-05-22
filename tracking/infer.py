@@ -21,6 +21,10 @@ load_dotenv()
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+# --- Configuration for Image Storage vs Captioning ---
+USE_CAPTIONING = os.getenv("USE_CAPTIONING", "False").lower() == "true"
+print(f"[infer.py] USE_CAPTIONING mode: {USE_CAPTIONING}")
+
 # --- Constants & Model Config --- (Shared with vectorize.py logic)
 ENTITY_COLLECTION_NAME = "entities"
 FRAME_COLLECTION_NAME = "frames"
@@ -232,28 +236,29 @@ def pil_to_base64(image: Image.Image, format="PNG") -> str:
     return f"data:image/{format.lower()};base64,{img_str}"
 
 
-def retrieve_similar_images(
+def retrieve_similar_content(
     query_text: str, # Keep query_text for potential future use or logging, though embedding is primary
     query_embedding: np.ndarray,
     qdrant_client_instance: QdrantClient,
     logger_instance: logging.Logger
 ) -> List[Dict[str, Any]]:
-    logger_instance.info(f"[retrieve_similar_images] Entered with query: '{query_text[:50]}...'. Strategy: Entities (target {TARGET_ENTITY_TOP_K}), Frames (target {TARGET_FRAME_TOP_K}), Threshold ({MIN_SIMILARITY_THRESHOLD})")
+    content_type = "captions" if USE_CAPTIONING else "images"
+    logger_instance.info(f"[retrieve_similar_content] Entered with query: '{query_text[:50]}...'. Mode: {content_type}. Strategy: Entities (target {TARGET_ENTITY_TOP_K}), Frames (target {TARGET_FRAME_TOP_K}), Threshold ({MIN_SIMILARITY_THRESHOLD})")
     if not qdrant_client_instance:
-        logger_instance.error("[retrieve_similar_images] Qdrant client not initialized. Cannot retrieve images.")
+        logger_instance.error(f"[retrieve_similar_content] Qdrant client not initialized. Cannot retrieve {content_type}.")
         return []
 
     if query_embedding is None:
-        logger_instance.warning(f"[retrieve_similar_images] Invalid query_embedding (None) for query: {query_text}")
+        logger_instance.warning(f"[retrieve_similar_content] Invalid query_embedding (None) for query: {query_text}")
         return []
-    logger_instance.info(f"[retrieve_similar_images] Using pre-computed query embedding (shape: {query_embedding.shape}) from {MODEL_NAME}.")
+    logger_instance.info(f"[retrieve_similar_content] Using pre-computed query embedding (shape: {query_embedding.shape}) from {MODEL_NAME}.")
 
     selected_entity_results: List[Dict[str, Any]] = []
     selected_frame_results: List[Dict[str, Any]] = []
 
-    # --- Retrieve and select ENTITY images ---
+    # --- Retrieve and select ENTITY content ---
     initial_entity_retrieve_limit = TARGET_ENTITY_TOP_K * RETRIEVAL_MULTIPLIER
-    logger_instance.info(f"[retrieve_similar_images] Searching '{ENTITY_COLLECTION_NAME}' collection with initial limit={initial_entity_retrieve_limit}.")
+    logger_instance.info(f"[retrieve_similar_content] Searching '{ENTITY_COLLECTION_NAME}' collection with initial limit={initial_entity_retrieve_limit}.")
     try:
         entity_hits_result = qdrant_client_instance.query_points(
             collection_name=ENTITY_COLLECTION_NAME,
@@ -262,55 +267,69 @@ def retrieve_similar_images(
             score_threshold=MIN_SIMILARITY_THRESHOLD, # Qdrant can filter by threshold
             with_payload=True,
         )
-        logger_instance.info(f"[retrieve_similar_images] Raw Qdrant entity_hits_result for query '{query_text[:30]}...': Count: {len(entity_hits_result.points)}")
+        logger_instance.info(f"[retrieve_similar_content] Raw Qdrant entity_hits_result for query '{query_text[:30]}...': Count: {len(entity_hits_result.points)}")
         if len(entity_hits_result.points) > 0:
             for i, hit in enumerate(entity_hits_result.points[:3]): # Log first 3 raw hits
-                 logger_instance.info(f"[retrieve_similar_images] Raw Entity Hit {i+1}: ID={hit.id}, Score={hit.score:.4f}, Payload Keys={list(hit.payload.keys()) if hit.payload else 'No Payload'}")
+                 logger_instance.info(f"[retrieve_similar_content] Raw Entity Hit {i+1}: ID={hit.id}, Score={hit.score:.4f}, Payload Keys={list(hit.payload.keys()) if hit.payload else 'No Payload'}")
 
         entity_hits = entity_hits_result.points
-        logger_instance.info(f"[retrieve_similar_images] Found {len(entity_hits)} hits in '{ENTITY_COLLECTION_NAME}' (after Qdrant threshold).")
+        logger_instance.info(f"[retrieve_similar_content] Found {len(entity_hits)} hits in '{ENTITY_COLLECTION_NAME}' (after Qdrant threshold).")
         
         processed_entity_hits = []
         for hit in entity_hits: # Already sorted by score by Qdrant
             if hit.score >= MIN_SIMILARITY_THRESHOLD: # Redundant if score_threshold in query_points works as expected, but good as a safeguard
                 payload = hit.payload if hit.payload else {}
-                minio_object_id = payload.get("image_minio_id")
-                pil_img = None
-                if minio_object_id:
-                    image_bytes = download_image_from_minio(minio_object_id, logger_instance)
-                    if image_bytes:
-                        try:
-                            pil_img = Image.open(io.BytesIO(image_bytes))
-                        except Exception as e_pil:
-                            logger_instance.error(f"[retrieve_similar_images] Entity hit {hit.id} (MinIO ID: {minio_object_id}) - Failed to create PIL Image from downloaded bytes: {e_pil}")
-                else:
-                    logger_instance.info(f"[retrieve_similar_images] Entity hit {hit.id} (score: {hit.score:.4f}) had no 'image_minio_id' in payload.")
+                content_data = None
+                content_text = None
                 
-                if pil_img:
+                if USE_CAPTIONING:
+                    # Get caption text instead of image
+                    caption_text = payload.get("image_caption")
+                    if caption_text:
+                        content_text = caption_text
+                        logger_instance.info(f"[retrieve_similar_content] Entity hit {hit.id} (score: {hit.score:.4f}) has caption: '{caption_text[:50]}{'...' if len(caption_text) > 50 else ''}'")
+                    else:
+                        logger_instance.info(f"[retrieve_similar_content] Entity hit {hit.id} (score: {hit.score:.4f}) had no 'image_caption' in payload.")
+                else:
+                    # Get image from MinIO (original behavior)
+                    minio_object_id = payload.get("image_minio_id")
+                    if minio_object_id:
+                        image_bytes = download_image_from_minio(minio_object_id, logger_instance)
+                        if image_bytes:
+                            try:
+                                content_data = Image.open(io.BytesIO(image_bytes))
+                                logger_instance.info(f"[retrieve_similar_content] Entity hit {hit.id} (score: {hit.score:.4f}) loaded image from MinIO: {minio_object_id}")
+                            except Exception as e_pil:
+                                logger_instance.error(f"[retrieve_similar_content] Entity hit {hit.id} (MinIO ID: {minio_object_id}) - Failed to create PIL Image from downloaded bytes: {e_pil}")
+                    else:
+                        logger_instance.info(f"[retrieve_similar_content] Entity hit {hit.id} (score: {hit.score:.4f}) had no 'image_minio_id' in payload.")
+                
+                if content_data or content_text:
                     processed_entity_hits.append({
                         "vector_id": hit.id,
                         "type": "entity",
                         "entity_id": payload.get("entity_id", payload.get("id")),
                         "class_name": payload.get("class_name", "N/A"),
                         "confidence": payload.get("confidence"),
-                        "image_data": pil_img,
+                        "image_data": content_data,  # PIL Image or None
+                        "caption_text": content_text,  # Caption text or None
                         "score": hit.score,
                     })
                 else:
-                    logger_instance.info(f"[retrieve_similar_images] Entity hit {hit.id} (score: {hit.score:.4f}) had no image data or failed to convert.")
+                    logger_instance.info(f"[retrieve_similar_content] Entity hit {hit.id} (score: {hit.score:.4f}) had no content data (image or caption).")
             else:
-                 logger_instance.info(f"[retrieve_similar_images] Entity hit {hit.id} (score: {hit.score:.4f}) below explicit threshold {MIN_SIMILARITY_THRESHOLD}, discarding.")
+                 logger_instance.info(f"[retrieve_similar_content] Entity hit {hit.id} (score: {hit.score:.4f}) below explicit threshold {MIN_SIMILARITY_THRESHOLD}, discarding.")
 
 
         selected_entity_results = processed_entity_hits[:TARGET_ENTITY_TOP_K]
-        logger_instance.info(f"[retrieve_similar_images] Selected {len(selected_entity_results)} entity images after filtering and capping at {TARGET_ENTITY_TOP_K}.")
+        logger_instance.info(f"[retrieve_similar_content] Selected {len(selected_entity_results)} entity {content_type} after filtering and capping at {TARGET_ENTITY_TOP_K}.")
 
     except Exception as e:
-        logger_instance.error(f"[retrieve_similar_images] Error searching Qdrant collection '{ENTITY_COLLECTION_NAME}': {e}", exc_info=True)
+        logger_instance.error(f"[retrieve_similar_content] Error searching Qdrant collection '{ENTITY_COLLECTION_NAME}': {e}", exc_info=True)
 
-    # --- Retrieve and select FRAME images ---
+    # --- Retrieve and select FRAME content ---
     initial_frame_retrieve_limit = TARGET_FRAME_TOP_K * RETRIEVAL_MULTIPLIER
-    logger_instance.info(f"[retrieve_similar_images] Searching '{FRAME_COLLECTION_NAME}' collection with initial limit={initial_frame_retrieve_limit}.")
+    logger_instance.info(f"[retrieve_similar_content] Searching '{FRAME_COLLECTION_NAME}' collection with initial limit={initial_frame_retrieve_limit}.")
     try:
         frame_hits_result = qdrant_client_instance.query_points(
             collection_name=FRAME_COLLECTION_NAME,
@@ -319,56 +338,70 @@ def retrieve_similar_images(
             score_threshold=MIN_SIMILARITY_THRESHOLD, # Qdrant can filter by threshold
             with_payload=True,
         )
-        logger_instance.info(f"[retrieve_similar_images] Raw Qdrant frame_hits_result for query '{query_text[:30]}...': Count: {len(frame_hits_result.points)}")
+        logger_instance.info(f"[retrieve_similar_content] Raw Qdrant frame_hits_result for query '{query_text[:30]}...': Count: {len(frame_hits_result.points)}")
         if len(frame_hits_result.points) > 0:
             for i, hit in enumerate(frame_hits_result.points[:3]): # Log first 3 raw hits
-                 logger_instance.info(f"[retrieve_similar_images] Raw Frame Hit {i+1}: ID={hit.id}, Score={hit.score:.4f}, Payload Keys={list(hit.payload.keys()) if hit.payload else 'No Payload'}")
+                 logger_instance.info(f"[retrieve_similar_content] Raw Frame Hit {i+1}: ID={hit.id}, Score={hit.score:.4f}, Payload Keys={list(hit.payload.keys()) if hit.payload else 'No Payload'}")
 
         frame_hits = frame_hits_result.points
-        logger_instance.info(f"[retrieve_similar_images] Found {len(frame_hits)} hits in '{FRAME_COLLECTION_NAME}' (after Qdrant threshold).")
+        logger_instance.info(f"[retrieve_similar_content] Found {len(frame_hits)} hits in '{FRAME_COLLECTION_NAME}' (after Qdrant threshold).")
 
         processed_frame_hits = []
         for hit in frame_hits: # Already sorted by score
             if hit.score >= MIN_SIMILARITY_THRESHOLD: # Safeguard
                 payload = hit.payload if hit.payload else {}
-                minio_object_id = payload.get("image_minio_id")
-                pil_img = None
-                if minio_object_id:
-                    image_bytes = download_image_from_minio(minio_object_id, logger_instance)
-                    if image_bytes:
-                        try:
-                            pil_img = Image.open(io.BytesIO(image_bytes))
-                        except Exception as e_pil:
-                            logger_instance.error(f"[retrieve_similar_images] Frame hit {hit.id} (MinIO ID: {minio_object_id}) - Failed to create PIL Image from downloaded bytes: {e_pil}")
+                content_data = None
+                content_text = None
+                
+                if USE_CAPTIONING:
+                    # Get caption text instead of image
+                    caption_text = payload.get("image_caption")
+                    if caption_text:
+                        content_text = caption_text
+                        logger_instance.info(f"[retrieve_similar_content] Frame hit {hit.id} (score: {hit.score:.4f}) has caption: '{caption_text[:50]}{'...' if len(caption_text) > 50 else ''}'")
+                    else:
+                        logger_instance.info(f"[retrieve_similar_content] Frame hit {hit.id} (score: {hit.score:.4f}) had no 'image_caption' in payload.")
                 else:
-                    logger_instance.info(f"[retrieve_similar_images] Frame hit {hit.id} (score: {hit.score:.4f}) had no 'image_minio_id' in payload.")
+                    # Get image from MinIO (original behavior)
+                    minio_object_id = payload.get("minio_image_path")
+                    if minio_object_id:
+                        image_bytes = download_image_from_minio(minio_object_id, logger_instance)
+                        if image_bytes:
+                            try:
+                                content_data = Image.open(io.BytesIO(image_bytes))
+                                logger_instance.info(f"[retrieve_similar_content] Frame hit {hit.id} (score: {hit.score:.4f}) loaded image from MinIO: {minio_object_id}")
+                            except Exception as e_pil:
+                                logger_instance.error(f"[retrieve_similar_content] Frame hit {hit.id} (MinIO ID: {minio_object_id}) - Failed to create PIL Image from downloaded bytes: {e_pil}")
+                    else:
+                        logger_instance.info(f"[retrieve_similar_content] Frame hit {hit.id} (score: {hit.score:.4f}) had no 'minio_image_path' in payload.")
 
-                if pil_img:
+                if content_data or content_text:
                     processed_frame_hits.append({
                         "vector_id": hit.id,
                         "type": "frame",
                         "entity_id": f"frame_{payload.get('frame_idx', 'unknown')}", # Consistent IDing
                         "class_name": "Frame",
                         "confidence": None, # Frames don't have detection confidence
-                        "image_data": pil_img,
+                        "image_data": content_data,  # PIL Image or None
+                        "caption_text": content_text,  # Caption text or None
                         "score": hit.score,
                     })
                 else:
-                    logger_instance.info(f"[retrieve_similar_images] Frame hit {hit.id} (score: {hit.score:.4f}) had no image data or failed to convert.")
+                    logger_instance.info(f"[retrieve_similar_content] Frame hit {hit.id} (score: {hit.score:.4f}) had no content data (image or caption).")
             else:
-                logger_instance.info(f"[retrieve_similar_images] Frame hit {hit.id} (score: {hit.score:.4f}) below explicit threshold {MIN_SIMILARITY_THRESHOLD}, discarding.")
+                logger_instance.info(f"[retrieve_similar_content] Frame hit {hit.id} (score: {hit.score:.4f}) below explicit threshold {MIN_SIMILARITY_THRESHOLD}, discarding.")
         
         selected_frame_results = processed_frame_hits[:TARGET_FRAME_TOP_K]
-        logger_instance.info(f"[retrieve_similar_images] Selected {len(selected_frame_results)} frame images after filtering and capping at {TARGET_FRAME_TOP_K}.")
+        logger_instance.info(f"[retrieve_similar_content] Selected {len(selected_frame_results)} frame {content_type} after filtering and capping at {TARGET_FRAME_TOP_K}.")
 
     except Exception as e:
-        logger_instance.error(f"[retrieve_similar_images] Error searching Qdrant collection '{FRAME_COLLECTION_NAME}': {e}", exc_info=True)
+        logger_instance.error(f"[retrieve_similar_content] Error searching Qdrant collection '{FRAME_COLLECTION_NAME}': {e}", exc_info=True)
     
     # Combine results and sort by score
     final_results = selected_entity_results + selected_frame_results
     final_results.sort(key=lambda x: x["score"], reverse=True)
     
-    logger_instance.info(f"[retrieve_similar_images] Returning {len(final_results)} total images after independent selection and final sort.")
+    logger_instance.info(f"[retrieve_similar_content] Returning {len(final_results)} total {content_type} after independent selection and final sort.")
     return final_results
 
 
@@ -569,12 +602,20 @@ def retrieve_graph_context(entity_ids: List[str]) -> str:
     return (" ".join(all_summaries) if all_summaries else "No graph context found for the given entities.")
 
 
-def build_prompt(query: str, images: List[Image.Image], graph_summary: str, audio_transcripts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    system_message = (
-        "You are a helpful multimodal assistant. Your task is to analyze the user's query, "
-        "any provided images, a summary of graph database context, and relevant audio transcripts "
-        "to provide a comprehensive answer. Refer to images and audio snippets if they are relevant to the query."
-    )
+def build_prompt(query: str, content_items: List[Dict[str, Any]], graph_summary: str, audio_transcripts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if USE_CAPTIONING:
+        system_message = (
+            "You are a helpful multimodal assistant. Your task is to analyze the user's query, "
+            "any provided image captions, a summary of graph database context, and relevant audio transcripts "
+            "to provide a comprehensive answer. Refer to image captions and audio snippets if they are relevant to the query."
+        )
+    else:
+        system_message = (
+            "You are a helpful multimodal assistant. Your task is to analyze the user's query, "
+            "any provided images, a summary of graph database context, and relevant audio transcripts "
+            "to provide a comprehensive answer. Refer to images and audio snippets if they are relevant to the query."
+        )
+    
     user_message_content: List[Dict[str, Any]] = []
     
     text_content = f"User Query: {query}\n\nGraph Context:\n{graph_summary}"
@@ -587,25 +628,54 @@ def build_prompt(query: str, images: List[Image.Image], graph_summary: str, audi
     else:
         text_content += "\n\nNo relevant audio snippets were found for this query."
 
-    if images:
-        text_content += "\n\nRelevant Images are provided below:"
+    # Handle content based on mode
+    if USE_CAPTIONING:
+        # Add captions as text
+        caption_texts = []
+        for item in content_items:
+            caption_text = item.get("caption_text")
+            if caption_text:
+                entity_info = f"{item.get('class_name', 'Unknown')} (ID: {item.get('entity_id', 'Unknown')}, Score: {item.get('score', 0):.3f})"
+                caption_texts.append(f"- {entity_info}: {caption_text}")
+        
+        if caption_texts:
+            text_content += "\n\nRelevant Image Captions:"
+            for caption in caption_texts:
+                text_content += f"\n  {caption}"
+        else:
+            text_content += "\n\nNo relevant image captions were found for this query."
     else:
-        text_content += "\n\nNo relevant images were found or provided for this query."
+        # Add images as before
+        images_to_add = []
+        for item in content_items:
+            image_data = item.get("image_data")
+            if image_data:
+                images_to_add.append(image_data)
+        
+        if images_to_add:
+            text_content += "\n\nRelevant Images are provided below:"
+        else:
+            text_content += "\n\nNo relevant images were found or provided for this query."
+    
     user_message_content.append({"type": "text", "text": text_content})
     
-    for i, img in enumerate(images):
-        try:
-            # Convert PIL image to base64 data URI for the prompt
-            buffered = io.BytesIO()
-            img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            base64_image_uri = f"data:image/png;base64,{img_str}"
-            user_message_content.append({
-                    "type": "image_url",
-                    "image_url": {"url": base64_image_uri, "detail": "auto"},
-                })
-        except Exception as e:
-            logger.error(f"Error converting image {i+1} to base64 for prompt: {e}", exc_info=True)
+    # Add images only if not in captioning mode
+    if not USE_CAPTIONING:
+        for item in content_items:
+            image_data = item.get("image_data")
+            if image_data:
+                try:
+                    # Convert PIL image to base64 data URI for the prompt
+                    buffered = io.BytesIO()
+                    image_data.save(buffered, format="PNG")
+                    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                    base64_image_uri = f"data:image/png;base64,{img_str}"
+                    user_message_content.append({
+                            "type": "image_url",
+                            "image_url": {"url": base64_image_uri, "detail": "auto"},
+                        })
+                except Exception as e:
+                    logger.error(f"Error converting image to base64 for prompt: {e}", exc_info=True)
     return [
         {"role": "system", "content": system_message},
         {"role": "user", "content": user_message_content},
@@ -675,49 +745,55 @@ def interactive_loop():
             
             logger.info(f"Query embedded successfully, shape: {query_embedding.shape}")
 
-            logger.info(f"Retrieving similar images for query: '{user_query[:50]}...' using new strategy.")
-            retrieved_image_infos = retrieve_similar_images(
+            content_type = "captions" if USE_CAPTIONING else "images"
+            logger.info(f"Retrieving similar {content_type} for query: '{user_query[:50]}...'")
+            retrieved_content_infos = retrieve_similar_content(
                 query_text=user_query, 
                 query_embedding=query_embedding, 
                 qdrant_client_instance=qdrant_client,
                 logger_instance=logger
             )
-            logger.info(f"Retrieved {len(retrieved_image_infos)} image infos from Qdrant using new strategy.")
+            logger.info(f"Retrieved {len(retrieved_content_infos)} content infos from Qdrant.")
 
-            pil_images_for_prompt: List[Image.Image] = []
             entity_ids_for_graph_context: List[str] = []
             saved_image_filenames_for_log: List[str] = []
 
-            if not retrieved_image_infos:
-                logger.info("No image infos were retrieved from Qdrant.")
+            if not retrieved_content_infos:
+                logger.info(f"No {content_type} were retrieved from Qdrant.")
             else:
-                logger.info(f"Processing {len(retrieved_image_infos)} retrieved image infos:")
-                for i, info in enumerate(retrieved_image_infos):
-                    image_type = info.get("type", "unknown_type")
-                    image_id = info.get("vector_id", "unknown_id")
+                logger.info(f"Processing {len(retrieved_content_infos)} retrieved content infos:")
+                for i, info in enumerate(retrieved_content_infos):
+                    content_type_item = info.get("type", "unknown_type")
+                    content_id = info.get("vector_id", "unknown_id")
                     entity_id = info.get("entity_id", "N/A")
                     class_name = info.get("class_name", "N/A")
                     score = info.get("score", 0.0)
-                    log_message = f"  Info {i+1}: ID={image_id}, Type={image_type}, EntityID={entity_id}, Class={class_name}, Score={score:.4f}"
-                    if info.get("image_data"):
-                        pil_images_for_prompt.append(info["image_data"])
-                        log_message += " -> Added to prompt images."
-                        try:
-                            image_filename = f"retrieved_image_{i}.png"
-                            full_image_save_path = os.path.join(query_save_path, image_filename)
-                            info["image_data"].save(full_image_save_path)
-                            saved_image_filenames_for_log.append(image_filename)
-                            logger.info(f"Saved image: {full_image_save_path}")
-                        except Exception as e_save_img:
-                            logger.error(f"Failed to save image {i} for query: {e_save_img}", exc_info=True)
+                    
+                    if USE_CAPTIONING:
+                        caption_text = info.get("caption_text", "")
+                        log_message = f"  Info {i+1}: ID={content_id}, Type={content_type_item}, EntityID={entity_id}, Class={class_name}, Score={score:.4f}, Caption='{caption_text[:30]}{'...' if len(caption_text) > 30 else ''}'"
                     else:
-                        log_message += " -> No image data, not added."
+                        log_message = f"  Info {i+1}: ID={content_id}, Type={content_type_item}, EntityID={entity_id}, Class={class_name}, Score={score:.4f}"
+                        if info.get("image_data"):
+                            log_message += " -> Has image data."
+                            try:
+                                image_filename = f"retrieved_image_{i}.png"
+                                full_image_save_path = os.path.join(query_save_path, image_filename)
+                                info["image_data"].save(full_image_save_path)
+                                saved_image_filenames_for_log.append(image_filename)
+                                logger.info(f"Saved image: {full_image_save_path}")
+                            except Exception as e_save_img:
+                                logger.error(f"Failed to save image {i} for query: {e_save_img}", exc_info=True)
+                        else:
+                            log_message += " -> No image data."
+                    
                     logger.info(log_message)
                     if info.get("type") == "entity" and info.get("entity_id"):
                         entity_ids_for_graph_context.append(str(info["entity_id"]))
+                        
                 interaction_log_data["saved_image_filenames"] = saved_image_filenames_for_log
 
-            logger.info(f"Total images prepared for prompt: {len(pil_images_for_prompt)}.")
+            logger.info(f"Total content items prepared for prompt: {len(retrieved_content_infos)}.")
             entity_ids_for_graph_context = list(set(entity_ids_for_graph_context))
             graph_summary_text = "No relevant entities found from image search for graph context."
             if entity_ids_for_graph_context:
@@ -749,7 +825,7 @@ def interactive_loop():
                     log_message = f"  Audio Segment {i+1}: ID={segment_id}, Speaker={speaker}, Score={score:.4f}, Text=\"{text_preview}...\" -> Added to prompt."
                     logger.info(log_message)
 
-            chat_messages = build_prompt(user_query, pil_images_for_prompt, graph_summary_text, retrieved_audio_segments)
+            chat_messages = build_prompt(user_query, retrieved_content_infos, graph_summary_text, retrieved_audio_segments)
             if chat_messages and len(chat_messages) > 1 and isinstance(chat_messages[1].get('content'), list):
                 for content_item in chat_messages[1]['content']:
                     if content_item.get('type') == 'text':

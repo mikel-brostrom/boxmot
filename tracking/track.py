@@ -8,6 +8,10 @@ import shutil
 import os
 import structlog # Import structlog
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 # Consolidate os.environ settings if any are still needed globally for track.py
 # os.environ["TOKENIZERS_PARALLELISM"] = "false" # This is in video_processing & vectorize, ensure consistency
 
@@ -44,6 +48,14 @@ std_logging.getLogger("httpx").setLevel(std_logging.WARNING)
 logger = structlog.get_logger(__name__) # Use structlog's get_logger
 
 def run(args):
+    # Set environment variable based on flag
+    if args.use_captioning:
+        os.environ["USE_CAPTIONING"] = "True"
+        logger.info("Setting USE_CAPTIONING=True based on --use-captioning flag")
+    else:
+        os.environ["USE_CAPTIONING"] = os.environ.get("USE_CAPTIONING", "False")
+        logger.info(f"USE_CAPTIONING environment variable: {os.environ.get('USE_CAPTIONING', 'False')}")
+    
     logger.info("Main orchestrator (track.py) started.", args=vars(args)) # Log args as a dictionary
     total_orchestration_start_time = time.time()
 
@@ -198,6 +210,30 @@ def run(args):
         logger.error("Orchestrator: Failed to save aggregated metrics.", path=str(final_metrics_path), error=e, exc_info=True)
 
     # --- Orchestration Timings Summary ---
+    print("\n" + "="*50)
+    print("   ORCHESTRATION TIMINGS SUMMARY")
+    print("="*50)
+    print(f"Video Processing Time: {video_processing_time:.2f} seconds")
+    print(f"Audio Processing Time: {audio_processing_time:.2f} seconds")
+    
+    if linking_time is not None:
+        status_msg = f"(Status: {linking_metrics.get('status', 'unknown')})"
+        print(f"Cross-Modal Linking Time: {linking_time:.2f} seconds {status_msg}")
+    else:
+        print(f"Cross-Modal Linking: Not performed or failed before timing (Status: {linking_metrics.get('status', 'unknown')}).")
+
+    if graphify_time is not None:
+        status_msg = f"(Status: {graph_metrics.get('status', 'unknown')})"
+        print(f"Data Graphification Time: {graphify_time:.2f} seconds {status_msg}")
+    elif graph_metrics.get("status") == "skipped":
+        print("Data Graphification: Skipped (input data not available)")
+    else:
+        print(f"Data Graphification: Not performed or failed before timing (Status: {graph_metrics.get('status', 'unknown')}).")
+        
+    print(f"Total Orchestration Time: {total_orchestration_time:.2f} seconds")
+    print("="*50)
+    
+    # Also log to structured log
     logger.info("--- Orchestration Timings Summary ---")
     logger.info(f"Video Processing Time: {video_processing_time:.2f} seconds")
     logger.info(f"Audio Processing Time: {audio_processing_time:.2f} seconds")
@@ -255,6 +291,7 @@ def parse_opt():
     # Arguments specific to data generation and processing stages, passed to relevant modules
     parser.add_argument('--save-dataset', action='store_true', help='Enable saving of intermediate datasets (initial_dataset.json from video)')
     parser.add_argument('--metrics', action='store_true', help='Enable calculation and saving of performance metrics for each stage')
+    parser.add_argument('--use-captioning', action='store_true', help='Use image captioning instead of storing images in MinIO. Sets USE_CAPTIONING=True environment variable.')
     parser.add_argument(
         '--frame-similarity-threshold', 
         type=float, 

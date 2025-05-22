@@ -1,0 +1,39 @@
+WARNING:torchao.kernel.intmm:Warning: Detected no triton, on systems without Triton certain kernels will not work
+W0522 19:20:20.109000 21971 torch/distributed/elastic/multiprocessing/redirects.py:29] NOTE: Redirects are currently not supported in Windows or MacOs.
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+[vectorize.py] Captioning mode enabled - will load caption model when needed
+[vectorize.py] USE_CAPTIONING mode: True
+[vectorize.py] Initializing MinIO client for endpoint: localhost:9000, bucket: boxmot-images
+[vectorize.py] MinIO bucket 'boxmot-images' already exists.
+[vectorize.py] MinIO client initialized successfully.
+[vectorize.py] Using embedding model: clip-ViT-B-32 (Dimension: 512, Type: sentence_transformer)
+[vectorize.py] Successfully loaded SentenceTransformer model: clip-ViT-B-32
+[vectorize.py] Reinitializing Qdrant collections with dimension: 512 and clearing MinIO bucket.
+[vectorize.py] Listing objects in MinIO bucket: boxmot-images for deletion...
+[vectorize.py] MinIO bucket 'boxmot-images' is already empty or contains no deletable named objects.
+[vectorize.py] Successfully reinitialized Qdrant collections (entities, frames, audio_transcripts).
+[vectorize.py] Reinitializing Qdrant collections with dimension: 512 and clearing MinIO bucket.
+[vectorize.py] Listing objects in MinIO bucket: boxmot-images for deletion...
+[vectorize.py] MinIO bucket 'boxmot-images' is already empty or contains no deletable named objects.
+[vectorize.py] Successfully reinitialized Qdrant collections (entities, frames, audio_transcripts).
+
+Traceback (most recent call last):
+  File "/Users/madkimchi/Projects/Personal/boxmot/tracking/track.py", line 320, in <module>
+    run(args)
+  File "/Users/madkimchi/Projects/Personal/boxmot/tracking/track.py", line 86, in run
+    video_dataset_frames, video_metrics, video_output_paths = process_video(args)
+  File "/Users/madkimchi/Projects/Personal/boxmot/.venv/lib/python3.10/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "/Users/madkimchi/Projects/Personal/boxmot/tracking/video_processing.py", line 194, in process_video
+    for frame_idx, r in enumerate(results_generator):
+  File "/Users/madkimchi/Projects/Personal/boxmot/.venv/lib/python3.10/site-packages/torch/utils/_contextlib.py", line 36, in generator_context
+    response = gen.send(None)
+  File "/Users/madkimchi/Projects/Personal/boxmot/.venv/lib/python3.10/site-packages/ultralytics/engine/predictor.py", line 295, in stream_inference
+    self.setup_source(source if source is not None else self.args.source)
+  File "/Users/madkimchi/Projects/Personal/boxmot/.venv/lib/python3.10/site-packages/ultralytics/engine/predictor.py", line 255, in setup_source
+    self.dataset = load_inference_source(
+  File "/Users/madkimchi/Projects/Personal/boxmot/.venv/lib/python3.10/site-packages/ultralytics/data/build.py", line 253, in load_inference_source
+    dataset = LoadImagesAndVideos(source, batch=batch, vid_stride=vid_stride)
+  File "/Users/madkimchi/Projects/Personal/boxmot/.venv/lib/python3.10/site-packages/ultralytics/data/loaders.py", line 342, in __init__
+    raise FileNotFoundError(f"{p} does not exist")
+FileNotFoundError: input_videos/MOT17-02-FRCNN.mp4 does not exist

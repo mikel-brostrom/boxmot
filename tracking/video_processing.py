@@ -13,10 +13,11 @@ import logging
 import shutil
 import os
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["TOKENIZERS_PARALLELISM"] = os.environ.get("TOKENIZERS_PARALLELISM", "false")
 
 import cv2
 import torch
+# PIL Image and AutoModelForCausalLM imports moved to vectorize.py for captioning functionality
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
@@ -26,6 +27,7 @@ from tracking.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model)
 from tracking.relate import compute_relationships
 from tracking import vectorize # This will be used for visual embeddings
+# Caption model loading is now handled in vectorize.py based on USE_CAPTIONING flag
 
 checker = RequirementsChecker()
 # Ensure these are relevant for video processing standalone or adjust if they become part of a larger setup
@@ -177,6 +179,8 @@ def process_video(args):
     # It's crucial that yolo.predictor.save_dir is correctly obtained.
     # Let's defer definitive assignment of exp_dir until after the first frame if possible,
     # or rely on yolo.predictor.save_dir being set by the yolo.track() call.
+
+    # Captioning model is now handled in vectorize.py based on USE_CAPTIONING flag
 
     total_start_time = time.time()
     frame_speeds = []
