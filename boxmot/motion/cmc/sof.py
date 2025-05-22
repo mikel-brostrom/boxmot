@@ -11,7 +11,7 @@ class SOF(BaseCMC):
     between consecutive frames. This class is modeled after a GMC implementation using
     the 'sparseOptFlow' method.
     """
-    def __init__(self, scale=0.1):
+    def __init__(self, scale=0.15):
         """
         Initialize the SOF object.
 
@@ -150,7 +150,7 @@ class SOF(BaseCMC):
 
 def main():
     # Create an instance of the SOF class with a downscaling factor, if desired.
-    sof_tracker = SOF(scale=0.3)
+    sof_tracker = SOF(scale=0.15)
 
     # For example purposes, load two consecutive frames.
     prev_img = cv2.imread("assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg")
