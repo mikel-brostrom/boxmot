@@ -1,219 +1,253 @@
 # Tracking Module Documentation
 
-This directory contains the core logic for object tracking, data vectorization, graph database interaction, and multimodal inference.
+This directory contains the core logic for the multimodal analysis pipeline, including video and audio processing, object tracking, data vectorization, data linking, graph database interaction, and multimodal inference.
+
+## Overall Pipeline
+
+The system is orchestrated by `track.py` for batch processing and `infer.py` for interactive querying.
+
+**Batch Processing Pipeline (Orchestrated by `track.py`):**
+
+1.  **Input:** A video file.
+2.  **Video Processing (`video_processing.py`):**
+    *   Detects objects (e.g., using YOLO).
+    *   Tracks objects across frames (e.g., using DeepOCSORT).
+    *   Generates visual embeddings for frames and detected entity crops using `vectorize.py`.
+    *   Stores frame images and entity crops in MinIO (via `vectorize.py`).
+    *   Stores visual embeddings (frames, entities) in Qdrant (via `vectorize.py`).
+    *   Calculates spatial relationships between entities within a frame (`relate.py`).
+    *   Outputs an `initial_dataset.json` with frame-by-frame visual data, Qdrant vector IDs, MinIO object IDs for images, and spatial relationships.
+3.  **Audio Processing (`audio_processing.py`):**
+    *   Extracts audio from the video.
+    *   Performs speaker diarization (e.g., using Pyannote).
+    *   Transcribes audio segments for each speaker (e.g., using NVIDIA NeMo Parakeet).
+    *   Generates embeddings for audio transcripts using `vectorize.py`.
+    *   Stores audio transcript embeddings in Qdrant (via `vectorize.py`).
+    *   Outputs an `*_audio_segments.json` file with diarized and transcribed audio data, including Qdrant vector IDs for transcripts.
+4.  **Cross-Modal Linking (`link_data.py`):**
+    *   Consumes `initial_dataset.json` (from video processing) and `*_audio_segments.json` (from audio processing).
+    *   Links audio segments to video frames based on temporal overlap.
+    *   Updates Qdrant payloads:
+        *   `frames` collection: Adds `overlapping_audio_segment_ids` to frame payloads.
+        *   `audio_transcripts` collection: Adds `overlapping_frame_ids` and `overlapping_entity_ids` to audio transcript payloads.
+    *   Outputs an `enriched_dataset.json` which augments the video data with audio linkage information.
+5.  **Graph Population (`graphify.py`):**
+    *   Consumes the `enriched_dataset.json`.
+    *   Populates a Neo4j graph database with nodes for frames and entities, and relationships between them (temporal, detection, spatial, etc.).
+
+**Interactive Inference Pipeline (`infer.py`):**
+
+1.  **User Input:** A natural language text query.
+2.  **Query Embedding:** The text query is embedded using `vectorize.py`.
+3.  **Multimodal Retrieval:**
+    *   **Qdrant Search:** Searches Qdrant for relevant visual vectors (frames, entities) and audio transcript vectors based on the query embedding.
+    *   **MinIO Retrieval:** Retrieves corresponding frame/entity images from MinIO using object IDs found in Qdrant payloads.
+    *   **Neo4j Context:** Retrieves graph context (entity relationships, frame appearances) for entities identified in the retrieved visual data.
+4.  **Prompt Construction:** Builds a multimodal prompt for an LLM (e.g., OpenAI GPT-4 Vision) containing:
+    *   Original user query.
+    *   Retrieved images (from MinIO).
+    *   Retrieved audio transcript snippets (from Qdrant).
+    *   Retrieved graph context summary (from Neo4j).
+5.  **LLM Interaction:** Sends the prompt to the LLM.
+6.  **Response:** Presents the LLM's answer to the user.
 
 ## Files
 
 ### `track.py`
 
-This script is the main entry point for running the object tracking pipeline. It utilizes a YOLO model for object detection and various tracking algorithms (e.g., DeepOCSORT, BoT-SORT) to maintain object identities across frames.
+The main orchestrator for the batch processing pipeline. It coordinates `video_processing.py`, `audio_processing.py`, `link_data.py`, and `graphify.py`.
 
 **Key Functionalities:**
-- Initializes and configures the chosen YOLO detector and object tracker.
-- Processes video or image sequences frame by frame.
-- For each frame:
-    - Performs object detection.
-    - Updates tracker states with new detections.
-    - Optionally saves annotated frames, crops of tracked objects, and tracking results to text files.
-- If `--save-dataset` is enabled:
-    - Embeds frame images and detected entity crops using a vision model (e.g., CLIP).
-    - Stores these embeddings and associated metadata (bounding boxes, class names, tracker IDs) in a Qdrant vector database.
-    - Computes and stores relationships between entities within a frame (e.g., spatial relationships like 'near', 'left_of').
-    - Saves all per-frame data, including entity information, embeddings, and relationships, into a `dataset.json` file.
-- If `--metrics` is enabled:
-    - Calculates and saves performance metrics, including processing times and embedding statistics, to `metrics.json`.
-- Supports clearing previous run data with `--clear-prev-runs`.
-
-**Environment Variables Used (via `vectorize.py` indirectly for Qdrant/model config):**
-- `EMBEDDING_MODEL_NAME`: Specifies the embedding model to use (e.g., "clip-ViT-B-32").
+- Parses command-line arguments for all stages.
+- Optionally clears previous run data and reinitializes Qdrant collections and MinIO bucket via `vectorize.py`.
+- Calls `process_video()` to handle video analysis, embedding, and initial data generation.
+- Calls `process_audio()` to handle audio analysis, transcription, and embedding.
+- Calls `link_multimodal_data()` to link video and audio data and update Qdrant.
+- Calls `run_graphification()` to populate the Neo4j graph.
+- Aggregates and saves metrics from all stages.
 
 **Command-line Arguments:**
-The script accepts numerous arguments to customize its behavior, including:
-- `--yolo-model`: Path to the YOLO model weights.
-- `--reid-model`: Path to the ReID model weights (for trackers that use it).
-- `--tracking-method`: The tracking algorithm to use.
-- `--source`: Input video file, directory, URL, or webcam ID.
-- `--conf`: Confidence threshold for detections.
-- `--classes`: Filter detections by specific class IDs.
-- `--save-dataset`: Enable saving of frame and entity data, including embeddings.
-- `--frame-similarity-threshold`: Cosine similarity threshold to avoid redundant frame embeddings.
-- `--metrics`: Enable saving of performance metrics.
-- `--clear-prev-runs`: Clear output directory of previous runs.
-- ... and many others for controlling output, display, and NMS.
+- Includes arguments for video processing (YOLO models, tracking methods, etc.).
+- Includes arguments for audio processing (`--hf-token`).
+- Includes arguments for Neo4j connection (`--neo4j-uri`, `--neo4j-user`, `--neo4j-password`).
+- Orchestrator controls like `--clear-prev-runs`.
+- Output controls like `--project`, `--name`.
+
+### `video_processing.py`
+
+Handles object detection, tracking, ReID, visual embedding generation, and saving video-related outputs.
+
+**Key Functionalities:**
+- Uses YOLO for object detection and a specified tracking algorithm.
+- Processes video frame by frame.
+- Embeds frame images and detected entity crops via `vectorize.embed_image()` and `vectorize.embed_crop()`.
+- Stores frame images and entity crops in MinIO via `vectorize.upload_image_to_minio()`.
+- Stores visual embeddings in Qdrant `frames` and `entities` collections via `vectorize.add_frame_embedding()` and `vectorize.add_entity()`.
+- Uses `relate.py` to compute spatial relationships between entities in a frame.
+- Outputs an `initial_dataset.json` containing per-frame data (entities, Qdrant vector IDs, MinIO object IDs, relationships).
+- Optionally saves annotated video and entity crops (delegated to Ultralytics).
+
+### `audio_processing.py`
+
+Manages the audio analysis pipeline.
+
+**Key Functionalities:**
+- Extracts audio from the input video using `ffmpeg`.
+- Performs speaker diarization using `pyannote.audio`.
+- Transcribes diarized audio segments using an ASR model (e.g., NVIDIA NeMo Parakeet).
+- Embeds audio transcripts via `vectorize.embed_text()`.
+- Stores transcript embeddings in the Qdrant `audio_transcripts` collection via `vectorize.add_audio_transcript_embedding()`.
+- Outputs an `*_audio_segments.json` file with detailed segment information.
+
+### `link_data.py`
+
+Responsible for linking data from video and audio processing stages.
+
+**Key Functionalities:**
+- Takes `initial_dataset.json` (video) and `*_audio_segments.json` (audio) as input.
+- Identifies temporal overlaps between video frames and audio segments.
+- Augments the video data by adding `last_audio_segment_id` and `overlapping_audio_segment_ids` to each frame's information.
+- Updates Qdrant payloads:
+    - `frames` collection: Adds `overlapping_audio_segment_ids`.
+    - `audio_transcripts` collection: Adds `overlapping_frame_ids` and `overlapping_entity_ids`.
+- Outputs an `enriched_dataset.json` file.
 
 ### `vectorize.py`
 
-This module handles the creation and management of vector embeddings for images (frames and crops) using SentenceTransformer models (e.g., CLIP). It interacts with a Qdrant vector database to store and search these embeddings.
+A utility module for creating and managing vector embeddings and interacting with Qdrant and MinIO.
 
 **Key Functionalities:**
-- Initializes the specified embedding model (controlled by `EMBEDDING_MODEL_NAME`).
-- Provides functions to:
-    - `embed_image()`: Generate an embedding for a full image.
-    - `embed_crop()`: Generate an embedding for an image crop (typically of a detected entity).
-    - `search_entity()`: Search for similar entities in Qdrant based on an embedding.
-    - `add_entity()`: Add a new entity embedding and its metadata (including a base64 encoded image of the crop) to the Qdrant `entities` collection.
-    - `add_frame_embedding()`: Add a new frame embedding and its metadata (including an optional base64 encoded frame image) to the Qdrant `frames` collection.
-    - `get_entity_metadata()`: Retrieve the payload/metadata for a given vector ID from the `entities` collection.
-    - `calculate_cosine_similarity()`: Compute the cosine similarity between two embedding vectors.
-- `reinitialize_collections()`: Deletes and recreates Qdrant collections (`entities`, `frames`) with the dimension specified by the chosen embedding model. This is typically called at the start of a `track.py` run if `--clear-prev-runs` is used or for a fresh setup.
+- Initializes embedding models (e.g., SentenceTransformer CLIP for vision and text).
+- Initializes Qdrant and MinIO clients.
+- `reinitialize_collections()`: Clears the MinIO bucket and deletes/recreates Qdrant collections (`entities`, `frames`, `audio_transcripts`) with appropriate dimensions.
+- Embedding functions: `embed_image()`, `embed_crop()`, `embed_text()`.
+- Qdrant interaction:
+    - `add_entity()`: Adds entity crop embedding to `entities` collection.
+    - `add_frame_embedding()`: Adds frame image embedding to `frames` collection.
+    - `add_audio_transcript_embedding()`: Adds audio transcript embedding to `audio_transcripts` collection.
+    - `search_entity()`: Searches for similar entities.
+    - `get_entity_metadata()`: Retrieves entity metadata.
+- MinIO interaction:
+    - `upload_image_to_minio()`: Uploads image bytes (frames, crops) to MinIO.
+    - `clear_minio_bucket()`: Deletes all objects from the MinIO bucket.
+- `calculate_cosine_similarity()`.
 
 **Environment Variables Used:**
-- `EMBEDDING_MODEL_NAME`: Specifies the SentenceTransformer model to use for embeddings (e.g., "clip-ViT-B-32", "clip-ViT-L-14"). Defaults to "clip-ViT-B-32".
-- `QDRANT_HOST` (implicit): The host for the Qdrant service (defaults to 'localhost' in code).
-- `QDRANT_PORT` (implicit): The port for the Qdrant service (defaults to 6333 in code).
+- `EMBEDDING_MODEL_NAME`: Specifies the SentenceTransformer model.
+- `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET_NAME`, `MINIO_USE_SSL`: MinIO connection details.
+- Qdrant host/port are typically passed as arguments or use defaults.
 
 **Qdrant Collections:**
-- `entities`: Stores embeddings of detected object crops. Each point includes the vector, a unique ID, and a payload containing metadata like `entity_id`, `class`, `class_name`, `bbox`, and the base64 encoded crop image.
-- `frames`: Stores embeddings of video frames. Each point includes the vector, a unique ID, and a payload containing `frame_idx`, `timestamp`, and optionally the base64 encoded frame image.
+- `entities`: Stores embeddings of detected object crops. Payload includes `entity_id`, `class_name`, `confidence`, `image_minio_id`.
+- `frames`: Stores embeddings of video frames. Payload includes `frame_idx`, `timestamp`, `image_minio_id`.
+- `audio_transcripts`: Stores embeddings of audio transcripts. Payload includes `audio_segment_unique_id`, `speaker_label`, `start_time_seconds`, `end_time_seconds`, `transcript_text`. Payloads are updated by `link_data.py` with `overlapping_frame_ids` and `overlapping_entity_ids`.
 
 ### `graphify.py`
 
-This script takes the `dataset.json` file generated by `track.py` (when `--save-dataset` is used) and populates a Neo4j graph database with the structured information.
+Populates a Neo4j graph database from the `enriched_dataset.json`.
 
 **Key Functionalities:**
-- Connects to a Neo4j instance.
-- `clear_graph()`: Optionally clears all existing data from the graph before processing.
-- `create_constraints()`: Creates unique constraints on `Frame` nodes (by `frame_idx`) and `Entity` nodes (by `entity_id`) for data integrity and performance.
+- Connects to Neo4j.
+- `clear_graph()`: Optionally clears existing graph data.
+- `create_constraints()`: Ensures uniqueness for `Frame.frame_idx` and `Entity.entity_id`.
 - `graphify_dataset()`:
-    - Iterates through each frame in `dataset.json`.
-    - Creates/updates `Frame` nodes with properties like `frame_idx`, `timestamp`, `geo`, `latest_vector_id` (from Qdrant), and a generated `name`.
-    - Creates `:NEXT` and `:PREV` relationships between sequential `Frame` nodes.
-    - Creates/updates `Entity` nodes with properties like `entity_id` (tracker ID or logical ID), `class`, `class_name`, `latest_vector_id` (from Qdrant), and a generated `name`.
-    - Creates `:DETECTED_IN` relationships from `Entity` nodes to `Frame` nodes, storing `confidence` and the entity's `vector_id` for that specific detection instance as relationship properties.
-    - Creates inter-entity relationships (e.g., `(:Entity)-[:near]->(:Entity)`) based on the `relationships` field in `dataset.json`. Relationship types are sanitized for Neo4j compatibility.
+    - Iterates through `enriched_dataset.json`.
+    - Creates/updates `Frame` nodes (properties: `frame_idx`, `timestamp`, `geo`, `latest_vector_id` (Qdrant ID), `name`, `last_audio_segment_id`, `overlapping_audio_segment_ids`).
+    - Creates `:NEXT`/`:PREV` relationships between `Frame` nodes.
+    - Creates/updates `Entity` nodes (properties: `entity_id`, `class_name`, `latest_vector_id` (Qdrant ID), `name`).
+    - Creates `:DETECTED_IN` relationships from `Entity` to `Frame` (properties: `confidence`, `vector_id` (Qdrant ID of the specific detection instance)).
+    - Creates inter-entity spatial relationships (e.g., `:near`, `:left_of`).
 
 **Environment Variables Used:**
-- `NEO4J_URI`: The URI for the Neo4j database (e.g., "bolt://localhost:7687").
-- `NEO4J_USER`: The username for Neo4j authentication.
-- `NEO4J_PASSWORD`: The password for Neo4j authentication.
+- `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`: Neo4j connection details.
 
-**Neo4j Graph Schema:**
-- **Nodes:**
-    - `Frame`: Represents a single frame in the video. Properties include `frame_idx`, `timestamp`, `geo`, `latest_vector_id`, `name`.
-    - `Entity`: Represents a tracked object. Properties include `entity_id`, `class`, `class_name`, `latest_vector_id`, `name`.
-- **Relationships:**
-    - `NEXT`: Connects a `Frame` to the subsequent `Frame`.
-    - `PREV`: Connects a `Frame` to the preceding `Frame`.
-    - `DETECTED_IN`: Connects an `Entity` to a `Frame` where it was detected. Properties: `confidence`, `vector_id`.
-    - Dynamic relationship types (e.g., `near`, `left_of`): Connect `Entity` nodes based on computed relationships.
+**Neo4j Graph Schema (Key Aspects):**
+- **Nodes:** `Frame`, `Entity`.
+- **Relationships:** `:NEXT`, `:PREV`, `:DETECTED_IN`, spatial relationships (e.g., `:near`).
+- `Frame` nodes now store audio linkage information.
 
 ### `infer.py`
 
-This script provides an interactive command-line interface for multimodal inference. It allows users to ask natural language queries, which are then processed by retrieving relevant visual context (images of entities and frames from Qdrant) and graph context (entity relationships and appearances from Neo4j). This consolidated information, along with the query and retrieved images, is then passed to an OpenAI multimodal model (e.g., GPT-4 Vision) to generate an answer.
+Interactive command-line interface for multimodal querying.
 
 **Key Functionalities:**
-- Initializes and connects to:
-    - SentenceTransformer model (for embedding the user's text query).
-    - Qdrant (to retrieve similar images).
-    - Neo4j (to retrieve graph context for entities found in images).
-    - OpenAI API.
+- Initializes SentenceTransformer, Qdrant, Neo4j, MinIO, and OpenAI clients.
 - `interactive_loop()`:
-    - Takes user text query as input.
-    - Embeds the query using `embed_text()`.
-    - `retrieve_similar_images()`:
-        - Searches Qdrant `entities` and `frames` collections using the query embedding.
-        - Implements a retrieval strategy: fetches more images than needed initially (`RETRIEVAL_MULTIPLIER`), filters by a `MIN_SIMILARITY_THRESHOLD`, and then selects the top `TARGET_ENTITY_TOP_K` entity images and `TARGET_FRAME_TOP_K` frame images.
-        - Decodes base64 images from Qdrant payloads into PIL Images.
-    - `retrieve_graph_context()`:
-        - Takes entity IDs extracted from the retrieved Qdrant entity images.
-        - Queries Neo4j to get information about these entities, their frame appearances, and their relationships with each other.
-    - `build_prompt()`: Constructs a prompt for the OpenAI model, including:
-        - The original user query.
-        - The retrieved graph context summary (text).
-        - The retrieved PIL images (converted to base64 data URIs).
-    - Sends the prompt to the specified OpenAI chat model.
-    - Prints the assistant's response.
-    - Logs the entire interaction (query, retrieved context, prompt, response, saved images) to a JSON file in `runs/track/exp/infer/<timestamp>/`.
+    - Embeds user's text query.
+    - `retrieve_similar_images()`: Searches Qdrant (`entities`, `frames`), retrieves MinIO object IDs from payloads, and then downloads images from MinIO using `download_image_from_minio()`.
+    - `retrieve_relevant_audio_transcripts()`: Searches Qdrant `audio_transcripts` collection.
+    - `retrieve_graph_context()`: Gets context from Neo4j for entities identified from image search.
+    - `build_prompt()`: Constructs a multimodal prompt with text query, graph summary, retrieved audio transcripts, and retrieved PIL images (from MinIO).
+    - Sends prompt to OpenAI model and prints the response.
+    - Logs interaction details.
 
 **Environment Variables Used:**
-- `OPENAI_MODEL`: The OpenAI chat model to use (e.g., "gpt-4-vision-preview").
-- `EMBEDDING_MODEL_NAME`: The SentenceTransformer model for text query embedding.
-- `OPENAI_API_KEY`: Your OpenAI API key.
-- `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`: Neo4j connection details.
-- `QDRANT_HOST`, `QDRANT_PORT`: Qdrant connection details (defaults to localhost:6333 if not specified by args).
+- `OPENAI_MODEL`, `OPENAI_API_KEY`.
+- `EMBEDDING_MODEL_NAME`.
+- Neo4j, Qdrant, and MinIO connection variables (as above).
 
 ### `relate.py`
 
-A simple module responsible for computing basic relationships between detected entities within a single frame.
-
-**Key Functionalities:**
-- `compute_relationships(entities: List[Dict])`:
-    - Takes a list of entity dictionaries (containing `bbox`, `id`, `class_name`, etc.).
-    - Currently, it focuses on relationships where the *subject* is a 'person'.
-    - Calculates spatial relationships:
-        - `near`: Based on Euclidean distance between bounding box centers (threshold: < 100 pixels).
-        - `left_of`, `right_of`, `above`, `below`: Based on the relative positions of bounding box centers.
-    - Returns a list of relationship triplets: `(subject_id, predicate_string, object_id)`.
-
-**Note:** The relationship generation is currently basic and primarily focused on 'person' subjects. It can be extended to include more complex relationships or consider other entity types as subjects.
+Computes basic spatial relationships between detected entities within a single frame. (Content largely unchanged, but its output is used by `video_processing.py` and subsequently `graphify.py`).
 
 ### `.env.example`
 
-This file serves as a template for the required environment variables. Users should copy this to a `.env` file and fill in their actual credentials and configurations.
+Template for environment variables. **Crucially, add MinIO and HF_TOKEN variables.**
 
 ```
+# OpenAI
 OPENAI_MODEL=gpt-4-vision-preview
-EMBEDDING_MODEL_NAME=clip-ViT-B-32
 OPENAI_API_KEY=your_openai_api_key_here
+
+# Embedding Model
+EMBEDDING_MODEL_NAME=clip-ViT-B-32 # Or other supported SentenceTransformer
+
+# Neo4j
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=password
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
+NEO4J_PASSWORD=password # Change this for production
+
+# Qdrant (host/port often configured via CLI args or defaults in code)
+# QDRANT_HOST=localhost
+# QDRANT_PORT=6333
+
+# MinIO
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET_NAME=boxmot-images # Must match docker-compose.yml
+MINIO_USE_SSL=False # Set to True if MinIO is configured with SSL
+
+# Hugging Face (for audio models like pyannote)
+HF_TOKEN=your_huggingface_read_token_here
 ```
-
-## Workflow Overview
-
-1.  **Tracking & Data Generation (`track.py`):**
-    *   Run `track.py` with a video source and the `--save-dataset` flag.
-    *   This script performs object tracking.
-    *   Frame images and entity crops are embedded using `vectorize.py` and stored in Qdrant.
-    *   A `dataset.json` file is created in `runs/track/exp/dataset/`, containing structured data about frames, entities, their Qdrant vector IDs, and basic relationships computed by `relate.py`.
-
-2.  **Graph Population (`graphify.py`):**
-    *   Run `graphify.py` (optionally specifying the path to `dataset.json`).
-    *   This script parses `dataset.json` and populates the Neo4j graph database with nodes for frames and entities, and relationships between them.
-
-3.  **Interactive Inference (`infer.py`):**
-    *   Run `infer.py`.
-    *   Ask natural language questions.
-    *   The script will:
-        *   Embed your query.
-        *   Retrieve relevant images from Qdrant.
-        *   Fetch graph context for entities in those images from Neo4j.
-        *   Send all information to an OpenAI model for a response.
 
 ## Setup & Dependencies
 
-- Ensure Python environment is set up with all packages from `pyproject.toml` (or `requirements.txt` if available).
-- **Qdrant:** Must be running. A `docker-compose.yml` is provided in the root directory for easy setup.
-- **Neo4j:** Must be running and accessible. The `docker-compose.yml` also includes a Neo4j service.
-- **OpenAI API Key:** Required for `infer.py`.
-- Create a `.env` file in the `tracking` directory (or project root if `python-dotenv` is configured to search there) with the necessary environment variables (see `.env.example`).
+- Python environment with packages from `pyproject.toml`.
+- **Docker Services:** Qdrant, Neo4j, MinIO. Use the `docker-compose.yml` in the project root.
+    ```bash
+    docker-compose up -d qdrant neo4j minio
+    ```
+- **Environment Variables:** Create a `.env` file in the `tracking` directory (or project root) based on `.env.example` and fill in your credentials.
 
 ## Running the System
 
-1.  **Start Services:**
-    ```bash
-    docker-compose up -d qdrant neo4j
-    ```
-    Wait for services to be healthy. Neo4j might take a minute or two on the first run.
+1.  **Start Docker Services:** (as above)
+    Ensure all services are healthy. Check MinIO console at `http://localhost:9001`.
 
-2.  **Run Tracking and Dataset Generation:**
+2.  **Run Batch Processing Pipeline (`track.py`):**
     ```bash
-    python tracking/track.py --source <your_video_source> --save-dataset --metrics --clear-prev-runs --name my_tracking_experiment
+    python tracking/track.py --source <your_video_source> --save-dataset --metrics --clear-prev-runs --name my_experiment [--hf-token YOUR_HF_TOKEN_IF_NOT_IN_ENV]
     ```
-    Adjust arguments as needed.
+    This will:
+    *   Process video (`video_processing.py`) -> `initial_dataset.json`, Qdrant visual data, MinIO images.
+    *   Process audio (`audio_processing.py`) -> `*_audio_segments.json`, Qdrant audio data.
+    *   Link data (`link_data.py`) -> `enriched_dataset.json`, updated Qdrant payloads.
+    *   Graphify data (`graphify.py`) -> Populates Neo4j.
 
-3.  **Populate the Graph Database:**
-    The `dataset.json` path will be something like `runs/track/my_tracking_experiment/dataset/dataset.json`.
+3.  **Run Interactive Inference (`infer.py`):**
     ```bash
-    python tracking/graphify.py --dataset-path runs/track/my_tracking_experiment/dataset/dataset.json
+    python tracking/infer.py [--neo4j-uri ...] [--qdrant-host ...] # etc. if not using .env or defaults
     ```
-
-4.  **Run Interactive Inference:**
-    ```bash
-    python tracking/infer.py
-    ```
-    Then, type your questions at the prompt.
-    (Ensure your environment variables for OpenAI, Neo4j, and Qdrant are correctly set in your `.env` file or passed as arguments if applicable). 
+    Type your questions at the prompt.

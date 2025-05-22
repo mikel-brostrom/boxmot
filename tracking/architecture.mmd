@@ -12,78 +12,92 @@ flowchart TD
         ap@{ label: "<span style='font-size:1.5em'>🔊</span><br>audio_processing.py" }
         ld@{ label: "<span style='font-size:1.5em'>🔗</span><br>link_data.py" }
         gp@{ label: "<span style='font-size:1.5em'>📈</span><br>graphify.py" }
-        vec@{ label: "<span style='font-size:1.5em'>🔢</span><br>vectorize.py" }
-        rel@{ label: "<span style='font-size:1.5em'>🔄</span><br>relate.py" }
-        minio_batch@{ label: "<span style='font-size:1.5em'>🖼️</span><br>MinIO<br>(Frames, Crops)" }
-        qdrant_batch@{ label: "<span style='font-size:1.5em'>💾</span><br>Qdrant<br>(Vectors)" }
-        neo4j_batch@{ label: "<span style='font-size:1.5em'>🧬</span><br>Neo4j" }
-        fs_batch@{ label: "<span style='font-size:1.5em'>📂</span><br>File System<br>(JSON, Logs, Media)" }
+        vec_util@{ label: "<span style='font-size:1.5em'>🧬</span><br>vectorize.py<br>(Utility)" }
+        minio_batch@{ label: "<span style='font-size:1.5em'>📦</span><br>MinIO<br>(Frames, Crops)" }
+        qdrant_batch@{ label: "<span style='font-size:1.5em'>💾</span><br>Qdrant<br>(Visual/Audio Vectors)" }
+        neo4j_batch@{ label: "<span style='font-size:1.5em'>🕸️</span><br>Neo4j<br>(Graph Data)" }
+        fs_batch@{ label: "<span style='font-size:1.5em'>📂</span><br>File System<br>(JSON Logs, Temp Media)" }
   end
  subgraph subGraph1["Interactive Inference Pipeline (infer.py)"]
     direction LR
         user_query@{ label: "<span style='font-size:1.5em'>💬</span><br>User Text Query" }
         infer_py@{ label: "<span style='font-size:1.5em'>🧩</span><br>infer.py" }
-        infer_embedding_model@{ label: "<span style='font-size:1.5em'>🔢</span><br>Embedding Model" }
+        infer_embedding_model@{ label: "<span style='font-size:1.5em'>🔢</span><br>Embedding Model<br>(via vectorize.py)" }
         openai_api@{ label: "<span style='font-size:1.5em'>🤖</span><br>OpenAI API" }
-        minio_infer@{ label: "<span style='font-size:1.5em'>🖼️</span><br>MinIO" }
+        minio_infer@{ label: "<span style='font-size:1.5em'>📦</span><br>MinIO" }
         qdrant_infer@{ label: "<span style='font-size:1.5em'>💾</span><br>Qdrant" }
-        neo4j_infer@{ label: "<span style='font-size:1.5em'>🧬</span><br>Neo4j" }
+        neo4j_infer@{ label: "<span style='font-size:1.5em'>🕸️</span><br>Neo4j" }
         assistant_response@{ label: "<span style='font-size:1.5em'>✉️</span><br>Assistant Response" }
   end
  subgraph subGraph2["Orchestration & Config"]
         track_py@{ label: "<span style='font-size:1.5em'>🛠️</span><br>track.py" }
         docker_compose@{ label: "<span style='font-size:1.5em'>🐳</span><br>docker-compose.yml" }
   end
-    raw_video --> vp & ap
+
+    raw_video --> vp
+    raw_video --> ap
+
+    vp -- Uses --> vec_util
+    ap -- Uses --> vec_util
+    infer_py -- Uses --> vec_util
+
+    vec_util -- Stores Visual/Audio Embeddings --> qdrant_batch
+    vec_util -- Stores Frame/Crop Images --> minio_batch
+
     vp -- "initial_dataset.json" --> ld
-    vp -- Frame/Entity Images --> minio_batch
-    vp -- Embeddings/Metadata --> vec
-    vec -- Store/Search Visual Vectors --> qdrant_batch
-    vec -- Store/Retrieve Images --> minio_batch
-    vp -- Spatial Relationships --> rel
+    vp -- Visual Embeddings/Metadata (via vec_util) --> qdrant_batch
+    vp -- Frame/Entity Images (via vec_util) --> minio_batch
+    
     ap -- "*_audio_segments.json" --> ld
-    ap -- Embeddings/Metadata --> vec
-    vec -- Store Audio Transcript Vectors --> qdrant_batch
+    ap -- Audio Transcript Embeddings (via vec_util) --> qdrant_batch
+    
     ld -- "enriched_dataset.json" --> gp
-    ld -- Update Payloads --> qdrant_batch
+    ld -- Updates Payloads --> qdrant_batch
+    
     gp -- Graph Data --> neo4j_batch
-    fs_batch <--> vp & ap & ld & gp
+    
+    fs_batch <--> vp 
+    fs_batch <--> ap 
+    fs_batch <--> ld 
+    fs_batch <--> gp
+    fs_batch <--> track_py
+
     user_query --> infer_py
-    infer_py --> infer_embedding_model & assistant_response
-    infer_py -- Search Visual Vectors --> qdrant_infer
-    qdrant_infer -- Image IDs --> infer_py
-    infer_py -- Retrieve Images --> minio_infer
+    infer_py --> infer_embedding_model
+    infer_py --> assistant_response
+    
+    infer_py -- Search Visual/Audio Vectors --> qdrant_infer
+    qdrant_infer -- Vector IDs/Payloads --> infer_py
+    
+    infer_py -- Retrieve Images (by MinIO ID from Qdrant payload) --> minio_infer
     minio_infer -- Image Data --> infer_py
-    infer_py -- Search Audio Vectors --> qdrant_infer
-    qdrant_infer -- Transcript Data --> infer_py
+    
+    qdrant_infer -- Transcript Data (from payload) --> infer_py 
+    
     infer_py -- Query Graph --> neo4j_infer
     neo4j_infer -- Graph Context --> infer_py
+    
     infer_py -- Multimodal Prompt --> openai_api
     openai_api -- LLM Response --> infer_py
-    track_py --> vp & ap & ld & gp & vec
-     raw_video:::batch
-     vp:::batch
-     ap:::batch
-     ld:::batch
-     gp:::batch
-     vec:::utility
-     rel:::utility
-     minio_batch:::datastore
-     qdrant_batch:::datastore
-     neo4j_batch:::datastore
-     fs_batch:::datastore
-     user_query:::infer
-     infer_py:::infer
-     infer_embedding_model:::infer
-     openai_api:::external
-     minio_infer:::datastore
-     qdrant_infer:::datastore
-     neo4j_infer:::datastore
-     assistant_response:::infer
-     track_py:::infer
-     docker_compose:::infer
+    
+    track_py -- Orchestrates --> vp
+    track_py -- Orchestrates --> ap
+    track_py -- Orchestrates --> ld
+    track_py -- Orchestrates --> gp
+    track_py -- Calls Reinitialization --> vec_util
+
     classDef batch fill:#D6EAF8,stroke:#3498DB,stroke-width:2px,color:black,font-weight:bold
     classDef infer fill:#D5F5E3,stroke:#2ECC71,stroke-width:2px,color:black,font-weight:bold
     classDef datastore fill:#FCF3CF,stroke:#F1C40F,stroke-width:2px,color:black,font-weight:bold
-    classDef utility fill:#FDEBD0,stroke:#F1C40F,stroke-width:2px,color:black,font-weight:bold
+    classDef utility fill:#FDEBD0,stroke:#E67E22,stroke-width:2px,color:black,font-weight:bold
     classDef external fill:#EBDEF0,stroke:#8E44AD,stroke-width:2px,color:black,font-weight:bold
+    classDef orchestrator fill:#FADBD8,stroke:#C0392B,stroke-width:2px,color:black,font-weight:bold
+
+    class raw_video,vp,ap,ld,gp,fs_batch batch;
+    class vec_util utility;
+    class minio_batch,qdrant_batch,neo4j_batch datastore;
+    class user_query,infer_py,infer_embedding_model,assistant_response infer;
+    class openai_api external;
+    class minio_infer,qdrant_infer,neo4j_infer datastore;
+    class track_py orchestrator;
+    class docker_compose orchestrator;
