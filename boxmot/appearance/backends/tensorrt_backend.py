@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-from pathlib import Path
 from collections import OrderedDict, namedtuple
 from boxmot.utils import logger as LOGGER
 from boxmot.appearance.backends.base_backend import BaseModelBackend

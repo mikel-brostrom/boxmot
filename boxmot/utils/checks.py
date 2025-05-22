@@ -5,7 +5,6 @@ from boxmot.utils import logger as LOGGER
 from pathlib import Path
 import subprocess
 
-from boxmot.utils import logger as LOGGER
 REQUIREMENTS = Path('requirements.txt')
 
 class RequirementsChecker:
