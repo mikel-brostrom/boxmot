@@ -38,6 +38,5 @@ class BaseCMC(ABC):
                 fy=self.scale,
                 interpolation=cv2.INTER_LINEAR
             )
-        # float32 usually gives you slightly better numerical stability (and convergence)
-        img = img.astype(np.float32)
+
         return img
