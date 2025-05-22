@@ -4,9 +4,9 @@ import argparse
 from pathlib import Path
 import time
 import json
-import logging
 import shutil
 import os
+import structlog # Import structlog
 
 # Consolidate os.environ settings if any are still needed globally for track.py
 # os.environ["TOKENIZERS_PARALLELISM"] = "false" # This is in video_processing & vectorize, ensure consistency
@@ -19,62 +19,71 @@ from tracking.link_data import link_multimodal_data # Import the cross-modal lin
 from tracking import vectorize # For global Qdrant reinitialization if decided
 from tracking.graphify import run_graphification # Import the graphification runner
 
-# Configure basic logging for the main orchestrator script
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure structlog
+structlog.configure(
+    processors=[
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.dev.set_exc_info,
+        structlog.dev.ConsoleRenderer(), # For development, prints nicely to console
+        # structlog.processors.JSONRenderer() # For production, uncomment and comment out ConsoleRenderer
+    ],
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
+)
 # Suppress verbose INFO logs from httpx client (used by Qdrant client)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
+# This still uses standard logging, which structlog can route if needed,
+# but often it's easier to configure such libraries directly.
+import logging as std_logging # Keep for configuring third-party libraries
+std_logging.getLogger("httpx").setLevel(std_logging.WARNING)
+
+logger = structlog.get_logger(__name__) # Use structlog's get_logger
 
 def run(args):
-    logger.info(f"Main orchestrator (track.py) started with args: {args}")
+    logger.info("Main orchestrator (track.py) started.", args=vars(args)) # Log args as a dictionary
     total_orchestration_start_time = time.time()
 
     # --- Global Setup Phase (e.g., Clearing previous runs, Qdrant full reinitialization) ---
     if args.clear_prev_runs:
         exp_dir_to_clear = Path(args.project) / args.name
         if exp_dir_to_clear.exists() and exp_dir_to_clear.is_dir():
-            logger.info(f"Orchestrator: --clear-prev-runs flag set. Deleting directory: {exp_dir_to_clear}")
+            logger.info("Orchestrator: --clear-prev-runs flag set. Deleting directory.", directory=str(exp_dir_to_clear))
             try:
                 shutil.rmtree(exp_dir_to_clear)
-                logger.info(f"Orchestrator: Successfully deleted {exp_dir_to_clear}.")
+                logger.info("Orchestrator: Successfully deleted directory.", directory=str(exp_dir_to_clear))
             except Exception as e:
-                logger.error(f"Orchestrator: Error deleting {exp_dir_to_clear}: {e}.")
+                logger.error("Orchestrator: Error deleting directory.", directory=str(exp_dir_to_clear), error=e, exc_info=True)
         else:
-            logger.info(f"Orchestrator: --clear-prev-runs flag set, but directory {exp_dir_to_clear} does not exist. Nothing to delete.")
+            logger.info("Orchestrator: --clear-prev-runs flag set, but directory does not exist. Nothing to delete.", directory=str(exp_dir_to_clear))
 
-    # Global Qdrant reinitialization (if this is the desired strategy)
-    # This ensures all collections are fresh based on vectorize.py's current settings.
-    # video_processing.py also calls this; consider if it should only be called once globally here.
-    # For now, let video_processing.py handle its specific needs, and track.py ensures overall state if necessary.
-    # If vectorize.reinitialize_collections is smart enough, multiple calls might be okay (idempotent).
-    # Let's assume for now that vectorize.py handles this robustly.
     try:
         logger.info("Orchestrator: Attempting global Qdrant collection reinitialization.")
-        vectorize.reinitialize_collections() # Ensure this reinitializes for both visual and upcoming audio
+        vectorize.reinitialize_collections()
         logger.info("Orchestrator: Global Qdrant collections reinitialized successfully.")
     except Exception as e:
-        logger.error(f"Orchestrator: Failed to reinitialize Qdrant collections globally: {e}. Terminating.")
+        logger.error("Orchestrator: Failed to reinitialize Qdrant collections globally. Terminating.", error=e, exc_info=True)
         return
 
     # --- Step 1: Video Processing ---
     logger.info("Orchestrator: Starting video processing step.")
     video_processing_start_time = time.time()
-    # Call the refactored video processing function
-    # It will use args passed from this script's parser
     video_dataset_frames, video_metrics, video_output_paths = process_video(args)
     video_processing_time = time.time() - video_processing_start_time
-    logger.info(f"Orchestrator: Video processing step completed in {video_processing_time:.2f} seconds.")
+    logger.info("Orchestrator: Video processing step completed.", duration_seconds=round(video_processing_time, 2))
     if not video_dataset_frames:
         logger.error("Orchestrator: Video processing returned no data. Aborting further steps.")
         return
-    logger.info(f"Orchestrator: Video processing generated {len(video_dataset_frames)} frame data entries.")
-    logger.info(f"Orchestrator: Video output paths: {video_output_paths}")
-    logger.debug(f"Orchestrator: Video metrics: {json.dumps(video_metrics, indent=2)}")
+    logger.info("Orchestrator: Video processing generated frame data.", num_frames=len(video_dataset_frames))
+    logger.info("Orchestrator: Video output paths.", paths=video_output_paths)
+    logger.debug("Orchestrator: Video metrics.", metrics=video_metrics) # structlog handles dicts well
 
-    # The `initial_dataset.json` is now expected to be at video_output_paths['initial_dataset_json']
     initial_dataset_path = video_output_paths.get('initial_dataset_json')
     if not initial_dataset_path or not Path(initial_dataset_path).exists():
-        logger.error(f"Orchestrator: initial_dataset.json not found at expected path: {initial_dataset_path}. Aborting.")
+        logger.error("Orchestrator: initial_dataset.json not found. Aborting.", expected_path=initial_dataset_path)
         return
 
     # --- Step 2: Audio Processing ---
@@ -82,25 +91,29 @@ def run(args):
     audio_processing_start_time = time.time()
     audio_segments_data, audio_processing_metrics, audio_output_paths = process_audio(args)
     audio_processing_time = time.time() - audio_processing_start_time
-    logger.info(f"Orchestrator: Audio processing step completed in {audio_processing_time:.2f} seconds.")
-    logger.info(f"Orchestrator: Audio processing generated {len(audio_segments_data)} audio segments.")
-    logger.info(f"Orchestrator: Audio output paths: {audio_output_paths}")
-    logger.debug(f"Orchestrator: Audio metrics: {json.dumps(audio_processing_metrics, indent=2)}")
+    logger.info("Orchestrator: Audio processing step completed.", duration_seconds=round(audio_processing_time, 2))
+    logger.info("Orchestrator: Audio processing generated segments.", num_segments=len(audio_segments_data))
+    logger.info("Orchestrator: Audio output paths.", paths=audio_output_paths)
+    logger.debug("Orchestrator: Audio metrics.", metrics=audio_processing_metrics)
 
     # --- Step 3: Cross-Modal Linking ---
     logger.info("Orchestrator: Starting cross-modal linking step.")
     linking_start_time = time.time()
+    linking_time = None  # Initialize linking_time
+    linking_metrics = {"status": "pending", "message": "Linking not initiated"} # Initialize linking_metrics
     
     initial_dataset_json_path = video_output_paths.get('initial_dataset_json')
     audio_segments_json_path = audio_output_paths.get('audio_segments_json')
 
     if not initial_dataset_json_path or not Path(initial_dataset_json_path).exists():
-        logger.error(f"Orchestrator: initial_dataset.json not found at {initial_dataset_json_path} for linking. Aborting.")
+        logger.error("Orchestrator: initial_dataset.json not found for linking. Aborting.", path=initial_dataset_json_path)
         return
     if not audio_segments_json_path or not Path(audio_segments_json_path).exists():
-        logger.error(f"Orchestrator: Audio segments JSON ({audio_segments_json_path}) not found for linking. Aborting.")
+        logger.error("Orchestrator: Audio segments JSON not found for linking. Aborting.", path=audio_segments_json_path)
         return
 
+    enriched_dataset_path = None # Initialize to ensure it's defined
+    linking_metrics = {} # Initialize to ensure it's defined
     try:
         qdrant_client = vectorize.get_qdrant_client() # Get Qdrant client instance
         enriched_dataset_path, linking_metrics = link_multimodal_data(
@@ -109,72 +122,102 @@ def run(args):
             qdrant_client=qdrant_client,
             args=args # Pass the main args object
         )
-        linking_time = time.time() - linking_start_time
+        linking_time = time.time() - linking_start_time # Calculate time after the operation
         if enriched_dataset_path:
             logger.info(f"Orchestrator: Cross-modal linking step completed in {linking_time:.2f} seconds.")
             logger.info(f"Orchestrator: Enriched dataset saved to: {enriched_dataset_path}")
-            logger.debug(f"Orchestrator: Linking metrics: {json.dumps(linking_metrics, indent=2)}")
         else:
-            logger.error(f"Orchestrator: Cross-modal linking failed. Metrics: {json.dumps(linking_metrics, indent=2)}")
-            # Fallback to initial_dataset_path to allow subsequent steps to run if desired, but log severe warning.
-            logger.warning("Orchestrator: Proceeding with initial_dataset_path due to linking failure. Graph data will not be enriched.")
-            enriched_dataset_path = initial_dataset_path # Fallback
-            # Ensure linking_metrics is what's expected by the final summary if it failed.
             # The linking_metrics from the function should already reflect the failure.
+            logger.error(f"Orchestrator: Cross-modal linking failed in {linking_time:.2f} seconds. Metrics: {linking_metrics}")
+            logger.warning("Orchestrator: Proceeding with initial_dataset_path due to linking failure. Graph data will not be enriched.")
+            enriched_dataset_path = initial_dataset_json_path # Fallback
+            # linking_metrics should already be set by the failing function
 
     except Exception as e:
+        linking_time = time.time() - linking_start_time # Calculate time until exception
         logger.error(f"Orchestrator: Error during cross-modal linking: {e}", exc_info=True)
         # Decide if to proceed or terminate. For now, let's try to proceed if enriched_dataset_path is somehow set or fallback.
         # If linking is critical, this should be a return.
         # Fallback to initial_dataset_path to allow subsequent steps to run if desired, but log severe warning.
         logger.warning("Orchestrator: Proceeding with initial_dataset_path due to linking error. Graph data will not be enriched.")
         enriched_dataset_path = initial_dataset_path 
-        linking_metrics = {"error": str(e), "status": "failed"}
+        linking_metrics = {"error": str(e), "status": "failed_exception"}
 
     # --- Step 4: Graphify Data ---
     logger.info("Orchestrator: Starting data graphifying step.")
     graphify_start_time = time.time()
     graph_metrics = {}
+    graphify_time = None # Initialize graphify_time
+
     if enriched_dataset_path: # Only proceed if we have a dataset (either enriched or fallback)
         try:
             # Ensure the args object has the path to the dataset to be graphified
             args.enriched_dataset_path = str(enriched_dataset_path) 
             graph_metrics = run_graphification(args)
-            graphify_time = time.time() - graphify_start_time
+            graphify_time = time.time() - graphify_start_time # Calculate time after the operation
             if graph_metrics.get("status") == "error":
                 logger.error(f"Orchestrator: Data graphifying step failed in {graphify_time:.2f} seconds. Error: {graph_metrics.get('message')}")
             else:
                 logger.info(f"Orchestrator: Data graphifying step completed in {graphify_time:.2f} seconds.")
                 logger.debug(f"Orchestrator: Graphification metrics: {json.dumps(graph_metrics, indent=2)}")
         except Exception as e:
-            graphify_time = time.time() - graphify_start_time
+            graphify_time = time.time() - graphify_start_time # Calculate time until exception
             logger.error(f"Orchestrator: Error during data graphifying: {e} after {graphify_time:.2f}s", exc_info=True)
-            graph_metrics = {"status": "error", "message": str(e)}
+            graph_metrics = {"status": "error_exception", "message": str(e)}
     else:
         logger.warning("Orchestrator: Skipping graphification because enriched_dataset_path is not set.")
         graph_metrics = {"status": "skipped", "message": "Enriched dataset path not available"}
+        graphify_time = time.time() - graphify_start_time # Still record time taken to decide to skip
 
     # --- Orchestration Summary ---
     total_orchestration_time = time.time() - total_orchestration_start_time
-    logger.info(f"Orchestrator: Full orchestration completed in {total_orchestration_time:.2f} seconds.")
+    logger.info("Orchestrator: Full orchestration completed.", total_duration_seconds=round(total_orchestration_time, 2))
     
-    # Aggregate and save final metrics if needed
+    # Aggregate and save final metrics
+    # We might change this later to log metrics as events throughout the process
+    # and then perhaps have a separate script to aggregate them if needed,
+    # or use a metrics backend that handles aggregation.
+    # For now, keep the existing final JSON dump.
     final_metrics = {
         "orchestration_total_time_seconds": round(total_orchestration_time, 3),
-        "video_processing_metrics": video_metrics,
-        "audio_processing_metrics": audio_processing_metrics,
-        "linking_metrics": linking_metrics,
-        "graph_metrics": graph_metrics
+        "video_processing_metrics": video_metrics, # These should be dicts already
+        "audio_processing_metrics": audio_processing_metrics, # These should be dicts already
+        "linking_metrics": linking_metrics, # This should be a dict
+        "graph_metrics": graph_metrics # This should be a dict
     }
     
-    # Save aggregated metrics (ensure exp_dir is robustly defined or passed)
     exp_dir = Path(args.project) / args.name
     final_metrics_dir = exp_dir / 'metrics'
     final_metrics_dir.mkdir(parents=True, exist_ok=True)
     final_metrics_path = final_metrics_dir / 'orchestration_metrics.json'
-    with open(final_metrics_path, 'w') as f:
-        json.dump(final_metrics, f, indent=2)
-    logger.info(f"Orchestrator: Aggregated metrics saved to {final_metrics_path}")
+    try:
+        with open(final_metrics_path, 'w') as f:
+            json.dump(final_metrics, f, indent=2)
+        logger.info(f"Orchestrator: Aggregated metrics saved to {final_metrics_path}")
+    except Exception as e:
+        logger.error("Orchestrator: Failed to save aggregated metrics.", path=str(final_metrics_path), error=e, exc_info=True)
+
+    # --- Orchestration Timings Summary ---
+    logger.info("--- Orchestration Timings Summary ---")
+    logger.info(f"Video Processing Time: {video_processing_time:.2f} seconds")
+    logger.info(f"Audio Processing Time: {audio_processing_time:.2f} seconds")
+    
+    if linking_time is not None:
+        status_msg = f"(Status: {linking_metrics.get('status', 'unknown')})"
+        logger.info(f"Cross-Modal Linking Time: {linking_time:.2f} seconds {status_msg}")
+    else:
+        logger.info(f"Cross-Modal Linking: Not performed or failed before timing (Status: {linking_metrics.get('status', 'unknown')}).")
+
+    if graphify_time is not None:
+        status_msg = f"(Status: {graph_metrics.get('status', 'unknown')})"
+        logger.info(f"Data Graphification Time: {graphify_time:.2f} seconds {status_msg}")
+    elif graph_metrics.get("status") == "skipped":
+        logger.info("Data Graphification: Skipped (input data not available)")
+    else:
+        logger.info(f"Data Graphification: Not performed or failed before timing (Status: {graph_metrics.get('status', 'unknown')}).")
+        
+    logger.info(f"Total Orchestration Time: {total_orchestration_time:.2f} seconds")
+    logger.info("-----------------------------------")
 
 
 def parse_opt():
