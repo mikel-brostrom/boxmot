@@ -1,13 +1,7 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-import numpy as np
 import torch
-from super_gradients.common.object_names import Models
-from super_gradients.training import models
 from ultralytics.engine.results import Results
-from ultralytics.utils import ops
-from ultralytics.utils.downloads import download
-from ultralytics.utils import ops
 
 from yolov9 import load
 from boxmot.utils import logger as LOGGER

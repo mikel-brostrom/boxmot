@@ -8,20 +8,16 @@ from tqdm import tqdm
 import configparser
 import shutil
 import json
-import queue
-import select
 import re
 import os
 import torch
-from functools import partial
 import threading
 import sys
 import copy
 import concurrent.futures
 
-from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES, DATA
+from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.misc import increment_path

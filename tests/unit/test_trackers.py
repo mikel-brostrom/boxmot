@@ -3,10 +3,8 @@ import numpy as np
 from pathlib import Path
 from boxmot.utils import WEIGHTS
 
-from numpy.testing import assert_allclose
 from boxmot import (
-    StrongSort, BotSort, DeepOcSort, OcSort, ByteTrack,
-    get_tracker_config, create_tracker,
+    DeepOcSort, OcSort, get_tracker_config, create_tracker,
 )
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.deepocsort.deepocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker

@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 import pytest
 from boxmot.motion.cmc.ecc import ECC

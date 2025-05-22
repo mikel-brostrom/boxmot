@@ -12,7 +12,6 @@ from boxmot.appearance.backends.pytorch_backend import PyTorchBackend
 from boxmot.appearance.backends.tensorrt_backend import TensorRTBackend
 from boxmot.appearance.backends.tflite_backend import TFLiteBackend
 from boxmot.appearance.backends.torchscript_backend import TorchscriptBackend
-from boxmot.appearance.backends.base_backend import BaseModelBackend
 
 
 
