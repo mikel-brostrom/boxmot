@@ -31,7 +31,7 @@ This repository contains a collection of pluggable, state-of-the-art multi-objec
 <!-- START TRACKER TABLE -->
 | Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
 | :-----: | :-----: | :---: | :---: | :---: | :---: |
-| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 69.015 | 75.957 | 82.538 | 25 |
+| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 68.758 | 75.973 | 81.964 | 25 |
 | [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 68.367 | 78.321 | 80.7 | 46 |
 | [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.038 | 76.142 | 80.731 | 17 |
 | [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 1265 |
