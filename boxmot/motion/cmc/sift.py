@@ -17,7 +17,7 @@ class SIFT(BaseCMC):
         warp_mode=cv2.MOTION_EUCLIDEAN,
         eps=1e-5,
         max_iter=100,
-        scale=0.1,
+        scale=0.15,
         grayscale=True,
         draw_keypoint_matches=False,
         align=False
