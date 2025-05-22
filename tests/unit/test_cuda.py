@@ -15,7 +15,7 @@ REID_MODELS = [
 @pytest.mark.parametrize("reid_model", REID_MODELS)
 def test_reidbackend_device(reid_model):
 
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     rab = ReidAutoBackend(
         weights=reid_model, device=device, half=False
@@ -31,10 +31,10 @@ def test_reidbackend_device(reid_model):
 @pytest.mark.parametrize("reid_model", REID_MODELS)
 def test_reidbackend_half(reid_model):
 
-    half = True if torch.cuda.is_available() else False
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    half = torch.cuda.is_available()
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     rab = ReidAutoBackend(
-        weights=reid_model, device=device, half=False
+        weights=reid_model, device=device, half=half
     )
     r = rab.get_backend()
 
