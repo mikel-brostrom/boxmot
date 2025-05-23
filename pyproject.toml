@@ -123,9 +123,6 @@ onnx = [
 openvino = [
     "openvino-dev>=2023.3",
 ]
-engine = [
-    "nvidia-tensorrt",
-]
 tflite = [
     "onnx2tf>=1.18.0",
     "onnx>=1.16.1",
