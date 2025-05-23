@@ -314,12 +314,9 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip uv
-          uv venv
-          source .venv/bin/activate
-          uv sync --all-groups
+          uv pip install --system --all-groups
       - name: Test export models
         run: |
-          source .venv/bin/activate
           python boxmot/appearance/reid/export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
       - name: Pytest tests  # after tracking options as this does not download models
         env:
@@ -328,7 +325,7 @@ jobs:
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
-          source .venv/bin/activate
+          uv pip install --system --extra test
           pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
   # test-gpu:
