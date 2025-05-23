@@ -9,15 +9,9 @@ import os
 from pathlib import Path
 import yaml
 
-# Check required packages
-from boxmot.utils.checks import RequirementsChecker
-checker = RequirementsChecker()
-checker.check_packages(('ray[tune]',))  # Install ray[tune] if not already present
-
 from ray import tune
 from ray.air import RunConfig
 
-from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils import EXAMPLES, TRACKER_CONFIGS, NUM_THREADS
 from tracking.val import (
     run_generate_dets_embs,
