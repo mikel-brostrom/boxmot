@@ -260,7 +260,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
       - name: Install dependencies
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -313,7 +313,9 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          python -m pip install --upgrade pip setuptools wheel uv
+          python -m pip install --upgrade pip uv
+          uv venv
+          source .venv/bin/activate
           uv sync --all-groups
       - name: Test export models
         run: |
