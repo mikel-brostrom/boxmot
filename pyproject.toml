@@ -115,3 +115,27 @@ yolox-build-deps = [
     "setuptools>=78.0.0",
     "torch<3.0.0,>=2.2.1",
 ]
+
+# exporter-specific groups
+onnx = [
+    "onnx>=1.16.1",
+    "onnxruntime>=1.20.0"
+]
+openvino = [
+    "openvino-dev>=2023.3",
+]
+tflite = [
+    "onnx2tf>=1.18.0",
+    "onnx>=1.16.1",
+    "tensorflow==2.17.0",
+    "tf_keras",
+    "sng4onnx>=1.0.1",
+    "onnx_graphsurgeon>=0.3.26",
+    "onnxslim>=0.1.31",
+    "onnxruntime",
+    "flatbuffers>=23.5.26",
+    "onnxsim==0.4.33",
+    "psutil==5.9.5",
+    "ml_dtypes==0.3.2",
+    "ai_edge_litert>=1.2.0",
+]
