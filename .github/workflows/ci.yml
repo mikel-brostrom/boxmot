@@ -314,7 +314,8 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip uv
-          uv pip install --system --all-groups
+          uv pip install --system --group test --group yolo --group onnx --group openvino --group tflite
+
       - name: Test export models
         run: |
           python boxmot/appearance/reid/export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
@@ -325,7 +326,6 @@ jobs:
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
-          uv pip install --system --extra test
           pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
   # test-gpu:
