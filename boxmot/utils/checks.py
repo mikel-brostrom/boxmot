@@ -27,7 +27,7 @@ class RequirementsChecker:
             reqs = pkg_resources.parse_requirements(f)
         self._check_packages(reqs)
 
-    def check_packages(self, requirements):
+    def check_packages(self, requirements, cmds):
         missing = []
         for r in requirements:
             try:
@@ -37,14 +37,14 @@ class RequirementsChecker:
                 missing.append(str(r))
 
         if missing:
-            self.install_packages(missing)
+            self.install_packages(missing, cmds)
 
-    def install_packages(self, packages):
+    def install_packages(self, packages, cmds):
         try:
             LOGGER.warning(
                 f"\nMissing packages: {', '.join(packages)}\nAttempting installation..."
             )
-            pip_cmd = ["uv", "pip", "install", "--no-cache-dir"] + packages
+            pip_cmd = ["uv", "pip", "install", "--no-cache-dir"] + cmds + packages
             subprocess.check_call(pip_cmd)
             LOGGER.info("All the missing packages were installed successfully.")
         except Exception as e:
