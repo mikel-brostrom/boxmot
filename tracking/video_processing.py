@@ -224,9 +224,12 @@ def process_video(args):
                         num_frames_skipped_due_to_similarity += 1
                     else:
                         logging.debug(f"Frame {frame_idx}: Found similar frame {existing_frame_point_id} (Sim: {similarity:.4f}), but entity count mismatch (curr: {current_entity_count}, exist: {entity_count_of_existing_frame}). Storing new.")
+                else:
+                    logging.debug(f"Frame {frame_idx}: No similar frame found (threshold: {args.frame_similarity_threshold}). Will store new frame embedding.")
                 
                 if should_store_new_frame_embedding:
                     # Assumes add_frame_embedding can take payload_extras to store entity_count
+                    logging.debug(f"Frame {frame_idx}: Storing new frame embedding (captioning: {os.getenv('USE_CAPTIONING', 'False')})")
                     new_frame_vector_id = vectorize.add_frame_embedding(
                         embedding=current_frame_actual_embedding,
                         frame_idx=frame_idx,
