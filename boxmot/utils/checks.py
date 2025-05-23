@@ -27,7 +27,7 @@ class RequirementsChecker:
             reqs = pkg_resources.parse_requirements(f)
         self._check_packages(reqs)
 
-    def check_packages(self, requirements, cmds=[""]):
+    def check_packages(self, requirements, cmds=None):
         missing = []
         for r in requirements:
             try:
@@ -39,7 +39,7 @@ class RequirementsChecker:
         if missing:
             self.install_packages(missing, cmds)
 
-    def install_packages(self, packages, cmds):
+    def install_packages(self, packages, cmds=None):
         try:
             LOGGER.warning(
                 f"\nMissing packages: {', '.join(packages)}\nAttempting installation..."
