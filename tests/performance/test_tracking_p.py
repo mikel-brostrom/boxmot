@@ -1,11 +1,15 @@
-import pytest
-import numpy as np
-from boxmot.utils import WEIGHTS
-import time
 import subprocess
+import time
 
-from boxmot import get_tracker_config, create_tracker
-from tests.test_config import MOTION_ONLY_TRACKING_NAMES, MOTION_N_APPEARANCE_TRACKING_NAMES
+import numpy as np
+import pytest
+
+from boxmot import create_tracker, get_tracker_config
+from boxmot.utils import WEIGHTS
+from tests.test_config import (
+    MOTION_N_APPEARANCE_TRACKING_NAMES,
+    MOTION_ONLY_TRACKING_NAMES,
+)
 
 
 @pytest.mark.parametrize("tracker_type", MOTION_ONLY_TRACKING_NAMES)

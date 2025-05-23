@@ -1,11 +1,13 @@
-from pathlib import Path
-import numpy as np
 import argparse
+import concurrent.futures
+from pathlib import Path
+
+import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.gaussian_process.kernels import RBF
-from boxmot.utils import logger as LOGGER
-import concurrent.futures
 from tqdm import tqdm
+
+from boxmot.utils import logger as LOGGER
 
 
 def linear_interpolation(data: np.ndarray, interval: int) -> np.ndarray:

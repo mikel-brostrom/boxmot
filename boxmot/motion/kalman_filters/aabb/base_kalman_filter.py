@@ -1,6 +1,7 @@
+from typing import Tuple
+
 import numpy as np
 import scipy.linalg
-from typing import Tuple
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of

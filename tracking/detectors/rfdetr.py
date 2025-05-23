@@ -3,12 +3,12 @@
 import cv2
 import numpy as np
 import torch
+from rfdetr import RFDETRBase
 from rfdetr.util.coco_classes import COCO_CLASSES
 from ultralytics.engine.results import Results
 from ultralytics.models.yolo.detect import DetectionPredictor
 
 from boxmot.utils import logger as LOGGER
-from rfdetr import RFDETRBase
 from tracking.detectors.yolo_interface import YoloInterface
 
 

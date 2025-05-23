@@ -1,8 +1,9 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
+from abc import ABC, abstractmethod
+
 import cv2
 import numpy as np
-from abc import ABC, abstractmethod
 
 
 class BaseCMC(ABC):
