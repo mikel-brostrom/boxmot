@@ -3,21 +3,7 @@ from boxmot.appearance.exporters.base_exporter import BaseExporter
 
 
 class TFLiteExporter(BaseExporter):
-    required_packages = (
-        "onnx2tf>=1.18.0",
-        "onnx>=1.16.1", 
-        "tensorflow==2.17.0",
-        "tf_keras",  # required by 'onnx2tf' package
-        "sng4onnx>=1.0.1",  # required by 'onnx2tf' package
-        "onnx_graphsurgeon>=0.3.26",  # required by 'onnx2tf' package
-        "onnxslim>=0.1.31",
-        "onnxruntime",
-        "flatbuffers>=23.5.26",
-        "onnxsim==0.4.33",
-        "psutil==5.9.5",
-        "ml_dtypes==0.3.2",
-        "ai_edge_litert>=1.2.0"
-    )
+    group = "tflite"
     cmds = '--extra-index-url https://pypi.ngc.nvidia.com'
     
     def export(self):

@@ -260,7 +260,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
       - name: Install dependencies
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -271,7 +271,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync
+          uv sync --all-groups
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
@@ -304,7 +304,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
       - run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
             # macOS
@@ -313,11 +313,11 @@ jobs:
             # Linux
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
-          python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group test
+          python -m pip install --upgrade pip uv
+          uv pip install -e . --system --group test --group yolo --group onnx --group openvino --group tflite
+
       - name: Test export models
         run: |
-          source .venv/bin/activate
           python boxmot/appearance/reid/export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
       - name: Pytest tests  # after tracking options as this does not download models
         env:
@@ -325,9 +325,7 @@ jobs:
           PACKAGE_DIR: boxmot
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
-        shell: bash  # for Windows compatibility
         run: |
-          source .venv/bin/activate
           pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
   # test-gpu:
