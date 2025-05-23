@@ -327,7 +327,6 @@ jobs:
           PACKAGE_DIR: boxmot
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
-        shell: bash  # for Windows compatibility
         run: |
           source .venv/bin/activate
           pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
