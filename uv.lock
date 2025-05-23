@@ -176,6 +176,7 @@ evolve = [
 ]
 onnx = [
     { name = "onnx" },
+    { name = "onnxruntime" },
 ]
 openvino = [
     { name = "openvino-dev" },
@@ -237,7 +238,10 @@ evolve = [
     { name = "plotly", specifier = ">=5.19.0,<6.0.0" },
     { name = "ray", specifier = ">=2.35.0,<3.0.0" },
 ]
-onnx = [{ name = "onnx", specifier = ">=1.16.1" }]
+onnx = [
+    { name = "onnx", specifier = ">=1.16.1" },
+    { name = "onnxruntime", specifier = ">=1.20.0" },
+]
 openvino = [{ name = "openvino-dev", specifier = ">=2023.3" }]
 test = [
     { name = "isort", specifier = ">=5.13.2,<6.0.0" },
