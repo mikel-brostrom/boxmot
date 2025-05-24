@@ -37,7 +37,7 @@ def get_yolo_inferer(yolo_model):
             checker.check_packages(('thop',))  # needed dependency
         from .yolox import YoloXStrategy
         return YoloXStrategy
-    elif 'yolov8' in str(yolo_model):
+    elif is_ultralytics_model(yolo_model):
         # ultralytics already installed when running track.py
         from .yolov8 import Yolov8Strategy
         return Yolov8Strategy
