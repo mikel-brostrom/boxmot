@@ -114,9 +114,14 @@ class BaseTracker(ABC):
             dets = args[0]
             img = args[1] if len(args) > 1 else None
 
+
             # Unwrap `data` attribute if present
             if hasattr(dets, 'data'):
                 dets = dets.data
+
+            # Convert memoryview to numpy array if needed
+            if isinstance(dets, memoryview):
+                dets = np.array(dets, dtype=np.float32)  # Adjust dtype if needed
 
             # First-time detection setup
             if not self._first_dets_processed and dets is not None:
