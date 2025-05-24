@@ -1,27 +1,27 @@
 import os
 from pathlib import Path
-
+import openvino as ov
 from boxmot.appearance.exporters.base_exporter import BaseExporter
-
 
 class OpenVINOExporter(BaseExporter):
     group = "openvino"
-    
+
     def export(self):
-        
-        import openvino.runtime as ov
-        from openvino.tools import mo
+        # 1. Take your .onnx name and make a dedicated output folder
+        onnx_path = self.file.with_suffix(".onnx")
+        export_dir = self.file.with_suffix("_openvino_model")
+        export_dir = Path(str(export_dir))
+        export_dir.mkdir(parents=True, exist_ok=True)
 
-        f = str(self.file).replace(self.file.suffix, f"_openvino_model{os.sep}")
-        f_onnx = self.file.with_suffix(".onnx")
-        f_ov = str(Path(f) / self.file.with_suffix(".xml").name)
+        # 2. Convert ONNX → ov.Model
+        #    (no need for example_input here; ONNX contains the shapes)
+        ov_model = ov.convert_model(input_model=onnx_path)
+        # :contentReference[oaicite:0]{index=0}
 
-        ov_model = mo.convert_model(
-            f_onnx,
-            model_name=self.file.with_suffix(".xml"),
-            framework="onnx",
-            compress_to_fp16=self.half,
-        )
-        ov.serialize(ov_model, f_ov)
-        
-        return f
+        # 3. Save to IR (XML + BIN)
+        xml_path = export_dir / self.file.with_suffix(".xml").name
+        #    compress_to_fp16 defaults to True; disable with self.half=False
+        ov.save_model(ov_model, xml_path, compress_to_fp16=self.half)
+        # :contentReference[oaicite:1]{index=1}
+
+        return str(export_dir)
