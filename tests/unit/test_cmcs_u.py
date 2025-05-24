@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
+
 from boxmot.motion.cmc.ecc import ECC
 from boxmot.motion.cmc.orb import ORB
 from boxmot.motion.cmc.sift import SIFT
 from boxmot.motion.cmc.sof import SOF
-
 
 
 # Fixture for creating CMC objects

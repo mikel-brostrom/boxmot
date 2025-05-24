@@ -1,7 +1,9 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import yaml
+
 from boxmot.utils import TRACKER_CONFIGS
+
 
 def get_tracker_config(tracker_type):
     """Returns the path to the tracker configuration file."""

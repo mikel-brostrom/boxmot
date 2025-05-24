@@ -1,5 +1,5 @@
-import numpy as np
 import cv2 as cv
+import numpy as np
 
 
 def iou_obb_pair(i, j, bboxes1, bboxes2):

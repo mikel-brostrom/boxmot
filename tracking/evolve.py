@@ -7,19 +7,19 @@ the tracker to optimize selected metrics (e.g., MOTA, HOTA, IDF1).
 
 import os
 from pathlib import Path
-import yaml
 
+import yaml
 from ray import tune
 from ray.air import RunConfig
 
-from boxmot.utils import EXAMPLES, TRACKER_CONFIGS, NUM_THREADS
+from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
 from tracking.val import (
+    download_mot_eval_tools,
     run_generate_dets_embs,
     run_generate_mot_results,
     run_trackeval,
-    parse_opt as parse_optt,
-    download_mot_eval_tools
 )
+from tracking.val import parse_opt as parse_optt
 
 
 class Tracker:
