@@ -1,8 +1,10 @@
-import pkg_resources
 import subprocess
 from pathlib import Path
-from boxmot.utils import logger as LOGGER
 from typing import Optional
+
+import pkg_resources
+
+from boxmot.utils import logger as LOGGER
 
 REQUIREMENTS_FILE = Path("requirements.txt")
 

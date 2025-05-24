@@ -1,16 +1,17 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
+from pathlib import Path
+
 import numpy as np
 from torch import device
-from pathlib import Path
 
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
+from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.tracker import Tracker
 from boxmot.utils.matching import NearestNeighborDistanceMetric
 from boxmot.utils.ops import xyxy2tlwh
-from boxmot.trackers.basetracker import BaseTracker
 
 
 class StrongSort(object):

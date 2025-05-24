@@ -2,11 +2,10 @@
 
 import torch
 from ultralytics.engine.results import Results
-
 from yolov9 import load
+
 from boxmot.utils import logger as LOGGER
 from examples.detectors.yolo_interface import YoloInterface
-
 
 YOLOv9_ZOO = {
     'gelan-c.pt': 'https://github.com/WongKinYiu/yolov9/releases/download/v0.1/gelan-c.pt',

@@ -1,9 +1,10 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
+from typing import Tuple, Union
+
+import cv2
 import numpy as np
 import torch
-import cv2
-from typing import Tuple, Union
 
 
 def xyxy2xywh(x):

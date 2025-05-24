@@ -5,8 +5,8 @@ import numpy as np
 import scipy
 import torch
 from scipy.spatial.distance import cdist
-from boxmot.utils.iou import AssociationFunction
 
+from boxmot.utils.iou import AssociationFunction
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of

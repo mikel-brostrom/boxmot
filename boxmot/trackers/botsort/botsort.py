@@ -1,19 +1,27 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-import torch
-import numpy as np
 from pathlib import Path
 
-from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
-from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
-from boxmot.utils.matching import (embedding_distance, fuse_score,
-                                   iou_distance, linear_assignment)
-from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.botsort.botsort_utils import joint_stracks, sub_stracks, remove_duplicate_stracks 
-from boxmot.trackers.botsort.botsort_track import STrack
-from boxmot.motion.cmc import get_cmc_method
+import numpy as np
+import torch
 
+from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.motion.cmc import get_cmc_method
+from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
+from boxmot.trackers.botsort.botsort_track import STrack
+from boxmot.trackers.botsort.botsort_utils import (
+    joint_stracks,
+    remove_duplicate_stracks,
+    sub_stracks,
+)
+from boxmot.utils.matching import (
+    embedding_distance,
+    fuse_score,
+    iou_distance,
+    linear_assignment,
+)
 
 
 class BotSort(BaseTracker):
