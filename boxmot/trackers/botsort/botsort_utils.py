@@ -1,7 +1,9 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-import numpy as np
 from typing import List, Tuple
+
+import numpy as np
+
 from boxmot.utils.matching import iou_distance
 
 

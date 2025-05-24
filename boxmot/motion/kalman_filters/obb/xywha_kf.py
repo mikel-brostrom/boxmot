@@ -1,14 +1,15 @@
 from __future__ import absolute_import, division
 
-from copy import deepcopy
-from math import log, exp, pi
 import sys
-import numpy as np
-from numpy import dot, zeros, eye, isscalar
-import numpy.linalg as linalg
-from filterpy.stats import logpdf
-from filterpy.common import reshape_z
 from collections import deque
+from copy import deepcopy
+from math import exp, log, pi
+
+import numpy as np
+import numpy.linalg as linalg
+from filterpy.common import reshape_z
+from filterpy.stats import logpdf
+from numpy import dot, eye, isscalar, zeros
 
 
 def speed_direction_obb(bbox1, bbox2):

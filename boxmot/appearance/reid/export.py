@@ -8,13 +8,14 @@ import torch
 from boxmot.appearance.exporters.base_exporter import BaseExporter
 from boxmot.appearance.exporters.onnx_exporter import ONNXExporter
 from boxmot.appearance.exporters.openvino_exporter import OpenVINOExporter
+from boxmot.appearance.exporters.tensorrt_exporter import EngineExporter
 from boxmot.appearance.exporters.tflite_exporter import TFLiteExporter
 from boxmot.appearance.exporters.torchscript_exporter import TorchScriptExporter
-from boxmot.appearance.exporters.tensorrt_exporter import EngineExporter
 from boxmot.appearance.reid import export_formats
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.appearance.reid.registry import ReIDModelRegistry
-from boxmot.utils import WEIGHTS, logger as LOGGER
+from boxmot.utils import WEIGHTS
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device
 
 

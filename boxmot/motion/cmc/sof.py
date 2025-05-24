@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+
 from boxmot.motion.cmc.base_cmc import BaseCMC
 
 

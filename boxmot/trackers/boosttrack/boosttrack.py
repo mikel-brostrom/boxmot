@@ -1,19 +1,19 @@
-import numpy as np
-from typing import Optional, List
 from collections import deque
+from typing import List, Optional
 
+import numpy as np
+
+from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.motion.cmc import get_cmc_method
+from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.boosttrack.assoc import (
+    MhDist_similarity,
     associate,
     iou_batch,
-    MhDist_similarity,
     shape_similarity,
     soft_biou_batch,
 )
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.trackers.boosttrack.kalmanfilter import KalmanFilter
-from boxmot.trackers.basetracker import BaseTracker
-from boxmot.motion.cmc import get_cmc_method
-
 
 
 def convert_bbox_to_z(bbox):

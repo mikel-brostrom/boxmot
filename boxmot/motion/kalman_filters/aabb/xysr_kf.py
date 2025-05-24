@@ -34,14 +34,15 @@ KalmanFilter class after every update.
 
 from __future__ import absolute_import, division
 
-from copy import deepcopy
-from math import log, exp
 import sys
-import numpy as np
-from numpy import dot, zeros, eye, isscalar
-from filterpy.stats import logpdf
-from filterpy.common import reshape_z
 from collections import deque
+from copy import deepcopy
+from math import exp, log
+
+import numpy as np
+from filterpy.common import reshape_z
+from filterpy.stats import logpdf
+from numpy import dot, eye, isscalar, zeros
 
 
 class KalmanFilterXYSR(object):

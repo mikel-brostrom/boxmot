@@ -1,6 +1,7 @@
 from pathlib import Path
-from boxmot.utils.checks import RequirementsChecker
+
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.checks import RequirementsChecker
 
 
 def export_decorator(export_func):
