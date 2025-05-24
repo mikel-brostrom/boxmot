@@ -14,7 +14,7 @@ from boxmot.utils.checks import RequirementsChecker
 from tracking.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
 
 checker = RequirementsChecker()
-checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
+checker.check_packages(('ultralytics', ))  # install
 
 from ultralytics import YOLO
 

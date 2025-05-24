@@ -32,7 +32,7 @@ from tracking.utils import convert_to_mot_format, write_mot_results, download_mo
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 
 checker = RequirementsChecker()
-checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
+checker.check_packages(('ultralytics', ))  # install
 
 
 def cleanup_mot17(data_dir, keep_detection='FRCNN'):
