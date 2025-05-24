@@ -127,7 +127,7 @@ openvino = [
 tflite = [
     "onnx2tf>=1.18.0",
     "onnx>=1.16.1",
-    "tensorflow==2.17.0",
+    "tensorflow==2.19.0",
     "tf_keras",
     "sng4onnx>=1.0.1",
     "onnx_graphsurgeon>=0.3.26",
