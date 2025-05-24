@@ -391,26 +391,39 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_res
     return stdout
 
 
-def run_generate_dets_embs(opt: argparse.Namespace) -> None:
-    """
-    Runs the generate_dets_embs function for all YOLO models and source directories.
+def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace):
+    new_opt = copy.deepcopy(opt)
+    generate_dets_embs(new_opt, y, source=source_path / 'img1')
 
-    Args:
-        opt (Namespace): Parsed command line arguments.
-    """
+def run_generate_dets_embs(opt: argparse.Namespace) -> None:
     mot_folder_paths = sorted([item for item in Path(opt.source).iterdir()])
+
     for y in opt.yolo_model:
+        dets_folder = Path(opt.project) / 'dets_n_embs' / y.stem / 'dets'
+        embs_folder = Path(opt.project) / 'dets_n_embs' / y.stem / 'embs' / opt.reid_model[0].stem
+
+        # Filter out already processed sequences
+        tasks = []
         for i, mot_folder_path in enumerate(mot_folder_paths):
-            dets_path = Path(opt.project) / 'dets_n_embs' / y.stem / 'dets' / (mot_folder_path.name + '.txt')
-            embs_path = Path(opt.project) / 'dets_n_embs' / y.stem / 'embs' / (opt.reid_model[0].stem) / (mot_folder_path.name + '.txt')
+            dets_path = dets_folder / (mot_folder_path.name + '.txt')
+            embs_path = embs_folder / (mot_folder_path.name + '.txt')
             if dets_path.exists() and embs_path.exists():
-                if prompt_overwrite('Detections and Embeddings', dets_path, opt.ci):
-                    LOGGER.debug(f'Overwriting detections and embeddings for {mot_folder_path}...')
-                else:
-                    LOGGER.debug(f'Skipping generation for {mot_folder_path} as they already exist.')
+                if not prompt_overwrite('Detections and Embeddings', dets_path, opt.ci):
+                    LOGGER.debug(f"Skipping generation for {mot_folder_path} as they already exist.")
                     continue
-            LOGGER.debug(f'Generating detections and embeddings for data under {mot_folder_path} [{i + 1}/{len(mot_folder_paths)} seqs]')
-            generate_dets_embs(opt, y, source=mot_folder_path / 'img1')
+            tasks.append((y, mot_folder_path))
+
+        LOGGER.info(f"Generating detections and embeddings for {len(tasks)} sequences with model {y.name}")
+
+        max_workers = torch.cuda.device_count() or os.cpu_count()
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(process_single_det_emb, y, source_path, opt) for y, source_path in tasks]
+
+            for fut in concurrent.futures.as_completed(futures):
+                try:
+                    fut.result()
+                except Exception as exc:
+                    LOGGER.error(f"Error in det/emb task: {exc}")
 
 
 def process_single_mot(opt: argparse.Namespace, dets_path: Path, embs_path: Path, config: dict, gpu_id: int = None):
