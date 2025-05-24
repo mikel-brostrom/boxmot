@@ -1,11 +1,11 @@
-import os
-import cv2
 import glob
 import math
-import numpy as np
+import os
 from pathlib import Path
-from PIL import Image
 
+import cv2
+import numpy as np
+from PIL import Image
 
 VID_FORMATS = "asf", "avi", "gif", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "wmv"  # include video suffixes
 

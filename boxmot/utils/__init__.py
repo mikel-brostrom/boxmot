@@ -2,12 +2,13 @@
 
 import os
 import sys
+import threading
 from pathlib import Path
+
 import numpy as np
+
 # global logger
 from loguru import logger
-import threading
-
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[2]  # root directory

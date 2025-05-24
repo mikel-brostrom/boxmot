@@ -1,4 +1,5 @@
 import torch
+
 from boxmot.appearance.exporters.base_exporter import BaseExporter
 
 

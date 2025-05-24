@@ -1,8 +1,10 @@
-import numpy as np
-import cv2 as cv
-import hashlib
 import colorsys
+import hashlib
 from abc import ABC, abstractmethod
+
+import cv2 as cv
+import numpy as np
+
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.iou import AssociationFunction
 

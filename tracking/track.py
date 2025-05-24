@@ -9,10 +9,9 @@ import torch
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
+from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS
 from boxmot.utils.checks import RequirementsChecker
-from tracking.detectors import (get_yolo_inferer, default_imgsz,
-                                is_ultralytics_model)
+from tracking.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install

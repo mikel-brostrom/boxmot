@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 from boxmot.appearance.exporters.base_exporter import BaseExporter
 
 

@@ -1,4 +1,5 @@
 import numpy as np
+
 from boxmot.postprocessing.gsi import gaussian_smooth, linear_interpolation
 
 

@@ -3,15 +3,15 @@
 """
     This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
-import numpy as np
 from collections import deque
 
+import numpy as np
 
 from boxmot.motion.kalman_filters.aabb.xysr_kf import KalmanFilterXYSR
-from boxmot.utils.association import associate, linear_assignment
-from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils.ops import xyxy2xysr
 from boxmot.motion.kalman_filters.obb.xywha_kf import KalmanBoxTrackerOBB
+from boxmot.trackers.basetracker import BaseTracker
+from boxmot.utils.association import associate, linear_assignment
+from boxmot.utils.ops import xyxy2xysr
 
 
 def k_previous_obs(observations, cur_age, k, is_obb=False):

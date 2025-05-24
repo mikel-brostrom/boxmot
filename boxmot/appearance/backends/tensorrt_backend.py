@@ -1,8 +1,11 @@
-import torch
-import numpy as np
 from collections import OrderedDict, namedtuple
-from boxmot.utils import logger as LOGGER
+
+import numpy as np
+import torch
+
 from boxmot.appearance.backends.base_backend import BaseModelBackend
+from boxmot.utils import logger as LOGGER
+
 
 class TensorRTBackend(BaseModelBackend):
     def __init__(self, weights, device, half):
