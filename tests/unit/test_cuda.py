@@ -1,6 +1,7 @@
-import torch
-import pytest
 from pathlib import Path
+
+import pytest
+import torch
 
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 

@@ -8,6 +8,16 @@ import os
 from pathlib import Path
 import threading
 import concurrent.futures
+import configparser
+import copy
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -32,6 +42,28 @@ from tracking.utils import (
     unzip_mot_dataset, eval_setup, split_dataset
 )
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.postprocessing.gsi import gsi
+from boxmot.tracker_zoo import create_tracker
+from boxmot.utils import EXAMPLES, ROOT, TRACKER_CONFIGS, WEIGHTS
+from boxmot.utils import logger as LOGGER
+from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.misc import increment_path
+from boxmot.utils.torch_utils import select_device
+from tracking.detectors import (
+    default_imgsz,
+    get_yolo_inferer,
+    is_ultralytics_model,
+    is_yolox_model,
+)
+from tracking.utils import (
+    convert_to_mot_format,
+    download_mot_dataset,
+    download_mot_eval_tools,
+    eval_setup,
+    split_dataset,
+    unzip_mot_dataset,
+    write_mot_results,
+)
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git',))

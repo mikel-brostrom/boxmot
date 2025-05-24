@@ -1,13 +1,13 @@
 import cv2
-import pytest
 import numpy as np
-from boxmot.utils import ROOT, WEIGHTS
+import pytest
+
 from boxmot.appearance.backends.onnx_backend import ONNXBackend
 from boxmot.appearance.backends.openvino_backend import OpenVinoBackend
 from boxmot.appearance.backends.pytorch_backend import PyTorchBackend
 from boxmot.appearance.backends.torchscript_backend import TorchscriptBackend
-
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.utils import ROOT, WEIGHTS
 
 # generated in previous job step
 EXPORTED_REID_MODELS = [

@@ -1,10 +1,12 @@
 # model_registry.py
-import torch
 from collections import OrderedDict
+
+import torch
+
+from boxmot.appearance.reid.config import MODEL_TYPES, NR_CLASSES_DICT, TRAINED_URLS
+from boxmot.appearance.reid.factory import MODEL_FACTORY
 from boxmot.utils import logger as LOGGER
 
-from boxmot.appearance.reid.config import MODEL_TYPES, TRAINED_URLS, NR_CLASSES_DICT
-from boxmot.appearance.reid.factory import MODEL_FACTORY
 
 class ReIDModelRegistry:
     """Encapsulates model registration and related utilities."""

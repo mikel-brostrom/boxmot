@@ -1,10 +1,11 @@
 import os
 from pathlib import Path
+
 from boxmot.appearance.exporters.base_exporter import BaseExporter
 
 
 class OpenVINOExporter(BaseExporter):
-    required_packages = ("openvino-dev>=2023.3",)
+    group = "openvino"
     
     def export(self):
         

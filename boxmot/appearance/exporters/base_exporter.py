@@ -1,16 +1,17 @@
 from pathlib import Path
-from boxmot.utils.checks import RequirementsChecker
+
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.checks import RequirementsChecker
 
 
 def export_decorator(export_func):
     def wrapper(self, *args, **kwargs):
         try:
-            if hasattr(self, 'required_packages'):
+            if hasattr(self, 'group'):
                 if hasattr(self, 'cmd'):
-                    self.checker.check_packages(self.required_packages, cmd=self.cmd)
+                    self.checker.sync_group_or_extra(self.group, cmd=self.cmd)
                 else:
-                    self.checker.check_packages(self.required_packages)
+                    self.checker.sync_group_or_extra(self.group)
                 
             LOGGER.info(f"\nStarting {self.file} export with {self.__class__.__name__}...")
             result = export_func(self, *args, **kwargs)
