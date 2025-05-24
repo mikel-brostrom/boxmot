@@ -16,12 +16,10 @@ class OpenVINOExporter(BaseExporter):
         # 2. Convert ONNX → ov.Model
         #    (no need for example_input here; ONNX contains the shapes)
         ov_model = ov.convert_model(input_model=onnx_path)
-        # :contentReference[oaicite:0]{index=0}
 
         # 3. Save to IR (XML + BIN)
         xml_path = export_dir / self.file.with_suffix(".xml").name
         #    compress_to_fp16 defaults to True; disable with self.half=False
         ov.save_model(ov_model, xml_path, compress_to_fp16=self.half)
-        # :contentReference[oaicite:1]{index=1}
 
         return str(export_dir)
