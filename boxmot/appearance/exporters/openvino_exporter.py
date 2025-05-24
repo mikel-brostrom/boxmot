@@ -7,19 +7,17 @@ class OpenVINOExporter(BaseExporter):
     group = "openvino"
 
     def export(self):
-        # 1. Take your .onnx name and make a dedicated output folder
+        # 1. Paths
         onnx_path = self.file.with_suffix(".onnx")
-        export_dir = self.file.with_suffix("_openvino_model")
-        export_dir = Path(str(export_dir))
+        export_dir = self.file.parent / f"{self.file.stem}_openvino_model"
         export_dir.mkdir(parents=True, exist_ok=True)
 
         # 2. Convert ONNX → ov.Model
-        #    (no need for example_input here; ONNX contains the shapes)
         ov_model = ov.convert_model(input_model=onnx_path)
 
         # 3. Save to IR (XML + BIN)
-        xml_path = export_dir / self.file.with_suffix(".xml").name
-        #    compress_to_fp16 defaults to True; disable with self.half=False
+        xml_name = self.file.with_suffix(".xml").name
+        xml_path = export_dir / xml_name
         ov.save_model(ov_model, xml_path, compress_to_fp16=self.half)
 
         return str(export_dir)
