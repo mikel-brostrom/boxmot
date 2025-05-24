@@ -136,6 +136,6 @@ tflite = [
     "flatbuffers>=23.5.26",
     "onnxsim==0.4.33",
     "psutil==5.9.5",
-    "ml_dtypes==0.3.2",
+    "ml_dtypes==0.5.1",
     "ai_edge_litert>=1.2.0",
 ]
