@@ -1,10 +1,8 @@
-import colorsys
-import hashlib
-from abc import ABC, abstractmethod
-
-import cv2 as cv
 import numpy as np
-
+import cv2 as cv
+import hashlib
+import colorsys
+from abc import ABC, abstractmethod
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.iou import AssociationFunction
 
@@ -112,30 +110,38 @@ class BaseTracker(ABC):
         happen once, on the first frame, and are skipped on subsequent frames.
         """
         def wrapper(self, *args, **kwargs):
-            # If setup hasn't been done yet, perform it
-            # Even if dets is empty (e.g., shape (0, 7)), this check will still pass if it's Nx7
-            if not self._first_dets_processed:
-                dets = args[0]
-                if dets is not None:
-                    if dets.ndim == 2 and dets.shape[1] == 6:
-                        self.is_obb = False
-                        self._first_dets_processed = True
-                    elif dets.ndim == 2 and dets.shape[1] == 7:
-                        self.is_obb = True
-                        self._first_dets_processed = True
+            # Extract detections and image from args
+            dets = args[0]
+            img = args[1] if len(args) > 1 else None
 
-            if not self._first_frame_processed:
-                img = args[1]
+            # Unwrap `data` attribute if present
+            if hasattr(dets, 'data'):
+                dets = dets.data
+
+            # First-time detection setup
+            if not self._first_dets_processed and dets is not None:
+                if dets.ndim == 2 and dets.shape[1] == 6:
+                    self.is_obb = False
+                    self._first_dets_processed = True
+                elif dets.ndim == 2 and dets.shape[1] == 7:
+                    self.is_obb = True
+                    self._first_dets_processed = True
+
+            # First frame image-based setup
+            if not self._first_frame_processed and img is not None:
                 self.h, self.w = img.shape[0:2]
-                self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
-
-                # Mark that the first frame setup has been done
+                self.asso_func = AssociationFunction(
+                    w=self.w,
+                    h=self.h,
+                    asso_mode=self.asso_func_name
+                ).asso_func
                 self._first_frame_processed = True
 
-            # Call the original method (e.g., update)
-            return method(self, *args, **kwargs)
-        
+            # Call the original method with the unwrapped `dets`
+            return method(self, dets, img, *args[2:], **kwargs)
+
         return wrapper
+
     
     
     @staticmethod
@@ -374,3 +380,5 @@ class BaseTracker(ABC):
             img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
         return img
 
+    def reset(self):
+        pass
