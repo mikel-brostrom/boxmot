@@ -135,7 +135,7 @@ tflite = [
     "onnxruntime",
     "flatbuffers>=23.5.26",
     "onnxsim==0.4.33",
-    "psutil==5.9.5",
+    "psutil==5.9.8",
     "ml_dtypes==0.3.2",
     "ai_edge_litert>=1.2.0",
 ]
