@@ -76,7 +76,8 @@ def run(args):
         classes=args.classes,
         imgsz=args.imgsz,
         vid_stride=args.vid_stride,
-        line_width=args.line_width
+        line_width=args.line_width,
+        save_crop=args.save_crop
     )
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
@@ -152,7 +153,7 @@ def parse_opt():
                         help='show confidences')
     parser.add_argument('--save-txt', action='store_true',
                         help='save tracking results in a txt file')
-    parser.add_argument('--save-id-crops', action='store_true',
+    parser.add_argument('--save-crop', action='store_true',
                         help='save each crop to its respective id folder')
     parser.add_argument('--line-width', default=None, type=int,
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')
