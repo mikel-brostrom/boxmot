@@ -1,10 +1,5 @@
 # BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models
 
-
-
-
-
-
 <div align="center">
   <p>
   <img src="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.0/output_640.gif" width="400"/>
@@ -24,7 +19,7 @@
 
 ## Introduction
 
-This repository contains a collection of pluggable, state-of-the-art multi-object trackers designed to seamlessly integrate with segmentation, object detection, and pose estimation models. For methods leveraging appearance-based tracking, we offer both heavyweight  ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) and lightweight ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf)) state-of-the-art ReID models, available via automatic download. Additionally, clear and practical examples demonstrate how to effectively integrate these trackers with various popular models, enabling versatility across diverse vision tasks.
+This repository addresses the fragmented nature of the multi-object tracking (MOT) field by providing a standardized collection of pluggable, state-of-the-art trackers. Designed to seamlessly integrate with segmentation, object detection, and pose estimation models, the repository streamlines the adoption and comparison of MOT methods. For trackers employing appearance-based techniques, we offer a range of automatically downloadable state-of-the-art re-identification (ReID) models, from heavyweight ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) to lightweight options ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf)). Additionally, clear and practical examples demonstrate how to effectively integrate these trackers with various popular models, enabling versatility across diverse vision tasks.
 
 <div align="center">
 
@@ -50,7 +45,7 @@ This repository contains a collection of pluggable, state-of-the-art multi-objec
 
 ## Why BOXMOT?
 
-Multi-object tracking solutions today depend heavily on the computational capabilities of the underlying hardware. BoxMOT offers a wide range of tracking methods designed to accommodate various hardware constraints—from CPU-only setups to high-end GPUs. Additionally, we provide scripts for rapid experimentation that allow you to save detections and embeddings once, and then load them into any tracking algorithm, eliminating the need to repeatedly generate this data.
+Multi-object tracking solutions today depend heavily on the computational capabilities of the underlying hardware. BoxMOT addresses this by offering a wide array of tracking methods tailored to accommodate diverse hardware constraints, ranging from CPU-only setups to high-end GPUs. Furthermore, we provide scripts designed for rapid experimentation, enabling users to save detections and embeddings once and subsequently reuse them with any tracking algorithm. This approach eliminates redundant computations, significantly speeding up the evaluation and comparison of multiple trackers.
 
 ## Installation
 
