@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 import openvino as ov
 from boxmot.appearance.exporters.base_exporter import BaseExporter
@@ -6,8 +5,9 @@ from boxmot.appearance.exporters.base_exporter import BaseExporter
 class OpenVINOExporter(BaseExporter):
     group = "openvino"
 
-    def export(self):
+    def export(self) -> str:
         # 1. Paths
+        #    assume self.file is e.g. "model.onnx"
         onnx_path = self.file.with_suffix(".onnx")
         export_dir = self.file.parent / f"{self.file.stem}_openvino_model"
         export_dir.mkdir(parents=True, exist_ok=True)
@@ -20,4 +20,5 @@ class OpenVINOExporter(BaseExporter):
         xml_path = export_dir / xml_name
         ov.save_model(ov_model, xml_path, compress_to_fp16=self.half)
 
-        return str(export_dir)
+        # Return the actual XML file so that BaseExporter.with_suffix() works correctly
+        return str(xml_path)
