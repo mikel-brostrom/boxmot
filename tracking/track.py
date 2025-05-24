@@ -14,7 +14,7 @@ from boxmot.utils.checks import RequirementsChecker
 from tracking.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
 
 checker = RequirementsChecker()
-checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
+checker.check_packages(('ultralytics', ))  # install
 
 from ultralytics import YOLO
 
@@ -62,7 +62,7 @@ def run(args):
         conf=args.conf,
         iou=args.iou,
         agnostic_nms=args.agnostic_nms,
-        show=False,
+        show=True,
         stream=True,
         device=args.device,
         show_conf=args.show_conf,
@@ -76,7 +76,8 @@ def run(args):
         classes=args.classes,
         imgsz=args.imgsz,
         vid_stride=args.vid_stride,
-        line_width=args.line_width
+        line_width=args.line_width,
+        save_crop=args.save_crop
     )
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
@@ -105,12 +106,7 @@ def run(args):
     yolo.predictor.custom_args = args
 
     for r in results:
-        img = yolo.predictor.trackers[0].plot_results(r.orig_img, args.show_trajectories)
-        if args.show is True:
-            cv2.imshow('BoxMOT', img)     
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord(' ') or key == ord('q'):
-                break
+        pass
 
 
 def parse_opt():
@@ -157,7 +153,7 @@ def parse_opt():
                         help='show confidences')
     parser.add_argument('--save-txt', action='store_true',
                         help='save tracking results in a txt file')
-    parser.add_argument('--save-id-crops', action='store_true',
+    parser.add_argument('--save-crop', action='store_true',
                         help='save each crop to its respective id folder')
     parser.add_argument('--line-width', default=None, type=int,
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')

@@ -101,7 +101,7 @@ test = [
     "pytest-cov<7.0.0,>=6.0.0",
 ]
 yolo = [
-    "ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git",
+    "ultralytics",
 ]
 evolve = [
     "ray[tune]<3.0.0,>=2.35.0",
