@@ -9,7 +9,7 @@ def common_options(fn):
     opts = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
-        click.option('--imgsz', '--img-size', type=int, multiple=True,
+        click.option('--imgsz', '--img-size', type=int, multiple=True, default=None,  
                      help='inference size h,w'),
         click.option('--fps', type=int, default=None,
                      help='video frame-rate'),
