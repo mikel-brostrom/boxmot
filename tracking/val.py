@@ -524,9 +524,9 @@ def main(args) -> None:
     if args.split_dataset:
         args.source, args.benchmark = split_dataset(args.source)
 
-    run_generate_dets_embs(opt)
-    run_generate_mot_results(opt)
-    run_trackeval(opt)
+    run_generate_dets_embs(args)
+    run_generate_mot_results(args)
+    run_trackeval(args)
 
 
 if __name__ == "__main__":
