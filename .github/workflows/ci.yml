@@ -50,7 +50,7 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          python tracking/cli.py --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 generate-dets-embs
+          python tracking/cli.py --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt  generate-dets-embs
       - name: Run tracking method
         run: |
           source .venv/bin/activate
