@@ -74,12 +74,12 @@ def main():
 
         # sub-commands
     # every sub-command now gets all of the common options:
-    sub.add_parser('track',            parents=[common_parser])
-    sub.add_parser('generate-dets-embs',  parents=[common_parser, eval_parent], conflict_handler='resolve')
-    sub.add_parser('generate-mot-results', parents=[common_parser, eval_parent], conflict_handler='resolve')
-    sub.add_parser('eval',            parents=[common_parser, eval_parent], conflict_handler='resolve')
-    sub.add_parser('tune',            parents=[common_parser, eval_parent], conflict_handler='resolve')
-    sub.add_parser('all',             parents=[common_parser, eval_parent], conflict_handler='resolve')
+    sub.add_parser('track',            parents=[common_parser], add_help=False)
+    sub.add_parser('generate-dets-embs',  parents=[common_parser, eval_parent], conflict_handler='resolve', add_help=False)
+    sub.add_parser('generate-mot-results', parents=[common_parser, eval_parent], conflict_handler='resolve', add_help=False)
+    sub.add_parser('eval',            parents=[common_parser, eval_parent], conflict_handler='resolve', add_help=False)
+    sub.add_parser('tune',            parents=[common_parser, eval_parent], conflict_handler='resolve', add_help=False)
+    sub.add_parser('all',             parents=[common_parser, eval_parent], conflict_handler='resolve', add_help=False)
 
     # parse and dispatch
     args = parser.parse_args()
