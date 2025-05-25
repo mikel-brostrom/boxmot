@@ -21,7 +21,7 @@ def common_options(func):
     options = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
-        click.option('--imgsz', '--img-size', nargs=2, type=int, default=None, help='inference size h,w')),
+        click.option('--imgsz', '--img-size', nargs=2, type=int, default=None, help='inference size h,w'),
         click.option('--fps', type=int, default=None,
                      help='video frame-rate'),
         click.option('--conf', type=float, default=0.01,
