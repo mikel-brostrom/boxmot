@@ -517,87 +517,29 @@ def run_all(opt: argparse.Namespace) -> None:
     run_trackeval(opt)
 
 
-def parse_opt() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-
-    # Global arguments
-    parser.add_argument('--yolo-model', nargs='+', type=Path, default=[WEIGHTS / 'yolov8n.pt'], help='yolo model path')
-    parser.add_argument('--reid-model', nargs='+', type=Path, default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'], help='reid model path')
-    parser.add_argument('--source', type=str, help='file/dir/URL/glob, 0 for webcam')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=None, help='inference size h,w')
-    parser.add_argument('--fps', type=int, default=None, help='video frame-rate')
-    parser.add_argument('--conf', type=float, default=0.01, help='min confidence threshold')
-    parser.add_argument('--iou', type=float, default=0.7, help='intersection over union (IoU) threshold for NMS')
-    parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--classes', nargs='+', type=int, default=0, help='filter by class: --classes 0, or --classes 0 2 3')
-    parser.add_argument('--project', default=ROOT / 'runs', type=Path, help='save results to project/name')
-    parser.add_argument('--name', default='', help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_true', default=True, help='existing project/name ok, do not increment')
-    parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
-    parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
-    parser.add_argument('--ci', action='store_true', help='Automatically reuse existing due to no UI in CI')
-    parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack, boosttrack')
-    parser.add_argument('--dets-file-path', type=Path, help='path to detections file')
-    parser.add_argument('--embs-file-path', type=Path, help='path to embeddings file')
-    parser.add_argument('--exp-folder-path', type=Path, help='path to experiment folder')
-    parser.add_argument('--verbose', action='store_true', help='print results')
-    parser.add_argument('--agnostic-nms', default=False, action='store_true', help='class-agnostic NMS')
-    parser.add_argument('--gsi', action='store_true', help='apply Gaussian smooth interpolation postprocessing')
-    parser.add_argument('--n-trials', type=int, default=4, help='nr of trials for evolution')
-    parser.add_argument('--objectives', type=str, nargs='+', default=["HOTA", "MOTA", "IDF1"], help='set of objective metrics: HOTA,MOTA,IDF1')
-    parser.add_argument('--val-tools-path', type=Path, default=EXAMPLES / 'val_utils', help='path to store trackeval repo in')
-    parser.add_argument('--split-dataset', action='store_true', help='Use the second half of the dataset')
-
-    subparsers = parser.add_subparsers(dest='command')
-
-    # Subparser for generate_dets_embs
-    generate_dets_embs_parser = subparsers.add_parser('generate_dets_embs', help='Generate detections and embeddings')
-    generate_dets_embs_parser.add_argument('--source', type=str, required=True, help='file/dir/URL/glob, 0 for webcam')
-    generate_dets_embs_parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n.pt', help='yolo model path')
-    generate_dets_embs_parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt', help='reid model path')
-    generate_dets_embs_parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
-    generate_dets_embs_parser.add_argument('--classes', nargs='+', type=int, default=0, help='filter by class: --classes 0, or --classes 0 2 3')
-
-    # Subparser for generate_mot_results
-    generate_mot_results_parser = subparsers.add_parser('generate_mot_results', help='Generate MOT results')
-    generate_mot_results_parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n.pt', help='yolo model path')
-    generate_mot_results_parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt', help='reid model path')
-    generate_mot_results_parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack, boosttrack')
-    generate_mot_results_parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
-
-    # Subparser for trackeval
-    trackeval_parser = subparsers.add_parser('trackeval', help='Evaluate tracking results')
-    trackeval_parser.add_argument('--source', type=str, required=True, help='file/dir/URL/glob, 0 for webcam')
-    trackeval_parser.add_argument('--exp-folder-path', type=Path, required=True, help='path to experiment folder')
-
-    opt = parser.parse_args()
-    source_path = Path(opt.source)
-    opt.benchmark, opt.split = source_path.parent.name, source_path.name
-
-    return opt
-
-
-if __name__ == "__main__":
-    opt = parse_opt()
+def main(args):
     
     # download MOT benchmark
-    download_mot_eval_tools(opt.val_tools_path)
+    download_mot_eval_tools(args.val_tools_path)
 
-    if not Path(opt.source).exists():
-        zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)
-        unzip_mot_dataset(zip_path, opt.val_tools_path, opt.benchmark)
+    if not Path(args.source).exists():
+        zip_path = download_mot_dataset(args.val_tools_path, args.benchmark)
+        unzip_mot_dataset(zip_path, args.val_tools_path, args.benchmark)
 
-    if opt.benchmark == 'MOT17':
-        cleanup_mot17(opt.source)
+    if args.benchmark == 'MOT17':
+        cleanup_mot17(args.source)
 
-    if opt.split_dataset:
-        opt.source, opt.benchmark = split_dataset(opt.source)
+    if args.split_dataset:
+        args.source, args.benchmark = split_dataset(args.source)
 
-    if opt.command == 'generate_dets_embs':
-        run_generate_dets_embs(opt)
-    elif opt.command == 'generate_mot_results':
-        run_generate_mot_results(opt)
-    elif opt.command == 'trackeval':
-        run_trackeval(opt)
+    if args.command == 'generate_dets_embs':
+        run_generate_dets_embs(args)
+    elif args.command == 'generate_mot_results':
+        run_generate_mot_results(args)
+    elif args.command == 'trackeval':
+        run_trackeval(args)
     else:
-        run_all(opt)
+        run_all(args)
+
+if __name__ == "__main__":
+    main()

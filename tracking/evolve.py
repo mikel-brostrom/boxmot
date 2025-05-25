@@ -19,7 +19,6 @@ from tracking.val import (
     run_generate_mot_results,
     run_trackeval,
 )
-from tracking.val import parse_opt as parse_optt
 
 
 class Tracker:
@@ -94,9 +93,9 @@ def yaml_to_search_space(config: dict) -> dict:
     return search_space
 
 
-def main():
+def main(args):
     # Parse options and set necessary paths
-    opt = parse_optt()
+    opt = args
     opt.val_tools_path = EXAMPLES / 'val_utils'
     opt.source = Path(opt.source).resolve()
     opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
