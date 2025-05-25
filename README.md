@@ -55,7 +55,7 @@ Install the `boxmot` package, including all requirements, in a Python>=3.9 envir
 pip install boxmot
 ```
 
-## RFDETR | YOLOX | YOLOv12 examples
+## YOLOv12 | YOLOv11 | YOLOv10 | YOLOv9 | YOLOv8 | RFDETR | YOLOX examples
 
 <details>
 <summary>Tracking</summary>
@@ -112,13 +112,13 @@ Some tracking methods combine appearance description and motion in the process o
 
 ```bash
 $ boxmot track --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightweight
-                                                   osnet_x0_25_market1501.pt
-                                                   mobilenetv2_x1_4_msmt17.engine
-                                                   resnet50_msmt17.onnx
-                                                   osnet_x1_0_msmt17.pt
-                                                   clip_market1501.pt               # heavy
-                                                   clip_vehicleid.pt
-                                                   ...
+                                       osnet_x0_25_market1501.pt
+                                       mobilenetv2_x1_4_msmt17.engine
+                                       resnet50_msmt17.onnx
+                                       osnet_x1_0_msmt17.pt
+                                       clip_market1501.pt               # heavy
+                                       clip_vehicleid.pt
+                                      ...
 ```
 
 </details>
