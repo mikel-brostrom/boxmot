@@ -93,6 +93,8 @@ keywords = [
     "AI",
     "YOLO",
 ]
+[project.scripts]
+boxmot = "tracking.cli:main"
 
 [dependency-groups]
 test = [
