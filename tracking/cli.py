@@ -7,12 +7,6 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMP
 
 def main():
     
-    tune_parent = argparse.ArgumentParser(add_help=False)
-    tune_parent.add_argument('--n-trials', type=int, default=4, help='nr of trials for evolution')
-    tune_parent.add_argument('--tracking-method', type=str, default='deepocsort', help='which tracker to evolve')
-    tune_parent.add_argument('--source', type=str, default='./data', help='dataset path')
-    tune_parent.add_argument('--ci', action='store_true', help='CI mode (no UI)')
-
     eval_parent = argparse.ArgumentParser(add_help=False)
     eval_parent.add_argument('--yolo-model', nargs='+', type=Path,
                             default=[WEIGHTS/'yolov8n.pt'], help='…')
@@ -74,10 +68,10 @@ def main():
         # sub-commands
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('track')
-    sub.add_parser('generate-dets-embs', parents=[parser, eval_parent])
-    sub.add_parser('generate-mot-results', parents=[parser, eval_parent])
+    sub.add_parser('generate-dets-embs', parents=[eval_parent])
+    sub.add_parser('generate-mot-results', parents=[eval_parent])
     sub.add_parser('eval', parents=[eval_parent], conflict_handler='resolve')
-    sub.add_parser('tune', parents=[eval_parent, tune_parent], conflict_handler='resolve')
+    sub.add_parser('tune', parents=[eval_parent], conflict_handler='resolve')
     sub.add_parser('all')
 
     # parse and dispatch
