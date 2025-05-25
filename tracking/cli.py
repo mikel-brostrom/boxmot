@@ -74,8 +74,8 @@ def main():
         # sub-commands
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('track')
-    sub.add_parser('generate-dets-embs', parents=[eval_parent])
-    sub.add_parser('generate-mot-results', parents=[eval_parent])
+    sub.add_parser('generate-dets-embs', parents=[parser, eval_parent])
+    sub.add_parser('generate-mot-results', parents=[parser, eval_parent])
     sub.add_parser('eval', parents=[eval_parent], conflict_handler='resolve')
     sub.add_parser('tune', parents=[eval_parent, tune_parent], conflict_handler='resolve')
     sub.add_parser('all')
