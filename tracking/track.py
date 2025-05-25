@@ -17,6 +17,14 @@ checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
 
 from ultralytics import YOLO
+from ultralytics.utils.plotting import Annotator  # ultralytics.yolo.utils.plotting is deprecated
+from ultralytics.utils.plotting import colors
+from ultralytics.utils import plotting
+
+# Make every drawing call a no-op
+plotting.Annotator.box       = lambda *args, **kwargs: None
+plotting.Annotator.box_label = lambda *args, **kwargs: None
+plotting.Annotator.line      = lambda *args, **kwargs: None
 
 
 def on_predict_start(predictor, persist=False):
@@ -46,6 +54,14 @@ def on_predict_start(predictor, persist=False):
         trackers.append(tracker)
 
     predictor.trackers = trackers
+    
+# callback to plot trajectories on each frame
+def plot_trajectories(predictor):
+    # predictor.results is a list of Results, one per frame in the batch
+    for i, result in enumerate(predictor.results):
+        tracker = predictor.trackers[i]
+        result.orig_img = tracker.plot_results(result.orig_img, predictor.custom_args.show_trajectories)
+        cv2.waitKey(1)
 
 
 @torch.no_grad()
@@ -81,6 +97,7 @@ def run(args):
     )
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
+    yolo.add_callback('on_predict_postprocess_end', plot_trajectories)
 
     if not is_ultralytics_model(args.yolo_model):
         # replace yolov8 model
@@ -105,7 +122,7 @@ def run(args):
     # store custom args in predictor
     yolo.predictor.custom_args = args
 
-    for r in results:
+    for _ in results:
         pass
 
 
