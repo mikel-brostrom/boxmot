@@ -19,7 +19,7 @@ def main():
         help='one or more ReID model weights (only for generate/eval/tune)'
     )
 
-    # Common arguments for all commands
+    # Common arguments for all commands (flags only, no positionals)
     common_parser = argparse.ArgumentParser(add_help=False, conflict_handler='resolve')
     common_parser.add_argument(
         '--yolo-model', type=Path, default=WEIGHTS / 'yolov8n.pt',
@@ -99,45 +99,36 @@ def main():
     common_parser.add_argument('--per-class', action='store_true',
                                help='track each class separately')
 
-    # Top‐level parser: only common_parser is inherited here
-    parser = argparse.ArgumentParser(
-        prog='boxmot_cli',
-        parents=[common_parser],
-        conflict_handler='resolve'
-    )
+    # Top‐level parser: only for sub‐command selection
+    parser = argparse.ArgumentParser(prog='boxmot_cli')
     sub = parser.add_subparsers(dest='command', required=True)
 
-    # Sub-commands
-    sub.add_parser('track', parents=[common_parser], add_help=False)
+    # Sub-commands inherit their respective flags
+    sub.add_parser('track', parents=[common_parser], help='Run tracking only')
     sub.add_parser(
         'generate-dets-embs',
         parents=[common_parser, eval_parent],
-        conflict_handler='resolve',
-        add_help=False
+        help='Generate detections and embeddings'
     )
     sub.add_parser(
         'generate-mot-results',
         parents=[common_parser, eval_parent],
-        conflict_handler='resolve',
-        add_help=False
+        help='Generate MOT evaluation results'
     )
     sub.add_parser(
         'eval',
         parents=[common_parser, eval_parent],
-        conflict_handler='resolve',
-        add_help=False
+        help='Evaluate tracking performance'
     )
     sub.add_parser(
         'tune',
         parents=[common_parser, eval_parent],
-        conflict_handler='resolve',
-        add_help=False
+        help='Tune models via evolutionary algorithms'
     )
     sub.add_parser(
         'all',
         parents=[common_parser, eval_parent],
-        conflict_handler='resolve',
-        add_help=False
+        help='Run all steps: generate, evaluate, tune'
     )
 
     # Parse & dispatch
