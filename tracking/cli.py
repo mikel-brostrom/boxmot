@@ -7,7 +7,6 @@ from tracking.val import (
     run_generate_mot_results,
     run_trackeval,
     main as run_eval,
-    parse_opt as parse_val_opt
 )
 from tracking.track import main as run_track, parse_opt as parse_predict_opt
 from tracking.evolve import main as run_tuning
