@@ -185,7 +185,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run:  |
           source .venv/bin/activate
-          python tracking/cli.py --yolo-model weights/yolov8n-pose.pt --source $IMG --imgsz 320 track
+          python tracking/cli.py --yolo-model weights/yolov8n-pose.pt --imgsz 320 --source $IMG  track
   tracking-with-yolos:
     runs-on: ubuntu-latest
     outputs:
@@ -216,9 +216,9 @@ jobs:
         run: |
           source .venv/bin/activate
           uv pip list
-          python tracking/cli.py --yolo-model yolov10n.pt --source $IMG --imgsz 320 track
-          python tracking/cli.py --yolo-model yolox_n.pt --source $IMG --imgsz 320 320 track
-          python tracking/cli.py --yolo-model rf-detr-base.pt --source $IMG --imgsz 320 track
+          python tracking/cli.py --yolo-model yolov10n.pt --imgsz 320 --source $IMG  track
+          python tracking/cli.py --yolo-model yolox_n.pt --imgsz 320 --source $IMG  track
+          python tracking/cli.py --yolo-model rf-detr-base.pt --imgsz 320 --source $IMG track
   tracking-with-seg:
     runs-on: ubuntu-latest
     outputs:
@@ -290,9 +290,9 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          python tracking/cli.py --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript    --source $IMG --imgsz 320 track
-          python tracking/cli.py --reid-model tracking/weights/osnet_x0_25_msmt17.onnx           --source $IMG --imgsz 320 track
-          python tracking/cli.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --source $IMG --imgsz 320 track
+          python tracking/cli.py --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG  track
+          python tracking/cli.py --reid-model tracking/weights/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG  track
+          python tracking/cli.py --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG  track
           python tracking/cli.py --reid-model tracking/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320 track
                
   tests:
