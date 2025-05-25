@@ -49,17 +49,7 @@ Multi-object tracking solutions today depend heavily on the computational capabi
 
 ## Installation
 
-If you want to run the RFDETR, YOLOX or YOLOv12 examples:
-
-```
-git clone https://github.com/mikel-brostrom/boxmot.git
-cd boxmot
-pip install uv
-uv sync --group yolo
-activate .venv/bin/activate
-```
-
-but if you only want to import the tracking modules you can simply:
+Install the `boxmot` package, including all requirements, in a Python>=3.9 environment:
 
 ```
 pip install boxmot
@@ -70,16 +60,16 @@ pip install boxmot
 <details>
 <summary>Tracking</summary>
 
-
 ```bash
-$ boxmot track --yolo-model rf-detr-base.pt  # bboxes only
-  boxmot track --yolo-model yolox_s.pt       # bboxes only
-  boxmot track --yolo-model yolov10n         # bboxes only
-  boxmot track --yolo-model yolov9s          # bboxes only
-  boxmot track --yolo-model yolov8n          # bboxes only
-                            yolov8n-seg      # bboxes + segmentation masks
-                            yolov8n-pose     # bboxes + pose estimation
-
+$ boxmot track --yolo-model rf-detr-base.pt     # bboxes only
+  boxmot track --yolo-model yolox_s.pt          # bboxes only
+  boxmot track --yolo-model yolo12n.pt         # bboxes only
+  boxmot track --yolo-model yolo11n.pt         # bboxes only
+  boxmot track --yolo-model yolov10n.pt         # bboxes only
+  boxmot track --yolo-model yolov9c.pt          # bboxes only
+  boxmot track --yolo-model yolov8n.pt          # bboxes only
+                            yolov8n-seg.pt      # bboxes + segmentation masks
+                            yolov8n-pose.pt     # bboxes + pose estimation
 ```
 
   </details>
