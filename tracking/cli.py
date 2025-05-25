@@ -168,7 +168,7 @@ def generate_mot_results(yolo_model, reid_model, **kwargs):
 @common_options
 @multi_model_options
 def evaluate(yolo_model, reid_model, **kwargs):
-    from tracking.val import main as run_eval
+    from tracking.val import run_all as run_eval
     ns = {
         'yolo_model': [Path(p) for p in yolo_model],
         'reid_model': [Path(p) for p in reid_model],

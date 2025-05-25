@@ -505,21 +505,13 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     return hota_mota_idf1
 
 
-def run_all(opt: argparse.Namespace) -> None:
+def main(opt: argparse.Namespace) -> None:
     """
     Runs all stages of the pipeline: generate_dets_embs, generate_mot_results, and trackeval.
 
     Args:
         opt (Namespace): Parsed command line arguments.
     """
-    run_generate_dets_embs(opt)
-    run_generate_mot_results(opt)
-    run_trackeval(opt)
-
-
-def main(args):
-    
-    # download MOT benchmark
     download_mot_eval_tools(args.val_tools_path)
 
     if not Path(args.source).exists():
@@ -532,14 +524,10 @@ def main(args):
     if args.split_dataset:
         args.source, args.benchmark = split_dataset(args.source)
 
-    if args.command == 'generate_dets_embs':
-        run_generate_dets_embs(args)
-    elif args.command == 'generate_mot_results':
-        run_generate_mot_results(args)
-    elif args.command == 'trackeval':
-        run_trackeval(args)
-    else:
-        run_all(args)
+    run_generate_dets_embs(opt)
+    run_generate_mot_results(opt)
+    run_trackeval(opt)
+
 
 if __name__ == "__main__":
     main()
