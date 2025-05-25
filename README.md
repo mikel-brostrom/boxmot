@@ -49,38 +49,40 @@ Multi-object tracking solutions today depend heavily on the computational capabi
 
 ## Installation
 
-If you want to run the RFDETR, YOLOX or YOLOv12 examples:
+Install the `boxmot` package, including all requirements, in a Python>=3.9 environment:
 
-```
-git clone https://github.com/mikel-brostrom/boxmot.git
-cd boxmot
-pip install uv
-uv sync --group yolo
-activate .venv/bin/activate
-```
-
-but if you only want to import the tracking modules you can simply:
-
-```
+```bash
 pip install boxmot
 ```
 
-## RFDETR | YOLOX | YOLOv12 examples
+BoxMOT provides a unified CLI `boxmot` with the following subcommands:
+
+```bash
+Usage: boxmot_cli COMMAND [ARGS]...
+
+Commands:
+  track                  Run tracking only
+  generate-dets-embs     Generate detections and embeddings
+  generate-mot-results   Generate MOT evaluation results based on pregenerated detecions and embeddings
+  eval                   Evaluate tracking performance using the official trackeval repository
+  tune                   Tune tracker hyperparameters based on selected detections and embeddings
+```
+
+## YOLOv12 | YOLOv11 | YOLOv10 | YOLOv9 | YOLOv8 | RFDETR | YOLOX examples
 
 <details>
 <summary>Tracking</summary>
 
-
 ```bash
-yolox_s.pt
-$ python tracking/track.py --yolo-model rf-detr-base.pt  # bboxes only
-  python tracking/track.py --yolo-model yolox_s.pt       # bboxes only
-  python tracking/track.py --yolo-model yolov10n         # bboxes only
-  python tracking/track.py --yolo-model yolov9s          # bboxes only
-  python tracking/track.py --yolo-model yolov8n          # bboxes only
-                                        yolov8n-seg      # bboxes + segmentation masks
-                                        yolov8n-pose     # bboxes + pose estimation
-
+$ boxmot track --yolo-model rf-detr-base.pt     # bboxes only
+  boxmot track --yolo-model yolox_s.pt          # bboxes only
+  boxmot track --yolo-model yolo12n.pt         # bboxes only
+  boxmot track --yolo-model yolo11n.pt         # bboxes only
+  boxmot track --yolo-model yolov10n.pt         # bboxes only
+  boxmot track --yolo-model yolov9c.pt          # bboxes only
+  boxmot track --yolo-model yolov8n.pt          # bboxes only
+                            yolov8n-seg.pt      # bboxes + segmentation masks
+                            yolov8n-pose.pt     # bboxes + pose estimation
 ```
 
   </details>
@@ -89,12 +91,12 @@ $ python tracking/track.py --yolo-model rf-detr-base.pt  # bboxes only
 <summary>Tracking methods</summary>
 
 ```bash
-$ python tracking/track.py --tracking-method deepocsort
-                                             strongsort
-                                             ocsort
-                                             bytetrack
-                                             botsort
-                                             boosttrack
+$ boxmot track --tracking-method deepocsort
+                                 strongsort
+                                 ocsort
+                                 bytetrack
+                                 botsort
+                                 boosttrack
 ```
 
 </details>
@@ -105,13 +107,13 @@ $ python tracking/track.py --tracking-method deepocsort
 Tracking can be run on most video formats
 
 ```bash
-$ python tracking/track.py --source 0                               # webcam
-                                    img.jpg                         # image
-                                    vid.mp4                         # video
-                                    path/                           # directory
-                                    path/*.jpg                      # glob
-                                    'https://youtu.be/Zgi9g1ksQHc'  # YouTube
-                                    'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP stream
+$ boxmot track --source 0                               # webcam
+                        img.jpg                         # image
+                        vid.mp4                         # video
+                        path/                           # directory
+                        path/*.jpg                      # glob
+                        'https://youtu.be/Zgi9g1ksQHc'  # YouTube
+                        'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP stream
 ```
 
 </details>
@@ -122,14 +124,14 @@ $ python tracking/track.py --source 0                               # webcam
 Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/appearance/reid_export.py) script
 
 ```bash
-$ python tracking/track.py --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightweight
-                                                   osnet_x0_25_market1501.pt
-                                                   mobilenetv2_x1_4_msmt17.engine
-                                                   resnet50_msmt17.onnx
-                                                   osnet_x1_0_msmt17.pt
-                                                   clip_market1501.pt               # heavy
-                                                   clip_vehicleid.pt
-                                                   ...
+$ boxmot track --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightweight
+                                       osnet_x0_25_market1501.pt
+                                       mobilenetv2_x1_4_msmt17.engine
+                                       resnet50_msmt17.onnx
+                                       osnet_x1_0_msmt17.pt
+                                       clip_market1501.pt               # heavy
+                                       clip_vehicleid.pt
+                                      ...
 ```
 
 </details>
@@ -142,7 +144,7 @@ By default the tracker tracks all MS COCO classes.
 If you want to track a subset of the classes that you model predicts, add their corresponding index after the classes flag,
 
 ```bash
-python tracking/track.py --source 0 --yolo-model yolov8s.pt --classes 16 17  # COCO yolov8 model. Track cats and dogs, only
+boxmot track --source 0 --yolo-model yolov8s.pt --classes 16 17  # COCO yolov8 model. Track cats and dogs, only
 ```
 
 [Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a Yolov8 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
@@ -158,8 +160,8 @@ python tracking/track.py --source 0 --yolo-model yolov8s.pt --classes 16 17  # C
 Evaluate a combination of detector, tracking method and ReID model on standard MOT dataset or you custom one by
 
 ```bash
-$ python3 tracking/val.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method deepocsort --verbose --source ./assets/MOT17-mini/train
-$ python3 tracking/val.py --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method ocsort     --verbose --source ./tracking/val_utils/MOT17/train
+$ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method deepocsort --verbose --source ./assets/MOT17-mini/train
+$ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method ocsort     --verbose --source ./tracking/val_utils/MOT17/train
 ```
 
 add `--gsi` to your command for postprocessing the MOT results by gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
@@ -173,9 +175,9 @@ We use a fast and elitist multiobjective genetic algorithm for tracker hyperpara
 
 ```bash
 # saves dets and embs under ./runs/dets_n_embs separately for each selected yolo and reid model
-$ python tracking/generate_dets_n_embs.py --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
+$ boxmot generate-dets-embs --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
 # evolve parameters for specified tracking method using the selected detections and embeddings generated in the previous step
-$ python tracking/evolve.py --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method botsort --source ./assets/MOT17-mini/train
+$ boxmot tune --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method botsort --source ./assets/MOT17-mini/train
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
