@@ -108,26 +108,31 @@ def main():
     sub.add_parser(
         'generate-dets-embs',
         parents=[common_parser, eval_parent],
+        conflict_handler='resolve',
         help='Generate detections and embeddings'
     )
     sub.add_parser(
         'generate-mot-results',
         parents=[common_parser, eval_parent],
+        conflict_handler='resolve',
         help='Generate MOT evaluation results'
     )
     sub.add_parser(
         'eval',
         parents=[common_parser, eval_parent],
+        conflict_handler='resolve',
         help='Evaluate tracking performance'
     )
     sub.add_parser(
         'tune',
         parents=[common_parser, eval_parent],
+        conflict_handler='resolve',
         help='Tune models via evolutionary algorithms'
     )
     sub.add_parser(
         'all',
         parents=[common_parser, eval_parent],
+        conflict_handler='resolve',
         help='Run all steps: generate, evaluate, tune'
     )
 
