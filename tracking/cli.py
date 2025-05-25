@@ -23,7 +23,7 @@ def main():
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='Path to re-identification model')
     parser.add_argument('--source', type=str, default="./tracking/val_utils/data/MOT17-50/train", help='file/dir/URL/glob, 0 for webcam')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=None, help='inference size h,w')
+    parser.add_argument('--imgsz', '--img-size', nargs='+', type=int, default=None, help='inference size h,w')
     parser.add_argument('--fps', type=int, default=None, help='video frame-rate')
     parser.add_argument('--conf', type=float, default=0.01, help='min confidence threshold')
     parser.add_argument('--iou', type=float, default=0.7, help='intersection over union (IoU) threshold for NMS')
