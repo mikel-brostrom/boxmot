@@ -6,7 +6,7 @@ from tracking.val import (
     run_generate_dets_embs,
     run_generate_mot_results,
     run_trackeval,
-    run_all,
+    main as run_eval,
     parse_opt as parse_val_opt
 )
 from tracking.track import main as run_track, parse_opt as parse_predict_opt
@@ -78,7 +78,7 @@ def main():
     sub.add_parser('track').set_defaults(func=run_track)
     sub.add_parser('generate-dets-embs').set_defaults(func=run_generate_dets_embs)
     sub.add_parser('generate-mot-results').set_defaults(func=run_generate_mot_results)
-    sub.add_parser('eval', parents=[eval_parent], conflict_handler='resolve').set_defaults(func=run_all)
+    sub.add_parser('eval', parents=[eval_parent], conflict_handler='resolve').set_defaults(func=run_eval)
     sub.add_parser('tune', parents=[eval_parent], conflict_handler='resolve').set_defaults(func=run_tuning)
     sub.add_parser('all').set_defaults(func=run_all)
 
