@@ -30,7 +30,7 @@ def main():
         help='path to ReID model weights'
     )
     common_parser.add_argument(
-        '--source', type=str, default=str(ROOT / 'data'),
+        '--source', type=str, default=0,
         help='file/dir/URL/glob, 0 for webcam'
     )
     common_parser.add_argument('--imgsz', '--img-size', nargs='+', type=int,
