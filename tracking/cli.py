@@ -2,11 +2,11 @@
 import click
 from pathlib import Path
 from types import SimpleNamespace
-from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
+from boxmot.utils import ROOT, WEIGHTS, EXAMPLES
 
 def common_options(fn):
     """Shared options for all commands, excluding model weights."""
-    options = [
+    opts = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
         click.option('--imgsz', '--img-size', type=int, multiple=True,
@@ -51,7 +51,7 @@ def common_options(fn):
         click.option('--n-trials', type=int, default=4,
                      help='number of trials for evolutionary tuning'),
         click.option('--objectives', type=str, multiple=True,
-                     default=['HOTA','MOTA','IDF1'],
+                     default=['HOTA', 'MOTA', 'IDF1'],
                      help='objectives for tuning: HOTA, MOTA, IDF1'),
         click.option('--val-tools-path', type=click.Path(path_type=Path),
                      default=EXAMPLES / 'val_utils',
@@ -77,13 +77,13 @@ def common_options(fn):
         click.option('--per-class', is_flag=True,
                      help='track each class separately'),
     ]
-    for opt in reversed(options):
+    for opt in reversed(opts):
         fn = opt(fn)
     return fn
 
 def singular_model_options(fn):
     """Single-weight options for tracking-only."""
-    options = [
+    opts = [
         click.option('--yolo-model', type=click.Path(path_type=Path), 
                      default=WEIGHTS / 'yolov8n.pt',
                      help='path to YOLO weights for detection'),
@@ -91,13 +91,13 @@ def singular_model_options(fn):
                      default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                      help='path to ReID model weights'),
     ]
-    for opt in reversed(options):
+    for opt in reversed(opts):
         fn = opt(fn)
     return fn
 
 def multi_model_options(fn):
     """Multi-weight options for generate/eval/tune."""
-    options = [
+    opts = [
         click.option('--yolo-model', type=click.Path(path_type=Path),
                      multiple=True,
                      default=(WEIGHTS / 'yolov8n.pt',),
@@ -107,9 +107,17 @@ def multi_model_options(fn):
                      default=(WEIGHTS / 'osnet_x0_25_msmt17.pt',),
                      help='one or more ReID model weights'),
     ]
-    for opt in reversed(options):
+    for opt in reversed(opts):
         fn = opt(fn)
     return fn
+
+def _build_args(namespace_kwargs):
+    """Helper: Turn kwargs into an args namespace, set benchmark & split."""
+    args = SimpleNamespace(**namespace_kwargs)
+    source_path = Path(args.source)
+    args.benchmark = source_path.parent.name
+    args.split     = source_path.name
+    return args
 
 @click.group()
 @click.version_option()
@@ -122,12 +130,12 @@ def cli():
 @singular_model_options
 def track(yolo_model, reid_model, **kwargs):
     from tracking.track import main as run_track
-    # Build an args namespace exactly like argparse would
-    args = SimpleNamespace(
-        yolo_model=Path(yolo_model),
-        reid_model=Path(reid_model),
-        **{k: (tuple(v) if isinstance(v, tuple) else v) for k, v in kwargs.items()}
-    )
+    ns = {
+        'yolo_model': Path(yolo_model),
+        'reid_model': Path(reid_model),
+        **kwargs
+    }
+    args = _build_args(ns)
     run_track(args)
 
 @cli.command('generate-dets-embs', help='Generate detections and embeddings')
@@ -135,11 +143,12 @@ def track(yolo_model, reid_model, **kwargs):
 @multi_model_options
 def generate_dets_embs(yolo_model, reid_model, **kwargs):
     from tracking.val import run_generate_dets_embs
-    args = SimpleNamespace(
-        yolo_model=[Path(p) for p in yolo_model],
-        reid_model=[Path(p) for p in reid_model],
-        **{k: (tuple(v) if isinstance(v, tuple) else v) for k, v in kwargs.items()}
-    )
+    ns = {
+        'yolo_model': [Path(p) for p in yolo_model],
+        'reid_model': [Path(p) for p in reid_model],
+        **kwargs
+    }
+    args = _build_args(ns)
     run_generate_dets_embs(args)
 
 @cli.command('generate-mot-results', help='Generate MOT evaluation results')
@@ -147,11 +156,12 @@ def generate_dets_embs(yolo_model, reid_model, **kwargs):
 @multi_model_options
 def generate_mot_results(yolo_model, reid_model, **kwargs):
     from tracking.val import run_generate_mot_results
-    args = SimpleNamespace(
-        yolo_model=[Path(p) for p in yolo_model],
-        reid_model=[Path(p) for p in reid_model],
-        **{k: (tuple(v) if isinstance(v, tuple) else v) for k, v in kwargs.items()}
-    )
+    ns = {
+        'yolo_model': [Path(p) for p in yolo_model],
+        'reid_model': [Path(p) for p in reid_model],
+        **kwargs
+    }
+    args = _build_args(ns)
     run_generate_mot_results(args)
 
 @cli.command('eval', help='Evaluate tracking performance')
@@ -159,11 +169,12 @@ def generate_mot_results(yolo_model, reid_model, **kwargs):
 @multi_model_options
 def evaluate(yolo_model, reid_model, **kwargs):
     from tracking.val import main as run_eval
-    args = SimpleNamespace(
-        yolo_model=[Path(p) for p in yolo_model],
-        reid_model=[Path(p) for p in reid_model],
-        **{k: (tuple(v) if isinstance(v, tuple) else v) for k, v in kwargs.items()}
-    )
+    ns = {
+        'yolo_model': [Path(p) for p in yolo_model],
+        'reid_model': [Path(p) for p in reid_model],
+        **kwargs
+    }
+    args = _build_args(ns)
     run_eval(args)
 
 @cli.command('tune', help='Tune models via evolutionary algorithms')
@@ -171,23 +182,26 @@ def evaluate(yolo_model, reid_model, **kwargs):
 @multi_model_options
 def tune(yolo_model, reid_model, **kwargs):
     from tracking.evolve import main as run_tuning
-    args = SimpleNamespace(
-        yolo_model=[Path(p) for p in yolo_model],
-        reid_model=[Path(p) for p in reid_model],
-        **{k: (tuple(v) if isinstance(v, tuple) else v) for k, v in kwargs.items()}
-    )
+    ns = {
+        'yolo_model': [Path(p) for p in yolo_model],
+        'reid_model': [Path(p) for p in reid_model],
+        **kwargs
+    }
+    args = _build_args(ns)
     run_tuning(args)
 
 @cli.command('all', help='Run all steps: generate, evaluate, tune')
 @common_options
 @multi_model_options
 def all_cmd(yolo_model, reid_model, **kwargs):
+    # "all" behaves like your original "all" branch: calls run_eval
     from tracking.val import main as run_eval
-    args = SimpleNamespace(
-        yolo_model=[Path(p) for p in yolo_model],
-        reid_model=[Path(p) for p in reid_model],
-        **{k: (tuple(v) if isinstance(v, tuple) else v) for k, v in kwargs.items()}
-    )
+    ns = {
+        'yolo_model': [Path(p) for p in yolo_model],
+        'reid_model': [Path(p) for p in reid_model],
+        **kwargs
+    }
+    args = _build_args(ns)
     run_eval(args)
 
 if __name__ == '__main__':
