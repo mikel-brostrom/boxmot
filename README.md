@@ -51,13 +51,13 @@ Multi-object tracking solutions today depend heavily on the computational capabi
 
 Install the `boxmot` package, including all requirements, in a Python>=3.9 environment:
 
-```
+```bash
 pip install boxmot
 ```
 
-BoxMOT provides a unified CLI boxmot_cli with the following subcommands:
+BoxMOT provides a unified CLI `boxmot` with the following subcommands:
 
-```
+```bash
 Usage: boxmot_cli [OPTIONS] COMMAND [ARGS]...
 
 Commands:
