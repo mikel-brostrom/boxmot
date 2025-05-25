@@ -7,12 +7,25 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMP
 
 
 def _normalize_args(args: SimpleNamespace):
-    """Convert tuple-based Click multi-options into lists for compatibility."""
-    for attr in ('yolo_model', 'reid_model', 'classes', 'imgsz', 'objectives'):
+    """Convert tuple-based Click multi-options into lists for compatibility and handle single-value imgsz."""
+    for attr in ('yolo_model', 'reid_model', 'classes', 'objectives'):
         if hasattr(args, attr):
             val = getattr(args, attr)
             if isinstance(val, tuple):
                 setattr(args, attr, list(val))
+    # Handle imgsz separately: Click multiple always gives tuple
+    if hasattr(args, 'imgsz'):
+        val = getattr(args, 'imgsz')
+        if isinstance(val, tuple):
+            lst = list(val)
+            if len(lst) == 1:
+                # single value -> square
+                lst = [lst[0], lst[0]]
+            if len(lst) == 0:
+                # no size provided -> None
+                args.imgsz = None
+            else:
+                args.imgsz = lst
     return args
 
 
@@ -21,7 +34,7 @@ def common_options(func):
     options = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
-        click.option('--imgsz', '--img-size', nargs=2, type=int, default=None, help='inference size h,w'),
+        click.option('--imgsz', '--img-size', nargs=2, type=int, default=None, help='inference size h,w')),
         click.option('--fps', type=int, default=None,
                      help='video frame-rate'),
         click.option('--conf', type=float, default=0.01,
