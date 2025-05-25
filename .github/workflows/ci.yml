@@ -132,7 +132,7 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          python tracking/cli.py generate_dets_embs --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0 generate_dets_embs
+          python tracking/cli.py  --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0 generate-dets-embs
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
