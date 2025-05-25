@@ -58,7 +58,7 @@ pip install boxmot
 BoxMOT provides a unified CLI `boxmot` with the following subcommands:
 
 ```bash
-Usage: boxmot_cli COMMAND [ARGS]...
+Usage: boxmot COMMAND [ARGS]...
 
 Commands:
   track                  Run tracking only
