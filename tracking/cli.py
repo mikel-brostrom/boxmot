@@ -6,6 +6,16 @@ from types import SimpleNamespace
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
 
 
+def _normalize_args(args: SimpleNamespace):
+    """Convert tuple-based Click multi-options into lists for compatibility."""
+    for attr in ('yolo_model', 'reid_model', 'classes', 'imgsz', 'objectives'):
+        if hasattr(args, attr):
+            val = getattr(args, attr)
+            if isinstance(val, tuple):
+                setattr(args, attr, list(val))
+    return args
+
+
 def common_options(func):
     """Decorator for common CLI options (flags only, no positionals)."""
     options = [
@@ -122,10 +132,11 @@ def cli():
 @single_model_options
 @click.pass_context
 def track(ctx, **kwargs):  # Run tracking only
-    from tracking.track import main as run_track
     args = SimpleNamespace(**kwargs)
+    args = _normalize_args(args)
     source_path = Path(args.source)
     args.benchmark, args.split = source_path.parent.name, source_path.name
+    from tracking.track import main as run_track
     run_track(args)
 
 @cli.command('generate-dets-embs')
@@ -133,10 +144,11 @@ def track(ctx, **kwargs):  # Run tracking only
 @multi_model_options
 @click.pass_context
 def generate_dets_embs(ctx, **kwargs):  # Generate detections and embeddings
-    from tracking.val import run_generate_dets_embs
     args = SimpleNamespace(**kwargs)
+    args = _normalize_args(args)
     source_path = Path(args.source)
     args.benchmark, args.split = source_path.parent.name, source_path.name
+    from tracking.val import run_generate_dets_embs
     run_generate_dets_embs(args)
 
 @cli.command('generate-mot-results')
@@ -144,10 +156,11 @@ def generate_dets_embs(ctx, **kwargs):  # Generate detections and embeddings
 @multi_model_options
 @click.pass_context
 def generate_mot_results(ctx, **kwargs):  # Generate MOT evaluation results
-    from tracking.val import run_generate_mot_results
     args = SimpleNamespace(**kwargs)
+    args = _normalize_args(args)
     source_path = Path(args.source)
     args.benchmark, args.split = source_path.parent.name, source_path.name
+    from tracking.val import run_generate_mot_results
     run_generate_mot_results(args)
 
 @cli.command()
@@ -155,10 +168,11 @@ def generate_mot_results(ctx, **kwargs):  # Generate MOT evaluation results
 @multi_model_options
 @click.pass_context
 def eval(ctx, **kwargs):  # Evaluate tracking performance
-    from tracking.val import main as run_eval
     args = SimpleNamespace(**kwargs)
+    args = _normalize_args(args)
     source_path = Path(args.source)
     args.benchmark, args.split = source_path.parent.name, source_path.name
+    from tracking.val import main as run_eval
     run_eval(args)
 
 @cli.command()
@@ -166,10 +180,11 @@ def eval(ctx, **kwargs):  # Evaluate tracking performance
 @multi_model_options
 @click.pass_context
 def tune(ctx, **kwargs):  # Tune models via evolutionary algorithms
-    from tracking.evolve import main as run_tuning
     args = SimpleNamespace(**kwargs)
+    args = _normalize_args(args)
     source_path = Path(args.source)
     args.benchmark, args.split = source_path.parent.name, source_path.name
+    from tracking.evolve import main as run_tuning
     run_tuning(args)
 
 @cli.command('all')
@@ -177,10 +192,11 @@ def tune(ctx, **kwargs):  # Tune models via evolutionary algorithms
 @multi_model_options
 @click.pass_context
 def all_steps(ctx, **kwargs):  # Run all steps: generate, evaluate, tune
-    from tracking.val import main as run_eval
     args = SimpleNamespace(**kwargs)
+    args = _normalize_args(args)
     source_path = Path(args.source)
     args.benchmark, args.split = source_path.parent.name, source_path.name
+    from tracking.val import main as run_eval
     run_eval(args)
 
 
