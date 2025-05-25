@@ -505,7 +505,7 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     return hota_mota_idf1
 
 
-def main(opt: argparse.Namespace) -> None:
+def main(args: argparse.Namespace) -> None:
     """
     Runs all stages of the pipeline: generate_dets_embs, generate_mot_results, and trackeval.
 
