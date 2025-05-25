@@ -2,16 +2,7 @@
 
 import argparse
 from pathlib import Path
-from tracking.val import (
-    run_generate_dets_embs,
-    run_generate_mot_results,
-    run_trackeval,
-    main as run_eval,
-)
-from tracking.track import main as run_track, parse_opt as parse_predict_opt
-from tracking.evolve import main as run_tuning
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
-
 
 
 def main():
