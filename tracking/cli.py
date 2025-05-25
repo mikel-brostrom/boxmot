@@ -73,19 +73,35 @@ def main():
     parser.add_argument('--per-class', action='store_true',
                         help='Track each class separately')
 
+        # sub-commands
     sub = parser.add_subparsers(dest='command', required=True)
-    sub.add_parser('track').set_defaults(func=run_track)
-    sub.add_parser('generate-dets-embs').set_defaults(func=run_generate_dets_embs)
-    sub.add_parser('generate-mot-results').set_defaults(func=run_generate_mot_results)
-    sub.add_parser('eval', parents=[eval_parent], conflict_handler='resolve').set_defaults(func=run_eval)
-    sub.add_parser('tune', parents=[eval_parent], conflict_handler='resolve').set_defaults(func=run_tuning)
-    sub.add_parser('all').set_defaults(func=run_all)
+    sub.add_parser('track')
+    sub.add_parser('generate-dets-embs')
+    sub.add_parser('generate-mot-results')
+    sub.add_parser('eval', parents=[eval_parent], conflict_handler='resolve')
+    sub.add_parser('tune', parents=[eval_parent], conflict_handler='resolve')
+    sub.add_parser('all')
 
+    # parse and dispatch
     args = parser.parse_args()
-
     source_path = Path(args.source)
     args.benchmark, args.split = source_path.parent.name, source_path.name
-    args.func(args)
+
+    if args.command == 'track':
+        from tracking.track import main as run_track
+        run_track(args)
+    elif args.command == 'generate-dets-embs':
+        from tracking.val import run_generate_dets_embs
+        run_generate_dets_embs(args)
+    elif args.command == 'generate-mot-results':
+        from tracking.val import run_generate_mot_results
+        run_generate_mot_results(args)
+    elif args.command in ('eval', 'all'):
+        from tracking.val import main as run_eval
+        run_eval(args)
+    elif args.command == 'tune':
+        from tracking.evolve import main as run_tuning
+        run_tuning(args)
 
 
 if __name__ == "__main__":
