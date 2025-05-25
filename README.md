@@ -55,6 +55,19 @@ Install the `boxmot` package, including all requirements, in a Python>=3.9 envir
 pip install boxmot
 ```
 
+BoxMOT provides a unified CLI boxmot_cli with the following subcommands:
+
+```
+Usage: boxmot_cli [OPTIONS] COMMAND [ARGS]...
+
+Commands:
+  track                  Run tracking only
+  generate-dets-embs     Generate detections and embeddings
+  generate-mot-results   Generate MOT evaluation results based on pregenerated detecions and embeddings
+  eval                   Evaluate tracking performance using the official trackeval repository
+  tune                   Tune tracker hyperparameters based on selected detections and embeddings
+```
+
 ## YOLOv12 | YOLOv11 | YOLOv10 | YOLOv9 | YOLOv8 | RFDETR | YOLOX examples
 
 <details>
