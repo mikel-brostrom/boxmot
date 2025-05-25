@@ -1,3 +1,4 @@
+
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import argparse
@@ -65,7 +66,7 @@ def plot_trajectories(predictor):
 
 
 @torch.no_grad()
-def run(args):
+def main(args):
     if args.imgsz is None:
         args.imgsz = default_imgsz(args.yolo_model)
     yolo = YOLO(
@@ -186,5 +187,4 @@ def parse_opt():
 
 
 if __name__ == "__main__":
-    opt = parse_opt()
-    run(opt)
+    main()

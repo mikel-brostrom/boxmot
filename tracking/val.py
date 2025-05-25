@@ -577,8 +577,7 @@ def parse_opt() -> argparse.Namespace:
     return opt
 
 
-if __name__ == "__main__":
-    opt = parse_opt()
+def main(args):
     
     # download MOT benchmark
     download_mot_eval_tools(opt.val_tools_path)
@@ -601,3 +600,6 @@ if __name__ == "__main__":
         run_trackeval(opt)
     else:
         run_all(opt)
+
+if __name__ == "__main__":
+    main()
