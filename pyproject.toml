@@ -60,6 +60,7 @@ dependencies = [
     "torch<3.0.0,>=2.2.1; sys_platform == \"linux\" or sys_platform == \"win32\"",
     "torchvision<1.0.0,>=0.17.1; sys_platform == \"darwin\"",
     "torchvision<1.0.0,>=0.17.1; sys_platform == \"linux\" or sys_platform == \"win32\"",
+    "click>=8.1.8",
 ]
 name = "boxmot"
 version = "13.0.0"
