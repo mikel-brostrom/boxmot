@@ -5,6 +5,7 @@ import logging
 import concurrent.futures
 import numpy as np
 import pandas as pd
+from typing import Optional
 
 from boxmot.utils import logger as LOGGER
 
@@ -29,7 +30,7 @@ def _compute_fps_mask(frames: np.ndarray, orig_fps: int, target_fps: int) -> np.
 def load_detemb_worker(det_path: Path,
                        emb_path: Path,
                        seq_dir: Path,
-                       target_fps: int | None):
+                       target_fps: Optional[int]):
     """
     Load external detections and embeddings for a given sequence;
     return (seq_name, {"dets": dets, "embs": embs}) or None if missing.
@@ -84,11 +85,11 @@ class MOT17DetEmbDataset:
     def __init__(self,
                  mot_root: str,
                  split: str = "train",
-                 det_emb_root: str | None = None,
+                 det_emb_root: Optional[str] = None,
                  model_name: str = "yolox_x_ablation",
                  reid_name: str = "lmbn_n_duke",
-                 fps: int | None = None,
-                 num_workers: int = None):
+                 fps: Optional[int]    = None,
+                 num_workers: Optional[int] = None):
         self.root       = Path(mot_root)
         self.split      = split
         self.seq_root   = self.root #/ split
