@@ -6,9 +6,9 @@ from boxmot.appearance.exporters.base_exporter import BaseExporter
 
 class OpenVINOExporter(BaseExporter):
     group = "openvino"
-    
+
     def export(self):
-        
+
         import openvino.runtime as ov
         from openvino.tools import mo
 
@@ -23,5 +23,5 @@ class OpenVINOExporter(BaseExporter):
             compress_to_fp16=self.half,
         )
         ov.serialize(ov_model, f_ov)
-        
+
         return f

@@ -115,12 +115,13 @@ def match(cost_matrix: np.ndarray, threshold: float) -> np.ndarray:
 
 
 def linear_assignment(
-        detections: np.ndarray,
-        trackers: np.ndarray,
-        iou_matrix: np.ndarray,
-        cost_matrix: np.ndarray,
-        threshold: float,
-        emb_cost: Optional[np.ndarray] = None):
+    detections: np.ndarray,
+    trackers: np.ndarray,
+    iou_matrix: np.ndarray,
+    cost_matrix: np.ndarray,
+    threshold: float,
+    emb_cost: Optional[np.ndarray] = None,
+):
     if iou_matrix is None and cost_matrix is None:
         raise Exception("Both iou_matrix and cost_matrix are None!")
     if iou_matrix is None:
@@ -170,7 +171,7 @@ def associate(
             np.empty((0, 2), dtype=int),
             np.arange(len(detections)),
             np.empty((0, 5), dtype=int),
-            np.empty((0, 0))
+            np.empty((0, 0)),
         )
     iou_matrix = iou_batch(detections, trackers)
 

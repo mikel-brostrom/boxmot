@@ -19,7 +19,7 @@ class ORB(BaseCMC):
         scale: float = 0.15,
         grayscale: bool = True,
         draw_keypoint_matches: bool = False,
-        align: bool = False
+        align: bool = False,
     ) -> None:
         """Compute the warp matrix from src to dst.
 
@@ -42,7 +42,9 @@ class ORB(BaseCMC):
         self.grayscale = grayscale
         self.scale = scale
 
-        self.detector = cv2.FastFeatureDetector_create(threshold=feature_detector_threshold)
+        self.detector = cv2.FastFeatureDetector_create(
+            threshold=feature_detector_threshold
+        )
         self.extractor = cv2.ORB_create()
         self.matcher = cv2.BFMatcher(matcher_norm_type)
 
@@ -113,18 +115,23 @@ class ORB(BaseCMC):
                 prevKeyPointLocation = self.prev_keypoints[m.queryIdx].pt
                 currKeyPointLocation = keypoints[m.trainIdx].pt
 
-                spatial_distance = (prevKeyPointLocation[0] - currKeyPointLocation[0],
-                                    prevKeyPointLocation[1] - currKeyPointLocation[1])
+                spatial_distance = (
+                    prevKeyPointLocation[0] - currKeyPointLocation[0],
+                    prevKeyPointLocation[1] - currKeyPointLocation[1],
+                )
 
-                if (np.abs(spatial_distance[0]) < max_spatial_distance[0]) and \
-                        (np.abs(spatial_distance[1]) < max_spatial_distance[1]):
+                if (np.abs(spatial_distance[0]) < max_spatial_distance[0]) and (
+                    np.abs(spatial_distance[1]) < max_spatial_distance[1]
+                ):
                     spatial_distances.append(spatial_distance)
                     matches.append(m)
 
         mean_spatial_distances = np.mean(spatial_distances, 0)
         std_spatial_distances = np.std(spatial_distances, 0)
 
-        inliesrs = (spatial_distances - mean_spatial_distances) < 2.5 * std_spatial_distances
+        inliesrs = (
+            spatial_distances - mean_spatial_distances
+        ) < 2.5 * std_spatial_distances
 
         goodMatches = []
         prevPoints = []
@@ -151,25 +158,39 @@ class ORB(BaseCMC):
                 curr_pt[0] += W
                 color = np.random.randint(0, 255, (3,))
                 color = (int(color[0]), int(color[1]), int(color[2]))
-                self.matches_img = cv2.line(self.matches_img, prev_pt, curr_pt, tuple(color), 1, cv2.LINE_AA)
-                self.matches_img = cv2.circle(self.matches_img, prev_pt, 2, tuple(color), -1)
-                self.matches_img = cv2.circle(self.matches_img, curr_pt, 2, tuple(color), -1)
+                self.matches_img = cv2.line(
+                    self.matches_img, prev_pt, curr_pt, tuple(color), 1, cv2.LINE_AA
+                )
+                self.matches_img = cv2.circle(
+                    self.matches_img, prev_pt, 2, tuple(color), -1
+                )
+                self.matches_img = cv2.circle(
+                    self.matches_img, curr_pt, 2, tuple(color), -1
+                )
             for det in dets:
                 det = np.multiply(det, self.scale).astype(int)
                 start = (det[0] + w, det[1])
                 end = (det[2] + w, det[3])
-                self.matches_img = cv2.rectangle(self.matches_img, start, end, (0, 0, 255), 2)
+                self.matches_img = cv2.rectangle(
+                    self.matches_img, start, end, (0, 0, 255), 2
+                )
             for det in self.prev_dets:
                 det = np.multiply(det, self.scale).astype(int)
                 start = (det[0], det[1])
                 end = (det[2], det[3])
-                self.matches_img = cv2.rectangle(self.matches_img, start, end, (0, 0, 255), 2)
+                self.matches_img = cv2.rectangle(
+                    self.matches_img, start, end, (0, 0, 255), 2
+                )
         else:
             self.matches_img = None
 
         # find rigid matrix
-        if (np.size(prevPoints, 0) > 4) and (np.size(prevPoints, 0) == np.size(prevPoints, 0)):
-            H, inliesrs = cv2.estimateAffinePartial2D(prevPoints, currPoints, cv2.RANSAC)
+        if (np.size(prevPoints, 0) > 4) and (
+            np.size(prevPoints, 0) == np.size(prevPoints, 0)
+        ):
+            H, inliesrs = cv2.estimateAffinePartial2D(
+                prevPoints, currPoints, cv2.RANSAC
+            )
 
             # upscale warp matrix to original images size
             if self.scale < 1.0:
@@ -177,9 +198,11 @@ class ORB(BaseCMC):
                 H[1, 2] /= self.scale
 
             if self.align:
-                self.prev_img_aligned = cv2.warpAffine(self.prev_img, H, (w, h), flags=cv2.INTER_LINEAR)
+                self.prev_img_aligned = cv2.warpAffine(
+                    self.prev_img, H, (w, h), flags=cv2.INTER_LINEAR
+                )
         else:
-            print('Warning: not enough matching points')
+            print("Warning: not enough matching points")
 
         # Store to next iteration
         self.prev_img = img.copy()
@@ -191,8 +214,8 @@ class ORB(BaseCMC):
 
 def main():
     orb = ORB(scale=0.5, align=True, grayscale=True, draw_keypoint_matches=False)
-    curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
-    prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
+    curr_img = cv2.imread("assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg")
+    prev_img = cv2.imread("assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg")
     curr_dets = np.array(
         [[1083.8207,  541.5978, 1195.7952,  655.8790],  # noqa:E241
          [1635.6456,  563.8348, 1695.4153,  686.6704],  # noqa:E241
@@ -235,16 +258,16 @@ def main():
         warp_matrix = orb.apply(prev_img, prev_dets)
         warp_matrix = orb.apply(curr_img, curr_dets)
     end = time.process_time()
-    print('Total time', end - start)
+    print("Total time", end - start)
     print(warp_matrix)
 
     if orb.prev_img_aligned is not None:
         curr_img = orb.preprocess(curr_img)
         prev_img = orb.preprocess(prev_img)
         weighted_img = cv2.addWeighted(curr_img, 0.5, orb.prev_img_aligned, 0.5, 0)
-        cv2.imshow('prev_img_aligned', weighted_img)
+        cv2.imshow("prev_img_aligned", weighted_img)
         cv2.waitKey(0)
-        cv2.imwrite(str(BOXMOT / 'motion/cmc/orb_aligned.jpg'), weighted_img)
+        cv2.imwrite(str(BOXMOT / "motion/cmc/orb_aligned.jpg"), weighted_img)
 
 
 if __name__ == "__main__":

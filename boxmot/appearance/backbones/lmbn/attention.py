@@ -51,11 +51,11 @@ class BatchRandomErasing(nn.Module):
                     x1 = random.randint(0, img.size()[2] - h)
                     y1 = random.randint(0, img.size()[3] - w)
                     if img.size()[1] == 3:
-                        img[:, 0, x1: x1 + h, y1: y1 + w] = self.mean[0]
-                        img[:, 1, x1: x1 + h, y1: y1 + w] = self.mean[1]
-                        img[:, 2, x1: x1 + h, y1: y1 + w] = self.mean[2]
+                        img[:, 0, x1 : x1 + h, y1 : y1 + w] = self.mean[0]
+                        img[:, 1, x1 : x1 + h, y1 : y1 + w] = self.mean[1]
+                        img[:, 2, x1 : x1 + h, y1 : y1 + w] = self.mean[2]
                     else:
-                        img[:, 0, x1: x1 + h, y1: y1 + w] = self.mean[0]
+                        img[:, 0, x1 : x1 + h, y1 : y1 + w] = self.mean[0]
                     return img
 
         return img
@@ -81,7 +81,7 @@ class BatchDrop(nn.Module):
             sx = random.randint(0, h - rh)
             sy = random.randint(0, w - rw)
             mask = x.new_ones(x.size())
-            mask[:, :, sx: sx + rh, sy: sy + rw] = 0
+            mask[:, :, sx : sx + rh, sy : sy + rw] = 0
             x = x * mask
         return x
 

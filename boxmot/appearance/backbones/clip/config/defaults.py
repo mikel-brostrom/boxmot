@@ -20,35 +20,35 @@ _C.MODEL = CN()
 # Using cuda or cpu for training
 _C.MODEL.DEVICE = "cuda"
 # ID number of GPU
-_C.MODEL.DEVICE_ID = '0'
+_C.MODEL.DEVICE_ID = "0"
 # Name of backbone
-_C.MODEL.NAME = 'ViT-B-16'
+_C.MODEL.NAME = "ViT-B-16"
 # Last stride of backbone
 _C.MODEL.LAST_STRIDE = 1
 # Path to pretrained model of backbone
-_C.MODEL.PRETRAIN_PATH = '/home/mikel.brostrom/yolo_tracking/clip_market1501.pt'
+_C.MODEL.PRETRAIN_PATH = "/home/mikel.brostrom/yolo_tracking/clip_market1501.pt"
 
 # Use ImageNet pretrained model to initialize backbone or use self trained model to initialize the whole model
 # Options: 'imagenet' , 'self' , 'finetune'
-_C.MODEL.PRETRAIN_CHOICE = 'imagenet'
+_C.MODEL.PRETRAIN_CHOICE = "imagenet"
 
 # If train with BNNeck, options: 'bnneck' or 'no'
-_C.MODEL.NECK = 'bnneck'
+_C.MODEL.NECK = "bnneck"
 # If train loss include center loss, options: 'yes' or 'no'. Loss with center loss has different optimizer configuration
-_C.MODEL.IF_WITH_CENTER = 'no'
+_C.MODEL.IF_WITH_CENTER = "no"
 
-_C.MODEL.ID_LOSS_TYPE = 'softmax'
+_C.MODEL.ID_LOSS_TYPE = "softmax"
 _C.MODEL.ID_LOSS_WEIGHT = 1.0
 _C.MODEL.TRIPLET_LOSS_WEIGHT = 1.0
 _C.MODEL.I2T_LOSS_WEIGHT = 1.0
 
-_C.MODEL.METRIC_LOSS_TYPE = 'triplet'
+_C.MODEL.METRIC_LOSS_TYPE = "triplet"
 # If train with multi-gpu ddp mode, options: 'True', 'False'
 _C.MODEL.DIST_TRAIN = False
 # If train with soft triplet loss, options: 'True', 'False'
 _C.MODEL.NO_MARGIN = False
 # If train with label smooth, options: 'on', 'off'
-_C.MODEL.IF_LABELSMOOTH = 'on'
+_C.MODEL.IF_LABELSMOOTH = "on"
 # If train with arcface loss, options: 'True', 'False'
 _C.MODEL.COS_LAYER = False
 
@@ -56,7 +56,7 @@ _C.MODEL.COS_LAYER = False
 _C.MODEL.DROP_PATH = 0.1
 _C.MODEL.DROP_OUT = 0.0
 _C.MODEL.ATT_DROP_RATE = 0.0
-_C.MODEL.TRANSFORMER_TYPE = 'None'
+_C.MODEL.TRANSFORMER_TYPE = "None"
 _C.MODEL.STRIDE_SIZE = [16, 16]
 
 # SIE Parameter
@@ -88,9 +88,9 @@ _C.INPUT.PADDING = 10
 # -----------------------------------------------------------------------------
 _C.DATASETS = CN()
 # List of the dataset names for training, as present in paths_catalog.py
-_C.DATASETS.NAMES = ('market1501')
+_C.DATASETS.NAMES = "market1501"
 # Root directory where datasets should be used (and downloaded if not found)
-_C.DATASETS.ROOT_DIR = ('../data')
+_C.DATASETS.ROOT_DIR = "../data"
 
 
 # -----------------------------------------------------------------------------
@@ -100,7 +100,7 @@ _C.DATALOADER = CN()
 # Number of data loading threads
 _C.DATALOADER.NUM_WORKERS = 8
 # Sampler for data loading
-_C.DATALOADER.SAMPLER = 'softmax'
+_C.DATALOADER.SAMPLER = "softmax"
 # Number of instance for one batch
 _C.DATALOADER.NUM_INSTANCE = 16
 
@@ -224,9 +224,9 @@ _C.TEST.RE_RANKING = False
 # Path to trained model
 _C.TEST.WEIGHT = ""
 # Which feature of BNNeck to be used for test, before or after BNNneck, options: 'before' or 'after'
-_C.TEST.NECK_FEAT = 'after'
+_C.TEST.NECK_FEAT = "after"
 # Whether feature is nomalized before test, if yes, it is equivalent to cosine distance
-_C.TEST.FEAT_NORM = 'yes'
+_C.TEST.FEAT_NORM = "yes"
 
 # Name for saving the distmat after testing.
 _C.TEST.DIST_MAT = "dist_mat.npy"

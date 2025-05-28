@@ -26,6 +26,7 @@ class Tracker:
     """
     Encapsulates the evaluation of a tracking configuration.
     """
+
     def __init__(self, opt):
         self.opt = opt
 
@@ -61,7 +62,7 @@ def load_yaml_config(tracking_method: str) -> dict:
         dict: Configuration parameters loaded from the YAML file.
     """
     config_path = TRACKER_CONFIGS / f"{tracking_method}.yaml"
-    with open(config_path, 'r') as file:
+    with open(config_path, "r") as file:
         config = yaml.safe_load(file)
     return config
 
@@ -78,26 +79,26 @@ def yaml_to_search_space(config: dict) -> dict:
     """
     search_space = {}
     for param, details in config.items():
-        search_type = details.get('type')
-        if search_type == 'uniform':
-            search_space[param] = tune.uniform(*details['range'])
-        elif search_type == 'randint':
-            search_space[param] = tune.randint(*details['range'])
-        elif search_type == 'qrandint':
-            search_space[param] = tune.qrandint(*details['range'])
-        elif search_type == 'choice':
-            search_space[param] = tune.choice(details['options'])
-        elif search_type == 'grid_search':
-            search_space[param] = tune.grid_search(details['values'])
-        elif search_type == 'loguniform':
-            search_space[param] = tune.loguniform(*details['range'])
+        search_type = details.get("type")
+        if search_type == "uniform":
+            search_space[param] = tune.uniform(*details["range"])
+        elif search_type == "randint":
+            search_space[param] = tune.randint(*details["range"])
+        elif search_type == "qrandint":
+            search_space[param] = tune.qrandint(*details["range"])
+        elif search_type == "choice":
+            search_space[param] = tune.choice(details["options"])
+        elif search_type == "grid_search":
+            search_space[param] = tune.grid_search(details["values"])
+        elif search_type == "loguniform":
+            search_space[param] = tune.loguniform(*details["range"])
     return search_space
 
 
 def main():
     # Parse options and set necessary paths
     opt = parse_optt()
-    opt.val_tools_path = EXAMPLES / 'val_utils'
+    opt.val_tools_path = EXAMPLES / "val_utils"
     opt.source = Path(opt.source).resolve()
     opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
     opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
@@ -123,7 +124,7 @@ def main():
         tune.with_resources(tune_wrapper, {"cpu": NUM_THREADS, "gpu": 0}),
         param_space=search_space,
         tune_config=tune.TuneConfig(num_samples=opt.n_trials),
-        run_config=RunConfig(storage_path=results_dir)
+        run_config=RunConfig(storage_path=results_dir),
     )
     tuner.fit()
 
