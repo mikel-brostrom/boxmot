@@ -295,7 +295,7 @@ class BoostTrack(BaseTracker):
                 trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
             ):
                 # Format: [x1, y1, x2, y2, id, confidence, cls, det_ind]
-                outputs.append(np.array([d[0], d[1], d[2], d[3], trk.id + 1, trk.conf, trk.cls, trk.det_ind]))
+                outputs.append(np.array([d[0], d[1], d[2], d[3], trk.id, trk.conf, trk.cls, trk.det_ind]))
                 self.active_tracks.append(trk)
             
         self.trackers = [trk for trk in self.trackers if trk.time_since_update <= self.max_age]

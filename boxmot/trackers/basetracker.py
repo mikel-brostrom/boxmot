@@ -50,9 +50,7 @@ class BaseTracker(ABC):
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
         self.per_class_active_tracks = None
-        self._first_frame_processed = (
-            False  # Flag to track if the first frame has been processed
-        )
+        self._first_frame_processed = False  # Flag to track if the first frame has been processed
         self._first_dets_processed = False
 
         # Initialize per-class active tracks
@@ -62,16 +60,12 @@ class BaseTracker(ABC):
                 self.per_class_active_tracks[i] = []
 
         if self.max_age >= self.max_obs:
-            LOGGER.warning(
-                "Max age > max observations, increasing size of max observations..."
-            )
+            LOGGER.warning("Max age > max observations, increasing size of max observations...")
             self.max_obs = self.max_age + 5
             print("self.max_obs", self.max_obs)
 
     @abstractmethod
-    def update(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
-    ) -> np.ndarray:
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         Abstract method to update the tracker with new detections for a new frame. This method
         should be implemented by subclasses.
@@ -84,18 +78,12 @@ class BaseTracker(ABC):
         Raises:
         - NotImplementedError: If the subclass does not implement this method.
         """
-        raise NotImplementedError(
-            "The update method needs to be implemented by the subclass."
-        )
-
+        raise NotImplementedError("The update method needs to be implemented by the subclass.")
+    
     def get_class_dets_n_embs(self, dets, embs, cls_id):
         # Initialize empty arrays for detections and embeddings
         class_dets = np.empty((0, 6))
-        class_embs = (
-            np.empty((0, self.last_emb_size))
-            if self.last_emb_size is not None
-            else None
-        )
+        class_embs = np.empty((0, self.last_emb_size)) if self.last_emb_size is not None else None
 
         # Check if there are detections
         if dets.size == 0:
@@ -109,8 +97,7 @@ class BaseTracker(ABC):
 
         # Assert that if embeddings are provided, they have the same number of elements as detections
         assert dets.shape[0] == embs.shape[0], (
-            "Detections and embeddings "
-            "must have the same number of elements when both are provided"
+            "Detections and embeddings must have the same number of elements when both are provided"
         )
         class_embs = None
         if embs.size > 0:
@@ -127,33 +114,43 @@ class BaseTracker(ABC):
         """
 
         def wrapper(self, *args, **kwargs):
-            # If setup hasn't been done yet, perform it
-            # Even if dets is empty (e.g., shape (0, 7)), this check will still pass if it's Nx7
-            if not self._first_dets_processed:
-                dets = args[0]
-                if dets is not None:
-                    if dets.ndim == 2 and dets.shape[1] == 6:
-                        self.is_obb = False
-                        self._first_dets_processed = True
-                    elif dets.ndim == 2 and dets.shape[1] == 7:
-                        self.is_obb = True
-                        self._first_dets_processed = True
+            # Extract detections and image from args
+            dets = args[0]
+            img = args[1] if len(args) > 1 else None
 
-            if not self._first_frame_processed:
-                img = args[1]
+
+            # Unwrap `data` attribute if present
+            if hasattr(dets, 'data'):
+                dets = dets.data
+
+            # Convert memoryview to numpy array if needed
+            if isinstance(dets, memoryview):
+                dets = np.array(dets, dtype=np.float32)  # Adjust dtype if needed
+
+            # First-time detection setup
+            if not self._first_dets_processed and dets is not None:
+                if dets.ndim == 2 and dets.shape[1] == 6:
+                    self.is_obb = False
+                    self._first_dets_processed = True
+                elif dets.ndim == 2 and dets.shape[1] == 7:
+                    self.is_obb = True
+                    self._first_dets_processed = True
+
+            # First frame image-based setup
+            if not self._first_frame_processed and img is not None:
                 self.h, self.w = img.shape[0:2]
                 self.asso_func = AssociationFunction(
-                    w=self.w, h=self.h, asso_mode=self.asso_func_name
+                    w=self.w,
+                    h=self.h,
+                    asso_mode=self.asso_func_name
                 ).asso_func
-
-                # Mark that the first frame setup has been done
                 self._first_frame_processed = True
 
-            # Call the original method (e.g., update)
-            return method(self, *args, **kwargs)
+            # Call the original method with the unwrapped `dets`
+            return method(self, dets, img, *args[2:], **kwargs)
 
         return wrapper
-
+    
     @staticmethod
     def per_class_decorator(update_method):
         """
@@ -179,10 +176,8 @@ class BaseTracker(ABC):
                 # Get detections and embeddings for the current class
                 class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
 
-                LOGGER.debug(
-                    f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings"
-                    f" {class_embs.shape if class_embs is not None else None}"
-                )
+                LOGGER.debug(f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings"
+                      f" {class_embs.shape if class_embs is not None else None}")
 
                 # Activate the specific active tracks for this class id
                 self.active_tracks = self.per_class_active_tracks[cls_id]
@@ -230,9 +225,7 @@ class BaseTracker(ABC):
                 dets.shape[1] == 6
             ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6 (x1,y1,x2,y2,conf,cls)"
 
-    def id_to_color(
-        self, id: int, saturation: float = 0.75, value: float = 0.95
-    ) -> tuple:
+    def id_to_color(self, id: int, saturation: float = 0.75, value: float = 0.95) -> tuple:
         """
         Generates a consistent unique BGR color for a given ID using hashing.
 
@@ -414,3 +407,6 @@ class BaseTracker(ABC):
             if not show_trajectories: continue
             img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
         return img
+
+    def reset(self):
+        pass
