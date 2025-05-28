@@ -19,7 +19,6 @@ from tracking.val import (
     run_generate_mot_results,
     run_trackeval,
 )
-from tracking.val import parse_opt as parse_optt
 
 
 class Tracker:
