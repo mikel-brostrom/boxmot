@@ -338,39 +338,49 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
 
 
 def process_sequence(seq_name: str,
-                     frames: list[dict],
-                     args: dict,
-                     exp_folder: str):
-    """
-    Worker for ProcessPoolExecutor: sequence-level tracking using pre-loaded frames.
-    """
-    # Reconstruct tracker
-    args.device = select_device(args.device)
+                     mot_root: str,
+                     project_root: str,
+                     model_name: str,
+                     reid_name: str,
+                     tracking_method: str,
+                     exp_folder: str,
+                     target_fps):
+
+    device = select_device('cpu')
     tracker = create_tracker(
-        args.tracking_method,
-        TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
-        args.reid_model[0].with_suffix('.pt'),
-        args.device,
+        tracking_method,
+        TRACKER_CONFIGS / (tracking_method + ".yaml"),
+        Path(reid_name + '.pt'),
+        device,
         False,
         False,
-        None
+        None,
     )
 
-    all_tracks = []
-    for idx, frame in enumerate(tqdm(frames)):
-        dets = frame['dets']  # N×5 array [x,y,w,h,score]
-        embs = frame['embs']  # N×D array
-        img = frame['img']    # BGR image
+    # Load the dataset and sequence lazily
+    dataset = MOT17DetEmbDataset(
+        mot_root=mot_root,
+        det_emb_root=str(Path(project_root) / 'dets_n_embs'),
+        model_name=model_name,
+        reid_name=reid_name,
+        target_fps=15
+    )
+    sequence = dataset.get_sequence(seq_name)
 
+    all_tracks = []
+    for idx, frame in enumerate(sequence):
+        dets = frame['dets']
+        embs = frame['embs']
+        img = frame['img']
         if dets.size and embs.size:
             tracks = tracker.update(dets, img, embs)
             if tracks.size:
                 all_tracks.append(convert_to_mot_format(tracks, idx + 1))
 
-    # Stack or create empty
     out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
     write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
-    return seq_name, len(frames)
+    return seq_name, idx + 1
+
 
 
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
@@ -380,27 +390,35 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     exp_dir.mkdir(parents=True, exist_ok=True)
     opt.exp_folder_path = exp_dir
 
-    # Load dataset once
-    dataset = MOT17DetEmbDataset(
-        mot_root=str(opt.source),
-        split=getattr(opt, 'split', 'train'),
-        det_emb_root=str(opt.project / 'dets_n_embs'),
-        model_name=opt.yolo_model[0].stem,
-        reid_name=opt.reid_model[0].stem,
-        fps=getattr(opt, 'fps', None),
-        num_workers=getattr(opt, 'num_workers', None)
-    )
+    # Just collect sequence names by scanning directory names
+    sequence_names = sorted([
+        d.name for d in Path(opt.source).iterdir()
+        if d.is_dir() and (d / "img1").exists()
+    ])
 
-    # Build task list with frames
-    tasks = []
-    for seq in dataset.sequence_names():
-        frames = dataset.get_sequence(seq)
-        tasks.append((seq, frames, opt, str(exp_dir)))
+    # Build task arguments
+    task_args = [
+        (
+            seq,
+            str(opt.source),
+            str(opt.project),
+            opt.yolo_model[0].stem,
+            opt.reid_model[0].stem,
+            opt.tracking_method,
+            str(exp_dir),
+            getattr(opt, 'fps', None)
+        )
+        for seq in sequence_names
+    ]
 
     seq_frame_nums = {}
-    # Process in parallel using processes
-    with concurrent.futures.ProcessPoolExecutor(max_workers=len(tasks)) as executor:
-        futures = {executor.submit(process_sequence, *t): t[0] for t in tasks}
+    max_workers = min(len(task_args), os.cpu_count() or 4)
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(process_sequence, *args): args[0] for args in task_args
+        }
+
         for fut in concurrent.futures.as_completed(futures):
             seq = futures[fut]
             try:
@@ -414,9 +432,11 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         from boxmot.utils import gsi
         gsi(mot_results_folder=exp_dir)
 
-    # Save mapping
+    # Save sequence-to-frame mapping
     with open(exp_dir / 'seqs_frame_nums.json', 'w') as f:
         json.dump(seq_frame_nums, f)
+
+
 
 
 def run_trackeval(opt: argparse.Namespace) -> dict:
