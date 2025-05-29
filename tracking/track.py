@@ -1,4 +1,3 @@
-
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import argparse
@@ -15,7 +14,7 @@ from boxmot.utils.checks import RequirementsChecker
 from tracking.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
 
 checker = RequirementsChecker()
-checker.check_packages(('ultralytics', ))  # install
+checker.check_packages(("ultralytics", ))  # install
 
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator  # ultralytics.yolo.utils.plotting is deprecated
@@ -47,15 +46,15 @@ def on_predict_start(predictor, persist=False):
             predictor.custom_args.reid_model,
             predictor.device,
             predictor.custom_args.half,
-            predictor.custom_args.per_class
+            predictor.custom_args.per_class,
         )
         # motion only models do not have
-        if hasattr(tracker, 'model'):
+        if hasattr(tracker, "model"):
             tracker.model.warmup()
         trackers.append(tracker)
 
     predictor.trackers = trackers
-    
+
 # callback to plot trajectories on each frame
 def plot_trajectories(predictor):
     # predictor.results is a list of Results, one per frame in the batch
@@ -70,8 +69,7 @@ def main(args):
     if args.imgsz is None:
         args.imgsz = default_imgsz(args.yolo_model)
     yolo = YOLO(
-        args.yolo_model if is_ultralytics_model(args.yolo_model)
-        else 'yolov8n.pt',
+        args.yolo_model if is_ultralytics_model(args.yolo_model) else "yolov8n.pt",
     )
 
     results = yolo.track(
@@ -94,31 +92,32 @@ def main(args):
         imgsz=args.imgsz,
         vid_stride=args.vid_stride,
         line_width=args.line_width,
-        save_crop=args.save_crop
+        save_crop=args.save_crop,
     )
 
-    yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
-    yolo.add_callback('on_predict_postprocess_end', plot_trajectories)
+    yolo.add_callback("on_predict_start", partial(on_predict_start, persist=True))
+    yolo.add_callback("on_predict_postprocess_end", plot_trajectories)
 
     if not is_ultralytics_model(args.yolo_model):
         # replace yolov8 model
         m = get_yolo_inferer(args.yolo_model)
-        yolo_model = m(model=args.yolo_model, device=yolo.predictor.device,
-                       args=yolo.predictor.args)
+        yolo_model = m(
+            model=args.yolo_model,
+            device=yolo.predictor.device,
+            args=yolo.predictor.args,
+        )
         yolo.predictor.model = yolo_model
 
         # If current model is YOLOX, change the preprocess and postprocess
         if not is_ultralytics_model(args.yolo_model):
             # add callback to save image paths for further processing
             yolo.add_callback(
-                "on_predict_batch_start",
-                lambda p: yolo_model.update_im_paths(p)
+                "on_predict_batch_start", lambda p: yolo_model.update_im_paths(p)
             )
-            yolo.predictor.preprocess = (
-                lambda imgs: yolo_model.preprocess(im=imgs))
-            yolo.predictor.postprocess = (
-                lambda preds, im, im0s:
-                yolo_model.postprocess(preds=preds, im=im, im0s=im0s))
+            yolo.predictor.preprocess = lambda imgs: yolo_model.preprocess(im=imgs)
+            yolo.predictor.postprocess = lambda preds, im, im0s: yolo_model.postprocess(
+                preds=preds, im=im, im0s=im0s
+            )
 
     # store custom args in predictor
     yolo.predictor.custom_args = args

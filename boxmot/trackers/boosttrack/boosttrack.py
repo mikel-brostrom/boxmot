@@ -46,13 +46,14 @@ class KalmanBoxTracker:
     """
     Single object tracker using a Kalman filter.
     """
+
     count = 0
 
     def __init__(self, det, max_obs, emb: Optional[np.ndarray] = None):
         KalmanBoxTracker.count += 1
 
         self.time_since_update = 0
-        self.id = KalmanBoxTracker.count 
+        self.id = KalmanBoxTracker.count
         self.kf = KalmanFilter(convert_bbox_to_z(det[:4]))
         self.conf = det[4]
         self.cls = det[5]
@@ -98,9 +99,8 @@ class KalmanBoxTracker:
 
         # ——— rebuild Kalman state —————
         w, h = x2_ - x1_, y2_ - y1_
-        cx, cy = x1_ + w/2, y1_ + h/2
-        self.kf.x[:4] = [cx, cy, h, w/h]
-
+        cx, cy = x1_ + w / 2, y1_ + h / 2
+        self.kf.x[:4] = [cx, cy, h, w / h]
 
     def predict(self):
         self.kf.predict()
@@ -128,7 +128,6 @@ class BoostTrack(BaseTracker):
         reid_weights,
         device,
         half: bool,
-
         max_age: int = 60,
         min_hits: int = 3,
         det_thresh: float = 0.6,
@@ -136,8 +135,7 @@ class BoostTrack(BaseTracker):
         use_ecc: bool = True,
         min_box_area: int = 10,
         aspect_ratio_thresh: bool = 1.6,
-        cmc_method: str = 'ecc',
-
+        cmc_method: str = "ecc",
         # BoostTrack parameters
         lambda_iou: float = 0.5,
         lambda_mhd: float = 0.25,
@@ -146,12 +144,10 @@ class BoostTrack(BaseTracker):
         use_duo_boost: bool = True,
         dlo_boost_coef: float = 0.65,
         s_sim_corr: bool = False,
-    
         # BoostTrack++ parameters
         use_rich_s: bool = False,
         use_sb: bool = False,
         use_vt: bool = False,
-
         with_reid: bool = False,
     ):
         super().__init__()
@@ -197,12 +193,12 @@ class BoostTrack(BaseTracker):
     def update(self, dets: np.ndarray, img: np.ndarray, embs: Optional[np.ndarray] = None) -> np.ndarray:
         """
         Update the tracker with detections and an image.
-        
+
         Args:
           dets (np.ndarray): Detection boxes in the format [[x1,y1,x2,y2,score], ...]
           img (np.ndarray): The current image frame.
           embs (Optional[np.ndarray]): Optional precomputed embeddings.
-          
+
         Returns:
           np.ndarray: Tracked objects in the format
                       [x1, y1, x2, y2, id, confidence, cls, det_ind]
@@ -221,7 +217,7 @@ class BoostTrack(BaseTracker):
 
         trks = []
         confs = []
-        
+
         for trk in self.trackers:
             pos = trk.predict()[0]
             conf = trk.get_confidence()
@@ -271,10 +267,10 @@ class BoostTrack(BaseTracker):
             lambda_iou=self.lambda_iou,
             lambda_mhd=self.lambda_mhd,
             lambda_shape=self.lambda_shape,
-            s_sim_corr=self.s_sim_corr
+            s_sim_corr=self.s_sim_corr,
         )
 
-        if dets.size > 0:   
+        if dets.size > 0:
             trust = (dets[:, 4] - self.det_thresh) / (1 - self.det_thresh)
             af = 0.95
             dets_alpha = af + (1 - af) * (1 - trust)
@@ -287,14 +283,17 @@ class BoostTrack(BaseTracker):
 
         for i in unmatched_dets:
             if dets[i, 4] >= self.det_thresh:
-                self.trackers.append(KalmanBoxTracker(dets[i, :], max_obs=self.max_obs, emb=dets_embs[i]))
+                self.trackers.append(
+                    KalmanBoxTracker(dets[i, :], max_obs=self.max_obs, emb=dets_embs[i])
+                )
 
         outputs = []
         self.active_tracks = []
         for trk in self.trackers:
             d = trk.get_state()[0]
             if (trk.time_since_update < 1) and (
-                    trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
+                trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
+            ):
                 # Format: [x1, y1, x2, y2, id, confidence, cls, det_ind]
                 outputs.append(np.array([d[0], d[1], d[2], d[3], trk.id, trk.conf, trk.cls, trk.det_ind]))
                 self.active_tracks.append(trk)
@@ -358,27 +357,32 @@ class BoostTrack(BaseTracker):
         if len(boost_inds) == 0:
             return detections
 
-        bdiou = iou_batch(detections[boost_inds], detections[boost_inds]) - np.eye(len(boost_inds))
+        bdiou = iou_batch(detections[boost_inds], detections[boost_inds]) - np.eye(
+            len(boost_inds)
+        )
         bdiou_max = bdiou.max(axis=1)
         remaining = boost_inds[bdiou_max <= iou_limit]
         args = np.where(bdiou_max > iou_limit)[0]
         for i in range(len(args)):
             bi = args[i]
             tmp = np.where(bdiou[bi] > iou_limit)[0]
-            args_tmp = np.append(np.intersect1d(boost_inds[args], boost_inds[tmp]), boost_inds[bi])
+            args_tmp = np.append(
+                np.intersect1d(boost_inds[args], boost_inds[tmp]), boost_inds[bi]
+            )
             conf_max = np.max(detections[args_tmp, 4])
             if detections[boost_inds[bi], 4] == conf_max:
                 remaining = np.concatenate([remaining, [boost_inds[bi]]])
         mask_boost = np.zeros_like(detections[:, 4], dtype=bool)
         mask_boost[remaining] = True
-        detections[:, 4] = np.where(mask_boost, self.det_thresh + 1e-4, detections[:, 4])
+        detections[:, 4] = np.where(
+            mask_boost, self.det_thresh + 1e-4, detections[:, 4]
+        )
         return detections
-
 
     def dlo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:
         if len(detections) == 0:
             return detections
-        
+
         sbiou_matrix = self.get_iou_matrix(detections, True)
         if sbiou_matrix.size == 0:
             return detections
@@ -404,8 +408,8 @@ class BoostTrack(BaseTracker):
             max_s = S.max(1)
             alpha = 0.65
             detections[:, 4] = np.maximum(
-                detections[:, 4],
-                alpha * detections[:, 4] + (1 - alpha) * max_s ** 1.5)
+                detections[:, 4], alpha * detections[:, 4] + (1 - alpha) * max_s**1.5
+            )
         if self.use_vt:
             threshold_s = 0.95
             threshold_e = 0.8

@@ -18,7 +18,7 @@ class ECC(BaseCMC):
         max_iter: int = 100,
         scale: float = 0.15,
         align: bool = False,
-        grayscale: bool = True
+        grayscale: bool = True,
     ) -> None:
         """Compute the warp matrix from src to dst.
 
@@ -53,7 +53,11 @@ class ECC(BaseCMC):
         self.grayscale = grayscale
         self.scale = scale
         self.warp_mode = warp_mode
-        self.termination_criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, max_iter, eps)
+        self.termination_criteria = (
+            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+            max_iter,
+            eps,
+        )
         self.prev_img = None
 
     def apply(self, img: np.ndarray, dets: np.ndarray = None) -> np.ndarray:
@@ -87,17 +91,17 @@ class ECC(BaseCMC):
                 self.warp_mode,
                 self.termination_criteria,
                 None,
-                1
+                1,
             )
         except cv2.error as e:
             # error 7 is StsNoConv, according to https://docs.opencv.org/3.4/d1/d0d/namespacecv_1_1Error.html
             if e.code == cv2.Error.StsNoConv:
-                LOGGER.warning(f'Affine matrix could not be generated: {e}. Returning identity')
+                LOGGER.warning(
+                    f"Affine matrix could not be generated: {e}. Returning identity"
+                )
                 return warp_matrix
-            else: # other error codes
+            else:  # other error codes
                 raise
-
-            
 
         # upscale warp matrix to original images size
         if self.scale < 1:
@@ -108,10 +112,14 @@ class ECC(BaseCMC):
             h, w = self.prev_img.shape
             if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
                 # Use warpPerspective for Homography
-                self.prev_img_aligned = cv2.warpPerspective(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
+                self.prev_img_aligned = cv2.warpPerspective(
+                    self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR
+                )
             else:
                 # Use warpAffine for Translation, Euclidean and Affine
-                self.prev_img_aligned = cv2.warpAffine(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
+                self.prev_img_aligned = cv2.warpAffine(
+                    self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR
+                )
         else:
             self.prev_img_aligned = None
 
@@ -122,8 +130,8 @@ class ECC(BaseCMC):
 
 def main():
     ecc = ECC(scale=0.5, align=True, grayscale=True)
-    curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-2-FRCNN/img1/000005.jpg')
-    prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-2-FRCNN/img1/000001.jpg')
+    curr_img = cv2.imread("assets/MOT17-mini/train/MOT17-2-FRCNN/img1/000005.jpg")
+    prev_img = cv2.imread("assets/MOT17-mini/train/MOT17-2-FRCNN/img1/000001.jpg")
 
     warp_matrix = ecc.apply(prev_img, None)
     warp_matrix = ecc.apply(curr_img, None)
@@ -133,16 +141,16 @@ def main():
         warp_matrix = ecc.apply(prev_img, None)
         warp_matrix = ecc.apply(curr_img, None)
     end = time.process_time()
-    print('Total time', end - start)
+    print("Total time", end - start)
     print(warp_matrix)
 
     if ecc.prev_img_aligned is not None:
         curr_img = ecc.preprocess(curr_img)
         prev_img = ecc.preprocess(prev_img)
         weighted_img = cv2.addWeighted(curr_img, 0.5, ecc.prev_img_aligned, 0.5, 0)
-        cv2.imshow('prev_img_aligned', weighted_img)
+        cv2.imshow("prev_img_aligned", weighted_img)
         cv2.waitKey(0)
-        cv2.imwrite(str(BOXMOT / 'motion/cmc/ecc_aligned.jpg'), weighted_img)
+        cv2.imwrite(str(BOXMOT / "motion/cmc/ecc_aligned.jpg"), weighted_img)
 
 
 if __name__ == "__main__":

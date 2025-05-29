@@ -49,6 +49,6 @@ class YoloInterface(ABC):
         model_type = None
         for key in l:
             if Path(key).stem in str(model.name):
-                model_type = str(Path(key).with_suffix(''))
+                model_type = str(Path(key).with_suffix(""))
                 break
         return model_type

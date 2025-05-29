@@ -7,13 +7,13 @@ from boxmot.motion.cmc.sof import SOF
 
 
 def get_cmc_method(cmc_method):
-    if cmc_method == 'ecc':
+    if cmc_method == "ecc":
         return ECC
-    elif cmc_method == 'orb':
+    elif cmc_method == "orb":
         return ORB
-    elif cmc_method == 'sof':
+    elif cmc_method == "sof":
         return SOF
-    elif cmc_method == 'sift':
+    elif cmc_method == "sift":
         return SIFT
     else:
         return None

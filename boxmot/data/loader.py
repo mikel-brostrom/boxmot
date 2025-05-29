@@ -7,7 +7,19 @@ import cv2
 import numpy as np
 from PIL import Image
 
-VID_FORMATS = "asf", "avi", "gif", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "wmv"  # include video suffixes
+VID_FORMATS = (
+    "asf",
+    "avi",
+    "gif",
+    "m4v",
+    "mkv",
+    "mov",
+    "mp4",
+    "mpeg",
+    "mpg",
+    "ts",
+    "wmv",
+)  # include video suffixes
 
 
 class LoadImagesAndVideos:
@@ -24,11 +36,11 @@ class LoadImagesAndVideos:
         self.nf = len(self.files)
         self.ni = sum(not is_video for is_video in self.video_flag)
         self.mode = "image"
-        
+
         self.cap = None
         if any(self.video_flag):
             self._start_video(self.files[self.video_flag.index(True)])
-        
+
         if not self.files:
             raise FileNotFoundError(f"No images or videos found in {path}.")
 
@@ -36,7 +48,7 @@ class LoadImagesAndVideos:
         """Load files from a given path, which may be a directory, list, or text file."""
         if isinstance(path, str) and Path(path).suffix == ".txt":
             path = Path(path).read_text().splitlines()
-        
+
         files = []
         for p in sorted(path) if isinstance(path, (list, tuple)) else [path]:
             p = str(Path(p).absolute())
@@ -52,7 +64,7 @@ class LoadImagesAndVideos:
 
     def _is_video(self, file_path):
         """Check if a file is a video based on its extension."""
-        return file_path.split('.')[-1].lower() in VID_FORMATS
+        return file_path.split(".")[-1].lower() in VID_FORMATS
 
     def __iter__(self):
         self.count = 0
@@ -66,7 +78,7 @@ class LoadImagesAndVideos:
                     return paths, imgs, infos
                 else:
                     raise StopIteration
-            
+
             path = self.files[self.count]
             if self.video_flag[self.count]:
                 self._process_video(paths, imgs, infos, path)
@@ -89,7 +101,7 @@ class LoadImagesAndVideos:
         self.mode = "video"
         if not self.cap or not self.cap.isOpened():
             self._start_video(path)
-        
+
         success = False
         for _ in range(self.vid_stride):
             success = self.cap.grab()
@@ -100,7 +112,9 @@ class LoadImagesAndVideos:
             _, frame = self.cap.retrieve()
             paths.append(path)
             imgs.append(frame)
-            infos.append(f"video {self.count + 1}/{self.nf} frame {self.frame}/{self.frames} {path}")
+            infos.append(
+                f"video {self.count + 1}/{self.nf} frame {self.frame}/{self.frames} {path}"
+            )
             self.frame += 1
             if self.frame >= self.frames:
                 self.cap.release()
@@ -109,6 +123,7 @@ class LoadImagesAndVideos:
         """Read an image from a file, handling HEIC format if necessary."""
         if path.lower().endswith("heic"):
             from pillow_heif import register_heif_opener
+
             register_heif_opener()
             with Image.open(path) as img:
                 return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)

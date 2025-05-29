@@ -91,6 +91,7 @@ def ious(atlbrs, btlbrs):
 
     return ious
 
+
 def d_iou_distance(atracks, btracks):
     """
     Compute cost based on IoU
@@ -117,6 +118,7 @@ def d_iou_distance(atracks, btracks):
     cost_matrix = 1 - _ious
 
     return cost_matrix
+
 
 def iou_distance(atracks, btracks):
     """
@@ -381,7 +383,7 @@ class NearestNeighborDistanceMetric(object):
         for feature, target in zip(features, targets):
             self.samples.setdefault(target, []).append(feature)
             if self.budget is not None:
-                self.samples[target] = self.samples[target][-self.budget:]
+                self.samples[target] = self.samples[target][-self.budget :]
         self.samples = {k: self.samples[k] for k in active_targets}
 
     def distance(self, features, targets):

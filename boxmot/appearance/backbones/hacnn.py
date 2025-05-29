@@ -212,7 +212,7 @@ class HACNN(nn.Module):
         feat_dim=512,
         learn_region=True,
         use_gpu=True,
-        **kwargs
+        **kwargs,
     ):
         super(HACNN, self).__init__()
         self.loss = loss

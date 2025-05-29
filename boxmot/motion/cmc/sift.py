@@ -20,7 +20,7 @@ class SIFT(BaseCMC):
         scale=0.15,
         grayscale=True,
         draw_keypoint_matches=False,
-        align=False
+        align=False,
     ):
         """Compute the warp matrix from src to dst.
 
@@ -133,11 +133,14 @@ class SIFT(BaseCMC):
                 prevKeyPointLocation = self.prev_keypoints[m.queryIdx].pt
                 currKeyPointLocation = keypoints[m.trainIdx].pt
 
-                spatial_distance = (prevKeyPointLocation[0] - currKeyPointLocation[0],
-                                    prevKeyPointLocation[1] - currKeyPointLocation[1])
+                spatial_distance = (
+                    prevKeyPointLocation[0] - currKeyPointLocation[0],
+                    prevKeyPointLocation[1] - currKeyPointLocation[1],
+                )
 
-                if (np.abs(spatial_distance[0]) < max_spatial_distance[0]) and \
-                        (np.abs(spatial_distance[1]) < max_spatial_distance[1]):
+                if (np.abs(spatial_distance[0]) < max_spatial_distance[0]) and (
+                    np.abs(spatial_distance[1]) < max_spatial_distance[1]
+                ):
                     spatial_distances.append(spatial_distance)
                     matches.append(m)
 
@@ -181,7 +184,9 @@ class SIFT(BaseCMC):
             self.matches_img = None
 
         # find rigid matrix
-        if (np.size(prevPoints, 0) > 4) and (np.size(prevPoints, 0) == np.size(prevPoints, 0)):
+        if (np.size(prevPoints, 0) > 4) and (
+            np.size(prevPoints, 0) == np.size(prevPoints, 0)
+        ):
             H, inliers = cv2.estimateAffinePartial2D(prevPoints, currPoints, cv2.RANSAC)
 
             # upscale warp matrix to original images size
@@ -190,9 +195,11 @@ class SIFT(BaseCMC):
                 H[1, 2] /= self.scale
 
             if self.align:
-                self.prev_img_aligned = cv2.warpAffine(self.prev_img, H, (w, h), flags=cv2.INTER_LINEAR)
+                self.prev_img_aligned = cv2.warpAffine(
+                    self.prev_img, H, (w, h), flags=cv2.INTER_LINEAR
+                )
         else:
-            print('Warning: not enough matching points')
+            print("Warning: not enough matching points")
 
         # Store to next iteration
         self.prev_img = img.copy()
@@ -204,8 +211,8 @@ class SIFT(BaseCMC):
 
 def main():
     sift = SIFT(scale=0.5, align=True, grayscale=True, draw_keypoint_matches=False)
-    curr_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg')
-    prev_img = cv2.imread('assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg')
+    curr_img = cv2.imread("assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg")
+    prev_img = cv2.imread("assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg")
     curr_dets = np.array(
         [[1083.8207,  541.5978, 1195.7952,  655.8790],  # noqa:E241
          [1635.6456,  563.8348, 1695.4153,  686.6704],  # noqa:E241
@@ -248,16 +255,16 @@ def main():
         warp_matrix = sift.apply(prev_img, prev_dets)
         warp_matrix = sift.apply(curr_img, curr_dets)
     end = time.process_time()
-    print('Total time', end - start)
+    print("Total time", end - start)
     print(warp_matrix)
 
     if sift.prev_img_aligned is not None:
         curr_img = sift.preprocess(curr_img)
         prev_img = sift.preprocess(prev_img)
         weighted_img = cv2.addWeighted(curr_img, 0.5, sift.prev_img_aligned, 0.5, 0)
-        cv2.imshow('prev_img_aligned', weighted_img)
+        cv2.imshow("prev_img_aligned", weighted_img)
         cv2.waitKey(0)
-        cv2.imwrite(str(BOXMOT / 'motion/cmc/sift_aligned.jpg'), weighted_img)
+        cv2.imwrite(str(BOXMOT / "motion/cmc/sift_aligned.jpg"), weighted_img)
 
 
 if __name__ == "__main__":

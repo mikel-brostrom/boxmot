@@ -10,6 +10,7 @@ class SOF(BaseCMC):
     between consecutive frames. This class is modeled after a GMC implementation using
     the 'sparseOptFlow' method.
     """
+
     def __init__(self, scale=0.15):
         """
         Initialize the SOF object.
@@ -38,7 +39,7 @@ class SOF(BaseCMC):
         """
         self.scale = scale
         self.grayscale = True
-        
+
         # Set default feature detection parameters if not provided
         self.feature_params = dict(
             maxCorners=1000,
@@ -46,14 +47,14 @@ class SOF(BaseCMC):
             minDistance=1,
             blockSize=3,
             useHarrisDetector=False,
-            k=0.04
+            k=0.04,
         )
 
         # Set default Lucas-Kanade optical flow parameters if not provided.
         self.lk_params = dict(
             winSize=(21, 21),
             maxLevel=3,
-            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01),
         )
 
         self.prevFrame = None
@@ -86,12 +87,20 @@ class SOF(BaseCMC):
 
         # On the first frame, detect keypoints and initialize internal state.
         if not self.initializedFirstFrame:
-            keypoints = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
+            keypoints = cv2.goodFeaturesToTrack(
+                frame_gray, mask=None, **self.feature_params
+            )
             if keypoints is None:
                 return H
             # Optional subpixel refinement.
             term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
-            cv2.cornerSubPix(frame_gray, keypoints, winSize=(5, 5), zeroZone=(-1, -1), criteria=term_crit)
+            cv2.cornerSubPix(
+                frame_gray,
+                keypoints,
+                winSize=(5, 5),
+                zeroZone=(-1, -1),
+                criteria=term_crit,
+            )
             self.prevFrame = frame_gray.copy()
             self.prevKeyPoints = keypoints.copy()
             self.initializedFirstFrame = True
@@ -111,9 +120,13 @@ class SOF(BaseCMC):
                 valid_next.append(nextKeypoints[i])
 
         if len(valid_prev) < 4:
-            print("Warning: not enough matching points detected; redetecting keypoints.")
+            print(
+                "Warning: not enough matching points detected; redetecting keypoints."
+            )
             # If too few matches, re-detect keypoints for the current frame.
-            keypoints = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
+            keypoints = cv2.goodFeaturesToTrack(
+                frame_gray, mask=None, **self.feature_params
+            )
             self.prevFrame = frame_gray.copy()
             self.prevKeyPoints = keypoints if keypoints is not None else np.array([])
             return H
@@ -122,7 +135,9 @@ class SOF(BaseCMC):
         valid_next = np.array(valid_next)
 
         # Estimate the affine warp matrix using robust RANSAC.
-        H_est, inliers = cv2.estimateAffinePartial2D(valid_prev, valid_next, method=cv2.RANSAC)
+        H_est, inliers = cv2.estimateAffinePartial2D(
+            valid_prev, valid_next, method=cv2.RANSAC
+        )
         if H_est is None:
             H_est = H
         else:
@@ -133,7 +148,9 @@ class SOF(BaseCMC):
 
         # Update the previous frame and keypoints for the next iteration.
         # Optionally, you might want to re-detect keypoints rather than simply tracking them.
-        new_keypoints = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
+        new_keypoints = cv2.goodFeaturesToTrack(
+            frame_gray, mask=None, **self.feature_params
+        )
         if new_keypoints is None:
             # Use the tracked keypoints if new detection fails.
             new_keypoints = valid_next
@@ -147,6 +164,7 @@ class SOF(BaseCMC):
 # Example Usage
 # ==============================================================================
 
+
 def main():
     # Create an instance of the SOF class with a downscaling factor, if desired.
     sof_tracker = SOF(scale=0.15)
@@ -157,12 +175,13 @@ def main():
 
     # Process the first frame to initialize the tracker.
     _ = sof_tracker.apply(prev_img)
-    
+
     # Now process the next frame to compute the warp matrix.
     H = sof_tracker.apply(curr_img)
     print("Estimated warp matrix:\n", H)
 
     # Optionally, you can visualize the transformation (overlay, etc.)
+
 
 if __name__ == "__main__":
     main()

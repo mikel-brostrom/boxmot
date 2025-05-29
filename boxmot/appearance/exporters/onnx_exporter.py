@@ -6,7 +6,7 @@ from boxmot.utils import logger as LOGGER
 
 class ONNXExporter(BaseExporter):
     group = "onnx"
-    
+
     def export(self):
         import onnx
 
@@ -32,12 +32,12 @@ class ONNXExporter(BaseExporter):
 
         if self.simplify:
             self.simplify_model(model_onnx, f)
-            
-        return f
 
+        return f
 
     def simplify_model(self, model_onnx, f):
         import onnx
+
         try:
             cuda = torch.cuda.is_available()
             self.checker.check_packages(
@@ -48,9 +48,7 @@ class ONNXExporter(BaseExporter):
             )
             import onnxsim
 
-            LOGGER.info(
-                f"Simplifying with onnx-simplifier {onnxsim.__version__}..."
-            )
+            LOGGER.info(f"Simplifying with onnx-simplifier {onnxsim.__version__}...")
             model_onnx, check = onnxsim.simplify(model_onnx)
             assert check, "assert check failed"
             onnx.save(model_onnx, f)
