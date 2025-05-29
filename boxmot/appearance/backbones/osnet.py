@@ -279,7 +279,7 @@ class OSNet(nn.Module):
         feature_dim=512,
         loss="softmax",
         IN=False,
-        **kwargs
+        **kwargs,
     ):
         super(OSNet, self).__init__()
         num_blocks = len(blocks)
@@ -491,7 +491,7 @@ def osnet_x1_0(num_classes=1000, pretrained=True, loss="softmax", **kwargs):
         layers=[2, 2, 2],
         channels=[64, 256, 384, 512],
         loss=loss,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, key="osnet_x1_0")
@@ -506,7 +506,7 @@ def osnet_x0_75(num_classes=1000, pretrained=True, loss="softmax", **kwargs):
         layers=[2, 2, 2],
         channels=[48, 192, 288, 384],
         loss=loss,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, key="osnet_x0_75")
@@ -521,7 +521,7 @@ def osnet_x0_5(num_classes=1000, pretrained=True, loss="softmax", **kwargs):
         layers=[2, 2, 2],
         channels=[32, 128, 192, 256],
         loss=loss,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, key="osnet_x0_5")
@@ -536,7 +536,7 @@ def osnet_x0_25(num_classes=1000, pretrained=True, loss="softmax", **kwargs):
         layers=[2, 2, 2],
         channels=[16, 64, 96, 128],
         loss=loss,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, key="osnet_x0_25")
@@ -553,7 +553,7 @@ def osnet_ibn_x1_0(num_classes=1000, pretrained=True, loss="softmax", **kwargs):
         channels=[64, 256, 384, 512],
         loss=loss,
         IN=True,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, key="osnet_ibn_x1_0")

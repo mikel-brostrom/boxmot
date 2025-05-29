@@ -5,11 +5,13 @@ from boxmot.utils import logger as LOGGER
 
 class EngineExporter(BaseExporter):
     required_packages = ("nvidia-tensorrt",)
-    cmds = '--extra-index-url https://pypi.ngc.nvidia.com'
-    
+    cmds = "--extra-index-url https://pypi.ngc.nvidia.com"
+
     def export(self):
 
-        assert self.im.device.type != "cpu", "export running on CPU but must be on GPU, i.e. `python export.py --device 0`"
+        assert (
+            self.im.device.type != "cpu"
+        ), "export running on CPU but must be on GPU, i.e. `python export.py --device 0`"
         try:
             import tensorrt as trt
         except ImportError:
@@ -61,7 +63,9 @@ class EngineExporter(BaseExporter):
                 )
             config.add_optimization_profile(profile)
 
-        LOGGER.info(f"Building FP{16 if builder.platform_has_fast_fp16 and self.half else 32} engine in {f}")
+        LOGGER.info(
+            f"Building FP{16 if builder.platform_has_fast_fp16 and self.half else 32} engine in {f}"
+        )
         if builder.platform_has_fast_fp16 and self.half:
             config.set_flag(trt.BuilderFlag.FP16)
             config.default_device_type = trt.DeviceType.GPU
@@ -72,7 +76,14 @@ class EngineExporter(BaseExporter):
 
         return f
 
-
     def export_onnx(self):
-        onnx_exporter = ONNXExporter(self.model, self.im, self.file, self.optimize, self.dynamic, self.half, self.simplify)
+        onnx_exporter = ONNXExporter(
+            self.model,
+            self.im,
+            self.file,
+            self.optimize,
+            self.dynamic,
+            self.half,
+            self.simplify,
+        )
         return onnx_exporter.export()

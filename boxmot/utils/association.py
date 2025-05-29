@@ -20,10 +20,12 @@ def speed_direction_batch(dets, tracks):
 def linear_assignment(cost_matrix):
     try:
         import lap
+
         _, x, y = lap.lapjv(cost_matrix, extend_cost=True)
         return np.array([[y[i], i] for i in x if i >= 0])  #
     except ImportError:
         from scipy.optimize import linear_sum_assignment
+
         x, y = linear_sum_assignment(cost_matrix)
         return np.array([list(zip(x, y))])
 
@@ -122,7 +124,6 @@ def associate(
     w_assoc_emb=None,
     aw_off=None,
     aw_param=None,
-    
 ):
     if len(trackers) == 0:
         return (
@@ -144,7 +145,7 @@ def associate(
     valid_mask[np.where(previous_obs[:, 4] < 0)] = 0
 
     iou_matrix = asso_func(detections, trackers)
-    #iou_matrix = iou_batch(detections, trackers)
+    # iou_matrix = iou_batch(detections, trackers)
     scores = np.repeat(detections[:, -1][:, np.newaxis], trackers.shape[0], axis=1)
     # iou_matrix = iou_matrix * scores # a trick sometiems works, we don't encourage this
     valid_mask = np.repeat(valid_mask[:, np.newaxis], X.shape[1], axis=1)
@@ -164,7 +165,9 @@ def associate(
                 emb_cost = emb_cost
                 emb_cost[iou_matrix <= 0] = 0
                 if not aw_off:
-                    emb_cost = compute_aw_max_metric(emb_cost, w_assoc_emb, bottom=aw_param)
+                    emb_cost = compute_aw_max_metric(
+                        emb_cost, w_assoc_emb, bottom=aw_param
+                    )
                 else:
                     emb_cost *= w_assoc_emb
 

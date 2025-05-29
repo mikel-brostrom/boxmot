@@ -23,7 +23,7 @@ class KalmanFilterXYWH(BaseKalmanFilter):
             10 * self._std_weight_velocity * measurement[2],
             10 * self._std_weight_velocity * measurement[3],
             10 * self._std_weight_velocity * measurement[2],
-            10 * self._std_weight_velocity * measurement[3]
+            10 * self._std_weight_velocity * measurement[3],
         ]
 
     def _get_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -31,13 +31,13 @@ class KalmanFilterXYWH(BaseKalmanFilter):
             self._std_weight_position * mean[2],
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[2],
-            self._std_weight_position * mean[3]
+            self._std_weight_position * mean[3],
         ]
         std_vel = [
             self._std_weight_velocity * mean[2],
             self._std_weight_velocity * mean[3],
             self._std_weight_velocity * mean[2],
-            self._std_weight_velocity * mean[3]
+            self._std_weight_velocity * mean[3],
         ]
         return std_pos, std_vel
 
@@ -46,7 +46,7 @@ class KalmanFilterXYWH(BaseKalmanFilter):
             self._std_weight_position * mean[2],
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[2],
-            self._std_weight_position * mean[3]
+            self._std_weight_position * mean[3],
         ]
         return std_noise
     
@@ -55,12 +55,12 @@ class KalmanFilterXYWH(BaseKalmanFilter):
             self._std_weight_position * mean[:, 2],
             self._std_weight_position * mean[:, 3],
             self._std_weight_position * mean[:, 2],
-            self._std_weight_position * mean[:, 3]
+            self._std_weight_position * mean[:, 3],
         ]
         std_vel = [
             self._std_weight_velocity * mean[:, 2],
             self._std_weight_velocity * mean[:, 3],
             self._std_weight_velocity * mean[:, 2],
-            self._std_weight_velocity * mean[:, 3]
+            self._std_weight_velocity * mean[:, 3],
         ]
         return std_pos, std_vel

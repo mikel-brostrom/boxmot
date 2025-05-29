@@ -83,7 +83,7 @@ class MobileNetV2(nn.Module):
         loss="softmax",
         fc_dims=None,
         dropout_p=None,
-        **kwargs
+        **kwargs,
     ):
         super(MobileNetV2, self).__init__()
         self.loss = loss

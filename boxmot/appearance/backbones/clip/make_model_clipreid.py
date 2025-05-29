@@ -10,15 +10,15 @@ _tokenizer = _Tokenizer()
 
 def weights_init_kaiming(m):
     classname = m.__class__.__name__
-    if classname.find('Linear') != -1:
-        nn.init.kaiming_normal_(m.weight, a=0, mode='fan_out')
+    if classname.find("Linear") != -1:
+        nn.init.kaiming_normal_(m.weight, a=0, mode="fan_out")
         nn.init.constant_(m.bias, 0.0)
 
-    elif classname.find('Conv') != -1:
-        nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in')
+    elif classname.find("Conv") != -1:
+        nn.init.kaiming_normal_(m.weight, a=0, mode="fan_in")
         if m.bias is not None:
             nn.init.constant_(m.bias, 0.0)
-    elif classname.find('BatchNorm') != -1:
+    elif classname.find("BatchNorm") != -1:
         if m.affine:
             nn.init.constant_(m.weight, 1.0)
             nn.init.constant_(m.bias, 0.0)
@@ -26,7 +26,7 @@ def weights_init_kaiming(m):
 
 def weights_init_classifier(m):
     classname = m.__class__.__name__
-    if classname.find('Linear') != -1:
+    if classname.find("Linear") != -1:
         nn.init.normal_(m.weight, std=0.001)
         if m.bias:
             nn.init.constant_(m.bias, 0.0)
@@ -61,10 +61,10 @@ class build_transformer(nn.Module):
         self.cos_layer = cfg.MODEL.COS_LAYER
         self.neck = cfg.MODEL.NECK
         self.neck_feat = cfg.TEST.NECK_FEAT
-        if self.model_name == 'ViT-B-16':
+        if self.model_name == "ViT-B-16":
             self.in_planes = 768
             self.in_planes_proj = 512
-        elif self.model_name == 'RN50':
+        elif self.model_name == "RN50":
             self.in_planes = 2048
             self.in_planes_proj = 1024
         self.num_classes = num_classes
@@ -74,7 +74,9 @@ class build_transformer(nn.Module):
 
         self.classifier = nn.Linear(self.in_planes, self.num_classes, bias=False)
         self.classifier.apply(weights_init_classifier)
-        self.classifier_proj = nn.Linear(self.in_planes_proj, self.num_classes, bias=False)
+        self.classifier_proj = nn.Linear(
+            self.in_planes_proj, self.num_classes, bias=False
+        )
         self.classifier_proj.apply(weights_init_classifier)
 
         self.bottleneck = nn.BatchNorm1d(self.in_planes)
@@ -87,7 +89,12 @@ class build_transformer(nn.Module):
         self.h_resolution = int((cfg.INPUT.SIZE_TRAIN[0] - 16) // cfg.MODEL.STRIDE_SIZE[0] + 1)
         self.w_resolution = int((cfg.INPUT.SIZE_TRAIN[1] - 16) // cfg.MODEL.STRIDE_SIZE[1] + 1)
         self.vision_stride_size = cfg.MODEL.STRIDE_SIZE[0]
-        clip_model = load_clip_to_cpu(self.model_name, self.h_resolution, self.w_resolution, self.vision_stride_size)
+        clip_model = load_clip_to_cpu(
+            self.model_name,
+            self.h_resolution,
+            self.w_resolution,
+            self.vision_stride_size,
+        )
 
         self.image_encoder = clip_model.visual
 
@@ -105,35 +112,51 @@ class build_transformer(nn.Module):
         #     print('camera number is : {}'.format(view_num))
 
         dataset_name = cfg.DATASETS.NAMES
-        self.prompt_learner = PromptLearner(num_classes, dataset_name, clip_model.dtype, clip_model.token_embedding)
+        self.prompt_learner = PromptLearner(
+            num_classes, dataset_name, clip_model.dtype, clip_model.token_embedding
+        )
         self.text_encoder = TextEncoder(clip_model)
 
-    def forward(self, x=None, label=None, get_image=False, get_text=False, cam_label=None, view_label=None):
+    def forward(
+        self,
+        x=None,
+        label=None,
+        get_image=False,
+        get_text=False,
+        cam_label=None,
+        view_label=None,
+    ):
         if get_text is True:
             prompts = self.prompt_learner(label)
-            text_features = self.text_encoder(prompts, self.prompt_learner.tokenized_prompts)
+            text_features = self.text_encoder(
+                prompts, self.prompt_learner.tokenized_prompts
+            )
             return text_features
 
         if get_image is True:
             image_features_last, image_features, image_features_proj = self.image_encoder(x)
-            if self.model_name == 'RN50':
+            if self.model_name == "RN50":
                 return image_features_proj[0]
-            elif self.model_name == 'ViT-B-16':
+            elif self.model_name == "ViT-B-16":
                 return image_features_proj[:, 0]
 
-        if self.model_name == 'RN50':
-            image_features_last, image_features, image_features_proj = self.image_encoder(x)
+        if self.model_name == "RN50":
+            image_features_last, image_features, image_features_proj = (
+                self.image_encoder(x)
+            )
             img_feature_last = nn.functional.avg_pool2d(
-                image_features_last,
-                image_features_last.shape[2:4]).view(x.shape[0], -1)
+                image_features_last, image_features_last.shape[2:4]
+            ).view(x.shape[0], -1)
             img_feature = nn.functional.avg_pool2d(
-                image_features,
-                image_features.shape[2:4]).view(x.shape[0], -1)
+                image_features, image_features.shape[2:4]
+            ).view(x.shape[0], -1)
             img_feature_proj = image_features_proj[0]
 
-        elif self.model_name == 'ViT-B-16':
+        elif self.model_name == "ViT-B-16":
             if cam_label is not None and view_label is not None:
-                cv_embed = self.sie_coe * self.cv_embed[cam_label * self.view_num + view_label]
+                cv_embed = (
+                    self.sie_coe * self.cv_embed[cam_label * self.view_num + view_label]
+                )
             elif cam_label is not None:
                 cv_embed = self.sie_coe * self.cv_embed[cam_label]
             elif view_label is not None:
@@ -151,10 +174,14 @@ class build_transformer(nn.Module):
         if self.training:
             cls_score = self.classifier(feat)
             cls_score_proj = self.classifier_proj(feat_proj)
-            return [cls_score, cls_score_proj], [img_feature_last, img_feature, img_feature_proj], img_feature_proj
+            return (
+                [cls_score, cls_score_proj],
+                [img_feature_last, img_feature, img_feature_proj],
+                img_feature_proj,
+            )
 
         else:
-            if self.neck_feat == 'after':
+            if self.neck_feat == "after":
                 # print("Test with feature after BN")
                 return torch.cat([feat, feat_proj], dim=1)
             else:
@@ -163,14 +190,14 @@ class build_transformer(nn.Module):
     def load_param(self, trained_path):
         param_dict = torch.load(trained_path)
         for i in param_dict:
-            self.state_dict()[i.replace('module.', '')].copy_(param_dict[i])
-        print('Loaded pretrained model from {}'.format(trained_path))
+            self.state_dict()[i.replace("module.", "")].copy_(param_dict[i])
+        print("Loaded pretrained model from {}".format(trained_path))
 
     def load_param_finetune(self, model_path):
         param_dict = torch.load(model_path)
         for i in param_dict:
             self.state_dict()[i].copy_(param_dict[i])
-        print('Loading pretrained model for finetuning from {}'.format(model_path))
+        print("Loading pretrained model for finetuning from {}".format(model_path))
 
 
 def make_model(cfg, num_class, camera_num, view_num):
@@ -193,7 +220,9 @@ def load_clip_to_cpu(backbone_name, h_resolution, w_resolution, vision_stride_si
     except RuntimeError:
         state_dict = torch.load(model_path, map_location="cpu")
 
-    model = clip.build_model(state_dict or model.state_dict(), h_resolution, w_resolution, vision_stride_size)
+    model = clip.build_model(
+        state_dict or model.state_dict(), h_resolution, w_resolution, vision_stride_size
+    )
 
     return model
 
@@ -224,8 +253,8 @@ class PromptLearner(nn.Module):
         # These token vectors will be saved when in save_model(),
         # but they should be ignored in load_model() as we want to use
         # those computed using the current class names
-        self.register_buffer("token_prefix", embedding[:, :n_ctx + 1, :])
-        self.register_buffer("token_suffix", embedding[:, n_ctx + 1 + n_cls_ctx:, :])
+        self.register_buffer("token_prefix", embedding[:, : n_ctx + 1, :])
+        self.register_buffer("token_suffix", embedding[:, n_ctx + 1 + n_cls_ctx :, :])
         self.num_class = num_class
         self.n_cls_ctx = n_cls_ctx
 
@@ -238,7 +267,7 @@ class PromptLearner(nn.Module):
         prompts = torch.cat(
             [
                 prefix,  # (n_cls, 1, dim)
-                cls_ctx,     # (n_cls, n_ctx, dim)
+                cls_ctx,  # (n_cls, n_ctx, dim)
                 suffix,  # (n_cls, *, dim)
             ],
             dim=1,

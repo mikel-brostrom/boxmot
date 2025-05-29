@@ -38,16 +38,18 @@ class RFDETRStrategy(YoloInterface):
 
     def warmup(self, imgsz):
         pass
-    
+
     def update_im_paths(self, predictor: DetectionPredictor):
         """
         This function saves image paths for the current batch,
         being passed as callback on_predict_batch_start
         """
-        assert (isinstance(predictor, DetectionPredictor),
-                "Only ultralytics predictors are supported")
+        assert (
+            isinstance(predictor, DetectionPredictor),
+            "Only ultralytics predictors are supported",
+        )
         self.im_paths = predictor.batch[0]
-    
+
     def preprocess(self, im) -> torch.Tensor:
         assert isinstance(im, list)
         return im[0]
@@ -59,6 +61,10 @@ class RFDETRStrategy(YoloInterface):
                 continue
             im_path = self.im_paths[i] if len(self.im_paths) else ""
             if self.args.classes:
-                pred = pred[torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))]
-            results.append(Results(path=im_path, boxes=pred, orig_img=im0s[i], names=COCO_CLASSES))
+                pred = pred[
+                    torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))
+                ]
+            results.append(
+                Results(path=im_path, boxes=pred, orig_img=im0s[i], names=COCO_CLASSES)
+            )
         return results

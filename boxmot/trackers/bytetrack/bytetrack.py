@@ -22,7 +22,7 @@ class STrack(BaseTrack):
         self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
-        self.max_obs=max_obs
+        self.max_obs = max_obs
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
@@ -128,6 +128,7 @@ class ByteTrack(BaseTracker):
         frame_rate (int, optional): Frame rate of the video being processed. Used to scale the track buffer size.
         per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class.
     """
+
     def __init__(
         self,
         min_conf: float = 0.1,
@@ -156,8 +157,10 @@ class ByteTrack(BaseTracker):
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
-    def update(self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None) -> np.ndarray:
-        
+    def update(
+        self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None
+    ) -> np.ndarray:
+
         self.check_inputs(dets, img)
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
@@ -179,9 +182,7 @@ class ByteTrack(BaseTracker):
 
         if len(dets) > 0:
             """Detections"""
-            detections = [
-                STrack(det, max_obs=self.max_obs) for det in dets
-            ]
+            detections = [STrack(det, max_obs=self.max_obs) for det in dets]
         else:
             detections = []
 
@@ -219,7 +220,9 @@ class ByteTrack(BaseTracker):
         # association the untrack to the low conf detections
         if len(dets_second) > 0:
             """Detections"""
-            detections_second = [STrack(det_second, max_obs=self.max_obs) for det_second in dets_second]
+            detections_second = [
+                STrack(det_second, max_obs=self.max_obs) for det_second in dets_second
+            ]
         else:
             detections_second = []
         r_tracked_stracks = [

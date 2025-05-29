@@ -45,13 +45,13 @@ class TFLiteBackend(BaseModelBackend):
         LOGGER.info(f"Loading {str(w)} for TensorFlow Lite inference...")
 
         import tensorflow as tf
-        self.interpreter = tf.lite.Interpreter(model_path=str(w))
 
+        self.interpreter = tf.lite.Interpreter(model_path=str(w))
 
         self.interpreter.allocate_tensors()  # allocate
         self.input_details = self.interpreter.get_input_details()  # inputs
         self.output_details = self.interpreter.get_output_details()  # outputs
-        self.current_allocated_batch_size = self.input_details[0]['shape'][0]
+        self.current_allocated_batch_size = self.input_details[0]["shape"][0]
 
     def forward(self, im_batch: torch.Tensor) -> np.ndarray:
         """
@@ -71,17 +71,19 @@ class TFLiteBackend(BaseModelBackend):
         # Resize tensors if the new batch size is different from the current allocated batch size
         if batch_size != self.current_allocated_batch_size:
             # print(f"Resizing tensor input to batch size {batch_size}")
-            self.interpreter.resize_tensor_input(self.input_details[0]['index'], [batch_size, 256, 128, 3])
+            self.interpreter.resize_tensor_input(
+                self.input_details[0]["index"], [batch_size, 256, 128, 3]
+            )
             self.interpreter.allocate_tensors()
             self.current_allocated_batch_size = batch_size
 
         # Set the tensor to point to the input data
-        self.interpreter.set_tensor(self.input_details[0]['index'], im_batch)
+        self.interpreter.set_tensor(self.input_details[0]["index"], im_batch)
 
         # Run inference
         self.interpreter.invoke()
 
         # Get the output data
-        features = self.interpreter.get_tensor(self.output_details[0]['index'])
+        features = self.interpreter.get_tensor(self.output_details[0]["index"])
 
         return features

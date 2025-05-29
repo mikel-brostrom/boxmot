@@ -7,7 +7,7 @@ import numpy as np
 from boxmot.utils.matching import iou_distance
 
 
-def joint_stracks(tlista: List['STrack'], tlistb: List['STrack']) -> List['STrack']:
+def joint_stracks(tlista: List["STrack"], tlistb: List["STrack"]) -> List["STrack"]:
     """
     Joins two lists of tracks, ensuring that there are no duplicates based on track IDs.
 
@@ -31,7 +31,7 @@ def joint_stracks(tlista: List['STrack'], tlistb: List['STrack']) -> List['STrac
     return res
 
 
-def sub_stracks(tlista: List['STrack'], tlistb: List['STrack']) -> List['STrack']:
+def sub_stracks(tlista: List["STrack"], tlistb: List["STrack"]) -> List["STrack"]:
     """
     Subtracts the tracks in tlistb from tlista based on track IDs.
 
@@ -50,7 +50,9 @@ def sub_stracks(tlista: List['STrack'], tlistb: List['STrack']) -> List['STrack'
     return list(stracks.values())
 
 
-def remove_duplicate_stracks(stracksa: List['STrack'], stracksb: List['STrack']) -> Tuple[List['STrack'], List['STrack']]:
+def remove_duplicate_stracks(
+    stracksa: List["STrack"], stracksb: List["STrack"]
+) -> Tuple[List["STrack"], List["STrack"]]:
     """
     Removes duplicate tracks between two lists based on their IoU distance and track duration.
 
@@ -75,5 +77,5 @@ def remove_duplicate_stracks(stracksa: List['STrack'], stracksb: List['STrack'])
 
     resa = [t for i, t in enumerate(stracksa) if i not in dupa]
     resb = [t for i, t in enumerate(stracksb) if i not in dupb]
-    
+
     return resa, resb

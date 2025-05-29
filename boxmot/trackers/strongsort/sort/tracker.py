@@ -57,7 +57,7 @@ class Tracker:
 
         self.tracks = []
         self._next_id = 1
-        self.cmc = get_cmc_method('ecc')()
+        self.cmc = get_cmc_method("ecc")()
 
     def predict(self):
         """Propagate track state distributions one time step forward.

@@ -1,7 +1,7 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 """
-    This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
+This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
 from collections import deque
 
@@ -18,7 +18,7 @@ def k_previous_obs(observations, cur_age, k, is_obb=False):
     if len(observations) == 0:
         if is_obb:
             return [-1, -1, -1, -1, -1, -1]
-        else :
+        else:
             return [-1, -1, -1, -1, -1]
     for i in range(k):
         dt = k - i
@@ -60,7 +60,16 @@ class KalmanBoxTracker(object):
 
     count = 0
 
-    def __init__(self, bbox, cls, det_ind, delta_t=3, max_obs=50, Q_xy_scaling = 0.01, Q_s_scaling = 0.0001):
+    def __init__(
+        self,
+        bbox,
+        cls,
+        det_ind,
+        delta_t=3,
+        max_obs=50,
+        Q_xy_scaling=0.01,
+        Q_s_scaling=0.0001,
+    ):
         """
         Initialises a tracker using initial bounding box.
 
@@ -200,6 +209,7 @@ class OcSort(BaseTracker):
         Q_xy_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for position coordinates.
         Q_s_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for scale coordinates.
     """
+
     def __init__(
         self,
         per_class: bool = False,
@@ -235,7 +245,9 @@ class OcSort(BaseTracker):
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+    def update(
+        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
+    ) -> np.ndarray:
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -251,7 +263,7 @@ class OcSort(BaseTracker):
         h, w = img.shape[0:2]
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
-        confs = dets[:, 4+self.is_obb] 
+        confs = dets[:, 4 + self.is_obb]
 
         inds_low = confs > self.min_conf
         inds_high = confs < self.det_thresh
@@ -263,12 +275,12 @@ class OcSort(BaseTracker):
         dets = dets[remain_inds]
 
         # get predicted locations from existing trackers.
-        trks = np.zeros((len(self.active_tracks), 5+self.is_obb))
+        trks = np.zeros((len(self.active_tracks), 5 + self.is_obb))
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
             pos = self.active_tracks[t].predict()[0]
-            trk[:] = [pos[i] for i in range(4+self.is_obb)] + [0]
+            trk[:] = [pos[i] for i in range(4 + self.is_obb)] + [0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
@@ -285,7 +297,9 @@ class OcSort(BaseTracker):
 
         k_observations = np.array(
             [
-                k_previous_obs(trk.observations, trk.age, self.delta_t, is_obb=self.is_obb)
+                k_previous_obs(
+                    trk.observations, trk.age, self.delta_t, is_obb=self.is_obb
+                )
                 for trk in self.active_tracks
             ]
         )
@@ -294,10 +308,20 @@ class OcSort(BaseTracker):
             First round of association
         """
         matched, unmatched_dets, unmatched_trks = associate(
-            dets[:, 0:5+self.is_obb], trks, self.asso_func, self.asso_threshold, velocities, k_observations, self.inertia, w, h
+            dets[:, 0 : 5 + self.is_obb],
+            trks,
+            self.asso_func,
+            self.asso_threshold,
+            velocities,
+            k_observations,
+            self.inertia,
+            w,
+            h,
         )
         for m in matched:
-            self.active_tracks[m[1]].update(dets[m[0], :-2], dets[m[0], -2], dets[m[0], -1])
+            self.active_tracks[m[1]].update(
+                dets[m[0], :-2], dets[m[0], -2], dets[m[0], -1]
+            )
 
         """
             Second round of associaton by OCR
@@ -322,7 +346,9 @@ class OcSort(BaseTracker):
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
                     self.active_tracks[trk_ind].update(
-                        dets_second[det_ind, :-2], dets_second[det_ind, -2], dets_second[det_ind, -1]
+                        dets_second[det_ind, :-2],
+                        dets_second[det_ind, -2],
+                        dets_second[det_ind, -1],
                     )
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_trks = np.setdiff1d(
@@ -347,7 +373,9 @@ class OcSort(BaseTracker):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
-                    self.active_tracks[trk_ind].update(dets[det_ind, :-2], dets[det_ind, -2], dets[det_ind, -1])
+                    self.active_tracks[trk_ind].update(
+                        dets[det_ind, :-2], dets[det_ind, -2], dets[det_ind, -1]
+                    )
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_dets = np.setdiff1d(
@@ -363,9 +391,25 @@ class OcSort(BaseTracker):
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
             if self.is_obb:
-                trk = KalmanBoxTrackerOBB(dets[i, :-2], dets[i, -2], dets[i, -1], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_a_scaling=self.Q_s_scaling, max_obs=self.max_obs)
+                trk = KalmanBoxTrackerOBB(
+                    dets[i, :-2],
+                    dets[i, -2],
+                    dets[i, -1],
+                    delta_t=self.delta_t,
+                    Q_xy_scaling=self.Q_xy_scaling,
+                    Q_a_scaling=self.Q_s_scaling,
+                    max_obs=self.max_obs,
+                )
             else:
-                trk = KalmanBoxTracker(dets[i, :5], dets[i, 5], dets[i, 6], delta_t=self.delta_t, Q_xy_scaling=self.Q_xy_scaling, Q_s_scaling=self.Q_s_scaling, max_obs=self.max_obs)
+                trk = KalmanBoxTracker(
+                    dets[i, :5],
+                    dets[i, 5],
+                    dets[i, 6],
+                    delta_t=self.delta_t,
+                    Q_xy_scaling=self.Q_xy_scaling,
+                    Q_s_scaling=self.Q_s_scaling,
+                    max_obs=self.max_obs,
+                )
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
         for trk in reversed(self.active_tracks):
@@ -376,15 +420,15 @@ class OcSort(BaseTracker):
                 this is optional to use the recent observation or the kalman filter prediction,
                 we didn't notice significant difference here
                 """
-                d = trk.last_observation[:4+self.is_obb]
+                d = trk.last_observation[: 4 + self.is_obb]
             if (trk.time_since_update < 1) and (
                 trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
             ):
                 # +1 as MOT benchmark requires positive
                 ret.append(
-                    np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])).reshape(
-                        1, -1
-                    )
+                    np.concatenate(
+                        (d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])
+                    ).reshape(1, -1)
                 )
             i -= 1
             # remove dead tracklet
