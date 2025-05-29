@@ -110,7 +110,7 @@ class MLFN(nn.Module):
         groups=32,
         channels=[64, 256, 512, 1024, 2048],
         embed_dim=1024,
-        **kwargs
+        **kwargs,
     ):
         super(MLFN, self).__init__()
         self.loss = loss

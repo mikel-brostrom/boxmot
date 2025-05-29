@@ -182,7 +182,7 @@ class ResNet(nn.Module):
         last_stride=2,
         fc_dims=None,
         dropout_p=None,
-        **kwargs
+        **kwargs,
     ):
         super(ResNet, self).__init__()
         if norm_layer is None:
@@ -386,7 +386,7 @@ def resnet18(num_classes, loss="softmax", pretrained=True, **kwargs):
         last_stride=2,
         fc_dims=None,
         dropout_p=None,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, model_urls["resnet18"])
@@ -402,7 +402,7 @@ def resnet34(num_classes, loss="softmax", pretrained=True, **kwargs):
         last_stride=2,
         fc_dims=None,
         dropout_p=None,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, model_urls["resnet34"])
@@ -418,7 +418,7 @@ def resnet50(num_classes, loss="softmax", pretrained=True, **kwargs):
         last_stride=2,
         fc_dims=None,
         dropout_p=None,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, model_urls["resnet50"])
@@ -434,7 +434,7 @@ def resnet101(num_classes, loss="softmax", pretrained=True, **kwargs):
         last_stride=2,
         fc_dims=None,
         dropout_p=None,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, model_urls["resnet101"])
@@ -450,7 +450,7 @@ def resnet152(num_classes, loss="softmax", pretrained=True, **kwargs):
         last_stride=2,
         fc_dims=None,
         dropout_p=None,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, model_urls["resnet152"])
@@ -471,7 +471,7 @@ def resnext50_32x4d(num_classes, loss="softmax", pretrained=True, **kwargs):
         dropout_p=None,
         groups=32,
         width_per_group=4,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, model_urls["resnext50_32x4d"])
@@ -489,7 +489,7 @@ def resnext101_32x8d(num_classes, loss="softmax", pretrained=True, **kwargs):
         dropout_p=None,
         groups=32,
         width_per_group=8,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, model_urls["resnext101_32x8d"])
@@ -510,7 +510,7 @@ def resnet50_fc512(num_classes, loss="softmax", pretrained=True, **kwargs):
         last_stride=1,
         fc_dims=[512],
         dropout_p=None,
-        **kwargs
+        **kwargs,
     )
     if pretrained:
         init_pretrained_weights(model, model_urls["resnet50"])

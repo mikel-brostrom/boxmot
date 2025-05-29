@@ -46,18 +46,18 @@ from numpy import dot, eye, isscalar, zeros
 
 
 class KalmanFilterXYSR(object):
-    """ Implements a Kalman filter. You are responsible for setting the
+    """Implements a Kalman filter. You are responsible for setting the
     various state variables to reasonable values; the defaults will
     not give you a functional filter.
     """
 
     def __init__(self, dim_x, dim_z, dim_u=0, max_obs=50):
         if dim_x < 1:
-            raise ValueError('dim_x must be 1 or greater')
+            raise ValueError("dim_x must be 1 or greater")
         if dim_z < 1:
-            raise ValueError('dim_z must be 1 or greater')
+            raise ValueError("dim_z must be 1 or greater")
         if dim_u < 0:
-            raise ValueError('dim_u must be 0 or greater')
+            raise ValueError("dim_u must be 0 or greater")
 
         self.dim_x = dim_x
         self.dim_z = dim_z
@@ -77,10 +77,10 @@ class KalmanFilterXYSR(object):
         # gain and residual are computed during the innovation step. We
         # save them so that in case you want to inspect them for various
         # purposes
-        self.K = np.zeros((dim_x, dim_z)) # kalman gain
+        self.K = np.zeros((dim_x, dim_z))  # kalman gain
         self.y = zeros((dim_z, 1))
-        self.S = np.zeros((dim_z, dim_z)) # system uncertainty
-        self.SI = np.zeros((dim_z, dim_z)) # inverse system uncertainty
+        self.S = np.zeros((dim_z, dim_z))  # system uncertainty
+        self.SI = np.zeros((dim_z, dim_z))  # inverse system uncertainty
 
         # identity matrix. Do not alter this.
         self._I = np.eye(dim_x)
@@ -90,7 +90,7 @@ class KalmanFilterXYSR(object):
         self.P_prior = self.P.copy()
 
         # these will always be a copy of x,P after update() is called
-        self.x_post = self.x.copy()             
+        self.x_post = self.x.copy()
         self.P_post = self.P.copy()
 
         # Only computed only if requested via property
@@ -98,7 +98,7 @@ class KalmanFilterXYSR(object):
         self._likelihood = sys.float_info.min
         self._mahalanobis = None
 
-        # keep all observations 
+        # keep all observations
         self.max_obs = max_obs
         self.history_obs = deque([], maxlen=self.max_obs)
 
@@ -107,7 +107,6 @@ class KalmanFilterXYSR(object):
         self.attr_saved = None
         self.observed = False
         self.last_measurement = None
-
 
     def apply_affine_correction(self, m, t):
         """
@@ -131,8 +130,9 @@ class KalmanFilterXYSR(object):
             self.attr_saved["P"][:2, :2] = m @ self.attr_saved["P"][:2, :2] @ m.T
             self.attr_saved["P"][4:6, 4:6] = m @ self.attr_saved["P"][4:6, 4:6] @ m.T
 
-            self.attr_saved["last_measurement"][:2] = m @ self.attr_saved["last_measurement"][:2] + t
-
+            self.attr_saved["last_measurement"][:2] = (
+                m @ self.attr_saved["last_measurement"][:2] + t
+            )
 
     def predict(self, u=None, B=None, F=None, Q=None):
         """
@@ -176,7 +176,7 @@ class KalmanFilterXYSR(object):
 
     def freeze(self):
         """
-            Save the parameters before non-observation forward
+        Save the parameters before non-observation forward
         """
         self.attr_saved = deepcopy(self.__dict__)
 
@@ -221,7 +221,7 @@ class KalmanFilterXYSR(object):
         H : np.array, or None
             Measurement function. If None, the filter's self.H value is used.
         """
-        
+
         # set to None to force recompute
         self._log_likelihood = None
         self._likelihood = None
@@ -229,7 +229,7 @@ class KalmanFilterXYSR(object):
 
         # append the observation
         self.history_obs.append(z)
-        
+
         if z is None:
             if self.observed:
                 """
@@ -252,7 +252,7 @@ class KalmanFilterXYSR(object):
             """
             self.unfreeze()
         self.observed = True
-        
+
         if R is None:
             R = self.R
         elif isscalar(R):
@@ -291,7 +291,7 @@ class KalmanFilterXYSR(object):
         self.history_obs.append(z)
 
     def update_steadystate(self, z, H=None):
-        """ Update Kalman filter using the Kalman gain and state covariance
+        """Update Kalman filter using the Kalman gain and state covariance
         matrix as computed for the steady state. Only x is updated, and the
         new value is stored in self.x. P is left unchanged. Must be called
         after a prior call to compute_steady_state().
@@ -318,7 +318,7 @@ class KalmanFilterXYSR(object):
         self.history_obs.append(z)
 
     def log_likelihood(self, z=None):
-        """ log-likelihood of the measurement z. Computed from the
+        """log-likelihood of the measurement z. Computed from the
         system uncertainty S.
         """
 
@@ -327,30 +327,27 @@ class KalmanFilterXYSR(object):
         return logpdf(z, dot(self.H, self.x), self.S)
 
     def likelihood(self, z=None):
-        """ likelihood of the measurement z. Computed from the
+        """likelihood of the measurement z. Computed from the
         system uncertainty S.
         """
-
         if z is None:
             z = self.z
         return exp(self.log_likelihood(z))
 
     @property
     def log_likelihood(self):
-        """ log-likelihood of the last measurement.
-        """
-
+        """log-likelihood of the last measurement."""
         return self._log_likelihood
 
     @property
     def likelihood(self):
-        """ likelihood of the last measurement.
-        """
-
+        """likelihood of the last measurement."""
         return self._likelihood
 
 
-def batch_filter(x, P, zs, Fs, Qs, Hs, Rs, Bs=None, us=None, update_first=False, saver=None):
+def batch_filter(
+    x, P, zs, Fs, Qs, Hs, Rs, Bs=None, us=None, update_first=False, saver=None
+):
     """
     Batch processes a sequences of measurements.
     Parameters

@@ -37,17 +37,19 @@ class KalmanFilterXYAH(BaseKalmanFilter):
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[3],
             1e-2,
-            self._std_weight_position * mean[3]
+            self._std_weight_position * mean[3],
         ]
         std_vel = [
             self._std_weight_velocity * mean[3],
             self._std_weight_velocity * mean[3],
             1e-5,
-            self._std_weight_velocity * mean[3]
+            self._std_weight_velocity * mean[3],
         ]
         return std_pos, std_vel
 
-    def _get_measurement_noise_std(self, mean: np.ndarray, confidence: float) -> np.ndarray:
+    def _get_measurement_noise_std(
+        self, mean: np.ndarray, confidence: float
+    ) -> np.ndarray:
         # small measurement noise standard deviation for
         # aspect ratio state, indicating low expected measurement noise in
         # the aspect ratio.
@@ -55,21 +57,23 @@ class KalmanFilterXYAH(BaseKalmanFilter):
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[3],
             1e-1,
-            self._std_weight_position * mean[3]
+            self._std_weight_position * mean[3],
         ]
         return std_noise
 
-    def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_multi_process_noise_std(
+        self, mean: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
         std_pos = [
             self._std_weight_position * mean[:, 3],
             self._std_weight_position * mean[:, 3],
             1e-2 * np.ones_like(mean[:, 3]),
-            self._std_weight_position * mean[:, 3]
+            self._std_weight_position * mean[:, 3],
         ]
         std_vel = [
             self._std_weight_velocity * mean[:, 3],
             self._std_weight_velocity * mean[:, 3],
             1e-5 * np.ones_like(mean[:, 3]),
-            self._std_weight_velocity * mean[:, 3]
+            self._std_weight_velocity * mean[:, 3],
         ]
         return std_pos, std_vel

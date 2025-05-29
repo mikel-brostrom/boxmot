@@ -13,7 +13,7 @@ def increment_path(path, exist_ok=False, sep="", mkdir=False):
 
     Returns:
         Path: Incremented path, or original if exist_ok is True.
-        
+
     Example:
         runs/exp --> runs/exp2, runs/exp3, etc.
     """

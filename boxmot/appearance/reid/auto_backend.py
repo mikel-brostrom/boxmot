@@ -15,12 +15,13 @@ from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device
 
 
-class ReidAutoBackend():
+class ReidAutoBackend:
     def __init__(
         self,
         weights: Path = WEIGHTS / "osnet_x0_25_msmt17.pt",
         device: torch.device = torch.device("cpu"),
-        half: bool = False) -> None:
+        half: bool = False,
+    ) -> None:
         """
         Initializes the ReidAutoBackend instance with specified weights, device, and precision mode.
 
@@ -45,14 +46,22 @@ class ReidAutoBackend():
         self.half = half
         self.model = self.get_backend()
 
-
-    def get_backend(self) -> Union['PyTorchBackend', 'TorchscriptBackend', 'ONNXBackend', 'TensorRTBackend', 'OpenVinoBackend', 'TFLiteBackend']:
+    def get_backend(
+        self,
+    ) -> Union[
+        "PyTorchBackend",
+        "TorchscriptBackend",
+        "ONNXBackend",
+        "TensorRTBackend",
+        "OpenVinoBackend",
+        "TFLiteBackend",
+    ]:
         """
         Returns an instance of the appropriate backend based on the model type.
 
         Returns:
             An instance of a backend class corresponding to the detected model type.
-        
+
         Raises:
             SystemExit: If no supported model framework is detected.
         """
@@ -64,7 +73,7 @@ class ReidAutoBackend():
             self.onnx: ONNXBackend,
             self.engine: TensorRTBackend,
             self.xml: OpenVinoBackend,
-            self.tflite: TFLiteBackend
+            self.tflite: TFLiteBackend,
         }
 
         # Iterate through the mapping and return the first matching backend
@@ -75,7 +84,6 @@ class ReidAutoBackend():
         # If no condition is met, log an error and exit
         LOGGER.error("This model framework is not supported yet!")
         exit()
-
 
     def forward(self, im_batch: torch.Tensor) -> torch.Tensor:
         """
@@ -90,8 +98,12 @@ class ReidAutoBackend():
         im_batch = self.backend.preprocess_input(im_batch)
         return self.backend.get_features(im_batch)
 
-
-    def check_suffix(self, file: Path = "osnet_x0_25_msmt17.pt", suffix: Union[str, Tuple[str, ...]] = (".pt",), msg: str = "") -> None:
+    def check_suffix(
+        self,
+        file: Path = "osnet_x0_25_msmt17.pt",
+        suffix: Union[str, Tuple[str, ...]] = (".pt",),
+        msg: str = "",
+    ) -> None:
         """
         Validates that the file or files have an acceptable suffix.
 
@@ -107,8 +119,9 @@ class ReidAutoBackend():
         for f in files:
             file_suffix = Path(f).suffix.lower()
             if file_suffix and file_suffix not in suffix:
-                LOGGER.error(f"File {f} does not have an acceptable suffix. Expected: {suffix}")
-
+                LOGGER.error(
+                    f"File {f} does not have an acceptable suffix. Expected: {suffix}"
+                )
 
     def model_type(self, p: Path) -> Tuple[bool, ...]:
         """

@@ -27,7 +27,16 @@ class KalmanBoxTrackerOBB(object):
 
     count = 0
 
-    def __init__(self, bbox, cls, det_ind, delta_t=3, max_obs=50, Q_xy_scaling = 0.01, Q_a_scaling = 0.01):
+    def __init__(
+        self,
+        bbox,
+        cls,
+        det_ind,
+        delta_t=3,
+        max_obs=50,
+        Q_xy_scaling=0.01,
+        Q_a_scaling=0.01,
+    ):
         """
         Initialises a tracker using initial bounding box.
         """
@@ -45,21 +54,21 @@ class KalmanBoxTrackerOBB(object):
                 [0, 0, 1, 0, 0, 0, 0, 1, 0, 0],  # w = w + vw
                 [0, 0, 0, 1, 0, 0, 0, 0, 1, 0],  # h = h + vh
                 [0, 0, 0, 0, 1, 0, 0, 0, 0, 1],  # a = a + va
-                [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], 
-                [0, 0, 0, 0, 0, 0, 1, 0, 0, 0], 
-                [0, 0, 0, 0, 0, 0, 0, 1, 0, 0], 
-                [0, 0, 0, 0, 0, 0, 0, 0, 1, 0], 
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
-        ] 
-    )
+                [0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            ]
+        )
         self.kf.H = np.array(
             [
-                [1, 0, 0, 0, 0, 0, 0, 0, 0 ,0],  # cx
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # cx
                 [0, 1, 0, 0, 0, 0, 0, 0, 0, 0],  # cy
                 [0, 0, 1, 0, 0, 0, 0, 0, 0, 0],  # w
                 [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],  # h
                 [0, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # angle
-    ]
+            ]
         )
 
         self.kf.R[2:, 2:] *= 10.0
@@ -135,9 +144,9 @@ class KalmanBoxTrackerOBB(object):
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
-        if (self.kf.x[7] + self.kf.x[2]) <= 0: # Negative width
+        if (self.kf.x[7] + self.kf.x[2]) <= 0:  # Negative width
             self.kf.x[7] *= 0.0
-        if (self.kf.x[8] + self.kf.x[3]) <= 0: # Negative Height
+        if (self.kf.x[8] + self.kf.x[3]) <= 0:  # Negative Height
             self.kf.x[8] *= 0.0
         self.kf.predict()
         self.age += 1
@@ -155,7 +164,7 @@ class KalmanBoxTrackerOBB(object):
 
 
 class KalmanFilterXYWHA(object):
-    """ 
+    """
     Implements a Kalman Filter specialized for tracking Oriented Bounding Boxes.
     The default state vector is [x, y, w, h, a]^T:
 
@@ -163,7 +172,7 @@ class KalmanFilterXYWHA(object):
         - w, h  : width and height of the bounding box
         - a     : orientation angle (radians)
 
-    This filter supports "freeze" and "unfreeze" methods to handle missing 
+    This filter supports "freeze" and "unfreeze" methods to handle missing
     observations (no measurements) or out-of-sequence (OOS) smoothing logic.
     """
 
@@ -181,27 +190,27 @@ class KalmanFilterXYWHA(object):
             Maximum number of stored observations for freeze/unfreeze logic.
         """
         if dim_x < 1:
-            raise ValueError('dim_x must be 1 or greater')
+            raise ValueError("dim_x must be 1 or greater")
         if dim_z < 1:
-            raise ValueError('dim_z must be 1 or greater')
+            raise ValueError("dim_z must be 1 or greater")
         if dim_u < 0:
-            raise ValueError('dim_u must be 0 or greater')
+            raise ValueError("dim_u must be 0 or greater")
 
         self.dim_x = dim_x
         self.dim_z = dim_z
         self.dim_u = dim_u
 
         # State: x is a (dim_x, 1) column vector
-        self.x = zeros((dim_x, 1))       # state
+        self.x = zeros((dim_x, 1))      # state
         self.P = eye(dim_x)             # covariance of the state
         self.Q = eye(dim_x)             # process noise covariance
         self.B = None                   # control transition matrix
         self.F = eye(dim_x)             # state transition matrix
         self.H = zeros((dim_z, dim_x))  # measurement function
         self.R = eye(dim_z)             # measurement noise covariance
-        self._alpha_sq = 1.            # fading memory control
-        self.M = np.zeros((dim_x, dim_z)) # cross correlation (rarely used)
-        self.z = np.array([[None]*self.dim_z]).T
+        self._alpha_sq = 1.0            # fading memory control
+        self.M = np.zeros((dim_x, dim_z))  # cross correlation (rarely used)
+        self.z = np.array([[None] * self.dim_z]).T
 
         # Gains and residuals computed during update
         self.K = np.zeros((dim_x, dim_z))  # Kalman gain
@@ -245,7 +254,7 @@ class KalmanFilterXYWHA(object):
         t : np.array(2x1)
             Translation vector to be added after applying the transform.
 
-        TODO: adapt for oriented bounding box (especially if the orientation 
+        TODO: adapt for oriented bounding box (especially if the orientation
         is also changed by the transform).
         """
         # For demonstration, we apply the transform to [x, y] and [x_dot, y_dot], etc.
@@ -263,7 +272,7 @@ class KalmanFilterXYWHA(object):
         # P block for widths/heights (again naive if we treat w,h as x,y scale):
         self.P[2:4, 2:4] = m @ self.P[2:4, 2:4] @ m.T
 
-        # If angle is included, consider adjusting it or leaving it if the transform 
+        # If angle is included, consider adjusting it or leaving it if the transform
         # is purely in the plane with no orientation offset. Could do angle wrap here.
 
         # If we froze the filter, also update the frozen state
@@ -280,7 +289,7 @@ class KalmanFilterXYWHA(object):
 
     def predict(self, u=None, B=None, F=None, Q=None):
         """
-        Predict next state (prior) using the state transition matrix F 
+        Predict next state (prior) using the state transition matrix F
         and process noise Q.
 
         Parameters
@@ -292,7 +301,7 @@ class KalmanFilterXYWHA(object):
         F : np.array(dim_x, dim_x), optional
             State transition matrix. If None, self.F is used.
         Q : np.array(dim_x, dim_x) or scalar, optional
-            Process noise matrix. If None, self.Q is used. If scalar, 
+            Process noise matrix. If None, self.Q is used. If scalar,
             Q = scalar * I.
         """
         if B is None:
@@ -328,16 +337,16 @@ class KalmanFilterXYWHA(object):
 
     def freeze(self):
         """
-        Save the current filter parameters in attr_saved so that if the next 
-        observation is missing, we can revert to these parameters for 
+        Save the current filter parameters in attr_saved so that if the next
+        observation is missing, we can revert to these parameters for
         out-of-sequence or offline smoothing.
         """
         self.attr_saved = deepcopy(self.__dict__)
 
     def unfreeze(self):
         """
-        Revert the filter parameters to the saved (frozen) state, then "replay" 
-        the missing measurements from history to smooth the intermediate states. 
+        Revert the filter parameters to the saved (frozen) state, then "replay"
+        the missing measurements from history to smooth the intermediate states.
         """
         if self.attr_saved is not None:
             new_history = deepcopy(list(self.history_obs))
@@ -463,8 +472,8 @@ class KalmanFilterXYWHA(object):
 
     def update_steadystate(self, z, H=None):
         """
-        Update using precomputed steady-state gain (K_steady_state) and 
-        steady-state covariance P. Only x is updated here. 
+        Update using precomputed steady-state gain (K_steady_state) and
+        steady-state covariance P. Only x is updated here.
         P remains unchanged.
         """
         if z is None:
@@ -488,7 +497,7 @@ class KalmanFilterXYWHA(object):
 
     def log_likelihood_of(self, z=None):
         """
-        Compute the log-likelihood of measurement z given the current 
+        Compute the log-likelihood of measurement z given the current
         measurement prediction. This uses logpdf from filterpy.stats.
         """
         if z is None:
@@ -497,27 +506,28 @@ class KalmanFilterXYWHA(object):
 
     def likelihood_of(self, z=None):
         """
-        Compute the likelihood (probability) of measurement z given 
+        Compute the likelihood (probability) of measurement z given
         the current measurement prediction.
         """
         return exp(self.log_likelihood_of(z))
 
     @property
     def log_likelihood(self):
-        """ log-likelihood of the last measurement. """
+        """log-likelihood of the last measurement."""
         return self._log_likelihood
 
     @property
     def likelihood(self):
-        """ likelihood of the last measurement. """
+        """likelihood of the last measurement."""
         return self._likelihood
 
 
-def batch_filter(x, P, zs, Fs, Qs, Hs, Rs, Bs=None, us=None, 
-                 update_first=False, saver=None):
+def batch_filter(
+    x, P, zs, Fs, Qs, Hs, Rs, Bs=None, us=None, update_first=False, saver=None
+):
     """
     Batch processes a sequence of measurements.
-    
+
     Parameters
     ----------
     x : np.array(dim_x, 1)
