@@ -87,10 +87,10 @@ class LMBN_n(nn.Module):
         if self.activation_map:
             _, _, h_par, _ = par.size()
 
-            fmap_p0 = par[:, :, :h_par // 2, :]
-            fmap_p1 = par[:, :, h_par // 2:, :]
+            fmap_p0 = par[:, :, : h_par // 2, :]
+            fmap_p1 = par[:, :, h_par // 2 :, :]
             fmap_c0 = cha[:, : self.chs, :, :]
-            fmap_c1 = cha[:, self.chs:, :, :]
+            fmap_c1 = cha[:, self.chs :, :, :]
             print("Generating activation maps...")
 
             return glo, glo_, fmap_c0, fmap_c1, fmap_p0, fmap_p1
@@ -113,7 +113,7 @@ class LMBN_n(nn.Module):
         ################
 
         c0 = cha[:, : self.chs, :, :]
-        c1 = cha[:, self.chs:, :, :]
+        c1 = cha[:, self.chs :, :, :]
         c0 = self.shared(c0)
         c1 = self.shared(c1)
         f_c0 = self.reduction_ch_0(c0)

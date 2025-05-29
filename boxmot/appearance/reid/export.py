@@ -145,7 +145,7 @@ def create_export_tasks(args, model, dummy_input):
         "torchscript": (
             torchscript_flag,
             TorchScriptExporter,
-            (model, dummy_input, args.weights, args.optimize)
+            (model, dummy_input, args.weights, args.optimize),
         ),
         "engine": (
             engine_flag,
@@ -160,13 +160,13 @@ def create_export_tasks(args, model, dummy_input):
         "tflite": (
             tflite_flag,
             TFLiteExporter,
-            (model, dummy_input, args.weights)
+            (model, dummy_input, args.weights),
         ),
         "openvino": (
             openvino_flag,
             OpenVINOExporter,
-            (model, dummy_input, args.weights, args.half)
-        )
+            (model, dummy_input, args.weights, args.half),
+        ),
     }
 
 

@@ -8,6 +8,7 @@ from boxmot.utils import logger as LOGGER
 
 REQUIREMENTS_FILE = Path("requirements.txt")
 
+
 class RequirementsChecker:
     def __init__(self, group: str = None, requirements_file: Path = REQUIREMENTS_FILE):
         """
@@ -53,7 +54,9 @@ class RequirementsChecker:
             LOGGER.error(f"Failed to install packages: {e}")
             raise RuntimeError(f"Failed to install packages: {e}")
 
-    def sync_group_or_extra(self, group: Optional[str] = None, extra: Optional[str] = None):
+    def sync_group_or_extra(
+        self, group: Optional[str] = None, extra: Optional[str] = None
+    ):
         """
         Sync a uv dependency-group or an extra.
 
@@ -68,11 +71,7 @@ class RequirementsChecker:
         kind = "group" if group else "extra"
         LOGGER.warning(f"Syncing {kind} '{name}'...")
 
-        cmd = [
-            "uv", "sync",
-            "--no-default-groups",
-            f"--{kind}", name
-        ]
+        cmd = ["uv", "sync", "--no-default-groups", f"--{kind}", name]
 
         try:
             subprocess.check_call(cmd)

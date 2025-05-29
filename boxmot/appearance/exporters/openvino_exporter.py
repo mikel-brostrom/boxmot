@@ -1,9 +1,14 @@
-from pathlib import Path
 import openvino as ov
+
 from boxmot.appearance.exporters.base_exporter import BaseExporter
+
 
 class OpenVINOExporter(BaseExporter):
     group = "openvino"
+
+    def export(self):
+
+        from openvino.tools import mo
 
     def export(self) -> str:
         # 1. Paths

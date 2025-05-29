@@ -17,22 +17,86 @@ class YoloNASStrategy(YoloInterface):
     fp16 = False
     triton = False
     names = {
-        0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane', 5: 'bus',
-        6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light', 10: 'fire hydrant',
-        11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird', 15: 'cat',
-        16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant',
-        21: 'bear', 22: 'zebra', 23: 'giraffe', 24: 'backpack', 25: 'umbrella',
-        26: 'handbag', 27: 'tie', 28: 'suitcase', 29: 'frisbee', 30: 'skis',
-        31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat', 35: 'baseball glove',
-        36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle', 40: 'wine glass',
-        41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon', 45: 'bowl',
-        46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange', 50: 'broccoli',
-        51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'donut', 55: 'cake',
-        56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed', 60: 'dining table',
-        61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse', 65: 'remote',
-        66: 'keyboard', 67: 'cell phone', 68: 'microwave', 69: 'oven', 70: 'toaster',
-        71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock', 75: 'vase',
-        76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'
+        0: "person",
+        1: "bicycle",
+        2: "car",
+        3: "motorcycle",
+        4: "airplane",
+        5: "bus",
+        6: "train",
+        7: "truck",
+        8: "boat",
+        9: "traffic light",
+        10: "fire hydrant",
+        11: "stop sign",
+        12: "parking meter",
+        13: "bench",
+        14: "bird",
+        15: "cat",
+        16: "dog",
+        17: "horse",
+        18: "sheep",
+        19: "cow",
+        20: "elephant",
+        21: "bear",
+        22: "zebra",
+        23: "giraffe",
+        24: "backpack",
+        25: "umbrella",
+        26: "handbag",
+        27: "tie",
+        28: "suitcase",
+        29: "frisbee",
+        30: "skis",
+        31: "snowboard",
+        32: "sports ball",
+        33: "kite",
+        34: "baseball bat",
+        35: "baseball glove",
+        36: "skateboard",
+        37: "surfboard",
+        38: "tennis racket",
+        39: "bottle",
+        40: "wine glass",
+        41: "cup",
+        42: "fork",
+        43: "knife",
+        44: "spoon",
+        45: "bowl",
+        46: "banana",
+        47: "apple",
+        48: "sandwich",
+        49: "orange",
+        50: "broccoli",
+        51: "carrot",
+        52: "hot dog",
+        53: "pizza",
+        54: "donut",
+        55: "cake",
+        56: "chair",
+        57: "couch",
+        58: "potted plant",
+        59: "bed",
+        60: "dining table",
+        61: "toilet",
+        62: "tv",
+        63: "laptop",
+        64: "mouse",
+        65: "remote",
+        66: "keyboard",
+        67: "cell phone",
+        68: "microwave",
+        69: "oven",
+        70: "toaster",
+        71: "sink",
+        72: "refrigerator",
+        73: "book",
+        74: "clock",
+        75: "vase",
+        76: "scissors",
+        77: "teddy bear",
+        78: "hair drier",
+        79: "toothbrush",
     }
 
     def __init__(self, model, device, args):
@@ -41,18 +105,15 @@ class YoloNASStrategy(YoloInterface):
         avail_models = [x.lower() for x in list(Models.__dict__.keys())]
         model_type = self.get_model_from_weigths(avail_models, model)
 
-        LOGGER.info(f'Loading {model_type} with {str(model)}')
+        LOGGER.info(f"Loading {model_type} with {str(model)}")
         if not model.exists() and model.stem == model_type:
-            LOGGER.info('Downloading pretrained weights...')
-            self.model = models.get(
-                model_type,
-                pretrained_weights="coco"
-            ).to(device)
+            LOGGER.info("Downloading pretrained weights...")
+            self.model = models.get(model_type, pretrained_weights="coco").to(device)
         else:
             self.model = models.get(
                 model_type,
                 num_classes=-1,  # set your num classes
-                checkpoint_path=str(model)
+                checkpoint_path=str(model),
             ).to(device)
 
         self.device = device
@@ -64,18 +125,16 @@ class YoloNASStrategy(YoloInterface):
 
         with torch.no_grad():
             preds = self.model.predict(
-                im,
-                iou=self.args.iou,
-                conf=self.args.conf,
-                fuse_model=False
+                im, iou=self.args.iou, conf=self.args.conf, fuse_model=False
             )[0].prediction
 
         preds = np.concatenate(
             [
                 preds.bboxes_xyxy,
                 preds.confidence[:, np.newaxis],
-                preds.labels[:, np.newaxis]
-            ], axis=1
+                preds.labels[:, np.newaxis],
+            ],
+            axis=1,
         )
 
         preds = torch.from_numpy(preds).unsqueeze(0)
@@ -92,12 +151,7 @@ class YoloNASStrategy(YoloInterface):
 
             if pred is None:
                 pred = torch.empty((0, 6))
-                r = Results(
-                    path=path,
-                    boxes=pred,
-                    orig_img=im0s[i],
-                    names=self.names
-                )
+                r = Results(path=path, boxes=pred, orig_img=im0s[i], names=self.names)
                 results.append(r)
             else:
 
@@ -105,13 +159,10 @@ class YoloNASStrategy(YoloInterface):
 
                 # filter boxes by classes
                 if self.args.classes:
-                    pred = pred[torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))]
+                    pred = pred[
+                        torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))
+                    ]
 
-                r = Results(
-                    path=path,
-                    boxes=pred,
-                    orig_img=im0s[i],
-                    names=self.names
-                )
+                r = Results(path=path, boxes=pred, orig_img=im0s[i], names=self.names)
             results.append(r)
         return results
