@@ -363,7 +363,7 @@ def process_sequence(seq_name: str,
         det_emb_root=str(Path(project_root) / 'dets_n_embs'),
         model_name=model_name,
         reid_name=reid_name,
-        target_fps=15
+        target_fps=30
     )
     sequence = dataset.get_sequence(seq_name)
 

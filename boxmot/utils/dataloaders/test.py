@@ -2,12 +2,24 @@ import cv2
 import numpy as np
 import configparser
 from pathlib import Path
-from typing import Optional, List, Dict, Generator
+from typing import Optional, List, Dict, Generator, Union
 from boxmot.utils import logger as LOGGER
 from tqdm import tqdm
 
 
 def read_seq_fps(seq_dir: Path) -> int:
+    """
+    Read the original FPS (frames per second) from the seqinfo.ini file of a sequence.
+
+    Args:
+        seq_dir (Path): Path to the sequence directory.
+
+    Returns:
+        int: Original frame rate of the sequence.
+
+    Raises:
+        FileNotFoundError: If seqinfo.ini is not found.
+    """
     cfg_file = seq_dir / "seqinfo.ini"
     if not cfg_file.exists():
         raise FileNotFoundError(f"Missing seqinfo.ini in {seq_dir}")
@@ -17,6 +29,17 @@ def read_seq_fps(seq_dir: Path) -> int:
 
 
 def compute_fps_mask(frames: np.ndarray, orig_fps: int, target_fps: int) -> np.ndarray:
+    """
+    Compute a boolean mask for selecting frames to match the target FPS.
+
+    Args:
+        frames (np.ndarray): Array of original frame IDs.
+        orig_fps (int): Original FPS of the sequence.
+        target_fps (int): Desired FPS.
+
+    Returns:
+        np.ndarray: Boolean mask indicating which frames to keep.
+    """
     tgt = min(orig_fps, target_fps)
     step = orig_fps / tgt
     wanted = set(np.arange(1, int(frames.max()) + 1, step).astype(int))
@@ -24,6 +47,10 @@ def compute_fps_mask(frames: np.ndarray, orig_fps: int, target_fps: int) -> np.n
 
 
 class MOT17DetEmbDataset:
+    """
+    A dataset class to manage MOT17 sequences with optional detection and embedding data.
+    """
+
     def __init__(
         self,
         mot_root: str,
@@ -32,6 +59,16 @@ class MOT17DetEmbDataset:
         reid_name: Optional[str] = None,
         target_fps: Optional[int] = None
     ):
+        """
+        Initialize the MOT17 dataset.
+
+        Args:
+            mot_root (str): Root path to MOT dataset.
+            det_emb_root (Optional[str], optional): Root path for detection and embedding outputs.
+            model_name (Optional[str], optional): Name of detection model used.
+            reid_name (Optional[str], optional): Name of re-identification model used.
+            target_fps (Optional[int], optional): FPS to downsample to.
+        """
         self.root = Path(mot_root)
         self.target_fps = target_fps
         self.seqs: Dict[str, Dict] = {}
@@ -45,7 +82,10 @@ class MOT17DetEmbDataset:
 
         self._index_sequences()
 
-    def _index_sequences(self):
+    def _index_sequences(self) -> None:
+        """
+        Index all sequences in the dataset folder, loading image paths and optional det/emb paths.
+        """
         for seq_dir in sorted(self.root.iterdir()):
             if not seq_dir.is_dir():
                 continue
@@ -66,26 +106,59 @@ class MOT17DetEmbDataset:
             }
 
     def sequence_names(self) -> List[str]:
+        """
+        Get the list of all available sequence names.
+
+        Returns:
+            List[str]: Sequence names.
+        """
         return list(self.seqs.keys())
 
-    def get_sequence(self, name: str) -> Generator[Dict, None, None]:
+    def get_sequence(self, name: str) -> Generator[Dict[str, Union[int, np.ndarray]], None, None]:
+        """
+        Get a generator for frames of a specific sequence.
+
+        Args:
+            name (str): Name of the sequence.
+
+        Returns:
+            Generator[Dict[str, Union[int, np.ndarray]]]: Frame-wise data generator.
+
+        Raises:
+            KeyError: If the sequence name is unknown.
+        """
         if name not in self.seqs:
             raise KeyError(f"Unknown sequence {name}")
         return MOT17Sequence(name, self.seqs[name], self.target_fps)
 
 
 class MOT17Sequence:
+    """
+    A class to represent a single MOT17 sequence and stream frame data with optional detections and embeddings.
+    """
+
     def __init__(self, name: str, meta: Dict, target_fps: Optional[int]):
+        """
+        Initialize a MOT17 sequence.
+
+        Args:
+            name (str): Sequence name.
+            meta (Dict): Sequence metadata.
+            target_fps (Optional[int]): Desired FPS for downsampling.
+        """
         self.name = name
         self.meta = meta
         self.target_fps = target_fps
-        self.dets = None
-        self.embs = None
-        self.frame_ids = meta['frame_ids']
-        self.frame_paths = meta['frame_paths']
+        self.dets: Optional[np.ndarray] = None
+        self.embs: Optional[np.ndarray] = None
+        self.frame_ids: np.ndarray = meta['frame_ids']
+        self.frame_paths: List[Path] = meta['frame_paths']
         self._prepare()
 
-    def _prepare(self):
+    def _prepare(self) -> None:
+        """
+        Load detection and embedding data, and optionally downsample to target FPS.
+        """
         if self.meta['det_path'] and self.meta['emb_path']:
             self.dets = np.loadtxt(self.meta['det_path'], comments="#")
             self.embs = np.loadtxt(self.meta['emb_path'], comments="#")
@@ -103,7 +176,13 @@ class MOT17Sequence:
                 self.frame_paths = [self.frame_paths[i] for i in keep_idx]
                 self.frame_ids = self.frame_ids[keep_idx]
 
-    def __iter__(self) -> Generator[Dict, None, None]:
+    def __iter__(self) -> Generator[Dict[str, Union[int, np.ndarray]], None, None]:
+        """
+        Yield frames one by one, with associated detections and embeddings (if available).
+
+        Yields:
+            Generator[Dict[str, Union[int, np.ndarray]]]: Frame data dictionary.
+        """
         for fid, img_p in tqdm(zip(self.frame_ids, self.frame_paths), total=len(self.frame_ids), desc=f"Frames {self.name}"):
             img = cv2.imread(str(img_p))
             if img is None:
@@ -126,12 +205,16 @@ class MOT17Sequence:
             }
 
 
-def process_sequences_lazily(dataset: MOT17DetEmbDataset):
-    """Example usage of lazy-loading sequences."""
+def process_sequences_lazily(dataset: MOT17DetEmbDataset) -> None:
+    """
+    Example usage of lazy-loading and processing sequences from the dataset.
+
+    Args:
+        dataset (MOT17DetEmbDataset): MOT17 dataset instance.
+    """
     for seq_name in dataset.sequence_names():
         LOGGER.info(f"Processing sequence: {seq_name}")
         for frame_data in dataset.get_sequence(seq_name):
-            # Process each frame_data (dict with 'frame_id', 'img', 'dets', 'embs')
             # Replace this print with your own logic.
             print(f"Seq: {seq_name}, Frame: {frame_data['frame_id']}, Dets: {frame_data['dets'].shape[0]}")
 
