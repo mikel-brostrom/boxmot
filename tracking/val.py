@@ -23,7 +23,7 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMP
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.misc import increment_path
-from boxmot.utils.dataloaders.test import MOT17DetEmbDataset
+from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
 from boxmot.postprocessing.gsi import gsi
 
 from ultralytics import YOLO
