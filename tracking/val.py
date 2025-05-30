@@ -439,10 +439,6 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         from boxmot.utils import gsi
         gsi(mot_results_folder=exp_dir)
 
-    # Save sequence-to-frame mapping
-    with open(exp_dir / 'seqs_frame_nums.json', 'w') as f:
-        json.dump(seq_frame_nums, f)
-
 
 def run_trackeval(opt: argparse.Namespace) -> dict:
     """

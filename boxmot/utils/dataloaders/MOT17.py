@@ -145,25 +145,32 @@ class MOT17Sequence:
         self._prepare()
 
     def _prepare(self) -> None:
-        """
-        Load detection and embedding data, and optionally downsample to target FPS.
-        """
+        # 1) load dets & embs as before
         if self.meta['det_path'] and self.meta['emb_path']:
             self.dets = np.loadtxt(self.meta['det_path'], comments="#")
             self.embs = np.loadtxt(self.meta['emb_path'], comments="#")
-
             if self.dets.shape[0] != self.embs.shape[0]:
-                raise ValueError(f"Row mismatch in {self.name}: {self.dets.shape[0]} vs {self.embs.shape[0]}")
+                raise ValueError(f"Row mismatch in {self.name}")
 
+            # 2) if target_fps, build mask once
             if self.target_fps:
                 orig_fps = read_seq_fps(self.meta['seq_dir'])
-                mask = compute_fps_mask(self.dets[:, 0], orig_fps, self.target_fps)
-                self.dets = self.dets[mask]
-                self.embs = self.embs[mask]
-                keep = set(self.dets[:, 0].astype(int))
-                keep_idx = [i for i, fid in enumerate(self.frame_ids) if fid in keep]
-                self.frame_paths = [self.frame_paths[i] for i in keep_idx]
-                self.frame_ids = self.frame_ids[keep_idx]
+                mask = compute_fps_mask(self.dets[:,0], orig_fps, self.target_fps)
+
+                # a) filter dets/embs/frame_ids/frame_paths
+                self.dets       = self.dets[mask]
+                self.embs       = self.embs[mask]
+                keep_ids        = set(self.dets[:,0].astype(int))
+                idxs_to_keep    = [i for i, fid in enumerate(self.frame_ids) if fid in keep_ids]
+                self.frame_ids  = self.frame_ids[idxs_to_keep]
+                self.frame_paths= [self.frame_paths[i] for i in idxs_to_keep]
+
+                # b) filter GT once and write out gt_temp.txt
+                gt_dir      = self.meta['seq_dir'] / 'gt'
+                orig_gt     = np.loadtxt(gt_dir/'gt.txt', delimiter=',')
+                gt_mask     = np.isin(orig_gt[:,0].astype(int), list(keep_ids))
+                filtered_gt = orig_gt[gt_mask]
+                np.savetxt(gt_dir/'gt_temp.txt', filtered_gt, delimiter=',', fmt="%d" if filtered_gt.dtype.kind in 'iu' else "%f")
 
     def __iter__(self) -> Generator[Dict[str, Union[int, np.ndarray]], None, None]:
         """

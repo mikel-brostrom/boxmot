@@ -265,25 +265,6 @@ def unzip_mot_dataset(zip_path, val_tools_path, benchmark):
         return extract_path
 
 
-def set_gt_fps(opt, seq_paths):
-    fps_json_filepath = opt.exp_folder_path / "seqs_frame_nums.json"
-    with open(fps_json_filepath, "r") as f:
-        seqs_frame_nums = json.load(f)
-
-    for seq_path in seq_paths:
-        seq_name = seq_path.parent.name
-        frame_nums = seqs_frame_nums[seq_name]
-
-        gt_dir = seq_path.parent / "gt"
-        gt_orig_path = gt_dir / "gt.txt"
-        gt_temp_path = gt_dir / "gt_temp.txt"
-        shutil.copy(gt_orig_path, gt_temp_path)
-
-        seq = np.loadtxt(gt_temp_path, delimiter=",")
-        seq_filtered = seq[np.isin(seq[:, 0], frame_nums)]
-        np.savetxt(gt_temp_path, seq_filtered, delimiter=",")
-
-
 def eval_setup(opt, val_tools_path):
     """
     Initializes and sets up evaluation paths for MOT challenge datasets.
@@ -328,9 +309,6 @@ def eval_setup(opt, val_tools_path):
     else:
         # Default handling for other datasets
         seq_paths = [p / "img1" for p in mot_seqs_path.iterdir() if p.is_dir()]
-
-    # Set FPS for GT files
-    set_gt_fps(opt, seq_paths)
 
     # Determine save directory
     save_dir = Path(opt.project) / opt.name
