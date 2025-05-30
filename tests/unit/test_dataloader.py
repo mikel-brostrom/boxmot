@@ -36,7 +36,7 @@ def test_compute_fps_mask():
 
 
 @pytest.fixture
-def simple_sequence(tmp_path, monkeypatch):
+def simple_sequence(tmp_path):
     """
     Create a minimal MOT17-like sequence structure:
       seq_dir/
