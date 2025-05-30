@@ -145,7 +145,7 @@ class MOT17Sequence:
         self._prepare()
 
     def _prepare(self) -> None:
-        # 1) load dets & embs as before
+        # 1) load dets & embs
         if self.meta['det_path'] and self.meta['emb_path']:
             self.dets = np.loadtxt(self.meta['det_path'], comments="#")
             self.embs = np.loadtxt(self.meta['emb_path'], comments="#")
