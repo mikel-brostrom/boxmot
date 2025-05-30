@@ -23,6 +23,8 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMP
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.misc import increment_path
+from typing import Optional, List, Dict, Generator, Union
+
 from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
 from boxmot.postprocessing.gsi import gsi
 
@@ -345,7 +347,7 @@ def process_sequence(seq_name: str,
                      reid_name: str,
                      tracking_method: str,
                      exp_folder: str,
-                     target_fps):
+                     target_fps: Optional[int]):
 
     device = select_device('cpu')
     tracker = create_tracker(
@@ -358,30 +360,34 @@ def process_sequence(seq_name: str,
         None,
     )
 
-    # Load the dataset and sequence lazily
+    # load with the user’s FPS
     dataset = MOT17DetEmbDataset(
         mot_root=mot_root,
         det_emb_root=str(Path(project_root) / 'dets_n_embs'),
         model_name=model_name,
         reid_name=reid_name,
-        target_fps=30
+        target_fps=target_fps
     )
     sequence = dataset.get_sequence(seq_name)
 
     all_tracks = []
-    for idx, frame in enumerate(sequence):
+    kept_frame_ids = []
+    for frame in sequence:
+        fid  = int(frame['frame_id'])
         dets = frame['dets']
         embs = frame['embs']
-        img = frame['img']
+        img  = frame['img']
+
+        kept_frame_ids.append(fid)
+
         if dets.size and embs.size:
             tracks = tracker.update(dets, img, embs)
             if tracks.size:
-                all_tracks.append(convert_to_mot_format(tracks, idx + 1))
+                all_tracks.append(convert_to_mot_format(tracks, fid))
 
     out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
     write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
-    return seq_name, idx + 1
-
+    return seq_name, kept_frame_ids
 
 
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
@@ -423,8 +429,8 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         for fut in concurrent.futures.as_completed(futures):
             seq = futures[fut]
             try:
-                seq_name, count = fut.result()
-                seq_frame_nums[seq_name] = list(range(1, count + 1))
+                seq_name, kept_ids = fut.result()
+                seq_frame_nums[seq_name] = kept_ids
             except Exception as e:
                 LOGGER.error(f"Error processing {seq}: {e}")
 
@@ -436,8 +442,6 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     # Save sequence-to-frame mapping
     with open(exp_dir / 'seqs_frame_nums.json', 'w') as f:
         json.dump(seq_frame_nums, f)
-
-
 
 
 def run_trackeval(opt: argparse.Namespace) -> dict:
