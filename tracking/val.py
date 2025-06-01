@@ -42,7 +42,7 @@ checker.check_packages(('ultralytics', ))  # install
 
 class YoloTrackingPipeline:
     """
-    Encapsulates the end-to-end YOLO tracking pipeline:
+    Encapsulates the end-to-end boxmot tracking pipeline:
     1. Generating detections
     2. Generating embeddings
     3. Running the tracker over sequences
@@ -462,6 +462,13 @@ class YoloTrackingPipeline:
         LOGGER.info(json.dumps(hota_mota_idf1))
         return hota_mota_idf1
 
+def run_generate_dets_embs(args):
+    pipeline = YoloTrackingPipeline(args)
+    pipeline.run_generate_dets_embs()
+
+def run_generate_mot_results(args):
+    pipeline = YoloTrackingPipeline(args)
+    pipeline.run_generate_mot_results()
 
 def main(args: argparse.Namespace):
     """
