@@ -470,6 +470,12 @@ def run_generate_mot_results(args):
     pipeline = YoloTrackingPipeline(args)
     pipeline.run_generate_mot_results()
     
+def run_evolve(args):
+    download_mot_eval_tools(args.val_tools_path)
+    pipeline = YoloTrackingPipeline(args)
+    pipeline.run_generate_mot_results()
+    return pipeline.run_trackeval()
+    
 def run_all(args):
     download_mot_eval_tools(args.val_tools_path)
     pipeline = YoloTrackingPipeline(args)

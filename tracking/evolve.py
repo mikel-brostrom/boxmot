@@ -14,7 +14,7 @@ from ray.air import RunConfig
 
 from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
 from tracking.val import (
-    run_all
+    run_evolve
 )
 
 
@@ -37,7 +37,7 @@ class Tracker:
             dict: Combined evaluation metrics extracted from run_trackeval.
         """
         # Retrieve evaluation metrics (e.g., MOTA, HOTA, IDF1)
-        results = run_all(self.opt)
+        results = run_evolve(self.opt)
         # Extract only the desired objective results
         combined_results = {key: results.get(key) for key in self.opt.objectives}
         return combined_results
@@ -102,7 +102,8 @@ def main(opt):
     tracker = Tracker(opt)
 
     # Generate detection and embedding files required for evaluation
-    run_generate_dets_embs(opt)
+    pipeline = YoloTrackingPipeline(args)
+    pipeline.run_generate_dets_embs()
 
     # Define a wrapper for the objective function for Ray Tune
     def tune_wrapper(config):
