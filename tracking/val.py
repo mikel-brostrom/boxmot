@@ -265,13 +265,13 @@ def process_sequence(seq_name: str,
 
     device = select_device('cpu')
     tracker = create_tracker(
-        tracking_method,
-        TRACKER_CONFIGS / (tracking_method + ".yaml"),
-        Path(reid_name + '.pt'),
-        device,
-        False,
-        False,
-        cfg_dict,
+        tracker_type=tracking_method,
+        tracker_config=TRACKER_CONFIGS / (tracking_method + ".yaml"),
+        reid_weights=Path(reid_name + '.pt'),
+        device=device,
+        half=False,
+        per_class=False,
+        evolve_param_dict=cfg_dict,
     )
 
     # load with the user’s FPS
