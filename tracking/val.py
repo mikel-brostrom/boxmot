@@ -23,7 +23,7 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMP
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.misc import increment_path, prompt_overwrite
-from boxmot.utils.plots import cleanup_mot17
+from boxmot.utils.clean import cleanup_mot17
 from typing import Optional, List, Dict, Generator, Union
 
 from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
