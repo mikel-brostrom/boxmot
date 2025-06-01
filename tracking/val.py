@@ -462,14 +462,6 @@ class YoloTrackingPipeline:
         LOGGER.info(json.dumps(hota_mota_idf1))
         return hota_mota_idf1
 
-    def run_all(self) -> None:
-        """
-        Runs the full pipeline: detections → embeddings → tracking → evaluation.
-        """
-        self.run_generate_dets_embs()
-        self.run_generate_mot_results()
-        self.run_trackeval()
-
 
 def main(args: argparse.Namespace):
     """
@@ -498,7 +490,9 @@ def main(args: argparse.Namespace):
     elif args.command == 'trackeval':
         pipeline.run_trackeval()
     else:
-        pipeline.run_all()
+        pipeline.run_generate_dets_embs()
+        pipeline.run_generate_mot_results()
+        pipeline.run_trackeval()
 
 
 if __name__ == "__main__":
