@@ -3,6 +3,7 @@ import sys
 from boxmot.utils import logger as LOGGER
 import threading
 
+
 def increment_path(path, exist_ok=False, sep="", mkdir=False):
     """
     Generates an incremented file or directory path if it already exists, with an option to create the directory.
