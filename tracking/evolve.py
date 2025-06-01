@@ -14,7 +14,8 @@ from ray.air import RunConfig
 
 from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
 from tracking.val import (
-    run_evolve
+    run_evolve,
+    YoloTrackingPipeline
 )
 
 
