@@ -22,7 +22,7 @@ from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
-from boxmot.utils.misc import increment_path
+from boxmot.utils.misc import increment_path, prompt_overwrite
 from boxmot.utils.plots import cleanup_mot17
 from typing import Optional, List, Dict, Generator, Union
 
@@ -40,47 +40,6 @@ from tqdm import tqdm
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
-
-
-
-def prompt_overwrite(path_type: str, path: Path, ci: bool = True) -> bool:
-    """
-    Prompts the user to confirm overwriting an existing file, with a timeout.
-    In CI mode (or if stdin isn’t interactive), always returns False.
-
-    Args:
-        path_type (str): Type of the path (e.g., 'Detections and Embeddings', 'MOT Result').
-        path (Path): The path to check.
-        ci (bool): If True, automatically reuse existing file without prompting (for CI environments).
-
-    Returns:
-        bool: True if user confirms to overwrite, False otherwise.
-    """
-    # auto-skip in CI or when there's no interactive stdin
-    if ci or not sys.stdin.isatty():
-        LOGGER.debug(f"{path_type} {path} already exists. Use existing due to no UI mode.")
-        return False
-
-    def input_with_timeout(prompt: str, timeout: float = 3.0) -> bool:
-        print(prompt, end='', flush=True)
-        result = []
-        got_input = threading.Event()
-
-        def _read():
-            resp = sys.stdin.readline().strip().lower()
-            result.append(resp)
-            got_input.set()
-
-        t = threading.Thread(target=_read)
-        t.daemon = True
-        t.start()
-        t.join(timeout)
-
-        if got_input.is_set():
-            return result[0] in ('y', 'yes')
-        else:
-            print("\nNo response, not proceeding with overwrite...")
-            return False
 
 
 def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
