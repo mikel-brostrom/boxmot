@@ -449,28 +449,137 @@ class YoloTrackingPipeline:
         if getattr(opt, 'gsi', False):
             gsi(mot_results_folder=exp_dir)
 
-    def run_trackeval(self) -> Dict[str, float]:
-        """
-        Prepares data for TrackEval, runs evaluation, and returns a dict of HOTA, MOTA, IDF1.
-        """
-        opt = self.args
-        seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, opt.val_tools_path)
-        trackeval_results = self.trackeval(seq_paths, save_dir, MOT_results_folder, gt_folder)
-        hota_mota_idf1 = self.parse_mot_results(trackeval_results)
-        if opt.verbose:
-            LOGGER.info(trackeval_results)
-            with open(opt.tracking_method + "_output.json", "w") as outfile:
-                outfile.write(json.dumps(hota_mota_idf1))
-        LOGGER.info(json.dumps(hota_mota_idf1))
-        return hota_mota_idf1
+def process_sequence(seq_name: str,
+                     mot_root: str,
+                     project_root: str,
+                     model_name: str,
+                     reid_name: str,
+                     tracking_method: str,
+                     exp_folder: str,
+                     target_fps: Optional[int],
+                     cfg_dict: Optional[Dict] = None):
 
-def run_generate_dets_embs(args):
-    pipeline = YoloTrackingPipeline(args)
-    pipeline.run_generate_dets_embs()
+    device = select_device('cpu')
+    tracker = create_tracker(
+        tracker_type=tracking_method,
+        tracker_config=TRACKER_CONFIGS / (tracking_method + ".yaml"),
+        reid_weights=Path(reid_name + '.pt'),
+        device=device,
+        half=False,
+        per_class=False,
+        evolve_param_dict=cfg_dict,
+    )
 
-def run_generate_mot_results(args):
-    pipeline = YoloTrackingPipeline(args)
-    pipeline.run_generate_mot_results()
+    # load with the user’s FPS
+    dataset = MOT17DetEmbDataset(
+        mot_root=mot_root,
+        det_emb_root=str(Path(project_root) / 'dets_n_embs'),
+        model_name=model_name,
+        reid_name=reid_name,
+        target_fps=target_fps
+    )
+    sequence = dataset.get_sequence(seq_name)
+
+    all_tracks = []
+    kept_frame_ids = []
+    for frame in sequence:
+        fid  = int(frame['frame_id'])
+        dets = frame['dets']
+        embs = frame['embs']
+        img  = frame['img']
+
+        kept_frame_ids.append(fid)
+
+        if dets.size and embs.size:
+            tracks = tracker.update(dets, img, embs)
+            if tracks.size:
+                all_tracks.append(convert_to_mot_format(tracks, fid))
+
+    out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
+    write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
+    return seq_name, kept_frame_ids
+
+
+def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
+    # Prepare experiment folder
+    base = opt.project / 'mot' / f"{opt.yolo_model[0].stem}_{opt.reid_model[0].stem}_{opt.tracking_method}"
+    exp_dir = increment_path(base, sep="_", exist_ok=False)
+    exp_dir.mkdir(parents=True, exist_ok=True)
+    opt.exp_folder_path = exp_dir
+
+    # Just collect sequence names by scanning directory names
+    sequence_names = sorted([
+        d.name for d in Path(opt.source).iterdir()
+        if d.is_dir() and (d / "img1").exists()
+    ])
+
+    # Build task arguments
+    task_args = [
+        (
+            seq,
+            str(opt.source),
+            str(opt.project),
+            opt.yolo_model[0].stem,
+            opt.reid_model[0].stem,
+            opt.tracking_method,
+            str(exp_dir),
+            getattr(opt, 'fps', None),
+            evolve_config
+        )
+        for seq in sequence_names
+    ]
+
+    seq_frame_nums = {}
+    max_workers = min(len(task_args), os.cpu_count() or 4)
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(process_sequence, *args): args[0] for args in task_args
+        }
+
+        for fut in concurrent.futures.as_completed(futures):
+            seq = futures[fut]
+            try:
+                seq_name, kept_ids = fut.result()
+                seq_frame_nums[seq_name] = kept_ids
+            except Exception as e:
+                LOGGER.error(f"Error processing {seq}: {e}")
+
+    # Optional GSI
+    if getattr(opt, 'gsi', False):
+        from boxmot.utils import gsi
+        gsi(mot_results_folder=exp_dir)
+
+
+def run_trackeval(opt: argparse.Namespace) -> dict:
+    """
+    Runs the trackeval function to evaluate tracking results.
+
+    Args:
+        opt (Namespace): Parsed command line arguments.
+    """
+    seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, opt.val_tools_path)
+    trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
+    hota_mota_idf1 = parse_mot_results(trackeval_results)
+    if opt.verbose:
+        LOGGER.info(trackeval_results)
+        with open(opt.tracking_method + "_output.json", "w") as outfile:
+            outfile.write(json.dumps(hota_mota_idf1))
+    LOGGER.info(json.dumps(hota_mota_idf1))
+    return hota_mota_idf1
+
+
+def run_all(opt: argparse.Namespace) -> None:
+    """
+    Runs all stages of the pipeline: generate_dets_embs, generate_mot_results, and trackeval.
+
+    Args:
+        opt (Namespace): Parsed command line arguments.
+    """
+    run_generate_dets_embs(opt)
+    run_generate_mot_results(opt)
+    run_trackeval(opt)
+
     
 def run_evolve(args):
     download_mot_eval_tools(args.val_tools_path)
