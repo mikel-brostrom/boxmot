@@ -180,7 +180,7 @@ class MetricsPlotter:
 # Example usage:
 if __name__ == "__main__":
     # Create a MetricsPlotter that saves everything under "plots/" directory
-    plotter = MetricsPlotter(root_folder='plots')
+    plotter = MetricsPlotter(root_folder='./')
 
     # 1) Radar chart example (will be saved as 'plots/radar_chart.png' by default)
     labels = ['HOTA', 'AssA', 'AssR', 'MOTA', 'IDF1']
@@ -188,14 +188,16 @@ if __name__ == "__main__":
         "BoostTrack": [69.25, 73.859, 77.49, 75.908, 83.199],
         "ByteTrack":  [67.68, 69.145, 75.031, 78.039, 79.157],
         "BoTSORT":    [68.888, 71.15, 76.626, 78.232, 81.331],
+        "OCSORT":     [66.441, 69.111, 73.787, 74.548, 77.899],
+        "StrongSORT": [68.05, 71.092, 74.983, 76.185, 80.763],
     }
     plotter.plot_radar_chart(
         radar_data,
         labels,
         title='Radar Chart of Method Combinations on DanceTrack',
-        ylim=(0, 100.0),
-        yticks=[20, 40, 60, 80, 100],
-        ytick_labels=['20', '40', '60', '80', '100']
+        ylim=(65, 85),
+        yticks=[65, 70, 75, 80, 85],
+        ytick_labels=['65', '70', '75', '80', '85']
     )
 
     # 2) FPS vs Metrics example (will be saved as 'plots/fps_metrics.png' by default)
