@@ -1,4 +1,5 @@
 import os
+import shutil
 
 
 def cleanup_mot17(data_dir, keep_detection='FRCNN'):
