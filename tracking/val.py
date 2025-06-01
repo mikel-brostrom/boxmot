@@ -471,6 +471,7 @@ def run_generate_mot_results(args):
     pipeline.run_generate_mot_results()
     
 def run_all(args):
+    download_mot_eval_tools(args.val_tools_path)
     pipeline = YoloTrackingPipeline(args)
     pipeline.run_generate_dets_embs()
     pipeline.run_generate_mot_results()

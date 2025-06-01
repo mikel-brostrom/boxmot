@@ -14,10 +14,7 @@ from ray.air import RunConfig
 
 from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
 from tracking.val import (
-    download_mot_eval_tools,
-    run_generate_dets_embs,
-    run_generate_mot_results,
-    run_trackeval,
+    run_all
 )
 
 
@@ -39,12 +36,8 @@ class Tracker:
         Returns:
             dict: Combined evaluation metrics extracted from run_trackeval.
         """
-        # Ensure evaluation tools are available
-        download_mot_eval_tools(self.opt.val_tools_path)
-        # Generate MOT-compliant results with the specified tracker parameters
-        run_generate_mot_results(self.opt, config)
         # Retrieve evaluation metrics (e.g., MOTA, HOTA, IDF1)
-        results = run_trackeval(self.opt)
+        results = run_all(self.opt)
         # Extract only the desired objective results
         combined_results = {key: results.get(key) for key in self.opt.objectives}
         return combined_results
