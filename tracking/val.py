@@ -260,7 +260,8 @@ def process_sequence(seq_name: str,
                      reid_name: str,
                      tracking_method: str,
                      exp_folder: str,
-                     target_fps: Optional[int]):
+                     target_fps: Optional[int],
+                     cfg_dict: Optional[Dict] = None):
 
     device = select_device('cpu')
     tracker = create_tracker(
@@ -270,7 +271,7 @@ def process_sequence(seq_name: str,
         device,
         False,
         False,
-        None,
+        cfg_dict,
     )
 
     # load with the user’s FPS
@@ -326,7 +327,8 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
             opt.reid_model[0].stem,
             opt.tracking_method,
             str(exp_dir),
-            getattr(opt, 'fps', None)
+            getattr(opt, 'fps', None),
+            evolve_config
         )
         for seq in sequence_names
     ]
