@@ -103,7 +103,7 @@ def main(opt):
     tracker = Tracker(opt)
 
     # Generate detection and embedding files required for evaluation
-    pipeline = YoloTrackingPipeline(args)
+    pipeline = YoloTrackingPipeline(opt)
     pipeline.run_generate_dets_embs()
 
     # Define a wrapper for the objective function for Ray Tune

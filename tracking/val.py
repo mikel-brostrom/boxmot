@@ -354,7 +354,8 @@ class YoloTrackingPipeline:
         reid_name: str,
         tracking_method: str,
         exp_folder: str,
-        target_fps: Optional[int]
+        target_fps: Optional[int],
+        cfg_dict: Optional[Dict] = None
     ):
         """
         Processes a single sequence: loads detections+embeddings, runs tracker, writes MOT results.
@@ -367,7 +368,7 @@ class YoloTrackingPipeline:
             device,
             False,
             False,
-            None,
+            cfg_dict,
         )
 
         dataset = MOT17DetEmbDataset(
@@ -423,7 +424,8 @@ class YoloTrackingPipeline:
                 opt.reid_model[0].stem,
                 opt.tracking_method,
                 str(exp_dir),
-                getattr(opt, 'fps', None)
+                getattr(opt, 'fps', None),
+                evolve_config
             )
             for seq in sequence_names
         ]
