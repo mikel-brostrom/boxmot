@@ -22,8 +22,9 @@ from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
-from boxmot.utils.misc import increment_path
 from boxmot.utils.plots import MetricsPlotter
+from boxmot.utils.misc import increment_path, prompt_overwrite
+from boxmot.utils.clean import cleanup_mot17
 from typing import Optional, List, Dict, Generator, Union
 
 from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
@@ -40,94 +41,6 @@ from tqdm import tqdm
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
-
-
-def cleanup_mot17(data_dir, keep_detection='FRCNN'):
-    """
-    Cleans up the MOT17 dataset to resemble the MOT16 format by keeping only one detection folder per sequence.
-    Skips sequences that have already been cleaned.
-
-    Args:
-    - data_dir (str): Path to the MOT17 train directory.
-    - keep_detection (str): Detection type to keep (options: 'DPM', 'FRCNN', 'SDP'). Default is 'DPM'.
-    """
-
-    # Get all folders in the train directory
-    all_dirs = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
-
-    # Identify unique sequences by removing detection suffixes
-    unique_sequences = set(seq.split('-')[0] + '-' + seq.split('-')[1] for seq in all_dirs)
-
-    for seq in unique_sequences:
-        # Directory path to the cleaned sequence
-        cleaned_seq_dir = os.path.join(data_dir, seq)
-
-        # Skip if the sequence is already cleaned
-        if os.path.exists(cleaned_seq_dir):
-            print(f"Sequence {seq} is already cleaned. Skipping.")
-            continue
-
-        # Directories for each detection method
-        seq_dirs = [os.path.join(data_dir, d)
-                    for d in all_dirs if d.startswith(seq)]
-
-        # Directory path for the detection folder to keep
-        keep_dir = os.path.join(data_dir, f"{seq}-{keep_detection}")
-
-        if os.path.exists(keep_dir):
-            # Move the directory to a new name (removing the detection suffix)
-            shutil.move(keep_dir, cleaned_seq_dir)
-            print(f"Moved {keep_dir} to {cleaned_seq_dir}")
-
-            # Remove other detection directories
-            for seq_dir in seq_dirs:
-                if os.path.exists(seq_dir) and seq_dir != keep_dir:
-                    shutil.rmtree(seq_dir)
-                    print(f"Removed {seq_dir}")
-        else:
-            print(f"Directory for {seq} with {keep_detection} detection does not exist. Skipping.")
-
-    print("MOT17 Cleanup completed!")
-
-
-def prompt_overwrite(path_type: str, path: Path, ci: bool = True) -> bool:
-    """
-    Prompts the user to confirm overwriting an existing file, with a timeout.
-    In CI mode (or if stdin isn’t interactive), always returns False.
-
-    Args:
-        path_type (str): Type of the path (e.g., 'Detections and Embeddings', 'MOT Result').
-        path (Path): The path to check.
-        ci (bool): If True, automatically reuse existing file without prompting (for CI environments).
-
-    Returns:
-        bool: True if user confirms to overwrite, False otherwise.
-    """
-    # auto-skip in CI or when there's no interactive stdin
-    if ci or not sys.stdin.isatty():
-        LOGGER.debug(f"{path_type} {path} already exists. Use existing due to no UI mode.")
-        return False
-
-    def input_with_timeout(prompt: str, timeout: float = 3.0) -> bool:
-        print(prompt, end='', flush=True)
-        result = []
-        got_input = threading.Event()
-
-        def _read():
-            resp = sys.stdin.readline().strip().lower()
-            result.append(resp)
-            got_input.set()
-
-        t = threading.Thread(target=_read)
-        t.daemon = True
-        t.start()
-        t.join(timeout)
-
-        if got_input.is_set():
-            return result[0] in ('y', 'yes')
-        else:
-            print("\nNo response, not proceeding with overwrite...")
-            return False
 
 
 def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
@@ -366,17 +279,18 @@ def process_sequence(seq_name: str,
                      reid_name: str,
                      tracking_method: str,
                      exp_folder: str,
-                     target_fps: Optional[int]):
+                     target_fps: Optional[int],
+                     cfg_dict: Optional[Dict] = None):
 
     device = select_device('cpu')
     tracker = create_tracker(
-        tracking_method,
-        TRACKER_CONFIGS / (tracking_method + ".yaml"),
-        Path(reid_name + '.pt'),
-        device,
-        False,
-        False,
-        None,
+        tracker_type=tracking_method,
+        tracker_config=TRACKER_CONFIGS / (tracking_method + ".yaml"),
+        reid_weights=Path(reid_name + '.pt'),
+        device=device,
+        half=False,
+        per_class=False,
+        evolve_param_dict=cfg_dict,
     )
 
     # load with the user’s FPS
@@ -432,7 +346,8 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
             opt.reid_model[0].stem,
             opt.tracking_method,
             str(exp_dir),
-            getattr(opt, 'fps', None)
+            getattr(opt, 'fps', None),
+            evolve_config
         )
         for seq in sequence_names
     ]
