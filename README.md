@@ -14,12 +14,8 @@
 <a href="https://doi.org/10.5281/zenodo.8132989"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.8132989.svg" alt="DOI"></a>
 <a href="https://hub.docker.com/r/boxmot/boxmot"><img src="https://img.shields.io/docker/pulls/boxmot/boxmot?logo=docker" alt="Ultralytics Docker Pulls"></a>
 
-<a href="https://discord.com/channels/1377565354326495283/1379038657733984406">
-  <img
-    src="https://img.shields.io/discord/123456789012345678?label=Chat%20on%20Discord&logo=discord&logoColor=white"
-    alt="Join us on Discord"
-  />
-</a>
+[![discord](https://img.shields.io/discord/1377565354326495283?logo=discord&label=discord&labelColor=fff&color=5865f2&link=https%3A%2F%2Fdiscord.gg%2FGbfgXGJ8Bk)](https://discord.gg/m4szuBcT)
+
   </div>
 </div>
 
