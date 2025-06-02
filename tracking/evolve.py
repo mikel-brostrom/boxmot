@@ -12,9 +12,13 @@ import yaml
 from ray import tune
 from ray.air import RunConfig
 
+from tracking.utils import download_mot_eval_tools
 from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
 from tracking.val import (
-    run_evolve,
+    download_mot_eval_tools,
+    run_generate_dets_embs,
+    run_generate_mot_results,
+    run_trackeval,
     YoloTrackingPipeline
 )
 
@@ -27,7 +31,7 @@ class Tracker:
     def __init__(self, opt):
         self.opt = opt
 
-    def objective_function(self, config: dict) -> dict:
+    def objective_function(self, config: dict, pipeline) -> dict:
         """
         Evaluates a given tracker configuration.
 
@@ -37,8 +41,12 @@ class Tracker:
         Returns:
             dict: Combined evaluation metrics extracted from run_trackeval.
         """
+        # Ensure evaluation tools are available
+        download_mot_eval_tools(self.opt.val_tools_path)
+        # Generate MOT-compliant results with the specified tracker parameters
+        pipeline.run_generate_mot_results(self.opt, config)
         # Retrieve evaluation metrics (e.g., MOTA, HOTA, IDF1)
-        results = run_evolve(self.opt)
+        results = pipeline.run_trackeval(self.opt)
         # Extract only the desired objective results
         combined_results = {key: results.get(key) for key in self.opt.objectives}
         return combined_results
@@ -103,12 +111,12 @@ def main(opt):
     tracker = Tracker(opt)
 
     # Generate detection and embedding files required for evaluation
-    pipeline = YoloTrackingPipeline(opt)
+    pipeline = YoloTrackingPipeline(args)
     pipeline.run_generate_dets_embs()
 
     # Define a wrapper for the objective function for Ray Tune
     def tune_wrapper(config):
-        return tracker.objective_function(config)
+        return tracker.objective_function(config, pipeline)
 
     results_dir = os.path.abspath("ray/")
 
