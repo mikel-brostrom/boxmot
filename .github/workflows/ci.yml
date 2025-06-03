@@ -284,16 +284,16 @@ jobs:
           python boxmot/appearance/reid/export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
       - name: Check export TFLite models
         run: |
-          ls /home/runner/work/boxmot/boxmot/tracking/weights/osnet_x0_25_msmt17_saved_model/
+          ls /home/runner/work/boxmot/boxmot/tools/weights/osnet_x0_25_msmt17_saved_model/
       - name: Test inference on exported models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          boxmot track --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
-          boxmot track --reid-model tracking/weights/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
-          boxmot track --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
-          boxmot track --reid-model tracking/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320
+          boxmot track --reid-model boxmot/tools/weights/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/tools/weights/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/tools/weights/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/tools/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320
                
   tests:
     runs-on: ubuntu-latest
