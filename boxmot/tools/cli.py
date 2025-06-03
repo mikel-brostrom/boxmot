@@ -142,19 +142,19 @@ def main():
     args.benchmark, args.split = source_path.parent.name, source_path.name
 
     if args.command == 'track':
-        from tracking.track import main as run_track
+        from boxmot.tools.track import main as run_track
         run_track(args)
     elif args.command == 'generate-dets-embs':
-        from tracking.val import run_generate_dets_embs
+        from boxmot.tools.val import run_generate_dets_embs
         run_generate_dets_embs(args)
     elif args.command == 'generate-mot-results':
-        from tracking.val import run_generate_mot_results
+        from boxmot.tools.val import run_generate_mot_results
         run_generate_mot_results(args)
     elif args.command in ('eval', 'all'):
-        from tracking.val import main as run_eval
+        from boxmot.tools.val import main as run_eval
         run_eval(args)
     elif args.command == 'tune':
-        from tracking.evolve import main as run_tuning
+        from boxmot.tools.evolve import main as run_tuning
         run_tuning(args)
 
 
