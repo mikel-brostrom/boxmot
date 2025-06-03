@@ -33,9 +33,9 @@ from boxmot.postprocessing.gsi import gsi
 from ultralytics import YOLO
 from ultralytics.data.build import load_inference_source
 
-from tracking.detectors import (get_yolo_inferer, default_imgsz,
+from boxmot.tools.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model, is_yolox_model)
-from tracking.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
+from boxmot.tools.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from tqdm import tqdm
 
