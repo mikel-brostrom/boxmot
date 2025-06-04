@@ -18,6 +18,8 @@ def main():
         default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'],
         help='one or more ReID model weights (only for generate/eval/tune)'
     )
+    eval_parent.add_argument('--classes', nargs='+', type=int,
+        default=[0], help='filter by class indices')
 
     # Common arguments for all commands (flags only, no positionals)
     common_parser = argparse.ArgumentParser(add_help=False, conflict_handler='resolve')
@@ -43,7 +45,7 @@ def main():
                                help='IoU threshold for NMS')
     common_parser.add_argument('--device', default='', help='cuda device(s), e.g. 0 or 0,1,2,3 or cpu')
     common_parser.add_argument('--classes', nargs='+', type=int,
-                               default=[0], help='filter by class indices')
+                               help='filter by class indices')
     common_parser.add_argument('--project', type=Path, default=ROOT / 'runs',
                                help='save results to project/name')
     common_parser.add_argument('--name', default='', help='save results to project/name')
@@ -152,9 +154,11 @@ def main():
         run_generate_mot_results(args)
     elif args.command in ('eval', 'all'):
         from boxmot.engine.val import main as run_eval
+        args.classes = [0]
         run_eval(args)
     elif args.command == 'tune':
         from boxmot.engine.evolve import main as run_tuning
+        args.classes = [0]
         run_tuning(args)
 
 
