@@ -154,9 +154,11 @@ def main():
         run_generate_mot_results(args)
     elif args.command in ('eval', 'all'):
         from boxmot.engine.val import main as run_eval
+        args.classes = [0]
         run_eval(args)
     elif args.command == 'tune':
         from boxmot.engine.evolve import main as run_tuning
+        args.classes = [0]
         run_tuning(args)
 
 
