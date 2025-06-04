@@ -19,7 +19,7 @@ TOML = ROOT / "pyproject.toml"
 TRACKER_CONFIGS = ROOT / "boxmot" / "configs"
 
 EXAMPLES = BOXMOT / "tracking"
-WEIGHTS = BOXMOT / "tools" / "weights"
+WEIGHTS = BOXMOT / "engine" / "weights"
 
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))
 
