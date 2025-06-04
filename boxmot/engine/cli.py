@@ -152,6 +152,7 @@ def main():
     elif args.command == 'generate-mot-results':
         from boxmot.engine.val import run_generate_mot_results
         run_generate_mot_results(args)
+    # trackeval only support single class evaluation in its current setup
     elif args.command in ('eval', 'all'):
         from boxmot.engine.val import main as run_eval
         args.classes = [0]
