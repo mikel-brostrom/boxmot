@@ -27,7 +27,3 @@ NUM_THREADS = min(8, max(1, os.cpu_count() - 1))
 def only_main_thread(record):
     # Check if the current thread is the main thread
     return threading.current_thread().name == "MainThread"
-
-
-logger.remove()
-logger.add(sys.stderr, filter=only_main_thread, colorize=True, level="INFO")
