@@ -33,9 +33,9 @@ from boxmot.postprocessing.gsi import gsi
 from ultralytics import YOLO
 from ultralytics.data.build import load_inference_source
 
-from boxmot.tools.detectors import (get_yolo_inferer, default_imgsz,
+from boxmot.engine.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model, is_yolox_model)
-from boxmot.tools.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
+from boxmot.engine.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from tqdm import tqdm
 
@@ -384,7 +384,7 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, opt.val_tools_path)
     trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
-    if opt.verbose:
+    if opt.ci:
         LOGGER.info(trackeval_results)
         with open(opt.tracking_method + "_output.json", "w") as outfile:
             outfile.write(json.dumps(hota_mota_idf1))
