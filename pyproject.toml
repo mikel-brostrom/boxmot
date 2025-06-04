@@ -94,7 +94,7 @@ keywords = [
     "YOLO",
 ]
 [project.scripts]
-boxmot = "boxmot.tools.cli:main"
+boxmot = "boxmot.engine.cli:main"
 
 [dependency-groups]
 test = [
