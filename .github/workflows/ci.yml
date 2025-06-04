@@ -93,7 +93,7 @@ jobs:
         run: |
           source .venv/bin/activate
           # reuse first set of generated det and prod
-          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --classes 0 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
+          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
   mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
     strategy:
