@@ -384,7 +384,7 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, opt.val_tools_path)
     trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
-    if opt.verbose:
+    if opt.ci:
         LOGGER.info(trackeval_results)
         with open(opt.tracking_method + "_output.json", "w") as outfile:
             outfile.write(json.dumps(hota_mota_idf1))
