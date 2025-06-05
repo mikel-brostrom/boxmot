@@ -342,14 +342,19 @@ class BoostTrack(BaseTracker):
         return ((z.reshape((-1, 1, n_dims)) - x.reshape((1, -1, n_dims))) ** 2 *
                 sigma_inv.reshape((1, -1, n_dims))).sum(axis=2)
 
+
     def duo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:
         if len(detections) == 0:
             return detections
+
         n_dims = 4
         limit = 13.2767
         mh_dist = self.get_mh_dist_matrix(detections, n_dims)
-        if mh_dist.size == 0 and self.frame_count < 2:
+
+        # If there are no existing trackers, bail out immediately
+        if mh_dist.size == 0:
             return detections
+
         min_dists = mh_dist.min(1)
         mask = (min_dists > limit) & (detections[:, 4] < self.det_thresh)
         boost_inds = np.where(mask)[0]
@@ -372,6 +377,7 @@ class BoostTrack(BaseTracker):
             conf_max = np.max(detections[args_tmp, 4])
             if detections[boost_inds[bi], 4] == conf_max:
                 remaining = np.concatenate([remaining, [boost_inds[bi]]])
+
         mask_boost = np.zeros_like(detections[:, 4], dtype=bool)
         mask_boost[remaining] = True
         detections[:, 4] = np.where(
