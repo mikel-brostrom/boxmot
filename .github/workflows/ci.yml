@@ -50,12 +50,12 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          python tracking/cli.py generate-dets-embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
+          boxmot generate-dets-embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
       - name: Run tracking method
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
-            python tracking/cli.py track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
+            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
           done
   evolution:
     runs-on: ${{ matrix.os }}
@@ -93,7 +93,7 @@ jobs:
         run: |
           source .venv/bin/activate
           # reuse first set of generated det and prod
-          python tracking/cli.py tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
+          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
   mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -132,14 +132,14 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          python tracking/cli.py generate-dets-embs  --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+          boxmot generate-dets-embs  --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
           for tracker in $TRACKERS; do
-            if python3 tracking/cli.py eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
+            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
               STATUS="✅"
             else
               STATUS="❌"
@@ -185,7 +185,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run:  |
           source .venv/bin/activate
-          python tracking/cli.py track --yolo-model weights/yolov8n-pose.pt --imgsz 320 --source $IMG
+          boxmot track --yolo-model weights/yolov8n-pose.pt --imgsz 320 --source $IMG
   tracking-with-yolos:
     runs-on: ubuntu-latest
     outputs:
@@ -216,9 +216,9 @@ jobs:
         run: |
           source .venv/bin/activate
           uv pip list
-          python tracking/cli.py track --yolo-model yolov10n.pt --imgsz 320 --source $IMG
-          python tracking/cli.py track --yolo-model yolox_n.pt --imgsz 320 320 --source $IMG
-          python tracking/cli.py track --yolo-model rf-detr-base.pt --imgsz 320 --source $IMG
+          boxmot track --yolo-model yolov10n.pt --imgsz 320 --source $IMG
+          boxmot track --yolo-model yolox_n.pt --imgsz 320 320 --source $IMG
+          boxmot track --yolo-model rf-detr-base.pt --imgsz 320 --source $IMG
   tracking-with-seg:
     runs-on: ubuntu-latest
     outputs:
@@ -247,7 +247,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          python tracking/cli.py track --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
+          boxmot track --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
   
   export-reid-models:
     runs-on: ubuntu-latest
@@ -284,16 +284,16 @@ jobs:
           python boxmot/appearance/reid/export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
       - name: Check export TFLite models
         run: |
-          ls /home/runner/work/boxmot/boxmot/tracking/weights/osnet_x0_25_msmt17_saved_model/
+          ls /home/runner/work/boxmot/boxmot/boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
       - name: Test inference on exported models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          python tracking/cli.py track --reid-model tracking/weights/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
-          python tracking/cli.py track --reid-model tracking/weights/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
-          python tracking/cli.py track --reid-model tracking/weights/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
-          python tracking/cli.py track --reid-model tracking/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320
+          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320
                
   tests:
     runs-on: ubuntu-latest

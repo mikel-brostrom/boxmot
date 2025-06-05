@@ -18,6 +18,8 @@ def main():
         default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'],
         help='one or more ReID model weights (only for generate/eval/tune)'
     )
+    eval_parent.add_argument('--classes', nargs='+', type=int,
+        default=[0], help='filter by class indices')
 
     # Common arguments for all commands (flags only, no positionals)
     common_parser = argparse.ArgumentParser(add_help=False, conflict_handler='resolve')
@@ -43,7 +45,7 @@ def main():
                                help='IoU threshold for NMS')
     common_parser.add_argument('--device', default='', help='cuda device(s), e.g. 0 or 0,1,2,3 or cpu')
     common_parser.add_argument('--classes', nargs='+', type=int,
-                               default=[0], help='filter by class indices')
+                               help='filter by class indices')
     common_parser.add_argument('--project', type=Path, default=ROOT / 'runs',
                                help='save results to project/name')
     common_parser.add_argument('--name', default='', help='save results to project/name')
@@ -64,7 +66,7 @@ def main():
                                help='path to precomputed embeddings file')
     common_parser.add_argument('--exp-folder-path', type=Path,
                                help='path to experiment folder')
-    common_parser.add_argument('--verbose', action='store_true',
+    common_parser.add_argument('--verbose', action='store_false',
                                help='print detailed logs')
     common_parser.add_argument('--agnostic-nms', action='store_true',
                                help='class-agnostic NMS')
@@ -142,19 +144,22 @@ def main():
     args.benchmark, args.split = source_path.parent.name, source_path.name
 
     if args.command == 'track':
-        from tracking.track import main as run_track
+        from boxmot.engine.track import main as run_track
         run_track(args)
     elif args.command == 'generate-dets-embs':
-        from tracking.val import run_generate_dets_embs
+        from boxmot.engine.val import run_generate_dets_embs
         run_generate_dets_embs(args)
     elif args.command == 'generate-mot-results':
-        from tracking.val import run_generate_mot_results
+        from boxmot.engine.val import run_generate_mot_results
         run_generate_mot_results(args)
+    # trackeval only support single class evaluation in its current setup
     elif args.command in ('eval', 'all'):
-        from tracking.val import main as run_eval
+        from boxmot.engine.val import main as run_eval
+        args.classes = [0]
         run_eval(args)
     elif args.command == 'tune':
-        from tracking.evolve import main as run_tuning
+        from boxmot.engine.evolve import main as run_tuning
+        args.classes = [0]
         run_tuning(args)
 
 

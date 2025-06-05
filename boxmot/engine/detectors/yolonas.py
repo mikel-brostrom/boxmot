@@ -8,7 +8,7 @@ from ultralytics.engine.results import Results
 from ultralytics.utils import ops
 
 from boxmot.utils import logger as LOGGER
-from tracking.detectors.yolo_interface import YoloInterface
+from boxmot.engine.detectors.yolo_interface import YoloInterface
 
 
 class YoloNASStrategy(YoloInterface):

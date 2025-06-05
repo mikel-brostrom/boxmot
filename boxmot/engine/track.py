@@ -11,7 +11,7 @@ from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS
 from boxmot.utils.checks import RequirementsChecker
-from tracking.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
+from boxmot.engine.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
 
 checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install

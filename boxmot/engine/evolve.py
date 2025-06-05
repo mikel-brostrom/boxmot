@@ -13,7 +13,7 @@ from ray import tune
 from ray.air import RunConfig
 
 from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
-from tracking.val import (
+from boxmot.engine.val import (
     download_mot_eval_tools,
     run_generate_dets_embs,
     run_generate_mot_results,

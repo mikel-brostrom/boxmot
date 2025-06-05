@@ -89,7 +89,7 @@ jobs:
           ls tracking/val_utils/data
           source .venv/bin/activate
 
-          if python3 tracking/val.py --classes 0 --yolo-model yolox_x_ablation.pth --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./tracking/val_utils/data/MOT17-50/train; then
+          if python3 tracking/val.py --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./tracking/val_utils/data/MOT17-50/train; then
             STATUS="✅"
           else
             STATUS="❌"

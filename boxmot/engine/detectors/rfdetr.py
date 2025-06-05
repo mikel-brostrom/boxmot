@@ -9,7 +9,7 @@ from ultralytics.engine.results import Results
 from ultralytics.models.yolo.detect import DetectionPredictor
 
 from boxmot.utils import logger as LOGGER
-from tracking.detectors.yolo_interface import YoloInterface
+from boxmot.engine.detectors.yolo_interface import YoloInterface
 
 
 class RFDETRStrategy(YoloInterface):

@@ -62,7 +62,7 @@ dependencies = [
     "torchvision<1.0.0,>=0.17.1; sys_platform == \"linux\" or sys_platform == \"win32\"",
 ]
 name = "boxmot"
-version = "13.0.0"
+version = "13.0.4"
 description = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme = "README.md"
 classifiers = [
@@ -94,7 +94,7 @@ keywords = [
     "YOLO",
 ]
 [project.scripts]
-boxmot = "tracking.cli:main"
+boxmot = "boxmot.engine.cli:main"
 
 [dependency-groups]
 test = [
