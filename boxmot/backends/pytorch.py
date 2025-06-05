@@ -4,6 +4,7 @@ import torch
 
 from boxmot.backends.backend import Backend
 
+
 class PyTorchBackend(Backend):
 
     def __init__(self, weights: str | Path, device: str, half: bool):
@@ -12,15 +13,16 @@ class PyTorchBackend(Backend):
         self.device = device
         self.half = half
         self.model = self.load()
-        
 
     def load(self):
 
         # Determine target device
         if self.device == "cuda" and not torch.cuda.is_available():
-            raise RuntimeError("CUDA is not available. Please specify device='cpu' or install CUDA.")
+            raise RuntimeError(
+                "CUDA is not available. Please specify device='cpu' or install CUDA.")
         if self.device == "mps" and not getattr(torch, "has_mps", False):
-            raise RuntimeError("MPS is not available. Please specify device='cpu' or use a supported platform.")
+            raise RuntimeError(
+                "MPS is not available. Please specify device='cpu' or use a supported platform.")
 
         dev = torch.device(self.device)
 
@@ -32,7 +34,8 @@ class PyTorchBackend(Backend):
         # If half precision is requested, convert model parameters to fp16
         if self.half:
             if dev.type not in ("cuda", "mps"):
-                raise RuntimeError(f"Half precision (fp16) is not supported on device '{dev}'.")
+                raise RuntimeError(
+                    f"Half precision (fp16) is not supported on device '{dev}'.")
             model.half()
 
         # Move model to the target device
@@ -41,7 +44,9 @@ class PyTorchBackend(Backend):
 
         return model
 
+    def preprocess(self, x: torch.Tensor) -> torch.Tensor:
+        return x
 
-    def forward(self, im_batch):
-        features = self.model(im_batch)
-        return features
+    def process(self, x: torch.Tensor):
+        y = self.model(x)
+        return y

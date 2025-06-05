@@ -35,7 +35,7 @@ class OpenVinoBackend(Backend):
                 self.weights.glob("*.xml")
             )  # get *.xml file from *_openvino_model dir
 
-        network = ie.read_model(model=self.weights, 
+        network = ie.read_model(model=self.weights,
                                 weights=self.weights.with_suffix(".bin"))
 
         if network.get_parameters()[0].get_layout().empty:
@@ -46,10 +46,10 @@ class OpenVinoBackend(Backend):
         )  # device_name="MYRIAD" for Intel NCS2
 
         return model
-    
+
     def preprocess(self, x: torch.Tensor) -> np.ndarray:
         return x.cpu().numpy()
 
     def process(self, x: np.ndarray):
-        features = self.model([x])[self.output_name]
-        return features
+        y = self.model([x])[self.output_name]
+        return y
