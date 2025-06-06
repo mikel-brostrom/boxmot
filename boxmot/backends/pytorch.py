@@ -26,7 +26,10 @@ class PyTorchBackend(Backend):
 
         dev = torch.device(self.device)
 
-        model = torch.load(self.weights, map_location=dev)
+        if self.weights.stem in ["pt", "pth"]:
+            model = torch.load(self.weights, map_location=dev)
+        if self.weights.stem == "jit":
+            model = torch.jit.load(self.weights, map_location=dev)
 
         # Switch to evaluation mode
         model.eval()
