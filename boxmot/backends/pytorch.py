@@ -7,11 +7,15 @@ from boxmot.backends.backend import Backend
 
 class PyTorchBackend(Backend):
 
-    def __init__(self, weights: str | Path, device: str, half: bool):
-        super().__init__(weights, device, half)
+    def __init__(self, 
+                 weights: str | Path, 
+                 device: str, 
+                 half: bool, 
+                 nhwc: bool = False,
+                 numpy: bool = True):
+        super().__init__(half=half, nhwc=nhwc, numpy=numpy)
         self.weights = weights
         self.device = device
-        self.half = half
         self.model = self.load()
 
     def load(self):
@@ -48,6 +52,7 @@ class PyTorchBackend(Backend):
         return model
 
     def preprocess(self, x: torch.Tensor) -> torch.Tensor:
+        x = super().preprocess(x)
         return x
 
     def process(self, x: torch.Tensor):

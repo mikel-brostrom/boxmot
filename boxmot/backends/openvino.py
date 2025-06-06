@@ -9,8 +9,12 @@ from boxmot.utils import logger as LOGGER
 
 class OpenVinoBackend(Backend):
 
-    def __init__(self, weights: str | Path):
-        super().__init__()
+    def __init__(self, 
+                 weights: str | Path, 
+                 half: bool, 
+                 nhwc: bool = False,
+                 numpy: bool = True):
+        super().__init__(half=half, nhwc=nhwc, numpy=numpy)
         self.weights = Path(weights)
         self.model = self.load()
         self.output_name = next(iter(self.model.outputs))
@@ -48,6 +52,7 @@ class OpenVinoBackend(Backend):
         return model
 
     def preprocess(self, x: torch.Tensor) -> np.ndarray:
+        x = super().preprocess(x)
         return x.cpu().numpy()
 
     def process(self, x: np.ndarray):

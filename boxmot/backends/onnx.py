@@ -8,8 +8,13 @@ from boxmot.backends.backend import Backend
 
 class ONNXBackend(Backend):
 
-    def __init__(self, weights: str | Path, device: str):
-        super().__init__()
+    def __init__(self, 
+                 weights: str | Path, 
+                 device: str, 
+                 half: bool, 
+                 nhwc: bool = False,
+                 numpy: bool = True):
+        super().__init__(half=half, nhwc=nhwc, numpy=numpy)
         self.weights = Path(weights)
         self.device = device
         self.model = self.load()
@@ -33,7 +38,8 @@ class ONNXBackend(Backend):
 
         return onnxruntime.InferenceSession(str(self.weights), providers=providers)
 
-    def preprocess(self, x: torch.Tensor):
+    def preprocess(self, x: torch.Tensor) -> np.ndarray:
+        x = super().preprocess(x)
         return x.cpu().numpy()
 
     def process(self, x: np.ndarray) -> np.ndarray:
