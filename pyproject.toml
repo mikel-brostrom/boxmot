@@ -73,7 +73,7 @@ name            = "boxmot"
 version         = "13.0.5"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
-requires-python = ">=3.9,<=3.12"
+requires-python = ">=3.9,<=3.13"
 license         = { text = "AGPL-3.0" }
 
 authors = [
