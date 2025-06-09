@@ -39,7 +39,7 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --index torch-cpu=https://download.pytorch.org/whl/cpu --group yolo
+          uv sync --group yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -74,7 +74,7 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --index torch-cpu=https://download.pytorch.org/whl/cpu --group yolo --group evolve
+          uv sync  --group yolo --group evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -107,7 +107,7 @@ jobs:
         run: |
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --index torch-cpu=https://download.pytorch.org/whl/cpu --group yolo
+          uv sync --group yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -151,7 +151,7 @@ jobs:
           python-version: '3.12'
       - run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --index torch-cpu=https://download.pytorch.org/whl/cpu --group yolo
+          uv sync --group yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -173,8 +173,8 @@ jobs:
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync --index torch-cpu=https://download.pytorch.org/whl/cpu --only-group yolox-build-deps
-          uv sync --index torch-cpu=https://download.pytorch.org/whl/cpu --group yolo
+          uv sync --only-group yolox-build-deps
+          uv sync --group yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -199,7 +199,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --index torch-cpu=https://download.pytorch.org/whl/cpu --group yolo
+          uv sync  --group yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -222,7 +222,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --index torch-cpu=https://download.pytorch.org/whl/cpu --all-groups
+          uv sync  --all-groups
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
