@@ -29,9 +29,11 @@ explicit = true
 [tool.uv.sources]
 torch = [
   { version = "^2.2.1", source = "torch-gpu" },
+  { version = "^2.2.1", source = "torch-cpu", extra = "cpu" },
 ]
 torchvision = [
   { version = "^0.17.1", source = "torch-gpu" },
+  { version = "^0.17.1", source = "torch-cpu", extra = "cpu" },
 ]
 
 #########################
