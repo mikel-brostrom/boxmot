@@ -39,11 +39,9 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          else
+            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --extra cpu
@@ -81,11 +79,9 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          else
+            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --group evolve --extra cpu
@@ -120,11 +116,9 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          else
+            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
           fi
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
@@ -172,11 +166,9 @@ jobs:
           python-version: '3.12'
       - run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          else
+            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --extra cpu
@@ -198,11 +190,9 @@ jobs:
           python-version: '3.11'
       - run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          else
+            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           # Export so that setuptools picks up clang instead of gcc
@@ -234,11 +224,9 @@ jobs:
       - name: Install dependencies
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          else
+            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --extra cpu
@@ -264,11 +252,9 @@ jobs:
       - name: Install dependencies
         run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          else
+            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --all-groups --extra cpu
@@ -307,11 +293,9 @@ jobs:
           python-version: '3.11'
       - run: |
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
+            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          else
+            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip uv
           uv pip install -e . --system --group test --group yolo --group onnx --group openvino --group tflite

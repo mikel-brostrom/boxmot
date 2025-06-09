@@ -27,14 +27,11 @@ explicit = true
 #################################
 
 [tool.uv.sources]
-# Torch/Torchvision routing:
-#  • cpu extra → torch-cpu
-#  • gpu extra on Linux/Windows → torch-gpu
-#  • gpu extra on Darwin       → torch-cpu (no cu121 wheels on macOS/arm64)
 torch = [
-  { index = "torch-cpu", extra  = "cpu" },
-  { index = "torch-gpu", extra  = "gpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-  { index = "torch-cpu", extra  = "gpu", marker = "sys_platform == 'darwin'" },
+  { version = "^2.2.1", source = "torch-gpu" },
+]
+torchvision = [
+  { version = "^0.17.1", source = "torch-gpu" },
 ]
 
 #########################
@@ -48,10 +45,6 @@ requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 
 [tool.uv]
 no-build-isolation-package = ["yolox"]
-
-# default to the GPU extra on plain `uv sync`
-[tool.uv.pip]
-extra = ["gpu"]
 
 ############
 # Flake8   #
@@ -138,13 +131,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# CPU-only PyTorch builds
 cpu = [
   "torch>=2.2.1,<3.0.0",
   "torchvision>=0.17.1,<1.0.0",
 ]
-
-# CUDA 12.1-enabled PyTorch builds
 gpu = [
   "torch>=2.2.1,<3.0.0",
   "torchvision>=0.17.1,<1.0.0",
