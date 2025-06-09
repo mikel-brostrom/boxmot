@@ -18,6 +18,7 @@ class RFDETRStrategy(YoloInterface):
     fp16 = False
     triton = False
     names = COCO_CLASSES
+    ch = 3
 
     def __init__(self, model, device, args):
         self.args = args
