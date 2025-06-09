@@ -97,7 +97,6 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --group evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
