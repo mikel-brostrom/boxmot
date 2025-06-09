@@ -38,10 +38,9 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
-          else
-            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          # On Linux CPU–only runs, force the CPU index
+          if [[ "$(uname -s)" == "Linux" ]]; then
+            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --extra cpu
@@ -78,10 +77,9 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
-          else
-            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          # On Linux CPU–only runs, force the CPU index
+          if [[ "$(uname -s)" == "Linux" ]]; then
+            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --group evolve --extra cpu
@@ -115,10 +113,9 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
-          else
-            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          # On Linux CPU–only runs, force the CPU index
+          if [[ "$(uname -s)" == "Linux" ]]; then
+            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
           fi
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
@@ -165,10 +162,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
-          else
-            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          # On Linux CPU–only runs, force the CPU index
+          if [[ "$(uname -s)" == "Linux" ]]; then
+            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --extra cpu
@@ -189,10 +185,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
-          else
-            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          # On Linux CPU–only runs, force the CPU index
+          if [[ "$(uname -s)" == "Linux" ]]; then
+            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           # Export so that setuptools picks up clang instead of gcc
@@ -223,10 +218,9 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
-          else
-            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          # On Linux CPU–only runs, force the CPU index
+          if [[ "$(uname -s)" == "Linux" ]]; then
+            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --extra cpu
@@ -251,10 +245,9 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
-          else
-            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          # On Linux CPU–only runs, force the CPU index
+          if [[ "$(uname -s)" == "Linux" ]]; then
+            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --all-groups --extra cpu
@@ -292,10 +285,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
-          else
-            sed -i 's/source = "torch-gpu"/source = "torch-cpu"/g' pyproject.toml
+          # On Linux CPU–only runs, force the CPU index
+          if [[ "$(uname -s)" == "Linux" ]]; then
+            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
           fi
           python -m pip install --upgrade pip uv
           uv pip install -e . --system --group test --group yolo --group onnx --group openvino --group tflite
