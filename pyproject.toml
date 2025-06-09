@@ -9,19 +9,27 @@
 [[tool.uv.index]]
 name     = "torch-cpu"
 url      = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 
 [[tool.uv.index]]
 name     = "torch-gpu"
 url      = "https://download.pytorch.org/whl/cu121"
-explicit = true
 
 ##################################
 # Pin torch/vision to *an* index #
 ##################################
 
 [tool.uv.sources]
-torch       = { index = "torch-gpu" }
-torchvision = { index = "torch-gpu" }
+torch = [
+  { index = "torch-cpu", marker = "sys_platform == 'darwin'" },
+  { index = "torch-gpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "torch-cpu", marker = "sys_platform == 'darwin'" },
+  { index = "torch-gpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
 
 #########################
 # UV-specific Overrides #
@@ -34,6 +42,9 @@ requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 
 [tool.uv]
 no-build-isolation-package = ["yolox"]
+# only torch and torchvision fetches from index
+index-strategy = "strict"
+
 
 ############
 # Flake8   #
@@ -103,12 +114,12 @@ keywords = [
 ]
 
 dependencies = [
-  "setuptools>=78.0.0",
+  "setuptools",
   "filterpy<2.0.0,>=1.4.5",
   "gdown<6.0.0,>=5.1.0",
   "lapx<1.0.0,>=0.5.5",
   "loguru<1.0.0,>=0.7.2",
-  "numpy==1.26.4",
+  "numpy",
   "pyyaml<7.0.0,>=6.0.1",
   "regex<2025.0.0,>=2024.0.0",
   "yacs<1.0.0,>=0.1.8",
@@ -147,7 +158,7 @@ evolve = [
 dev = ["ipykernel<7.0.0,>=6.29.5"]
 
 yolox-build-deps = [
-  "setuptools>=78.0.0",
+  "setuptools",
   "torch<3.0.0,>=2.2.1",
 ]
 
