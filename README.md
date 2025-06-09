@@ -1,23 +1,21 @@
 # BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models
 
 <div align="center">
-  <p>
-  <img src="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.0/output_640.gif" width="400"/>
-  </p>
-  <br>
-  <div>
-  <a href="https://github.com/mikel-brostrom/yolov8_tracking/actions/workflows/ci.yml"><img src="https://github.com/mikel-brostrom/yolov8_tracking/actions/workflows/ci.yml/badge.svg" alt="CI CPU testing"></a>
-  <a href="https://pepy.tech/project/boxmot"><img src="https://static.pepy.tech/badge/boxmot"></a>
-  <a><img src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fmikel-brostrom%2Fboxmot%2Frefs%2Fheads%2Fmaster%2Fpyproject.toml" alt="CI CPU testing"></a>
-  <br>
-  <a href="https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
-<a href="https://doi.org/10.5281/zenodo.8132989"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.8132989.svg" alt="DOI"></a>
-<a href="https://hub.docker.com/r/boxmot/boxmot"><img src="https://img.shields.io/docker/pulls/boxmot/boxmot?logo=docker" alt="Ultralytics Docker Pulls"></a>
+    <img width="640" src="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.0/output_640.gif" alt="BoxMot demo">
 
-[![discord](https://img.shields.io/discord/1377565354326495283?logo=discord&label=discord&labelColor=fff&color=5865f2&link=https%3A%2F%2Fdiscord.gg%2FGbfgXGJ8Bk)](https://discord.gg/3w4aYGbU)
 
-  </div>
+[![CI](https://github.com/mikel-brostrom/yolov8_tracking/actions/workflows/ci.yml/badge.svg)](https://github.com/mikel-brostrom/yolov8_tracking/actions/workflows/ci.yml)
+[![PyPI version](https://badge.fury.io/py/boxmot.svg)](https://badge.fury.io/py/boxmot)
+[![downloads](https://static.pepy.tech/badge/boxmot)](https://pepy.tech/project/boxmot)
+[![license](https://img.shields.io/badge/license-AGPL%203.0-blue)](https://github.com/mikel-brostrom/boxmot/blob/master/LICENSE)
+[![python-version](https://img.shields.io/pypi/pyversions/boxmot)](https://badge.fury.io/py/boxmot)
+[![colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.8132989.svg)](https://doi.org/10.5281/zenodo.8132989)
+[![docker pulls](https://img.shields.io/docker/pulls/boxmot/boxmot?logo=docker)](https://hub.docker.com/r/boxmot/boxmot)
+[![discord](https://img.shields.io/discord/1377565354326495283?logo=discord&label=discord&labelColor=fff&color=5865f2)](https://discord.gg/3w4aYGbU)
 </div>
+
+
 
 ## Introduction
 
