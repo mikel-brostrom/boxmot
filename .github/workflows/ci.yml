@@ -291,7 +291,6 @@ jobs:
       - name: Sync YOLO dependencies
         run: |
           # patch your toml for CPU builds
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           uv sync --group yolo --group test --group yolo --group onnx --group openvino --group tflite
 
       - name: Test export models
