@@ -264,6 +264,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip uv
           uv pip install -e . --system --group test --group yolo --group onnx --group openvino --group tflite
 
