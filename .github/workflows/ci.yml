@@ -74,9 +74,24 @@ jobs:
       - uses: actions/checkout@v4  # Check out the repository
       - name: Set up Python
         uses: actions/setup-python@v5  # Prepare environment with python 3.9
+      - name: Install uv & Python
+        uses: astral-sh/setup-uv@v5
         with:
+          # pin to a known-good uv release
+          version: "0.7.12"
+          # install exactly this Python
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
+          # turn on automatic caching of uv’s wheels & build artifacts
+          enable-cache: true
+          # bust the cache whenever your lockfile changes
+          cache-dependency-glob: "uv.lock"
+
+      # 2) Install your project and YOLO‐only deps
+      - name: Sync YOLO dependencies
+        run: |
+          # patch your toml for CPU builds
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          uv sync --group yolo
 
       - name: Install requirements
         shell: bash  # for Windows compatibility
