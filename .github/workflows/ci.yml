@@ -1,186 +1,217 @@
-# name of the workflow, what it is doing (optional)
 name: BoxMOT CI
 
-# events that trigger the workflow (required)
 on:
   push:
-    # pushes to the following branches
-    branches:
-      - master
+    branches: [ master ]
   pull_request:
-    # pull request where master is target
-    branches:
-      - master
-
+    branches: [ master ]
 
 jobs:
   tracking-methods:
     runs-on: ${{ matrix.os }}
-    outputs:
-      status: ${{ job.status }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]   # skip windows-latest for
+        os: [ubuntu-latest, macos-14]
         python-version: ['3.12']
-        # leads to too many workflow which ends up queued
-        # tracking-method: [hybridsort, botsort, ocsort, bytetrack] 
-
-    # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v4  # Check out the repository
-      - name: Set up Python
-        uses: actions/setup-python@v5  # Prepare environment with python 3.9
+      - uses: actions/checkout@v4
+
+      - name: Setup uv & Python
+        uses: astral-sh/setup-uv@v5
         with:
+          version: "0.7.12"
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
-      - name: Install requirements
-        shell: bash  # for Windows compatibility
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          cache-local-path: ${{ runner.temp }}/.uv-cache
+
+      - name: Prepare & Sync
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          python -m pip install --upgrade pip setuptools wheel uv
+          uv python install
           uv sync --group yolo
+
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate-dets-embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
+          boxmot generate-dets-embs \
+            --source ./assets/MOT17-mini/train \
+            --yolo-model yolov10n.pt \
+            --imgsz 320 \
+            --reid-model osnet_x0_25_msmt17.pt
+
       - name: Run tracking method
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
-            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
+            boxmot track \
+              --yolo-model yolov10n.pt \
+              --reid-model osnet_x0_25_msmt17.pt \
+              --imgsz 320 \
+              --tracking-method $tracker
           done
+
   evolution:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]   # skip windows-latest for
         python-version: ['3.9', '3.12']
-    outputs:
-      status: ${{ job.status }}
-
-    # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v4  # Check out the repository
-      - name: Set up Python
-        uses: actions/setup-python@v5  # Prepare environment with python 3.9
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
+      - uses: actions/checkout@v4
 
-      - name: Install requirements
-        shell: bash  # for Windows compatibility
+      - name: Setup uv & Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.7.12"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          cache-local-path: ${{ runner.temp }}/.uv-cache
+
+      - name: Prepare & Sync
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          python -m pip install --upgrade pip setuptools wheel uv
+          uv python install
           uv sync --group yolo --group evolve
-      - name: Evolve set of parameters for selected tracking method
+
+      - name: Evolve parameters
         run: |
           source .venv/bin/activate
-          # reuse first set of generated det and prod
-          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
+          boxmot tune \
+            --yolo-model yolov8n.pt \
+            --reid-model osnet_x0_25_msmt17.pt \
+            --n-trials 3 \
+            --tracking-method strongsort \
+            --source ./assets/MOT17-mini/train \
+            --ci
+
   mot-metrics-benchmark:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]   # skip windows-latest for
         python-version: ['3.9', '3.12']
-    outputs:
-      status: ${{ job.status }}
+    timeout-minutes: 50
     env:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack"
-
-    # Timeout: https://stackoverflow.com/a/59076067/4521646
-    timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v4  # Check out the repository
-      - name: Set up Python
-        uses: actions/setup-python@v5  # Prepare environment with python 3.9
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
+      - uses: actions/checkout@v4
 
-      - name: Install requirements
-        shell: bash  # for Windows compatibility
+      - name: Setup uv & Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.7.12"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          cache-local-path: ${{ runner.temp }}/.uv-cache
+
+      - name: Prepare & Sync
         run: |
+          sudo apt-get update && sudo apt-get install -y jq
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          sudo apt-get install -y jq
-          python -m pip install --upgrade pip setuptools wheel uv
+          uv python install
           uv sync --group yolo
-      - name: Generate detections and embeddings
+
+      - name: Generate dets & embs
         run: |
           source .venv/bin/activate
-          boxmot generate-dets-embs  --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
-      - name: Evaluation and Summarize Results
-        shell: bash
+          boxmot generate-dets-embs \
+            --source ./assets/MOT17-mini/train \
+            --yolo-model yolov10n.pt \
+            --reid-model osnet_x0_25_msmt17.pt \
+            --imgsz 320 \
+            --classes 0
+
+      - name: Evaluate & summarize
         run: |
           source .venv/bin/activate
-          echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
+          echo "Format,Status,HOTA,MOTA,IDF1" > results.csv
           for tracker in $TRACKERS; do
-            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
+            if boxmot eval \
+                 --yolo-model yolov8n.pt \
+                 --reid-model osnet_x0_25_msmt17.pt \
+                 --tracking-method $tracker \
+                 --verbose \
+                 --source ./assets/MOT17-mini/train \
+                 --ci; then
               STATUS="✅"
             else
               STATUS="❌"
             fi
-            cat ${tracker}_output.json
-            # Extract the relevant parts of the JSON
             HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
             MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
             IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
-            TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
-            echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
+            NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+            echo "$NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
           done
-          # Sort the results by HOTA in descending order
-          (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
-          # Create a pretty table from the sorted_results.csv file
+          (head -n1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
           column -s, -t sorted_results.csv > pretty_results.txt
+
       - name: Show Results
-        shell: bash
-        run: |
-          cat pretty_results.txt
+        run: cat pretty_results.txt
+
   tracking-with-pose:
     runs-on: ubuntu-latest
-    outputs:
-      status: ${{ job.status }}
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+
+      - name: Setup uv & Python
+        uses: astral-sh/setup-uv@v5
         with:
+          version: "0.7.12"
           python-version: '3.12'
-      - run: |
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          cache-local-path: ${{ runner.temp }}/.uv-cache
+
+      - name: Prepare & Sync
+        run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          python -m pip install --upgrade pip setuptools wheel uv
+          uv python install
           uv sync --group yolo
+
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
-        run:  |
+        run: |
           source .venv/bin/activate
-          boxmot track --yolo-model weights/yolov8n-pose.pt --imgsz 320 --source $IMG
+          boxmot track \
+            --yolo-model weights/yolov8n-pose.pt \
+            --imgsz 320 \
+            --source $IMG
+
   tracking-with-yolos:
     runs-on: ubuntu-latest
-    outputs:
-      status: ${{ job.status }}
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+
+      - name: Setup uv & Python
+        uses: astral-sh/setup-uv@v5
         with:
+          version: "0.7.12"
           python-version: '3.11'
-      - run: |
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          python -m pip install --upgrade pip setuptools wheel uv
-          # Export so that setuptools picks up clang instead of gcc
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          cache-local-path: ${{ runner.temp }}/.uv-cache
+
+      - name: Configure Clang
+        run: |
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
+
+      - name: Prepare & Sync
+        run: |
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          uv python install
           uv sync --only-group yolox-build-deps
           uv sync --group yolo
-      - name: Test tracking with pose models
+
+      - name: Test tracking with various YOLOs
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
@@ -189,160 +220,147 @@ jobs:
           boxmot track --yolo-model yolov10n.pt --imgsz 320 --source $IMG
           boxmot track --yolo-model yolox_n.pt --imgsz 320 320 --source $IMG
           boxmot track --yolo-model rf-detr-base.pt --imgsz 320 --source $IMG
+
   tracking-with-seg:
     runs-on: ubuntu-latest
-    outputs:
-      status: ${{ job.status }}
     steps:
-      - id: set_result
-        run: echo "::set-output name=result::success"
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+
+      - name: Setup uv & Python
+        uses: astral-sh/setup-uv@v5
         with:
+          version: "0.7.12"
           python-version: '3.12'
-      - name: Install dependencies
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          cache-local-path: ${{ runner.temp }}/.uv-cache
+
+      - name: Prepare & Sync
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          python -m pip install --upgrade pip setuptools wheel uv
+          uv python install
           uv sync --group yolo
+
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          boxmot track --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
-  
+          boxmot track \
+            --tracking-method deepocsort \
+            --yolo-model yolov8n-seg.pt \
+            --source $IMG
+
   export-reid-models:
     runs-on: ubuntu-latest
-    outputs:
-      status: ${{ job.status }}
     steps:
-      - id: set_result
-        run: echo "::set-output name=result::success"
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+
+      - name: Setup uv & Python
+        uses: astral-sh/setup-uv@v5
         with:
+          version: "0.7.12"
           python-version: '3.11'
-      - name: Install dependencies
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          cache-local-path: ${{ runner.temp }}/.uv-cache
+
+      - name: Prepare & Sync + OS deps
         run: |
+          sudo apt-get update && sudo apt-get install -y flatbuffers-compiler
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          python -m pip install --upgrade pip setuptools wheel uv
+          uv python install
           uv sync --all-groups
-          # needed for TFLite export
-          sudo apt-get install flatbuffers-compiler
+
+      - name: Download and install flatc
+        run: |
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
           tar -zxvf flatc.tar.gz
-          sudo chmod +x flatc
-          sudo mv flatc /usr/bin/
+          sudo chmod +x flatc && sudo mv flatc /usr/bin/
+
       - name: Test export models
-        run: | 
-          source .venv/bin/activate
-          python boxmot/appearance/reid/export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
-      - name: Check export TFLite models
         run: |
-          ls /home/runner/work/boxmot/boxmot/boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
+          source .venv/bin/activate
+          python boxmot/appearance/reid/export.py \
+            --include torchscript onnx openvino tflite \
+            --device cpu \
+            --batch-size 3 \
+            --dynamic
+
+      - name: Check exported TFLite
+        run: ls boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
+
       - name: Test inference on exported models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
-          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.torchscript --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.onnx        --imgsz 320 --source $IMG
           boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
           boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320
-               
+
   tests:
     runs-on: ubuntu-latest
-    outputs:
-      status: ${{ job.status }}
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+
+      - name: Setup uv & Python
+        uses: astral-sh/setup-uv@v5
         with:
+          version: "0.7.12"
           python-version: '3.11'
-      - run: |
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          cache-local-path: ${{ runner.temp }}/.uv-cache
+
+      - name: Install test dependencies
+        run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          python -m pip install --upgrade pip uv
+          uv python install
           uv pip install -e . --system --group test --group yolo --group onnx --group openvino --group tflite
 
       - name: Test export models
         run: |
-          python boxmot/appearance/reid/export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
-      - name: Pytest tests  # after tracking options as this does not download models
+          source .venv/bin/activate
+          python boxmot/appearance/reid/export.py \
+            --include torchscript onnx openvino \
+            --device cpu \
+            --batch-size 3 \
+            --dynamic
+
+      - name: Pytest tests
         env:
-          # directory of PyPi package to be tested
           PACKAGE_DIR: boxmot
-          # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
           pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
-  # test-gpu:
-  #   runs-on: gpu-latest
-  #   outputs:
-  #     status: ${{ job.status }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Set up Python
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: '3.12'
-  #     - run: |
-  #         python -m pip install --upgrade pip setuptools wheel poetry
-  #         poetry config virtualenvs.create false
-  #         poetry install --with test
-
-  #     - name: Pytest tests  # after tracking options as this does not download models
-  #       env:
-  #         # directory of PyPi package to be tested
-  #         PACKAGE_DIR: boxmot
-  #         # minimum acceptable test coverage
-  #         COVERAGE_FAIL_UNDER: 25
-  #       shell: bash  # for Windows compatibility
-  #       run: |
-  #         pytest --cov=$PACKAGE_DIR --cov-report=html -v tests/test_cuda.py
-
 
   check-failures:
     needs:
       - tracking-methods
-      - mot-metrics-benchmark
       - evolution
+      - mot-metrics-benchmark
       - export-reid-models
       - tests
       - tracking-with-pose
       - tracking-with-seg
       - tracking-with-yolos
-    if: always()  # This ensures the job runs regardless of previous job failures
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Prepare environment variables
-        run: |
-          echo "tracking-methods_STATUS=${{ needs.tracking-methods.result }}" >> $GITHUB_ENV
-          echo "mot-metrics_STATUS=${{ needs.mot-metrics.result }}" >> $GITHUB_ENV
-          echo "evolution_STATUS=${{ needs.evolution.result }}" >> $GITHUB_ENV
-          echo "export-reid-models_STATUS=${{ needs.export-reid-modelsn.result }}" >> $GITHUB_ENV
-          echo "tests_STATUS=${{ needs.tests.result }}" >> $GITHUB_ENV
-          echo "tracking-with-pose_STATUS=${{ needs.tracking-with-pose.result }}" >> $GITHUB_ENV
-          echo "tracking-with-seg_STATUS=${{ needs.tracking-with-seg.result }}" >> $GITHUB_ENV
-          echo "tracking-with-yolos_STATUS=${{ needs.tracking-with-yolos.result }}" >> $GITHUB_ENV
-      - name: Check for failures and create summary
+      - name: Summarize job results
         run: |
           summary=""
-          failed=false
-          # Print all environment variables, grep for those ending with _STATUS, then loop
-          for var in $(printenv | grep '_STATUS$'); do
-            job_status="${var##*=}"  # Extract the status part
-            job_name="${var%%=*}"  # Extract the job name part
-            if [[ "$job_status" != "success" ]]; then
-              summary+="$job_name failed with status: $job_status\n"
-              failed=true
+          for job in tracking-methods evolution mot-metrics-benchmark export-reid-models tests tracking-with-pose tracking-with-seg tracking-with-yolos; do
+            status="${{ needs[$job].result }}"
+            if [[ "$status" != "success" ]]; then
+              summary+="$job failed with status: $status\n"
             fi
           done
-          if [[ "$failed" = false ]]; then
-            summary="All jobs succeeded."
+          if [[ -z "$summary" ]]; then
+            echo "All jobs succeeded."
+          else
+            echo -e "$summary"
           fi
-          echo "Summary: $summary"
