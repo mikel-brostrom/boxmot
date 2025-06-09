@@ -29,19 +29,19 @@ explicit = true
 [tool.uv.sources]
 torch = [
   # GPU on Linux by default
-  { index = "torch-gpu", marker = "sys_platform == 'linux' and extra != 'cpu'" },
+  { source = "torch-gpu", marker = "sys_platform == 'linux' and extra != 'cpu'" },
 
   # CPU on Linux when you pass `--extra cpu`
-  { index = "torch-cpu", marker = "sys_platform == 'linux' and extra == 'cpu'" },
+  { source = "torch-cpu", marker = "sys_platform == 'linux' and extra == 'cpu'" },
 
   # Always CPU on other platforms (darwin, win32, etc.)
-  { index = "torch-cpu", marker = "sys_platform != 'linux'" },
+  { source = "torch-cpu", marker = "sys_platform != 'linux'" },
 ]
 
 torchvision = [
-  { index = "torch-gpu", marker = "sys_platform == 'linux' and extra != 'cpu'" },
-  { index = "torch-cpu", marker = "sys_platform == 'linux' and extra == 'cpu'" },
-  { index = "torch-cpu", marker = "sys_platform != 'linux'" },
+  { source = "torch-gpu", marker = "sys_platform == 'linux' and extra != 'cpu'" },
+  { source = "torch-cpu", marker = "sys_platform == 'linux' and extra == 'cpu'" },
+  { source = "torch-cpu", marker = "sys_platform != 'linux'" },
 ]
 
 #########################
