@@ -38,10 +38,6 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          # On Linux CPU–only runs, force the CPU index
-          if [[ "$(uname -s)" == "Linux" ]]; then
-            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
-          fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --extra cpu
       - name: Generate detections and embeddings
@@ -77,10 +73,6 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          # On Linux CPU–only runs, force the CPU index
-          if [[ "$(uname -s)" == "Linux" ]]; then
-            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
-          fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --group evolve --extra cpu
       - name: Evolve set of parameters for selected tracking method
@@ -113,10 +105,6 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          # On Linux CPU–only runs, force the CPU index
-          if [[ "$(uname -s)" == "Linux" ]]; then
-            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
-          fi
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --extra cpu
@@ -162,10 +150,6 @@ jobs:
         with:
           python-version: '3.12'
       - run: |
-          # On Linux CPU–only runs, force the CPU index
-          if [[ "$(uname -s)" == "Linux" ]]; then
-            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
-          fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --extra cpu
       - name: Test tracking with pose models
@@ -185,10 +169,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          # On Linux CPU–only runs, force the CPU index
-          if [[ "$(uname -s)" == "Linux" ]]; then
-            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
-          fi
           python -m pip install --upgrade pip setuptools wheel uv
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
@@ -218,10 +198,6 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: |
-          # On Linux CPU–only runs, force the CPU index
-          if [[ "$(uname -s)" == "Linux" ]]; then
-            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
-          fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo --extra cpu
       - name: Test tracking with seg models
@@ -245,10 +221,6 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          # On Linux CPU–only runs, force the CPU index
-          if [[ "$(uname -s)" == "Linux" ]]; then
-            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
-          fi
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --all-groups --extra cpu
           # needed for TFLite export
@@ -285,10 +257,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          # On Linux CPU–only runs, force the CPU index
-          if [[ "$(uname -s)" == "Linux" ]]; then
-            sed -i -E 's/index[[:space:]]*=[[:space:]]*"torch-gpu"/index = "torch-cpu"/' pyproject.toml
-          fi
           python -m pip install --upgrade pip uv
           uv pip install -e . --system --group test --group yolo --group onnx --group openvino --group tflite
 
