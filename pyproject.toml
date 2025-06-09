@@ -129,16 +129,6 @@ dependencies = [
   "torchvision>=0.17.1,<1.0.0",
 ]
 
-[project.optional-dependencies]
-cpu = [
-  "torch>=2.2.1,<3.0.0",
-  "torchvision>=0.17.1,<1.0.0",
-]
-gpu = [
-  "torch>=2.2.1,<3.0.0",
-  "torchvision>=0.17.1,<1.0.0",
-]
-
 [project.scripts]
 boxmot = "boxmot.engine.cli:main"
 
