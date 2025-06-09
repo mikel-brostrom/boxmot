@@ -38,7 +38,6 @@ torch = [
   { index  = "torch-cpu", marker = "sys_platform != 'linux'" },
 ]
 
-[tool.uv.sources]
 torchvision = [
   { index  = "torch-gpu", marker = "sys_platform == 'linux' and extra != 'cpu'" },
   { index  = "torch-cpu", marker = "sys_platform == 'linux' and extra == 'cpu'" },
