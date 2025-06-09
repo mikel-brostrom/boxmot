@@ -46,7 +46,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --group yolo --extra cpu
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -88,7 +88,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo --group evolve
+          uv sync --group yolo --group evolve --extra cpu
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -128,7 +128,7 @@ jobs:
           fi
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --group yolo --extra cpu
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -179,7 +179,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --group yolo --extra cpu
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -209,7 +209,7 @@ jobs:
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
           uv sync --only-group yolox-build-deps
-          uv sync --group yolo
+          uv sync --group yolo --extra cpu
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -241,7 +241,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --group yolo --extra cpu
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -271,7 +271,7 @@ jobs:
             sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
           fi
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --all-groups
+          uv sync --all-groups --extra cpu
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
