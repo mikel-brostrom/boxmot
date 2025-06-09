@@ -309,12 +309,22 @@ jobs:
           cache-dependency-glob: 'uv.lock'
 
       - name: Install test dependencies
+        shell: bash
         run: |
+          # switch to CPU wheels
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          uv pip install -e . --system --group test --group yolo --group onnx --group openvino --group tflite
+
+          # sync all test-related deps into .venv
+          uv sync --group test --group yolo --group onnx --group openvino --group tflite
+
+          # activate and install the editable package
+          source .venv/bin/activate
+          pip install -e .
 
       - name: Test export models
+        shell: bash
         run: |
+          source .venv/bin/activate
           python boxmot/appearance/reid/export.py \
             --include torchscript onnx openvino \
             --device cpu \
@@ -322,10 +332,12 @@ jobs:
             --dynamic
 
       - name: Pytest tests
+        shell: bash
         env:
           PACKAGE_DIR: boxmot
           COVERAGE_FAIL_UNDER: 25
         run: |
+          source .venv/bin/activate
           pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
 
