@@ -22,12 +22,12 @@ explicit = true
 
 torch = [
   # CUDA build on Linux/Windows only
-  { index = "torch-gpu", marker = "sys_platform != 'darwin'" },
+  { index = "torch-cpu", marker = "sys_platform != 'darwin'" },
   # CPU build on macOS
   { index = "torch-cpu", marker = "sys_platform == 'darwin'" }
 ]
 torchvision = [
-  { index = "torch-gpu", marker = "sys_platform != 'darwin'" },
+  { index = "torch-cpu", marker = "sys_platform != 'darwin'" },
   { index = "torch-cpu", marker = "sys_platform == 'darwin'" }
 ]
 
