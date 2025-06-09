@@ -61,8 +61,8 @@ ignore          = ["E731", "F405", "E402", "W504", "W605", "E741"]
 ##############
 
 [build-system]
-requires     = ["pdm-backend"]
-build-backend = "pdm.backend"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 ###########
 # Project #
