@@ -7,19 +7,13 @@
 #######################
 
 [[tool.uv.index]]
-name        = "testpypi"
-url         = "https://test.pypi.org/simple/"
-publish-url = "https://test.pypi.org/legacy/"
-explicit    = true
+name     = "torch-gpu"
+url      = "https://download.pytorch.org/whl/cu121"
+explicit = true
 
 [[tool.uv.index]]
 name     = "torch-cpu"
 url      = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[[tool.uv.index]]
-name     = "torch-gpu"
-url      = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
 #################################
@@ -27,22 +21,8 @@ explicit = true
 #################################
 
 [tool.uv.sources]
-torch = [
-  # GPU on Linux by default
-  { index  = "torch-gpu", marker = "sys_platform == 'linux' and extra != 'cpu'" },
-
-  # CPU on Linux when you pass `--extra cpu`
-  { index  = "torch-cpu", marker = "sys_platform == 'linux' and extra == 'cpu'" },
-
-  # Always CPU on other platforms (darwin, win32, etc.)
-  { index  = "torch-cpu", marker = "sys_platform != 'linux'" },
-]
-
-torchvision = [
-  { index  = "torch-gpu", marker = "sys_platform == 'linux' and extra != 'cpu'" },
-  { index  = "torch-cpu", marker = "sys_platform == 'linux' and extra == 'cpu'" },
-  { index  = "torch-cpu", marker = "sys_platform != 'linux'" },
-]
+torch       = [{ index = "torch-gpu" }]
+torchvision = [{ index = "torch-gpu" }]
 
 #########################
 # UV-specific Overrides #
@@ -138,6 +118,8 @@ dependencies = [
   "opencv-python<5.0.0,>=4.7.0",
   "ftfy<7.0.0,>=6.1.3",
   "gitpython<4.0.0,>=3.1.42",
+  "torch>=2.2.1,<3.0.0",
+  "torchvision>=0.17.1,<1.0.0",
 ]
 
 [project.optional-dependencies]
