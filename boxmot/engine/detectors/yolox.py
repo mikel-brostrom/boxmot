@@ -114,6 +114,7 @@ class YoloXStrategy(YoloInterface):
 
     def __init__(self, model, device, args):
 
+        self.ch = 3
         self.args = args
         self.imgsz = args.imgsz
         self.pt = False
