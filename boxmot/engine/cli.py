@@ -37,7 +37,7 @@ def main():
     )
     common_parser.add_argument('--imgsz', '--img-size', nargs='+', type=int,
                                default=None, help='inference size h,w')
-    common_parser.add_argument('--fps', type=int, default=None,
+    common_parser.add_argument('--fps', type=int, default=30,
                                help='video frame-rate')
     common_parser.add_argument('--conf', type=float, default=0.01,
                                help='min confidence threshold')
