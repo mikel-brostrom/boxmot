@@ -36,19 +36,19 @@ class RequirementsChecker:
                 reqs.append(Requirement(line))
         self._check_packages(reqs)
 
-    def check_packages(self, requirements, extra_pip_args=None):
-        # normalize strings into Requirement objects
-        normalized = []
-        for r in requirements:
-            if isinstance(r, str):
-                normalized.append(Requirement(r))
-            elif isinstance(r, Requirement):
-                normalized.append(r)
-            else:
-                raise TypeError(f"Unsupported requirement type {type(r)} for {r!r}")
+    def check_packages(self, requirements: Iterable[str], cmds: Optional[list[str]] = None):
+        """
+        Check and install packages specified by requirement strings, e.g.
+        ["foo", "bar>=1.2"].
 
-        missing = []
-        for req in normalized:
+        :param requirements: iterable of requirement specifiers as strings
+        :param cmds: extra pip args (e.g. ["--upgrade"]).
+        """
+        # turn each string into a Requirement
+        specs = [Requirement(r) for r in requirements]
+
+        missing: list[str] = []
+        for req in specs:
             name = req.name
             try:
                 inst_ver = version(name)
@@ -63,7 +63,7 @@ class RequirementsChecker:
                     missing.append(str(req))
 
         if missing:
-            self.install_packages(missing, extra_pip_args or [])
+            self.install_packages(missing, cmds)
 
     def install_packages(self, packages, extra_pip_args=None):
         try:
