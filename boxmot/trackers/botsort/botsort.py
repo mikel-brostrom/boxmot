@@ -22,6 +22,8 @@ from boxmot.utils.matching import (
     iou_distance,
     linear_assignment,
 )
+from boxmot.motion.kalman_filters.aabb.pluggable_kf import BoxKalmanFilter
+
 
 
 class BotSort(BaseTracker):
@@ -77,7 +79,7 @@ class BotSort(BaseTracker):
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilterXYWH()
+        self.kalman_filter =  BoxKalmanFilter(filter_type='xywh')
 
         # ReID module
         self.proximity_thresh = proximity_thresh
