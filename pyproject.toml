@@ -72,7 +72,7 @@ build-backend = "hatchling.build"
 
 [project]
 name            = "boxmot"
-version         = "13.0.6"
+version         = "13.0.7"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
 requires-python = ">=3.9,<=3.13"
