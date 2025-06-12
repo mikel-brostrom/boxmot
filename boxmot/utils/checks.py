@@ -1,6 +1,6 @@
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from boxmot.utils import logger as LOGGER
 from packaging.requirements import Requirement
