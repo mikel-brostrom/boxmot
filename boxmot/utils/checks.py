@@ -2,9 +2,10 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-import pkg_resources
-
 from boxmot.utils import logger as LOGGER
+from packaging.requirements import Requirement
+from importlib.metadata import version, PackageNotFoundError
+
 
 REQUIREMENTS_FILE = Path("requirements.txt")
 
@@ -25,29 +26,52 @@ class RequirementsChecker:
             self._check_from_requirements()
 
     def _check_from_requirements(self):
-        # parse requirements.txt
+        # parse requirements.txt into Requirement objects
+        reqs = []
         with self.requirements_file.open() as f:
-            reqs = pkg_resources.parse_requirements(f)
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                reqs.append(Requirement(line))
         self._check_packages(reqs)
 
-    def check_packages(self, requirements, cmds=[]):
-        missing = []
+    def check_packages(self, requirements, extra_pip_args=None):
+        # normalize strings into Requirement objects
+        normalized = []
         for r in requirements:
+            if isinstance(r, str):
+                normalized.append(Requirement(r))
+            elif isinstance(r, Requirement):
+                normalized.append(r)
+            else:
+                raise TypeError(f"Unsupported requirement type {type(r)} for {r!r}")
+
+        missing = []
+        for req in normalized:
+            name = req.name
             try:
-                pkg_resources.require(str(r))
-            except Exception as e:
-                LOGGER.error(f"{e}")
-                missing.append(str(r))
+                inst_ver = version(name)
+            except PackageNotFoundError:
+                LOGGER.error(f"Package {name!r} is not installed.")
+                missing.append(str(req))
+            else:
+                if req.specifier and not req.specifier.contains(inst_ver, prereleases=True):
+                    LOGGER.error(
+                        f"{name!r} has version {inst_ver} which does not satisfy {req.specifier}."
+                    )
+                    missing.append(str(req))
 
         if missing:
-            self.install_packages(missing, cmds)
+            self.install_packages(missing, extra_pip_args or [])
 
-    def install_packages(self, packages, cmds=[]):
+    def install_packages(self, packages, extra_pip_args=None):
         try:
             LOGGER.warning(
-                f"\nMissing packages: {', '.join(packages)}\nAttempting installation..."
+                f"\nMissing or mismatched packages: {', '.join(packages)}\n"
+                "Attempting installation..."
             )
-            pip_cmd = ["uv", "pip", "install", "--no-cache-dir"] + cmds + packages
+            pip_cmd = ["uv", "pip", "install", "--no-cache-dir"] + (extra_pip_args or []) + packages
             subprocess.check_call(pip_cmd)
             LOGGER.info("All the missing packages were installed successfully.")
         except Exception as e:
