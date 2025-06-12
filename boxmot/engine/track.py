@@ -77,7 +77,7 @@ def main(args):
         conf=args.conf,
         iou=args.iou,
         agnostic_nms=args.agnostic_nms,
-        show=True,
+        show=args.show,
         stream=True,
         device=args.device,
         show_conf=args.show_conf,

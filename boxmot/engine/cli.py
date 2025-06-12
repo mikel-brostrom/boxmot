@@ -82,7 +82,7 @@ def main():
                                help='where to clone trackeval')
     common_parser.add_argument('--split-dataset', action='store_true',
                                help='use second half of dataset')
-    common_parser.add_argument('--show', action='store_true',
+    common_parser.add_argument('--show', action='store_false',
                                help='display tracking in a window')
     common_parser.add_argument('--show-labels', action='store_false',
                                help='hide detection labels')
