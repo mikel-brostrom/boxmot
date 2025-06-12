@@ -1,5 +1,7 @@
-
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
+import multiprocessing as mp
+mp.set_start_method("spawn", force=True)
 
 import argparse
 import subprocess
@@ -150,8 +152,6 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
             with open(str(embs_path), 'ab+') as f:
                 np.savetxt(f, embs, fmt='%f')
 
-
-import re
 
 def parse_mot_results(results: str) -> dict:
     """
