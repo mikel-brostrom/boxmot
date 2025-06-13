@@ -3,6 +3,8 @@ import cv2
 import numpy as np
 import argparse
 from pathlib import Path
+from scipy.linalg import pinv
+
 from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
 
 
@@ -96,10 +98,6 @@ def main(
     mean_w = all_ws.mean()
     mean_h = all_hs.mean()
     print(f"Mean box width: {mean_w:.2f}, height: {mean_h:.2f}")
-
-    # estimate Q and R on pooled data
-    from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
-    from scipy.linalg import pinv
 
     # method-of-moments estimation
     def estimate_noise_covariances(tracks, F, H):
