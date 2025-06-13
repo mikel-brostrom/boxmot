@@ -13,6 +13,8 @@ from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.engine.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
 
+from tqdm import tqdm
+
 checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install
 
@@ -123,7 +125,8 @@ def main(args):
     # store custom args in predictor
     yolo.predictor.custom_args = args
 
-    for _ in results:
+
+    for _ in tqdm(results, desc="Tracking"):
         pass
 
 
