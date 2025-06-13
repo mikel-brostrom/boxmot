@@ -93,6 +93,7 @@ def main(args):
         vid_stride=args.vid_stride,
         line_width=args.line_width,
         save_crop=args.save_crop,
+        visualize=True,
     )
 
     yolo.add_callback("on_predict_start", partial(on_predict_start, persist=True))
