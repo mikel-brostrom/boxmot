@@ -84,7 +84,7 @@ def main(args):
         save_txt=args.save_txt,
         show_labels=args.show_labels,
         save=args.save,
-        verbose=args.verbose,
+        verbose=True,
         exist_ok=args.exist_ok,
         project=args.project,
         name=args.name,
