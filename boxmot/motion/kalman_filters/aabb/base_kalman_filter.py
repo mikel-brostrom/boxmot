@@ -37,8 +37,8 @@ class BaseKalmanFilter:
         self._update_mat = np.eye(ndim, 2 * ndim)  # Observation matrix
 
         # Motion and observation uncertainty weights.
-        self._std_weight_position = 1.0 / 20
-        self._std_weight_velocity = 1.0 / 160
+        self._std_weight_position = 0.0136
+        self._std_weight_velocity = 0.0721
 
     def initiate(self, measurement: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
