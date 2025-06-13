@@ -10,7 +10,8 @@ from pathlib import Path
 
 import yaml
 from ray import tune
-from ray.air import RunConfig
+from ray.tune import RunConfig
+from ray.tune.search.optuna import OptunaSearch
 
 from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
 from boxmot.engine.val import (
@@ -95,38 +96,42 @@ def yaml_to_search_space(config: dict) -> dict:
 
 
 def main(opt):
-    # Parse options and set necessary paths
+    # --- same setup as before ---
     opt.val_tools_path = EXAMPLES / "val_utils"
     opt.source = Path(opt.source).resolve()
     opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
     opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
 
-    # Load YAML configuration and convert it to a Ray Tune search space
     yaml_config = load_yaml_config(opt.tracking_method)
     search_space = yaml_to_search_space(yaml_config)
-
-    # Create a Tracker instance
     tracker = Tracker(opt)
-
-    # Generate detection and embedding files required for evaluation
     run_generate_dets_embs(opt)
 
-    # Define a wrapper for the objective function for Ray Tune
+    # --- BAYESIAN OPTIMIZATION setup ---
+    primary_metric = opt.objectives[0]  # e.g. "HOTA"
+    optuna_search = OptunaSearch(
+        metric=primary_metric,
+        mode="max",                   # maximize the metric
+    )
+
+    # wrap your objective as before
     def tune_wrapper(config):
         return tracker.objective_function(config)
 
     results_dir = os.path.abspath("ray/")
 
-    # Set up and run the hyperparameter tuning using Ray Tune
+    # pass bayesopt into TuneConfig.search_alg
     tuner = tune.Tuner(
         tune.with_resources(tune_wrapper, {"cpu": NUM_THREADS, "gpu": 0}),
         param_space=search_space,
-        tune_config=tune.TuneConfig(num_samples=opt.n_trials),
+        tune_config=tune.TuneConfig(
+            num_samples=opt.n_trials,
+            search_alg=optuna_search,          # <-- use BayesOptSearch
+        ),
         run_config=RunConfig(storage_path=results_dir),
     )
-    tuner.fit()
 
-    # Print the tuning results
+    tuner.fit()
     print(tuner.get_results())
 
 
