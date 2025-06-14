@@ -132,11 +132,21 @@ class BaseModelBackend:
     def download_model(self, w):
         if w.suffix == ".pt":
             model_url = ReIDModelRegistry.get_model_url(w)
+
+            # Case 1 – weights not on disk but URL is known ⇒ download them
             if not w.exists() and model_url is not None:
+                LOGGER.info("Downloading ReID weights from %s → %s", model_url, w)
                 gdown.download(model_url, str(w), quiet=False)
+
+            # Case 2 – weights not on disk and no URL ⇒ bail out
             elif not w.exists():
                 LOGGER.error(
-                    f"No URL associated with the chosen StrongSORT weights ({w}). Choose between:"
+                    "No URL associated with the chosen StrongSORT weights (%s). "
+                    "Choose one of the following:", w
                 )
                 ReIDModelRegistry.show_downloadable_models()
                 exit()
+
+            # Case 3 – weights already on disk ⇒ just tell the user
+            else:
+                LOGGER.error(f"Found existing ReID weights at {w}; skipping download.")
