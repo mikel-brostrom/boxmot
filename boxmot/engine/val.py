@@ -283,7 +283,7 @@ def process_sequence(seq_name: str,
     tracker = create_tracker(
         tracker_type=tracking_method,
         tracker_config=TRACKER_CONFIGS / (tracking_method + ".yaml"),
-        reid_weights=WEIGHTS / (reid_name + '.pt'),
+        reid_weights=Path(reid_name + '.pt'),
         device=device,
         half=False,
         per_class=False,
