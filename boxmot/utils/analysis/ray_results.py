@@ -41,26 +41,44 @@ def is_pareto_efficient(points: np.ndarray) -> np.ndarray:
     return is_efficient
 
 
-def plot_metric_by_trial(df: pd.DataFrame, metric: str):
+def plot_metrics_by_trial(df, metrics=("HOTA", "MOTA", "IDF1"), exp_path=None):
     """
-    Plot a given metric vs. trial index, labeling every trial.
-    """
-    if metric not in df.columns:
-        print(f"⚠️  Metric '{metric}' not found in results. Skipping plot.")
-        return
-    vals = df[metric].tolist()
-    indices = list(range(len(vals)))
+    Plot several metrics vs. trial index on one shared figure.
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(indices, vals, marker="o", linestyle="-", label=metric)
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame that contains one column per metric plus an
+        implicit trial order (row index).
+    metrics : list/tuple of str
+        The metric column names to plot together.
+    """
+    # Only keep the metrics that are actually present
+    avail = [m for m in metrics if m in df.columns]
+    if not avail:
+        print("⚠️  None of the requested metrics are in the DataFrame.")
+        return
+
+    indices = list(range(len(df)))
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    for metric in avail:
+        ax.plot(indices,
+                df[metric].values,
+                marker="o",
+                linestyle="-",
+                label=metric)
+
     ax.xaxis.set_major_locator(FixedLocator(indices))
     ax.set_xticklabels(indices, rotation=90)
     ax.set_xlabel("Trial index")
-    ax.set_ylabel(metric)
-    ax.set_title(f"Final {metric} by Trial Number")
-    ax.grid(True, linestyle="--", alpha=0.5)
+    ax.set_ylabel("Metric value")
+    ax.set_title("Final HOTA, MOTA & IDF1 by Trial Number")
+    ax.grid(True, linestyle="--", alpha=0.4)
+    ax.legend(title="Metric")
     plt.tight_layout()
     plt.show()
+    fig.savefig(exp_path / "hota_mota_idf1_by_trial.png", dpi=1200)
 
 
 def main():
@@ -69,7 +87,7 @@ def main():
     )
     parser.add_argument(
         "--exp_path",
-        default="ray/boosttrack_tune",
+        default=Path("ray/botsort_tune"),
         help="Path to your Tune experiment folder"
     )
     parser.add_argument(
@@ -121,9 +139,7 @@ def main():
     print()
 
     # Plot default metric and extras
-    plot_metric_by_trial(results_df, args.metric)
-    for extra_metric in [m for m in ["IDF1", "HOTA", "MOTA"] if m != args.metric]:
-        plot_metric_by_trial(results_df, extra_metric)
+    plot_metrics_by_trial(results_df, ["HOTA", "MOTA", "IDF1"], exp_path = args.exp_path)
 
     # 3D scatter for all points + Pareto front using Plotly
     x_metric, y_metric, z_metric = "HOTA", "MOTA", "IDF1"
@@ -201,7 +217,7 @@ def main():
         fig.show()
 
         # To export to standalone HTML:
-        fig.write_html("pareto3d_allpoints.html")
+        fig.write_html(args.exp_path / "pareto3d_allpoints.html")
     else:
         print(f"Cannot plot 3D scatter: one or more of '{x_metric}', '{y_metric}', '{z_metric}' not in results.")
 
