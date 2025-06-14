@@ -5,6 +5,7 @@ with support for resuming (restoring) previous tuning runs.
 """
 
 import os
+os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"   # keep CWD constant for all trials
 from pathlib import Path
 
 import yaml
