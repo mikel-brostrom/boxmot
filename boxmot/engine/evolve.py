@@ -60,8 +60,6 @@ class Tracker:
         self.opt = opt
 
     def objective_function(self, config: dict) -> dict:
-        # Ensure evaluation tools are available
-        download_mot_eval_tools(self.opt.val_tools_path)
         # Generate MOT-compliant results
         run_generate_mot_results(self.opt, config)
         # Evaluate and extract objectives
@@ -75,6 +73,9 @@ def main(opt):
     opt.source = Path(opt.source).resolve()
     opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
     opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
+    
+    print('opt.yolo_model', opt.yolo_model)
+    print('opt.reid_model', opt.reid_model)
 
     # Load search space
     yaml_cfg = load_yaml_config(opt.tracking_method)
@@ -97,6 +98,8 @@ def main(opt):
     # Define trainable
     trainable = tune.with_resources(tune_wrapper, {"cpu": NUM_THREADS, "gpu": 0})
 
+    # Ensure evaluation tools are available
+    download_mot_eval_tools(opt.val_tools_path)
     # Check for existing run to resume
     if tune.Tuner.can_restore(restore_path):
         print(f"Resuming tuning from {restore_path}...")
