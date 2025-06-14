@@ -125,9 +125,6 @@ def main():
     for extra_metric in [m for m in ["IDF1", "HOTA", "MOTA"] if m != args.metric]:
         plot_metric_by_trial(results_df, extra_metric)
 
-    # Pareto front for MOTA vs HOTA (2D)
-    x_metric, y_metric = "MOTA", "HOTA"
-
     # 3D scatter for all points + Pareto front using Plotly
     x_metric, y_metric, z_metric = "HOTA", "MOTA", "IDF1"
     if all(m in results_df.columns for m in [x_metric, y_metric, z_metric]):
