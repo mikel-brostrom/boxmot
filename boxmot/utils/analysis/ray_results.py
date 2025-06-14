@@ -140,10 +140,10 @@ def main():
         # build a hover-text column
         def make_hover(df):
             return (
-                "run: "   + df['run_number'].astype(str) +
-                "<br>HOTA: " + df[y_metric].map("{:.3f}".format) +
-                "<br>MOTA: " + df[x_metric].map("{:.3f}".format) +
-                "<br>IDF1: "  + df[z_metric].map("{:.3f}".format)
+                "run: " + df['run_number'].astype(str)
+                + "<br>HOTA: " + df[x_metric].map("{:.3f}".format)   # x_metric *is* HOTA
+                + "<br>MOTA: " + df[y_metric].map("{:.3f}".format)   # y_metric *is* MOTA
+                + "<br>IDF1: " + df[z_metric].map("{:.3f}".format)
             )
         others3['hover'] = make_hover(others3)
         front3 ['hover'] = make_hover(front3)
@@ -204,7 +204,7 @@ def main():
         fig.show()
 
         # To export to standalone HTML:
-        # fig.write_html("pareto3d_allpoints.html")
+        fig.write_html("pareto3d_allpoints.html")
     else:
         print(f"Cannot plot 3D scatter: one or more of '{x_metric}', '{y_metric}', '{z_metric}' not in results.")
 
