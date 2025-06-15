@@ -162,33 +162,3 @@ class BaseKalmanFilter:
         Should be implemented by subclasses.
         """
         raise NotImplementedError
-
-    def gating_distance(
-        self,
-        mean: np.ndarray,
-        covariance: np.ndarray,
-        measurements: np.ndarray,
-        only_position: bool = False,
-        metric: str = "maha",
-    ) -> np.ndarray:
-        """
-        Compute gating distance between state distribution and measurements.
-        """
-        mean, covariance = self.project(mean, covariance)
-
-        if only_position:
-            mean, covariance = mean[:2], covariance[:2, :2]
-            measurements = measurements[:, :2]
-
-        d = measurements - mean
-        if metric == "gaussian":
-            return np.sum(d * d, axis=1)
-        elif metric == "maha":
-            cholesky_factor = np.linalg.cholesky(covariance)
-            z = scipy.linalg.solve_triangular(
-                cholesky_factor, d.T, lower=True, check_finite=False, overwrite_b=True
-            )
-            squared_maha = np.sum(z * z, axis=0)
-            return squared_maha
-        else:
-            raise ValueError("invalid distance metric")
