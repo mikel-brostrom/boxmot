@@ -116,79 +116,128 @@ class BotSort(BaseTracker):
         # Separate unconfirmed and active tracks
         unconfirmed, active_tracks = self._separate_tracks()
 
-        strack_pool = joint_stracks(active_tracks, self.lost_stracks)
+        # Apply camera motion compensation
+        warp = self.cmc.apply(img, dets)
+        STrack.multi_gmc(active_tracks, warp)
+        STrack.multi_gmc(unconfirmed, warp)
+        STrack.multi_gmc(self.lost_stracks, warp)
 
-        # First association
-        matches_first, u_track_first, u_detection_first = self._first_association(
-            dets,
-            dets_first,
-            active_tracks,
-            unconfirmed,
-            img,
-            detections,
-            activated_stracks,
-            refind_stracks,
-            strack_pool,
-        )
+        # --- STAGE 1: Associate Active Tracks (Motion + Appearance) ---
+        STrack.multi_predict(active_tracks)
+        dists = self._calculate_cost_matrix(active_tracks, detections, use_motion=True)
+        matches_active, u_track_active, u_det_active = linear_assignment(dists, thresh=self.match_thresh)
+        self._update_tracks(matches_active, active_tracks, detections, activated_stracks, refind_stracks)
 
-        # Second association
-        matches_second, u_track_second, u_detection_second = self._second_association(
-            dets_second,
-            activated_stracks,
-            lost_stracks,
-            refind_stracks,
-            u_track_first,
-            strack_pool,
-        )
+        # --- STAGE 2: Associate Lost Tracks (Appearance only) ---
+        remaining_dets = [detections[i] for i in u_det_active]
 
-        # Handle unconfirmed tracks
-        matches_unc, u_track_unc, u_detection_unc = self._handle_unconfirmed_tracks(
-            u_detection_first,
-            detections,
-            activated_stracks,
-            removed_stracks,
-            unconfirmed,
-        )
+        if self.lost_stracks and remaining_dets and self.with_reid:
+            dists_lost = self._calculate_cost_matrix(self.lost_stracks, remaining_dets, use_motion=False)
+            matches_lost, u_track_lost, u_det_lost_indices = linear_assignment(dists_lost, thresh=self.appearance_thresh)
+            self._update_tracks(matches_lost, self.lost_stracks, remaining_dets, activated_stracks, refind_stracks)
+            final_unmatched_det_indices = [u_det_active[i] for i in u_det_lost_indices]
+            unmatched_lost_tracks_indices = u_track_lost
+        else:
+            final_unmatched_det_indices = u_det_active
+            unmatched_lost_tracks_indices = list(range(len(self.lost_stracks)))
 
-        # Initialize new tracks
+        # --- Combine all tracks that were not matched in the first two stages ---
+        unmatched_active_tracks = [active_tracks[i] for i in u_track_active]
+        unmatched_lost_tracks = [self.lost_stracks[i] for i in unmatched_lost_tracks_indices]
+        tracks_for_low_conf = unmatched_active_tracks + unmatched_lost_tracks
+
+        # --- STAGE 3: Second Association (Rescue with Low-Conf Dets) ---
+        if dets_second.any() and tracks_for_low_conf:
+            low_conf_detections = self._create_detections(dets_second, None, with_reid=False)
+            dists_low = iou_distance(tracks_for_low_conf, low_conf_detections)
+            matches_second, u_track_second, _ = linear_assignment(dists_low, thresh=0.5)
+            self._update_tracks(matches_second, tracks_for_low_conf, low_conf_detections, activated_stracks, refind_stracks)
+
+            for i in u_track_second:
+                track = tracks_for_low_conf[i]
+                if not track.state == TrackState.Lost:
+                    track.mark_lost()
+                    lost_stracks.append(track)
+        else:
+            for track in tracks_for_low_conf:
+                if not track.state == TrackState.Lost:
+                    track.mark_lost()
+                    lost_stracks.append(track)
+
+        # --- STAGE 4: Handle Unconfirmed and New Tracks ---
+        if unconfirmed:
+            remaining_high_conf_dets = [detections[i] for i in final_unmatched_det_indices]
+            dists_unc = self._calculate_cost_matrix(unconfirmed, remaining_high_conf_dets, use_motion=True)
+            matches_unc, u_track_unc, u_det_unc_indices = linear_assignment(dists_unc, thresh=0.7)
+
+            for itracked, idet in matches_unc:
+                unconfirmed[itracked].update(remaining_high_conf_dets[idet], self.frame_count)
+                activated_stracks.append(unconfirmed[itracked])
+
+            for it in u_track_unc:
+                track = unconfirmed[it]
+                track.mark_removed()
+                removed_stracks.append(track)
+
+            final_unmatched_det_indices = [final_unmatched_det_indices[i] for i in u_det_unc_indices]
+
         self._initialize_new_tracks(
-            u_detection_unc,
+            final_unmatched_det_indices,
             activated_stracks,
-            [detections[i] for i in u_detection_first],
+            detections,
         )
 
-        # Update lost and removed tracks
+        # Update track states (e.g., remove old lost tracks)
         self._update_track_states(lost_stracks, removed_stracks)
 
-        # Merge and prepare output
         return self._prepare_output(
             activated_stracks, refind_stracks, lost_stracks, removed_stracks
         )
 
+    def _calculate_cost_matrix(self, tracks, detections, use_motion: bool):
+        if not tracks or not detections:
+            return np.empty((len(tracks), len(detections)))
+
+        if use_motion:
+            # Combine motion and appearance
+            ious_dists = iou_distance(tracks, detections)
+            if self.with_reid:
+                emb_dists = embedding_distance(tracks, detections)
+                emb_dists[emb_dists > self.appearance_thresh] = 1.0
+                ious_dists_mask = ious_dists > self.proximity_thresh
+                emb_dists[ious_dists_mask] = 1.0
+                return np.minimum(ious_dists, emb_dists)
+            return ious_dists
+        else:  # Appearance only
+            if self.with_reid:
+                emb_dists = embedding_distance(tracks, detections)
+                emb_dists[emb_dists > self.appearance_thresh] = 1.0
+                return emb_dists
+            else:  # Fallback to IoU if reid is disabled
+                return iou_distance(tracks, detections)
+
     def _split_detections(self, dets, embs):
-        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
-        confs = dets[:, 4]
-        second_mask = np.logical_and(
-            confs > self.track_low_thresh, confs < self.track_high_thresh
-        )
-        dets_second = dets[second_mask]
-        first_mask = confs > self.track_high_thresh
+        # Detections with high confidence
+        first_mask = dets[:, 4] >= self.track_high_thresh
         dets_first = dets[first_mask]
-        embs_first = embs[first_mask] if embs is not None else None
+        embs_first = embs[first_mask] if embs is not None else []
+
+        # Detections with low confidence
+        second_mask = (~first_mask) & (dets[:, 4] > self.track_low_thresh)
+        dets_second = dets[second_mask]
+
         return dets, dets_first, embs_first, dets_second
 
-    def _create_detections(self, dets_first, features_high):
-        if len(dets_first) > 0:
-            if self.with_reid:
-                detections = [
+    def _create_detections(self, dets, features, with_reid=True):
+        if len(dets) > 0:
+            if self.with_reid and with_reid:
+                return [
                     STrack(det, f, max_obs=self.max_obs)
-                    for (det, f) in zip(dets_first, features_high)
+                    for (det, f) in zip(dets, features)
                 ]
             else:
-                detections = [STrack(det, max_obs=self.max_obs) for det in dets_first]
-        else:
-            detections = []
-        return detections
+                return [STrack(det, max_obs=self.max_obs) for det in dets]
+        return []
 
     def _separate_tracks(self):
         unconfirmed, active_tracks = [], []
@@ -199,150 +248,8 @@ class BotSort(BaseTracker):
                 active_tracks.append(track)
         return unconfirmed, active_tracks
 
-    def _first_association(
-        self,
-        dets,
-        dets_first,
-        active_tracks,
-        unconfirmed,
-        img,
-        detections,
-        activated_stracks,
-        refind_stracks,
-        strack_pool,
-    ):
-
-        STrack.multi_predict(strack_pool)
-
-        # Fix camera motion
-        warp = self.cmc.apply(img, dets)
-        STrack.multi_gmc(strack_pool, warp)
-        STrack.multi_gmc(unconfirmed, warp)
-
-        # Associate with high confidence detection boxes
-        ious_dists = iou_distance(strack_pool, detections)
-        ious_dists_mask = ious_dists > self.proximity_thresh
-        if self.fuse_first_associate:
-            ious_dists = fuse_score(ious_dists, detections)
-
-        if self.with_reid:
-            emb_dists = embedding_distance(strack_pool, detections) / 2.0
-            emb_dists[emb_dists > self.appearance_thresh] = 1.0
-            emb_dists[ious_dists_mask] = 1.0
-            dists = np.minimum(ious_dists, emb_dists)
-        else:
-            dists = ious_dists
-
-        matches, u_track, u_detection = linear_assignment(
-            dists, thresh=self.match_thresh
-        )
-
-        for itracked, idet in matches:
-            track = strack_pool[itracked]
-            det = detections[idet]
-            if track.state == TrackState.Tracked:
-                track.update(detections[idet], self.frame_count)
-                activated_stracks.append(track)
-            else:
-                track.re_activate(det, self.frame_count, new_id=False)
-                refind_stracks.append(track)
-
-        return matches, u_track, u_detection
-
-    def _second_association(
-        self,
-        dets_second,
-        activated_stracks,
-        lost_stracks,
-        refind_stracks,
-        u_track_first,
-        strack_pool,
-    ):
-        if len(dets_second) > 0:
-            detections_second = [
-                STrack(det, max_obs=self.max_obs) for det in dets_second
-            ]
-        else:
-            detections_second = []
-
-        r_tracked_stracks = [
-            strack_pool[i]
-            for i in u_track_first
-            if strack_pool[i].state == TrackState.Tracked
-        ]
-
-        dists = iou_distance(r_tracked_stracks, detections_second)
-        matches, u_track, u_detection = linear_assignment(dists, thresh=0.5)
-
-        for itracked, idet in matches:
-            track = r_tracked_stracks[itracked]
-            det = detections_second[idet]
-            if track.state == TrackState.Tracked:
-                track.update(det, self.frame_count)
-                activated_stracks.append(track)
-            else:
-                track.re_activate(det, self.frame_count, new_id=False)
-                refind_stracks.append(track)
-
-        for it in u_track:
-            track = r_tracked_stracks[it]
-            if not track.state == TrackState.Lost:
-                track.mark_lost()
-                lost_stracks.append(track)
-
-        return matches, u_track, u_detection
-
-    def _handle_unconfirmed_tracks(
-        self, u_detection, detections, activated_stracks, removed_stracks, unconfirmed
-    ):
-        """
-        Handle unconfirmed tracks (tracks with only one detection frame).
-
-        Args:
-            u_detection: Unconfirmed detection indices.
-            detections: Current list of detections.
-            activated_stracks: List of newly activated tracks.
-            removed_stracks: List of tracks to remove.
-        """
-        # Only use detections that are unconfirmed (filtered by u_detection)
-        detections = [detections[i] for i in u_detection]
-
-        # Calculate IoU distance between unconfirmed tracks and detections
-        ious_dists = iou_distance(unconfirmed, detections)
-
-        # Apply IoU mask to filter out distances that exceed proximity threshold
-        ious_dists_mask = ious_dists > self.proximity_thresh
-        ious_dists = fuse_score(ious_dists, detections)
-
-        # Fuse scores for IoU-based and embedding-based matching (if applicable)
-        if self.with_reid:
-            emb_dists = embedding_distance(unconfirmed, detections) / 2.0
-            emb_dists[emb_dists > self.appearance_thresh] = 1.0
-            emb_dists[ious_dists_mask] = (
-                1.0  # Apply the IoU mask to embedding distances
-            )
-            dists = np.minimum(ious_dists, emb_dists)
-        else:
-            dists = ious_dists
-
-        # Perform data association using linear assignment on the combined distances
-        matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)
-
-        # Update matched unconfirmed tracks
-        for itracked, idet in matches:
-            unconfirmed[itracked].update(detections[idet], self.frame_count)
-            activated_stracks.append(unconfirmed[itracked])
-
-        # Mark unmatched unconfirmed tracks as removed
-        for it in u_unconfirmed:
-            track = unconfirmed[it]
-            track.mark_removed()
-            removed_stracks.append(track)
-
-        return matches, u_unconfirmed, u_detection
-
-    def _initialize_new_tracks(self, u_detections, activated_stracks, detections):
-        for inew in u_detections:
+    def _initialize_new_tracks(self, u_detections_indices, activated_stracks, detections):
+        for inew in u_detections_indices:
             track = detections[inew]
             if track.conf < self.new_track_thresh:
                 continue
