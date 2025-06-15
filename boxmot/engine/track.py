@@ -91,7 +91,7 @@ def main(args):
         project=args.project,
         name=args.name,
         classes=args.classes,
-        imgsz=(1088, 1920),
+        imgsz=(1088, 1921),
         vid_stride=args.vid_stride,
         line_width=args.line_width,
         save_crop=args.save_crop,
