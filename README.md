@@ -29,12 +29,12 @@ This repository addresses the fragmented nature of the multi-object tracking (MO
 <!-- START TRACKER TABLE -->
 | Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
 | :-----: | :-----: | :---: | :---: | :---: | :---: |
-| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 69.253 | 75.914 | 83.206 | 25 |
-| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 68.885 | 78.222 | 81.344 | 46 |
-| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.05 | 76.185 | 80.763 | 17 |
-| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 1265 |
-| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 67.509 | 75.83 | 79.976 | 12 |
-| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.548 | 77.899 | 1483 |
+| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 17 |  |  |  |
+| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 1483 |  |  |  |
+| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 12 |  |  |  |
+| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 1265 |  |  |  |
+| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 46 |  |  |  |
+| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 25 |  |  |  |
 
 <!-- END TRACKER TABLE -->
 
