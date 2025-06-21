@@ -41,55 +41,48 @@ jobs:
         run: |
           sudo apt-get install -y jq curl
 
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            # Linux
-            sed -i 's/source="torch_cuda121"/source="torchcpu"/g' pyproject.toml
-          fi
-          
           python -m pip install --upgrade pip setuptools wheel uv
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           uv sync --group yolo
-
+          
       - name: Download eval tools repo
         run: |
-          git clone https://github.com/JonathonLuiten/TrackEval.git tracking/val_utils
+          git clone https://github.com/JonathonLuiten/TrackEval.git boxmot/engine/val_utils
 
       # Restore the cached dataset (if available)
       - name: Restore MOT17 dataset cache
         uses: actions/cache@v4
         with:
           # Specify the path where the dataset is stored
-          path: tracking/val_utils/MOT17-50.zip
+          path: boxmot/engine/val_utils/MOT17-50.zip
           # Create a cache key, you can use a fixed key if the dataset is static
           key: mot17-50-dataset-cache-v3
 
       - name: Download eval data
         run: |
           wget https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip -O runs.zip
-          wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip -O tracking/val_utils/MOT17-50.zip
+          wget https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip -O boxmot/engine/val_utils/MOT17-50.zip
           unzip runs.zip -d ./
-          mkdir -p tracking/val_utils/data
-          unzip tracking/val_utils/MOT17-50.zip -d ./tracking/val_utils/data/
+          mkdir -p boxmot/engine/val_utils/data
+          unzip boxmot/engine/val_utils/MOT17-50.zip -d boxmot/engine/val_utils/data/
 
       # Cache data for future runs (only if the cache was not already restored)
       - name: Cache MOT17.zip if not already cached
         if: steps.cache-restore.outputs.cache-hit != 'true'  # Only run if the cache was not hit
         uses: actions/cache@v4
         with:
-          path: tracking/val_utils/MOT17-50.zip
+          path: boxmot/engine/val_utils/MOT17-50.zip
           key: mot17-50-dataset-cache-v3
 
       - name: Evaluation and Summarize Results
         run: |
 
           pwd
-          ls tracking/val_utils
-          ls tracking/val_utils/data
+          ls boxmot/engine/val_utils
+          ls boxmot/engine/val_utils/data
           source .venv/bin/activate
 
-          if python3 tracking/val.py --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --verbose --source ./tracking/val_utils/data/MOT17-50/train; then
+          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source boxmot/engine/val_utils/data/MOT17-50/train; then
             STATUS="✅"
           else
             STATUS="❌"
