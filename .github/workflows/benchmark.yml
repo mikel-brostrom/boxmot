@@ -82,7 +82,7 @@ jobs:
           ls boxmot/engine/val_utils/data
           source .venv/bin/activate
 
-          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --verbose --source boxmot/engine/val_utils/data/MOT17-50/train; then
+          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source boxmot/engine/val_utils/data/MOT17-50/train; then
             STATUS="✅"
           else
             STATUS="❌"
