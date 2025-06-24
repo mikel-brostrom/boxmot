@@ -46,29 +46,6 @@ checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
 
 
-def prepare_eval() -> None:
-     # 1. Download runs.zip
-    runs_zip = download_file(
-        url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
-        dest_path="runs.zip",
-    )
-    
-    # 2. Download MOT17-50.zip
-    mot17_zip = download_file(
-        url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
-        dest_path="boxmot/engine/val_utils/MOT17-50.zip",
-    )
-    
-    # 3. Unzip runs.zip into current directory
-    extract_zip(runs_zip, extract_to=".")
-
-    # 4. Ensure data dir exists
-    os.makedirs("boxmot/engine/val_utils/data", exist_ok=True)
-
-    # 5. Unzip MOT17-50.zip into the data directory
-    extract_zip(mot17_zip, extract_to="boxmot/engine/val_utils/data")
-
-
 def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
     """
     Generates detections and embeddings for the specified 
@@ -428,7 +405,7 @@ def run_all(opt: argparse.Namespace) -> None:
 def main(args):
     # Download TrackEval
     download_trackeval(
-        dest=Path("TrackEval"),
+        dest=Path("./boxmot/engine/TrackEval"),
         branch="master",
         overwrite=False
     )
