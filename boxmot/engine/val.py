@@ -37,9 +37,10 @@ from ultralytics.data.build import load_inference_source
 
 from boxmot.engine.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model, is_yolox_model)
-from boxmot.engine.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
+from boxmot.engine.utils import convert_to_mot_format, write_mot_results, eval_setup
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from tqdm import tqdm
+from boxmot.utils.download import download_MOT17_eval_data, download_trackeval
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
@@ -205,7 +206,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_res
     d = [seq_path.parent.name for seq_path in seq_paths]
 
     args = [
-        sys.executable, EXAMPLES / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
+        sys.executable, EXAMPLES / 'TrackEval' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
         "--TRACKERS_FOLDER", args.exp_folder_path,
@@ -402,19 +403,18 @@ def run_all(opt: argparse.Namespace) -> None:
 
 
 def main(args):
-    
-    # download MOT benchmark
-    download_mot_eval_tools(args.val_tools_path)
-
-    if not Path(args.source).exists():
-        zip_path = download_mot_dataset(args.val_tools_path, args.benchmark)
-        unzip_mot_dataset(zip_path, args.val_tools_path, args.benchmark)
-
-    if args.benchmark == 'MOT17':
-        cleanup_mot17(args.source)
-
-    if args.split_dataset:
-        args.source, args.benchmark = split_dataset(args.source)
+    # Download TrackEval
+    download_trackeval(
+        dest=Path("./boxmot/engine/TrackEval"),
+        branch="master",
+        overwrite=False
+    )
+    download_MOT17_eval_data(
+        runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
+        mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
+        mot17_dest=Path("boxmot/engine/TrackEval/MOT17-50.zip"),
+        overwrite=False
+    )
 
     if args.command == 'generate_dets_embs':
         run_generate_dets_embs(args)
@@ -436,7 +436,6 @@ def main(args):
         ytick_labels=['65', '70', '75', '80', '85']
     )
         
-    
 
 if __name__ == "__main__":
     main()
