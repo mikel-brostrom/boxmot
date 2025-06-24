@@ -44,17 +44,13 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           uv sync --group yolo
-          
-      - name: Download eval tools repo
-        run: |
-          git clone https://github.com/JonathonLuiten/TrackEval.git boxmot/engine/val_utils
 
       # Restore the cached dataset (if available)
       - name: Restore MOT17 dataset cache
         uses: actions/cache@v4
         with:
           # Specify the path where the dataset is stored
-          path: boxmot/engine/val_utils/MOT17-50.zip
+          path: boxmot/engine/TrackEval/MOT17-50.zip
           # Create a cache key, you can use a fixed key if the dataset is static
           key: mot17-50-dataset-cache-v3
 
@@ -63,18 +59,16 @@ jobs:
         if: steps.cache-restore.outputs.cache-hit != 'true'  # Only run if the cache was not hit
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/val_utils/MOT17-50.zip
+          path: boxmot/engine/TracEval/MOT17-50.zip
           key: mot17-50-dataset-cache-v3
 
       - name: Evaluation and Summarize Results
         run: |
+          ls boxmot/engine/TrackEval/data
 
-          pwd
-          ls boxmot/engine/val_utils
-          ls boxmot/engine/val_utils/data
           source .venv/bin/activate
 
-          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source boxmot/engine/val_utils/data/MOT17-50/train; then
+          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source boxmot/engine/TrackEval/data/MOT17-50/train; then
             STATUS="✅"
           else
             STATUS="❌"

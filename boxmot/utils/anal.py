@@ -159,8 +159,7 @@ if __name__ == "__main__":
         description="Plot MOT17 ground-truth boxes and trajectories"
     )
     parser.add_argument(
-        "--seq_dir",
-        default="./boxmot/engine/TrackEval/data/MOT17-50/train/MOT17-09",
+        "seq_dir",
         help="Path to the MOT17 sequence folder (must contain img1/ and gt/ subfolders)"
     )
     parser.add_argument(

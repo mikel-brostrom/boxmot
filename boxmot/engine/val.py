@@ -206,7 +206,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_res
     d = [seq_path.parent.name for seq_path in seq_paths]
 
     args = [
-        sys.executable, EXAMPLES / 'val_utils' / 'scripts' / 'run_mot_challenge.py',
+        sys.executable, EXAMPLES / 'TrackEval' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
         "--TRACKERS_FOLDER", args.exp_folder_path,
@@ -412,7 +412,7 @@ def main(args):
     download_MOT17_eval_data(
         runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
         mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
-        mot17_dest=Path("boxmot/engine/val_utils/MOT17-50.zip"),
+        mot17_dest=Path("boxmot/engine/TrackEval/MOT17-50.zip"),
         overwrite=False
     )
 

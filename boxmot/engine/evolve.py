@@ -71,7 +71,7 @@ class Tracker:
 
 def main(opt):
     # --- initial setup ---
-    opt.val_tools_path = EXAMPLES / "Trackeval"
+    opt.val_tools_path = EXAMPLES / "TrackEval"
     opt.source = Path(opt.source).resolve()
     opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
     opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
