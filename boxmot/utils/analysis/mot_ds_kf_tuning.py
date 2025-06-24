@@ -175,7 +175,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--train_root", 
         type=Path,
-        default=Path("./boxmot/engine/val_utils/data/MOT17-50/train"),
+        default=Path("./boxmot/engine/TrackEval/data/MOT17-50/train"),
         help="Root folder containing all MOT17-50 train sequences"
     )
     parser.add_argument(
