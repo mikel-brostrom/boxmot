@@ -211,7 +211,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_res
         "--BENCHMARK", "",
         "--TRACKERS_FOLDER", args.exp_folder_path,
         "--TRACKERS_TO_EVAL", "",
-        "--SPLIT_TO_EVAL", "train",
+        "--SPLIT_TO_EVAL", args.split,
         "--METRICS", *metrics,
         "--USE_PARALLEL", "True",
         "--TRACKER_SUB_FOLDER", "",
@@ -409,12 +409,14 @@ def main(args):
         branch="master",
         overwrite=False
     )
-    download_MOT17_eval_data(
-        runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
-        mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
-        mot17_dest=Path("boxmot/engine/TrackEval/MOT17-50.zip"),
-        overwrite=False
-    )
+    
+    if Path(args.source).parent.name == 'MOT17':
+        download_MOT17_eval_data(
+            runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
+            mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
+            mot17_dest=Path("boxmot/engine/TrackEval/MOT17-50.zip"),
+            overwrite=False
+        )
 
     if args.command == 'generate_dets_embs':
         run_generate_dets_embs(args)
