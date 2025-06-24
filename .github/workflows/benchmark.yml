@@ -50,17 +50,17 @@ jobs:
         uses: actions/cache@v4
         with:
           # Specify the path where the dataset is stored
-          path: boxmot/engine/TrackEval/MOT17-50.zip
+          path: boxmot/engine/TrackEval/MOT17-ablation.zip
           # Create a cache key, you can use a fixed key if the dataset is static
-          key: mot17-50-dataset-cache-v3
+          key: mot17-ablation-dataset-cache-v3
 
       # Cache data for future runs (only if the cache was not already restored)
       - name: Cache MOT17.zip if not already cached
         if: steps.cache-restore.outputs.cache-hit != 'true'  # Only run if the cache was not hit
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/TracEval/MOT17-50.zip
-          key: mot17-50-dataset-cache-v3
+          path: boxmot/engine/TracEval/MOT17-ablation.zip
+          key: mot17-ablation-dataset-cache-v3
 
       - name: Evaluation and Summarize Results
         run: |
@@ -68,7 +68,7 @@ jobs:
 
           source .venv/bin/activate
 
-          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source boxmot/engine/TrackEval/data/MOT17-50/train; then
+          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source boxmot/engine/TrackEval/data/MOT17-ablation/train; then
             STATUS="✅"
           else
             STATUS="❌"

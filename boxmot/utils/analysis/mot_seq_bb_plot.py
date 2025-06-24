@@ -160,7 +160,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--seq_dir",
-        default="./boxmot/engine/TrackEval/data/MOT17-50/train/MOT17-09",
+        default="./boxmot/engine/TrackEval/data/MOT17-ablation/train/MOT17-09",
         help="Path to the MOT17 sequence folder (must contain img1/ and gt/ subfolders)"
     )
     parser.add_argument(
