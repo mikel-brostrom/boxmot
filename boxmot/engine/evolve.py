@@ -14,8 +14,9 @@ from ray.tune import RunConfig
 from ray.tune.search.optuna import OptunaSearch
 
 from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
+from boxmot.utils.download import download_trackeval
+
 from boxmot.engine.val import (
-    download_mot_eval_tools,
     run_generate_dets_embs,
     run_generate_mot_results,
     run_trackeval,
@@ -100,7 +101,12 @@ def main(opt):
     trainable = tune.with_resources(tune_wrapper, {"cpu": NUM_THREADS, "gpu": 0})
 
     # Ensure evaluation tools are available
-    download_mot_eval_tools(opt.val_tools_path)
+    download_trackeval(
+        dest=Path("TrackEval"),
+        branch="master",
+        overwrite=False
+    )
+
     # Check for existing run to resume
     if tune.Tuner.can_restore(restore_path):
         print(f"Resuming tuning from {restore_path}...")

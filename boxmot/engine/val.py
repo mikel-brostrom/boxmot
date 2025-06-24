@@ -37,12 +37,36 @@ from ultralytics.data.build import load_inference_source
 
 from boxmot.engine.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model, is_yolox_model)
-from boxmot.engine.utils import convert_to_mot_format, write_mot_results, download_mot_eval_tools, download_mot_dataset, unzip_mot_dataset, eval_setup, split_dataset
+from boxmot.engine.utils import convert_to_mot_format, write_mot_results, eval_setup
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from tqdm import tqdm
+from boxmot.utils.download import download_MOT17_eval_data, download_trackeval
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
+
+
+def prepare_eval() -> None:
+     # 1. Download runs.zip
+    runs_zip = download_file(
+        url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
+        dest_path="runs.zip",
+    )
+    
+    # 2. Download MOT17-50.zip
+    mot17_zip = download_file(
+        url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
+        dest_path="boxmot/engine/val_utils/MOT17-50.zip",
+    )
+    
+    # 3. Unzip runs.zip into current directory
+    extract_zip(runs_zip, extract_to=".")
+
+    # 4. Ensure data dir exists
+    os.makedirs("boxmot/engine/val_utils/data", exist_ok=True)
+
+    # 5. Unzip MOT17-50.zip into the data directory
+    extract_zip(mot17_zip, extract_to="boxmot/engine/val_utils/data")
 
 
 def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
@@ -402,19 +426,18 @@ def run_all(opt: argparse.Namespace) -> None:
 
 
 def main(args):
-    
-    # download MOT benchmark
-    download_mot_eval_tools(args.val_tools_path)
-
-    if not Path(args.source).exists():
-        zip_path = download_mot_dataset(args.val_tools_path, args.benchmark)
-        unzip_mot_dataset(zip_path, args.val_tools_path, args.benchmark)
-
-    if args.benchmark == 'MOT17':
-        cleanup_mot17(args.source)
-
-    if args.split_dataset:
-        args.source, args.benchmark = split_dataset(args.source)
+    # Download TrackEval
+    download_trackeval(
+        dest=Path("TrackEval"),
+        branch="master",
+        overwrite=False
+    )
+    download_MOT17_eval_data(
+        runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
+        mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
+        mot17_dest=Path("boxmot/engine/val_utils/MOT17-50.zip"),
+        overwrite=False
+    )
 
     if args.command == 'generate_dets_embs':
         run_generate_dets_embs(args)
@@ -436,7 +459,6 @@ def main(args):
         ytick_labels=['65', '70', '75', '80', '85']
     )
         
-    
 
 if __name__ == "__main__":
     main()
