@@ -1,0 +1,14 @@
+.idea
+.vscode
+**.pyc
+**__pycache__
+gt_data/*
+!gt_data/Readme.md
+tracker_output/*
+!tracker_output/Readme.md
+output/*
+data
+!goutput/Readme.md
+**/__pycache__
+.idea
+error_log.txt

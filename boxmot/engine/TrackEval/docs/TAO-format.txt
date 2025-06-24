@@ -1,0 +1,56 @@
+Taken from: https://github.com/TAO-Dataset/tao/blob/master/tao/toolkit/tao/tao.py
+
+Annotation file format:
+{
+    "info" : info,
+    "images" : [image],
+    "videos": [video],
+    "tracks": [track],
+    "annotations" : [annotation],
+    "categories": [category],
+    "licenses" : [license],
+}
+info: As in MS COCO
+image: {
+    "id" : int,
+    "video_id": int,
+    "file_name" : str,
+    "license" : int,
+    # Redundant fields for COCO-compatibility
+    "width": int,
+    "height": int,
+    "frame_index": int
+}
+video: {
+    "id": int,
+    "name": str,
+    "width" : int,
+    "height" : int,
+    "neg_category_ids": [int],
+    "not_exhaustive_category_ids": [int],
+    "metadata": dict,  # Metadata about the video
+}
+track: {
+    "id": int,
+    "category_id": int,
+    "video_id": int
+}
+category: {
+    "id": int,
+    "name": str,
+    "synset": str,  # For non-LVIS objects, this is "unknown"
+    ... [other fields copied from LVIS v0.5 and unused]
+}
+annotation: {
+    "image_id": int,
+    "track_id": int,
+    "bbox": [x,y,width,height],
+    "area": float,
+    # Redundant field for compatibility with COCO scripts
+    "category_id": int
+}
+license: {
+    "id" : int,
+    "name" : str,
+    "url" : str,
+}

@@ -215,7 +215,7 @@ def process_sequences_lazily(dataset: MOT17DetEmbDataset) -> None:
 
 if __name__ == "__main__":
     dataset = MOT17DetEmbDataset(
-        mot_root="./tracking/TrackEval/data/MOT17-50/train",
+        mot_root="./tracking/TrackEval/data/MOT17-ablation/train",
         det_emb_root="./runs/dets_n_embs",
         model_name="yolox_x_ablation",
         reid_name="lmbn_n_duke",
