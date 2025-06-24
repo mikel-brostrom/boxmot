@@ -102,7 +102,7 @@ def main(opt):
 
     # Ensure evaluation tools are available
     download_trackeval(
-        dest=Path("TrackEval"),
+        dest=Path("./boxmot/engine/TrackEval"),
         branch="master",
         overwrite=False
     )
