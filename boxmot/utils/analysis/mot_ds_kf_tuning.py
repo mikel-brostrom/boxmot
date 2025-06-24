@@ -170,13 +170,13 @@ def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Estimate Q/R and std_weight_* across all MOT17-50 train sequences"
+        description="Estimate Q/R and std_weight_* across all MOT17-ablation train sequences"
     )
     parser.add_argument(
         "--train_root", 
         type=Path,
-        default=Path("./boxmot/engine/TrackEval/data/MOT17-50/train"),
-        help="Root folder containing all MOT17-50 train sequences"
+        default=Path("./boxmot/engine/TrackEval/data/MOT17-ablation/train"),
+        help="Root folder containing all MOT17-ablation train sequences"
     )
     parser.add_argument(
         "--use_temp_gt", action="store_true",
