@@ -148,6 +148,7 @@ jobs:
           pwd
           cd boxmot/engine/trackeval
           pwd
+          cat boxmot/engine/trackeval/scripts/run_mot_challenge.py
       - name: Show Results
         shell: bash
         run: |
