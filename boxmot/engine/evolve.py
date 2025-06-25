@@ -71,7 +71,7 @@ class Tracker:
 
 def main(opt):
     # --- initial setup ---
-    opt.val_tools_path = EXAMPLES / "TrackEval"
+    opt.val_tools_path = EXAMPLES / "trackeval"
     opt.source = Path(opt.source).resolve()
     opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
     opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
@@ -102,7 +102,7 @@ def main(opt):
 
     # Ensure evaluation tools are available
     download_trackeval(
-        dest=Path("./boxmot/engine/TrackEval"),
+        dest=Path("./boxmot/engine/trackeval"),
         branch="master",
         overwrite=False
     )
