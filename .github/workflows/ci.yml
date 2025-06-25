@@ -118,6 +118,9 @@ jobs:
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
+          ls -a
+          ls boxmot -a
+          ls boxmot/engine -a
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
           for tracker in $TRACKERS; do
