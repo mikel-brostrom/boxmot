@@ -405,7 +405,7 @@ def run_all(opt: argparse.Namespace) -> None:
 def main(args):
     # Download TrackEval
     download_trackeval(
-        dest=Path("./boxmot/engine/trackeval"),
+        dest=Path(BOXMOT / "engine/trackeval"),
         branch="master",
         overwrite=False
     )
@@ -414,10 +414,10 @@ def main(args):
         download_MOT17_eval_data(
             runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
             mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip",
-            mot17_dest=Path("./boxmot/engine/trackeval/MOT17-ablation.zip"),
+            mot17_dest=BOXMOT / "engine/trackeval/MOT17-ablation.zip",
             overwrite=False
         )
-        args.source = Path("./boxmot/engine/trackeval/data/MOT17-ablation/train")
+        args.source = BOXMOT / "engine/trackeval/data/MOT17-ablation/train"
 
     if args.command == 'generate_dets_embs':
         run_generate_dets_embs(args)
