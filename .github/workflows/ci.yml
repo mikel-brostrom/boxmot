@@ -118,9 +118,7 @@ jobs:
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
-          ls -a
-          ls boxmot -a
-          ls boxmot/engine -a
+
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
           for tracker in $TRACKERS; do
@@ -141,6 +139,12 @@ jobs:
           (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
           # Create a pretty table from the sorted_results.csv file
           column -s, -t sorted_results.csv > pretty_results.txt
+          pwd
+          ls -a
+          pwd
+          ls boxmot -a
+          pwd
+          ls boxmot/engine -a
       - name: Show Results
         shell: bash
         run: |
