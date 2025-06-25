@@ -21,7 +21,7 @@ import copy
 import concurrent.futures
 
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
+from boxmot.utils import ROOT, BOXMOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
