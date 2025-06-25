@@ -142,7 +142,7 @@ jobs:
           pwd
           ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval -a
           pwd
-          ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval -a
+          ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval/data -a
       - name: Show Results
         shell: bash
         run: |
