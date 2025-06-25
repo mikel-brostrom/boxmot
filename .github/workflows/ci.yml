@@ -140,16 +140,9 @@ jobs:
           # Create a pretty table from the sorted_results.csv file
           column -s, -t sorted_results.csv > pretty_results.txt
           pwd
-          ls -a
+          ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval -a
           pwd
-          ls boxmot -a
-          pwd
-          ls boxmot/engine -a
-          pwd
-          cd boxmot/engine/trackeval
-          pwd
-          cat /home/runner/work/boxmot/boxmot/engine/trackeval/scripts/run_mot_challenge.py
-          cat /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval/scripts/run_mot_challenge.py
+          ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval -a
       - name: Show Results
         shell: bash
         run: |
