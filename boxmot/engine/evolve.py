@@ -14,9 +14,10 @@ from ray.tune import RunConfig
 from ray.tune.search.optuna import OptunaSearch
 
 from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
-from boxmot.utils.download import download_trackeval
-
+from boxmot.utils.download import download_mot_challenge_eval_data, download_trackeval
 from boxmot.engine.val import (
+    eval_init,
+    load_dataset_cfg,
     run_generate_dets_embs,
     run_generate_mot_results,
     run_trackeval,
@@ -69,24 +70,18 @@ class Tracker:
         return {k: results.get(k) for k in self.opt.objectives}
 
 
-def main(opt):
+def main(args):
     # --- initial setup ---
-    #opt.val_tools_path = EXAMPLES / "trackeval"
-    opt.source = Path(opt.source).resolve()
-    opt.yolo_model = [Path(y).resolve() for y in opt.yolo_model]
-    opt.reid_model = [Path(r).resolve() for r in opt.reid_model]
-    
-    print('opt.yolo_model', opt.yolo_model)
-    print('opt.reid_model', opt.reid_model)
+    args.yolo_model = [Path(y).resolve() for y in args.yolo_model]
+    args.reid_model = [Path(r).resolve() for r in args.reid_model]
 
     # Load search space
-    yaml_cfg = load_yaml_config(opt.tracking_method)
+    yaml_cfg = load_yaml_config(args.tracking_method)
     search_space = yaml_to_search_space(yaml_cfg)
-    tracker = Tracker(opt)
-    run_generate_dets_embs(opt)
+    tracker = Tracker(args)
 
     # Optuna search setup
-    primary_metric = opt.objectives[0]
+    primary_metric = args.objectives[0]
     optuna_search = OptunaSearch(metric=primary_metric, mode="max")
 
     def tune_wrapper(cfg):
@@ -94,18 +89,15 @@ def main(opt):
 
     # Paths for storage and restore
     results_dir = os.path.abspath("ray/")
-    tune_name = f"{opt.tracking_method}_tune"
+    tune_name = f"{args.tracking_method}_tune"
     restore_path = os.path.join(results_dir, tune_name)
 
     # Define trainable
     trainable = tune.with_resources(tune_wrapper, {"cpu": NUM_THREADS, "gpu": 0})
 
     # Ensure evaluation tools are available
-    download_trackeval(
-        dest=Path("./boxmot/engine/trackeval"),
-        branch="master",
-        overwrite=False
-    )
+    eval_init(args)
+    run_generate_dets_embs(args)
 
     # Check for existing run to resume
     if tune.Tuner.can_restore(restore_path):
@@ -120,7 +112,7 @@ def main(opt):
             trainable,
             param_space=search_space,
             tune_config=tune.TuneConfig(
-                num_samples=opt.n_trials,
+                num_samples=args.n_trials,
                 search_alg=optuna_search,
             ),
             run_config=RunConfig(
