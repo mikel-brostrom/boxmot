@@ -421,10 +421,8 @@ def main(args):
         args.benchmark = "MOT17-ablation"
         args.split = "train"
 
-    if args.command == 'generate_dets_embs':
+    if args.command == 'generate':
         run_generate_dets_embs(args)
-    elif args.command == 'generate_mot_results':
-        run_generate_mot_results(args)
     elif args.command == 'trackeval':
         results = run_trackeval(args)
     else:
