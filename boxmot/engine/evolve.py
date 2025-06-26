@@ -14,7 +14,6 @@ from ray.tune import RunConfig
 from ray.tune.search.optuna import OptunaSearch
 
 from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
-from boxmot.utils.download import download_mot_challenge_eval_data, download_trackeval
 from boxmot.engine.val import (
     eval_init,
     load_dataset_cfg,
