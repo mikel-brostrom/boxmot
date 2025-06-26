@@ -21,13 +21,6 @@ from boxmot.utils import logger as LOGGER
 DEPRECATED_TYPES = {"np.float": "float", "np.int": "int", "np.bool": "bool"}
 
 
-def configure_logger(verbose: bool):
-    """Configure root logger level."""
-    level = logging.DEBUG if verbose else logging.INFO
-    LOGGER.setLevel(level)
-    LOGGER.debug(f"Logger configured to level: {logging.getLevelName(level)}")
-
-
 def get_http_session(retries: int = 3, backoff_factor: float = 0.3) -> requests.Session:
     """Create HTTP session with retry strategy."""
     session = requests.Session()
@@ -223,8 +216,6 @@ if __name__ == "__main__":
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing downloads and extractions.")
     parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
     args = parser.parse_args()
-
-    configure_logger(args.verbose)
 
     LOGGER.debug(f"Script started with args: branch={args.branch}, overwrite={args.overwrite}, verbose={args.verbose}")
 
