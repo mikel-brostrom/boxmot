@@ -166,7 +166,7 @@ Evaluate a combination of detector, tracking method and ReID model on standard M
 $ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source MOT17-ablation --verbose 
 # MOT20 results
 $ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source MOT20-ablation --verbose 
-# Bytetrack results
+# Dancetrack results
 $ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source dancetrack-ablation --verbose 
 # metrics on custom dataset
 $ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method deepocsort  --source ./assets/MOT17-mini/train --verbose
