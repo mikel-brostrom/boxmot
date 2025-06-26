@@ -40,7 +40,7 @@ from boxmot.engine.detectors import (get_yolo_inferer, default_imgsz,
 from boxmot.engine.utils import convert_to_mot_format, write_mot_results, eval_setup
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from tqdm import tqdm
-from boxmot.utils.download import download_MOT17_eval_data, download_trackeval
+from boxmot.utils.download import download_MOT17_eval_data, download_MOT20_eval_data, download_trackeval
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
@@ -420,11 +420,18 @@ def main(args):
         args.source = Path("./boxmot/engine/trackeval/data/MOT17-ablation/train")
         args.benchmark = "MOT17-ablation"
         args.split = "train"
+    if Path(args.source).parent.name == "MOT20" or args.source == "MOT20":
+        download_MOT20_eval_data(
+            mot20_url="https://motchallenge.net/data/MOT20.zip",  # official MOT20 zip :contentReference[oaicite:0]{index=0}
+            mot20_dest=Path("boxmot/engine/trackeval/MOT20.zip"),
+            overwrite=False
+        )
+        args.source = Path("./boxmot/engine/trackeval/data/MOT20/train")
+        args.benchmark = "MOT20"
+        args.split = "train"
 
-    if args.command == 'generate_dets_embs':
+    if args.command == 'generate':
         run_generate_dets_embs(args)
-    elif args.command == 'generate_mot_results':
-        run_generate_mot_results(args)
     elif args.command == 'trackeval':
         results = run_trackeval(args)
     else:

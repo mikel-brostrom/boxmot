@@ -1,0 +1,10 @@
+# mot20.yaml
+download:
+  mot20_url: "https://motchallenge.net/data/MOT20.zip"
+  mot20_dest: "boxmot/engine/trackeval/MOT20.zip"
+  overwrite: false
+
+benchmark_cfg:
+  source: "MOT20"
+  benchmark: "MOT20"
+  split: "train"

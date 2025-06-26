@@ -17,7 +17,7 @@ ROOT = FILE.parents[2]  # root directory
 DATA = ROOT / "data"
 BOXMOT = ROOT / "boxmot"
 TOML = ROOT / "pyproject.toml"
-TRACKER_CONFIGS = ROOT / "boxmot" / "configs"
+TRACKER_CONFIGS = ROOT / "boxmot" / "configs" / "trackers"
 
 EXAMPLES = BOXMOT / "engine"
 WEIGHTS = BOXMOT / "engine" / "weights"
