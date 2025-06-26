@@ -1,11 +1,10 @@
 # mot17_ablation.yaml
 download:
   runs_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip"
-  mot17_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip"
-  mot17_dest: "boxmot/engine/trackeval/MOT17-ablation.zip"
+  dataset_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip"
+  dataset_dest: "boxmot/engine/trackeval/MOT17-ablation.zip"
   overwrite: false
 
-benchmark_cfg:
-  source: "MOT17-ablation"
-  benchmark: "MOT17-ablation"
+benchmark:
+  name: "MOT17-ablation"
   split: "train"
