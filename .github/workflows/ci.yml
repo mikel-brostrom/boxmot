@@ -141,6 +141,8 @@ jobs:
           column -s, -t sorted_results.csv > pretty_results.txt
           ls -a
           pwd
+          ls /home/runner/work/boxmot/boxmot/boxmot/engine -a
+          pwd
           ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval -a
           pwd
           ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval/data -a
