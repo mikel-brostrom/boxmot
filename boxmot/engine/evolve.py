@@ -89,7 +89,8 @@ def main(args):
 
     # Paths for storage and restore
     tune_name = f"{args.tracking_method}_tune"
-    restore_path = args.project / "ray" / tune_name
+    results_dir = args.project / "ray"
+    restore_path = results_dir / tune_name
 
     # Define trainable
     trainable = tune.with_resources(tune_wrapper, {"cpu": NUM_THREADS, "gpu": 0})
