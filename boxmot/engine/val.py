@@ -206,7 +206,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_res
     d = [seq_path.parent.name for seq_path in seq_paths]
 
     args = [
-        sys.executable, EXAMPLES / 'TrackEval' / 'scripts' / 'run_mot_challenge.py',
+        sys.executable, EXAMPLES / 'trackeval' / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
         "--TRACKERS_FOLDER", args.exp_folder_path,
@@ -405,18 +405,21 @@ def run_all(opt: argparse.Namespace) -> None:
 def main(args):
     # Download TrackEval
     download_trackeval(
-        dest=Path("./boxmot/engine/TrackEval"),
+        dest=Path("./boxmot/engine/trackeval"),
         branch="master",
         overwrite=False
     )
     
-    if Path(args.source).parent.name == 'MOT17-ablation':
+    if Path(args.source).parent.name == "MOT17-ablation" or args.source == "MOT17-ablation":
         download_MOT17_eval_data(
             runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
-            mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
-            mot17_dest=Path("boxmot/engine/TrackEval/MOT17-ablation.zip"),
+            mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip",
+            mot17_dest=Path("boxmot/engine/trackeval/MOT17-ablation.zip"),
             overwrite=False
         )
+        args.source = Path("./boxmot/engine/trackeval/data/MOT17-ablation/train")
+        args.benchmark = "MOT17-ablation"
+        args.split = "train"
 
     if args.command == 'generate_dets_embs':
         run_generate_dets_embs(args)
