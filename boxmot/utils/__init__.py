@@ -11,16 +11,18 @@ import multiprocessing as mp
 # global logger
 from loguru import logger
 
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[2]  # root directory
-
+ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
-BOXMOT = ROOT / "boxmot"
 TOML = ROOT / "pyproject.toml"
-TRACKER_CONFIGS = ROOT / "boxmot" / "configs" / "trackers"
 
-EXAMPLES = BOXMOT / "engine"
-WEIGHTS = BOXMOT / "engine" / "weights"
+BOXMOT     = ROOT / "boxmot"
+CONFIGS    = BOXMOT / "configs"
+TRACKERS   = CONFIGS / "trackers"
+DATASETS   = CONFIGS / "datasets"
+
+ENGINE   = BOXMOT / "engine"
+EXAMPLES = ENGINE
+WEIGHTS  = ENGINE / "weights"
 
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))
 
