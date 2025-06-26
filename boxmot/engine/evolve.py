@@ -112,7 +112,7 @@ def main(args):
         args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/train")
         args.split = cfg["benchmark"]["split"]
 
-    args.source = args.source.resolve()
+    args.source = Path(args.source).resolve()
     run_generate_dets_embs(args)
 
     # Check for existing run to resume
