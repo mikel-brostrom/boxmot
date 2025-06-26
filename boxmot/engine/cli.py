@@ -114,12 +114,6 @@ def main():
         help='Generate detections and embeddings'
     )
     sub.add_parser(
-        'generate-mot-results',
-        parents=[common_parser, eval_parent],
-        conflict_handler='resolve',
-        help='Generate MOT evaluation results'
-    )
-    sub.add_parser(
         'eval',
         parents=[common_parser, eval_parent],
         conflict_handler='resolve',
@@ -146,12 +140,9 @@ def main():
     if args.command == 'track':
         from boxmot.engine.track import main as run_track
         run_track(args)
-    elif args.command == 'generate-dets-embs':
+    elif args.command == 'generate':
         from boxmot.engine.val import run_generate_dets_embs
         run_generate_dets_embs(args)
-    elif args.command == 'generate-mot-results':
-        from boxmot.engine.val import run_generate_mot_results
-        run_generate_mot_results(args)
     # trackeval only support single class evaluation in its current setup
     elif args.command in ('eval', 'all'):
         from boxmot.engine.val import main as run_eval
