@@ -41,7 +41,7 @@ from boxmot.engine.detectors import (get_yolo_inferer, default_imgsz,
 from boxmot.engine.utils import convert_to_mot_format, write_mot_results, eval_setup
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from tqdm import tqdm
-from boxmot.utils.download import download_mot_challenge_eval_data, download_trackeval
+from boxmot.utils.download import download_eval_data, download_trackeval
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
@@ -61,17 +61,18 @@ def eval_init(args,
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
 
     # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    if args.source in ("MOT17-ablation", "MOT20-ablation"):
+    if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack"):
         cfg = load_dataset_cfg(str(args.source))
-        download_mot_challenge_eval_data(
+        download_eval_data(
             runs_url=cfg["download"]["dataset_url"],
             dataset_url=cfg["download"]["dataset_url"],
             dataset_dest=Path(cfg["download"]["dataset_dest"]),
             overwrite=overwrite
         )
         args.benchmark = cfg["benchmark"]["name"]
-        args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/train")
         args.split = cfg["benchmark"]["split"]
+        args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/{args.split}")
+        
 
     # 3) finally, make source an absolute Path everywhere
     args.source = Path(args.source).resolve()
