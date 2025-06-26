@@ -236,5 +236,5 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
                 np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%d,%d,%.6f")
 
 
-new_folder, name = split_dataset(Path("./boxmot/engine/trackeval/data/MOT20/train"), percent_to_delete=0.5)
-print(new_folder, name)
+# new_folder, name = split_dataset(Path("./boxmot/engine/trackeval/data/MOT20/train"), percent_to_delete=0.5)
+# print(new_folder, name)
