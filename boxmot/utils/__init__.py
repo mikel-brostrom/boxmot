@@ -17,8 +17,8 @@ TOML = ROOT / "pyproject.toml"
 
 BOXMOT     = ROOT / "boxmot"
 CONFIGS    = BOXMOT / "configs"
-TRACKERS   = CONFIGS / "trackers"
-DATASETS   = CONFIGS / "datasets"
+TRACKER_CONFIGS   = CONFIGS / "trackers"
+DATASET_CONFIGS   = CONFIGS / "datasets"
 
 ENGINE   = BOXMOT / "engine"
 EXAMPLES = ENGINE
