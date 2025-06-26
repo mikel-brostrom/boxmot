@@ -167,7 +167,7 @@ $ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tra
 # MOT20 results
 $ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source MOT20-ablation --verbose 
 # Bytetrack results
-$ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source bytetrack --verbose 
+$ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source dancetrack-ablation --verbose 
 # metrics on custom dataset
 $ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method deepocsort  --source ./assets/MOT17-mini/train --verbose
 ```
