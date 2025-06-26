@@ -162,8 +162,12 @@ boxmot track --source 0 --yolo-model yolov8s.pt --classes 16 17  # COCO yolov8 m
 Evaluate a combination of detector, tracking method and ReID model on standard MOT dataset or you custom one by
 
 ```bash
-# reproduce README results
+# reproduce MOT17 README results
 $ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source MOT17-ablation --verbose 
+# MOT20 results
+$ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source MOT20-ablation --verbose 
+# Bytetrack results
+$ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source bytetrack --verbose 
 # metrics on custom dataset
 $ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method deepocsort  --source ./assets/MOT17-mini/train --verbose
 ```
