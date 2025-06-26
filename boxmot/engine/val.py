@@ -11,6 +11,7 @@ from tqdm import tqdm
 import configparser
 import shutil
 import json
+import yaml
 import cv2
 import re
 import os
@@ -21,7 +22,7 @@ import copy
 import concurrent.futures
 
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
+from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, EXAMPLES
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
@@ -40,10 +41,40 @@ from boxmot.engine.detectors import (get_yolo_inferer, default_imgsz,
 from boxmot.engine.utils import convert_to_mot_format, write_mot_results, eval_setup
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from tqdm import tqdm
-from boxmot.utils.download import download_MOT17_eval_data, download_trackeval
+from boxmot.utils.download import download_mot_challenge_eval_data, download_trackeval
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
+
+
+def eval_init(args,
+              trackeval_dest: Path = Path("./boxmot/engine/trackeval"),
+              branch: str = "master",
+              overwrite: bool = False
+    ) -> None:
+    """
+    Common initialization: download TrackEval and (if needed) the MOT-challenge
+    data for ablation runs, then canonicalize args.source.
+    Modifies args in place.
+    """
+    # 1) download the TrackEval code
+    download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
+
+    # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
+    if args.source in ("MOT17-ablation", "MOT20-ablation"):
+        cfg = load_dataset_cfg(str(args.source))
+        download_mot_challenge_eval_data(
+            runs_url=cfg["download"]["dataset_url"],
+            dataset_url=cfg["download"]["dataset_url"],
+            dataset_dest=Path(cfg["download"]["dataset_dest"]),
+            overwrite=overwrite
+        )
+        args.benchmark = cfg["benchmark"]["name"]
+        args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/train")
+        args.split = cfg["benchmark"]["split"]
+
+    # 3) finally, make source an absolute Path everywhere
+    args.source = Path(args.source).resolve()
 
 
 def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
@@ -402,24 +433,16 @@ def run_all(opt: argparse.Namespace) -> None:
     return run_trackeval(opt)
 
 
+def load_dataset_cfg(name: str) -> dict:
+    """Load the dict from boxmot/configs/datasets/{name}.yaml."""
+    path = DATASET_CONFIGS / f"{name}.yaml"
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+
 def main(args):
     # Download TrackEval
-    download_trackeval(
-        dest=Path("./boxmot/engine/trackeval"),
-        branch="master",
-        overwrite=False
-    )
-    
-    if Path(args.source).parent.name == "MOT17-ablation" or args.source == "MOT17-ablation":
-        download_MOT17_eval_data(
-            runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
-            mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip",
-            mot17_dest=Path("boxmot/engine/trackeval/MOT17-ablation.zip"),
-            overwrite=False
-        )
-        args.source = Path("./boxmot/engine/trackeval/data/MOT17-ablation/train")
-        args.benchmark = "MOT17-ablation"
-        args.split = "train"
+    eval_init(args)
 
     if args.command == 'generate':
         run_generate_dets_embs(args)
