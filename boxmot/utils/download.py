@@ -10,6 +10,7 @@ import os
 import logging
 from pathlib import Path
 from zipfile import ZipFile, BadZipFile
+from typing import Optional, List, Dict, Generator, Union
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -183,31 +184,38 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     LOGGER.info(f"[BoxMOT] ✅ TrackEval setup complete at: {dest.resolve()}")
 
 
-def download_MOT20_eval_data(mot20_url: str, mot20_dest: Path, overwrite: bool = False) -> None:
+def download_mot_challenge_eval_data(
+    *,
+    runs_url: Optional[str] = None,
+    dataset_url: str,
+    dataset_dest: Path,
+    overwrite: bool = False
+) -> None:
     """
-    Download and extract the official MOT20 benchmark for TrackEval.
+    Download & extract TrackEval evaluation data.
+    If `runs_url` is truthy, downloads+unzips runs.zip; otherwise skips it.
+    Always downloads+unzips the MOT17 data.
     """
-    LOGGER.info("[BoxMOT] ⬇️  Downloading MOT20 evaluation data")
-    # Download the MOT20 zip
-    mot20_zip = download_file(mot20_url, mot20_dest, overwrite=overwrite)
-    # Extract into a `data/MOT20` folder alongside TrackEval
-    extract_zip(mot20_zip, mot20_dest.parent / "data", overwrite=overwrite)
-    LOGGER.info(f"[BoxMOT] ✅ MOT20 data ready at: {mot20_dest.parent/'data'/'MOT20'}")
+    LOGGER.info(f"[BoxMOT] ⬇️  Setting up evaluation data")
 
+    # Optional runs data
+    if runs_url:
+        LOGGER.info(f"[BoxMOT] ⬇️  Downloading runs.zip from {runs_url}")
+        runs_zip = download_file(runs_url, Path("runs.zip"), overwrite=overwrite)
+        extract_zip(runs_zip, Path("."), overwrite=overwrite)
+    else:
+        LOGGER.debug(f"[BoxMOT] ⚠️  No runs_url provided, skipping runs download")
 
-def download_MOT17_eval_data(runs_url: str, mot17_url: str, mot17_dest: Path, overwrite: bool = False) -> None:
-    LOGGER.info(f"[BoxMOT] ⬇️  Downloading evaluation data from runs_url and mot17_url")
-
-    # Download runs.zip
-    runs_zip = download_file(runs_url, Path("runs.zip"), overwrite=overwrite)
-    extract_zip(runs_zip, Path("."), overwrite=overwrite)
-
-    # Download MOT17 ZIP
-    mot17_zip = download_file(mot17_url, mot17_dest, overwrite=overwrite)
-    data_dir = mot17_dest.parent / "data"
+    # MOT17 ZIP
+    LOGGER.info(f"[BoxMOT] ⬇️  Downloading MOT17 data from {dataset_url}")
+    mot17_zip = download_file(dataset_url, dataset_dest, overwrite=overwrite)
+    data_dir = dataset_dest.parent / "data"
     extract_zip(mot17_zip, data_dir, overwrite=overwrite)
 
-    LOGGER.info(f"[BoxMOT] ✅ Evaluation data setup complete. Runs data at './runs.zip', MOT17 data at '{data_dir.resolve()}'")
+    LOGGER.info(
+        f"[BoxMOT] ✅ Evaluation data setup complete. "
+        f"MOT17 data at '{data_dir.resolve()}'"
+    )
 
 
 if __name__ == "__main__":
