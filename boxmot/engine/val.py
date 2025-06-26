@@ -61,7 +61,7 @@ def eval_init(args,
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
 
     # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack"):
+    if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack-ablation"):
         cfg = load_dataset_cfg(str(args.source))
         download_eval_data(
             runs_url=cfg["download"]["dataset_url"],
