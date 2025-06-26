@@ -163,8 +163,10 @@ boxmot track --source 0 --yolo-model yolov8s.pt --classes 16 17  # COCO yolov8 m
 Evaluate a combination of detector, tracking method and ReID model on standard MOT dataset or you custom one by
 
 ```bash
-$ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method deepocsort --verbose --source ./assets/MOT17-mini/train
-$ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method ocsort     --verbose --source MOT17-ablation
+# reproduce README results
+$ boxmot eval --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source MOT17-ablation --verbose 
+# metrics on custom dataset
+$ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method deepocsort  --source ./assets/MOT17-mini/train --verbose
 ```
 
 add `--gsi` to your command for postprocessing the MOT results by gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
