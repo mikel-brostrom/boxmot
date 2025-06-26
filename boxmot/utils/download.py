@@ -190,6 +190,18 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     LOGGER.info(f"[BoxMOT] ✅ TrackEval setup complete at: {dest.resolve()}")
 
 
+def download_MOT20_eval_data(mot20_url: str, mot20_dest: Path, overwrite: bool = False) -> None:
+    """
+    Download and extract the official MOT20 benchmark for TrackEval.
+    """
+    LOGGER.info("[BoxMOT] ⬇️  Downloading MOT20 evaluation data")
+    # Download the MOT20 zip
+    mot20_zip = download_file(mot20_url, mot20_dest, overwrite=overwrite)
+    # Extract into a `data/MOT20` folder alongside TrackEval
+    extract_zip(mot20_zip, mot20_dest.parent / "data", overwrite=overwrite)
+    LOGGER.info(f"[BoxMOT] ✅ MOT20 data ready at: {mot20_dest.parent/'data'/'MOT20'}")
+
+
 def download_MOT17_eval_data(runs_url: str, mot17_url: str, mot17_dest: Path, overwrite: bool = False) -> None:
     LOGGER.info(f"[BoxMOT] ⬇️  Downloading evaluation data from runs_url and mot17_url")
 
