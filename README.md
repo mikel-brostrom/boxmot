@@ -65,8 +65,7 @@ Usage: boxmot COMMAND [ARGS]...
 
 Commands:
   track                  Run tracking only
-  generate-dets-embs     Generate detections and embeddings
-  generate-mot-results   Generate MOT evaluation results based on pregenerated detecions and embeddings
+  generate               Generate detections and embeddings
   eval                   Evaluate tracking performance using the official trackeval repository
   tune                   Tune tracker hyperparameters based on selected detections and embeddings
 ```
@@ -180,7 +179,7 @@ We use a fast and elitist multiobjective genetic algorithm for tracker hyperpara
 
 ```bash
 # saves dets and embs under ./runs/dets_n_embs separately for each selected yolo and reid model
-$ boxmot generate-dets-embs --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
+$ boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
 # evolve parameters for specified tracking method using the selected detections and embeddings generated in the previous step
 $ boxmot tune --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method botsort --source ./assets/MOT17-mini/train
 ```

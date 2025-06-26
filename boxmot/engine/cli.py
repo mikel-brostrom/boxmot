@@ -108,7 +108,7 @@ def main():
     # Sub-commands inherit their respective flags
     sub.add_parser('track', parents=[common_parser], help='Run tracking only')
     sub.add_parser(
-        'generate-dets-embs',
+        'generate',
         parents=[common_parser, eval_parent],
         conflict_handler='resolve',
         help='Generate detections and embeddings'
