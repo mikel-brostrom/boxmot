@@ -1,5 +1,7 @@
-from boxmot.registry.reid.config import REID_BACKBONES, REID_URLS, REID_CLASSES_NUM
-from boxmot.registry.registry import ModelRegistry
+from boxmot.registry import ModelRegistry
+from boxmot.registry.reid.config import (REID_BACKBONES, 
+                                         REID_URLS, 
+                                         REID_CLASSES_NUM)
 
 
 class ReIDModelRegistry(ModelRegistry):
