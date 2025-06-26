@@ -41,7 +41,7 @@ from boxmot.engine.detectors import (get_yolo_inferer, default_imgsz,
 from boxmot.engine.utils import convert_to_mot_format, write_mot_results, eval_setup
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from tqdm import tqdm
-from boxmot.utils.download import download_MOT17_eval_data, download_MOT20_eval_data, download_trackeval
+from boxmot.utils.download import download_mot_challenge_eval_data, download_trackeval
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
@@ -418,28 +418,17 @@ def main(args):
         overwrite=False
     )
     
-    if args.source == "MOT17-ablation":
-        cfg = load_dataset_cfg("MOT17-ablation")
-        download_MOT17_eval_data(
-            runs_url=cfg["download"]["runs_url"],
-            mot17_url=Path(cfg["download"]["mot17_url"]),
-            mot17_dest=cfg["download"]["mot17_dest"],
+    if args.source == "MOT17-ablation" or args.source == "MOT20-ablation":
+        cfg = load_dataset_cfg(str(args.source))
+        download_mot_challenge_eval_data(
+            runs_url=cfg["download"]["dataset_url"],
+            dataset_url=cfg["download"]["dataset_url"],
+            dataset_dest=Path(cfg["download"]["dataset_dest"]),
             overwrite=False
         )
-        args.source = Path("./boxmot/engine/trackeval/data/MOT17-ablation/train")
-        args.benchmark = "MOT17-ablation"
-        args.split = "train"
-         
-    elif args.source == "MOT20-ablation":
-        cfg = load_dataset_cfg("MOT20-ablation")
-        download_MOT20_eval_data(
-            mot20_url=cfg["download"]["mot20_url"],  # official MOT20 zip :contentReference[oaicite:0]{index=0}
-            mot20_dest=Path(cfg["download"]["mot20_dest"]),
-            overwrite=False
-        )
-        args.source = Path("./boxmot/engine/trackeval/data/MOT20/train")
-        args.benchmark = "MOT20-ablation"
-        args.split = "train"
+        args.benchmark = cfg["benchmark"]["name"]
+        args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/train")
+        args.split = cfg["benchmark"]["split"]
 
     if args.command == 'generate':
         run_generate_dets_embs(args)
