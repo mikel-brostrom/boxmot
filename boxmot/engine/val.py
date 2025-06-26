@@ -70,8 +70,9 @@ def eval_init(args,
             overwrite=overwrite
         )
         args.benchmark = cfg["benchmark"]["name"]
-        args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/train")
         args.split = cfg["benchmark"]["split"]
+        args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/{args.split}")
+        
 
     # 3) finally, make source an absolute Path everywhere
     args.source = Path(args.source).resolve()
