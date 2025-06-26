@@ -78,7 +78,7 @@ def main():
                                default=["HOTA", "MOTA", "IDF1"],
                                help='objectives for tuning: HOTA, MOTA, IDF1')
     common_parser.add_argument('--val-tools-path', type=Path,
-                               default=EXAMPLES / 'val_utils',
+                               default=EXAMPLES / 'trackeval',
                                help='where to clone trackeval')
     common_parser.add_argument('--split-dataset', action='store_true',
                                help='use second half of dataset')
