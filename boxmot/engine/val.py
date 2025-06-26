@@ -47,6 +47,36 @@ checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
 
 
+def eval_init(args,
+              trackeval_dest: Path = Path("./boxmot/engine/trackeval"),
+              branch: str = "master",
+              overwrite: bool = False
+    ) -> None:
+    """
+    Common initialization: download TrackEval and (if needed) the MOT-challenge
+    data for ablation runs, then canonicalize args.source.
+    Modifies args in place.
+    """
+    # 1) download the TrackEval code
+    download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
+
+    # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
+    if args.source in ("MOT17-ablation", "MOT20-ablation"):
+        cfg = load_dataset_cfg(str(args.source))
+        download_mot_challenge_eval_data(
+            runs_url=cfg["download"]["dataset_url"],
+            dataset_url=cfg["download"]["dataset_url"],
+            dataset_dest=Path(cfg["download"]["dataset_dest"]),
+            overwrite=overwrite
+        )
+        args.benchmark = cfg["benchmark"]["name"]
+        args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/train")
+        args.split = cfg["benchmark"]["split"]
+
+    # 3) finally, make source an absolute Path everywhere
+    args.source = Path(args.source).resolve()
+
+
 def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
     """
     Generates detections and embeddings for the specified 
@@ -412,23 +442,7 @@ def load_dataset_cfg(name: str) -> dict:
 
 def main(args):
     # Download TrackEval
-    download_trackeval(
-        dest=Path("./boxmot/engine/trackeval"),
-        branch="master",
-        overwrite=False
-    )
-    
-    if args.source == "MOT17-ablation" or args.source == "MOT20-ablation":
-        cfg = load_dataset_cfg(str(args.source))
-        download_mot_challenge_eval_data(
-            runs_url=cfg["download"]["dataset_url"],
-            dataset_url=cfg["download"]["dataset_url"],
-            dataset_dest=Path(cfg["download"]["dataset_dest"]),
-            overwrite=False
-        )
-        args.benchmark = cfg["benchmark"]["name"]
-        args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/train")
-        args.split = cfg["benchmark"]["split"]
+    eval_init(args)
 
     if args.command == 'generate':
         run_generate_dets_embs(args)

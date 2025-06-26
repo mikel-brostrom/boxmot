@@ -16,6 +16,7 @@ from ray.tune.search.optuna import OptunaSearch
 from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
 from boxmot.utils.download import download_mot_challenge_eval_data, download_trackeval
 from boxmot.engine.val import (
+    eval_init,
     load_dataset_cfg,
     run_generate_dets_embs,
     run_generate_mot_results,
@@ -95,24 +96,7 @@ def main(args):
     trainable = tune.with_resources(tune_wrapper, {"cpu": NUM_THREADS, "gpu": 0})
 
     # Ensure evaluation tools are available
-    download_trackeval(
-        dest=Path("./boxmot/engine/trackeval"),
-        branch="master",
-        overwrite=False
-    )
-    if args.source == "MOT17-ablation" or args.source == "MOT20-ablation":
-        cfg = load_dataset_cfg(str(args.source))
-        download_mot_challenge_eval_data(
-            runs_url=cfg["download"]["dataset_url"],
-            dataset_url=cfg["download"]["dataset_url"],
-            dataset_dest=Path(cfg["download"]["dataset_dest"]),
-            overwrite=False
-        )
-        args.benchmark = cfg["benchmark"]["name"]
-        args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/train")
-        args.split = cfg["benchmark"]["split"]
-
-    args.source = Path(args.source).resolve()
+    eval_init(args)
     run_generate_dets_embs(args)
 
     # Check for existing run to resume
