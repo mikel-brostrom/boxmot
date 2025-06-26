@@ -44,7 +44,7 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate-dets-embs --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
+          boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
       - name: Run tracking method
         run: |
           source .venv/bin/activate
@@ -114,7 +114,7 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate-dets-embs  --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+          boxmot generate --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
