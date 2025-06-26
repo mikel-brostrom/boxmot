@@ -50,7 +50,7 @@ jobs:
         uses: actions/cache@v4
         with:
           # Specify the path where the dataset is stored
-          path: boxmot/engine/TrackEval/MOT17-ablation.zip
+          path: boxmot/engine/trackeval/MOT17-ablation.zip
           # Create a cache key, you can use a fixed key if the dataset is static
           key: mot17-ablation-dataset-cache-v3
 
@@ -64,7 +64,7 @@ jobs:
 
       - name: Evaluation and Summarize Results
         run: |
-          ls boxmot/engine/TrackEval/data
+          ls boxmot/engine/trackeval/data
 
           source .venv/bin/activate
 
