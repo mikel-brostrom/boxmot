@@ -438,7 +438,7 @@ def main(args):
             overwrite=False
         )
         args.source = Path("./boxmot/engine/trackeval/data/MOT20/train")
-        args.benchmark = "MOT20"
+        args.benchmark = "MOT20-ablation"
         args.split = "train"
 
     if args.command == 'generate':
