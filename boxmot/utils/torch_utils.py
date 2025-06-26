@@ -15,7 +15,6 @@ def get_system_info():
     return f"Yolo Tracking v{__version__} 🚀 Python-{platform.python_version()} torch-{torch.__version__}"
 
 
-
 def parse_device(device):
     device = (
         str(device)
@@ -30,7 +29,6 @@ def parse_device(device):
         .replace(" ", "")
     )
     return device
-
 
 
 def assert_cuda_available(device):
@@ -67,7 +65,8 @@ def select_device(device="", batch=0):
         devices = device.split(",") if device else ["0"]
         n = len(devices)
         if n > 1 and batch > 0 and batch % n != 0:
-            raise ValueError(f"'batch={batch}' must be a multiple of GPU count {n}.")
+            raise ValueError(
+                f"'batch={batch}' must be a multiple of GPU count {n}.")
         s += "\n" + "\n".join(
             f"CUDA:{d} ({torch.cuda.get_device_properties(i).name}, {torch.cuda.get_device_properties(i).total_memory / (1 << 20):.0f}MiB)"
             for i, d in enumerate(devices)
@@ -101,7 +100,7 @@ def load_weights(model: torch.nn.Module,
     map_location = torch.device(
         'cpu') if not torch.cuda.is_available() else None
     checkpoint = torch.load(path, map_location=map_location)
-    state_dict: dict[str, torch.Tensor] = checkpoint.get('state_dict', 
+    state_dict: dict[str, torch.Tensor] = checkpoint.get('state_dict',
                                                          checkpoint)
     model_dict: dict[str, torch.Tensor] = model.state_dict()
 
