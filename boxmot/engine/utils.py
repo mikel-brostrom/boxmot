@@ -3,9 +3,11 @@
 import json
 import shutil
 import time
+import re
+
 import zipfile
 from pathlib import Path
-from typing import Union
+from typing import Union, Tuple
 
 import numpy as np
 import pandas as pd
@@ -20,82 +22,78 @@ from boxmot.utils import ROOT
 from boxmot.utils import logger as LOGGER
 
 
-def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> None:
+def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path, str]:
     """
     Copies the dataset to a new location and removes a specified percentage of images and annotations,
-    adjusting the frame index to start at 1.
+    adjusting the frame index to start at 1. Works for MOT17, MOT20, etc.
 
     Args:
-        src_fldr (Path): Source folder containing the dataset.
-        percent_to_delete (float): Percentage of images and annotations to remove.
+        src_fldr (Path): Source folder (e.g. /…/MOT20/train or /…/MOT20/test)
+        percent_to_delete (float): Fraction of the frames to drop (0.5 → drop 50%)
+
+    Returns:
+        dst_fldr (Path): The root of the new, smaller split (e.g. …/MOT20-50/train)
+        new_benchmark_name (str): e.g. "MOT20-50"
     """
-    # Ensure source path is a Path object
     src_fldr = Path(src_fldr)
 
-    # Generate the destination path by replacing "MOT17" with "MOT17-half" in the source path
-    new_benchmark_name = f"MOT17-{int(percent_to_delete * 100)}"
-    dst_fldr = Path(str(src_fldr).replace("MOT17", new_benchmark_name))
+    # --- detect the "MOTxx" part in the path ---
+    m = re.search(r"(MOT\d+)", str(src_fldr))
+    if not m:
+        raise ValueError(f"Could not find MOT benchmark in path: {src_fldr}")
+    benchmark = m.group(1)
 
-    # Copy the dataset to a new location manually using pathlib if it doesn't already exist
+    # build the new benchmark name
+    new_benchmark_name = f"{benchmark}-ablation"
+    dst_fldr = Path(str(src_fldr).replace(benchmark, new_benchmark_name))
+
+    # copy entire folder tree if not already done
     if not dst_fldr.exists():
-        dst_fldr.mkdir(parents=True)
         for item in src_fldr.rglob("*"):
+            target = dst_fldr / item.relative_to(src_fldr)
             if item.is_dir():
-                (dst_fldr / item.relative_to(src_fldr)).mkdir(
-                    parents=True, exist_ok=True
-                )
+                target.mkdir(parents=True, exist_ok=True)
             else:
-                (dst_fldr / item.relative_to(src_fldr)).write_bytes(item.read_bytes())
+                target.write_bytes(item.read_bytes())
 
-    # List all sequences in the destination folder
-    seq_paths = [f for f in dst_fldr.iterdir() if f.is_dir()]
-
-    # Iterate over each sequence and remove a percentage of images and annotations
-    for seq_path in seq_paths:
-        seq_gt_path = seq_path / "gt" / "gt.txt"
-
-        # Check if the gt.txt file exists
-        if not seq_gt_path.exists():
-            print(f"Ground truth file not found for {seq_path}. Skipping...")
+    # iterate every sequence under dst_fldr
+    for seq_path in dst_fldr.iterdir():
+        if not seq_path.is_dir():
             continue
 
-        df = pd.read_csv(seq_gt_path, sep=",", header=None)
-        nr_seq_imgs = df[0].unique().max()
-        split = int(nr_seq_imgs * (1 - percent_to_delete))
-
-        # Check if the sequence is already split
-        if nr_seq_imgs <= split:
-            print(f"Sequence {seq_path} already split. Skipping...")
+        gt_path = seq_path / "gt" / "gt.txt"
+        if not gt_path.exists():
+            LOGGER.warning(f"Skipping `{seq_path}` – no gt.txt found")
             continue
-        
-        print(f'Number of annotated frames in {seq_path}: Keeping from frame {split + 1} to {nr_seq_imgs}')
 
-        # Keep rows from the ground truth file beyond the split point
-        df = df[df[0] > split]
+        # load and compute split point
+        df = pd.read_csv(gt_path, header=None)
+        max_frame = int(df[0].max())
+        split_frame = int(max_frame * (1 - percent_to_delete))
 
-        # Adjust the frame indices to start from 1
-        df[0] = df[0] - split
+        if split_frame >= max_frame:
+            LOGGER.info(f"`{seq_path}` already ≤ split size, skipping.")
+            continue
 
-        df.to_csv(seq_gt_path, header=None, index=None, sep=",")
+        LOGGER.info(f"{seq_path.name}: keeping frames {split_frame+1}-{max_frame}")
 
-        # Remove images before the split point using pathlib
-        jpg_folder_path = seq_path / "img1"
-        jpg_paths = list(jpg_folder_path.glob("*.jpg"))
-        for jpg_path in jpg_paths:
-            # Extract frame number from image file name (e.g., '000300.jpg' -> 300)
-            frame_number = int(jpg_path.stem)
-            # Check if this frame number is in the removed range
-            if frame_number <= split:
-                jpg_path.unlink()
+        # filter and re‐index gt
+        df = df[df[0] > split_frame].copy()
+        df[0] = df[0] - split_frame
+        df.to_csv(gt_path, header=False, index=False)
 
-        # Rename the remaining images to have a continuous sequence starting from 1
-        remaining_jpg_paths = sorted(jpg_folder_path.glob("*.jpg"))
-        for new_index, jpg_path in enumerate(remaining_jpg_paths, start=1):
-            new_jpg_name = f"{new_index:06}.jpg"  # zero-padded to 6 digits
-            jpg_path.rename(jpg_folder_path / new_jpg_name)
+        # delete early images
+        img_folder = seq_path / "img1"
+        for img in img_folder.glob("*.jpg"):
+            if int(img.stem) <= split_frame:
+                img.unlink()
 
-        remaining_images = len(list(jpg_folder_path.glob("*.jpg")))
-        print(f"Number of images in {seq_path} after delete: {remaining_images}")
+        # rename rest to 000001…000xxx
+        remaining = sorted(img_folder.glob("*.jpg"))
+        for idx, img in enumerate(remaining, start=1):
+            img.rename(img_folder / f"{idx:06}.jpg")
+
+        LOGGER.info(f"{seq_path.name}: now {len(remaining)} images")
 
     return dst_fldr, new_benchmark_name
 
@@ -236,3 +234,7 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), "a") as file:
                 np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%d,%d,%.6f")
+
+
+new_folder, name = split_dataset(Path("./boxmot/engine/trackeval/data/MOT20/train"), percent_to_delete=0.5)
+print(new_folder, name)
