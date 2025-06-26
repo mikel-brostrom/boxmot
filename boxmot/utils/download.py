@@ -146,6 +146,15 @@ def patch_deprecated_types(root: Path, deprecated: dict = DEPRECATED_TYPES) -> N
 
 
 def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = False) -> None:
+    """
+    Download and set up the TrackEval repository into the given destination folder.
+
+    Args:
+        dest (Path): target directory for TrackEval (e.g. boxmot/engine/trackeval)
+        branch (str): Git branch to download (default "master")
+        overwrite (bool): if True, force re-download even if dest already exists
+    """
+    # If already exists and we’re not overwriting, skip
     if dest.exists() and not overwrite:
         LOGGER.info(f"[BoxMOT] ✅ TrackEval already present at {dest.resolve()}, skipping download.")
         return
@@ -155,20 +164,36 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     zip_url = f"{repo_url}/archive/refs/heads/{branch}.zip"
     zip_file = dest.parent / f"{dest.name}-{branch}.zip"
 
+    # Download the archive
     zip_path = download_file(zip_url, zip_file, overwrite=overwrite)
+
+    # Extract into the parent folder
     extract_zip(zip_path, dest.parent, overwrite=overwrite)
 
-    extract_dir = dest.parent / f"{dest.name}-{branch}"
-    if extract_dir.exists():
-        extract_dir.rename(dest)
-        LOGGER.debug(f"Renamed extracted folder: {extract_dir.resolve()} → {dest.resolve()}")
+    # GitHub will unpack to "TrackEval-master" (with original casing); 
+    # rename it case-insensitively to our lowercase 'trackeval' folder
+    extracted = None
+    for d in dest.parent.iterdir():
+        if d.is_dir() and d.name.lower().startswith("trackeval") and d.name.lower().endswith(f"-{branch}"):
+            extracted = d
+            break
+
+    if extracted is None:
+        LOGGER.warning(f"[BoxMOT] ❗️ Couldn't locate extracted TrackEval in {dest.parent}, expected folder ending with '-{branch}'")
+    else:
+        extracted.rename(dest)
+        LOGGER.debug(f"[BoxMOT] Renamed extracted folder: {extracted.resolve()} → {dest.resolve()}")
+
+    # Clean up the downloaded zip
     try:
         zip_file.unlink()
-        LOGGER.debug(f"Cleaned up ZIP file: {zip_file.resolve()}")
+        LOGGER.debug(f"[BoxMOT] Cleaned up ZIP file: {zip_file.resolve()}")
     except FileNotFoundError:
-        LOGGER.warning(f"ZIP file not found for cleanup: {zip_file.resolve()}")
+        LOGGER.warning(f"[BoxMOT] ZIP file not found for cleanup: {zip_file.resolve()}")
 
+    # Apply any necessary patches for deprecated types
     patch_deprecated_types(dest)
+
     LOGGER.info(f"[BoxMOT] ✅ TrackEval setup complete at: {dest.resolve()}")
 
 
