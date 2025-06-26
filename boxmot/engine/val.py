@@ -413,7 +413,7 @@ def main(args):
     if Path(args.source).parent.name == 'MOT17-ablation':
         download_MOT17_eval_data(
             runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
-            mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
+            mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip",
             mot17_dest=Path("boxmot/engine/trackeval/MOT17-ablation.zip"),
             overwrite=False
         )
