@@ -1,6 +1,8 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import os
+from collections import OrderedDict
+from pathlib import Path
 import platform
 
 import torch
@@ -11,6 +13,7 @@ from . import logger as LOGGER
 
 def get_system_info():
     return f"Yolo Tracking v{__version__} 🚀 Python-{platform.python_version()} torch-{torch.__version__}"
+
 
 
 def parse_device(device):
@@ -27,6 +30,7 @@ def parse_device(device):
         .replace(" ", "")
     )
     return device
+
 
 
 def assert_cuda_available(device):
@@ -77,3 +81,56 @@ def select_device(device="", batch=0):
         arg = "cpu"
     LOGGER.info(s)
     return torch.device(arg)
+
+
+def load_weights(model: torch.nn.Module,
+                 path: Path,
+                 prefixes: list[str] = None):
+    """
+    Load weights into a model, stripping specified prefixes and matching layers by name and size.
+
+    Args:
+        model: torch.nn.Module to load weights into.
+        path: Path to the checkpoint file.
+        prefixes: Optional list of prefixes to strip from keys.
+    """
+    if prefixes is None:
+        prefixes = []
+
+    # Choose device mapping based on CUDA availability
+    map_location = torch.device(
+        'cpu') if not torch.cuda.is_available() else None
+    checkpoint = torch.load(path, map_location=map_location)
+    state_dict: dict[str, torch.Tensor] = checkpoint.get('state_dict', 
+                                                         checkpoint)
+    model_dict: dict[str, torch.Tensor] = model.state_dict()
+
+    to_load = OrderedDict()
+    matched, discarded = [], []
+
+    for key, tensor in state_dict.items():
+
+        # Strip any of the provided prefixes
+        for pref in prefixes:
+            if key.startswith(pref):
+                key = key[len(pref):]
+                break
+
+        # Match by name and shape
+        if key in model_dict and model_dict[key].shape == tensor.shape:
+            to_load[key] = tensor
+            matched.append(key)
+        else:
+            discarded.append(key)
+
+    # Update and load state dict
+    model_dict.update(to_load)
+    model.load_state_dict(model_dict)
+
+    if matched:
+        LOGGER.success(f"Loaded weights from {path} ({len(matched)} layers)")
+    else:
+        LOGGER.debug(f"No matching layers found in {path}")
+
+    if discarded:
+        LOGGER.debug(f"Discarded layers: {discarded}")
