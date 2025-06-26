@@ -183,8 +183,8 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
 
     LOGGER.info(f"[BoxMOT] ✅ TrackEval setup complete at: {dest.resolve()}")
 
-
-def download_mot_challenge_eval_data(
+    
+def download_eval_data(
     *,
     runs_url: Optional[str] = None,
     dataset_url: str,
