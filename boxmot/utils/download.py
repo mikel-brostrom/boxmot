@@ -15,14 +15,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from tqdm import tqdm
-
-# Setup basic logger (will be reconfigured in main)
-LOGGER = logging.getLogger("BoxMOT")
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-LOGGER.addHandler(handler)
-LOGGER.setLevel(logging.INFO)
+from boxmot.utils import logger as LOGGER
 
 # Mapping for deprecated numpy types
 DEPRECATED_TYPES = {"np.float": "float", "np.int": "int", "np.bool": "bool"}
