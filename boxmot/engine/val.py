@@ -11,6 +11,7 @@ from tqdm import tqdm
 import configparser
 import shutil
 import json
+import yaml
 import cv2
 import re
 import os
@@ -21,7 +22,7 @@ import copy
 import concurrent.futures
 
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
+from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, EXAMPLES
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
@@ -402,6 +403,13 @@ def run_all(opt: argparse.Namespace) -> None:
     return run_trackeval(opt)
 
 
+def load_dataset_cfg(name: str) -> dict:
+    """Load the dict from boxmot/configs/datasets/{name}.yaml."""
+    path = DATASET_CONFIGS / f"{name}.yaml"
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+
 def main(args):
     # Download TrackEval
     download_trackeval(
@@ -410,20 +418,23 @@ def main(args):
         overwrite=False
     )
     
-    if Path(args.source).parent.name == "MOT17-ablation" or args.source == "MOT17-ablation":
+    if args.source == "MOT17-ablation":
+        cfg = load_dataset_cfg("MOT17-ablation")
         download_MOT17_eval_data(
-            runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
-            mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip",
-            mot17_dest=Path("boxmot/engine/trackeval/MOT17-ablation.zip"),
+            runs_url=cfg["download"]["runs_url"],
+            mot17_url=Path(cfg["download"]["mot17_url"]),
+            mot17_dest=cfg["download"]["mot17_dest"],
             overwrite=False
         )
         args.source = Path("./boxmot/engine/trackeval/data/MOT17-ablation/train")
         args.benchmark = "MOT17-ablation"
         args.split = "train"
-    if Path(args.source).parent.name == "MOT20" or args.source == "MOT20":
+         
+    elif args.source == "MOT20-ablation":
+        cfg = load_dataset_cfg("MOT20-ablation")
         download_MOT20_eval_data(
-            mot20_url="https://motchallenge.net/data/MOT20.zip",  # official MOT20 zip :contentReference[oaicite:0]{index=0}
-            mot20_dest=Path("boxmot/engine/trackeval/MOT20.zip"),
+            mot20_url=cfg["download"]["mot20_url"],  # official MOT20 zip :contentReference[oaicite:0]{index=0}
+            mot20_dest=Path(cfg["download"]["mot20_dest"]),
             overwrite=False
         )
         args.source = Path("./boxmot/engine/trackeval/data/MOT20/train")
