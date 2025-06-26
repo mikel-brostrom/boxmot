@@ -139,6 +139,7 @@ jobs:
           (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
           # Create a pretty table from the sorted_results.csv file
           column -s, -t sorted_results.csv > pretty_results.txt
+          ls -a
           pwd
           ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval -a
           pwd
