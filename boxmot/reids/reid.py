@@ -5,7 +5,7 @@ import gdown
 import numpy as np
 import torch
 
-from boxmot.backends.autobackend import AutoBackend
+from boxmot.registry import ReIDModelRegistry
 
 
 class ReID:
@@ -17,9 +17,9 @@ class ReID:
         self.cuda = torch.cuda.is_available() and self.device.type != "cpu"
 
         self.download_model(self.weights)
-        self.model_name = ReIDModelRegistry.get_model_name(self.weights)
+        self.model_name = ReIDModelRegistry.get_name(self.weights)
 
-        self.model = ReIDModelRegistry.build_model(
+        self.model = ReIDModelRegistry.build(
             self.model_name,
             num_classes=ReIDModelRegistry.get_nr_classes(self.weights),
             pretrained=not (self.weights and self.weights.is_file()),

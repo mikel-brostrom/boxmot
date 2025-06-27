@@ -1,6 +1,7 @@
+from pathlib import Path
 from boxmot.registry import ModelRegistry
-from boxmot.registry.reid.config import (REID_BACKBONES, 
-                                         REID_URLS, 
+from boxmot.registry.reid.config import (REID_BACKBONES,
+                                         REID_URLS,
                                          REID_CLASSES_NUM)
 
 
@@ -8,9 +9,10 @@ class ReIDModelRegistry(ModelRegistry):
     BACKBONES = REID_BACKBONES
     URLS = REID_URLS
     CLASSES_NUM = REID_CLASSES_NUM
-
+    DOWNLOAD_DIR = ModelRegistry.DOWNLOAD_DIR / "weights"
+    
     @classmethod
-    def get_classes_num(cls, weights):
+    def get_classes_num(cls, weights: Path):
         # Extract dataset name from weights name,
         # then look up in the class dictionary
         dataset_key = weights.name.split("_")[1]
@@ -18,11 +20,11 @@ class ReIDModelRegistry(ModelRegistry):
 
     @classmethod
     def build(cls,
-                    name: str,
-                    num_classes: int,
-                    loss: str = "softmax",
-                    pretrained: bool = True,
-                    use_gpu: bool = True):
+              name: str,
+              num_classes: int,
+              loss: str = "softmax",
+              pretrained: bool = True,
+              use_gpu: bool = True):
         """
         Build a model instance.
 
