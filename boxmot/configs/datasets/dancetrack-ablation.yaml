@@ -1,0 +1,8 @@
+# https://huggingface.co/datasets/noahcao/dancetrack/tree/main
+download:
+  dataset_url: "https://huggingface.co/datasets/noahcao/dancetrack/resolve/main/val.zip?download=true"
+  dataset_dest: "boxmot/engine/trackeval/dancetrack-ablation.zip"
+
+benchmark:
+  name: "dancetrack-ablation"
+  split: "val"
