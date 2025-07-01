@@ -400,7 +400,7 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
 
     # Optional GSI
     if getattr(opt, 'gsi', False):
-        from boxmot.utils import gsi
+        from boxmot.postprocessing.gsi import gsi
         gsi(mot_results_folder=exp_dir)
 
 
