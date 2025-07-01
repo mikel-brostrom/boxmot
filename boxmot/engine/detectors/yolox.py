@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import cv2
+import fnmatch
 import gdown
 import numpy as np
 import torch
@@ -20,7 +21,9 @@ YOLOX_ZOO = {
     "yolox_m.pt": "https://drive.google.com/uc?id=11Zb0NN_Uu7JwUd9e6Nk8o2_EUfxWqsun",
     "yolox_l.pt": "https://drive.google.com/uc?id=1XwfUuCBF4IgWBWK2H7oOhQgEj9Mrb3rz",
     "yolox_x.pt": "https://drive.google.com/uc?id=1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5",
-    "yolox_x_ablation.pt": "https://drive.google.com/uc?id=1iqhM-6V_r1FpOlOzrdP_Ejshgk0DxOob",
+    "yolox_x_MOT17_ablation.pt": "https://drive.google.com/uc?id=1iqhM-6V_r1FpOlOzrdP_Ejshgk0DxOob",
+    "yolox_x_MOT20_ablation.pt": "https://drive.google.com/uc?id=1H1BxOfinONCSdQKnjGq0XlRxVUo_4M8o",
+    "yolox_x_dancetrack_ablation.pt": "https://drive.google.com/uc?id=1ZKpYmFYCsRdXuOL60NRuc7VXAFYRskXB",
 }
 
 
@@ -132,7 +135,7 @@ class YoloXStrategy(YoloInterface):
 
         # download crowdhuman bytetrack models
         if not model.exists() and (
-            model.stem == model_type or model.stem == "yolox_x_ablation"
+            model.stem == model_type or fnmatch.fnmatch(model.stem, "yolox_x_*_ablation")
         ):
             LOGGER.info("Downloading pretrained weights...")
             gdown.download(
