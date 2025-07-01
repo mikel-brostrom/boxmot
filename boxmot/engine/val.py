@@ -64,7 +64,7 @@ def eval_init(args,
     if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack-ablation"):
         cfg = load_dataset_cfg(str(args.source))
         download_eval_data(
-            runs_url=cfg["download"]["dataset_url"],
+            runs_url=cfg["download"]["runs_url"],
             dataset_url=cfg["download"]["dataset_url"],
             dataset_dest=Path(cfg["download"]["dataset_dest"]),
             overwrite=overwrite
@@ -400,7 +400,7 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
 
     # Optional GSI
     if getattr(opt, 'gsi', False):
-        from boxmot.utils import gsi
+        from boxmot.postprocessing.gsi import gsi
         gsi(mot_results_folder=exp_dir)
 
 
