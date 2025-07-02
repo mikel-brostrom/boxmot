@@ -10,6 +10,8 @@ Thank you for improving this project! Please follow these guidelines.
 # Then clone your fork locally
 git clone https://github.com/your-username/boxmot.git
 cd boxmot
+pip install uv
+uv sync  # builds & installs boxmot in editable mode
 
 # Create a branch
 git checkout -b feature/short-desc
