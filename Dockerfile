@@ -19,8 +19,8 @@ WORKDIR /usr/src/boxmot
 
 # Install pip packages and Poetry dependencies
 RUN python3 -m pip install --upgrade pip poetry && \
-    poetry config virtualenvs.create false && \
-    poetry install --with yolo
+    pip install uv && \
+    uv sync --all-extras --all-groups
 
 # ------------------------------------------------------------------------------
 
