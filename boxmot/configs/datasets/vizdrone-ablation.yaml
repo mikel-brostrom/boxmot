@@ -5,5 +5,5 @@ download:
   dataset_dest: "boxmot/engine/trackeval/vizdrone-ablation.zip"
 
 benchmark:
-  name: "vizdrone-ablation"
-  split: "train"
+  name: "VisDrone2019-MOT-val"
+  split: ""

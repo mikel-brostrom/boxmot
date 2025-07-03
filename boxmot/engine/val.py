@@ -67,6 +67,7 @@ def eval_init(args,
             runs_url=cfg["download"]["runs_url"],
             dataset_url=cfg["download"]["dataset_url"],
             dataset_dest=Path(cfg["download"]["dataset_dest"]),
+            benchmark = cfg["benchmark"]["name"],
             overwrite=overwrite
         )
         args.benchmark = cfg["benchmark"]["name"]
