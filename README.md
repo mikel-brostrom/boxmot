@@ -45,10 +45,10 @@ This repository addresses the fragmented nature of the multi-object tracking (MO
 </details>
 
 
-
 ## Why BOXMOT?
 
-Multi-object tracking solutions today depend heavily on the computational capabilities of the underlying hardware. BoxMOT addresses this by offering a wide array of tracking methods tailored to accommodate diverse hardware constraints, ranging from CPU-only setups to high-end GPUs. Furthermore, we provide scripts designed for rapid experimentation, enabling users to save detections and embeddings once and subsequently reuse them with any tracking algorithm. This approach eliminates redundant computations, significantly speeding up the evaluation and comparison of multiple trackers.
+BoxMOT seamlessly integrates ultra-lightweight, motion-only trackers for efficient high-FPS tracking on CPUs, as well as hybrid methods, which combine motion cues with deep ReID embeddings for improved accuracy at higher computational costs. Evaluate your trackers directly against state-of-the-art methods across diverse public benchmarks including MOT17 (moderately crowded scenes), MOT20 (extremely dense crowds), and DanceTrack (highly articulated human motion). Our integrated workflow enables quick swapping of detectors or embeddings, storing results once to avoid repeated heavy computations, thus significantly cutting down compute time and ensuring fair comparisons across hardware setups.
+
 
 ## Installation
 
