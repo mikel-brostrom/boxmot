@@ -17,24 +17,6 @@ class RequirementsChecker:
         Otherwise we'll read requirements_file and pip-install missing packages.
         """
         self.group = group
-        self.requirements_file = requirements_file
-
-    def check_requirements(self):
-        if self.group:
-            self._sync_group(self.group)
-        else:
-            self._check_from_requirements()
-
-    def _check_from_requirements(self):
-        # parse requirements.txt into Requirement objects
-        reqs = []
-        with self.requirements_file.open() as f:
-            for raw in f:
-                line = raw.strip()
-                if not line or line.startswith("#"):
-                    continue
-                reqs.append(Requirement(line))
-        self._check_packages(reqs)
 
     def check_packages(self, requirements: Iterable[str], cmds: Optional[list[str]] = None):
         """
@@ -108,7 +90,7 @@ class RequirementsChecker:
 if __name__ == "__main__":
     # Example usages:
     # 1) to install a tflite group:
-    RequirementsChecker(group="tflite").check_requirements()
+    RequirementsChecker.sync_group_or_extra(group="tflite")
 
     # 2) to fall back on a requirements.txt:
     # RequirementsChecker().check_requirements()
