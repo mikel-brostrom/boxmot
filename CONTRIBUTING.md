@@ -4,6 +4,8 @@ Thank you for improving this project! Please follow these guidelines.
 
 # Pull Requests
 
+Proposed workflow
+
 ```bash
 # Fork the repository on GitHub
 
@@ -19,6 +21,12 @@ git checkout -b feature/short-desc
 # Develop
 # ...
 
+# Run functionality where changes were introduced
+python boxmot/engine/cli.py track     --yolo-model yolov8x.pt --tracking-method bytetrack --source my_video.mp4 --classes 0
+python boxmot/engine/cli.py generate  --yolo-model yolov8x.pt --tracking-method bytetrack --source my_video.mp4 --classes 0
+python boxmot/engine/cli.py eval      --yolo-model yolov8x.pt --tracking-method bytetrack --source my_video.mp4 --classes 0
+python boxmot/engine/cli.py tune      --yolo-model yolov8x.pt --tracking-method bytetrack --source my_video.mp4 --classes 0
+ 
 # Run tests
 uv run pytest
 

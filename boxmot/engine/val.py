@@ -22,7 +22,7 @@ import copy
 import concurrent.futures
 
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, EXAMPLES
+from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, EXAMPLES
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
@@ -61,12 +61,13 @@ def eval_init(args,
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
 
     # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack-ablation"):
+    if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack-ablation", "vizdrone-ablation"):
         cfg = load_dataset_cfg(str(args.source))
         download_eval_data(
             runs_url=cfg["download"]["runs_url"],
             dataset_url=cfg["download"]["dataset_url"],
             dataset_dest=Path(cfg["download"]["dataset_dest"]),
+            benchmark = cfg["benchmark"]["name"],
             overwrite=overwrite
         )
         args.benchmark = cfg["benchmark"]["name"]
@@ -291,8 +292,7 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
 
         LOGGER.info(f"Generating detections and embeddings for {len(tasks)} sequences with model {y.name}")
 
-        max_workers = torch.cuda.device_count() or os.cpu_count()
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS) as executor:
             futures = [executor.submit(process_single_det_emb, y, source_path, opt) for y, source_path in tasks]
 
             for fut in concurrent.futures.as_completed(futures):
@@ -383,9 +383,8 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     ]
 
     seq_frame_nums = {}
-    max_workers = min(len(task_args), os.cpu_count() or 4)
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS) as executor:
         futures = {
             executor.submit(process_sequence, *args): args[0] for args in task_args
         }
