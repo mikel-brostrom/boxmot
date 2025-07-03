@@ -23,7 +23,7 @@ jobs:
       - name: Extract version from pyproject.toml
         id: extract_version
         run: |
-          version=$(python3 -c 'import tomllib, sys; data = tomllib.loads(open("pyproject.toml","rb").read()); sys.stdout.write(data["project"]["version"])')
+          version=$(python3 -c 'import tomllib, sys; data = tomllib.loads(open("pyproject.toml","r", encoding="utf-8").read()); sys.stdout.write(data["project"]["version"])')
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build and push Docker image
