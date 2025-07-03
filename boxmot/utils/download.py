@@ -222,7 +222,7 @@ def download_eval_data(
     # benchmark ZIP
     LOGGER.info(f"[BoxMOT] ⬇️  Downloading {dataset_url}")
     benchamrk_zip = download_file(dataset_url, dataset_dest, overwrite=overwrite)
-    if benchmark is "dancetrack-ablation":
+    if benchmark == "dancetrack-ablation":
         data_dir = dataset_dest.parent / "data" / "dancetrack-ablation"
     else:
         data_dir = dataset_dest.parent / "data"
