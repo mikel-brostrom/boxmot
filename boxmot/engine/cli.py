@@ -66,7 +66,7 @@ def main():
                                help='path to precomputed embeddings file')
     common_parser.add_argument('--exp-folder-path', type=Path,
                                help='path to experiment folder')
-    common_parser.add_argument('--verbose', action='store_false',
+    common_parser.add_argument('--verbose', action='store_true',
                                help='print detailed logs')
     common_parser.add_argument('--agnostic-nms', action='store_true',
                                help='class-agnostic NMS')
