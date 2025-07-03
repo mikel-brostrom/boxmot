@@ -24,7 +24,7 @@ ENGINE   = BOXMOT / "engine"
 EXAMPLES = ENGINE
 WEIGHTS  = ENGINE / "weights"
 
-NUM_THREADS = min(8, max(1, os.cpu_count() - 1))
+NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of multiprocessing threads
 
 def _is_main_process(record):
     return mp.current_process().name == "MainProcess"
