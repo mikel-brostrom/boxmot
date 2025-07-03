@@ -14,7 +14,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -23,8 +23,12 @@ jobs:
       - name: Extract version from pyproject.toml
         id: extract_version
         run: |
-          version=$(grep -E '^version[[:space:]]*=[[:space:]]*".*"' pyproject.toml \
-                  | sed -E 's/^version[[:space:]]*=[[:space:]]*"([^"]*)".*$/\1/')
+          version=$(python3 - <<-EOF
+            import tomllib
+            data = tomllib.loads(open("pyproject.toml","rb").read())
+            print(data["project"]["version"])
+          EOF
+          )
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build and push Docker image
