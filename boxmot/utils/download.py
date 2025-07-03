@@ -52,7 +52,7 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192, overwrite: bool 
     dest.parent.mkdir(parents=True, exist_ok=True)
     LOGGER.info(f"[BoxMOT] ⬇️  Starting download: {url}\n            → Saving to: {dest.resolve()}")
 
-    if "drive.google.com" in url or "drive.usercontent.google.com" in dataset_url:
+    if "drive.google.com" in url or "drive.usercontent.google.com" in url:
         # Google Drive: use gdown (handles confirm tokens automatically)
         LOGGER.info("[BoxMOT] 🚗 Detected Google Drive URL, using gdown")
         # fuzzy=True lets gdown extract the file ID from most URL formats
