@@ -22,7 +22,7 @@ import copy
 import concurrent.futures
 
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, EXAMPLES
+from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, EXAMPLES
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
@@ -292,8 +292,7 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
 
         LOGGER.info(f"Generating detections and embeddings for {len(tasks)} sequences with model {y.name}")
 
-        max_workers = torch.cuda.device_count() or os.cpu_count()
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS) as executor:
             futures = [executor.submit(process_single_det_emb, y, source_path, opt) for y, source_path in tasks]
 
             for fut in concurrent.futures.as_completed(futures):
@@ -384,9 +383,8 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     ]
 
     seq_frame_nums = {}
-    max_workers = min(len(task_args), os.cpu_count() or 4)
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS) as executor:
         futures = {
             executor.submit(process_sequence, *args): args[0] for args in task_args
         }
