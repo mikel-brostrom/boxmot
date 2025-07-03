@@ -70,7 +70,7 @@ Commands:
   tune                   Tune tracker hyperparameters based on selected detections and embeddings
 ```
 
-If you want to contribute to this package check how to contribute [here](https://github.com/mikel-brostrom/boxmot/CONTRIBUTING.md)
+If you want to contribute to this package check how to contribute [here](https://github.com/mikel-brostrom/boxmot/blob/master/CONTRIBUTING.md)
 
 ## YOLOv12 | YOLOv11 | YOLOv10 | YOLOv9 | YOLOv8 | RFDETR | YOLOX examples
 
