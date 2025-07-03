@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-push:
-    runs-on: pytorch/pytorch:2.7.0-cuda12.6-cudnn9-runtime
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
