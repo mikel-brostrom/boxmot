@@ -23,8 +23,9 @@ jobs:
       - name: Extract version from pyproject.toml
         id: extract_version
         run: |
-          version=$(grep -Po '(?<=^version = ")[^"]*' pyproject.toml)
-          echo "VERSION=$version" >> $GITHUB_ENV
+            version=$(grep -E '^version[[:space:]]*=[[:space:]]*".*"' pyproject.toml \
+                    | sed -E 's/^version[[:space:]]*=[[:space:]]*"([^"]*)".*$/\1/')
+            echo "VERSION=$version" >> $GITHUB_ENV
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
