@@ -7,6 +7,7 @@ now with detailed logging of download and extraction paths.
 
 import argparse
 import os
+import gdown
 import logging
 from pathlib import Path
 from zipfile import ZipFile, BadZipFile
@@ -51,28 +52,39 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192, overwrite: bool 
     dest.parent.mkdir(parents=True, exist_ok=True)
     LOGGER.info(f"[BoxMOT] ⬇️  Starting download: {url}\n            → Saving to: {dest.resolve()}")
 
-    session = get_http_session()
-    response = session.get(url, stream=True, timeout=timeout)
-    response.raise_for_status()
+    if "drive.google.com" in url or "drive.usercontent.google.com" in url:
+        # Google Drive: use gdown (handles confirm tokens automatically)
+        LOGGER.info("[BoxMOT] 🚗 Detected Google Drive URL, using gdown")
+        # fuzzy=True lets gdown extract the file ID from most URL formats
+        gdown.download(
+            url=dataset_url,
+            output=str(dataset_dest),
+            quiet=False,
+            fuzzy=True
+        )
+    else:
+        session = get_http_session()
+        response = session.get(url, stream=True, timeout=timeout)
+        response.raise_for_status()
 
-    total = int(response.headers.get("Content-Length", 0))
-    LOGGER.debug(f"Expected download size: {total} bytes")
+        total = int(response.headers.get("Content-Length", 0))
+        LOGGER.debug(f"Expected download size: {total} bytes")
 
-    with open(dest, "wb") as f, tqdm(
-        total=total,
-        unit="B",
-        unit_scale=True,
-        desc=f"Downloading {dest.name}"
-    ) as pbar:
-        for chunk in response.iter_content(chunk_size=chunk_size):
-            if chunk:
-                f.write(chunk)
-                pbar.update(len(chunk))
+        with open(dest, "wb") as f, tqdm(
+            total=total,
+            unit="B",
+            unit_scale=True,
+            desc=f"Downloading {dest.name}"
+        ) as pbar:
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+                    pbar.update(len(chunk))
 
-    file_size = dest.stat().st_size
-    LOGGER.info(f"[BoxMOT] ✅ Download complete: {dest.resolve()} ({file_size} bytes)")
-    LOGGER.debug(f"Downloaded URL '{url}' to '{dest}' with final size {file_size} bytes")
-    return dest
+        file_size = dest.stat().st_size
+        LOGGER.info(f"[BoxMOT] ✅ Download complete: {dest.resolve()} ({file_size} bytes)")
+        LOGGER.debug(f"Downloaded URL '{url}' to '{dest}' with final size {file_size} bytes")
+        return dest
 
 
 def extract_zip(zip_path: Path, extract_to: Path, overwrite: bool = False) -> None:
@@ -189,6 +201,7 @@ def download_eval_data(
     runs_url: Optional[str] = None,
     dataset_url: str,
     dataset_dest: Path,
+    benchmark: str,
     overwrite: bool = False
 ) -> None:
     """
@@ -206,15 +219,18 @@ def download_eval_data(
     else:
         LOGGER.debug(f"[BoxMOT] ⚠️  No runs_url provided, skipping runs download")
 
-    # MOT17 ZIP
-    LOGGER.info(f"[BoxMOT] ⬇️  Downloading MOT17 data from {dataset_url}")
-    mot17_zip = download_file(dataset_url, dataset_dest, overwrite=overwrite)
-    data_dir = dataset_dest.parent / "data"
-    extract_zip(mot17_zip, data_dir, overwrite=overwrite)
+    # benchmark ZIP
+    LOGGER.info(f"[BoxMOT] ⬇️  Downloading {dataset_url}")
+    benchamrk_zip = download_file(dataset_url, dataset_dest, overwrite=overwrite)
+    if benchmark == "dancetrack-ablation":
+        data_dir = dataset_dest.parent / "data" / "dancetrack-ablation"
+    else:
+        data_dir = dataset_dest.parent / "data"
+    extract_zip(benchamrk_zip, data_dir, overwrite=overwrite)
 
     LOGGER.info(
         f"[BoxMOT] ✅ Evaluation data setup complete. "
-        f"MOT17 data at '{data_dir.resolve()}'"
+        f"becnhmark data at '{data_dir.resolve()}'"
     )
 
 
