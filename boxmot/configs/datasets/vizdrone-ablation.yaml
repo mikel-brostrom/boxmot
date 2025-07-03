@@ -1,0 +1,9 @@
+# https://motchallenge.net/data/MOT20/
+download:
+  runs_url: null
+  dataset_url: "https://drive.google.com/uc?export=download&id=1rqnKe9IgU_crMaxRoel9_nuUsMEBBVQu"
+  dataset_dest: "boxmot/engine/trackeval/vizdrone-ablation.zip"
+
+benchmark:
+  name: "VisDrone2019-MOT-val"
+  split: ""
