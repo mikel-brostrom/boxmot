@@ -1,4 +1,4 @@
-# BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models
+# **BoxMOT**: Pluggable SOTA multi-object tracking modules modules for segmentation, object detection and pose estimation models
 
 <div align="center">
 
@@ -19,10 +19,26 @@
 </div>
 
 
+## 🚀 Key Features
 
-## Introduction
+- **Pluggable Architecture**  
+  Easily swap in/out SOTA multi-object trackers.
 
-This repository addresses the fragmented nature of the multi-object tracking (MOT) field by providing a standardized collection of pluggable, state-of-the-art trackers. Designed to seamlessly integrate with segmentation, object detection, and pose estimation models, the repository streamlines the adoption and comparison of MOT methods. For trackers employing appearance-based techniques, we offer a range of automatically downloadable state-of-the-art re-identification (ReID) models, from heavyweight ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf)) to lightweight options ([LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf)). Additionally, clear and practical examples demonstrate how to effectively integrate these trackers with various popular models, enabling versatility across diverse vision tasks.
+- **Universal Model Support**  
+  Integrate with any segmentation, object-detection and pose-estimation backbones that outputs bounding boxes
+
+- **Benchmark-Ready**  
+  Benchmark scripts for MOT17, MOT20, DanceTrack. Default detector & ReID settings for fair comparison.
+
+- **Ultra-Light vs. Hybrid**  
+  - **Motion-only**: for lightweight, CPU-efficient, high-FPS performance 
+  - **Motion + Appearance**: Combines motion cues with appearance embeddings ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf), [LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf)) to maximize identity consistency and accuracy at a higher computational cost
+
+- **Reusable Detections & Embeddings**  
+  Save once, run any tracker with no redundant preprocessing.
+
+
+## 📊 Benchmark Results (MOT17 ablation split)
 
 <div align="center">
 
@@ -45,12 +61,7 @@ This repository addresses the fragmented nature of the multi-object tracking (MO
 </details>
 
 
-
-## Why BOXMOT?
-
-BoxMOT seamlessly integrates ultra-lightweight, motion-only trackers for efficient high-FPS tracking on CPUs, as well as hybrid methods, which combine motion cues with deep ReID embeddings for improved accuracy at higher computational costs. Evaluate your trackers directly against state-of-the-art methods across diverse public benchmarks including MOT17 (moderately crowded scenes), MOT20 (extremely dense crowds), and DanceTrack (complex human motions). Our integrated workflow provides scripts designed for rapid experimentation, enabling users to save detections and embeddings once and reuse them with any tracking algorithm. This eliminates redundant computations, significantly reducing compute time and ensuring fair comparisons across hardware setups.
-
-## Installation
+## 🔧 Installation
 
 Install the `boxmot` package, including all requirements, in a Python>=3.9 environment:
 
@@ -72,7 +83,8 @@ Commands:
 
 If you want to contribute to this package check how to contribute [here](https://github.com/mikel-brostrom/boxmot/blob/master/CONTRIBUTING.md)
 
-## YOLOv12 | YOLOv11 | YOLOv10 | YOLOv9 | YOLOv8 | RFDETR | YOLOX examples
+
+## 📝 Code Examples & Tutorials
 
 <details>
 <summary>Tracking</summary>
@@ -210,8 +222,6 @@ $ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
 
 </details>
 
-
-## Custom tracking examples
 
 <div align="center">
 
