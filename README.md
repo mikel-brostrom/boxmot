@@ -28,9 +28,9 @@
   Integrate with any segmentation, object-detection and pose-estimation backbones that outputs bounding boxes
 
 - **Benchmark-Ready**  
-  Benchmark scripts for MOT17, MOT20, DanceTrack. Default detector & ReID settings for fair comparison.
+  Local ealuation pipelines for MOT17, MOT20, and DanceTrack ablation datasets with "official" ablation detectors
 
-- **Ultra-Light vs. Hybrid**  
+- **Performance Modes**
   - **Motion-only**: for lightweight, CPU-efficient, high-FPS performance 
   - **Motion + Appearance**: Combines motion cues with appearance embeddings ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf), [LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf)) to maximize identity consistency and accuracy at a higher computational cost
 
