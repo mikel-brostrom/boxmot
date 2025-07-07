@@ -2,7 +2,7 @@
 
 import argparse
 from pathlib import Path
-from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES
+from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 
 
 def main():
@@ -78,7 +78,7 @@ def main():
                                default=["HOTA", "MOTA", "IDF1"],
                                help='objectives for tuning: HOTA, MOTA, IDF1')
     common_parser.add_argument('--val-tools-path', type=Path,
-                               default=EXAMPLES / 'trackeval',
+                               default=TRACKEVAL,
                                help='where to clone trackeval')
     common_parser.add_argument('--split-dataset', action='store_true',
                                help='use second half of dataset')
