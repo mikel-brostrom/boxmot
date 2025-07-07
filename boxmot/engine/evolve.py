@@ -13,7 +13,7 @@ from ray import tune
 from ray.tune import RunConfig
 from ray.tune.search.optuna import OptunaSearch
 
-from boxmot.utils import EXAMPLES, NUM_THREADS, TRACKER_CONFIGS
+from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
 from boxmot.engine.val import (
     eval_init,
     load_dataset_cfg,
