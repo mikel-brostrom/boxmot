@@ -4,6 +4,7 @@ import numpy as np
 import argparse
 from pathlib import Path
 from scipy.linalg import pinv
+from boxmot.utils import TRACKEVAL
 
 from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
 
@@ -175,7 +176,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--train_root", 
         type=Path,
-        default=Path("./boxmot/engine/TrackEval/data/MOT17-ablation/train"),
+        default=TRACKEVAL / "data/MOT17-ablation/train",
         help="Root folder containing all MOT17-ablation train sequences"
     )
     parser.add_argument(
