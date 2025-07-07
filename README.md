@@ -1,4 +1,4 @@
-# **BoxMOT**: Pluggable SOTA multi-object tracking modules modules for segmentation, object detection and pose estimation models
+# **BoxMOT**: Pluggable SOTA multi-object tracking modules for segmentation, object detection and pose estimation models
 
 <div align="center">
 
@@ -25,17 +25,17 @@
   Easily swap in/out SOTA multi-object trackers.
 
 - **Universal Model Support**  
-  Integrate with any segmentation, object-detection and pose-estimation backbones that outputs bounding boxes
+  Integrate with any segmentation, object-detection and pose-estimation models that outputs bounding boxes
 
 - **Benchmark-Ready**  
-  Local ealuation pipelines for MOT17, MOT20, and DanceTrack ablation datasets with "official" ablation detectors
+  Local evaluation pipelines for MOT17, MOT20, and DanceTrack ablation datasets with "official" ablation detectors
 
 - **Performance Modes**
   - **Motion-only**: for lightweight, CPU-efficient, high-FPS performance 
   - **Motion + Appearance**: Combines motion cues with appearance embeddings ([CLIPReID](https://arxiv.org/pdf/2211.13977.pdf), [LightMBN](https://arxiv.org/pdf/2101.10774.pdf), [OSNet](https://arxiv.org/pdf/1905.00953.pdf)) to maximize identity consistency and accuracy at a higher computational cost
 
 - **Reusable Detections & Embeddings**  
-  Save once, run any tracker with no redundant preprocessing.
+  Save once, run evaluations with no redundant preprocessing lightning fast.
 
 
 ## 📊 Benchmark Results (MOT17 ablation split)
@@ -90,15 +90,15 @@ If you want to contribute to this package check how to contribute [here](https:/
 <summary>Tracking</summary>
 
 ```bash
-$ boxmot track --yolo-model rf-detr-base.pt     # bboxes only
-  boxmot track --yolo-model yolox_s.pt          # bboxes only
+$ boxmot track --yolo-model rf-detr-base.pt    # bboxes only
+  boxmot track --yolo-model yolox_s.pt         # bboxes only
   boxmot track --yolo-model yolo12n.pt         # bboxes only
   boxmot track --yolo-model yolo11n.pt         # bboxes only
-  boxmot track --yolo-model yolov10n.pt         # bboxes only
-  boxmot track --yolo-model yolov9c.pt          # bboxes only
-  boxmot track --yolo-model yolov8n.pt          # bboxes only
-                            yolov8n-seg.pt      # bboxes + segmentation masks
-                            yolov8n-pose.pt     # bboxes + pose estimation
+  boxmot track --yolo-model yolov10n.pt        # bboxes only
+  boxmot track --yolo-model yolov9c.pt         # bboxes only
+  boxmot track --yolo-model yolov8n.pt         # bboxes only
+                            yolov8n-seg.pt     # bboxes + segmentation masks
+                            yolov8n-pose.pt    # bboxes + pose estimation
 ```
 
   </details>
