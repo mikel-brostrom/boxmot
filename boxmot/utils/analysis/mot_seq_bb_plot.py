@@ -6,6 +6,7 @@ import matplotlib.patches as patches
 from pathlib import Path
 from typing import Union
 import argparse
+from boxmot.utils import TRACKEVAL
 
 def plot_gt_boxes_with_trajectories(
     seq_dir: Union[str, Path],
@@ -160,7 +161,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--seq_dir",
-        default="./boxmot/engine/TrackEval/data/MOT17-ablation/train/MOT17-09",
+        default=TRACKEVAL / "data/MOT17-ablation/train/MOT17-09",
         help="Path to the MOT17 sequence folder (must contain img1/ and gt/ subfolders)"
     )
     parser.add_argument(
