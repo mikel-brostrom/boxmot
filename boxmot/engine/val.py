@@ -22,7 +22,7 @@ import copy
 import concurrent.futures
 
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, EXAMPLES
+from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, TRACKEVAL
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
@@ -48,7 +48,7 @@ checker.check_packages(('ultralytics', ))  # install
 
 
 def eval_init(args,
-              trackeval_dest: Path = Path("./boxmot/engine/trackeval"),
+              trackeval_dest: Path = TRACKEVAL,
               branch: str = "master",
               overwrite: bool = False
     ) -> None:
@@ -72,7 +72,7 @@ def eval_init(args,
         )
         args.benchmark = cfg["benchmark"]["name"]
         args.split = cfg["benchmark"]["split"]
-        args.source = Path(f"./boxmot/engine/trackeval/data/{args.benchmark}/{args.split}")
+        args.source = TRACKEVAL / f"data/{args.benchmark}/{args.split}"
         
 
     # 3) finally, make source an absolute Path everywhere
@@ -239,7 +239,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_res
     d = [seq_path.parent.name for seq_path in seq_paths]
 
     args = [
-        sys.executable, EXAMPLES / 'trackeval' / 'scripts' / 'run_mot_challenge.py',
+        sys.executable, TRACKEVAL / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
         "--TRACKERS_FOLDER", args.exp_folder_path,
