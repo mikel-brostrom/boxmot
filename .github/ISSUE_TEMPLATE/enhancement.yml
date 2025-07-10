@@ -11,7 +11,7 @@ body:
         Please search the [issues](https://github.com/mikel-brostrom/boxmot/issues) to see if a similar enhancement request already exists.
       options:
         - label: >
-            I have searched the Yolov8 Tracking [issues](https://github.com/mikel-brostrom/boxmot/issues) and found no similar enhancement requests.
+            I have searched the BoxMOT [issues](https://github.com/mikel-brostrom/boxmot/issues) and found no similar enhancement requests.
           required: true
 
   - type: textarea
