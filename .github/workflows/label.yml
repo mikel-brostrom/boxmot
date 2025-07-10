@@ -48,7 +48,7 @@ jobs:
               'hybridsort'     : /\bhybridsort\b/i,
               'ocsort'         : /\bocsort\b/i,
               'strongsort'     : /\bstrongsort\b/i,
-              'tracktrack'     : /\btracktrack\b/i
+              'tracktrack'     : /\btracktrack\b/i,
 
               // per-dataset labels
               'datasets'       : /\dataset?\b/i,
