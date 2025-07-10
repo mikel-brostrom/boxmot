@@ -8,26 +8,11 @@ body:
     attributes:
       label: Search before asking
       description: >
-        Please search the [issues](https://github.com/mikel-brostrom/boxmot/issues) and [discussions](https://github.com/mikel-brostrom/yolo_tracking/discussions) to see if a similar question already exists.
+        Please search the [issues](https://github.com/mikel-brostrom/boxmot/issues) and [discussions](https://github.com/mikel-brostrom/boxmot/discussions) to see if a similar question already exists.
       options:
         - label: >
-            I have searched the Yolo Tracking [issues](https://github.com/mikel-brostrom/boxmot/issues) and [discussions](https://github.com/mikel-brostrom/boxmot/discussions) and found no similar questions.
+            I have searched the BoxMOT [issues](https://github.com/mikel-brostrom/boxmot/issues) and [discussions](https://github.com/mikel-brostrom/boxmot/discussions) and found no similar questions.
           required: true
-
-  - type: dropdown
-    attributes:
-      label: Yolo Tracking Component
-      description: |
-        Please select the part of Yolo Tracking where you found the bug.
-      multiple: true
-      options:
-        - "Tracking"
-        - "Evaluation"
-        - "Evolution"
-        - "Integrations"
-        - "Other"
-    validations:
-      required: true
 
   - type: textarea
     attributes:
