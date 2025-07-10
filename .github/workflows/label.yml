@@ -1,0 +1,59 @@
+name: Label issues
+
+on:
+  issues:
+    types:
+      - opened
+      - reopened
+
+jobs:
+  label_issues:
+    name: "Issue: add labels"
+    if: ${{ github.event.action == 'opened' || github.event.action == 'reopened' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Combine title + body
+            const title = context.payload.issue.title || ''
+            const body  = context.payload.issue.body  || ''
+            const content = `${title}\n${body}`
+
+            // Always start with triage
+            const labels = ['triage']
+
+            // Map labels → regex matching dirs in your tree
+            const mapping = {
+              'assets'         : /\bassets\b/i,
+              'boxmot'         : /\bboxmot\b/i,
+              'appearance'     : /\bappearance\b/i,
+              'backbones'      : /\bbackbones\b/i,
+              'configs'        : /\bconfigs\b/i,
+              'data'           : /\bdata\b/i,
+              'engine'         : /\b(engine|cli|detectors|track|val)\b/i,
+              'motion'         : /\bmotion\b/i,
+              'postprocessing' : /\bpostprocessing\b/i,
+              'trackers'       : /\b(trackers|basetracker|botsort|bytetrack|deepocsort|hybridsort|ocsort|strongsort|tracktrack)\b/i,
+              'utils'          : /\butils\b/i,
+              'tests'          : /\btests?\b/i
+            }
+
+            // Add any matching labels
+            for (const [label, regex] of Object.entries(mapping)) {
+              if (regex.test(content)) {
+                labels.push(label)
+              }
+            }
+
+            // Apply them
+            await github.rest.issues.addLabels({
+              owner:  context.repo.owner,
+              repo:   context.repo.repo,
+              issue_number: context.issue.number,
+              labels
+            })
