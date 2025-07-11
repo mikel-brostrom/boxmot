@@ -95,35 +95,30 @@ def faiss_embedding_distance(tracks, detections, metric="euclidean"):
     det_feats   = np.vstack([d.curr_feat   for d in detections]).astype(np.float32)
     dim = track_feats.shape[1]
 
-    # Prepare output
-    dists = np.ones((n_t, n_d), dtype=np.float32)
-
+    # Build FAISS index
     if metric == "cosine":
-        # Inner‐product index == cosine similarity on unit vectors
+        # IP on unit vectors = cosine similarity
         index = faiss.IndexFlatIP(dim)
-        index.add(det_feats)
-
-        # For each track, retrieve similarity to all detections
-        sims, ids = index.search(track_feats, n_d)  # sims.shape = (n_t, n_d)
-
-        # Convert sim → distance = max(0, 1–sim)
-        for i in range(n_t):
-            for rank, j in enumerate(ids[i]):
-                d = 1.0 - sims[i, rank]
-                dists[i, j] = d if d > 0.0 else 0.0
-
     elif metric == "euclidean":
-        # L2 index gives squared distances; we take sqrt
+        # L2 gives squared distances
         index = faiss.IndexFlatL2(dim)
-        index.add(det_feats)
-
-        sqdists, ids = index.search(track_feats, n_d)  # squared dists
-        for i in range(n_t):
-            for rank, j in enumerate(ids[i]):
-                dists[i, j] = np.sqrt(sqdists[i, rank])
-
     else:
         raise ValueError(f"Unsupported metric: {metric!r}")
+    index.add(det_feats)
+
+    # Batch search
+    sims_or_sq, ids = index.search(track_feats, n_d)
+    # Prepare output matrix
+    dists = np.ones((n_t, n_d), dtype=np.float32)
+    rows = np.repeat(np.arange(n_t)[:, None], n_d, axis=1)
+
+    if metric == "cosine":
+        # Convert sim -> distance
+        clipped = np.clip(1.0 - sims_or_sq, 0.0, None)
+        dists[rows, ids] = clipped
+    else:
+        # sqrt of squared L2
+        dists[rows, ids] = np.sqrt(sims_or_sq)
 
     return dists
 
