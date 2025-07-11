@@ -138,3 +138,6 @@ class StrongSort(object):
         if len(outputs) > 0:
             return np.concatenate(outputs)
         return np.array([])
+
+    def reset(self):
+        pass
