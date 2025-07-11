@@ -11,20 +11,13 @@ from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS
 from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.patches import apply_patches
 from boxmot.engine.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
 
 checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install
 
 from ultralytics import YOLO
-from ultralytics.utils.plotting import Annotator  # ultralytics.yolo.utils.plotting is deprecated
-from ultralytics.utils.plotting import colors
-from ultralytics.utils import plotting
-
-# Make every drawing call a no-op
-plotting.Annotator.box       = lambda *args, **kwargs: None
-plotting.Annotator.box_label = lambda *args, **kwargs: None
-plotting.Annotator.line      = lambda *args, **kwargs: None
 
 
 def on_predict_start(predictor, persist=False):
@@ -66,6 +59,8 @@ def plot_trajectories(predictor):
 
 @torch.no_grad()
 def main(args):
+    apply_patches()
+
     if args.imgsz is None:
         args.imgsz = default_imgsz(args.yolo_model)
     yolo = YOLO(
