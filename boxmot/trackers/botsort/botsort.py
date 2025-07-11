@@ -10,7 +10,7 @@ from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
-from boxmot.trackers.botsort.botsort_track import STrack
+from boxmot.trackers.botsort.botsort_track import STrack, faiss_embedding_distance
 from boxmot.trackers.botsort.botsort_utils import (
     joint_stracks,
     remove_duplicate_stracks,
@@ -226,7 +226,7 @@ class BotSort(BaseTracker):
             ious_dists = fuse_score(ious_dists, detections)
 
         if self.with_reid:
-            emb_dists = embedding_distance(strack_pool, detections) / 2.0
+            emb_dists = faiss_embedding_distance(strack_pool, detections) / 2.0
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
             emb_dists[ious_dists_mask] = 1.0
             dists = np.minimum(ious_dists, emb_dists)
@@ -316,7 +316,7 @@ class BotSort(BaseTracker):
 
         # Fuse scores for IoU-based and embedding-based matching (if applicable)
         if self.with_reid:
-            emb_dists = embedding_distance(unconfirmed, detections) / 2.0
+            emb_dists = faiss_embedding_distance(unconfirmed, detections) / 2.0
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
             emb_dists[ious_dists_mask] = (
                 1.0  # Apply the IoU mask to embedding distances
