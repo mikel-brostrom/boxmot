@@ -11,12 +11,12 @@ from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.patches import apply_patches
 from boxmot.engine.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
 
 checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install
 
+from boxmot.utils.patches import apply_patches
 from ultralytics import YOLO
 
 
@@ -59,8 +59,7 @@ def plot_trajectories(predictor):
 
 @torch.no_grad()
 def main(args):
-    apply_patches()
-
+    
     if args.imgsz is None:
         args.imgsz = default_imgsz(args.yolo_model)
     yolo = YOLO(
