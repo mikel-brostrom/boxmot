@@ -76,69 +76,55 @@ __all__ = [
     "BotSort",
 ]
 
-# -----------------------------------------------------------------------------
-# Appearance‑based distance (FAISS – exact, no renorm)
-# -----------------------------------------------------------------------------
 
+def faiss_embedding_distance(tracks, detections, metric="euclidean"):
+    """
+    Compute the same cost matrix as before, but via Faiss for speed.
 
-def _extract_track_features(tracks: Sequence["STrack"], dim: int):
-    feats: List[np.ndarray] = []
-    valid: List[int] = []
-    for i, t in enumerate(tracks):
-        if t.smooth_feat is not None:
-            feats.append(t.smooth_feat.astype(np.float32, copy=False))
-            valid.append(i)
-    if not feats:
-        return np.empty((0, dim), dtype=np.float32), []
-    return np.vstack(feats), valid
-
-
-def _extract_det_features(dets: Sequence["STrack"], dim: int):
-    feats: List[np.ndarray] = []
-    valid: List[int] = []
-    for j, d in enumerate(dets):
-        if d.curr_feat is not None:
-            feats.append(d.curr_feat.astype(np.float32, copy=False))
-            valid.append(j)
-    if not feats:
-        return np.empty((0, dim), dtype=np.float32), []
-    return np.vstack(feats), valid
-
-
-def embedding_distance(tracks: Sequence["STrack"], detections: Sequence["STrack"]) -> np.ndarray:
-    """Exact cosine distance matrix via FAISS (no extra normalisation)."""
+    :param tracks: list of objects with .smooth_feat (unit-length np.ndarray)
+    :param detections: list of objects with .curr_feat (unit-length np.ndarray)
+    :param metric: "cosine" (default) or "euclidean"
+    :return: cost_matrix of shape (len(tracks), len(detections))
+    """
     n_t, n_d = len(tracks), len(detections)
     if n_t == 0 or n_d == 0:
         return np.zeros((n_t, n_d), dtype=np.float32)
 
-    # fetch dimensionality from first available feature
-    first_feat = next((t.smooth_feat for t in tracks if t.smooth_feat is not None), None)
-    if first_feat is None:
-        return np.ones((n_t, n_d), dtype=np.float32)
-    dim = int(first_feat.shape[0])
+    # Stack features
+    track_feats = np.vstack([t.smooth_feat for t in tracks]).astype(np.float32)
+    det_feats   = np.vstack([d.curr_feat   for d in detections]).astype(np.float32)
+    dim = track_feats.shape[1]
 
-    t_feats, t_valid = _extract_track_features(tracks, dim)
-    d_feats, d_valid = _extract_det_features(detections, dim)
-
-    # initialise with worst‑case cost (1 → after /2 becomes 0.5 then clipped to 1)
+    # Prepare output
     dists = np.ones((n_t, n_d), dtype=np.float32)
-    if t_feats.size == 0 or d_feats.size == 0:
-        return dists
 
-    # build exact IP index over detections
-    index = faiss.IndexFlatIP(dim)
-    index.add(d_feats)
+    if metric == "cosine":
+        # Inner‐product index == cosine similarity on unit vectors
+        index = faiss.IndexFlatIP(dim)
+        index.add(det_feats)
 
-    sims, idxs = index.search(t_feats, d_feats.shape[0])  # full list per track
+        # For each track, retrieve similarity to all detections
+        sims, ids = index.search(track_feats, n_d)  # sims.shape = (n_t, n_d)
 
-    for row, (sim_row, idx_row) in enumerate(zip(sims, idxs)):
-        ti = t_valid[row]
-        for sim, dj in zip(sim_row, idx_row):
-            di = d_valid[dj]
-            dval = 1.0 - sim  # exact cosine distance on unit vectors
-            if dval < 0.0:
-                dval = 0.0  # numerical safety (mirrors original code)
-            dists[ti, di] = dval
+        # Convert sim → distance = max(0, 1–sim)
+        for i in range(n_t):
+            for rank, j in enumerate(ids[i]):
+                d = 1.0 - sims[i, rank]
+                dists[i, j] = d if d > 0.0 else 0.0
+
+    elif metric == "euclidean":
+        # L2 index gives squared distances; we take sqrt
+        index = faiss.IndexFlatL2(dim)
+        index.add(det_feats)
+
+        sqdists, ids = index.search(track_feats, n_d)  # squared dists
+        for i in range(n_t):
+            for rank, j in enumerate(ids[i]):
+                dists[i, j] = np.sqrt(sqdists[i, rank])
+
+    else:
+        raise ValueError(f"Unsupported metric: {metric!r}")
+
     return dists
 
 
@@ -214,8 +200,6 @@ class FeatureDequeFAISS(deque):
 # -----------------------------------------------------------------------------
 # STrack – unchanged except for the FAISS‑backed feature history
 # -----------------------------------------------------------------------------
-
-
 class STrack(BaseTrack):
     """Single target track with smoothed appearance embedding and motion KF."""
 
@@ -263,7 +247,6 @@ class STrack(BaseTrack):
             self.smooth_feat = feat.copy()
         else:
             self.smooth_feat = self.alpha * self.smooth_feat + (1 - self.alpha) * feat
-            self.smooth_feat /= np.linalg.norm(self.smooth_feat) + 1e-12
         self.features.append(feat.copy())
 
     def update_cls(self, cls: int, conf: float) -> None:
