@@ -12,13 +12,13 @@ from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.engine.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
-from ultralytics.utils.plotting import save_one_box
 
 
 checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install
 
 from boxmot.utils.patches import apply_patches
+from ultralytics.utils.plotting import save_one_box
 from ultralytics import YOLO
 
 
