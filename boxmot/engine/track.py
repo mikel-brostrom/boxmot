@@ -19,7 +19,6 @@ checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install
 
 from boxmot.utils.patches import apply_patches
-apply_patches()
 from ultralytics import YOLO
 
 
@@ -89,7 +88,8 @@ def plot_trajectories(predictor):
 
 @torch.no_grad()
 def main(args):
-    
+    apply_patches()
+
     
     if args.imgsz is None:
         args.imgsz = default_imgsz(args.yolo_model)
