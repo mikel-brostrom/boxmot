@@ -10,7 +10,7 @@ from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.tracker import Tracker
-from boxmot.trackers.strongsort.linear_assignment import NearestNeighborDistanceMetric
+from boxmot.trackers.strongsort.sort.linear_assignment import NearestNeighborDistanceMetric
 from boxmot.utils.ops import xyxy2tlwh
 
 
