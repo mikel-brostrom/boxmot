@@ -12,11 +12,14 @@ from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.engine.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
+from ultralytics.utils.plotting import save_one_box
+
 
 checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install
 
 from boxmot.utils.patches import apply_patches
+apply_patches()
 from ultralytics import YOLO
 
 
@@ -53,12 +56,40 @@ def plot_trajectories(predictor):
     # predictor.results is a list of Results, one per frame in the batch
     for i, result in enumerate(predictor.results):
         tracker = predictor.trackers[i]
-        result.orig_img = tracker.plot_results(result.orig_img, predictor.custom_args.show_trajectories)
-        cv2.waitKey(1)
+        crop_img = result.orig_img.copy()
+        result.orig_img = tracker.plot_results(result.orig_img.copy(), predictor.custom_args.show_trajectories)
+
+        # wait 1ms for a key, then check if it was 'q'
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            # clean up and exit
+            cv2.destroyAllWindows()
+            sys.exit(0)
+        
+        if tracker.per_class_active_tracks is None:  # dict
+            active_tracks = tracker.active_tracks
+        else:
+            active_tracks = []
+            for k in tracker.per_class_active_tracks.keys():
+                active_tracks += tracker.per_class_active_tracks[k]
+
+        for a in active_tracks:
+            if not a.history_observations: continue
+            box = a.history_observations[-1][0:4]
+            box = torch.as_tensor(box).unsqueeze(0)
+            save_one_box(
+                box,
+                crop_img,
+                file=Path(predictor.save_dir) / str(a.id) / Path(predictor.txt_path.stem).with_suffix(".jpg"),
+                BGR=True,
+                gain=1,
+                pad=0
+            )
 
 
 @torch.no_grad()
 def main(args):
+    
     
     if args.imgsz is None:
         args.imgsz = default_imgsz(args.yolo_model)

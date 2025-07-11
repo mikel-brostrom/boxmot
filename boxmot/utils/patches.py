@@ -46,6 +46,7 @@ def my_save_txt(self, txt_file: Union[str, Path], save_conf: bool = False) -> st
 
     return str(txt_file)
 
+
 def apply_patches():
     # 1) Disable all plotting calls
     plotting.Annotator.box        = lambda *args, **kwargs: None
