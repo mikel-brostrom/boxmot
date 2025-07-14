@@ -12,7 +12,7 @@ class OpenVinoBackend(BaseModelBackend):
         self.half = half
 
     def load_model(self, w):
-        self.checker.check_packages(("openvino-dev>=2022.3",))
+        self.checker.check_packages(("openvino>=2025.2.0",))
 
         LOGGER.info(f"Loading {w} for OpenVINO inference...")
         try:
