@@ -309,9 +309,11 @@ def process_sequence(seq_name: str,
                      tracking_method: str,
                      exp_folder: str,
                      target_fps: Optional[int],
-                     cfg_dict: Optional[Dict] = None):
+                     device: str,
+                     cfg_dict: Optional[Dict] = None,
+                     ):
 
-    device = select_device('cpu')
+    device = select_device(device)
     tracker = create_tracker(
         tracker_type=tracking_method,
         tracker_config=TRACKER_CONFIGS / (tracking_method + ".yaml"),
@@ -376,7 +378,8 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
             opt.tracking_method,
             str(exp_dir),
             getattr(opt, 'fps', None),
-            evolve_config
+            opt.device,
+            evolve_config,
         )
         for seq in sequence_names
     ]
