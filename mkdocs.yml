@@ -1,0 +1,25 @@
+site_name: BoxMot
+repo_url: https://github.com/your-org/boxmot
+
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          setup_commands:
+            - import sys; sys.path.insert(0, ".")
+            - import boxmot
+          options:
+            selection:
+              members:
+                - "__all__"
+              filters:
+                - "!^update$"
+
+nav:
+  - Home: index.md
+  - API Reference:
+      - BoxMot: api/boxmot.md
