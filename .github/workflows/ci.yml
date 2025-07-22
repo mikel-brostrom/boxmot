@@ -187,7 +187,7 @@ jobs:
           source .venv/bin/activate
           uv pip list
           boxmot track --yolo-model yolov10n.pt --imgsz 320 --source $IMG
-          boxmot track --yolo-model yolox_n.pt --imgsz 320,320 --source $IMG
+          boxmot track --yolo-model yolox_n.pt --imgsz 320 320 --source $IMG
           boxmot track --yolo-model rf-detr-base.pt --imgsz 320 --source $IMG
   tracking-with-seg:
     runs-on: ubuntu-latest
