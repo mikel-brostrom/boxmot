@@ -86,5 +86,8 @@ def create_tracker(
     else:
         tracker_args["per_class"] = per_class
 
-    # Return the instantiated tracker class with arguments
-    return tracker_class(**tracker_args)
+    # Return the instantiated tracker class with arguments and warmedup modelxs
+    tracker = tracker_class(**tracker_args)
+    if hasattr(tracker, "model"):
+        tracker.model.warmup()
+    return tracker
