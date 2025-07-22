@@ -2,7 +2,6 @@
 import click
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Tuple
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 
 
@@ -10,27 +9,18 @@ def make_args(**kwargs):
     """
     Helper to build an argparse-style Namespace for engine entrypoints.
     """
+    # Convert imgsz tuple to list if provided
+    if 'imgsz' in kwargs and kwargs['imgsz'] is not None:
+        kwargs['imgsz'] = list(kwargs['imgsz'])
     return SimpleNamespace(**kwargs)
 
-
-def parse_tuple(value: str) -> Tuple[int, int]:
-    """
-    Parse a comma-separated string into a tuple of two integers.
-    """
-    try:
-        parts = value.split(',')
-        if len(parts) != 2:
-            raise ValueError("Expected two integers separated by a comma.")
-        return int(parts[0]), int(parts[1])
-    except Exception as e:
-        raise click.BadParameter(f"Invalid format for --imgsz: {value}. {e}")
 
 # Core options (excluding model & classes)
 def core_options(func):
     options = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
-        click.option('--imgsz', '--img-size', type=Tuple[int, int], default=None,
+        click.option('--imgsz', '--img-size', nargs=2, type=int, default=None,
                      help='inference size h w'),
         click.option('--fps', type=int, default=30,
                      help='video frame-rate'),
@@ -213,6 +203,33 @@ def tune(ctx, yolo_model, reid_model, classes, **kwargs):
               'benchmark': bench,
               'split': split}
     args = make_args(**params)
+    from boxmot.engine.evolve import main as run_tuning
+    run_tuning(args)
+
+
+@cli.command(help='Run all steps: generate, evaluate, tune')
+@core_options
+@plural_model_options
+@click.pass_context
+def all(ctx, yolo_model, reid_model, classes, **kwargs):
+    src = kwargs.pop('source')
+    source_path = Path(src)
+    bench, split = source_path.parent.name, source_path.name
+    params = {**kwargs,
+              'yolo_model': list(yolo_model),
+              'reid_model': list(reid_model),
+              'classes': [0],
+              'source': src,
+              'benchmark': bench,
+              'split': split}
+    args = make_args(**params)
+    # generate
+    from boxmot.engine.val import run_generate_dets_embs
+    run_generate_dets_embs(args)
+    # eval
+    from boxmot.engine.val import main as run_eval
+    run_eval(args)
+    # tune
     from boxmot.engine.evolve import main as run_tuning
     run_tuning(args)
 
