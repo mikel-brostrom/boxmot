@@ -411,10 +411,7 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     """
     seq_paths = gt_folder = [p / "img1" for p in opt.source.iterdir() if p.is_dir()]
     save_dir = Path(opt.project) / opt.name
-    gt_folder
     
-    
-    , gt_folder = eval_setup(opt, opt.val_tools_path)
     trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
     if opt.ci:
