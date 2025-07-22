@@ -2,6 +2,7 @@
 import click
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Tuple
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 
 
