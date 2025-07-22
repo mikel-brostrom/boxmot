@@ -9,10 +9,20 @@ def make_args(**kwargs):
     """
     Helper to build an argparse-style Namespace for engine entrypoints.
     """
-    # Convert imgsz tuple to list if provided
+    # Normalize imgsz: accept one or two ints
     if 'imgsz' in kwargs and kwargs['imgsz'] is not None:
-        kwargs['imgsz'] = list(kwargs['imgsz'])
-    return SimpleNamespace(**kwargs)
+        imgsz_val = kwargs['imgsz']
+        # Click nargs=-1 yields a tuple
+        if not isinstance(imgsz_val, (tuple, list)):
+            raise click.BadParameter(f"Invalid --imgsz value: {imgsz_val}")
+        if len(imgsz_val) == 1:
+            w = h = imgsz_val[0]
+        elif len(imgsz_val) == 2:
+            w, h = imgsz_val
+        else:
+            raise click.BadParameter(f"--imgsz takes one or two integers, got {len(imgsz_val)}")
+        kwargs['imgsz'] = [w, h]
+    return SimpleNamespace(**kwargs)(**kwargs)
 
 
 # Core options (excluding model & classes)
@@ -20,8 +30,8 @@ def core_options(func):
     options = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
-        click.option('--imgsz', '--img-size', nargs=2, type=int, default=None,
-                     help='inference size h w'),
+        click.option('--imgsz', '--img-size', nargs=-1, type=int, default=None,
+                     help='inference size h w (one or two ints; for square size pass one)'),
         click.option('--fps', type=int, default=30,
                      help='video frame-rate'),
         click.option('--conf', type=float, default=0.01,
