@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Tuple
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 
-
+    
 def make_args(**kwargs):
     """
     Build an argparse-style namespace for engine entrypoints.
@@ -205,16 +205,15 @@ def plural_model_options(func):
     return func
 
 
-@click.group(context_settings=dict(help_option_names=['-h', '--help']),
-             invoke_without_command=False)
-def cli():
+@click.group()
+def boxmot():
     """
     Entry point group for boxmot_cli commands.
     """
     pass
 
 
-@cli.command(help='Run tracking only')
+@boxmot.command(help='Run tracking only')
 @core_options
 @singular_model_options
 @click.pass_context
@@ -239,7 +238,7 @@ def track(ctx, yolo_model, reid_model, classes, **kwargs):
     run_track(args)
 
 
-@cli.command(help='Generate detections and embeddings')
+@boxmot.command(help='Generate detections and embeddings')
 @core_options
 @plural_model_options
 @click.pass_context
@@ -265,7 +264,7 @@ def generate(ctx, yolo_model, reid_model, classes, **kwargs):
     run_generate_dets_embs(args)
 
 
-@cli.command(help='Evaluate tracking performance')
+@boxmot.command(help='Evaluate tracking performance')
 @core_options
 @plural_model_options
 @click.pass_context
@@ -291,7 +290,7 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
     run_eval(args)
 
 
-@cli.command(help='Tune models via evolutionary algorithms')
+@boxmot.command(help='Tune models via evolutionary algorithms')
 @core_options
 @plural_model_options
 @click.pass_context
@@ -316,7 +315,7 @@ def tune(ctx, yolo_model, reid_model, classes, **kwargs):
     run_tuning(args)
 
 
-@cli.command(help='Run all steps: generate, evaluate, tune')
+@boxmot.command(help='Run all steps: generate, evaluate, tune')
 @core_options
 @plural_model_options
 @click.pass_context
@@ -348,7 +347,7 @@ def all(ctx, yolo_model, reid_model, classes, **kwargs):
     run_tuning(args)
 
 
-main = cli
+main = boxmot
 
 if __name__ == "__main__":
-    cli()
+    boxmot()
