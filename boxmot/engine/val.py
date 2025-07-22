@@ -221,14 +221,13 @@ def parse_mot_results(results: str) -> dict:
 
 
 
-def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_results_folder: Path, gt_folder: Path, metrics: list = ["HOTA", "CLEAR", "Identity"]) -> str:
+def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_folder: Path, metrics: list = ["HOTA", "CLEAR", "Identity"]) -> str:
     """
     Executes a Python script to evaluate MOT challenge tracking results using specified metrics.
 
     Args:
         seq_paths (list): List of sequence paths.
         save_dir (Path): Directory to save evaluation results.
-        MOT_results_folder (Path): Folder containing MOT results.
         gt_folder (Path): Folder containing ground truth data.
         metrics (list, optional): List of metrics to use for evaluation. Defaults to ["HOTA", "CLEAR", "Identity"].
 
