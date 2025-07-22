@@ -12,12 +12,24 @@ def make_args(**kwargs):
     return SimpleNamespace(**kwargs)
 
 
+def parse_tuple(value: str) -> Tuple[int, int]:
+    """
+    Parse a comma-separated string into a tuple of two integers.
+    """
+    try:
+        parts = value.split(',')
+        if len(parts) != 2:
+            raise ValueError("Expected two integers separated by a comma.")
+        return int(parts[0]), int(parts[1])
+    except Exception as e:
+        raise click.BadParameter(f"Invalid format for --imgsz: {value}. {e}")
+
 # Core options (excluding model & classes)
 def core_options(func):
     options = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
-        click.option('--imgsz', '--img-size', type=int, nargs=2, default=None,
+        click.option('--imgsz', '--img-size', type=Tuple[int, int], default=None,
                      help='inference size h w'),
         click.option('--fps', type=int, default=30,
                      help='video frame-rate'),
