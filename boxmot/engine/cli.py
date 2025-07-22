@@ -254,8 +254,8 @@ def generate(ctx, yolo_model, reid_model, classes, **kwargs):
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
     params = {**kwargs,
-              'yolo-model': list(yolo_model),
-              'reid-model': list(reid_model),
+              'yolo_model': list(yolo_model),
+              'reid_model': list(reid_model),
               'classes': list(classes),
               'source': src,
               'benchmark': bench,
@@ -280,8 +280,8 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
     params = {**kwargs,
-              'yolo-model': list(yolo_model),
-              'reid-model': list(reid_model),
+              'yolo_model': list(yolo_model),
+              'reid_model': list(reid_model),
               'classes': [0],
               'source': src,
               'benchmark': bench,
@@ -305,8 +305,8 @@ def tune(ctx, yolo_model, reid_model, classes, **kwargs):
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
     params = {**kwargs,
-              'yolo-model': list(yolo_model),
-              'reid-model': list(reid_model),
+              'yolo_model': list(yolo_model),
+              'reid_model': list(reid_model),
               'classes': list(classes),
               'source': src,
               'benchmark': bench,
@@ -330,8 +330,8 @@ def all(ctx, yolo_model, reid_model, classes, **kwargs):
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
     params = {**kwargs,
-              'yolo-model': list(yolo-model),
-              'reid-model': list(reid-model),
+              'yolo_model': list(yolo-model),
+              'reid_model': list(reid-model),
               'classes': [0],
               'source': src,
               'benchmark': bench,
