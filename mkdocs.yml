@@ -23,6 +23,11 @@ plugins:
 nav:
   - Home: index.md
 
+  - Modes:
+      - Track:        api/modes/track.md
+      - Evaluation:   api/modes/eval.md
+      - Tune:         api/modes/tune.md
+
   - Trackers:
       - ByteTrack:    api/trackers/bytetrack.md
       - BotSort:      api/trackers/botsort.md
@@ -31,8 +36,3 @@ nav:
       - DeepOcSort:   api/trackers/deepocsort.md
       # - HybridSort:   api/trackers/hybridsort.md
       - BoostTrack:   api/trackers/boosttrack.md
-
-  - Modes:
-      - Track:        modes/track.md
-      - Evaluation:   modes/evaluate.md
-      - Tune:         modes/tune.md
