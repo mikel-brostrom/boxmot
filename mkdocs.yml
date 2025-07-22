@@ -7,6 +7,9 @@ theme:
     - navigation.sections
     - navigation.expand
 
+markdown_extensions:
+    - mkdocs-click
+
 plugins:
   - search
   - mkdocstrings:

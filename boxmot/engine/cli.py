@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+CLI for BoxMOT: multi-step multiple object tracking pipeline.
+Provides commands to track, generate detections and embeddings, evaluate performance, tune models, or run all steps.
+"""
 import click
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,7 +12,15 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACK
 
 def make_args(**kwargs):
     """
-    Helper to build an argparse-style Namespace for engine entrypoints.
+    Build an argparse-style namespace for engine entrypoints.
+
+    Converts any 'imgsz' tuple in kwargs to a list and returns a SimpleNamespace.
+
+    Args:
+        **kwargs: Keyword arguments corresponding to CLI options.
+
+    Returns:
+        SimpleNamespace: Namespace object with attributes set from kwargs.
     """
     # Convert imgsz tuple to list if provided
     if 'imgsz' in kwargs and kwargs['imgsz'] is not None:
@@ -19,8 +31,18 @@ def make_args(**kwargs):
 
 def parse_tuple(value: str) -> Tuple[int, int]:
     """
-    Parse a comma-/x-/space-separated string into a tuple of two integers.
-    Accepts one value for square size (e.g. "320").
+    Parse a string into a (width, height) tuple of integers.
+
+    Accepts separators 'x', ',' or space, and a single value for square size.
+
+    Args:
+        value (str): Input string, e.g. "640x480", "640,480", "320".
+
+    Returns:
+        Tuple[int, int]: Parsed (width, height) tuple.
+
+    Raises:
+        click.BadParameter: If the input cannot be parsed as one or two integers.
     """
     s = value.replace('x', ' ').replace(',', ' ')
     parts = s.split()
@@ -44,6 +66,18 @@ def parse_tuple(value: str) -> Tuple[int, int]:
 
 # Core options (excluding model & classes)
 def core_options(func):
+    """
+    Decorator adding core CLI options to a command.
+
+    Options include data source, image size, frame rate, thresholds, devices,
+    output parameters, visualization and tracking flags.
+
+    Args:
+        func (callable): Click command function to wrap.
+
+    Returns:
+        callable: Wrapped function with core options applied.
+    """
     options = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
@@ -116,6 +150,18 @@ def core_options(func):
 
 
 def singular_model_options(func):
+    """
+    Decorator adding single-model options to a command.
+
+    Options include paths for YOLO detection weights, ReID model weights,
+    and class filters.
+
+    Args:
+        func (callable): Click command function to wrap.
+
+    Returns:
+        callable: Wrapped function with singular model options applied.
+    """
     options = [
         click.option('--yolo-model', type=Path,
                      default=WEIGHTS / 'yolov8n.pt',
@@ -132,6 +178,18 @@ def singular_model_options(func):
 
 
 def plural_model_options(func):
+    """
+    Decorator adding multi-model options to a command.
+
+    Options allow providing multiple YOLO weights, multiple ReID weights,
+    and class filters.
+
+    Args:
+        func (callable): Click command function to wrap.
+
+    Returns:
+        callable: Wrapped function with plural model options applied.
+    """
     options = [
         click.option('--yolo-model', type=Path, multiple=True,
                      default=[WEIGHTS / 'yolov8n.pt'],
@@ -150,7 +208,9 @@ def plural_model_options(func):
 @click.group(context_settings=dict(help_option_names=['-h', '--help']),
              invoke_without_command=False)
 def cli():
-    """boxmot_cli: multi-step MOT pipeline"""
+    """
+    Entry point group for boxmot_cli commands.
+    """
     pass
 
 
@@ -159,6 +219,11 @@ def cli():
 @singular_model_options
 @click.pass_context
 def track(ctx, yolo_model, reid_model, classes, **kwargs):
+    """
+    Command 'track': run object tracking only.
+
+    Loads a single YOLO detector and ReID model to track objects in the given source.
+    """
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
@@ -179,12 +244,18 @@ def track(ctx, yolo_model, reid_model, classes, **kwargs):
 @plural_model_options
 @click.pass_context
 def generate(ctx, yolo_model, reid_model, classes, **kwargs):
+    """
+    Command 'generate': produce detection boxes and embedding vectors.
+
+    Uses one or more YOLO models for detection and one or more ReID models
+    to compute embeddings for each detection in the source dataset.
+    """
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
     params = {**kwargs,
-              'yolo_model': list(yolo_model),
-              'reid_model': list(reid_model),
+              'yolo-model': list(yolo_model),
+              'reid-model': list(reid_model),
               'classes': list(classes),
               'source': src,
               'benchmark': bench,
@@ -199,12 +270,18 @@ def generate(ctx, yolo_model, reid_model, classes, **kwargs):
 @plural_model_options
 @click.pass_context
 def eval(ctx, yolo_model, reid_model, classes, **kwargs):
+    """
+    Command 'eval': evaluate tracking results with TrackEval.
+
+    Runs performance metrics (HOTA, MOTA, IDF1, etc.) on precomputed detections and
+    embeddings for the source.
+    """
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
     params = {**kwargs,
-              'yolo_model': list(yolo_model),
-              'reid_model': list(reid_model),
+              'yolo-model': list(yolo_model),
+              'reid-model': list(reid_model),
               'classes': [0],
               'source': src,
               'benchmark': bench,
@@ -219,12 +296,17 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
 @plural_model_options
 @click.pass_context
 def tune(ctx, yolo_model, reid_model, classes, **kwargs):
+    """
+    Command 'tune': optimize model hyperparameters using evolutionary search.
+
+    Performs multiple trials to tune tracking parameters based on specified objectives.
+    """
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
     params = {**kwargs,
-              'yolo_model': list(yolo_model),
-              'reid_model': list(reid_model),
+              'yolo-model': list(yolo_model),
+              'reid-model': list(reid_model),
               'classes': list(classes),
               'source': src,
               'benchmark': bench,
@@ -239,12 +321,17 @@ def tune(ctx, yolo_model, reid_model, classes, **kwargs):
 @plural_model_options
 @click.pass_context
 def all(ctx, yolo_model, reid_model, classes, **kwargs):
+    """
+    Command 'all': execute full pipeline.
+
+    Runs generate, eval, and tune sequentially for the given source and models.
+    """
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
     params = {**kwargs,
-              'yolo_model': list(yolo_model),
-              'reid_model': list(reid_model),
+              'yolo-model': list(yolo-model),
+              'reid-model': list(reid-model),
               'classes': [0],
               'source': src,
               'benchmark': bench,

@@ -1,3 +1,5 @@
 # Tune
 
-::: boxmot.engine.cli.tune
+::: mkdocs-click
+    :module: boxmot.engine.cli
+    :command: tune

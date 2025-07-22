@@ -1,3 +1,5 @@
 # Track
 
-::: boxmot.engine.cli.track
+::: mkdocs-click
+    :module: boxmot.engine.cli
+    :command: track
