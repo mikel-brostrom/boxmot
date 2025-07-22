@@ -409,7 +409,8 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     Args:
         opt (Namespace): Parsed command line arguments.
     """
-    seq_paths = gt_folder = [p / "img1" for p in opt.source.iterdir() if p.is_dir()]
+    gt_folder = opt.source
+    seq_paths = [p / "img1" for p in opt.source.iterdir() if p.is_dir()]
     save_dir = Path(opt.project) / opt.name
     
     trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder)
