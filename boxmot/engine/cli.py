@@ -2,6 +2,7 @@
 import click
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Tuple
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 
 
@@ -9,20 +10,36 @@ def make_args(**kwargs):
     """
     Helper to build an argparse-style Namespace for engine entrypoints.
     """
-    # Normalize imgsz: accept one or two ints
+    # Convert imgsz tuple to list if provided
     if 'imgsz' in kwargs and kwargs['imgsz'] is not None:
-        imgsz_val = kwargs['imgsz']
-        # Click nargs=-1 yields a tuple
-        if not isinstance(imgsz_val, (tuple, list)):
-            raise click.BadParameter(f"Invalid --imgsz value: {imgsz_val}")
-        if len(imgsz_val) == 1:
-            w = h = imgsz_val[0]
-        elif len(imgsz_val) == 2:
-            w, h = imgsz_val
-        else:
-            raise click.BadParameter(f"--imgsz takes one or two integers, got {len(imgsz_val)}")
-        kwargs['imgsz'] = [w, h]
-    return SimpleNamespace(**kwargs)(**kwargs)
+        size = kwargs['imgsz']
+        kwargs['imgsz'] = [size[0], size[1]]
+    return SimpleNamespace(**kwargs)
+
+
+def parse_tuple(value: str) -> Tuple[int, int]:
+    """
+    Parse a comma-/x-/space-separated string into a tuple of two integers.
+    Accepts one value for square size (e.g. "320").
+    """
+    s = value.replace('x', ' ').replace(',', ' ')
+    parts = s.split()
+    if len(parts) == 1:
+        try:
+            n = int(parts[0])
+            return (n, n)
+        except ValueError:
+            raise click.BadParameter(f"Invalid --imgsz: {value}")
+    elif len(parts) == 2:
+        try:
+            w, h = int(parts[0]), int(parts[1])
+            return (w, h)
+        except ValueError:
+            raise click.BadParameter(f"Invalid --imgsz: {value}")
+    else:
+        raise click.BadParameter(
+            f"--imgsz expects 1 or 2 integers separated by ',' 'x' or space, got '{value}'"
+        )
 
 
 # Core options (excluding model & classes)
@@ -30,8 +47,8 @@ def core_options(func):
     options = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
-        click.option('--imgsz', '--img-size', nargs=-1, type=int, default=None,
-                     help='inference size h w (one or two ints; for square size pass one)'),
+        click.option('--imgsz', '--img-size', type=parse_tuple, default=None,
+                     help='inference size h,w (e.g. 640,480 or 640x480)'),
         click.option('--fps', type=int, default=30,
                      help='video frame-rate'),
         click.option('--conf', type=float, default=0.01,
