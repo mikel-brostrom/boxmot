@@ -1,158 +1,210 @@
 #!/usr/bin/env python3
-
-import argparse
+import click
 from pathlib import Path
+from types import SimpleNamespace
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 
 
-def main():
-    # Parent parser for evaluation commands: allow multiple weights
-    eval_parent = argparse.ArgumentParser(add_help=False)
-    eval_parent.add_argument(
-        '--yolo-model', nargs='+', type=Path,
-        default=[WEIGHTS / 'yolov8n.pt'],
-        help='one or more YOLO weights for detection (only for generate/eval/tune)'
-    )
-    eval_parent.add_argument(
-        '--reid-model', nargs='+', type=Path,
-        default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'],
-        help='one or more ReID model weights (only for generate/eval/tune)'
-    )
-    eval_parent.add_argument('--classes', nargs='+', type=int,
-        default=[0], help='filter by class indices')
+def make_args(**kwargs):
+    """
+    Helper to build an argparse-style Namespace for engine entrypoints.
+    """
+    return SimpleNamespace(**kwargs)
 
-    # Common arguments for all commands (flags only, no positionals)
-    common_parser = argparse.ArgumentParser(add_help=False, conflict_handler='resolve')
-    common_parser.add_argument(
-        '--yolo-model', type=Path, default=WEIGHTS / 'yolov8n.pt',
-        help='path to YOLO weights for detection'
-    )
-    common_parser.add_argument(
-        '--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
-        help='path to ReID model weights'
-    )
-    common_parser.add_argument(
-        '--source', type=str, default='0',
-        help='file/dir/URL/glob, 0 for webcam'
-    )
-    common_parser.add_argument('--imgsz', '--img-size', nargs='+', type=int,
-                               default=None, help='inference size h,w')
-    common_parser.add_argument('--fps', type=int, default=30,
-                               help='video frame-rate')
-    common_parser.add_argument('--conf', type=float, default=0.01,
-                               help='min confidence threshold')
-    common_parser.add_argument('--iou', type=float, default=0.7,
-                               help='IoU threshold for NMS')
-    common_parser.add_argument('--device', default='', help='cuda device(s), e.g. 0 or 0,1,2,3 or cpu')
-    common_parser.add_argument('--classes', nargs='+', type=int,
-                               help='filter by class indices')
-    common_parser.add_argument('--project', type=Path, default=ROOT / 'runs',
-                               help='save results to project/name')
-    common_parser.add_argument('--name', default='', help='save results to project/name')
-    common_parser.add_argument('--exist-ok', action='store_true', default=True,
-                               help='existing project/name ok, do not increment')
-    common_parser.add_argument('--half', action='store_true',
-                               help='use FP16 half-precision inference')
-    common_parser.add_argument('--vid-stride', type=int, default=1,
-                               help='video frame-rate stride')
-    common_parser.add_argument('--ci', action='store_true',
-                               help='reuse existing runs in CI (no UI)')
-    common_parser.add_argument('--tracking-method', type=str,
-                               default='deepocsort',
-                               help='deepocsort, botsort, strongsort, ...')
-    common_parser.add_argument('--dets-file-path', type=Path,
-                               help='path to precomputed detections file')
-    common_parser.add_argument('--embs-file-path', type=Path,
-                               help='path to precomputed embeddings file')
-    common_parser.add_argument('--exp-folder-path', type=Path,
-                               help='path to experiment folder')
-    common_parser.add_argument('--verbose', action='store_true',
-                               help='print detailed logs')
-    common_parser.add_argument('--agnostic-nms', action='store_true',
-                               help='class-agnostic NMS')
-    common_parser.add_argument('--gsi', action='store_true',
-                               help='apply Gaussian smoothing interpolation')
-    common_parser.add_argument('--n-trials', type=int, default=4,
-                               help='number of trials for evolutionary tuning')
-    common_parser.add_argument('--objectives', nargs='+', type=str,
-                               default=["HOTA", "MOTA", "IDF1"],
-                               help='objectives for tuning: HOTA, MOTA, IDF1')
-    common_parser.add_argument('--val-tools-path', type=Path,
-                               default=TRACKEVAL,
-                               help='where to clone trackeval')
-    common_parser.add_argument('--split-dataset', action='store_true',
-                               help='use second half of dataset')
-    common_parser.add_argument('--show', action='store_true',
-                               help='display tracking in a window')
-    common_parser.add_argument('--show-labels', action='store_false',
-                               help='hide detection labels')
-    common_parser.add_argument('--show-conf', action='store_false',
-                               help='hide detection confidences')
-    common_parser.add_argument('--show-trajectories', action='store_true',
-                               help='overlay past trajectories')
-    common_parser.add_argument('--save-txt', action='store_true',
-                               help='save results to a .txt file')
-    common_parser.add_argument('--save-crop', action='store_true',
-                               help='save cropped detections')
-    common_parser.add_argument('--save', action='store_true',
-                               help='save annotated video')
-    common_parser.add_argument('--line-width', type=int, default=None,
-                               help='bounding box line width')
-    common_parser.add_argument('--per-class', action='store_true',
-                               help='track each class separately')
 
-    # Top‐level parser: only for sub‐command selection
-    parser = argparse.ArgumentParser(prog='boxmot_cli')
-    sub = parser.add_subparsers(dest='command', required=True)
+# Core options (excluding model & classes)
+def core_options(func):
+    options = [
+        click.option('--source', type=str, default='0',
+                     help='file/dir/URL/glob, 0 for webcam'),
+        click.option('--imgsz', '--img-size', type=int, nargs=2, default=None,
+                     help='inference size h w'),
+        click.option('--fps', type=int, default=30,
+                     help='video frame-rate'),
+        click.option('--conf', type=float, default=0.01,
+                     help='min confidence threshold'),
+        click.option('--iou', type=float, default=0.7,
+                     help='IoU threshold for NMS'),
+        click.option('--device', default='',
+                     help='cuda device(s), e.g. 0 or 0,1,2,3 or cpu'),
+        click.option('--project', type=Path, default=ROOT / 'runs',
+                     help='save results to project/name'),
+        click.option('--name', default='', help='save results to project/name'),
+        click.option('--exist-ok', is_flag=True, default=True,
+                     help='existing project/name ok, do not increment'),
+        click.option('--half', is_flag=True,
+                     help='use FP16 half-precision inference'),
+        click.option('--vid-stride', type=int, default=1,
+                     help='video frame-rate stride'),
+        click.option('--ci', is_flag=True,
+                     help='reuse existing runs in CI (no UI)'),
+        click.option('--tracking-method', type=str, default='deepocsort',
+                     help='deepocsort, botsort, strongsort, ...'),
+        click.option('--dets-file-path', type=Path,
+                     help='path to precomputed detections file'),
+        click.option('--embs-file-path', type=Path,
+                     help='path to precomputed embeddings file'),
+        click.option('--exp-folder-path', type=Path,
+                     help='path to experiment folder'),
+        click.option('--verbose', is_flag=True,
+                     help='print detailed logs'),
+        click.option('--agnostic-nms', is_flag=True,
+                     help='class-agnostic NMS'),
+        click.option('--gsi', is_flag=True,
+                     help='apply Gaussian smoothing interpolation'),
+        click.option('--n-trials', type=int, default=4,
+                     help='number of trials for evolutionary tuning'),
+        click.option('--objectives', type=str, multiple=True,
+                     default=["HOTA", "MOTA", "IDF1"],
+                     help='objectives for tuning: HOTA, MOTA, IDF1'),
+        click.option('--val-tools-path', type=Path, default=TRACKEVAL,
+                     help='where to clone trackeval'),
+        click.option('--split-dataset', is_flag=True,
+                     help='use second half of dataset'),
+        click.option('--show', is_flag=True,
+                     help='display tracking in a window'),
+        click.option('--show-labels/--hide-labels', default=True,
+                     help='show or hide detection labels'),
+        click.option('--show-conf/--hide-conf', default=True,
+                     help='show or hide detection confidences'),
+        click.option('--show-trajectories', is_flag=True,
+                     help='overlay past trajectories'),
+        click.option('--save-txt', is_flag=True,
+                     help='save results to a .txt file'),
+        click.option('--save-crop', is_flag=True,
+                     help='save cropped detections'),
+        click.option('--save', is_flag=True,
+                     help='save annotated video'),
+        click.option('--line-width', type=int,
+                     help='bounding box line width'),
+        click.option('--per-class', is_flag=True,
+                     help='track each class separately')
+    ]
+    for opt in reversed(options):
+        func = opt(func)
+    return func
 
-    # Sub-commands inherit their respective flags
-    sub.add_parser('track', parents=[common_parser], help='Run tracking only')
-    sub.add_parser(
-        'generate',
-        parents=[common_parser, eval_parent],
-        conflict_handler='resolve',
-        help='Generate detections and embeddings'
-    )
-    sub.add_parser(
-        'eval',
-        parents=[common_parser, eval_parent],
-        conflict_handler='resolve',
-        help='Evaluate tracking performance'
-    )
-    sub.add_parser(
-        'tune',
-        parents=[common_parser, eval_parent],
-        conflict_handler='resolve',
-        help='Tune models via evolutionary algorithms'
-    )
-    sub.add_parser(
-        'all',
-        parents=[common_parser, eval_parent],
-        conflict_handler='resolve',
-        help='Run all steps: generate, evaluate, tune'
-    )
 
-    # Parse & dispatch
-    args = parser.parse_args()
-    source_path = Path(args.source)
-    args.benchmark, args.split = source_path.parent.name, source_path.name
+def singular_model_options(func):
+    options = [
+        click.option('--yolo-model', type=Path,
+                     default=WEIGHTS / 'yolov8n.pt',
+                     help='path to YOLO weights for detection'),
+        click.option('--reid-model', type=Path,
+                     default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+                     help='path to ReID model weights'),
+        click.option('--classes', type=int, multiple=True,
+                     help='filter by class indices')
+    ]
+    for opt in reversed(options):
+        func = opt(func)
+    return func
 
-    if args.command == 'track':
-        from boxmot.engine.track import main as run_track
-        run_track(args)
-    elif args.command == 'generate':
-        from boxmot.engine.val import run_generate_dets_embs
-        run_generate_dets_embs(args)
-    # trackeval only support single class evaluation in its current setup
-    elif args.command in ('eval', 'all'):
-        from boxmot.engine.val import main as run_eval
-        args.classes = [0]
-        run_eval(args)
-    elif args.command == 'tune':
-        from boxmot.engine.evolve import main as run_tuning
-        args.classes = [0]
-        run_tuning(args)
 
+def plural_model_options(func):
+    options = [
+        click.option('--yolo-model', type=Path, multiple=True,
+                     default=[WEIGHTS / 'yolov8n.pt'],
+                     help='one or more YOLO weights for detection'),
+        click.option('--reid-model', type=Path, multiple=True,
+                     default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'],
+                     help='one or more ReID model weights'),
+        click.option('--classes', type=int, multiple=True,
+                     default=[0], help='filter by class indices')
+    ]
+    for opt in reversed(options):
+        func = opt(func)
+    return func
+
+
+@click.group(context_settings=dict(help_option_names=['-h', '--help']),
+             invoke_without_command=False)
+def cli():
+    """boxmot_cli: multi-step MOT pipeline"""
+    pass
+
+
+@cli.command(help='Run tracking only')
+@core_options
+@singular_model_options
+@click.pass_context
+def track(ctx, yolo_model, reid_model, classes, **kwargs):
+    src = kwargs.pop('source')
+    source_path = Path(src)
+    bench, split = source_path.parent.name, source_path.name
+    params = {**kwargs,
+              'yolo_model': yolo_model,
+              'reid_model': reid_model,
+              'classes': list(classes) if classes else None,
+              'source': src,
+              'benchmark': bench,
+              'split': split}
+    args = make_args(**params)
+    from boxmot.engine.track import main as run_track
+    run_track(args)
+
+
+@cli.command(help='Generate detections and embeddings')
+@core_options
+@plural_model_options
+@click.pass_context
+def generate(ctx, yolo_model, reid_model, classes, **kwargs):
+    src = kwargs.pop('source')
+    source_path = Path(src)
+    bench, split = source_path.parent.name, source_path.name
+    params = {**kwargs,
+              'yolo_model': list(yolo_model),
+              'reid_model': list(reid_model),
+              'classes': list(classes),
+              'source': src,
+              'benchmark': bench,
+              'split': split}
+    args = make_args(**params)
+    from boxmot.engine.val import run_generate_dets_embs
+    run_generate_dets_embs(args)
+
+
+@cli.command(help='Evaluate tracking performance')
+@core_options
+@plural_model_options
+@click.pass_context
+def eval(ctx, yolo_model, reid_model, classes, **kwargs):
+    src = kwargs.pop('source')
+    source_path = Path(src)
+    bench, split = source_path.parent.name, source_path.name
+    params = {**kwargs,
+              'yolo_model': list(yolo_model),
+              'reid_model': list(reid_model),
+              'classes': [0],
+              'source': src,
+              'benchmark': bench,
+              'split': split}
+    args = make_args(**params)
+    from boxmot.engine.val import main as run_eval
+    run_eval(args)
+
+
+@cli.command(help='Tune models via evolutionary algorithms')
+@core_options
+@plural_model_options
+@click.pass_context
+def tune(ctx, yolo_model, reid_model, classes, **kwargs):
+    src = kwargs.pop('source')
+    source_path = Path(src)
+    bench, split = source_path.parent.name, source_path.name
+    params = {**kwargs,
+              'yolo_model': list(yolo_model),
+              'reid_model': list(reid_model),
+              'classes': list(classes),
+              'source': src,
+              'benchmark': bench,
+              'split': split}
+    args = make_args(**params)
+    from boxmot.engine.evolve import main as run_tuning
+    run_tuning(args)
+
+
+main = cli
 
 if __name__ == "__main__":
-    main()
+    cli()
