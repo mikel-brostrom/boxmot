@@ -38,7 +38,7 @@ from ultralytics.data.build import load_inference_source
 
 from boxmot.engine.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model, is_yolox_model)
-from boxmot.engine.utils import convert_to_mot_format, write_mot_results, eval_setup
+from boxmot.engine.utils import convert_to_mot_format, write_mot_results
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from tqdm import tqdm
 from boxmot.utils.download import download_eval_data, download_trackeval
@@ -221,14 +221,13 @@ def parse_mot_results(results: str) -> dict:
 
 
 
-def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, MOT_results_folder: Path, gt_folder: Path, metrics: list = ["HOTA", "CLEAR", "Identity"]) -> str:
+def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_folder: Path, metrics: list = ["HOTA", "CLEAR", "Identity"]) -> str:
     """
     Executes a Python script to evaluate MOT challenge tracking results using specified metrics.
 
     Args:
         seq_paths (list): List of sequence paths.
         save_dir (Path): Directory to save evaluation results.
-        MOT_results_folder (Path): Folder containing MOT results.
         gt_folder (Path): Folder containing ground truth data.
         metrics (list, optional): List of metrics to use for evaluation. Defaults to ["HOTA", "CLEAR", "Identity"].
 
@@ -410,8 +409,11 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     Args:
         opt (Namespace): Parsed command line arguments.
     """
-    seq_paths, save_dir, MOT_results_folder, gt_folder = eval_setup(opt, opt.val_tools_path)
-    trackeval_results = trackeval(opt, seq_paths, save_dir, MOT_results_folder, gt_folder)
+    gt_folder = opt.source
+    seq_paths = [p / "img1" for p in opt.source.iterdir() if p.is_dir()]
+    save_dir = Path(opt.project) / opt.name
+    
+    trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
     if opt.ci:
         with open(opt.tracking_method + "_output.json", "w") as outfile:
