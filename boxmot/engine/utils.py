@@ -146,19 +146,7 @@ def eval_setup(opt, val_tools_path):
     # Determine save directory
     save_dir = Path(opt.project) / opt.name
 
-    # Setup MOT results folder
-    MOT_results_folder = (
-        val_tools_path
-        / "data"
-        / "trackers"
-        / "mot_challenge"
-        / opt.benchmark
-        / save_dir.name
-        / "data"
-    )
-    MOT_results_folder.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-
-    return seq_paths, save_dir, MOT_results_folder, gt_folder
+    return seq_paths, save_dir, gt_folder
 
 
 def convert_to_mot_format(
