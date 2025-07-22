@@ -7,6 +7,7 @@ env/
 htmlcov/
 # interpreter bytecode
 __pycache__/
+__MACOSX/
 
 # experiment results
 runs/
