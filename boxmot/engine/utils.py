@@ -98,69 +98,6 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path,
     return dst_fldr, new_benchmark_name
 
 
-def eval_setup(opt, val_tools_path):
-    """
-    Initializes and sets up evaluation paths for MOT challenge datasets.
-
-    This function prepares the directories and paths needed for evaluating
-    object tracking algorithms on MOT datasets like MOT17 or custom datasets like MOT17-mini.
-    It filters sequence paths based on the detector (for MOT17), sets up the ground truth,
-    sequences, and results directories according to the provided options.
-
-    Parameters:
-    - opt: An object with attributes that include benchmark (str), split (str),
-      eval_existing (bool), project (str), and name (str). These options dictate
-      the dataset to use, the split of the dataset, whether to evaluate on an
-      existing setup, and the naming for the project and evaluation results directory.
-    - val_tools_path: A string or Path object pointing to the base directory where
-      the validation tools and datasets are located.
-
-    Returns:
-    - seq_paths: A list of Path objects pointing to the sequence directories to be evaluated.
-    - save_dir: A Path object pointing to the directory where evaluation results will be saved.
-    - MOT_results_folder: A Path object pointing to the directory where MOT challenge
-      formatted results should be placed.
-    - gt_folder: A Path object pointing to the directory where ground truth data is located.
-    """
-
-    # Convert val_tools_path to Path object if it's not already one
-    val_tools_path = Path(val_tools_path)
-
-    # Initial setup for paths based on benchmark and split options
-    mot_seqs_path = val_tools_path / "data" / opt.benchmark / opt.split
-    gt_folder = mot_seqs_path  # Assuming gt_folder is the same as mot_seqs_path initially
-    
-    # Handling different benchmarks
-    if opt.benchmark == "MOT17":
-        # Filter for FRCNN sequences in MOT17
-        seq_paths = [p / "img1" for p in mot_seqs_path.iterdir() if p.is_dir()]
-    elif opt.benchmark == "MOT17-mini":
-        # Adjust paths for MOT17-mini
-        base_path = ROOT / "assets" / opt.benchmark / opt.split
-        mot_seqs_path = gt_folder = base_path
-        seq_paths = [p / "img1" for p in mot_seqs_path.iterdir() if p.is_dir()]
-    else:
-        # Default handling for other datasets
-        seq_paths = [p / "img1" for p in mot_seqs_path.iterdir() if p.is_dir()]
-
-    # Determine save directory
-    save_dir = Path(opt.project) / opt.name
-
-    # Setup MOT results folder
-    MOT_results_folder = (
-        val_tools_path
-        / "data"
-        / "trackers"
-        / "mot_challenge"
-        / opt.benchmark
-        / save_dir.name
-        / "data"
-    )
-    MOT_results_folder.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-
-    return seq_paths, save_dir, MOT_results_folder, gt_folder
-
-
 def convert_to_mot_format(
     results: Union[Results, np.ndarray], frame_idx: int
 ) -> np.ndarray:
