@@ -1,5 +1,5 @@
-# Eval
+# boxmot
 
 ::: mkdocs-click
     :module: boxmot.engine.cli
-    :command: eval
+    :command: boxmot
