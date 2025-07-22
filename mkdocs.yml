@@ -1,0 +1,38 @@
+# mkdocs.yml
+site_name: BoxMot
+theme:
+  name: material
+  # turn on both section grouping and global expand
+  features:
+    - navigation.sections
+    - navigation.expand
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          setup_commands:
+            - import sys; sys.path.insert(0, ".")
+          options:
+            selection:
+              members: "__all__"
+              filters:
+                - "!^update$"
+
+nav:
+  - Home: index.md
+
+  - Trackers:
+      - ByteTrack:    api/trackers/bytetrack.md
+      - BotSort:      api/trackers/botsort.md
+      - StrongSort:   api/trackers/strongsort.md
+      - OcSort:       api/trackers/ocsort.md
+      - DeepOcSort:   api/trackers/deepocsort.md
+      # - HybridSort:   api/trackers/hybridsort.md
+      - BoostTrack:   api/trackers/boosttrack.md
+
+  - Modes:
+      - Track:        modes/track.md
+      - Evaluation:   modes/evaluate.md
+      - Tune:         modes/tune.md
