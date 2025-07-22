@@ -39,3 +39,4 @@ nav:
       - DeepOcSort:   api/trackers/deepocsort.md
       # - HybridSort:   api/trackers/hybridsort.md
       - BoostTrack:   api/trackers/boosttrack.md
+
