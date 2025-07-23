@@ -81,7 +81,7 @@ def create_tracker(
     ]:
         tracker_args["per_class"] = per_class
         tracker_args.update(reid_args)
-        if tracker_type in ["strongsort", "boosttrack"]:
+        if tracker_type in ["strongsort"]:
             tracker_args.pop("per_class")  # per class not supported by
     else:
         tracker_args["per_class"] = per_class
