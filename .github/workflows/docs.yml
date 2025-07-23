@@ -41,4 +41,4 @@ jobs:
         run: |
           git config --local user.email yolov5.deepsort.pytorch@gmail.com
           git config --local user.name mikel-brostrom
-          mkdocs gh-deploy --clean --force
+          mkdocs gh-deploy --clean --force --verbose
