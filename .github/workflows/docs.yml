@@ -27,6 +27,7 @@ jobs:
           pip install \
             mkdocs-material \
             mkdocs-click \
+            mkdocstrings \
             mkdocstrings-python \
             mkdocs-include-markdown-plugin \
             --upgrade
