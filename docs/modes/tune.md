@@ -6,3 +6,4 @@
     :depth: 1
     :command: tune
     :style: table
+    :prog_name: boxmot tune
