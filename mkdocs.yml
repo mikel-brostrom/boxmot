@@ -25,9 +25,10 @@ nav:
   - Home: index.md
 
   - CLI:
-      - Track:    modes/track.md
-      - Evaluate: modes/eval.md
-      - Tune:     modes/tune.md
+      - Track:        modes/track.md
+      - Generate:     modes/generate.md
+      - Evaluate:     modes/eval.md
+      - Tune:         modes/tune.md
 
   - Trackers:
       - ByteTrack:    trackers/bytetrack.md
