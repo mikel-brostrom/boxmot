@@ -8,7 +8,6 @@ theme:
     #- navigation.expand
 
 markdown_extensions:
-    - attr_list
     - mkdocs-click
 
 plugins:
