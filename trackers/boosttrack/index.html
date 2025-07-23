@@ -1,0 +1,2153 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../deepocsort/">
+      
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.15">
+    
+    
+      
+        <title>BoostTrack - BoxMOT</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.342714a4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#boosttrack" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="BoxMOT" class="md-header__button md-logo" aria-label="BoxMOT" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            BoxMOT
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              BoostTrack
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="BoxMOT" class="md-nav__button md-logo" aria-label="BoxMOT" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    BoxMOT
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    CLI
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            CLI
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../modes/track/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Track
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../modes/generate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Generate
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../modes/eval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Evaluate
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../modes/tune/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Tune
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Trackers
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Trackers
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bytetrack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ByteTrack
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../botsort/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    BotSort
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../strongsort/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    StrongSort
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ocsort/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OcSort
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deepocsort/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    DeepOcSort
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    BoostTrack
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    BoostTrack
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#boxmot.trackers.boosttrack.boosttrack.BoostTrack" class="md-nav__link">
+    <span class="md-ellipsis">
+      BoostTrack
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#boxmot.trackers.boosttrack.boosttrack.BoostTrack.update" class="md-nav__link">
+    <span class="md-ellipsis">
+      update
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#boxmot.trackers.boosttrack.boosttrack.BoostTrack" class="md-nav__link">
+    <span class="md-ellipsis">
+      BoostTrack
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#boxmot.trackers.boosttrack.boosttrack.BoostTrack.update" class="md-nav__link">
+    <span class="md-ellipsis">
+      update
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="boosttrack">BoostTrack</h1>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="boxmot.trackers.boosttrack.boosttrack.BoostTrack"></a>
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="boxmot.trackers.basetracker.BaseTracker">BaseTracker</span></code></p>
+
+
+        <p>Initializes the BoostTrack tracker with various parameters.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>reid_weights</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to the re-identification model weights.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>device</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Device to run the model on (e.g., 'cpu', 'cuda').</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>half</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use half-precision for computations.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_age</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Maximum allowed frames without update.</p>
+              </div>
+            </td>
+            <td>
+                  <code>60</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>min_hits</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Minimum hits required to output a track.</p>
+              </div>
+            </td>
+            <td>
+                  <code>3</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>det_thresh</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Detection confidence threshold.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.6</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>iou_threshold</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>IoU threshold for association.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.3</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>use_ecc</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use ECC for camera motion compensation.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>min_box_area</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Minimum box area for detections.</p>
+              </div>
+            </td>
+            <td>
+                  <code>10</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>aspect_ratio_thresh</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Aspect ratio threshold for detections.</p>
+              </div>
+            </td>
+            <td>
+                  <code>1.6</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>cmc_method</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Method for camera motion compensation.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;ecc&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>lambda_iou</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Weight for IoU-based association.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.5</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>lambda_mhd</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Weight for Mahalanobis distance-based association.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.25</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>lambda_shape</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Weight for shape-based association.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.25</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>use_dlo_boost</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use DLO boost.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>use_duo_boost</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use DUO boost.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dlo_boost_coef</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Coefficient for DLO boost.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.65</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>s_sim_corr</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use shape similarity correction.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>use_rich_s</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use rich shape features.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>use_sb</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use soft-BIoU.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>use_vt</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use visual tracking.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>with_reid</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use re-identification.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>per_class</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, enables per-class tracking, where tracks are managed separately for each class.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+              <details class="quote">
+                <summary>Source code in <code>boxmot/trackers/boosttrack/boosttrack.py</code></summary>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">124</span>
+<span class="normal">125</span>
+<span class="normal">126</span>
+<span class="normal">127</span>
+<span class="normal">128</span>
+<span class="normal">129</span>
+<span class="normal">130</span>
+<span class="normal">131</span>
+<span class="normal">132</span>
+<span class="normal">133</span>
+<span class="normal">134</span>
+<span class="normal">135</span>
+<span class="normal">136</span>
+<span class="normal">137</span>
+<span class="normal">138</span>
+<span class="normal">139</span>
+<span class="normal">140</span>
+<span class="normal">141</span>
+<span class="normal">142</span>
+<span class="normal">143</span>
+<span class="normal">144</span>
+<span class="normal">145</span>
+<span class="normal">146</span>
+<span class="normal">147</span>
+<span class="normal">148</span>
+<span class="normal">149</span>
+<span class="normal">150</span>
+<span class="normal">151</span>
+<span class="normal">152</span>
+<span class="normal">153</span>
+<span class="normal">154</span>
+<span class="normal">155</span>
+<span class="normal">156</span>
+<span class="normal">157</span>
+<span class="normal">158</span>
+<span class="normal">159</span>
+<span class="normal">160</span>
+<span class="normal">161</span>
+<span class="normal">162</span>
+<span class="normal">163</span>
+<span class="normal">164</span>
+<span class="normal">165</span>
+<span class="normal">166</span>
+<span class="normal">167</span>
+<span class="normal">168</span>
+<span class="normal">169</span>
+<span class="normal">170</span>
+<span class="normal">171</span>
+<span class="normal">172</span>
+<span class="normal">173</span>
+<span class="normal">174</span>
+<span class="normal">175</span>
+<span class="normal">176</span>
+<span class="normal">177</span>
+<span class="normal">178</span>
+<span class="normal">179</span>
+<span class="normal">180</span>
+<span class="normal">181</span>
+<span class="normal">182</span>
+<span class="normal">183</span>
+<span class="normal">184</span>
+<span class="normal">185</span>
+<span class="normal">186</span>
+<span class="normal">187</span>
+<span class="normal">188</span>
+<span class="normal">189</span>
+<span class="normal">190</span>
+<span class="normal">191</span>
+<span class="normal">192</span>
+<span class="normal">193</span>
+<span class="normal">194</span>
+<span class="normal">195</span>
+<span class="normal">196</span>
+<span class="normal">197</span>
+<span class="normal">198</span>
+<span class="normal">199</span>
+<span class="normal">200</span>
+<span class="normal">201</span>
+<span class="normal">202</span>
+<span class="normal">203</span>
+<span class="normal">204</span>
+<span class="normal">205</span>
+<span class="normal">206</span>
+<span class="normal">207</span>
+<span class="normal">208</span>
+<span class="normal">209</span>
+<span class="normal">210</span>
+<span class="normal">211</span>
+<span class="normal">212</span>
+<span class="normal">213</span>
+<span class="normal">214</span>
+<span class="normal">215</span>
+<span class="normal">216</span>
+<span class="normal">217</span>
+<span class="normal">218</span>
+<span class="normal">219</span>
+<span class="normal">220</span>
+<span class="normal">221</span>
+<span class="normal">222</span>
+<span class="normal">223</span>
+<span class="normal">224</span>
+<span class="normal">225</span>
+<span class="normal">226</span>
+<span class="normal">227</span>
+<span class="normal">228</span>
+<span class="normal">229</span>
+<span class="normal">230</span>
+<span class="normal">231</span>
+<span class="normal">232</span>
+<span class="normal">233</span>
+<span class="normal">234</span>
+<span class="normal">235</span>
+<span class="normal">236</span>
+<span class="normal">237</span>
+<span class="normal">238</span>
+<span class="normal">239</span>
+<span class="normal">240</span>
+<span class="normal">241</span>
+<span class="normal">242</span>
+<span class="normal">243</span>
+<span class="normal">244</span>
+<span class="normal">245</span>
+<span class="normal">246</span>
+<span class="normal">247</span>
+<span class="normal">248</span>
+<span class="normal">249</span>
+<span class="normal">250</span>
+<span class="normal">251</span>
+<span class="normal">252</span>
+<span class="normal">253</span>
+<span class="normal">254</span>
+<span class="normal">255</span>
+<span class="normal">256</span>
+<span class="normal">257</span>
+<span class="normal">258</span>
+<span class="normal">259</span>
+<span class="normal">260</span>
+<span class="normal">261</span>
+<span class="normal">262</span>
+<span class="normal">263</span>
+<span class="normal">264</span>
+<span class="normal">265</span>
+<span class="normal">266</span>
+<span class="normal">267</span>
+<span class="normal">268</span>
+<span class="normal">269</span>
+<span class="normal">270</span>
+<span class="normal">271</span>
+<span class="normal">272</span>
+<span class="normal">273</span>
+<span class="normal">274</span>
+<span class="normal">275</span>
+<span class="normal">276</span>
+<span class="normal">277</span>
+<span class="normal">278</span>
+<span class="normal">279</span>
+<span class="normal">280</span>
+<span class="normal">281</span>
+<span class="normal">282</span>
+<span class="normal">283</span>
+<span class="normal">284</span>
+<span class="normal">285</span>
+<span class="normal">286</span>
+<span class="normal">287</span>
+<span class="normal">288</span>
+<span class="normal">289</span>
+<span class="normal">290</span>
+<span class="normal">291</span>
+<span class="normal">292</span>
+<span class="normal">293</span>
+<span class="normal">294</span>
+<span class="normal">295</span>
+<span class="normal">296</span>
+<span class="normal">297</span>
+<span class="normal">298</span>
+<span class="normal">299</span>
+<span class="normal">300</span>
+<span class="normal">301</span>
+<span class="normal">302</span>
+<span class="normal">303</span>
+<span class="normal">304</span>
+<span class="normal">305</span>
+<span class="normal">306</span>
+<span class="normal">307</span>
+<span class="normal">308</span>
+<span class="normal">309</span>
+<span class="normal">310</span>
+<span class="normal">311</span>
+<span class="normal">312</span>
+<span class="normal">313</span>
+<span class="normal">314</span>
+<span class="normal">315</span>
+<span class="normal">316</span>
+<span class="normal">317</span>
+<span class="normal">318</span>
+<span class="normal">319</span>
+<span class="normal">320</span>
+<span class="normal">321</span>
+<span class="normal">322</span>
+<span class="normal">323</span>
+<span class="normal">324</span>
+<span class="normal">325</span>
+<span class="normal">326</span>
+<span class="normal">327</span>
+<span class="normal">328</span>
+<span class="normal">329</span>
+<span class="normal">330</span>
+<span class="normal">331</span>
+<span class="normal">332</span>
+<span class="normal">333</span>
+<span class="normal">334</span>
+<span class="normal">335</span>
+<span class="normal">336</span>
+<span class="normal">337</span>
+<span class="normal">338</span>
+<span class="normal">339</span>
+<span class="normal">340</span>
+<span class="normal">341</span>
+<span class="normal">342</span>
+<span class="normal">343</span>
+<span class="normal">344</span>
+<span class="normal">345</span>
+<span class="normal">346</span>
+<span class="normal">347</span>
+<span class="normal">348</span>
+<span class="normal">349</span>
+<span class="normal">350</span>
+<span class="normal">351</span>
+<span class="normal">352</span>
+<span class="normal">353</span>
+<span class="normal">354</span>
+<span class="normal">355</span>
+<span class="normal">356</span>
+<span class="normal">357</span>
+<span class="normal">358</span>
+<span class="normal">359</span>
+<span class="normal">360</span>
+<span class="normal">361</span>
+<span class="normal">362</span>
+<span class="normal">363</span>
+<span class="normal">364</span>
+<span class="normal">365</span>
+<span class="normal">366</span>
+<span class="normal">367</span>
+<span class="normal">368</span>
+<span class="normal">369</span>
+<span class="normal">370</span>
+<span class="normal">371</span>
+<span class="normal">372</span>
+<span class="normal">373</span>
+<span class="normal">374</span>
+<span class="normal">375</span>
+<span class="normal">376</span>
+<span class="normal">377</span>
+<span class="normal">378</span>
+<span class="normal">379</span>
+<span class="normal">380</span>
+<span class="normal">381</span>
+<span class="normal">382</span>
+<span class="normal">383</span>
+<span class="normal">384</span>
+<span class="normal">385</span>
+<span class="normal">386</span>
+<span class="normal">387</span>
+<span class="normal">388</span>
+<span class="normal">389</span>
+<span class="normal">390</span>
+<span class="normal">391</span>
+<span class="normal">392</span>
+<span class="normal">393</span>
+<span class="normal">394</span>
+<span class="normal">395</span>
+<span class="normal">396</span>
+<span class="normal">397</span>
+<span class="normal">398</span>
+<span class="normal">399</span>
+<span class="normal">400</span>
+<span class="normal">401</span>
+<span class="normal">402</span>
+<span class="normal">403</span>
+<span class="normal">404</span>
+<span class="normal">405</span>
+<span class="normal">406</span>
+<span class="normal">407</span>
+<span class="normal">408</span>
+<span class="normal">409</span>
+<span class="normal">410</span>
+<span class="normal">411</span>
+<span class="normal">412</span>
+<span class="normal">413</span>
+<span class="normal">414</span>
+<span class="normal">415</span>
+<span class="normal">416</span>
+<span class="normal">417</span>
+<span class="normal">418</span>
+<span class="normal">419</span>
+<span class="normal">420</span>
+<span class="normal">421</span>
+<span class="normal">422</span>
+<span class="normal">423</span>
+<span class="normal">424</span>
+<span class="normal">425</span>
+<span class="normal">426</span>
+<span class="normal">427</span>
+<span class="normal">428</span>
+<span class="normal">429</span>
+<span class="normal">430</span>
+<span class="normal">431</span>
+<span class="normal">432</span>
+<span class="normal">433</span>
+<span class="normal">434</span>
+<span class="normal">435</span>
+<span class="normal">436</span>
+<span class="normal">437</span>
+<span class="normal">438</span>
+<span class="normal">439</span>
+<span class="normal">440</span>
+<span class="normal">441</span>
+<span class="normal">442</span>
+<span class="normal">443</span>
+<span class="normal">444</span>
+<span class="normal">445</span>
+<span class="normal">446</span>
+<span class="normal">447</span>
+<span class="normal">448</span>
+<span class="normal">449</span>
+<span class="normal">450</span>
+<span class="normal">451</span>
+<span class="normal">452</span>
+<span class="normal">453</span>
+<span class="normal">454</span>
+<span class="normal">455</span>
+<span class="normal">456</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">BoostTrack</span><span class="p">(</span><span class="n">BaseTracker</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Initializes the BoostTrack tracker with various parameters.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        reid_weights: Path to the re-identification model weights.</span>
+<span class="sd">        device: Device to run the model on (e.g., &#39;cpu&#39;, &#39;cuda&#39;).</span>
+<span class="sd">        half: Whether to use half-precision for computations.</span>
+<span class="sd">        max_age: Maximum allowed frames without update.</span>
+<span class="sd">        min_hits: Minimum hits required to output a track.</span>
+<span class="sd">        det_thresh: Detection confidence threshold.</span>
+<span class="sd">        iou_threshold: IoU threshold for association.</span>
+<span class="sd">        use_ecc: Whether to use ECC for camera motion compensation.</span>
+<span class="sd">        min_box_area: Minimum box area for detections.</span>
+<span class="sd">        aspect_ratio_thresh: Aspect ratio threshold for detections.</span>
+<span class="sd">        cmc_method: Method for camera motion compensation.</span>
+<span class="sd">        lambda_iou: Weight for IoU-based association.</span>
+<span class="sd">        lambda_mhd: Weight for Mahalanobis distance-based association.</span>
+<span class="sd">        lambda_shape: Weight for shape-based association.</span>
+<span class="sd">        use_dlo_boost: Whether to use DLO boost.</span>
+<span class="sd">        use_duo_boost: Whether to use DUO boost.</span>
+<span class="sd">        dlo_boost_coef: Coefficient for DLO boost.</span>
+<span class="sd">        s_sim_corr: Whether to use shape similarity correction.</span>
+<span class="sd">        use_rich_s: Whether to use rich shape features.</span>
+<span class="sd">        use_sb: Whether to use soft-BIoU.</span>
+<span class="sd">        use_vt: Whether to use visual tracking.</span>
+<span class="sd">        with_reid: Whether to use re-identification.</span>
+<span class="sd">        per_class: If True, enables per-class tracking, where tracks are managed separately for each class.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">reid_weights</span><span class="p">,</span>
+        <span class="n">device</span><span class="p">,</span>
+        <span class="n">half</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+        <span class="n">max_age</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">60</span><span class="p">,</span>
+        <span class="n">min_hits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+        <span class="n">det_thresh</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.6</span><span class="p">,</span>
+        <span class="n">iou_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.3</span><span class="p">,</span>
+        <span class="n">use_ecc</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">min_box_area</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
+        <span class="n">aspect_ratio_thresh</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="mf">1.6</span><span class="p">,</span>
+        <span class="n">cmc_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;ecc&quot;</span><span class="p">,</span>
+        <span class="c1"># BoostTrack parameters</span>
+        <span class="n">lambda_iou</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+        <span class="n">lambda_mhd</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.25</span><span class="p">,</span>
+        <span class="n">lambda_shape</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.25</span><span class="p">,</span>
+        <span class="n">use_dlo_boost</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">use_duo_boost</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">dlo_boost_coef</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.65</span><span class="p">,</span>
+        <span class="n">s_sim_corr</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="c1"># BoostTrack++ parameters</span>
+        <span class="n">use_rich_s</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">use_sb</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">use_vt</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">with_reid</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">per_class</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>  <span class="c1"># Enable per-class tracking if True</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">per_class</span><span class="o">=</span><span class="n">per_class</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">active_tracks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">frame_count</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">KalmanBoxTracker</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># Parameters for BoostTrack (these can be tuned as needed)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_age</span> <span class="o">=</span> <span class="n">max_age</span>            <span class="c1"># maximum allowed frames without update</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">min_hits</span> <span class="o">=</span> <span class="n">min_hits</span>          <span class="c1"># minimum hits to output a track</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span> <span class="o">=</span> <span class="n">det_thresh</span>      <span class="c1"># detection confidence threshold</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">iou_threshold</span> <span class="o">=</span> <span class="n">iou_threshold</span>   <span class="c1"># association IoU threshold</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_ecc</span> <span class="o">=</span> <span class="n">use_ecc</span>            <span class="c1"># use ECC for camera motion compensation</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">min_box_area</span> <span class="o">=</span> <span class="n">min_box_area</span>  <span class="c1"># minimum box area for detections</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">aspect_ratio_thresh</span> <span class="o">=</span> <span class="n">aspect_ratio_thresh</span>  <span class="c1"># aspect ratio threshold for detections</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cmc_method</span> <span class="o">=</span> <span class="n">cmc_method</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">lambda_iou</span> <span class="o">=</span> <span class="n">lambda_iou</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lambda_mhd</span> <span class="o">=</span> <span class="n">lambda_mhd</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lambda_shape</span> <span class="o">=</span> <span class="n">lambda_shape</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_dlo_boost</span> <span class="o">=</span> <span class="n">use_dlo_boost</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_duo_boost</span> <span class="o">=</span> <span class="n">use_duo_boost</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dlo_boost_coef</span> <span class="o">=</span> <span class="n">dlo_boost_coef</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">s_sim_corr</span> <span class="o">=</span> <span class="n">s_sim_corr</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_rich_s</span> <span class="o">=</span> <span class="n">use_rich_s</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_sb</span> <span class="o">=</span> <span class="n">use_sb</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_vt</span> <span class="o">=</span> <span class="n">use_vt</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">with_reid</span> <span class="o">=</span> <span class="n">with_reid</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">with_reid</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">reid_model</span> <span class="o">=</span> <span class="n">ReidAutoBackend</span><span class="p">(</span><span class="n">weights</span><span class="o">=</span><span class="n">reid_weights</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">half</span><span class="o">=</span><span class="n">half</span><span class="p">)</span><span class="o">.</span><span class="n">model</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">reid_model</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_ecc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cmc</span> <span class="o">=</span> <span class="n">get_cmc_method</span><span class="p">(</span><span class="n">cmc_method</span><span class="p">)()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cmc</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="nd">@BaseTracker</span><span class="o">.</span><span class="n">setup_decorator</span>
+    <span class="nd">@BaseTracker</span><span class="o">.</span><span class="n">per_class_decorator</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dets</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">img</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">embs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Update the tracker with detections and an image.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">          dets (np.ndarray): Detection boxes in the format [[x1,y1,x2,y2,score], ...]</span>
+<span class="sd">          img (np.ndarray): The current image frame.</span>
+<span class="sd">          embs (Optional[np.ndarray]): Optional precomputed embeddings.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">          np.ndarray: Tracked objects in the format</span>
+<span class="sd">                      [x1, y1, x2, y2, id, confidence, cls, det_ind]</span>
+<span class="sd">                      (with cls and det_ind set to -1 if unused)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_inputs</span><span class="p">(</span><span class="n">dets</span><span class="o">=</span><span class="n">dets</span><span class="p">,</span> <span class="n">embs</span><span class="o">=</span><span class="n">embs</span><span class="p">,</span> <span class="n">img</span><span class="o">=</span><span class="n">img</span><span class="p">)</span>
+
+        <span class="n">dets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">([</span><span class="n">dets</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">dets</span><span class="p">))</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)])</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">frame_count</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cmc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">transform</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cmc</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">dets</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">:</span>
+                <span class="n">trk</span><span class="o">.</span><span class="n">camera_update</span><span class="p">(</span><span class="n">transform</span><span class="p">)</span>
+
+        <span class="n">trks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">confs</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">:</span>
+            <span class="n">pos</span> <span class="o">=</span> <span class="n">trk</span><span class="o">.</span><span class="n">predict</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">conf</span> <span class="o">=</span> <span class="n">trk</span><span class="o">.</span><span class="n">get_confidence</span><span class="p">()</span>
+            <span class="n">confs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">conf</span><span class="p">)</span>
+            <span class="n">trks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">pos</span><span class="p">,</span> <span class="p">[</span><span class="n">conf</span><span class="p">]]))</span>
+        <span class="n">trks_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span><span class="n">trks</span><span class="p">)</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">trks</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_dlo_boost</span><span class="p">:</span>
+            <span class="n">dets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dlo_confidence_boost</span><span class="p">(</span><span class="n">dets</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_duo_boost</span><span class="p">:</span>
+            <span class="n">dets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">duo_confidence_boost</span><span class="p">(</span><span class="n">dets</span><span class="p">)</span>
+
+        <span class="n">dets_embs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">dets</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">dets</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">remain_inds</span> <span class="o">=</span> <span class="n">dets</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span>
+            <span class="n">dets</span> <span class="o">=</span> <span class="n">dets</span><span class="p">[</span><span class="n">remain_inds</span><span class="p">]</span>
+            <span class="n">scores</span> <span class="o">=</span> <span class="n">dets</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">with_reid</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">embs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">dets_embs</span> <span class="o">=</span> <span class="n">embs</span><span class="p">[</span><span class="n">remain_inds</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">dets_embs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reid_model</span><span class="o">.</span><span class="n">get_features</span><span class="p">(</span><span class="n">dets</span><span class="p">[:,</span> <span class="p">:</span><span class="mi">4</span><span class="p">],</span> <span class="n">img</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">scores</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">dets_embs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">dets</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">with_reid</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">tracker_embs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">trk</span><span class="o">.</span><span class="n">get_emb</span><span class="p">()</span> <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">])</span>
+            <span class="k">if</span> <span class="n">dets_embs</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">emb_cost</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="n">tracker_embs</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">emb_cost</span> <span class="o">=</span> <span class="n">dets_embs</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">dets_embs</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">@</span> <span class="n">tracker_embs</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">tracker_embs</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">T</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">emb_cost</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="n">mh_dist_matrix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mh_dist_matrix</span><span class="p">(</span><span class="n">dets</span><span class="p">)</span>
+
+        <span class="n">matched</span><span class="p">,</span> <span class="n">unmatched_dets</span><span class="p">,</span> <span class="n">unmatched_trks</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">associate</span><span class="p">(</span>
+            <span class="n">dets</span><span class="p">,</span>
+            <span class="n">trks_np</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">iou_threshold</span><span class="p">,</span>
+            <span class="n">mahalanobis_distance</span><span class="o">=</span><span class="n">mh_dist_matrix</span><span class="p">,</span>
+            <span class="n">track_confidence</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">confs</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">detection_confidence</span><span class="o">=</span><span class="n">scores</span><span class="p">,</span>
+            <span class="n">emb_cost</span><span class="o">=</span><span class="n">emb_cost</span><span class="p">,</span>
+            <span class="n">lambda_iou</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda_iou</span><span class="p">,</span>
+            <span class="n">lambda_mhd</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda_mhd</span><span class="p">,</span>
+            <span class="n">lambda_shape</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda_shape</span><span class="p">,</span>
+            <span class="n">s_sim_corr</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">s_sim_corr</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">dets</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">trust</span> <span class="o">=</span> <span class="p">(</span><span class="n">dets</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span><span class="p">)</span>
+            <span class="n">af</span> <span class="o">=</span> <span class="mf">0.95</span>
+            <span class="n">dets_alpha</span> <span class="o">=</span> <span class="n">af</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">af</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">trust</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">dets_alpha</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">matched</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">[</span><span class="n">m</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">dets</span><span class="p">[</span><span class="n">m</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">[</span><span class="n">m</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">update_emb</span><span class="p">(</span><span class="n">dets_embs</span><span class="p">[</span><span class="n">m</span><span class="p">[</span><span class="mi">0</span><span class="p">]],</span> <span class="n">alpha</span><span class="o">=</span><span class="n">dets_alpha</span><span class="p">[</span><span class="n">m</span><span class="p">[</span><span class="mi">0</span><span class="p">]])</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">unmatched_dets</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">dets</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                    <span class="n">KalmanBoxTracker</span><span class="p">(</span><span class="n">dets</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:],</span> <span class="n">max_obs</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">max_obs</span><span class="p">,</span> <span class="n">emb</span><span class="o">=</span><span class="n">dets_embs</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+                <span class="p">)</span>
+
+        <span class="n">outputs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">active_tracks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">:</span>
+            <span class="n">d</span> <span class="o">=</span> <span class="n">trk</span><span class="o">.</span><span class="n">get_state</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">trk</span><span class="o">.</span><span class="n">time_since_update</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span>
+                <span class="n">trk</span><span class="o">.</span><span class="n">hit_streak</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">min_hits</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">frame_count</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">min_hits</span>
+            <span class="p">):</span>
+                <span class="c1"># Format: [x1, y1, x2, y2, id, confidence, cls, det_ind]</span>
+                <span class="n">outputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">d</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="n">trk</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">trk</span><span class="o">.</span><span class="n">conf</span><span class="p">,</span> <span class="n">trk</span><span class="o">.</span><span class="n">cls</span><span class="p">,</span> <span class="n">trk</span><span class="o">.</span><span class="n">det_ind</span><span class="p">]))</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">active_tracks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">trk</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span> <span class="o">=</span> <span class="p">[</span><span class="n">trk</span> <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span> <span class="k">if</span> <span class="n">trk</span><span class="o">.</span><span class="n">time_since_update</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_age</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">outputs</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+        <span class="n">outputs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span><span class="n">outputs</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">filter_outputs</span><span class="p">(</span><span class="n">outputs</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">filter_outputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">outputs</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+
+        <span class="n">w_arr</span> <span class="o">=</span> <span class="n">outputs</span><span class="p">[:,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">-</span> <span class="n">outputs</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span>
+        <span class="n">h_arr</span> <span class="o">=</span> <span class="n">outputs</span><span class="p">[:,</span> <span class="mi">3</span><span class="p">]</span> <span class="o">-</span> <span class="n">outputs</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span>
+
+        <span class="n">vertical_filter</span> <span class="o">=</span> <span class="n">w_arr</span> <span class="o">/</span> <span class="n">h_arr</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">aspect_ratio_thresh</span>
+        <span class="n">area_filter</span> <span class="o">=</span> <span class="n">w_arr</span> <span class="o">*</span> <span class="n">h_arr</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">min_box_area</span>
+
+        <span class="k">return</span> <span class="n">outputs</span><span class="p">[</span><span class="n">vertical_filter</span> <span class="o">&amp;</span> <span class="n">area_filter</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_iou_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">detections</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">buffered</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+        <span class="n">trackers</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">),</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">trk</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">trackers</span><span class="p">):</span>
+            <span class="n">pos</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">[</span><span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">get_state</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">trk</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[</span><span class="n">pos</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">pos</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">pos</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">pos</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">[</span><span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">get_confidence</span><span class="p">()]</span>
+
+        <span class="k">return</span> <span class="n">iou_batch</span><span class="p">(</span><span class="n">detections</span><span class="p">,</span> <span class="n">trackers</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">buffered</span> <span class="k">else</span> <span class="n">soft_biou_batch</span><span class="p">(</span><span class="n">detections</span><span class="p">,</span> <span class="n">trackers</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_mh_dist_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">detections</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">n_dims</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">detections</span><span class="p">),</span> <span class="n">n_dims</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">),</span> <span class="n">n_dims</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+        <span class="n">sigma_inv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">),</span> <span class="n">n_dims</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">detections</span><span class="p">)):</span>
+            <span class="n">z</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:</span><span class="n">n_dims</span><span class="p">]</span> <span class="o">=</span> <span class="n">convert_bbox_to_z</span><span class="p">(</span><span class="n">detections</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:])</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)[:</span><span class="n">n_dims</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">trk</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">):</span>
+            <span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">trk</span><span class="o">.</span><span class="n">kf</span><span class="o">.</span><span class="n">x</span><span class="p">[:</span><span class="n">n_dims</span><span class="p">]</span>
+            <span class="n">sigma_inv</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reciprocal</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">trk</span><span class="o">.</span><span class="n">kf</span><span class="o">.</span><span class="n">covariance</span><span class="p">[:</span><span class="n">n_dims</span><span class="p">,</span> <span class="p">:</span><span class="n">n_dims</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="p">((</span><span class="n">z</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n_dims</span><span class="p">))</span> <span class="o">-</span> <span class="n">x</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">n_dims</span><span class="p">)))</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">*</span>
+                <span class="n">sigma_inv</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">n_dims</span><span class="p">)))</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">duo_confidence_boost</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">detections</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">detections</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">detections</span>
+
+        <span class="n">n_dims</span> <span class="o">=</span> <span class="mi">4</span>
+        <span class="n">limit</span> <span class="o">=</span> <span class="mf">13.2767</span>
+        <span class="n">mh_dist</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mh_dist_matrix</span><span class="p">(</span><span class="n">detections</span><span class="p">,</span> <span class="n">n_dims</span><span class="p">)</span>
+
+        <span class="c1"># If there are no existing trackers, bail out immediately</span>
+        <span class="k">if</span> <span class="n">mh_dist</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">detections</span>
+
+        <span class="n">min_dists</span> <span class="o">=</span> <span class="n">mh_dist</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">min_dists</span> <span class="o">&gt;</span> <span class="n">limit</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span><span class="p">)</span>
+        <span class="n">boost_inds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">mask</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">iou_limit</span> <span class="o">=</span> <span class="mf">0.3</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">boost_inds</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">detections</span>
+
+        <span class="n">bdiou</span> <span class="o">=</span> <span class="n">iou_batch</span><span class="p">(</span><span class="n">detections</span><span class="p">[</span><span class="n">boost_inds</span><span class="p">],</span> <span class="n">detections</span><span class="p">[</span><span class="n">boost_inds</span><span class="p">])</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span>
+            <span class="nb">len</span><span class="p">(</span><span class="n">boost_inds</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">bdiou_max</span> <span class="o">=</span> <span class="n">bdiou</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">remaining</span> <span class="o">=</span> <span class="n">boost_inds</span><span class="p">[</span><span class="n">bdiou_max</span> <span class="o">&lt;=</span> <span class="n">iou_limit</span><span class="p">]</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">bdiou_max</span> <span class="o">&gt;</span> <span class="n">iou_limit</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)):</span>
+            <span class="n">bi</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">tmp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">bdiou</span><span class="p">[</span><span class="n">bi</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">iou_limit</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">args_tmp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">intersect1d</span><span class="p">(</span><span class="n">boost_inds</span><span class="p">[</span><span class="n">args</span><span class="p">],</span> <span class="n">boost_inds</span><span class="p">[</span><span class="n">tmp</span><span class="p">]),</span> <span class="n">boost_inds</span><span class="p">[</span><span class="n">bi</span><span class="p">]</span>
+            <span class="p">)</span>
+            <span class="n">conf_max</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">detections</span><span class="p">[</span><span class="n">args_tmp</span><span class="p">,</span> <span class="mi">4</span><span class="p">])</span>
+            <span class="k">if</span> <span class="n">detections</span><span class="p">[</span><span class="n">boost_inds</span><span class="p">[</span><span class="n">bi</span><span class="p">],</span> <span class="mi">4</span><span class="p">]</span> <span class="o">==</span> <span class="n">conf_max</span><span class="p">:</span>
+                <span class="n">remaining</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">remaining</span><span class="p">,</span> <span class="p">[</span><span class="n">boost_inds</span><span class="p">[</span><span class="n">bi</span><span class="p">]]])</span>
+
+        <span class="n">mask_boost</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+        <span class="n">mask_boost</span><span class="p">[</span><span class="n">remaining</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+            <span class="n">mask_boost</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span> <span class="o">+</span> <span class="mf">1e-4</span><span class="p">,</span> <span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">detections</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">dlo_confidence_boost</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">detections</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">detections</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">detections</span>
+
+        <span class="n">sbiou_matrix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_iou_matrix</span><span class="p">(</span><span class="n">detections</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">sbiou_matrix</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">detections</span>
+
+        <span class="n">trackers</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">),</span> <span class="mi">6</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">trk</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">):</span>
+            <span class="n">pos</span> <span class="o">=</span> <span class="n">trk</span><span class="o">.</span><span class="n">get_state</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">trackers</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">pos</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">pos</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">pos</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">pos</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="n">trk</span><span class="o">.</span><span class="n">time_since_update</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rich_s</span><span class="p">:</span>
+            <span class="n">mhd_sim</span> <span class="o">=</span> <span class="n">MhDist_similarity</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_mh_dist_matrix</span><span class="p">(</span><span class="n">detections</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">shape_sim</span> <span class="o">=</span> <span class="n">shape_similarity</span><span class="p">(</span><span class="n">detections</span><span class="p">,</span> <span class="n">trackers</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">s_sim_corr</span><span class="p">)</span>
+            <span class="n">S</span> <span class="o">=</span> <span class="p">(</span><span class="n">mhd_sim</span> <span class="o">+</span> <span class="n">shape_sim</span> <span class="o">+</span> <span class="n">sbiou_matrix</span><span class="p">)</span> <span class="o">/</span> <span class="mi">3</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">S</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_iou_matrix</span><span class="p">(</span><span class="n">detections</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_sb</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_vt</span><span class="p">:</span>
+            <span class="n">max_s</span> <span class="o">=</span> <span class="n">S</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">],</span> <span class="n">max_s</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">dlo_boost_coef</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">detections</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_sb</span><span class="p">:</span>
+            <span class="n">max_s</span> <span class="o">=</span> <span class="n">S</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">alpha</span> <span class="o">=</span> <span class="mf">0.65</span>
+            <span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span>
+                <span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">],</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">alpha</span><span class="p">)</span> <span class="o">*</span> <span class="n">max_s</span><span class="o">**</span><span class="mf">1.5</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_vt</span><span class="p">:</span>
+            <span class="n">threshold_s</span> <span class="o">=</span> <span class="mf">0.95</span>
+            <span class="n">threshold_e</span> <span class="o">=</span> <span class="mf">0.8</span>
+            <span class="n">n_steps</span> <span class="o">=</span> <span class="mi">20</span>
+            <span class="c1"># alpha = (threshold_s - threshold_e) / n_steps # todo alpha is not being used probably a bug</span>
+            <span class="n">tmp</span> <span class="o">=</span> <span class="p">(</span><span class="n">S</span> <span class="o">&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span>
+                <span class="n">threshold_s</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">trk</span><span class="o">.</span><span class="n">time_since_update</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">]),</span>
+                                    <span class="n">threshold_e</span><span class="p">))</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">scores</span> <span class="o">=</span> <span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+            <span class="n">scores</span><span class="p">[</span><span class="n">tmp</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">scores</span><span class="p">[</span><span class="n">tmp</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span> <span class="o">+</span> <span class="mf">1e-5</span><span class="p">)</span>
+            <span class="n">detections</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">=</span> <span class="n">scores</span>
+        <span class="k">return</span> <span class="n">detections</span>
+</code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="boxmot.trackers.boosttrack.boosttrack.BoostTrack.update" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">update</span><span class="p">(</span><span class="n">dets</span><span class="p">,</span> <span class="n">img</span><span class="p">,</span> <span class="n">embs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Update the tracker with detections and an image.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>dets</code>
+            </td>
+            <td>
+                  <code><span title="numpy.ndarray">ndarray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Detection boxes in the format [[x1,y1,x2,y2,score], ...]</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>img</code>
+            </td>
+            <td>
+                  <code><span title="numpy.ndarray">ndarray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The current image frame.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>embs</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="numpy.ndarray">ndarray</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional precomputed embeddings.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="numpy.ndarray">ndarray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>np.ndarray: Tracked objects in the format
+          [x1, y1, x2, y2, id, confidence, cls, det_ind]
+          (with cls and det_ind set to -1 if unused)</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="quote">
+              <summary>Source code in <code>boxmot/trackers/boosttrack/boosttrack.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">221</span>
+<span class="normal">222</span>
+<span class="normal">223</span>
+<span class="normal">224</span>
+<span class="normal">225</span>
+<span class="normal">226</span>
+<span class="normal">227</span>
+<span class="normal">228</span>
+<span class="normal">229</span>
+<span class="normal">230</span>
+<span class="normal">231</span>
+<span class="normal">232</span>
+<span class="normal">233</span>
+<span class="normal">234</span>
+<span class="normal">235</span>
+<span class="normal">236</span>
+<span class="normal">237</span>
+<span class="normal">238</span>
+<span class="normal">239</span>
+<span class="normal">240</span>
+<span class="normal">241</span>
+<span class="normal">242</span>
+<span class="normal">243</span>
+<span class="normal">244</span>
+<span class="normal">245</span>
+<span class="normal">246</span>
+<span class="normal">247</span>
+<span class="normal">248</span>
+<span class="normal">249</span>
+<span class="normal">250</span>
+<span class="normal">251</span>
+<span class="normal">252</span>
+<span class="normal">253</span>
+<span class="normal">254</span>
+<span class="normal">255</span>
+<span class="normal">256</span>
+<span class="normal">257</span>
+<span class="normal">258</span>
+<span class="normal">259</span>
+<span class="normal">260</span>
+<span class="normal">261</span>
+<span class="normal">262</span>
+<span class="normal">263</span>
+<span class="normal">264</span>
+<span class="normal">265</span>
+<span class="normal">266</span>
+<span class="normal">267</span>
+<span class="normal">268</span>
+<span class="normal">269</span>
+<span class="normal">270</span>
+<span class="normal">271</span>
+<span class="normal">272</span>
+<span class="normal">273</span>
+<span class="normal">274</span>
+<span class="normal">275</span>
+<span class="normal">276</span>
+<span class="normal">277</span>
+<span class="normal">278</span>
+<span class="normal">279</span>
+<span class="normal">280</span>
+<span class="normal">281</span>
+<span class="normal">282</span>
+<span class="normal">283</span>
+<span class="normal">284</span>
+<span class="normal">285</span>
+<span class="normal">286</span>
+<span class="normal">287</span>
+<span class="normal">288</span>
+<span class="normal">289</span>
+<span class="normal">290</span>
+<span class="normal">291</span>
+<span class="normal">292</span>
+<span class="normal">293</span>
+<span class="normal">294</span>
+<span class="normal">295</span>
+<span class="normal">296</span>
+<span class="normal">297</span>
+<span class="normal">298</span>
+<span class="normal">299</span>
+<span class="normal">300</span>
+<span class="normal">301</span>
+<span class="normal">302</span>
+<span class="normal">303</span>
+<span class="normal">304</span>
+<span class="normal">305</span>
+<span class="normal">306</span>
+<span class="normal">307</span>
+<span class="normal">308</span>
+<span class="normal">309</span>
+<span class="normal">310</span>
+<span class="normal">311</span>
+<span class="normal">312</span>
+<span class="normal">313</span>
+<span class="normal">314</span>
+<span class="normal">315</span>
+<span class="normal">316</span>
+<span class="normal">317</span>
+<span class="normal">318</span>
+<span class="normal">319</span>
+<span class="normal">320</span>
+<span class="normal">321</span>
+<span class="normal">322</span>
+<span class="normal">323</span>
+<span class="normal">324</span>
+<span class="normal">325</span>
+<span class="normal">326</span>
+<span class="normal">327</span>
+<span class="normal">328</span>
+<span class="normal">329</span>
+<span class="normal">330</span>
+<span class="normal">331</span>
+<span class="normal">332</span>
+<span class="normal">333</span>
+<span class="normal">334</span>
+<span class="normal">335</span>
+<span class="normal">336</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@BaseTracker</span><span class="o">.</span><span class="n">setup_decorator</span>
+<span class="nd">@BaseTracker</span><span class="o">.</span><span class="n">per_class_decorator</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dets</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">img</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">embs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Update the tracker with detections and an image.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">      dets (np.ndarray): Detection boxes in the format [[x1,y1,x2,y2,score], ...]</span>
+<span class="sd">      img (np.ndarray): The current image frame.</span>
+<span class="sd">      embs (Optional[np.ndarray]): Optional precomputed embeddings.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">      np.ndarray: Tracked objects in the format</span>
+<span class="sd">                  [x1, y1, x2, y2, id, confidence, cls, det_ind]</span>
+<span class="sd">                  (with cls and det_ind set to -1 if unused)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">check_inputs</span><span class="p">(</span><span class="n">dets</span><span class="o">=</span><span class="n">dets</span><span class="p">,</span> <span class="n">embs</span><span class="o">=</span><span class="n">embs</span><span class="p">,</span> <span class="n">img</span><span class="o">=</span><span class="n">img</span><span class="p">)</span>
+
+    <span class="n">dets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">([</span><span class="n">dets</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">dets</span><span class="p">))</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)])</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">frame_count</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cmc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">transform</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cmc</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">dets</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">:</span>
+            <span class="n">trk</span><span class="o">.</span><span class="n">camera_update</span><span class="p">(</span><span class="n">transform</span><span class="p">)</span>
+
+    <span class="n">trks</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">confs</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">:</span>
+        <span class="n">pos</span> <span class="o">=</span> <span class="n">trk</span><span class="o">.</span><span class="n">predict</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">conf</span> <span class="o">=</span> <span class="n">trk</span><span class="o">.</span><span class="n">get_confidence</span><span class="p">()</span>
+        <span class="n">confs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">conf</span><span class="p">)</span>
+        <span class="n">trks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">pos</span><span class="p">,</span> <span class="p">[</span><span class="n">conf</span><span class="p">]]))</span>
+    <span class="n">trks_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span><span class="n">trks</span><span class="p">)</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">trks</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_dlo_boost</span><span class="p">:</span>
+        <span class="n">dets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dlo_confidence_boost</span><span class="p">(</span><span class="n">dets</span><span class="p">)</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_duo_boost</span><span class="p">:</span>
+        <span class="n">dets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">duo_confidence_boost</span><span class="p">(</span><span class="n">dets</span><span class="p">)</span>
+
+    <span class="n">dets_embs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">dets</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">dets</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">remain_inds</span> <span class="o">=</span> <span class="n">dets</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span>
+        <span class="n">dets</span> <span class="o">=</span> <span class="n">dets</span><span class="p">[</span><span class="n">remain_inds</span><span class="p">]</span>
+        <span class="n">scores</span> <span class="o">=</span> <span class="n">dets</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">with_reid</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">embs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">dets_embs</span> <span class="o">=</span> <span class="n">embs</span><span class="p">[</span><span class="n">remain_inds</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">dets_embs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reid_model</span><span class="o">.</span><span class="n">get_features</span><span class="p">(</span><span class="n">dets</span><span class="p">[:,</span> <span class="p">:</span><span class="mi">4</span><span class="p">],</span> <span class="n">img</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">scores</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">dets_embs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">dets</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">with_reid</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">tracker_embs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">trk</span><span class="o">.</span><span class="n">get_emb</span><span class="p">()</span> <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">dets_embs</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">emb_cost</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="n">tracker_embs</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">emb_cost</span> <span class="o">=</span> <span class="n">dets_embs</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">dets_embs</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">@</span> <span class="n">tracker_embs</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">tracker_embs</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">T</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">emb_cost</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="n">mh_dist_matrix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mh_dist_matrix</span><span class="p">(</span><span class="n">dets</span><span class="p">)</span>
+
+    <span class="n">matched</span><span class="p">,</span> <span class="n">unmatched_dets</span><span class="p">,</span> <span class="n">unmatched_trks</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">associate</span><span class="p">(</span>
+        <span class="n">dets</span><span class="p">,</span>
+        <span class="n">trks_np</span><span class="p">,</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">iou_threshold</span><span class="p">,</span>
+        <span class="n">mahalanobis_distance</span><span class="o">=</span><span class="n">mh_dist_matrix</span><span class="p">,</span>
+        <span class="n">track_confidence</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">confs</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">detection_confidence</span><span class="o">=</span><span class="n">scores</span><span class="p">,</span>
+        <span class="n">emb_cost</span><span class="o">=</span><span class="n">emb_cost</span><span class="p">,</span>
+        <span class="n">lambda_iou</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda_iou</span><span class="p">,</span>
+        <span class="n">lambda_mhd</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda_mhd</span><span class="p">,</span>
+        <span class="n">lambda_shape</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda_shape</span><span class="p">,</span>
+        <span class="n">s_sim_corr</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">s_sim_corr</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">dets</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">trust</span> <span class="o">=</span> <span class="p">(</span><span class="n">dets</span><span class="p">[:,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span><span class="p">)</span>
+        <span class="n">af</span> <span class="o">=</span> <span class="mf">0.95</span>
+        <span class="n">dets_alpha</span> <span class="o">=</span> <span class="n">af</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">af</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">trust</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">dets_alpha</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">matched</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">[</span><span class="n">m</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">dets</span><span class="p">[</span><span class="n">m</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">[</span><span class="n">m</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">update_emb</span><span class="p">(</span><span class="n">dets_embs</span><span class="p">[</span><span class="n">m</span><span class="p">[</span><span class="mi">0</span><span class="p">]],</span> <span class="n">alpha</span><span class="o">=</span><span class="n">dets_alpha</span><span class="p">[</span><span class="n">m</span><span class="p">[</span><span class="mi">0</span><span class="p">]])</span>
+
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">unmatched_dets</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">dets</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="mi">4</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">det_thresh</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">KalmanBoxTracker</span><span class="p">(</span><span class="n">dets</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:],</span> <span class="n">max_obs</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">max_obs</span><span class="p">,</span> <span class="n">emb</span><span class="o">=</span><span class="n">dets_embs</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+            <span class="p">)</span>
+
+    <span class="n">outputs</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">active_tracks</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span><span class="p">:</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">trk</span><span class="o">.</span><span class="n">get_state</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">trk</span><span class="o">.</span><span class="n">time_since_update</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span>
+            <span class="n">trk</span><span class="o">.</span><span class="n">hit_streak</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">min_hits</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">frame_count</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">min_hits</span>
+        <span class="p">):</span>
+            <span class="c1"># Format: [x1, y1, x2, y2, id, confidence, cls, det_ind]</span>
+            <span class="n">outputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">d</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="n">trk</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">trk</span><span class="o">.</span><span class="n">conf</span><span class="p">,</span> <span class="n">trk</span><span class="o">.</span><span class="n">cls</span><span class="p">,</span> <span class="n">trk</span><span class="o">.</span><span class="n">det_ind</span><span class="p">]))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">active_tracks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">trk</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span> <span class="o">=</span> <span class="p">[</span><span class="n">trk</span> <span class="k">for</span> <span class="n">trk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trackers</span> <span class="k">if</span> <span class="n">trk</span><span class="o">.</span><span class="n">time_since_update</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_age</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">outputs</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+    <span class="n">outputs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span><span class="n">outputs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">filter_outputs</span><span class="p">(</span><span class="n">outputs</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.sections", "navigation.expand"], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.56ea9cef.min.js"></script>
+      
+    
+  </body>
+</html>
