@@ -1,15 +1,13 @@
-# mkdocs.yml
 site_name: BoxMOT
 theme:
   name: material
-  # turn on both section grouping and global expand
   features:
     - navigation.sections
     - navigation.expand
 
 markdown_extensions:
-    - mkdocs-click
-    - md_in_html
+  - mkdocs-click
+  - md_in_html
 
 plugins:
   - search
@@ -26,12 +24,12 @@ plugins:
                 - "!^update$"
 
 nav:
-  - Home: PROJECT_README.md
+  - Home: index.md
 
   - CLI:
-    - Track:          modes/track.md
-    - Evaluate:       modes/eval.md
-    - Tune:           modes/tune.md
+      - Track:    modes/track.md
+      - Evaluate: modes/eval.md
+      - Tune:     modes/tune.md
 
   - Trackers:
       - ByteTrack:    trackers/bytetrack.md
@@ -41,4 +39,3 @@ nav:
       - DeepOcSort:   trackers/deepocsort.md
       # - HybridSort:   api/trackers/hybridsort.md
       - BoostTrack:   trackers/boosttrack.md
-
