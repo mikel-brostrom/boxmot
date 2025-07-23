@@ -241,7 +241,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
         sys.executable, TRACKEVAL / 'scripts' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
-        "--TRACKERS_FOLDER", args.exp_folder_path,
+        "--TRACKERS_FOLDER", args.exp_dir,
         "--TRACKERS_TO_EVAL", "",
         "--SPLIT_TO_EVAL", args.split,
         "--METRICS", *metrics,
@@ -359,7 +359,7 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     base = opt.project / 'mot' / f"{opt.yolo_model[0].stem}_{opt.reid_model[0].stem}_{opt.tracking_method}"
     exp_dir = increment_path(base, sep="_", exist_ok=False)
     exp_dir.mkdir(parents=True, exist_ok=True)
-    opt.exp_folder_path = exp_dir
+    opt.exp_dir = exp_dir
 
     # Just collect sequence names by scanning directory names
     sequence_names = sorted([
@@ -441,7 +441,7 @@ def main(args):
     run_generate_mot_results(args)
     results = run_trackeval(args)
     
-    plotter = MetricsPlotter(args.exp_folder_path)
+    plotter = MetricsPlotter(args.exp_dir)
 
     plotter.plot_radar_chart(
         {args.tracking_method: list(results.values())},
