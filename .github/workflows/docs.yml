@@ -25,7 +25,6 @@ jobs:
             mkdocs-material \
             mkdocs-click \
             mkdocstrings-python \
-            include-markdown \
             mkdocs-include-markdown-plugin \
             --upgrade
 
