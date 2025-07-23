@@ -27,7 +27,10 @@ plugins:
 nav:
   - Home: index.md
 
-  - CLI: cli.md
+  - CLI:
+    - Track:          modes/track.md
+    - Evaluate:       modes/eval.md
+    - Tune:           modes/tune.md
 
   - Trackers:
       - ByteTrack:    trackers/bytetrack.md
