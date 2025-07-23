@@ -149,8 +149,9 @@ class BoostTrack(BaseTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         with_reid: bool = False,
+        per_class: bool = False,
     ):
-        super().__init__()
+        super().__init__(per_class=per_class)
         self.frame_count = 0
         self.trackers: List[KalmanBoxTracker] = []
 
