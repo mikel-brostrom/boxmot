@@ -1,17 +1,19 @@
 # mkdocs.yml
-site_name: BoxMot
+site_name: BoxMOT
 theme:
   name: material
   # turn on both section grouping and global expand
   features:
     - navigation.sections
-    #- navigation.expand
+    - navigation.expand
 
 markdown_extensions:
     - mkdocs-click
+    - md_in_html
 
 plugins:
   - search
+  - include-markdown
   - mkdocstrings:
       handlers:
         python:
@@ -24,7 +26,7 @@ plugins:
                 - "!^update$"
 
 nav:
-  - Home: index.md
+  - Home: PROJECT_README.md
 
   - CLI:
     - Track:          modes/track.md
