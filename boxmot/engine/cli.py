@@ -104,8 +104,6 @@ def core_options(func):
                      help='reuse existing runs in CI (no UI)'),
         click.option('--tracking-method', type=str, default='deepocsort',
                      help='deepocsort, botsort, strongsort, ...'),
-        click.option('--exp-folder-path', type=Path,
-                     help='path to experiment folder'),
         click.option('--verbose', is_flag=True,
                      help='print detailed logs'),
         click.option('--agnostic-nms', is_flag=True,
@@ -117,10 +115,6 @@ def core_options(func):
         click.option('--objectives', type=str, multiple=True,
                      default=["HOTA", "MOTA", "IDF1"],
                      help='objectives for tuning: HOTA, MOTA, IDF1'),
-        click.option('--val-tools-path', type=Path, default=TRACKEVAL,
-                     help='where to clone trackeval'),
-        click.option('--split-dataset', is_flag=True,
-                     help='use second half of dataset'),
         click.option('--show', is_flag=True,
                      help='display tracking in a window'),
         click.option('--show-labels/--hide-labels', default=True,
@@ -201,10 +195,16 @@ def plural_model_options(func):
     return func
 
 
-@click.group()
+class CommandFirstGroup(click.Group):
+    """Show  COMMAND [OPTIONS]...  instead of  [OPTIONS] COMMAND …"""
+    def format_usage(self, ctx, formatter):
+        # ctx.command_path == "boxmot"
+        formatter.write_usage(ctx.command_path, "COMMAND [ARGS]...")
+        
+@click.group(cls=CommandFirstGroup)   # ← NEW API
 def boxmot():
     """
-    Entry point group for boxmot_cli commands.
+    BoxMOT: Pluggable SOTA multi-object tracking modules modules for segmentation, object detection and pose estimation models
     """
     pass
 
