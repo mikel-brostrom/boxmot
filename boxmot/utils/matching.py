@@ -75,7 +75,7 @@ def iou_distance(atracks, btracks):
 
 
 
-def embedding_distance(tracks, detections, metric="euclidean"):
+def embedding_distance(tracks, detections, metric="cosine"):
     """
     :param tracks: list[STrack]
     :param detections: list[BaseTrack]

@@ -1,3 +1,0 @@
-# boxmot
-
-::: boxmot

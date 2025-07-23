@@ -426,18 +426,6 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     return hota_mota_idf1
 
 
-def run_all(opt: argparse.Namespace) -> None:
-    """
-    Runs all stages of the pipeline: generate_dets_embs, generate_mot_results, and trackeval.
-
-    Args:
-        opt (Namespace): Parsed command line arguments.
-    """
-    run_generate_dets_embs(opt)
-    run_generate_mot_results(opt)
-    return run_trackeval(opt)
-
-
 def load_dataset_cfg(name: str) -> dict:
     """Load the dict from boxmot/configs/datasets/{name}.yaml."""
     path = DATASET_CONFIGS / f"{name}.yaml"
@@ -449,12 +437,9 @@ def main(args):
     # Download TrackEval
     eval_init(args)
 
-    if args.command == 'generate':
-        run_generate_dets_embs(args)
-    elif args.command == 'trackeval':
-        results = run_trackeval(args)
-    else:
-        results = run_all(args)
+    run_generate_dets_embs(args)
+    run_generate_mot_results(args)
+    results = run_trackeval(args)
     
     plotter = MetricsPlotter(args.exp_folder_path)
 

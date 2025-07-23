@@ -1,4 +1,4 @@
-name: 📚 Deploy MkDocs
+name: Deploy MkDocs Docs
 
 on:
   push:
@@ -8,23 +8,27 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.x"
+          python-version: '3.x'
 
-      - name: Install dependencies
+      - name: Install MkDocs and plugins
         run: |
-          pip install mkdocs-material mkdocstrings
+          python -m pip install --upgrade pip
+          pip install mkdocs-material mkdocs-click mkdocstrings[python]
 
-      - name: Build site
-        run: mkdocs build --clean
+      - name: Symlink README into docs
+        run: |
+          cp ../README.md docs/index.md
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdocs gh-deploy --clean --force

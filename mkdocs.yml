@@ -1,14 +1,17 @@
-# mkdocs.yml
-site_name: BoxMot
+site_name: BoxMOT
 theme:
   name: material
-  # turn on both section grouping and global expand
   features:
     - navigation.sections
     - navigation.expand
 
+markdown_extensions:
+  - mkdocs-click
+  - md_in_html
+
 plugins:
   - search
+  - include-markdown
   - mkdocstrings:
       handlers:
         python:
@@ -23,16 +26,16 @@ plugins:
 nav:
   - Home: index.md
 
-  - Trackers:
-      - ByteTrack:    api/trackers/bytetrack.md
-      - BotSort:      api/trackers/botsort.md
-      - StrongSort:   api/trackers/strongsort.md
-      - OcSort:       api/trackers/ocsort.md
-      - DeepOcSort:   api/trackers/deepocsort.md
-      # - HybridSort:   api/trackers/hybridsort.md
-      - BoostTrack:   api/trackers/boosttrack.md
+  - CLI:
+      - Track:    modes/track.md
+      - Evaluate: modes/eval.md
+      - Tune:     modes/tune.md
 
-  - Modes:
-      - Track:        modes/track.md
-      - Evaluation:   modes/evaluate.md
-      - Tune:         modes/tune.md
+  - Trackers:
+      - ByteTrack:    trackers/bytetrack.md
+      - BotSort:      trackers/botsort.md
+      - StrongSort:   trackers/strongsort.md
+      - OcSort:       trackers/ocsort.md
+      - DeepOcSort:   trackers/deepocsort.md
+      # - HybridSort:   api/trackers/hybridsort.md
+      - BoostTrack:   trackers/boosttrack.md
