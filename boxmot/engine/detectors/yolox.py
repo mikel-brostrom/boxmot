@@ -119,7 +119,10 @@ class YoloXStrategy(YoloInterface):
 
         self.ch = 3
         self.args = args
-        self.imgsz = args.imgsz
+        raw = getattr(args, 'imgsz', None) or 640
+        vals = raw if isinstance(raw, (list, tuple)) else (raw,)
+        w, h = (vals * 2)[:2]
+        self.imgsz = [w, h]
         self.pt = False
         self.stride = 32  # max stride in YOLOX
 
