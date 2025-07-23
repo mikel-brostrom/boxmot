@@ -3,7 +3,7 @@ name: Deploy MkDocs Docs
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   deploy:
