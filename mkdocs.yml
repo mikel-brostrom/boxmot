@@ -5,9 +5,10 @@ theme:
   # turn on both section grouping and global expand
   features:
     - navigation.sections
-    - navigation.expand
+    #- navigation.expand
 
 markdown_extensions:
+    - attr_list
     - mkdocs-click
 
 plugins:
@@ -26,14 +27,14 @@ plugins:
 nav:
   - Home: index.md
 
-  - CLI: api/modes/evaluation.md
+  - CLI: cli.md
 
   - Trackers:
-      - ByteTrack:    api/trackers/bytetrack.md
-      - BotSort:      api/trackers/botsort.md
-      - StrongSort:   api/trackers/strongsort.md
-      - OcSort:       api/trackers/ocsort.md
-      - DeepOcSort:   api/trackers/deepocsort.md
+      - ByteTrack:    trackers/bytetrack.md
+      - BotSort:      trackers/botsort.md
+      - StrongSort:   trackers/strongsort.md
+      - OcSort:       trackers/ocsort.md
+      - DeepOcSort:   trackers/deepocsort.md
       # - HybridSort:   api/trackers/hybridsort.md
-      - BoostTrack:   api/trackers/boosttrack.md
+      - BoostTrack:   trackers/boosttrack.md
 
