@@ -1,6 +1,6 @@
 # **BoxMOT**: Pluggable SOTA multi-object tracking modules for segmentation, object detection and pose estimation models
 
-<div align="center">
+<div align="center" markdown="1">
 
   <img width="640"
        src="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.0/output_640.gif"
@@ -42,7 +42,7 @@
 
 ## 📊 Benchmark Results (MOT17 ablation split)
 
-<div align="center">
+<div align="center" markdown="1">
 
 <!-- START TRACKER TABLE -->
 | Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
@@ -225,7 +225,7 @@ $ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
 </details>
 
 
-<div align="center">
+<div align="center" markdown="1">
 
 | Example Description | Notebook |
 |---------------------|----------|

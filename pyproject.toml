@@ -132,6 +132,7 @@ dependencies = [
   "mplcursors>=0.6",
   "pyqt5>=5.15.11",
   "bayesian-optimization>=2.0.4",
+  "click>=8.1.8",
 ]
 
 [project.scripts]
