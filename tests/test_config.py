@@ -26,4 +26,4 @@ ALL_TRACKERS = [
     "strongsort",
     "boosttrack",
 ]
-PER_CLASS_TRACKERS = ["botsort", "deepocsort", "ocsort", "bytetrack"]
+PER_CLASS_TRACKERS = ["botsort", "deepocsort", "ocsort", "bytetrack", "boosttrack"]
