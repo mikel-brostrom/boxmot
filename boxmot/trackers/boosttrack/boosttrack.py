@@ -335,10 +335,6 @@ class BoostTrack(BaseTracker):
         outputs = np.vstack(outputs)
         return self.filter_outputs(outputs)
 
-    def dump_cache(self):
-        if self.ecc is not None:
-            self.ecc.save_cache()
-
     def filter_outputs(self, outputs: np.ndarray) -> np.ndarray:
 
         w_arr = outputs[:, 2] - outputs[:, 0]
