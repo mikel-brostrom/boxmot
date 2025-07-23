@@ -25,7 +25,8 @@ jobs:
             mkdocs-material \
             mkdocs-click \
             mkdocstrings[python] \
-            mkdocs-include-markdown-plugin
+            mkdocs-include-markdown-plugin \
+            --upgrade
 
       - name: Symlink README into docs
         run: |
