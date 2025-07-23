@@ -180,6 +180,7 @@ class BoostTrack(BaseTracker):
             per_class: If True, enables per-class tracking, where tracks are managed separately for each class.
         """
         super().__init__(per_class=per_class)
+        self.active_tracks = []
         self.frame_count = 0
         self.trackers: List[KalmanBoxTracker] = []
 
