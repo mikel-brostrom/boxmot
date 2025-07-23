@@ -149,8 +149,36 @@ class BoostTrack(BaseTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         with_reid: bool = False,
-        per_class: bool = False,
+        per_class: bool = False,  # Enable per-class tracking if True
     ):
+        """
+        Initializes the BoostTrack tracker with various parameters.
+
+        Args:
+            reid_weights: Path to the re-identification model weights.
+            device: Device to run the model on (e.g., 'cpu', 'cuda').
+            half: Whether to use half-precision for computations.
+            max_age: Maximum allowed frames without update.
+            min_hits: Minimum hits required to output a track.
+            det_thresh: Detection confidence threshold.
+            iou_threshold: IoU threshold for association.
+            use_ecc: Whether to use ECC for camera motion compensation.
+            min_box_area: Minimum box area for detections.
+            aspect_ratio_thresh: Aspect ratio threshold for detections.
+            cmc_method: Method for camera motion compensation.
+            lambda_iou: Weight for IoU-based association.
+            lambda_mhd: Weight for Mahalanobis distance-based association.
+            lambda_shape: Weight for shape-based association.
+            use_dlo_boost: Whether to use DLO boost.
+            use_duo_boost: Whether to use DUO boost.
+            dlo_boost_coef: Coefficient for DLO boost.
+            s_sim_corr: Whether to use shape similarity correction.
+            use_rich_s: Whether to use rich shape features.
+            use_sb: Whether to use soft-BIoU.
+            use_vt: Whether to use visual tracking.
+            with_reid: Whether to use re-identification.
+            per_class: If True, enables per-class tracking, where tracks are managed separately for each class.
+        """
         super().__init__(per_class=per_class)
         self.frame_count = 0
         self.trackers: List[KalmanBoxTracker] = []
