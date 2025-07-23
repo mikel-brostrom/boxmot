@@ -15,8 +15,6 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          setup_commands:
-            - import sys; sys.path.insert(0, ".")
           options:
             selection:
               members: "__all__"
