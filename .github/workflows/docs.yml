@@ -1,9 +1,7 @@
 name: Deploy MkDocs Docs
-
 on:
   push:
-    branches:
-      - master
+    branches: [master]
 
 permissions:
   contents: write
@@ -11,13 +9,10 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
@@ -34,8 +29,10 @@ jobs:
             --upgrade
 
       - name: Symlink README into docs
-        run: |
-          cp --remove-destination README.md docs/index.md
+        run: cp --remove-destination README.md docs/index.md
+
+      - name: Expose project on PYTHONPATH
+        run: echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
 
       - name: Deploy to GitHub Pages
         env:
