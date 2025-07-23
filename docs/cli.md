@@ -1,9 +1,7 @@
-# boxmot
-
-This page provides documentation for our command line tools.
-
+# eval
 
 ::: mkdocs-click
     :module: boxmot.engine.cli
     :command: boxmot
-    :list_subcommands: True
+    :depth: 1
+    :command: eval
