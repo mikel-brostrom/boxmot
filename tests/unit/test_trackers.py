@@ -130,8 +130,10 @@ def test_per_class_tracker_output_size(tracker_type):
     )
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
-    det = np.array([[144, 212, 578, 480, 0.95, 0],
-                    [400, 281, 576, 472, 0.95, 65]])
+    det = np.array([
+        [100, 100, 300, 250, 0.95,   0],  # class 0
+        [400, 300, 550, 450, 0.90,  65],  # class 65
+    ])
     embs = np.random.random(size=(2, 512))
 
     _ = tracker.update(det, rgb, embs)
