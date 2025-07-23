@@ -23,8 +23,9 @@ jobs:
 
       - name: Install MkDocs and plugins
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           pip install \
+            mkdocs \
             mkdocs-material \
             mkdocs-click \
             mkdocstrings \
