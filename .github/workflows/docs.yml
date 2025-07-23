@@ -5,6 +5,9 @@ on:
     branches:
       - master
 
+permissions:
+  contents: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -36,4 +39,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git config --local user.email yolov5.deepsort.pytorch@gmail.com
+          git config --local user.name mikel-brostrom
           mkdocs gh-deploy --clean --force
