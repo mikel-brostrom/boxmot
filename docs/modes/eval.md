@@ -6,3 +6,4 @@
     :depth: 1
     :command: eval
     :style: table
+    :prog_name: boxmot eval
