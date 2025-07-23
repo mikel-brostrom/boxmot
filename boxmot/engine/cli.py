@@ -104,8 +104,6 @@ def core_options(func):
                      help='reuse existing runs in CI (no UI)'),
         click.option('--tracking-method', type=str, default='deepocsort',
                      help='deepocsort, botsort, strongsort, ...'),
-        click.option('--exp-folder-path', type=Path,
-                     help='path to experiment folder'),
         click.option('--verbose', is_flag=True,
                      help='print detailed logs'),
         click.option('--agnostic-nms', is_flag=True,
