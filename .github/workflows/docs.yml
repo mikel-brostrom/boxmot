@@ -23,6 +23,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install mkdocs-material mkdocs-click mkdocstrings[python]
 
+      - name: Symlink README into docs
+        run: |
+          ln -sf ../README.md docs/PROJECT_README.md
+
       - name: Deploy to GitHub Pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
