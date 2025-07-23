@@ -25,7 +25,7 @@ jobs:
 
       - name: Symlink README into docs
         run: |
-          cp ../README.md docs/index.md
+          cp README.md docs/index.md
 
       - name: Deploy to GitHub Pages
         env:
