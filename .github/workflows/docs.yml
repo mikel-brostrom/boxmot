@@ -18,15 +18,8 @@ jobs:
 
       - name: Install MkDocs and plugins
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install \
-            mkdocs \
-            mkdocs-material \
-            mkdocs-click \
-            mkdocstrings \
-            mkdocstrings-python \
-            mkdocs-include-markdown-plugin \
-            --upgrade
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --all-extras --all-groups
 
       - name: Symlink README into docs
         run: cp --remove-destination README.md docs/index.md
@@ -38,6 +31,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          source .venv/bin/activate
           git config --local user.email yolov5.deepsort.pytorch@gmail.com
           git config --local user.name mikel-brostrom
           mkdocs gh-deploy --clean --force --verbose
