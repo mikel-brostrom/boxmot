@@ -32,13 +32,11 @@ plugins:
 nav:
   - Home: index.md
   - Quickstart: quickstart.md
-
   - CLI:
       - Track:        modes/track.md
       - Generate:     modes/generate.md
       - Evaluate:     modes/eval.md
       - Tune:         modes/tune.md
-
   - Trackers:
       - ByteTrack:    trackers/bytetrack.md
       - BotSort:      trackers/botsort.md
