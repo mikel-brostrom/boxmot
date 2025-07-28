@@ -5,7 +5,7 @@ import cv2
 import gdown
 import numpy as np
 import torch
-from filelock import FileLock
+from filelock import SoftFileLock
 
 from boxmot.appearance.reid.registry import ReIDModelRegistry
 from boxmot.utils import logger as LOGGER
@@ -138,8 +138,7 @@ class BaseModelBackend:
             return
 
         model_url = ReIDModelRegistry.get_model_url(w)
-        lock_file = str(w) + ".lock"
-        lock = FileLock(lock_file, timeout=300)  # Wait up to 5 minutes
+        lock = SoftFileLock(str(w) + ".lock", timeout=300)  # Wait up to 5 minutes
 
         with lock:
             if w.exists():
