@@ -1,5 +1,7 @@
 from abc import abstractmethod
 
+import time
+import os
 import cv2
 import gdown
 import numpy as np
@@ -129,24 +131,29 @@ class BaseModelBackend:
     def load_model(self, w):
         raise NotImplementedError("This method should be implemented by subclasses.")
 
+
     def download_model(self, w):
-        if w.suffix == ".pt":
-            model_url = ReIDModelRegistry.get_model_url(w)
+        from filelock import FileLock
 
-            # Case 1 – weights not on disk but URL is known ⇒ download them
-            if not w.exists() and model_url is not None:
-                LOGGER.info("Downloading ReID weights from %s → %s", model_url, w)
+        if w.suffix != ".pt":
+            return
+
+        model_url = ReIDModelRegistry.get_model_url(w)
+        lock_file = str(w) + ".lock"
+        lock = FileLock(lock_file, timeout=300)  # Wait up to 5 minutes
+
+        with lock:
+            if w.exists():
+                LOGGER.info(f"[PID {os.getpid()}] Found existing ReID weights at {w}; skipping download.")
+                return
+
+            if model_url:
+                LOGGER.info(f"[PID {os.getpid()}] Downloading ReID weights from {model_url} → {w}")
                 gdown.download(model_url, str(w), quiet=False)
-
-            # Case 2 – weights not on disk and no URL ⇒ bail out
-            elif not w.exists():
+            else:
                 LOGGER.error(
-                    "No URL associated with the chosen StrongSORT weights (%s). "
-                    "Choose one of the following:", w
+                    f"No URL associated with the chosen StrongSORT weights ({w}).\n"
+                    f"Choose one of the following:"
                 )
                 ReIDModelRegistry.show_downloadable_models()
                 exit()
-
-            # Case 3 – weights already on disk ⇒ just tell the user
-            else:
-                LOGGER.error(f"Found existing ReID weights at {w}; skipping download.")
