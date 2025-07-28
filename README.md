@@ -61,7 +61,7 @@
 
 </div>
 
-
+</details>
 
 
 ## 🔧 Installation
@@ -93,35 +93,42 @@ Commands:
 Seamlessly integrate BoxMOT directly into your Python MOT applications with your custom detector.
 
 ```python
-import cv2, numpy as np, torch, torchvision
+import cv2, torch, numpy as np
 from pathlib import Path
-from boxmot import BoostTrack
+from boxmot import BotSort
+from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2, FasterRCNN_ResNet50_FPN_V2_Weights as W
 
-device = torch.device('cpu')
-det = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True).eval().to(device)
-tracker = BoostTrack(Path('osnet_x0_25_msmt17.pt'), device=device, half=False)
-cap, tf, th = cv2.VideoCapture(0), torchvision.transforms.functional.to_tensor, 0.5
+# model + transforms
+dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+w = W.DEFAULT
+model = fasterrcnn_resnet50_fpn_v2(weights=w, box_score_thresh=0.5).to(dev).eval()
+prep = w.transforms()
 
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret: break
+# tracker
+tracker = BotSort(reid_weights=Path('osnet_x0_25_msmt17.pt'), device=dev, half=False)
 
-    with torch.no_grad():
-        out = det([tf(frame).to(device)])[0]
-        dets = np.array([
-            [*b.cpu().numpy(), s.item(), l.item()]
-            for b, s, l in zip(out['boxes'], out['scores'], out['labels'])
-            if s.item() >= th
-        ])
-        tracker.update(dets, frame)
+# video loop
+cap = cv2.VideoCapture(0)
+with torch.inference_mode():
+    while True:
+        ok, bgr = cap.read()
+        if not ok: break
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)                   # BGR->RGB
+        t = torch.from_numpy(rgb).permute(2,0,1).to(torch.uint8)     # HWC->CHW uint8
+        out = model([prep(t).to(dev)])[0]                            # detect
+        s = out['scores'].cpu().numpy()
+        keep = s >= 0.5                                              # filter
+        dets = np.concatenate([out['boxes'][keep].cpu().numpy(),
+                               s[keep,None],
+                               out['labels'][keep,None].cpu().numpy()], 1)
+        tracker.update(dets, bgr)                                    # track
+        tracker.plot_results(bgr, show_trajectories=True)            # draw
+        cv2.imshow('BoXMOT + Torchvision', bgr)
+        if cv2.waitKey(1) & 0xFF == ord('q'): break
 
-    tracker.plot_results(frame, show_trajectories=True)
-    if cv2.imshow('BoXMOT + Torchvision', frame) or cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+cap.release(); cv2.destroyAllWindows()
 ```
+
 
 ## 📝 Code Examples & Tutorials
 
@@ -140,7 +147,7 @@ $ boxmot track --yolo-model rf-detr-base.pt    # bboxes only
                             yolov8n-pose.pt    # bboxes + pose estimation
 ```
 
-  
+  </details>
 
 <details>
 <summary>Tracking methods</summary>
@@ -154,7 +161,7 @@ $ boxmot track --tracking-method deepocsort
                                  boosttrack
 ```
 
-
+</details>
 
 <details>
 <summary>Tracking sources</summary>
@@ -171,7 +178,7 @@ $ boxmot track --source 0                               # webcam
                         'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP stream
 ```
 
-
+</details>
 
 <details>
 <summary>Select ReID model</summary>
@@ -189,7 +196,7 @@ $ boxmot track --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightw
                                       ...
 ```
 
-
+</details>
 
 <details>
 <summary>Filter tracked classes</summary>
@@ -204,10 +211,10 @@ boxmot track --source 0 --yolo-model yolov8s.pt --classes 16 17  # COCO yolov8 m
 
 [Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a Yolov8 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
 
+</details>
 
 
-
-
+</details>
 
 <details>
 <summary>Evaluation</summary>
@@ -226,7 +233,7 @@ $ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --track
 ```
 
 add `--gsi` to your command for postprocessing the MOT results by gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
-
+</details>
 
 
 <details>
@@ -243,7 +250,7 @@ $ boxmot tune --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-m
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
 
-
+</details>
 
 <details>
 <summary>Export</summary>
@@ -259,7 +266,7 @@ $ python3 boxmot/appearance/reid_export.py --include openvino --device cpu
 $ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
 ```
 
-
+</details>
 
 
 <div align="center" markdown="1">
