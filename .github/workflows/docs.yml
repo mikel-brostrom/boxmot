@@ -51,7 +51,7 @@ jobs:
             if (code) print
           }
           AWK
-          awk -f /tmp/extract_examples.awk README.md > docs/boxmot_examples.md
+          awk -f /tmp/extract_examples.awk README.md > docs/quickstart.md
 
       - name: Expose project on PYTHONPATH
         run: echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
