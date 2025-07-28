@@ -93,40 +93,65 @@ Commands:
 Seamlessly integrate BoxMOT directly into your Python MOT applications with your custom model.
 
 ```python
-import cv2, torch, numpy as np
+import cv2
+import torch
+import numpy as np
 from pathlib import Path
 from boxmot import BoostTrack
-from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2, FasterRCNN_ResNet50_FPN_V2_Weights as W
+from torchvision.models.detection import (
+    fasterrcnn_resnet50_fpn_v2,
+    FasterRCNN_ResNet50_FPN_V2_Weights as Weights
+)
 
-# model + transforms
-dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-w = W.DEFAULT
-model = fasterrcnn_resnet50_fpn_v2(weights=w, box_score_thresh=0.5).to(dev).eval()
-prep = w.transforms()
+# Set device
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# tracker
-tracker = BoostTrack(reid_weights=Path('osnet_x0_25_msmt17.pt'), device=dev, half=False)
+# Load model with pretrained weights and preprocessing transforms
+weights = Weights.DEFAULT
+model = fasterrcnn_resnet50_fpn_v2(weights=weights, box_score_thresh=0.5)
+model.to(device).eval()
+transform = weights.transforms()
 
-# video loop
+# Initialize tracker
+tracker = BoostTrack(reid_weights=Path('osnet_x0_25_msmt17.pt'), device=device, half=False)
+
+# Start video capture
 cap = cv2.VideoCapture(0)
+
 with torch.inference_mode():
     while True:
-        ok, bgr = cap.read()
-        if not ok: break
-        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)                   # BGR->RGB
-        t = torch.from_numpy(rgb).permute(2,0,1).to(torch.uint8)     # HWC->CHW uint8
-        out = model([prep(t).to(dev)])[0]                            # detect
-        s = out['scores'].cpu().numpy()
-        keep = s >= 0.5                                              # filter
-        dets = np.concatenate([out['boxes'][keep].cpu().numpy(),
-                               s[keep,None],
-                               out['labels'][keep,None].cpu().numpy()], 1)
-        tracker.update(dets, bgr)                                    # track
-        tracker.plot_results(bgr, show_trajectories=True)            # draw
-        cv2.imshow('BoXMOT + Torchvision', bgr)
-        if cv2.waitKey(1) & 0xFF == ord('q'): break
+        success, frame = cap.read()
+        if not success:
+            break
 
-cap.release(); cv2.destroyAllWindows()
+        # Convert frame to RGB and prepare for model
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        tensor = torch.from_numpy(rgb).permute(2, 0, 1).to(torch.uint8)
+        input_tensor = transform(tensor).to(device)
+
+        # Run detection
+        output = model([input_tensor])[0]
+        scores = output['scores'].cpu().numpy()
+        keep = scores >= 0.5
+
+        # Prepare detections for tracking
+        boxes = output['boxes'][keep].cpu().numpy()
+        labels = output['labels'][keep].cpu().numpy()
+        filtered_scores = scores[keep]
+        detections = np.concatenate([boxes, filtered_scores[:, None], labels[:, None]], axis=1)
+
+        # Update tracker and draw results
+        tracker.update(detections, frame)
+        tracker.plot_results(frame, show_trajectories=True)
+
+        # Show output
+        cv2.imshow('BoXMOT + Torchvision', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+# Clean up
+cap.release()
+cv2.destroyAllWindows()
 ```
 
 
