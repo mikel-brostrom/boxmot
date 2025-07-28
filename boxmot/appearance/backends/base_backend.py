@@ -6,6 +6,7 @@ import cv2
 import gdown
 import numpy as np
 import torch
+from filelock import FileLock
 
 from boxmot.appearance.reid.registry import ReIDModelRegistry
 from boxmot.utils import logger as LOGGER
@@ -133,7 +134,6 @@ class BaseModelBackend:
 
 
     def download_model(self, w):
-        from filelock import FileLock
 
         if w.suffix != ".pt":
             return
@@ -152,7 +152,7 @@ class BaseModelBackend:
                 gdown.download(model_url, str(w), quiet=False)
             else:
                 LOGGER.error(
-                    f"No URL associated with the chosen StrongSORT weights ({w}).\n"
+                    f"No URL associated with the chosen ReID weights ({w}).\n"
                     f"Choose one of the following:"
                 )
                 ReIDModelRegistry.show_downloadable_models()
