@@ -95,7 +95,7 @@ Seamlessly integrate BoxMOT directly into your Python MOT applications with your
 ```python
 import cv2, torch, numpy as np
 from pathlib import Path
-from boxmot import BotSort
+from boxmot import BoostTrack
 from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2, FasterRCNN_ResNet50_FPN_V2_Weights as W
 
 # model + transforms
@@ -105,7 +105,7 @@ model = fasterrcnn_resnet50_fpn_v2(weights=w, box_score_thresh=0.5).to(dev).eval
 prep = w.transforms()
 
 # tracker
-tracker = BotSort(reid_weights=Path('osnet_x0_25_msmt17.pt'), device=dev, half=False)
+tracker = BoostTrack(reid_weights=Path('osnet_x0_25_msmt17.pt'), device=dev, half=False)
 
 # video loop
 cap = cv2.VideoCapture(0)
