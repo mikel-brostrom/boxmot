@@ -1,6 +1,5 @@
 from abc import abstractmethod
 
-import time
 import os
 import cv2
 import gdown
