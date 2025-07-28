@@ -24,6 +24,35 @@ jobs:
       - name: Symlink README into docs
         run: cp --remove-destination README.md docs/index.md
 
+      - name: Extract code examples (with section titles) from README
+        run: |
+          cat <<'AWK' > /tmp/extract_examples.awk
+          /^##[[:space:]]*.*Code Examples/ { insec=1; next }
+          insec && /^##[[:space:]]/ { exit }
+
+          insec {
+            # capture text inside <summary> ... </summary>
+            if ($0 ~ /<summary>/) {
+              t=$0
+              sub(/.*<summary>[[:space:]]*/, "", t)
+              sub(/[[:space:]]*<\/summary>.*/, "", t)
+              title=t
+            }
+
+            # start of fenced code block
+            if ($0 ~ /^[[:space:]]*```(bash|python)/) {
+              if (title != "") { print "# " title }
+              code=1; print; next
+            }
+
+            # end of fenced code block
+            if (code && $0 ~ /^[[:space:]]*```[[:space:]]*$/) { code=0; print; next }
+
+            if (code) print
+          }
+          AWK
+          awk -f /tmp/extract_examples.awk README.md > docs/boxmot_examples.md
+
       - name: Expose project on PYTHONPATH
         run: echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
 
