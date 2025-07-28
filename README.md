@@ -90,7 +90,7 @@ Commands:
 
 ## 🐍 PYTHON
 
-Seamlessly integrate BoxMOT directly into your Python MOT applications with your custom detector.
+Seamlessly integrate BoxMOT directly into your Python MOT applications with your custom model.
 
 ```python
 import cv2, torch, numpy as np
