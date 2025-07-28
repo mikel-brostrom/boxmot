@@ -30,7 +30,7 @@ plugins:
 
 nav:
   - Home: index.md
-  - Quickstart: docs/boxmot_examples.md
+  - Quickstart: quickstart.md
 
   - CLI:
       - Track:        modes/track.md
