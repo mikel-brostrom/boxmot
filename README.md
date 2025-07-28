@@ -72,6 +72,10 @@ Install the `boxmot` package, including all requirements, in a Python>=3.9 envir
 pip install boxmot
 ```
 
+If you want to contribute to this package check how to contribute [here](https://github.com/mikel-brostrom/boxmot/blob/master/CONTRIBUTING.md)
+
+## 💻 CLI
+
 BoxMOT provides a unified CLI `boxmot` with the following subcommands:
 
 ```bash
@@ -84,7 +88,46 @@ Commands:
   tune                   Tune tracker hyperparameters based on selected detections and embeddings
 ```
 
-If you want to contribute to this package check how to contribute [here](https://github.com/mikel-brostrom/boxmot/blob/master/CONTRIBUTING.md)
+## 🐍 PYTHON
+
+Seamlessly integrate BoxMOT directly into your Python MOT applications with your custom model.
+
+```python
+import cv2, torch, numpy as np
+from pathlib import Path
+from boxmot import BoostTrack
+from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2, FasterRCNN_ResNet50_FPN_V2_Weights as W
+
+# model + transforms
+dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+w = W.DEFAULT
+model = fasterrcnn_resnet50_fpn_v2(weights=w, box_score_thresh=0.5).to(dev).eval()
+prep = w.transforms()
+
+# tracker
+tracker = BoostTrack(reid_weights=Path('osnet_x0_25_msmt17.pt'), device=dev, half=False)
+
+# video loop
+cap = cv2.VideoCapture(0)
+with torch.inference_mode():
+    while True:
+        ok, bgr = cap.read()
+        if not ok: break
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)                   # BGR->RGB
+        t = torch.from_numpy(rgb).permute(2,0,1).to(torch.uint8)     # HWC->CHW uint8
+        out = model([prep(t).to(dev)])[0]                            # detect
+        s = out['scores'].cpu().numpy()
+        keep = s >= 0.5                                              # filter
+        dets = np.concatenate([out['boxes'][keep].cpu().numpy(),
+                               s[keep,None],
+                               out['labels'][keep,None].cpu().numpy()], 1)
+        tracker.update(dets, bgr)                                    # track
+        tracker.plot_results(bgr, show_trajectories=True)            # draw
+        cv2.imshow('BoXMOT + Torchvision', bgr)
+        if cv2.waitKey(1) & 0xFF == ord('q'): break
+
+cap.release(); cv2.destroyAllWindows()
+```
 
 
 ## 📝 Code Examples & Tutorials

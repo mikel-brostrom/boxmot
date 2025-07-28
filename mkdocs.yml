@@ -8,6 +8,13 @@ theme:
 markdown_extensions:
   - mkdocs-click
   - md_in_html
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
 
 plugins:
   - search
@@ -23,6 +30,7 @@ plugins:
 
 nav:
   - Home: index.md
+  - Quickstart: quickstart.md
 
   - CLI:
       - Track:        modes/track.md
