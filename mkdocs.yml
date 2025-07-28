@@ -1,6 +1,7 @@
-site_name: BoxMOT
+site_name: ""
 theme:
   name: material
+  logo: logo/logo.png
   features:
     - navigation.sections
     - navigation.expand
