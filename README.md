@@ -141,7 +141,9 @@ with torch.inference_mode():
         detections = np.concatenate([boxes, filtered_scores[:, None], labels[:, None]], axis=1)
 
         # Update tracker and draw results
-        tracker.update(detections, frame)
+        #   INPUT:  M X (x, y, x, y, conf, cls)
+        #   OUTPUT: M X (x, y, x, y, id, conf, cls, ind)
+        res = tracker.update(detections, frame)
         tracker.plot_results(frame, show_trajectories=True)
 
         # Show output
