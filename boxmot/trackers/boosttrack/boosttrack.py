@@ -108,6 +108,7 @@ class KalmanBoxTracker:
         if self.time_since_update > 0:
             self.hit_streak = 0
         self.time_since_update += 1
+        self.det_ind = -1
         return self.get_state()
 
     def get_state(self):
@@ -321,11 +322,13 @@ class BoostTrack(BaseTracker):
         self.active_tracks = []
         for trk in self.trackers:
             d = trk.get_state()[0]
-            if (trk.time_since_update < 1) and (
-                trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
-            ):
+            if trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits:
                 # Format: [x1, y1, x2, y2, id, confidence, cls, det_ind]
-                outputs.append(np.array([d[0], d[1], d[2], d[3], trk.id, trk.conf, trk.cls, trk.det_ind]))
+                outputs.append(
+                    np.array(
+                        [d[0], d[1], d[2], d[3], trk.id, trk.conf, trk.cls, trk.det_ind]
+                    )
+                )
                 self.active_tracks.append(trk)
             
         self.trackers = [trk for trk in self.trackers if trk.time_since_update <= self.max_age]

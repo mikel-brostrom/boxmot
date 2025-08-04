@@ -118,18 +118,24 @@ class BaseTrack:
         Marks the track as lost.
         """
         self.state = TrackState.Lost
+        if hasattr(self, "det_ind"):
+            self.det_ind = -1
 
     def mark_long_lost(self):
         """
         Marks the track as long lost.
         """
         self.state = TrackState.LongLost
+        if hasattr(self, "det_ind"):
+            self.det_ind = -1
 
     def mark_removed(self):
         """
         Marks the track as removed.
         """
         self.state = TrackState.Removed
+        if hasattr(self, "det_ind"):
+            self.det_ind = -1
 
     @staticmethod
     def clear_count():

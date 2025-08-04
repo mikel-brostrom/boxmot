@@ -311,6 +311,7 @@ class KalmanBoxTracker(object):
             self.confidence_pre = self.confidence
             self.confidence = bbox[4]
         else:
+            self.det_ind = -1
             self.kf.update(bbox)
             self.confidence_pre = None
 
@@ -723,9 +724,7 @@ class HybridSort(BaseTracker):
                 we didn't notice significant difference here
                 """
                 d = trk.last_observation[:4]
-            if (trk.time_since_update < 1) and (
-                trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
-            ):
+            if trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits:
                 # +1 as MOT benchmark requires positive
                 ret.append(
                     np.concatenate(
