@@ -219,7 +219,7 @@ class BaseTracker(ABC):
         if self.is_obb:
             assert (
                 dets.shape[1] == 7
-            ), "Unsupported 'dets' 2nd dimension length, valid lengths is 6 (cx,cy,w,h,angle,conf,cls)"
+            ), "Unsupported 'dets' 2nd dimension length, valid length is 7 (cx,cy,w,h,angle,conf,cls)"
         else:
             assert (
                 dets.shape[1] == 6
