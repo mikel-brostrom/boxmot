@@ -269,6 +269,7 @@ class BaseTracker(ABC):
         id: int,
         thickness: int = 2,
         fontscale: float = 0.5,
+        color: tuple | None = None,
     ) -> np.ndarray:
         """
         Draws a bounding box with ID, confidence, and class information on an image.
@@ -285,6 +286,9 @@ class BaseTracker(ABC):
         Returns:
         - np.ndarray: The image array with the bounding box drawn on it.
         """
+        if color is None:
+            color = self.id_to_color(id)
+
         if self.is_obb:
 
             angle = box[4] * 180.0 / np.pi  # Convert radians to degrees
@@ -298,7 +302,7 @@ class BaseTracker(ABC):
                 img,
                 [box_poly],
                 isClosed=True,
-                color=self.id_to_color(id),
+                color=color,
                 thickness=thickness,
             )
 
@@ -308,7 +312,7 @@ class BaseTracker(ABC):
                 (int(box[0]), int(box[1]) - 10),
                 cv.FONT_HERSHEY_SIMPLEX,
                 fontscale,
-                self.id_to_color(id),
+                color,
                 thickness,
             )
         else:
@@ -317,7 +321,7 @@ class BaseTracker(ABC):
                 img,
                 (int(box[0]), int(box[1])),
                 (int(box[2]), int(box[3])),
-                self.id_to_color(id),
+                color,
                 thickness,
             )
             img = cv.putText(
@@ -326,13 +330,13 @@ class BaseTracker(ABC):
                 (int(box[0]), int(box[1]) - 10),
                 cv.FONT_HERSHEY_SIMPLEX,
                 fontscale,
-                self.id_to_color(id),
+                color,
                 thickness,
             )
         return img
 
     def plot_trackers_trajectories(
-        self, img: np.ndarray, observations: list, id: int
+        self, img: np.ndarray, observations: list, id: int, color: tuple | None = None
     ) -> np.ndarray:
         """
         Draws the trajectories of tracked objects based on historical observations. Each point
@@ -348,6 +352,9 @@ class BaseTracker(ABC):
         Returns:
         - np.ndarray: The image array with the trajectories drawn on it.
         """
+        if color is None:
+            color = self.id_to_color(int(id))
+
         for i, box in enumerate(observations):
             trajectory_thickness = int(np.sqrt(float(i + 1)) * 1.2)
             if self.is_obb:
@@ -355,7 +362,7 @@ class BaseTracker(ABC):
                     img,
                     (int(box[0]), int(box[1])),
                     2,
-                    color=self.id_to_color(int(id)),
+                    color=color,
                     thickness=trajectory_thickness,
                 )
             else:
@@ -364,7 +371,7 @@ class BaseTracker(ABC):
                     img,
                     (int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2)),
                     2,
-                    color=self.id_to_color(int(id)),
+                    color=color,
                     thickness=trajectory_thickness,
                 )
         return img
@@ -400,12 +407,30 @@ class BaseTracker(ABC):
                 active_tracks += self.per_class_active_tracks[k]
 
         for a in active_tracks:
-            if not a.history_observations: continue
-            if len(a.history_observations) < 3: continue
+            if not a.history_observations:
+                continue
+            if len(a.history_observations) < 3:
+                continue
             box = a.history_observations[-1]
-            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
-            if not show_trajectories: continue
-            img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
+
+            det_associated = getattr(a, "det_ind", None) is not None and getattr(a, "det_ind", None) != -1
+            color = self.id_to_color(a.id) if det_associated else (128, 128, 128)
+
+            img = self.plot_box_on_img(
+                img,
+                box,
+                a.conf,
+                a.cls,
+                a.id,
+                thickness,
+                fontscale,
+                color=color,
+            )
+            if not show_trajectories:
+                continue
+            img = self.plot_trackers_trajectories(
+                img, a.history_observations, a.id, color=color
+            )
         return img
 
     def reset(self):
