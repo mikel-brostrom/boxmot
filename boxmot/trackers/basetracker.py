@@ -1,6 +1,7 @@
 import colorsys
 import hashlib
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import cv2 as cv
 import numpy as np
@@ -269,7 +270,7 @@ class BaseTracker(ABC):
         id: int,
         thickness: int = 2,
         fontscale: float = 0.5,
-        color: tuple | None = None,
+        color: Optional[tuple[int, int, int]] = None,
     ) -> np.ndarray:
         """
         Draws a bounding box with ID, confidence, and class information on an image.
@@ -336,7 +337,11 @@ class BaseTracker(ABC):
         return img
 
     def plot_trackers_trajectories(
-        self, img: np.ndarray, observations: list, id: int, color: tuple | None = None
+        self,
+        img: np.ndarray,
+        observations: list,
+        id: int,
+        color: Optional[tuple[int, int, int]] = None,
     ) -> np.ndarray:
         """
         Draws the trajectories of tracked objects based on historical observations. Each point
