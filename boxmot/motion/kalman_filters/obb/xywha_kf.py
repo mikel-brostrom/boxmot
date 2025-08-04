@@ -120,9 +120,7 @@ class KalmanBoxTrackerOBB(object):
                         break
                 if previous_box is None:
                     previous_box = self.last_observation
-                """
-                  Estimate the track speed direction with observations \Delta t steps away
-                """
+                # Estimate the track speed direction with observations Δt steps away
                 self.velocity = speed_direction_obb(previous_box, bbox)
 
             """
