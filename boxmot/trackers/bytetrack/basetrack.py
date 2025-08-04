@@ -50,9 +50,13 @@ class BaseTrack(object):
 
     def mark_lost(self):
         self.state = TrackState.Lost
+        if hasattr(self, "det_ind"):
+            self.det_ind = -1
 
     def mark_removed(self):
         self.state = TrackState.Removed
+        if hasattr(self, "det_ind"):
+            self.det_ind = -1
 
     @staticmethod
     def clear_count():

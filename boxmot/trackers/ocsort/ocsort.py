@@ -137,7 +137,7 @@ class KalmanBoxTracker(object):
         """
         Updates the state vector with observed bbox.
         """
-        self.det_ind = det_ind
+        self.det_ind = det_ind if det_ind is not None else -1
         if bbox is not None:
             self.conf = bbox[-1]
             self.cls = cls
@@ -419,9 +419,7 @@ class OcSort(BaseTracker):
                 we didn't notice significant difference here
                 """
                 d = trk.last_observation[: 4 + self.is_obb]
-            if (trk.time_since_update < 1) and (
-                trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
-            ):
+            if trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits:
                 # +1 as MOT benchmark requires positive
                 ret.append(
                     np.concatenate(
