@@ -2,6 +2,7 @@
 
 import os
 import platform
+from typing import Any
 
 import torch
 
@@ -9,11 +10,15 @@ from .. import __version__
 from . import logger as LOGGER
 
 
-def get_system_info():
+def get_system_info() -> str:
+    """Return a formatted string with Python and PyTorch versions."""
+
     return f"Yolo Tracking v{__version__} 🚀 Python-{platform.python_version()} torch-{torch.__version__}"
 
 
-def parse_device(device):
+def parse_device(device: Any) -> str:
+    """Parse a device specification into a canonical string format."""
+
     device = (
         str(device)
         .lower()
@@ -29,7 +34,9 @@ def parse_device(device):
     return device
 
 
-def assert_cuda_available(device):
+def assert_cuda_available(device: str) -> None:
+    """Ensure requested CUDA devices are available."""
+
     if not (
         torch.cuda.is_available()
         and torch.cuda.device_count() >= len(device.replace(",", ""))
@@ -47,7 +54,9 @@ def assert_cuda_available(device):
         )
 
 
-def select_device(device="", batch=0):
+def select_device(device: str = "", batch: int = 0) -> torch.device:
+    """Select computation device, e.g. CPU or GPU."""
+
     s = get_system_info()
     device = parse_device(device)
     mps = device == "mps"

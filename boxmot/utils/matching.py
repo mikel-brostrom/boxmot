@@ -2,9 +2,8 @@
 
 import lap
 import numpy as np
-import scipy
-import torch
 from scipy.spatial.distance import cdist
+from typing import Any, List, Tuple
 
 from boxmot.utils.iou import AssociationFunction
 
@@ -27,31 +26,46 @@ chi2inv95 = {
 
 
 
-def linear_assignment(cost_matrix, thresh):
+def linear_assignment(cost_matrix: np.ndarray, thresh: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Solve linear assignment using the LAPJV algorithm.
+
+    Args:
+        cost_matrix (np.ndarray): Square cost matrix of shape (N, M).
+        thresh (float): Maximum allowed cost for assignments.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray]:
+            Matched indices, unmatched row indices, unmatched column indices.
+    """
+
     if cost_matrix.size == 0:
         return (
             np.empty((0, 2), dtype=int),
             tuple(range(cost_matrix.shape[0])),
             tuple(range(cost_matrix.shape[1])),
         )
-    matches, unmatched_a, unmatched_b = [], [], []
+    matches: List[List[int]] = []
+    unmatched_a: np.ndarray
+    unmatched_b: np.ndarray
     cost, x, y = lap.lapjv(cost_matrix, extend_cost=True, cost_limit=thresh)
     for ix, mx in enumerate(x):
         if mx >= 0:
             matches.append([ix, mx])
     unmatched_a = np.where(x < 0)[0]
     unmatched_b = np.where(y < 0)[0]
-    matches = np.asarray(matches)
-    return matches, unmatched_a, unmatched_b
+    matches_array = np.asarray(matches)
+    return matches_array, unmatched_a, unmatched_b
 
 
-def iou_distance(atracks, btracks):
-    """
-    Compute cost based on IoU
-    :type atracks: list[STrack]
-    :type btracks: list[STrack]
+def iou_distance(atracks: List[Any], btracks: List[Any]) -> np.ndarray:
+    """Compute cost matrix based on IoU.
 
-    :rtype cost_matrix np.ndarray
+    Args:
+        atracks (List[STrack] | List[np.ndarray]): First set of tracks.
+        btracks (List[STrack] | List[np.ndarray]): Second set of tracks.
+
+    Returns:
+        np.ndarray: Cost matrix where lower values indicate higher IoU.
     """
 
     if (len(atracks) > 0 and isinstance(atracks[0], np.ndarray)) or (
@@ -75,12 +89,20 @@ def iou_distance(atracks, btracks):
 
 
 
-def embedding_distance(tracks, detections, metric="cosine"):
-    """
-    :param tracks: list[STrack]
-    :param detections: list[BaseTrack]
-    :param metric:
-    :return: cost_matrix np.ndarray
+def embedding_distance(
+    tracks: List[Any],
+    detections: List[Any],
+    metric: str = "cosine",
+) -> np.ndarray:
+    """Compute embedding distance between tracks and detections.
+
+    Args:
+        tracks (List[STrack]): Existing tracks with embeddings.
+        detections (List[BaseTrack]): Candidate detections with embeddings.
+        metric (str, optional): Distance metric. Defaults to "cosine".
+
+    Returns:
+        np.ndarray: Cost matrix of embedding distances.
     """
 
     cost_matrix = np.zeros((len(tracks), len(detections)), dtype=np.float32)
@@ -89,18 +111,37 @@ def embedding_distance(tracks, detections, metric="cosine"):
     det_features = np.asarray(
         [track.curr_feat for track in detections], dtype=np.float32
     )
-    # for i, track in enumerate(tracks):
-    # cost_matrix[i, :] = np.maximum(0.0, cdist(track.smooth_feat.reshape(1,-1), det_features, metric))
     track_features = np.asarray(
         [track.smooth_feat for track in tracks], dtype=np.float32
     )
     cost_matrix = np.maximum(
         0.0, cdist(track_features, det_features, metric)
-    )  # Nomalized features
+    )  # Normalized features
     return cost_matrix
 
 
-def fuse_motion(kf, cost_matrix, tracks, detections, only_position=False, lambda_=0.98):
+def fuse_motion(
+    kf: Any,
+    cost_matrix: np.ndarray,
+    tracks: List[Any],
+    detections: List[Any],
+    only_position: bool = False,
+    lambda_: float = 0.98,
+) -> np.ndarray:
+    """Fuse motion information into the appearance cost matrix.
+
+    Args:
+        kf (Any): Kalman filter instance.
+        cost_matrix (np.ndarray): Appearance-based cost matrix.
+        tracks (List[STrack]): Existing tracks.
+        detections (List[BaseTrack]): Candidate detections.
+        only_position (bool, optional): Use only position for gating. Defaults to False.
+        lambda_ (float, optional): Blending factor. Defaults to 0.98.
+
+    Returns:
+        np.ndarray: Updated cost matrix incorporating motion information.
+    """
+
     if cost_matrix.size == 0:
         return cost_matrix
     gating_dim = 2 if only_position else 4
@@ -115,7 +156,18 @@ def fuse_motion(kf, cost_matrix, tracks, detections, only_position=False, lambda
     return cost_matrix
 
 
-def fuse_iou(cost_matrix, tracks, detections):
+def fuse_iou(cost_matrix: np.ndarray, tracks: List[Any], detections: List[Any]) -> np.ndarray:
+    """Fuse IoU information into the appearance cost matrix.
+
+    Args:
+        cost_matrix (np.ndarray): Appearance-based cost matrix.
+        tracks (List[STrack]): Existing tracks.
+        detections (List[BaseTrack]): Candidate detections.
+
+    Returns:
+        np.ndarray: Updated cost matrix combining IoU and appearance.
+    """
+
     if cost_matrix.size == 0:
         return cost_matrix
     reid_sim = 1 - cost_matrix
@@ -129,7 +181,17 @@ def fuse_iou(cost_matrix, tracks, detections):
     return fuse_cost
 
 
-def fuse_score(cost_matrix, detections):
+def fuse_score(cost_matrix: np.ndarray, detections: List[Any]) -> np.ndarray:
+    """Fuse detection scores into the IoU cost matrix.
+
+    Args:
+        cost_matrix (np.ndarray): IoU cost matrix.
+        detections (List[BaseTrack]): Candidate detections with confidence scores.
+
+    Returns:
+        np.ndarray: Updated cost matrix.
+    """
+
     if cost_matrix.size == 0:
         return cost_matrix
     iou_sim = 1 - cost_matrix
