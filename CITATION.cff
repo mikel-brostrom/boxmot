@@ -1,7 +1,7 @@
 cff-version: 15.0.2
 preferred-citation:
   type: software
-  message: "If you use Yolo Tracking, please cite it as below."
+  message: "If you use Boxmot, please cite it as below."
   authors:
   - family-names: Broström
     given-names: Mikel

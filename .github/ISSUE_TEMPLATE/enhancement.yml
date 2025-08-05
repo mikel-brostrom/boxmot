@@ -19,7 +19,7 @@ body:
       label: Description
       description: A short description of your enhancement.
       placeholder: |
-        What new enhancement would you like to see in Yolo Tracking?
+        What new enhancement would you like to see in Boxmot?
     validations:
       required: true
 
