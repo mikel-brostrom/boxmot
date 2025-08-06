@@ -7,7 +7,7 @@ import torch
 
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.aabb.xywh_kf import AMSKalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.trackers.botsort.botsort_track import STrack
@@ -77,7 +77,7 @@ class BotSort(BaseTracker):
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilterXYWH()
+        self.kalman_filter = AMSKalmanFilterXYWH()
 
         # ReID module
         self.proximity_thresh = proximity_thresh
