@@ -2,13 +2,13 @@ from collections import deque
 
 import numpy as np
 
-from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.aabb.xywh_kf import AMSKalmanFilterXYWH
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):
-    shared_kalman = KalmanFilterXYWH()
+    shared_kalman = AMSKalmanFilterXYWH()
 
     def __init__(self, det, feat=None, feat_history=50, max_obs=50):
         # Initialize detection parameters
