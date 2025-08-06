@@ -5,6 +5,7 @@ import numpy as np
 
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
+from boxmot.motion.kalman_filters.aabb.xywh_kf import AMSKalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.boosttrack.assoc import (
     MhDist_similarity,
@@ -13,34 +14,7 @@ from boxmot.trackers.boosttrack.assoc import (
     shape_similarity,
     soft_biou_batch,
 )
-from boxmot.trackers.boosttrack.kalmanfilter import KalmanFilter
-
-
-def convert_bbox_to_z(bbox):
-    """
-    Converts a bounding box [x1,y1,x2,y2] to state vector [x, y, h, r].
-    """
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    x = bbox[0] + w / 2.0
-    y = bbox[1] + h / 2.0
-    r = w / float(h + 1e-6)
-    return np.array([x, y, h, r]).reshape((4, 1))
-
-
-def convert_x_to_bbox(x, score=None):
-    """
-    Converts a state vector [x, y, h, r] back to bounding box [x1,y1,x2,y2].
-    """
-    h = x[2]
-    r = x[3]
-    w = 0 if r <= 0 else r * h
-    if score is None:
-        return np.array([x[0] - w / 2.0, x[1] - h / 2.0,
-                         x[0] + w / 2.0, x[1] + h / 2.0]).reshape((1, 4))
-    return np.array([x[0] - w / 2.0, x[1] - h / 2.0,
-                     x[0] + w / 2.0, x[1] + h / 2.0, score]).reshape((1, 5))
-
+from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 
 class KalmanBoxTracker:
     """
@@ -54,7 +28,9 @@ class KalmanBoxTracker:
 
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
-        self.kf = KalmanFilter(convert_bbox_to_z(det[:4]))
+        xywh = xyxy2xywh(det[:4])
+        self.kf = AMSKalmanFilterXYWH()
+        self.mean, self.covariance = self.kf.initiate(xywh)
         self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
@@ -73,7 +49,9 @@ class KalmanBoxTracker:
         self.time_since_update = 0
         self.hit_streak += 1
         self.history_observations.append(self.get_state()[0])
-        self.kf.update(convert_bbox_to_z(det))
+        self.mean, self.covariance = self.kf.update(
+            self.mean, self.covariance, xyxy2xywh(det[:4])
+        )
         self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
@@ -100,10 +78,10 @@ class KalmanBoxTracker:
         # ——— rebuild Kalman state —————
         w, h = x2_ - x1_, y2_ - y1_
         cx, cy = x1_ + w / 2, y1_ + h / 2
-        self.kf.x[:4] = [cx, cy, h, w / h]
+        self.mean[:4] = [cx, cy, w, h]
 
     def predict(self):
-        self.kf.predict()
+        self.mean, self.covariance = self.kf.predict(self.mean, self.covariance)
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0
@@ -111,7 +89,7 @@ class KalmanBoxTracker:
         return self.get_state()
 
     def get_state(self):
-        return convert_x_to_bbox(self.kf.x)
+        return xywh2xyxy(self.mean[:4]).reshape((1, 4))
 
     def update_emb(self, emb, alpha=0.9):
         self.emb = alpha * self.emb + (1 - alpha) * emb
@@ -361,12 +339,14 @@ class BoostTrack(BaseTracker):
         sigma_inv = np.zeros((len(self.trackers), n_dims), dtype=float)
 
         for i in range(len(detections)):
-            z[i, :n_dims] = convert_bbox_to_z(detections[i, :]).reshape(-1)[:n_dims]
+            z[i, :n_dims] = xyxy2xywh(detections[i, :4])[:n_dims]
         for i, trk in enumerate(self.trackers):
-            x[i] = trk.kf.x[:n_dims]
-            sigma_inv[i] = np.reciprocal(np.diag(trk.kf.covariance[:n_dims, :n_dims]))
-        return ((z.reshape((-1, 1, n_dims)) - x.reshape((1, -1, n_dims))) ** 2 *
-                sigma_inv.reshape((1, -1, n_dims))).sum(axis=2)
+            x[i] = trk.mean[:n_dims]
+            sigma_inv[i] = np.reciprocal(np.diag(trk.covariance[:n_dims, :n_dims]))
+        return (
+            (z.reshape((-1, 1, n_dims)) - x.reshape((1, -1, n_dims))) ** 2
+            * sigma_inv.reshape((1, -1, n_dims))
+        ).sum(axis=2)
 
 
     def duo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:
