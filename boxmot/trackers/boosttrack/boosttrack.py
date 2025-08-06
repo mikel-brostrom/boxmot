@@ -50,7 +50,7 @@ class KalmanBoxTracker:
         self.hit_streak += 1
         self.history_observations.append(self.get_state()[0])
         self.mean, self.covariance = self.kf.update(
-            self.mean, self.covariance, xyxy2xywh(det[:4])
+            self.mean, self.covariance, xyxy2xywh(det[:4]), confidence=float(det[4])
         )
         self.conf = det[4]
         self.cls = det[5]
