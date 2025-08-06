@@ -1,0 +1,1198 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      
+        <link rel="next" href="quickstart/">
+      
+      
+      <link rel="icon" href="assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.16">
+    
+    
+      
+        <title></title>
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/main.7e37652d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#boxmot-pluggable-sota-multi-object-tracking-modules-for-segmentation-object-detection-and-pose-estimation-models" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="." title="" class="md-header__button md-logo" aria-label="" data-md-component="logo">
+      
+  <img src="logo/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Home
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="." title="" class="md-nav__button md-logo" aria-label="" data-md-component="logo">
+      
+  <img src="logo/logo.png" alt="logo">
+
+    </a>
+    
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="." class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      🚀 Key Features
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark-results-mot17-ablation-split" class="md-nav__link">
+    <span class="md-ellipsis">
+      📊 Benchmark Results (MOT17 ablation split)
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      🔧 Installation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      💻 CLI
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#python" class="md-nav__link">
+    <span class="md-ellipsis">
+      🐍 PYTHON
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-examples-tutorials" class="md-nav__link">
+    <span class="md-ellipsis">
+      📝 Code Examples &amp; Tutorials
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contributors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Contributors
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contact" class="md-nav__link">
+    <span class="md-ellipsis">
+      Contact
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quickstart
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    CLI
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            CLI
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="modes/track/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Track
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="modes/generate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Generate
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="modes/eval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Evaluate
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="modes/tune/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Tune
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Trackers
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Trackers
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="trackers/bytetrack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ByteTrack
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="trackers/botsort/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    BotSort
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="trackers/strongsort/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    StrongSort
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="trackers/ocsort/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OcSort
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="trackers/deepocsort/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    DeepOcSort
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="trackers/boosttrack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    BoostTrack
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      🚀 Key Features
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark-results-mot17-ablation-split" class="md-nav__link">
+    <span class="md-ellipsis">
+      📊 Benchmark Results (MOT17 ablation split)
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      🔧 Installation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      💻 CLI
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#python" class="md-nav__link">
+    <span class="md-ellipsis">
+      🐍 PYTHON
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-examples-tutorials" class="md-nav__link">
+    <span class="md-ellipsis">
+      📝 Code Examples &amp; Tutorials
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contributors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Contributors
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contact" class="md-nav__link">
+    <span class="md-ellipsis">
+      Contact
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="boxmot-pluggable-sota-multi-object-tracking-modules-for-segmentation-object-detection-and-pose-estimation-models"><strong>BoxMOT</strong>: Pluggable SOTA multi-object tracking modules for segmentation, object detection and pose estimation models</h1>
+<div align="center">
+<p><img width="640"
+       src="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.0/output_640.gif"
+       alt="BoxMot demo">
+  <br> <!-- one blank line --></p>
+<p><a href="https://trendshift.io/repositories/13239" target="_blank"><img src="https://trendshift.io/api/badge/repositories/13239" alt="mikel-brostrom%2Fboxmot | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a></p>
+<p><a href="https://github.com/mikel-brostrom/yolov8_tracking/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mikel-brostrom/yolov8_tracking/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://badge.fury.io/py/boxmot"><img alt="PyPI version" src="https://badge.fury.io/py/boxmot.svg" /></a>
+  <a href="https://pepy.tech/project/boxmot"><img alt="downloads" src="https://static.pepy.tech/badge/boxmot" /></a>
+  <a href="https://github.com/mikel-brostrom/boxmot/blob/master/LICENSE"><img alt="license" src="https://img.shields.io/badge/license-AGPL%203.0-blue" /></a>
+  <a href="https://badge.fury.io/py/boxmot"><img alt="python-version" src="https://img.shields.io/pypi/pyversions/boxmot" /></a>
+  <a href="https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing"><img alt="colab" src="https://colab.research.google.com/assets/colab-badge.svg" /></a>
+  <a href="https://doi.org/10.5281/zenodo.8132989"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.8132989.svg" /></a>
+  <a href="https://hub.docker.com/r/boxmot/boxmot"><img alt="docker pulls" src="https://img.shields.io/docker/pulls/boxmot/boxmot?logo=docker" /></a>
+  <a href="https://discord.gg/tUmFEcYU4q"><img alt="discord" src="https://img.shields.io/discord/1377565354326495283?logo=discord&amp;label=discord&amp;labelColor=fff&amp;color=5865f2" /></a>
+  <a href="https://deepwiki.com/mikel-brostrom/boxmot"><img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg" /></a></p>
+</div>
+<h2 id="key-features">🚀 Key Features</h2>
+<ul>
+<li>
+<p><strong>Pluggable Architecture</strong><br />
+  Easily swap in/out SOTA multi-object trackers.</p>
+</li>
+<li>
+<p><strong>Universal Model Support</strong><br />
+  Integrate with any segmentation, object-detection and pose-estimation models that outputs bounding boxes</p>
+</li>
+<li>
+<p><strong>Benchmark-Ready</strong><br />
+  Local evaluation pipelines for MOT17, MOT20, and DanceTrack ablation datasets with "official" ablation detectors</p>
+</li>
+<li>
+<p><strong>Performance Modes</strong></p>
+</li>
+<li><strong>Motion-only</strong>: for lightweight, CPU-efficient, high-FPS performance </li>
+<li>
+<p><strong>Motion + Appearance</strong>: Combines motion cues with appearance embeddings (<a href="https://arxiv.org/pdf/2211.13977.pdf">CLIPReID</a>, <a href="https://arxiv.org/pdf/2101.10774.pdf">LightMBN</a>, <a href="https://arxiv.org/pdf/1905.00953.pdf">OSNet</a>) to maximize identity consistency and accuracy at a higher computational cost</p>
+</li>
+<li>
+<p><strong>Reusable Detections &amp; Embeddings</strong><br />
+  Save once, run evaluations with no redundant preprocessing lightning fast.</p>
+</li>
+</ul>
+<h2 id="benchmark-results-mot17-ablation-split">📊 Benchmark Results (MOT17 ablation split)</h2>
+<div align="center">
+<!-- START TRACKER TABLE -->
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">Tracker</th>
+<th style="text-align: center;">Status</th>
+<th style="text-align: center;">HOTA↑</th>
+<th style="text-align: center;">MOTA↑</th>
+<th style="text-align: center;">IDF1↑</th>
+<th style="text-align: center;">FPS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;"><a href="https://arxiv.org/abs/2408.13003">boosttrack</a></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">69.253</td>
+<td style="text-align: center;">75.914</td>
+<td style="text-align: center;">83.206</td>
+<td style="text-align: center;">25</td>
+</tr>
+<tr>
+<td style="text-align: center;"><a href="https://arxiv.org/abs/2206.14651">botsort</a></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">68.885</td>
+<td style="text-align: center;">78.222</td>
+<td style="text-align: center;">81.344</td>
+<td style="text-align: center;">46</td>
+</tr>
+<tr>
+<td style="text-align: center;"><a href="https://arxiv.org/abs/2202.13514">strongsort</a></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">68.05</td>
+<td style="text-align: center;">76.185</td>
+<td style="text-align: center;">80.763</td>
+<td style="text-align: center;">17</td>
+</tr>
+<tr>
+<td style="text-align: center;"><a href="https://arxiv.org/abs/2302.11813">deepocsort</a></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">67.796</td>
+<td style="text-align: center;">75.868</td>
+<td style="text-align: center;">80.514</td>
+<td style="text-align: center;">12</td>
+</tr>
+<tr>
+<td style="text-align: center;"><a href="https://arxiv.org/abs/2110.06864">bytetrack</a></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">67.68</td>
+<td style="text-align: center;">78.039</td>
+<td style="text-align: center;">79.157</td>
+<td style="text-align: center;">1265</td>
+</tr>
+<tr>
+<td style="text-align: center;"><a href="https://arxiv.org/abs/2203.14360">ocsort</a></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">66.441</td>
+<td style="text-align: center;">74.548</td>
+<td style="text-align: center;">77.899</td>
+<td style="text-align: center;">1483</td>
+</tr>
+</tbody>
+</table>
+<!-- END TRACKER TABLE -->
+<p><sub> NOTES: Evaluation was conducted on the second half of the MOT17 training set, as the validation set is not publicly available and the ablation detector was trained on the first half. We employed <a href="https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip">pre-generated detections and embeddings</a>. Each tracker was configured using the default parameters from their official repositories. </sub></p>
+</div>
+</details>
+<h2 id="installation">🔧 Installation</h2>
+<p>Install the <code>boxmot</code> package, including all requirements, in a Python&gt;=3.9 environment:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>boxmot
+</span></code></pre></div>
+<p>If you want to contribute to this package check how to contribute <a href="https://github.com/mikel-brostrom/boxmot/blob/master/CONTRIBUTING.md">here</a></p>
+<h2 id="cli">💻 CLI</h2>
+<p>BoxMOT provides a unified CLI <code>boxmot</code> with the following subcommands:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Usage:<span class="w"> </span>boxmot<span class="w"> </span>COMMAND<span class="w"> </span><span class="o">[</span>ARGS<span class="o">]</span>...
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>Commands:
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span>track<span class="w">                  </span>Run<span class="w"> </span>tracking<span class="w"> </span>only
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span>generate<span class="w">               </span>Generate<span class="w"> </span>detections<span class="w"> </span>and<span class="w"> </span>embeddings
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nb">eval</span><span class="w">                   </span>Evaluate<span class="w"> </span>tracking<span class="w"> </span>performance<span class="w"> </span>using<span class="w"> </span>the<span class="w"> </span>official<span class="w"> </span>trackeval<span class="w"> </span>repository
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span>tune<span class="w">                   </span>Tune<span class="w"> </span>tracker<span class="w"> </span>hyperparameters<span class="w"> </span>based<span class="w"> </span>on<span class="w"> </span>selected<span class="w"> </span>detections<span class="w"> </span>and<span class="w"> </span>embeddings
+</span></code></pre></div>
+<h2 id="python">🐍 PYTHON</h2>
+<p>Seamlessly integrate BoxMOT directly into your Python MOT applications with your custom model.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">cv2</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">boxmot</span><span class="w"> </span><span class="kn">import</span> <span class="n">BoostTrack</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">torchvision.models.detection</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">fasterrcnn_resnet50_fpn_v2</span><span class="p">,</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">FasterRCNN_ResNet50_FPN_V2_Weights</span> <span class="k">as</span> <span class="n">Weights</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">)</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="c1"># Set device</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s1">&#39;cuda&#39;</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="k">else</span> <span class="s1">&#39;cpu&#39;</span><span class="p">)</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="c1"># Load model with pretrained weights and preprocessing transforms</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="n">weights</span> <span class="o">=</span> <span class="n">Weights</span><span class="o">.</span><span class="n">DEFAULT</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="n">model</span> <span class="o">=</span> <span class="n">fasterrcnn_resnet50_fpn_v2</span><span class="p">(</span><span class="n">weights</span><span class="o">=</span><span class="n">weights</span><span class="p">,</span> <span class="n">box_score_thresh</span><span class="o">=</span><span class="mf">0.5</span><span class="p">)</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="n">transform</span> <span class="o">=</span> <span class="n">weights</span><span class="o">.</span><span class="n">transforms</span><span class="p">()</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="c1"># Initialize tracker</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="n">tracker</span> <span class="o">=</span> <span class="n">BoostTrack</span><span class="p">(</span><span class="n">reid_weights</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s1">&#39;osnet_x0_25_msmt17.pt&#39;</span><span class="p">),</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">half</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="c1"># Start video capture</span>
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="n">cap</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">VideoCapture</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>
+</span><span id="__span-2-26"><a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">inference_mode</span><span class="p">():</span>
+</span><span id="__span-2-27"><a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+</span><span id="__span-2-28"><a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>        <span class="n">success</span><span class="p">,</span> <span class="n">frame</span> <span class="o">=</span> <span class="n">cap</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+</span><span id="__span-2-29"><a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">success</span><span class="p">:</span>
+</span><span id="__span-2-30"><a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>            <span class="k">break</span>
+</span><span id="__span-2-31"><a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>
+</span><span id="__span-2-32"><a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>        <span class="c1"># Convert frame to RGB and prepare for model</span>
+</span><span id="__span-2-33"><a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>        <span class="n">rgb</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">cvtColor</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">cv2</span><span class="o">.</span><span class="n">COLOR_BGR2RGB</span><span class="p">)</span>
+</span><span id="__span-2-34"><a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a>        <span class="n">tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">rgb</span><span class="p">)</span><span class="o">.</span><span class="n">permute</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+</span><span id="__span-2-35"><a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a>        <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">transform</span><span class="p">(</span><span class="n">tensor</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+</span><span id="__span-2-36"><a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a>
+</span><span id="__span-2-37"><a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a>        <span class="c1"># Run detection</span>
+</span><span id="__span-2-38"><a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a>        <span class="n">output</span> <span class="o">=</span> <span class="n">model</span><span class="p">([</span><span class="n">input_tensor</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+</span><span id="__span-2-39"><a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a>        <span class="n">scores</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s1">&#39;scores&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+</span><span id="__span-2-40"><a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a>        <span class="n">keep</span> <span class="o">=</span> <span class="n">scores</span> <span class="o">&gt;=</span> <span class="mf">0.5</span>
+</span><span id="__span-2-41"><a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a>
+</span><span id="__span-2-42"><a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a>        <span class="c1"># Prepare detections for tracking</span>
+</span><span id="__span-2-43"><a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a>        <span class="n">boxes</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s1">&#39;boxes&#39;</span><span class="p">][</span><span class="n">keep</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+</span><span id="__span-2-44"><a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a>        <span class="n">labels</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s1">&#39;labels&#39;</span><span class="p">][</span><span class="n">keep</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+</span><span id="__span-2-45"><a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a>        <span class="n">filtered_scores</span> <span class="o">=</span> <span class="n">scores</span><span class="p">[</span><span class="n">keep</span><span class="p">]</span>
+</span><span id="__span-2-46"><a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a>        <span class="n">detections</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">boxes</span><span class="p">,</span> <span class="n">filtered_scores</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">],</span> <span class="n">labels</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-2-47"><a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a>
+</span><span id="__span-2-48"><a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a>        <span class="c1"># Update tracker and draw results</span>
+</span><span id="__span-2-49"><a id="__codelineno-2-49" name="__codelineno-2-49" href="#__codelineno-2-49"></a>        <span class="c1">#   INPUT:  M X (x, y, x, y, conf, cls)</span>
+</span><span id="__span-2-50"><a id="__codelineno-2-50" name="__codelineno-2-50" href="#__codelineno-2-50"></a>        <span class="c1">#   OUTPUT: M X (x, y, x, y, id, conf, cls, ind)</span>
+</span><span id="__span-2-51"><a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a>        <span class="n">res</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">detections</span><span class="p">,</span> <span class="n">frame</span><span class="p">)</span>
+</span><span id="__span-2-52"><a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a>        <span class="n">tracker</span><span class="o">.</span><span class="n">plot_results</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">show_trajectories</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-2-53"><a id="__codelineno-2-53" name="__codelineno-2-53" href="#__codelineno-2-53"></a>
+</span><span id="__span-2-54"><a id="__codelineno-2-54" name="__codelineno-2-54" href="#__codelineno-2-54"></a>        <span class="c1"># Show output</span>
+</span><span id="__span-2-55"><a id="__codelineno-2-55" name="__codelineno-2-55" href="#__codelineno-2-55"></a>        <span class="n">cv2</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span><span class="s1">&#39;BoXMOT + Torchvision&#39;</span><span class="p">,</span> <span class="n">frame</span><span class="p">)</span>
+</span><span id="__span-2-56"><a id="__codelineno-2-56" name="__codelineno-2-56" href="#__codelineno-2-56"></a>        <span class="k">if</span> <span class="n">cv2</span><span class="o">.</span><span class="n">waitKey</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFF</span> <span class="o">==</span> <span class="nb">ord</span><span class="p">(</span><span class="s1">&#39;q&#39;</span><span class="p">):</span>
+</span><span id="__span-2-57"><a id="__codelineno-2-57" name="__codelineno-2-57" href="#__codelineno-2-57"></a>            <span class="k">break</span>
+</span><span id="__span-2-58"><a id="__codelineno-2-58" name="__codelineno-2-58" href="#__codelineno-2-58"></a>
+</span><span id="__span-2-59"><a id="__codelineno-2-59" name="__codelineno-2-59" href="#__codelineno-2-59"></a><span class="c1"># Clean up</span>
+</span><span id="__span-2-60"><a id="__codelineno-2-60" name="__codelineno-2-60" href="#__codelineno-2-60"></a><span class="n">cap</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+</span><span id="__span-2-61"><a id="__codelineno-2-61" name="__codelineno-2-61" href="#__codelineno-2-61"></a><span class="n">cv2</span><span class="o">.</span><span class="n">destroyAllWindows</span><span class="p">()</span>
+</span></code></pre></div>
+<h2 id="code-examples-tutorials">📝 Code Examples &amp; Tutorials</h2>
+<details>
+<summary>Tracking</summary>
+
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>boxmot<span class="w"> </span>track<span class="w"> </span>--yolo-model<span class="w"> </span>rf-detr-base.pt<span class="w">    </span><span class="c1"># bboxes only</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>boxmot<span class="w"> </span>track<span class="w"> </span>--yolo-model<span class="w"> </span>yolox_s.pt<span class="w">         </span><span class="c1"># bboxes only</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>boxmot<span class="w"> </span>track<span class="w"> </span>--yolo-model<span class="w"> </span>yolo12n.pt<span class="w">         </span><span class="c1"># bboxes only</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>boxmot<span class="w"> </span>track<span class="w"> </span>--yolo-model<span class="w"> </span>yolo11n.pt<span class="w">         </span><span class="c1"># bboxes only</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>boxmot<span class="w"> </span>track<span class="w"> </span>--yolo-model<span class="w"> </span>yolov10n.pt<span class="w">        </span><span class="c1"># bboxes only</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span>boxmot<span class="w"> </span>track<span class="w"> </span>--yolo-model<span class="w"> </span>yolov9c.pt<span class="w">         </span><span class="c1"># bboxes only</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>boxmot<span class="w"> </span>track<span class="w"> </span>--yolo-model<span class="w"> </span>yolov8n.pt<span class="w">         </span><span class="c1"># bboxes only</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">                            </span>yolov8n-seg.pt<span class="w">     </span><span class="c1"># bboxes + segmentation masks</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">                            </span>yolov8n-pose.pt<span class="w">    </span><span class="c1"># bboxes + pose estimation</span>
+</span></code></pre></div>
+
+  </details>
+
+<details>
+<summary>Tracking methods</summary>
+
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>boxmot<span class="w"> </span>track<span class="w"> </span>--tracking-method<span class="w"> </span>deepocsort
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">                                 </span>strongsort
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">                                 </span>ocsort
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">                                 </span>bytetrack
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">                                 </span>botsort
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">                                 </span>boosttrack
+</span></code></pre></div>
+
+</details>
+
+<details>
+<summary>Tracking sources</summary>
+
+Tracking can be run on most video formats
+
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>boxmot<span class="w"> </span>track<span class="w"> </span>--source<span class="w"> </span><span class="m">0</span><span class="w">                               </span><span class="c1"># webcam</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">                        </span>img.jpg<span class="w">                         </span><span class="c1"># image</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">                        </span>vid.mp4<span class="w">                         </span><span class="c1"># video</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">                        </span>path/<span class="w">                           </span><span class="c1"># directory</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">                        </span>path/*.jpg<span class="w">                      </span><span class="c1"># glob</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">                        </span><span class="s1">&#39;https://youtu.be/Zgi9g1ksQHc&#39;</span><span class="w">  </span><span class="c1"># YouTube</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">                        </span><span class="s1">&#39;rtsp://example.com/media.mp4&#39;</span><span class="w">  </span><span class="c1"># RTSP, RTMP, HTTP stream</span>
+</span></code></pre></div>
+
+</details>
+
+<details>
+<summary>Select ReID model</summary>
+
+Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/appearance/reid_export.py) script
+
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>boxmot<span class="w"> </span>track<span class="w"> </span>--source<span class="w"> </span><span class="m">0</span><span class="w"> </span>--reid-model<span class="w"> </span>lmbn_n_cuhk03_d.pt<span class="w">               </span><span class="c1"># lightweight</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">                                       </span>osnet_x0_25_market1501.pt
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">                                       </span>mobilenetv2_x1_4_msmt17.engine
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">                                       </span>resnet50_msmt17.onnx
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">                                       </span>osnet_x1_0_msmt17.pt
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">                                       </span>clip_market1501.pt<span class="w">               </span><span class="c1"># heavy</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">                                       </span>clip_vehicleid.pt
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">                                      </span>...
+</span></code></pre></div>
+
+</details>
+
+<details>
+<summary>Filter tracked classes</summary>
+
+By default the tracker tracks all MS COCO classes.
+
+If you want to track a subset of the classes that you model predicts, add their corresponding index after the classes flag,
+
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>boxmot<span class="w"> </span>track<span class="w"> </span>--source<span class="w"> </span><span class="m">0</span><span class="w"> </span>--yolo-model<span class="w"> </span>yolov8s.pt<span class="w"> </span>--classes<span class="w"> </span><span class="m">16</span><span class="w"> </span><span class="m">17</span><span class="w">  </span><span class="c1"># COCO yolov8 model. Track cats and dogs, only</span>
+</span></code></pre></div>
+
+[Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a Yolov8 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
+
+</details>
+
+</details>
+<details>
+<summary>Evaluation</summary>
+
+Evaluate a combination of detector, tracking method and ReID model on standard MOT dataset or you custom one by
+
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># reproduce MOT17 README results</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>$<span class="w"> </span>boxmot<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--yolo-model<span class="w"> </span>yolox_x_MOT17_ablation.pt<span class="w"> </span>--reid-model<span class="w"> </span>lmbn_n_duke.pt<span class="w"> </span>--tracking-method<span class="w"> </span>boosttrack<span class="w"> </span>--source<span class="w"> </span>MOT17-ablation<span class="w"> </span>--verbose<span class="w"> </span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># MOT20 results</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>$<span class="w"> </span>boxmot<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--yolo-model<span class="w"> </span>yolox_x_MOT20_ablation.pt<span class="w"> </span>--reid-model<span class="w"> </span>lmbn_n_duke.pt<span class="w"> </span>--tracking-method<span class="w"> </span>boosttrack<span class="w"> </span>--source<span class="w"> </span>MOT20-ablation<span class="w"> </span>--verbose<span class="w"> </span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># Dancetrack results</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>$<span class="w"> </span>boxmot<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--yolo-model<span class="w"> </span>yolox_x_dancetrack_ablation.pt<span class="w"> </span>--reid-model<span class="w"> </span>lmbn_n_duke.pt<span class="w"> </span>--tracking-method<span class="w"> </span>boosttrack<span class="w"> </span>--source<span class="w"> </span>dancetrack-ablation<span class="w"> </span>--verbose<span class="w"> </span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1"># metrics on custom dataset</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>$<span class="w"> </span>boxmot<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--yolo-model<span class="w"> </span>yolov8n.pt<span class="w"> </span>--reid-model<span class="w"> </span>osnet_x0_25_msmt17.pt<span class="w"> </span>--tracking-method<span class="w"> </span>deepocsort<span class="w">  </span>--source<span class="w"> </span>./assets/MOT17-mini/train<span class="w"> </span>--verbose
+</span></code></pre></div>
+
+add `--gsi` to your command for postprocessing the MOT results by gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
+</details>
+
+<details>
+<summary>Evolution</summary>
+
+We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. By default the objectives are: HOTA, MOTA, IDF1. Run it by
+
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># saves dets and embs under ./runs/dets_n_embs separately for each selected yolo and reid model</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>$<span class="w"> </span>boxmot<span class="w"> </span>generate<span class="w"> </span>--source<span class="w"> </span>./assets/MOT17-mini/train<span class="w"> </span>--yolo-model<span class="w"> </span>yolov8n.pt<span class="w"> </span>yolov8s.pt<span class="w"> </span>--reid-model<span class="w"> </span>weights/osnet_x0_25_msmt17.pt
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="c1"># evolve parameters for specified tracking method using the selected detections and embeddings generated in the previous step</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>$<span class="w"> </span>boxmot<span class="w"> </span>tune<span class="w"> </span>--dets<span class="w"> </span>yolov8n<span class="w"> </span>--embs<span class="w"> </span>osnet_x0_25_msmt17<span class="w"> </span>--n-trials<span class="w"> </span><span class="m">9</span><span class="w"> </span>--tracking-method<span class="w"> </span>botsort<span class="w"> </span>--source<span class="w"> </span>./assets/MOT17-mini/train
+</span></code></pre></div>
+
+The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
+
+</details>
+
+<details>
+<summary>Export</summary>
+
+We support ReID model export to ONNX, OpenVINO, TorchScript and TensorRT
+
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># export to ONNX</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>$<span class="w"> </span>python3<span class="w"> </span>boxmot/appearance/reid_export.py<span class="w"> </span>--include<span class="w"> </span>onnx<span class="w"> </span>--device<span class="w"> </span>cpu
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="c1"># export to OpenVINO</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>$<span class="w"> </span>python3<span class="w"> </span>boxmot/appearance/reid_export.py<span class="w"> </span>--include<span class="w"> </span>openvino<span class="w"> </span>--device<span class="w"> </span>cpu
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="c1"># export to TensorRT with dynamic input</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>$<span class="w"> </span>python3<span class="w"> </span>boxmot/appearance/reid_export.py<span class="w"> </span>--include<span class="w"> </span>engine<span class="w"> </span>--device<span class="w"> </span><span class="m">0</span><span class="w"> </span>--dynamic
+</span></code></pre></div>
+
+</details>
+
+<div align="center">
+<table>
+<thead>
+<tr>
+<th>Example Description</th>
+<th>Notebook</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Torchvision bounding box tracking with BoxMOT</td>
+<td><a href="examples/det/torchvision_boxmot.ipynb"><img alt="Notebook" src="https://img.shields.io/badge/Notebook-torchvision_det_boxmot.ipynb-blue" /></a></td>
+</tr>
+<tr>
+<td>Torchvision pose tracking with BoxMOT</td>
+<td><a href="examples/pose/torchvision_boxmot.ipynb"><img alt="Notebook" src="https://img.shields.io/badge/Notebook-torchvision_pose_boxmot.ipynb-blue" /></a></td>
+</tr>
+<tr>
+<td>Torchvision segmentation tracking with BoxMOT</td>
+<td><a href="examples/seg/torchvision_boxmot.ipynb"><img alt="Notebook" src="https://img.shields.io/badge/Notebook-torchvision_seg_boxmot.ipynb-blue" /></a></td>
+</tr>
+</tbody>
+</table>
+</div>
+<h2 id="contributors">Contributors</h2>
+<p><a href="https://github.com/mikel-brostrom/yolo_tracking/graphs/contributors ">
+  <img src="https://contrib.rocks/image?repo=mikel-brostrom/yolo_tracking" />
+</a></p>
+<h2 id="contact">Contact</h2>
+<p>For BoxMOT bugs and feature requests please visit <a href="https://github.com/mikel-brostrom/boxmot/issues">GitHub Issues</a>.
+For business inquiries or professional support requests please send an email to: box-mot@outlook.com</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": ".", "features": ["navigation.sections", "navigation.expand"], "search": "assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="assets/javascripts/bundle.50899def.min.js"></script>
+      
+    
+  </body>
+</html>
