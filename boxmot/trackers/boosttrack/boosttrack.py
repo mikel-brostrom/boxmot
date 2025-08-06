@@ -332,21 +332,18 @@ class BoostTrack(BaseTracker):
         return iou_batch(detections, trackers) if not buffered else soft_biou_batch(detections, trackers)
 
     def get_mh_dist_matrix(self, detections: np.ndarray, n_dims: int = 4) -> np.ndarray:
-        if len(self.trackers) == 0:
-            return np.zeros((0, 0))
-        z = np.zeros((len(detections), n_dims), dtype=float)
-        x = np.zeros((len(self.trackers), n_dims), dtype=float)
-        sigma_inv = np.zeros((len(self.trackers), n_dims), dtype=float)
+        if len(self.trackers) == 0 or len(detections) == 0:
+            return np.zeros((len(detections), len(self.trackers)))
 
-        for i in range(len(detections)):
-            z[i, :n_dims] = xyxy2xywh(detections[i, :4])[:n_dims]
-        for i, trk in enumerate(self.trackers):
-            x[i] = trk.mean[:n_dims]
-            sigma_inv[i] = np.reciprocal(np.diag(trk.covariance[:n_dims, :n_dims]))
-        return (
-            (z.reshape((-1, 1, n_dims)) - x.reshape((1, -1, n_dims))) ** 2
-            * sigma_inv.reshape((1, -1, n_dims))
-        ).sum(axis=2)
+        measurements = np.array([xyxy2xywh(det[:4])[:n_dims] for det in detections])
+        mh_dist = np.zeros((len(detections), len(self.trackers)), dtype=float)
+
+        for j, trk in enumerate(self.trackers):
+            mh_dist[:, j] = trk.kf.gating_distance(
+                trk.mean, trk.covariance, measurements, only_position=False, metric="maha"
+            )
+
+        return mh_dist
 
 
     def duo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:
