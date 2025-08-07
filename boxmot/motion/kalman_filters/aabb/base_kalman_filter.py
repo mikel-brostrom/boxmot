@@ -83,6 +83,13 @@ class BaseKalmanFilter:
         """
         raise NotImplementedError
 
+    def _get_measurement_noise_std(self, mean: np.ndarray, confidence: float) -> np.ndarray:
+        """
+        Return standard deviations for measurement noise.
+        Should be implemented by subclasses.
+        """
+        raise NotImplementedError
+
     def project(
         self, mean: np.ndarray, covariance: np.ndarray, confidence: float = 0.0
     ) -> Tuple[np.ndarray, np.ndarray]:

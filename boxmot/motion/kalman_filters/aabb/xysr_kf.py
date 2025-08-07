@@ -44,69 +44,21 @@ from filterpy.common import reshape_z
 from filterpy.stats import logpdf
 from numpy import dot, eye, isscalar, zeros
 
+from boxmot.motion.kalman_filters.aabb.base_kalman_filter import BaseKalmanFilter
 
-class KalmanFilterXYSR(object):
+
+from boxmot.motion.kalman_filters.aabb.low_level_kalman_filter import LowLevelKalmanFilter
+
+
+class KalmanFilterXYSR(LowLevelKalmanFilter):
     """Implements a Kalman filter. You are responsible for setting the
     various state variables to reasonable values; the defaults will
     not give you a functional filter.
     """
 
     def __init__(self, dim_x, dim_z, dim_u=0, max_obs=50):
-        if dim_x < 1:
-            raise ValueError("dim_x must be 1 or greater")
-        if dim_z < 1:
-            raise ValueError("dim_z must be 1 or greater")
-        if dim_u < 0:
-            raise ValueError("dim_u must be 0 or greater")
-
-        self.dim_x = dim_x
-        self.dim_z = dim_z
-        self.dim_u = dim_u
-
-        self.x = zeros((dim_x, 1))        # state
-        self.P = eye(dim_x)               # uncertainty covariance
-        self.Q = eye(dim_x)               # process uncertainty
-        self.B = None                     # control transition matrix
-        self.F = eye(dim_x)               # state transition matrix
-        self.H = zeros((dim_z, dim_x))    # measurement function
-        self.R = eye(dim_z)               # measurement uncertainty
-        self._alpha_sq = 1.               # fading memory control
-        self.M = np.zeros((dim_x, dim_z)) # process-measurement cross correlation
-        self.z = np.array([[None]*self.dim_z]).T
-
-        # gain and residual are computed during the innovation step. We
-        # save them so that in case you want to inspect them for various
-        # purposes
-        self.K = np.zeros((dim_x, dim_z))  # kalman gain
-        self.y = zeros((dim_z, 1))
-        self.S = np.zeros((dim_z, dim_z))  # system uncertainty
-        self.SI = np.zeros((dim_z, dim_z))  # inverse system uncertainty
-
-        # identity matrix. Do not alter this.
-        self._I = np.eye(dim_x)
-
-        # these will always be a copy of x,P after predict() is called
-        self.x_prior = self.x.copy()
-        self.P_prior = self.P.copy()
-
-        # these will always be a copy of x,P after update() is called
-        self.x_post = self.x.copy()
-        self.P_post = self.P.copy()
-
-        # Only computed only if requested via property
-        self._log_likelihood = log(sys.float_info.min)
-        self._likelihood = sys.float_info.min
-        self._mahalanobis = None
-
-        # keep all observations
-        self.max_obs = max_obs
-        self.history_obs = deque([], maxlen=self.max_obs)
-
-        self.inv = np.linalg.inv
-
-        self.attr_saved = None
-        self.observed = False
-        self.last_measurement = None
+        # Call parent constructor - use dim_z as ndim since it represents state dimensionality
+        super().__init__(ndim=dim_z, dim_x=dim_x, dim_z=dim_z, dim_u=dim_u, max_obs=max_obs)
 
     def apply_affine_correction(self, m, t):
         """
@@ -137,48 +89,13 @@ class KalmanFilterXYSR(object):
     def predict(self, u=None, B=None, F=None, Q=None):
         """
         Predict next state (prior) using the Kalman filter state propagation
-        equations.
-        Parameters
-        ----------
-        u : np.array, default 0
-            Optional control vector.
-        B : np.array(dim_x, dim_u), or None
-            Optional control transition matrix; a value of None
-            will cause the filter to use `self.B`.
-        F : np.array(dim_x, dim_x), or None
-            Optional state transition matrix; a value of None
-            will cause the filter to use `self.F`.
-        Q : np.array(dim_x, dim_x), scalar, or None
-            Optional process noise matrix; a value of None will cause the
-            filter to use `self.Q`.
+        equations. This delegates to the parent class low-level implementation.
         """
-        if B is None:
-            B = self.B
-        if F is None:
-            F = self.F
-        if Q is None:
-            Q = self.Q
-        elif isscalar(Q):
-            Q = eye(self.dim_x) * Q
-
-        # x = Fx + Bu
-        if B is not None and u is not None:
-            self.x = dot(F, self.x) + dot(B, u)
-        else:
-            self.x = dot(F, self.x)
-
-        # P = FPF' + Q
-        self.P = self._alpha_sq * dot(dot(F, self.P), F.T) + Q
-
-        # save prior
-        self.x_prior = self.x.copy()
-        self.P_prior = self.P.copy()
+        self.predict_low_level(u, B, F, Q)
 
     def freeze(self):
-        """
-        Save the parameters before non-observation forward
-        """
-        self.attr_saved = deepcopy(self.__dict__)
+        """Save the parameters before non-observation forward."""
+        super().freeze()
 
     def unfreeze(self):
         if self.attr_saved is not None:
@@ -210,85 +127,9 @@ class KalmanFilterXYSR(object):
 
     def update(self, z, R=None, H=None):
         """
-        Add a new measurement (z) to the Kalman filter. If z is None, nothing is changed.
-        Parameters
-        ----------
-        z : np.array
-            Measurement for this update. z can be a scalar if dim_z is 1,
-            otherwise it must be a column vector.
-        R : np.array, scalar, or None
-            Measurement noise. If None, the filter's self.R value is used.
-        H : np.array, or None
-            Measurement function. If None, the filter's self.H value is used.
+        Add a new measurement (z) to the Kalman filter. This delegates to the parent class.
         """
-
-        # set to None to force recompute
-        self._log_likelihood = None
-        self._likelihood = None
-        self._mahalanobis = None
-
-        # append the observation
-        self.history_obs.append(z)
-
-        if z is None:
-            if self.observed:
-                """
-                Got no observation so freeze the current parameters for future
-                potential online smoothing.
-                """
-                self.last_measurement = self.history_obs[-2]
-                self.freeze()
-            self.observed = False
-            self.z = np.array([[None] * self.dim_z]).T
-            self.x_post = self.x.copy()
-            self.P_post = self.P.copy()
-            self.y = zeros((self.dim_z, 1))
-            return
-
-        # self.observed = True
-        if not self.observed:
-            """
-            Get observation, use online smoothing to re-update parameters
-            """
-            self.unfreeze()
-        self.observed = True
-
-        if R is None:
-            R = self.R
-        elif isscalar(R):
-            R = eye(self.dim_z) * R
-        if H is None:
-            z = reshape_z(z, self.dim_z, self.x.ndim)
-            H = self.H
-
-        # y = z - Hx
-        # error (residual) between measurement and prediction
-        self.y = z - dot(H, self.x)
-
-        # common subexpression for speed
-        PHT = dot(self.P, H.T)
-
-        # S = HPH' + R
-        self.S = dot(H, PHT) + R
-        self.SI = self.inv(self.S)
-
-        # K = PH'inv(S)
-        self.K = PHT.dot(self.SI)
-
-        # x = x + Ky
-        self.x = self.x + dot(self.K, self.y)
-
-        # P = (I-KH)P(I-KH)' + KRK'
-        I_KH = self._I - dot(self.K, H)
-        self.P = dot(dot(I_KH, self.P), I_KH.T) + dot(dot(self.K, R), self.K.T)
-
-        # save measurement and posterior state
-        self.z = deepcopy(z)
-        self.x_post = self.x.copy()
-        self.P_post = self.P.copy()
-
-        # save history of observations
-        self.history_obs.append(z)
+        self.update_low_level(z, R, H)
 
     def update_steadystate(self, z, H=None):
         """Update Kalman filter using the Kalman gain and state covariance
@@ -317,32 +158,7 @@ class KalmanFilterXYSR(object):
         # save history of observations
         self.history_obs.append(z)
 
-    def log_likelihood(self, z=None):
-        """log-likelihood of the measurement z. Computed from the
-        system uncertainty S.
-        """
-
-        if z is None:
-            z = self.z
-        return logpdf(z, dot(self.H, self.x), self.S)
-
-    def likelihood(self, z=None):
-        """likelihood of the measurement z. Computed from the
-        system uncertainty S.
-        """
-        if z is None:
-            z = self.z
-        return exp(self.log_likelihood(z))
-
-    @property
-    def log_likelihood(self):
-        """log-likelihood of the last measurement."""
-        return self._log_likelihood
-
-    @property
-    def likelihood(self):
-        """likelihood of the last measurement."""
-        return self._likelihood
+    # Use inherited log_likelihood_of and likelihood_of methods from parent
 
 
 def batch_filter(

@@ -11,6 +11,8 @@ from filterpy.common import reshape_z
 from filterpy.stats import logpdf
 from numpy import dot, eye, isscalar, zeros
 
+from boxmot.motion.kalman_filters.aabb.low_level_kalman_filter import LowLevelKalmanFilter
+
 
 def speed_direction_obb(bbox1, bbox2):
     cx1, cy1 = bbox1[0], bbox1[1]
@@ -161,7 +163,7 @@ class KalmanBoxTrackerOBB(object):
         return self.kf.x[0:5].reshape((1, 5))
 
 
-class KalmanFilterXYWHA(object):
+class KalmanFilterXYWHA(LowLevelKalmanFilter):
     """
     Implements a Kalman Filter specialized for tracking Oriented Bounding Boxes.
     The default state vector is [x, y, w, h, a]^T:
@@ -175,70 +177,8 @@ class KalmanFilterXYWHA(object):
     """
 
     def __init__(self, dim_x, dim_z, dim_u=0, max_obs=50):
-        """
-        Parameters
-        ----------
-        dim_x : int
-            Dimensionality of the state vector. Typically 5 if [x, y, w, h, a].
-        dim_z : int
-            Dimensionality of the measurement vector. Typically also 5.
-        dim_u : int
-            Dimensionality of the control vector. Default is 0 (no control).
-        max_obs : int
-            Maximum number of stored observations for freeze/unfreeze logic.
-        """
-        if dim_x < 1:
-            raise ValueError("dim_x must be 1 or greater")
-        if dim_z < 1:
-            raise ValueError("dim_z must be 1 or greater")
-        if dim_u < 0:
-            raise ValueError("dim_u must be 0 or greater")
-
-        self.dim_x = dim_x
-        self.dim_z = dim_z
-        self.dim_u = dim_u
-
-        # State: x is a (dim_x, 1) column vector
-        self.x = zeros((dim_x, 1))      # state
-        self.P = eye(dim_x)             # covariance of the state
-        self.Q = eye(dim_x)             # process noise covariance
-        self.B = None                   # control transition matrix
-        self.F = eye(dim_x)             # state transition matrix
-        self.H = zeros((dim_z, dim_x))  # measurement function
-        self.R = eye(dim_z)             # measurement noise covariance
-        self._alpha_sq = 1.0            # fading memory control
-        self.M = np.zeros((dim_x, dim_z))  # cross correlation (rarely used)
-        self.z = np.array([[None] * self.dim_z]).T
-
-        # Gains and residuals computed during update
-        self.K = np.zeros((dim_x, dim_z))  # Kalman gain
-        self.y = zeros((dim_z, 1))         # residual
-        self.S = np.zeros((dim_z, dim_z))  # system uncertainty (innovation covariance)
-        self.SI = np.zeros((dim_z, dim_z)) # inverse system uncertainty
-
-        # Identity matrix (used in update)
-        self._I = np.eye(dim_x)
-
-        # Save prior (after predict) and posterior (after update)
-        self.x_prior = self.x.copy()
-        self.P_prior = self.P.copy()
-        self.x_post = self.x.copy()
-        self.P_post = self.P.copy()
-
-        # Internal log-likelihood computations
-        self._log_likelihood = log(sys.float_info.min)
-        self._likelihood = sys.float_info.min
-        self._mahalanobis = None
-
-        # Store recent observations for freeze/unfreeze logic
-        self.max_obs = max_obs
-        self.history_obs = deque([], maxlen=self.max_obs)
-
-        # For potential smoothing usage
-        self.inv = np.linalg.inv
-        self.attr_saved = None
-        self.observed = False
-        self.last_measurement = None
+        # Call parent constructor - use 5 as ndim for x,y,w,h,angle
+        super().__init__(ndim=5, dim_x=dim_x, dim_z=dim_z, dim_u=dim_u, max_obs=max_obs)
 
     def apply_affine_correction(self, m, t):
         """
@@ -285,53 +225,25 @@ class KalmanFilterXYWHA(object):
                 m @ self.attr_saved["last_measurement"][:2] + t
             )
 
-    def predict(self, u=None, B=None, F=None, Q=None):
+    def _enforce_constraints(self):
         """
-        Predict next state (prior) using the state transition matrix F
-        and process noise Q.
-
-        Parameters
-        ----------
-        u : np.array(dim_u, 1), optional
-            Control vector. If not provided, assumed 0.
-        B : np.array(dim_x, dim_u), optional
-            Control transition matrix. If None, self.B is used.
-        F : np.array(dim_x, dim_x), optional
-            State transition matrix. If None, self.F is used.
-        Q : np.array(dim_x, dim_x) or scalar, optional
-            Process noise matrix. If None, self.Q is used. If scalar,
-            Q = scalar * I.
+        Enforce bounding box and angle constraints for oriented bounding boxes.
         """
-        if B is None:
-            B = self.B
-        if F is None:
-            F = self.F
-        if Q is None:
-            Q = self.Q
-        elif isscalar(Q):
-            Q = eye(self.dim_x) * Q
-
-        # x = F x + B u
-        if B is not None and u is not None:
-            self.x = dot(F, self.x) + dot(B, u)
-        else:
-            self.x = dot(F, self.x)
-
-        # P = F P F^T + Q
-        self.P = self._alpha_sq * dot(dot(F, self.P), F.T) + Q
-
-        # Save the prior
-        self.x_prior = self.x.copy()
-        self.P_prior = self.P.copy()
-
-        # ---- New: Enforce bounding box and angle constraints (if dim_x >= 5) ----
         if self.dim_x >= 5:
             # clamp w, h > 0
             self.x[2, 0] = max(self.x[2, 0], 1e-4)
             self.x[3, 0] = max(self.x[3, 0], 1e-4)
 
             # wrap angle to [-pi, pi]
+            from math import pi
             self.x[4, 0] = (self.x[4, 0] + pi) % (2 * pi) - pi
+
+    def predict(self, u=None, B=None, F=None, Q=None):
+        """
+        Predict next state (prior) using the Kalman filter state propagation
+        equations. This delegates to the parent class low-level implementation.
+        """
+        self.predict_low_level(u, B, F, Q)
 
     def freeze(self):
         """
@@ -384,89 +296,12 @@ class KalmanFilterXYWHA(object):
 
     def update(self, z, R=None, H=None):
         """
-        Incorporate a new measurement z into the state estimate.
-
-        Parameters
-        ----------
-        z : np.array(dim_z, 1)
-            Measurement vector. If None, skip update step (missing measurement).
-        R : np.array(dim_z, dim_z), scalar, or None
-            Measurement noise matrix. If None, self.R is used.
-        H : np.array(dim_z, dim_x) or None
-            Measurement function. If None, self.H is used.
+        Incorporate a new measurement z into the state estimate. 
+        This delegates to the parent class low-level implementation.
         """
-        # reset log-likelihood computations
-        self._log_likelihood = None
-        self._likelihood = None
-        self._mahalanobis = None
-
-        # Save the observation (even if None)
-        self.history_obs.append(z)
-
-        # If measurement is missing
-        if z is None:
-            if self.observed:
-                # freeze the current parameters for future potential smoothing
-                self.last_measurement = self.history_obs[-2]
-                self.freeze()
-            self.observed = False
-            self.z = np.array([[None] * self.dim_z]).T
-            self.x_post = self.x.copy()
-            self.P_post = self.P.copy()
-            self.y = zeros((self.dim_z, 1))
-            return
-
-        # If we haven't observed for a while, revert to the frozen state
-        if not self.observed:
-            self.unfreeze()
-        self.observed = True
-
-        if R is None:
-            R = self.R
-        elif isscalar(R):
-            R = eye(self.dim_z) * R
-
-        if H is None:
-            H = self.H
-            z = reshape_z(z, self.dim_z, self.x.ndim)
-
-        # y = z - Hx   (residual)
-        self.y = z - dot(H, self.x)
-
-        PHT = dot(self.P, H.T)
-        self.S = dot(H, PHT) + R
-        self.SI = self.inv(self.S)
-
-        # K = PHT * SI
-        self.K = PHT.dot(self.SI)
-
-        # Optional gating (commented out):
-        # mahal_dist = float(self.y.T @ self.SI @ self.y)
-        # gating_threshold = 9.21  # e.g., chi-square with 2-5 dof
-        # if mahal_dist > gating_threshold:
-        #     # Outlier measurement, skip or handle differently
-        #     return
-
-        # x = x + K y
-        self.x = self.x + dot(self.K, self.y)
-
-        # P = (I - K H) P (I - K H)^T + K R K^T
-        I_KH = self._I - dot(self.K, H)
-        self.P = dot(dot(I_KH, self.P), I_KH.T) + dot(dot(self.K, R), self.K.T)
-
-        # Save measurement and posterior
-        self.z = deepcopy(z)
-        self.x_post = self.x.copy()
-        self.P_post = self.P.copy()
-
-        # ---- New: Enforce bounding box and angle constraints (if dim_x >= 5) ----
-        if self.dim_x >= 5:
-            # clamp w, h > 0
-            self.x[2, 0] = max(self.x[2, 0], 1e-4)
-            self.x[3, 0] = max(self.x[3, 0], 1e-4)
-
-            # wrap angle to [-pi, pi]
-            self.x[4, 0] = (self.x[4, 0] + pi) % (2 * pi) - pi
+        self.update_low_level(z, R, H)
+        # Apply constraints after update as well
+        self._enforce_constraints()
 
     def update_steadystate(self, z, H=None):
         """
