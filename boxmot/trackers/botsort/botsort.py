@@ -244,7 +244,7 @@ class BotSort(BaseTracker):
                 track.update(detections[idet], self.frame_count)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                track.reactivate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
         return matches, u_track, u_detection
@@ -281,7 +281,7 @@ class BotSort(BaseTracker):
                 track.update(det, self.frame_count)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                track.reactivate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
         for it in u_track:
@@ -367,7 +367,7 @@ class BotSort(BaseTracker):
                 track.update(det, self.frame_count)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                track.reactivate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
         # Mark only unmatched tracks as removed, if mark_removed flag is True
@@ -403,7 +403,7 @@ class BotSort(BaseTracker):
         )
 
         outputs = [
-            [*t.xyxy, t.id, t.conf, t.cls, t.det_ind]
+            [*t.xyxy, t.id, t.conf, t.cls_id, t.det_idx]
             for t in self.active_tracks
             if t.is_activated
         ]

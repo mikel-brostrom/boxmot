@@ -1,159 +1,222 @@
+from __future__ import annotations
+
+"""STrack refactored for better readability and single‑responsibility.
+
+Key ideas
+---------
+1. **Detection** – lightweight dataclass for raw detector output.
+2. **ClassificationHistory** – confidence‑weighted running majority vote.
+3. **FeatureBuffer** – appearance history with exponential smoothing.
+4. **STrack** – orchestration layer that plugs the helpers together
+   and wraps an AMSKalmanFilterXYWH instance.
+"""
+
 from collections import deque
+from dataclasses import dataclass
+from typing import Deque, Optional, Union
 
 import numpy as np
 
-from boxmot.motion.kalman_filters.aabb.xywh_kf import AMSKalmanFilterXYWH
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
+from boxmot.motion.kalman_filters.aabb.xywh_kf import AMSKalmanFilterXYWH
+
+
+# ---------------------------------------------------------------------------
+#  Helper data structures
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class Detection:
+    """Container for a single detection in `(x1, y1, x2, y2)` format."""
+
+    xyxy: np.ndarray
+    conf: float
+    cls_id: int
+    det_idx: int
+
+    # -----------------------------------------------------------
+    def to_xywh(self) -> np.ndarray:
+        """Convert `(x1, y1, x2, y2)` to `(xc, yc, w, h)`."""
+        return xyxy2xywh(self.xyxy)
+
+
+class ClassificationHistory:
+    """Running class tracker using confidence‑weighted voting."""
+
+    def __init__(self) -> None:
+        self._hist: dict[int, float] = {}
+
+    # -----------------------------------------------------------
+    def update(self, cls_id: int, conf: float) -> int:
+        self._hist[cls_id] = self._hist.get(cls_id, 0.0) + conf
+        return max(self._hist, key=self._hist.get, default=cls_id)
+
+
+class FeatureBuffer:
+    """Stores and exponentially‑smooths appearance features."""
+
+    def __init__(self, history: int = 50, alpha: float = 0.9) -> None:
+        self.alpha = alpha
+        self._buf: Deque[np.ndarray] = deque(maxlen=history)
+        self.smooth: Optional[np.ndarray] = None
+
+    # -----------------------------------------------------------
+    def update(self, feat: np.ndarray) -> None:
+        feat = feat / np.linalg.norm(feat)
+        if self.smooth is None:
+            self.smooth = feat
+        else:
+            self.smooth = self.alpha * self.smooth + (1.0 - self.alpha) * feat
+            self.smooth /= np.linalg.norm(self.smooth)
+        self._buf.append(feat)
+
+    # -----------------------------------------------------------
+    @property
+    def latest(self) -> Optional[np.ndarray]:
+        return self._buf[-1] if self._buf else None
+
+
+# ---------------------------------------------------------------------------
+#  STrack (single object track)
+# ---------------------------------------------------------------------------
 
 
 class STrack(BaseTrack):
-    shared_kalman = AMSKalmanFilterXYWH()
+    """Single‑object track with appearance smoothing and AMS Kalman filtering."""
 
-    def __init__(self, det, feat=None, feat_history=50, max_obs=50):
-        # Initialize detection parameters
-        self.xywh = xyxy2xywh(det[:4])  # Convert to (xc, yc, w, h)
-        self.conf = det[4]
-        self.cls = det[5]
-        self.det_ind = det[6]
-        self.max_obs = max_obs
+    _shared_kf = AMSKalmanFilterXYWH()
 
-        # Kalman filter and tracking state
-        self.kalman_filter = None
-        self.mean, self.covariance = None, None
+    # --------------------------------------------------------------------- init
+    def __init__(
+        self,
+        detection: Union[Detection, np.ndarray],
+        feat: Optional[np.ndarray] = None,
+        *,
+        feat_history: int = 50,
+        max_obs: int = 50,
+    ) -> None:
+        super().__init__()
+
+        # Raw detection ---------------------------------------------------
+        if isinstance(detection, np.ndarray):
+            if detection.shape[0] < 7:
+                raise ValueError("Detection array must have length 7: x1, y1, x2, y2, conf, cls_id, det_idx")
+            detection = Detection(detection[:4], float(detection[4]), int(detection[5]), int(detection[6]))
+        self.xywh = detection.to_xywh()
+        self.conf = detection.conf
+        self.cls_id = detection.cls_id
+        self.det_idx = detection.det_idx
+
+        # Rolling buffers -------------------------------------------------
+        self.features = FeatureBuffer(feat_history)
+        self.cls_hist = ClassificationHistory()
+        self._obs_buf: Deque[np.ndarray] = deque(maxlen=max_obs)
+
+        # Kalman filter state --------------------------------------------
+        self.kf: Optional[AMSKalmanFilterXYWH] = None
+        self.mean: Optional[np.ndarray] = None
+        self.cov: Optional[np.ndarray] = None
+
+        # Lifecycle flags -------------------------------------------------
         self.is_activated = False
-        self.tracklet_len = 0
+        self.track_len = 0
 
-        # Classification history and feature history
-        self.cls_hist = []
-        self.history_observations = deque(maxlen=self.max_obs)
-        self.features = deque(maxlen=feat_history)
-        self.smooth_feat = None
-        self.curr_feat = None
-        self.alpha = 0.9
-
-        # Update initial class and features
-        self.update_cls(self.cls, self.conf)
+        # Optional appearance / class updates ----------------------------
         if feat is not None:
-            self.update_features(feat)
+            self.features.update(feat)
+        self.cls_id = self.cls_hist.update(self.cls_id, self.conf)
 
-    def update_features(self, feat):
-        """Normalize and update feature vectors."""
-        feat /= np.linalg.norm(feat)
-        self.curr_feat = feat
-        if self.smooth_feat is None:
-            self.smooth_feat = feat
-        else:
-            self.smooth_feat = self.alpha * self.smooth_feat + (1 - self.alpha) * feat
-        self.smooth_feat /= np.linalg.norm(self.smooth_feat)
-        self.features.append(feat)
-
-    def update_cls(self, cls, conf):
-        """Update class history based on detection confidence."""
-        max_freq = 0
-        found = False
-        for c in self.cls_hist:
-            if cls == c[0]:
-                c[1] += conf
-                found = True
-            if c[1] > max_freq:
-                max_freq = c[1]
-                self.cls = c[0]
-        if not found:
-            self.cls_hist.append([cls, conf])
-            self.cls = cls
-
-    def predict(self):
-        """Predict the next state using Kalman filter."""
-        mean_state = self.mean.copy()
-        if self.state != TrackState.Tracked:
-            mean_state[6:8] = 0  # Reset velocities
-        self.mean, self.covariance = self.kalman_filter.predict(
-            mean_state, self.covariance
-        )
-
-    @staticmethod
-    def multi_predict(stracks):
-        """Perform batch prediction for multiple tracks."""
-        if not stracks:
+    # ---------------------------------------------------------------- predictions
+    def predict(self) -> None:
+        """One‑step motion prediction."""
+        if self.mean is None or self.cov is None or self.kf is None:
             return
-        multi_mean = np.asarray([st.mean.copy() for st in stracks])
-        multi_covariance = np.asarray([st.covariance for st in stracks])
-        for i, st in enumerate(stracks):
-            if st.state != TrackState.Tracked:
-                multi_mean[i][6:8] = 0  # Reset velocities
-        multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(
-            multi_mean, multi_covariance
-        )
-        for st, mean, cov in zip(stracks, multi_mean, multi_covariance):
-            st.mean, st.covariance = mean, cov
+        mean = self.mean.copy()
+        if self.state != TrackState.Tracked:
+            mean[6:8] = 0.0  # freeze velocity for lost / tentative tracks
+        self.mean, self.cov = self.kf.predict(mean, self.cov)
 
     @staticmethod
-    def multi_gmc(stracks, H=np.eye(2, 3)):
-        """Apply geometric motion compensation to multiple tracks."""
+    def batch_predict(tracks: list["STrack"]) -> None:
+        """Vectorised prediction for a list of tracks."""
+        if not tracks:
+            return
+        means = np.asarray([t.mean.copy() for t in tracks])
+        covs = np.asarray([t.cov for t in tracks])
+        for i, t in enumerate(tracks):
+            if t.state != TrackState.Tracked:
+                means[i, 6:8] = 0.0
+        means, covs = STrack._shared_kf.multi_predict(means, covs)
+        for t, m, c in zip(tracks, means, covs):
+            t.mean, t.cov = m, c
+
+    # ------------------------------------------------------------------ alias for backward‑compat
+    multi_predict = batch_predict
+
+    # ---------------------------------------------------------------- GMC for legacy code
+    @staticmethod
+    def multi_gmc(stracks: list["STrack"], H: np.ndarray = np.eye(2, 3)) -> None:
+        """Apply geometric motion compensation (legacy helper)."""
         if not stracks:
             return
         R = H[:2, :2]
         R8x8 = np.kron(np.eye(4), R)
         t = H[:2, 2]
-
         for st in stracks:
+            if st.mean is None or st.cov is None:
+                continue
             mean = R8x8.dot(st.mean)
             mean[:2] += t
             st.mean = mean
-            st.covariance = R8x8.dot(st.covariance).dot(R8x8.T)
+            st.cov = R8x8.dot(st.cov).dot(R8x8.T)
 
-    def activate(self, kalman_filter, frame_id):
-        """Activate a new track."""
-        self.kalman_filter = kalman_filter
+    # ---------------------------------------------------------------- KF updates
+    def activate(self, kalman_filter: AMSKalmanFilterXYWH, frame_id: int) -> None:
+        self.kf = kalman_filter
         self.id = self.next_id()
-        self.mean, self.covariance = self.kalman_filter.initiate(self.xywh)
-        self.tracklet_len = 0
+        self.mean, self.cov = self.kf.initiate(self.xywh)
         self.state = TrackState.Tracked
-        if frame_id == 1:
-            self.is_activated = True
-        self.frame_id = frame_id
-        self.start_frame = frame_id
+        self.frame_id = self.start_frame = frame_id
+        self.is_activated = frame_id == 1
 
-    def re_activate(self, new_track, frame_id, new_id=False):
-        """Re-activate a track with a new detection."""
-        self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.xywh
-        )
-        if new_track.curr_feat is not None:
-            self.update_features(new_track.curr_feat)
-        self.tracklet_len = 0
+    def update(self, detection: "STrack", frame_id: int) -> None:
+        """Update track with matched detection."""
+        assert self.kf is not None
+        self.frame_id = frame_id
+        self.track_len += 1
+        self._obs_buf.append(self.xyxy)
+
+        self.mean, self.cov = self.kf.update(self.mean, self.cov, detection.xywh)
+        if detection.features.latest is not None:
+            self.features.update(detection.features.latest)
+
+        self.state = TrackState.Tracked
+        self.is_activated = True
+        self.conf = detection.conf
+        self.cls_id = self.cls_hist.update(detection.cls_id, detection.conf)
+        self.det_idx = detection.det_idx
+
+    def reactivate(self, detection: "STrack", frame_id: int, new_id: bool = False) -> None:
+        """Re‑activate a lost track with fresh detection."""
+        assert self.kf is not None
+        self.mean, self.cov = self.kf.update(self.mean, self.cov, detection.xywh)
+        if detection.features.latest is not None:
+            self.features.update(detection.features.latest)
         self.state = TrackState.Tracked
         self.is_activated = True
         self.frame_id = frame_id
         if new_id:
             self.id = self.next_id()
-        self.conf = new_track.conf
-        self.cls = new_track.cls
-        self.det_ind = new_track.det_ind
-        self.update_cls(new_track.cls, new_track.conf)
+        self.conf = detection.conf
+        self.cls_id = self.cls_hist.update(detection.cls_id, detection.conf)
+        self.det_idx = detection.det_idx
 
-    def update(self, new_track, frame_id):
-        """Update the current track with a matched detection."""
-        self.frame_id = frame_id
-        self.tracklet_len += 1
-        self.history_observations.append(self.xyxy)
-
-        self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.xywh
-        )
-        if new_track.curr_feat is not None:
-            self.update_features(new_track.curr_feat)
-
-        self.state = TrackState.Tracked
-        self.is_activated = True
-        self.conf = new_track.conf
-        self.cls = new_track.cls
-        self.det_ind = new_track.det_ind
-        self.update_cls(new_track.cls, new_track.conf)
-
+    # ---------------------------------------------------------------- geometry
     @property
-    def xyxy(self):
-        """Convert bounding box format to `(min x, min y, max x, max y)`."""
-        ret = self.mean[:4].copy() if self.mean is not None else self.xywh.copy()
-        return xywh2xyxy(ret)
+    def xyxy(self) -> np.ndarray:
+        """Bounding box in `(x1, y1, x2, y2)` format."""  # noqa: D401,E501
+        if self.mean is not None:
+            return xywh2xyxy(self.mean[:4])
+        return xywh2xyxy(self.xywh)
