@@ -17,17 +17,11 @@ import cv2
 import numpy as np
 import torch
 
-from boxmot.utils import logger as LOGGER
+from boxmot.utils import logger as LOGGER, ROOT
 
-try:  # pragma: no cover - heavy optional dependency
-    from hydra import initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-    from sam2.build_sam import build_sam2_video_predictor
-
-    _HAS_SAM2 = True
-except Exception as err:  # pragma: no cover - executed when sam2 not installed
-    LOGGER.warning(f"EdgeTAM is unavailable: {err}")
-    _HAS_SAM2 = False
+from hydra import initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
+from sam2.build_sam import build_sam2_video_predictor
 
 
 class RealTimeFrameLoader:
@@ -93,27 +87,24 @@ class EdgeTAM:
         self.predictor = None
         self.inference_state: Optional[dict] = None
         self.frame_loader: Optional[RealTimeFrameLoader] = None
+        print('edgetam!!!!')
 
-        if _HAS_SAM2:
-            try:
-                cfg_path = Path(config_path)
-                GlobalHydra.instance().clear()
-                with initialize_config_dir(config_dir=str(cfg_path.parent), version_base=None):
-                    self.predictor = build_sam2_video_predictor(
-                        cfg_path.stem,
-                        str(checkpoint_path),
-                        add_all_frames_to_correct_as_cond=True,
-                        device=device,
-                    )
-                # Create an empty frame loader so update() can be called safely
-                self.frame_loader = RealTimeFrameLoader(
-                    image_size=self.predictor.image_size,
-                    device=self.predictor.device,
-                )
-            except Exception as err:  # pragma: no cover - failing to init predictor
-                LOGGER.warning(f"Failed to initialise EdgeTAM predictor: {err}")
-                self.predictor = None
-                self.frame_loader = None
+        cfg_path = Path(config_path)
+        GlobalHydra.instance().clear()
+        with initialize_config_dir(config_dir=str(ROOT / str(cfg_path.parent)), version_base=None):
+            self.predictor = build_sam2_video_predictor(
+                cfg_path.stem,
+                str(checkpoint_path),
+                add_all_frames_to_correct_as_cond=True,
+                device=device,
+            )
+        # Create an empty frame loader so update() can be called safely
+        self.frame_loader = RealTimeFrameLoader(
+            image_size=self.predictor.image_size,
+            device=self.predictor.device,
+        )
+        print('init sic')
+
 
     # ------------------------------------------------------------------
     def _init_state(self) -> dict:
@@ -227,13 +218,13 @@ class EdgeTAM:
             available an empty array is returned.
         """
 
-        if (
-            self.predictor is None
-            or img is None
-            or self.inference_state is None
-            or self.frame_loader is None
-        ):
-            return np.empty((0, 8), dtype=np.float32)
+        # if (
+        #     self.predictor is None
+        #     or img is None
+        #     or self.inference_state is None
+        #     or self.frame_loader is None
+        # ):
+        #     return np.empty((0, 8), dtype=np.float32)
 
         self.frame_loader.add_frame(img)
         self.inference_state["num_frames"] = len(self.frame_loader)

@@ -429,9 +429,11 @@ def process_sequence_edgetam(
             all_tracks.append(convert_to_mot_format(init_tracks, 1))
 
     for fid, img_path in enumerate(frame_paths[1:], start=2):
+        print(img_path)
         img = cv2.imread(str(img_path))
         kept_frame_ids.append(fid)
         tracks = tracker.update(img=img)
+        print(tracks.size)
         if tracks.size:
             all_tracks.append(convert_to_mot_format(tracks, fid))
 
