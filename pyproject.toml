@@ -30,6 +30,7 @@ torchvision = [
   { index = "torch-cpu", marker = "sys_platform == 'darwin'" },
   { index = "torch-gpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
+edgetam = { git = "https://github.com/facebookresearch/EdgeTAM.git" }
 
 
 #########################
@@ -75,7 +76,7 @@ name            = "boxmot"
 version         = "15.0.2"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
-requires-python = ">=3.9,<=3.13"
+requires-python = ">=3.10"
 license         = { text = "AGPL-3.0" }
 
 authors = [
@@ -133,6 +134,8 @@ dependencies = [
   "pyqt5>=5.15.11",
   "bayesian-optimization>=2.0.4",
   "click>=8.1.8",
+  "timm==1.0.15",
+  "edgetam",
 ]
 
 [project.scripts]
