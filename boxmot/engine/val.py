@@ -412,12 +412,23 @@ def process_sequence_edgetam(
     ann_frame_idxs = [first_appear[oid][0] for oid in ann_obj_ids]
     boxes = [first_appear[oid][1] for oid in ann_obj_ids]
 
-    if hasattr(tracker, "initialize"):
-        tracker.initialize(seq_dir, ann_frame_idxs, ann_obj_ids, boxes)
-
     all_tracks: List[np.ndarray] = []
     kept_frame_ids: List[int] = []
-    for fid, img_path in enumerate(frame_paths, start=1):
+
+    if hasattr(tracker, "initialize") and first_img is not None:
+        tracker.initialize(first_img, ann_frame_idxs, ann_obj_ids, boxes)
+        if boxes:
+            init_tracks = np.array(
+                [
+                    [box[0], box[1], box[2], box[3], oid, 1.0, 0, -1]
+                    for oid, box in zip(ann_obj_ids, boxes)
+                ],
+                dtype=np.float32,
+            )
+            kept_frame_ids.append(1)
+            all_tracks.append(convert_to_mot_format(init_tracks, 1))
+
+    for fid, img_path in enumerate(frame_paths[1:], start=2):
         img = cv2.imread(str(img_path))
         kept_frame_ids.append(fid)
         tracks = tracker.update(img=img)
