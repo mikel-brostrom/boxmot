@@ -5,6 +5,7 @@ from boxmot import (
     DeepOcSort,
     OcSort,
     StrongSort,
+    EdgeTAM,
 )
 
 MOTION_N_APPEARANCE_TRACKING_NAMES = [
@@ -13,10 +14,10 @@ MOTION_N_APPEARANCE_TRACKING_NAMES = [
     "strongsort",
     "boosttrack",
 ]
-MOTION_ONLY_TRACKING_NAMES = ["ocsort", "bytetrack"]
+MOTION_ONLY_TRACKING_NAMES = ["ocsort", "bytetrack", "edgetam"]
 
 MOTION_N_APPEARANCE_TRACKING_METHODS = [StrongSort, BotSort, DeepOcSort, BoostTrack]
-MOTION_ONLY_TRACKING_METHODS = [OcSort, ByteTrack]
+MOTION_ONLY_TRACKING_METHODS = [OcSort, ByteTrack, EdgeTAM]
 
 ALL_TRACKERS = [
     "botsort",
@@ -25,5 +26,6 @@ ALL_TRACKERS = [
     "bytetrack",
     "strongsort",
     "boosttrack",
+    "edgetam",
 ]
 PER_CLASS_TRACKERS = ["botsort", "deepocsort", "ocsort", "bytetrack", "boosttrack"]
