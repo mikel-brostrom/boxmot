@@ -105,9 +105,15 @@ class EdgeTAM:
                         add_all_frames_to_correct_as_cond=True,
                         device=device,
                     )
+                # Create an empty frame loader so update() can be called safely
+                self.frame_loader = RealTimeFrameLoader(
+                    image_size=self.predictor.image_size,
+                    device=self.predictor.device,
+                )
             except Exception as err:  # pragma: no cover - failing to init predictor
                 LOGGER.warning(f"Failed to initialise EdgeTAM predictor: {err}")
                 self.predictor = None
+                self.frame_loader = None
 
     # ------------------------------------------------------------------
     def _init_state(self) -> dict:
@@ -167,7 +173,16 @@ class EdgeTAM:
         if self.predictor is None:
             return
 
-        self.frame_loader = RealTimeFrameLoader(self.predictor.image_size, self.predictor.device)
+        if self.frame_loader is None:
+            self.frame_loader = RealTimeFrameLoader(
+                self.predictor.image_size, self.predictor.device
+            )
+        else:
+            # Reset any previous streaming state
+            self.frame_loader.images.clear()
+            self.frame_loader.video_height = None
+            self.frame_loader.video_width = None
+
         self.frame_loader.add_frame(first_frame)
         self.inference_state = self._init_state()
 
