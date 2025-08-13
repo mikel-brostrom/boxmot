@@ -7,8 +7,6 @@ optional ``samtam`` dependencies are available and processes frames one by one
 using an in-memory frame loader.
 """
 
-from __future__ import annotations
-
 from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
@@ -18,6 +16,7 @@ import numpy as np
 import torch
 
 from boxmot.utils import logger as LOGGER, ROOT
+from boxmot.trackers.basetracker import BaseTracker
 
 from hydra import initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
@@ -58,7 +57,7 @@ class RealTimeFrameLoader:
         return len(self.images)
 
 
-class EdgeTAM:
+class EdgeTAM(BaseTracker):
     """Simple EdgeTAM tracker."""
 
     def __init__(
@@ -66,8 +65,12 @@ class EdgeTAM:
         config_path: str | Path = "edgetam.yaml",
         checkpoint_path: str | Path = "edgetam.pt",
         device: str = "cpu",
+        per_class: bool = False,
+
         **_: dict,
     ) -> None:
+        super().__init__(per_class=per_class)
+
         """Initialise the tracker.
 
         Parameters
@@ -227,7 +230,7 @@ class EdgeTAM:
         #     return np.empty((0, 8), dtype=np.float32)
 
         self.frame_loader.add_frame(img)
-        self.inference_state["num_frames"] = len(self.frame_loader)
+        #self.inference_state["num_frames"] = len(self.frame_loader)
         frame_idx = len(self.frame_loader) - 1
 
         try:  # pragma: no cover - predictor heavy
@@ -255,6 +258,10 @@ class EdgeTAM:
             y0, y1 = ys.min(), ys.max()
             x0, x1 = xs.min(), xs.max()
             tracks.append([x0, y0, x1, y1, int(oid), 1.0, 0, -1])
+            active_tracks.append([x0, y0, x1, y1, int(oid), 1.0, 0, -1])
 
         return np.asarray(tracks, dtype=np.float32)
+    
+    def reset(self):
+        pass
 
