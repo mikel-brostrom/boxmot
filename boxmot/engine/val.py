@@ -354,9 +354,84 @@ def process_sequence(seq_name: str,
     return seq_name, kept_frame_ids
 
 
+def process_sequence_edgetam(
+    seq_name: str,
+    mot_root: str,
+    tracking_method: str,
+    exp_folder: str,
+    device: str,
+    cfg_dict: Optional[Dict] = None,
+) -> tuple[str, List[int]]:
+    """Process a sequence using the EdgeTAM tracker directly on images."""
+
+    device = select_device(device)
+    tracker = create_tracker(
+        tracker_type=tracking_method,
+        tracker_config=TRACKER_CONFIGS / (tracking_method + ".yaml"),
+        reid_weights=None,
+        device=device,
+        half=False,
+        per_class=False,
+        evolve_param_dict=cfg_dict,
+    )
+
+    seq_dir = Path(mot_root) / seq_name / "img1"
+    gt_path = Path(mot_root) / seq_name / "gt" / "gt.txt"
+    frame_paths = sorted(seq_dir.glob("*.jpg"))
+
+    MOT_IGNORE_IDS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+
+    first_img = cv2.imread(str(frame_paths[0])) if frame_paths else None
+    img_h, img_w = first_img.shape[:2] if first_img is not None else (0, 0)
+
+    first_appear: Dict[int, tuple[int, np.ndarray, int]] = {}
+    if gt_path.exists():
+        with gt_path.open("r") as f:
+            for line in f:
+                vals = line.strip().split(",")
+                if len(vals) < 8:
+                    continue
+                frame, obj_id, cls = int(vals[0]), int(vals[1]), int(vals[7])
+                x, y, w, h = map(float, vals[2:6])
+                if obj_id not in first_appear:
+                    frame_idx = frame - 1
+                    xyxy = np.array([x, y, x + w, y + h], dtype=np.float32)
+                    xyxy[0] = np.clip(xyxy[0], 0, img_w - 1)
+                    xyxy[2] = np.clip(xyxy[2], 0, img_w - 1)
+                    xyxy[1] = np.clip(xyxy[1], 0, img_h - 1)
+                    xyxy[3] = np.clip(xyxy[3], 0, img_h - 1)
+                    first_appear[obj_id] = (frame_idx, xyxy, cls)
+
+    first_appear = {
+        oid: (fidx, box, cls)
+        for oid, (fidx, box, cls) in first_appear.items()
+        if cls not in MOT_IGNORE_IDS and fidx == 0
+    }
+
+    ann_obj_ids = sorted(first_appear)
+    ann_frame_idxs = [first_appear[oid][0] for oid in ann_obj_ids]
+    boxes = [first_appear[oid][1] for oid in ann_obj_ids]
+
+    if hasattr(tracker, "initialize"):
+        tracker.initialize(seq_dir, ann_frame_idxs, ann_obj_ids, boxes)
+
+    all_tracks: List[np.ndarray] = []
+    kept_frame_ids: List[int] = []
+    for fid, img_path in enumerate(frame_paths, start=1):
+        img = cv2.imread(str(img_path))
+        kept_frame_ids.append(fid)
+        tracks = tracker.update(img=img)
+        if tracks.size:
+            all_tracks.append(convert_to_mot_format(tracks, fid))
+
+    out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
+    write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
+    return seq_name, kept_frame_ids
+
+
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
     # Prepare experiment folder
-    base = opt.project / 'mot' / f"{opt.yolo_model[0].stem}_{opt.reid_model[0].stem}_{opt.tracking_method}"
+    base = opt.project / 'mot' / f"{opt.yolo_model[0].stem}_{opt.reid_model[0].stem}_{opt.tracking_method}" if opt.tracking_method != 'edgetam' else opt.project / 'mot' / opt.tracking_method
     exp_dir = increment_path(base, sep="_", exist_ok=False)
     exp_dir.mkdir(parents=True, exist_ok=True)
     opt.exp_dir = exp_dir
@@ -367,7 +442,36 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         if d.is_dir() and (d / "img1").exists()
     ])
 
-    # Build task arguments
+    if opt.tracking_method == 'edgetam':
+        task_args = [
+            (
+                seq,
+                str(opt.source),
+                opt.tracking_method,
+                str(exp_dir),
+                opt.device,
+                evolve_config,
+            )
+            for seq in sequence_names
+        ]
+        seq_frame_nums = {}
+        with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS) as executor:
+            futures = {
+                executor.submit(process_sequence_edgetam, *args): args[0] for args in task_args
+            }
+            for fut in concurrent.futures.as_completed(futures):
+                seq = futures[fut]
+                try:
+                    seq_name, kept_ids = fut.result()
+                    seq_frame_nums[seq_name] = kept_ids
+                except Exception as e:
+                    LOGGER.error(f"Error processing {seq}: {e}")
+        if getattr(opt, 'gsi', False):
+            from boxmot.postprocessing.gsi import gsi
+            gsi(mot_results_folder=exp_dir)
+        return
+
+    # Build task arguments for detectors using dets/embs
     task_args = [
         (
             seq,
@@ -437,7 +541,8 @@ def main(args):
     # Download TrackEval
     eval_init(args)
 
-    run_generate_dets_embs(args)
+    if args.tracking_method != 'edgetam':
+        run_generate_dets_embs(args)
     run_generate_mot_results(args)
     results = run_trackeval(args)
     
