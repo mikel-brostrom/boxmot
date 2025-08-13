@@ -1,0 +1,8 @@
+config_path:
+  type: str
+  default: edgetam.yaml
+  range: null
+checkpoint_path:
+  type: str
+  default: edgetam.pt
+  range: null

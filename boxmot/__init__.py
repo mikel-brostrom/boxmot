@@ -11,6 +11,7 @@ from boxmot.trackers.deepocsort.deepocsort import DeepOcSort
 from boxmot.trackers.hybridsort.hybridsort import HybridSort
 from boxmot.trackers.ocsort.ocsort import OcSort
 from boxmot.trackers.strongsort.strongsort import StrongSort
+from boxmot.trackers.edgetam.edgetam import EdgeTAM
 
 TRACKERS = [
     "bytetrack",
@@ -20,6 +21,7 @@ TRACKERS = [
     "deepocsort",
     "hybridsort",
     "boosttrack",
+    "edgetam",
 ]
 
 __all__ = (
@@ -31,6 +33,7 @@ __all__ = (
     "DeepOcSort",
     "HybridSort",
     "BoostTrack",
+    "EdgeTAM",
     "create_tracker",
     "get_tracker_config",
     "gsi",

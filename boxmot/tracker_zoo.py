@@ -64,6 +64,7 @@ def create_tracker(
         "deepocsort": "boxmot.trackers.deepocsort.deepocsort.DeepOcSort",
         "hybridsort": "boxmot.trackers.hybridsort.hybridsort.HybridSort",
         "boosttrack": "boxmot.trackers.boosttrack.boosttrack.BoostTrack",
+        "edgetam"   : "boxmot.trackers.edgetam.edgetam.EdgeTAM",
     }
 
     # Check if the tracker type exists in the mapping
