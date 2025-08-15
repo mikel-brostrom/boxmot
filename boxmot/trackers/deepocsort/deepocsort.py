@@ -160,9 +160,7 @@ class KalmanBoxTracker:
                         break
                 if previous_box is None:
                     previous_box = self.last_observation
-                """
-                  Estimate the track speed direction with observations \Delta t steps away
-                """
+                # Estimate the track speed direction with observations Δt steps away
                 self.velocity = speed_direction(previous_box, bbox)
             """
               Insert new observations. This is a ugly way to maintain both self.observations

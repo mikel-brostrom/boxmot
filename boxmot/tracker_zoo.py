@@ -33,6 +33,9 @@ def create_tracker(
 
     Returns:
     - An instance of the selected tracker.
+
+    Raises:
+    - ValueError: If `tracker_type` is not recognized.
     """
 
     # Load configuration from file or use provided dictionary
@@ -65,7 +68,7 @@ def create_tracker(
 
     # Check if the tracker type exists in the mapping
     if tracker_type not in tracker_mapping:
-        print("Error: No such tracker found.")
+        raise ValueError(f"Unknown tracker type: {tracker_type}")
 
     # Dynamically import and instantiate the correct tracker class
     module_path, class_name = tracker_mapping[tracker_type].rsplit(".", 1)

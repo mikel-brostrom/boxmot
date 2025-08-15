@@ -45,10 +45,9 @@ class RFDETRStrategy(YoloInterface):
         This function saves image paths for the current batch,
         being passed as callback on_predict_batch_start
         """
-        assert (
-            isinstance(predictor, DetectionPredictor),
-            "Only ultralytics predictors are supported",
-        )
+        assert isinstance(
+            predictor, DetectionPredictor
+        ), "Only ultralytics predictors are supported"
         self.im_paths = predictor.batch[0]
 
     def preprocess(self, im) -> torch.Tensor:
