@@ -48,6 +48,9 @@ def on_predict_start(predictor, persist=False):
             predictor.custom_args.half,
             predictor.custom_args.per_class,
         )
+        # set target_id if user passed it
+        if predictor.custom_args.target_id is not None:
+            tracker.target_id = predictor.custom_args.target_id
         trackers.append(tracker)
 
     predictor.trackers = trackers
