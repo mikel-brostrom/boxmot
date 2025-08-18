@@ -225,40 +225,35 @@ class BaseTracker(ABC):
                 dets.shape[1] == 6
             ), "Unsupported 'dets' 2nd dimension length, valid lengths is 6 (x1,y1,x2,y2,conf,cls)"
 
+
     def id_to_color(self, id: int, saturation: float = 0.75, value: float = 0.95) -> tuple:
         """
-        Generates a consistent unique BGR color for a given ID using hashing.
+        Returns green for target_id, otherwise generates a consistent unique BGR color using ID hashing.
 
         Parameters:
         - id (int): Unique identifier for which to generate a color.
-        - saturation (float): Saturation value for the color in HSV space.
-        - value (float): Value (brightness) for the color in HSV space.
+        - saturation (float): Saturation value for HSV color space.
+        - value (float): Brightness value for HSV color space.
 
         Returns:
-        - tuple: A tuple representing the BGR color.
+        - tuple: A BGR color tuple for OpenCV visualization.
         """
+        target_id = getattr(self, 'target_id', None)
+        if target_id is not None:
+            return (0, 255, 0) if id == target_id else (0, 0, 0)
 
-        # Hash the ID to get a consistent unique value
+        # Default: consistent hashed color for other IDs
         hash_object = hashlib.sha256(str(id).encode())
         hash_digest = hash_object.hexdigest()
-
-        # Convert the first few characters of the hash to an integer
-        # and map it to a value between 0 and 1 for the hue
         hue = int(hash_digest[:8], 16) / 0xFFFFFFFF
 
         # Convert HSV to RGB
         rgb = colorsys.hsv_to_rgb(hue, saturation, value)
-
-        # Convert RGB from 0-1 range to 0-255 range and format as hexadecimal
         rgb_255 = tuple(int(component * 255) for component in rgb)
-        hex_color = "#%02x%02x%02x" % rgb_255
-        # Strip the '#' character and convert the string to RGB integers
-        rgb = tuple(int(hex_color.strip("#")[i : i + 2], 16) for i in (0, 2, 4))
 
-        # Convert RGB to BGR for OpenCV
-        bgr = rgb[::-1]
+        # Convert to BGR
+        return rgb_255[::-1]
 
-        return bgr
 
     def plot_box_on_img(
         self,

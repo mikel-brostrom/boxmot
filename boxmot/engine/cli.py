@@ -132,7 +132,9 @@ def core_options(func):
         click.option('--line-width', type=int,
                      help='bounding box line width'),
         click.option('--per-class', is_flag=True,
-                     help='track each class separately')
+                     help='track each class separately'),
+        click.option('--target-id', type=int, default=None,
+                     help='ID to highlight in green')
     ]
     for opt in reversed(options):
         func = opt(func)
