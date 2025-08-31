@@ -273,7 +273,7 @@ We use a fast and elitist multiobjective genetic algorithm for tracker hyperpara
 # saves dets and embs under ./runs/dets_n_embs separately for each selected yolo and reid model
 $ boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
 # evolve parameters for specified tracking method using the selected detections and embeddings generated in the previous step
-$ boxmot tune --dets yolov8n --embs osnet_x0_25_msmt17 --n-trials 9 --tracking-method botsort --source ./assets/MOT17-mini/train
+$ boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 9 --tracking-method botsort --source ./assets/MOT17-mini/train
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
