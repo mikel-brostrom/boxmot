@@ -102,7 +102,7 @@ def main(args):
     if tune.Tuner.can_restore(restore_path):
         print(f"Resuming tuning from {restore_path}...")
         tuner = tune.Tuner.restore(
-            restore_path,
+            str(restore_path),
             trainable=trainable,
             resume_errored=True,
         )
