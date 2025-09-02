@@ -394,11 +394,17 @@ class BaseTracker(ABC):
         thickness: int = 2,
         fontscale: float = 0.5,
     ) -> np.ndarray:
-        """
-        Visualizes trajectories and bounding boxes for all active tracks,
-        with state-based coloring (confirmed, predicted, lost).
-        Works with DeepOCSort/OCSort (KalmanBoxTracker) and ByteTrack (STrack).
-        """
+        """ Visualizes the trajectories of all active tracks on the image.
+        For each track, it draws the latest bounding box and the path of movement
+        if the history of observations is longer than two. 
+        This helps in understanding the movement patterns of each tracked object. 
+        Parameters: 
+        - img (np.ndarray): The image array on which to draw the trajectories and bounding boxes. 
+        - show_trajectories (bool): Whether to show the trajectories. 
+        - thickness (int): The thickness of the bounding box. 
+        - fontscale (float): The font scale for the text. 
+        Returns: - np.ndarray: The image array with trajectories and bounding boxes of all active tracks. 
+        Works with DeepOCSort/OCSort (KalmanBoxTracker) and ByteTrack (STrack)."""
 
         # Collect active tracks (per-class or global)
         if self.per_class_active_tracks is None:  # list
