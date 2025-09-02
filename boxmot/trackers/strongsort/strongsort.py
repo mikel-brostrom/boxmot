@@ -14,7 +14,7 @@ from boxmot.trackers.strongsort.sort.linear_assignment import NearestNeighborDis
 from boxmot.utils.ops import xyxy2tlwh
 
 
-class StrongSort(object):
+class StrongSort(BaseTracker):
     """
     StrongSORT Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
 
@@ -47,6 +47,7 @@ class StrongSort(object):
         mc_lambda=0.98,
         ema_alpha=0.9,
     ):
+        super().__init__(per_class=per_class, max_age=max_age, min_hits=n_init)
 
         self.per_class = per_class
         self.min_conf = min_conf
@@ -64,10 +65,25 @@ class StrongSort(object):
         )
         self.cmc = get_cmc_method("ecc")()
 
+    @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
-    def update(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
-    ) -> np.ndarray:
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+        """
+        Updates the tracker with the new detections.
+        """
+        # 🔹 Validate inputs
+        self.check_inputs(dets, img, embs)
+
+        self.frame_count += 1
+        self.height, self.width = img.shape[:2]
+
+        # 🔹 Convert Boxes object to np.ndarray (same as DeepOCSORT)
+        if not isinstance(dets, np.ndarray):
+            try:
+                dets = dets.cpu().numpy() if hasattr(dets, "cpu") else np.array(dets)
+            except Exception as e:
+                raise TypeError(f"Unsupported dets type {type(dets)} in StrongSORT") from e
+
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
