@@ -4,6 +4,8 @@ from pathlib import Path
 
 import numpy as np
 from torch import device
+import torch
+from ultralytics.engine.results import Boxes 
 
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
@@ -68,6 +70,11 @@ class StrongSort(object):
     def update(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
     ) -> np.ndarray:
+        #handle Ultralytics Boxes or torch.Tensor ---
+        if isinstance(dets, Boxes):
+            dets = dets.data  
+        if isinstance(dets, torch.Tensor):
+            dets = dets.cpu().numpy()
         assert isinstance(
             dets, np.ndarray
         ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
