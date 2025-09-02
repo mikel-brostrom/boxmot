@@ -58,3 +58,8 @@ boxmot/motion/cmc/*.jpg
 
 # json outputs
 *_output.json
+
+assets/DanceTrack/
+boxmot/engine/TrackEval/
+boxmot/engine/trackeval/
+environment.yml
