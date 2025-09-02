@@ -226,23 +226,43 @@ class BaseTracker(ABC):
             ), "Unsupported 'dets' 2nd dimension length, valid lengths is 6 (x1,y1,x2,y2,conf,cls)"
 
 
-    def id_to_color(self, id: int, saturation: float = 0.75, value: float = 0.95) -> tuple:
+    def id_to_color(
+        self,
+        id: int,
+        saturation: float = 0.75,
+        value: float = 0.95,
+        state: str = "confirmed"
+    ) -> tuple:
         """
-        Returns green for target_id, otherwise generates a consistent unique BGR color using ID hashing.
+        Returns a BGR color for visualization depending on track state.
+        - confirmed: Green
+        - predicted: Orange
+        - lost: Red
+        If no state is provided, generates a consistent unique BGR color using ID hashing.
 
         Parameters:
         - id (int): Unique identifier for which to generate a color.
-        - saturation (float): Saturation value for HSV color space.
-        - value (float): Brightness value for HSV color space.
+        - saturation (float): Saturation value for HSV color space (used for ID hashing).
+        - value (float): Brightness value for HSV color space (used for ID hashing).
+        - state (str): Track state, one of {"confirmed", "predicted", "lost"}.
 
         Returns:
         - tuple: A BGR color tuple for OpenCV visualization.
         """
-        target_id = getattr(self, 'target_id', None)
+        # Special handling for target_id if set
+        target_id = getattr(self, "target_id", None)
         if target_id is not None:
             return (0, 255, 0) if id == target_id else (0, 0, 0)
 
-        # Default: consistent hashed color for other IDs
+        # State-based colors
+        if state == "confirmed":
+            return (0, 255, 0)    # Green
+        elif state == "predicted":
+            return (0, 165, 255)  # Orange
+        elif state == "lost":
+            return (0, 0, 255)    # Red
+
+        # Default: consistent hashed color for ID
         hash_object = hashlib.sha256(str(id).encode())
         hash_digest = hash_object.hexdigest()
         hue = int(hash_digest[:8], 16) / 0xFFFFFFFF
@@ -255,6 +275,7 @@ class BaseTracker(ABC):
         return rgb_255[::-1]
 
 
+
     def plot_box_on_img(
         self,
         img: np.ndarray,
@@ -264,6 +285,7 @@ class BaseTracker(ABC):
         id: int,
         thickness: int = 2,
         fontscale: float = 0.5,
+        state: str = "confirmed"
     ) -> np.ndarray:
         """
         Draws a bounding box with ID, confidence, and class information on an image.
@@ -280,6 +302,7 @@ class BaseTracker(ABC):
         Returns:
         - np.ndarray: The image array with the bounding box drawn on it.
         """
+        color = self.id_to_color(id, state=state)
         if self.is_obb:
 
             angle = box[4] * 180.0 / np.pi  # Convert radians to degrees
@@ -293,7 +316,7 @@ class BaseTracker(ABC):
                 img,
                 [box_poly],
                 isClosed=True,
-                color=self.id_to_color(id),
+                color=color,
                 thickness=thickness,
             )
 
@@ -303,7 +326,7 @@ class BaseTracker(ABC):
                 (int(box[0]), int(box[1]) - 10),
                 cv.FONT_HERSHEY_SIMPLEX,
                 fontscale,
-                self.id_to_color(id),
+                color,
                 thickness,
             )
         else:
@@ -312,7 +335,7 @@ class BaseTracker(ABC):
                 img,
                 (int(box[0]), int(box[1])),
                 (int(box[2]), int(box[3])),
-                self.id_to_color(id),
+                color,
                 thickness,
             )
             img = cv.putText(
@@ -321,13 +344,13 @@ class BaseTracker(ABC):
                 (int(box[0]), int(box[1]) - 10),
                 cv.FONT_HERSHEY_SIMPLEX,
                 fontscale,
-                self.id_to_color(id),
+                color,
                 thickness,
             )
         return img
 
     def plot_trackers_trajectories(
-        self, img: np.ndarray, observations: list, id: int
+        self, img: np.ndarray, observations: list, id: int, state: str = "confirmed"
     ) -> np.ndarray:
         """
         Draws the trajectories of tracked objects based on historical observations. Each point
@@ -350,7 +373,7 @@ class BaseTracker(ABC):
                     img,
                     (int(box[0]), int(box[1])),
                     2,
-                    color=self.id_to_color(int(id)),
+                    color=self.id_to_color(int(id), state=state),
                     thickness=trajectory_thickness,
                 )
             else:
@@ -359,7 +382,7 @@ class BaseTracker(ABC):
                     img,
                     (int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2)),
                     2,
-                    color=self.id_to_color(int(id)),
+                    color=self.id_to_color(int(id), state=state),
                     thickness=trajectory_thickness,
                 )
         return img
@@ -371,23 +394,20 @@ class BaseTracker(ABC):
         thickness: int = 2,
         fontscale: float = 0.5,
     ) -> np.ndarray:
-        """
-        Visualizes the trajectories of all active tracks on the image. For each track,
-        it draws the latest bounding box and the path of movement if the history of
-        observations is longer than two. This helps in understanding the movement patterns
-        of each tracked object.
+        """ Visualizes the trajectories of all active tracks on the image.
+        For each track, it draws the latest bounding box and the path of movement
+        if the history of observations is longer than two. 
+        This helps in understanding the movement patterns of each tracked object. 
+        Parameters: 
+        - img (np.ndarray): The image array on which to draw the trajectories and bounding boxes. 
+        - show_trajectories (bool): Whether to show the trajectories. 
+        - thickness (int): The thickness of the bounding box. 
+        - fontscale (float): The font scale for the text. 
+        Returns: - np.ndarray: The image array with trajectories and bounding boxes of all active tracks. 
+        Works with DeepOCSort/OCSort (KalmanBoxTracker) and ByteTrack (STrack)."""
 
-        Parameters:
-        - img (np.ndarray): The image array on which to draw the trajectories and bounding boxes.
-        - show_trajectories (bool): Whether to show the trajectories.
-        - thickness (int): The thickness of the bounding box.
-        - fontscale (float): The font scale for the text.
-
-        Returns:
-        - np.ndarray: The image array with trajectories and bounding boxes of all active tracks.
-        """
-
-        if self.per_class_active_tracks is None:  # dict
+        # Collect active tracks (per-class or global)
+        if self.per_class_active_tracks is None:  # list
             active_tracks = self.active_tracks
         else:
             active_tracks = []
@@ -395,13 +415,56 @@ class BaseTracker(ABC):
                 active_tracks += self.per_class_active_tracks[k]
 
         for a in active_tracks:
-            if not a.history_observations: continue
-            if len(a.history_observations) < 3: continue
+            if not hasattr(a, "history_observations") or not a.history_observations:
+                continue
+
+            # --- Filter: only plot if track was confirmed/activated ---
+            if hasattr(a, "hits"):  # DeepOCSort / OCSort
+                if a.hits < self.min_hits:
+                    continue
+            elif hasattr(a, "is_activated"):  # ByteTrack
+                if not a.is_activated:
+                    continue
+
+            # Use last observation for drawing
             box = a.history_observations[-1]
-            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
-            if not show_trajectories: continue
-            img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
+
+            # --- Determine track state ---
+            if hasattr(a, "time_since_update"):  # DeepOCSort / OCSort
+                if a.time_since_update == 0:
+                    state = "confirmed"
+                elif a.time_since_update <= self.max_age:
+                    state = "predicted"
+                else:
+                    state = "lost"
+            elif hasattr(a, "state"):  # ByteTrack
+                # Usually a.state is TrackState.Tracked / Lost / Removed
+                try:
+                    from boxmot.trackers.bytetrack.basetrack import TrackState
+                    if a.state == TrackState.Tracked:
+                        state = "confirmed"
+                    elif a.state == TrackState.Lost:
+                        state = "predicted"
+                    else:
+                        state = "lost"
+                except ImportError:
+                    # fallback: only check is_activated
+                    state = "confirmed" if a.is_activated else "lost"
+            else:
+                state = "confirmed"  # fallback
+
+            # --- Draw bounding box ---
+            img = self.plot_box_on_img(
+                img, box, getattr(a, "conf", 1.0), getattr(a, "cls", -1), a.id,
+                thickness, fontscale, state=state
+            )
+
+            # --- Draw trajectories ---
+            if show_trajectories:
+                img = self.plot_trackers_trajectories(img, a.history_observations, a.id, state=state)
+
         return img
+
 
     def reset(self):
         pass
