@@ -395,22 +395,13 @@ class BaseTracker(ABC):
         fontscale: float = 0.5,
     ) -> np.ndarray:
         """
-        Visualizes the trajectories of all active tracks on the image. For each track,
-        it draws the latest bounding box and the path of movement if the history of
-        observations is longer than two. This helps in understanding the movement patterns
-        of each tracked object.
-
-        Parameters:
-        - img (np.ndarray): The image array on which to draw the trajectories and bounding boxes.
-        - show_trajectories (bool): Whether to show the trajectories.
-        - thickness (int): The thickness of the bounding box.
-        - fontscale (float): The font scale for the text.
-
-        Returns:
-        - np.ndarray: The image array with trajectories and bounding boxes of all active tracks.
+        Visualizes trajectories and bounding boxes for all active tracks,
+        with state-based coloring (confirmed, predicted, lost).
+        Works with DeepOCSort/OCSort (KalmanBoxTracker) and ByteTrack (STrack).
         """
 
-        if self.per_class_active_tracks is None:  # dict
+        # Collect active tracks (per-class or global)
+        if self.per_class_active_tracks is None:  # list
             active_tracks = self.active_tracks
         else:
             active_tracks = []
@@ -418,32 +409,56 @@ class BaseTracker(ABC):
                 active_tracks += self.per_class_active_tracks[k]
 
         for a in active_tracks:
-            if not a.history_observations:
-                continue
-            
-            # Only plot if it was associated to a detection at least once
-            if a.hits < self.min_hits:
+            if not hasattr(a, "history_observations") or not a.history_observations:
                 continue
 
-            # Only use the last box
+            # --- Filter: only plot if track was confirmed/activated ---
+            if hasattr(a, "hits"):  # DeepOCSort / OCSort
+                if a.hits < self.min_hits:
+                    continue
+            elif hasattr(a, "is_activated"):  # ByteTrack
+                if not a.is_activated:
+                    continue
+
+            # Use last observation for drawing
             box = a.history_observations[-1]
 
-            # Determine state
-            if a.time_since_update == 0:
-                state = "confirmed"
-            elif a.time_since_update <= self.max_age:
-                state = "predicted"
+            # --- Determine track state ---
+            if hasattr(a, "time_since_update"):  # DeepOCSort / OCSort
+                if a.time_since_update == 0:
+                    state = "confirmed"
+                elif a.time_since_update <= self.max_age:
+                    state = "predicted"
+                else:
+                    state = "lost"
+            elif hasattr(a, "state"):  # ByteTrack
+                # Usually a.state is TrackState.Tracked / Lost / Removed
+                try:
+                    from boxmot.trackers.bytetrack.basetrack import TrackState
+                    if a.state == TrackState.Tracked:
+                        state = "confirmed"
+                    elif a.state == TrackState.Lost:
+                        state = "predicted"
+                    else:
+                        state = "lost"
+                except ImportError:
+                    # fallback: only check is_activated
+                    state = "confirmed" if a.is_activated else "lost"
             else:
-                state = "lost"
+                state = "confirmed"  # fallback
 
+            # --- Draw bounding box ---
             img = self.plot_box_on_img(
-                img, box, a.conf, a.cls, a.id, thickness, fontscale, state=state
+                img, box, getattr(a, "conf", 1.0), getattr(a, "cls", -1), a.id,
+                thickness, fontscale, state=state
             )
 
-            if not show_trajectories: continue
-            img = self.plot_trackers_trajectories(img, a.history_observations, a.id, state=state)
+            # --- Draw trajectories ---
+            if show_trajectories:
+                img = self.plot_trackers_trajectories(img, a.history_observations, a.id, state=state)
 
         return img
+
 
     def reset(self):
         pass
