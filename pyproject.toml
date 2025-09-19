@@ -167,7 +167,7 @@ yolox-build-deps = [
 ]
 
 onnx = [
-  "onnx>=1.16.1",
+  "onnx>=1.16.1,<1.19",
   "onnxruntime>=1.20.0",
   "onnxslim>=0.1.67"
 ]
