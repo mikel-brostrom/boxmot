@@ -1,4 +1,3 @@
-import openvino as ov
 
 from boxmot.appearance.exporters.base_exporter import BaseExporter
 
@@ -6,11 +5,10 @@ from boxmot.appearance.exporters.base_exporter import BaseExporter
 class OpenVINOExporter(BaseExporter):
     group = "openvino"
 
-    def export(self):
-
-        from openvino.tools import mo
-
     def export(self) -> str:
+
+        import openvino as ov
+        
         # 1. Paths
         #    assume self.file is e.g. "model.onnx"
         onnx_path = self.file.with_suffix(".onnx")
