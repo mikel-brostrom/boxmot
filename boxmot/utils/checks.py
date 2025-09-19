@@ -1,35 +1,60 @@
 import subprocess
+import shutil
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 
-from boxmot.utils import logger as LOGGER
-from packaging.requirements import Requirement
 from importlib.metadata import version, PackageNotFoundError
+from packaging.requirements import Requirement
 
+# Replace this import with your logger, or use logging.getLogger(__name__)
+from boxmot.utils import logger as LOGGER
 
 REQUIREMENTS_FILE = Path("requirements.txt")
 
 
 class RequirementsChecker:
-    def __init__(self, group: str = None, requirements_file: Path = REQUIREMENTS_FILE):
+    """
+    Runtime dependency helper.
+
+    Features:
+      - Check/install a list of requirement specifiers (e.g., ["yolox", "onnx>=1.15"])
+      - Read and install from a requirements.txt
+      - Install a uv dependency *group* (requires uv)
+      - Install a project *extra* (PEP 621 optional-dependencies) via uv or pip
+      - Falls back to pip if uv is not available
+      - Backward-compatible alias: `cmds` == `extra_args`
+    """
+
+    def __init__(self, group: Optional[str] = None, requirements_file: Path = REQUIREMENTS_FILE):
         """
-        If `group` is provided, we'll sync that PDM/uv dependency-group.
-        Otherwise we'll read requirements_file and pip-install missing packages.
+        If `group` is provided, you *may* choose to call `sync_group_or_extra(group=group)`
+        before doing work. Otherwise you can use `check_requirements_file()` or `check_packages()`.
         """
         self.group = group
+        self.requirements_file = requirements_file
+        self._uv_available = shutil.which("uv") is not None
 
-    def check_packages(self, requirements: Iterable[str], cmds: Optional[list[str]] = None):
+    # ---------- public API ----------
+
+    def check_packages(
+        self,
+        requirements: Iterable[str],
+        extra_args: Optional[Sequence[str]] = None,
+        cmds: Optional[Sequence[str]] = None,  # legacy alias
+    ):
         """
-        Check and install packages specified by requirement strings, e.g.
-        ["foo", "bar>=1.2"].
+        Check & install packages specified by requirement strings.
 
         :param requirements: iterable of requirement specifiers as strings
-        :param cmds: extra pip args (e.g. ["--upgrade"]).
+        :param extra_args: extra args for the installer (e.g. ["--upgrade"])
+        :param cmds: legacy alias for extra_args
         """
-        # turn each string into a Requirement
-        specs = [Requirement(r) for r in requirements]
+        if extra_args is None and cmds is not None:
+            extra_args = list(cmds)
 
+        specs = [Requirement(r) for r in requirements]
         missing: list[str] = []
+
         for req in specs:
             name = req.name
             try:
@@ -45,52 +70,97 @@ class RequirementsChecker:
                     missing.append(str(req))
 
         if missing:
-            self.install_packages(missing, cmds)
+            self._install_packages(missing, extra_args)
 
-    def install_packages(self, packages, extra_pip_args=None):
+    def check_requirements_file(self, extra_args: Optional[Sequence[str]] = None):
+        """
+        Parse requirements.txt (or a custom path) and install what’s missing.
+        Comments and blank lines are ignored.
+        """
+        path = self.requirements_file
+        if not path.is_file():
+            LOGGER.warning(f"No requirements file found at {path.resolve()}")
+            return
+
+        reqs: list[str] = []
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            reqs.append(line)
+
+        if reqs:
+            self.check_packages(reqs, extra_args=extra_args)
+
+    def sync_group_or_extra(
+        self,
+        group: Optional[str] = None,
+        extra: Optional[str] = None,
+        extra_args: Optional[Sequence[str]] = None,
+        cmds: Optional[Sequence[str]] = None,  # legacy alias
+    ):
+        """
+        Install either:
+          - a uv dependency *group* (requires uv), or
+          - a project *extra* (PEP 621 optional-dependencies), via uv or pip.
+
+        Exactly one of `group` or `extra` must be provided.
+        """
+        if extra_args is None and cmds is not None:
+            extra_args = list(cmds)
+
+        if bool(group) == bool(extra):  # both None or both set
+            raise ValueError("Must provide exactly one of 'group' or 'extra'.")
+
+        name = group or extra
+        kind = "group" if group else "extra"
+        LOGGER.warning(f"Installing {kind} '{name}'...")
+
+        try:
+            if group:
+                if not self._uv_available:
+                    raise RuntimeError("uv not found on PATH, cannot sync dependency group.")
+                cmd = ["uv", "sync", "--no-default-groups", "--group", name]
+                if extra_args:
+                    cmd.extend(extra_args)
+                subprocess.check_call(cmd)
+
+            else:  # extra
+                if self._uv_available:
+                    cmd = ["uv", "pip", "install", "--no-cache-dir", f".[{name}]"]
+                else:
+                    cmd = ["pip", "install", f".[{name}]"]
+                if extra_args:
+                    cmd.extend(extra_args)
+                subprocess.check_call(cmd)
+
+            LOGGER.info(f"{kind.capitalize()} '{name}' installed successfully.")
+        except subprocess.CalledProcessError as e:
+            LOGGER.error(f"Failed to install {kind} '{name}': {e}")
+            raise RuntimeError(f"Failed to install {kind} '{name}': {e}")
+
+    # ---------- internals ----------
+
+    def _install_packages(self, packages: Sequence[str], extra_args: Optional[Sequence[str]] = None):
+        """
+        Install an explicit list of requirement specifiers with uv (if present) or pip.
+        """
         try:
             LOGGER.warning(
                 f"\nMissing or mismatched packages: {', '.join(packages)}\n"
                 "Attempting installation..."
             )
-            pip_cmd = ["uv", "pip", "install", "--no-cache-dir"] + (extra_pip_args or []) + packages
-            subprocess.check_call(pip_cmd)
-            LOGGER.info("All the missing packages were installed successfully.")
+            if self._uv_available:
+                cmd = ["uv", "pip", "install", "--no-cache-dir"]
+            else:
+                cmd = ["pip", "install"]
+
+            if extra_args:
+                cmd += list(extra_args)
+            cmd += list(packages)
+
+            subprocess.check_call(cmd)
+            LOGGER.info("All missing packages were installed successfully.")
         except Exception as e:
             LOGGER.error(f"Failed to install packages: {e}")
             raise RuntimeError(f"Failed to install packages: {e}")
-
-    def sync_group_or_extra(
-        self, group: Optional[str] = None, extra: Optional[str] = None
-    ):
-        """
-        Sync a uv dependency-group or an extra.
-
-        :param group: name of the [tool.uv.group] to install
-        :param extra: name of the [project.optional-dependencies] extra to install
-        """
-        if bool(group) == bool(extra):
-            # both None or both set
-            raise ValueError("Must provide exactly one of 'group' or 'extra'.")
-
-        name = group or extra
-        kind = "group" if group else "extra"
-        LOGGER.warning(f"Syncing {kind} '{name}'...")
-
-        cmd = ["uv", "sync", "--no-default-groups", f"--{kind}", name]
-
-        try:
-            subprocess.check_call(cmd)
-            LOGGER.info(f"{kind.capitalize()} '{name}' installed successfully.")
-        except subprocess.CalledProcessError as e:
-            LOGGER.error(f"Failed to sync {kind} '{name}': {e}")
-            raise RuntimeError(f"Failed to sync {kind} '{name}': {e}")
-
-
-if __name__ == "__main__":
-    # Example usages:
-    # 1) to install a tflite group:
-    RequirementsChecker.sync_group_or_extra(group="tflite")
-
-    # 2) to fall back on a requirements.txt:
-    # RequirementsChecker().check_requirements()
