@@ -33,7 +33,7 @@ def get_yolo_inferer(yolo_model):
 
             assert yolox.__version__
         except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(("yolox",), cmds=["--no-deps"])
+            checker.check_packages(("yolox",), extra_args=["--no-deps"])
             checker.check_packages(("tabulate",))  # needed dependency
             checker.check_packages(("thop",))  # needed dependency
         from .yolox import YoloXStrategy

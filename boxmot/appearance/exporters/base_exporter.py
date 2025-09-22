@@ -1,5 +1,4 @@
 from pathlib import Path
-
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 
@@ -7,15 +6,20 @@ from boxmot.utils.checks import RequirementsChecker
 def export_decorator(export_func):
     def wrapper(self, *args, **kwargs):
         try:
-            if hasattr(self, "group"):
-                if hasattr(self, "cmd"):
-                    self.checker.sync_group_or_extra(self.group, cmd=self.cmd)
-                else:
-                    self.checker.sync_group_or_extra(self.group)
+            # If a subclass defined a dependency bucket, install it now.
+            if hasattr(self, "group") and self.group:
+                # Optional: subclasses can define `cmd` or `extra_args` for installer flags
+                extra_args = getattr(self, "cmd", None) or getattr(self, "extra_args", None)
+                # Allow either a uv group or a project extra. If you want extras, set `self.extra`
+                extra = getattr(self, "extra", None)
+                if extra and self.group:
+                    raise ValueError("Provide only one of `group` or `extra` in exporter.")
+                if self.group:
+                    self.checker.sync_group_or_extra(group=self.group, extra_args=extra_args)
+                elif extra:
+                    self.checker.sync_group_or_extra(extra=extra, extra_args=extra_args)
 
-            LOGGER.info(
-                f"\nStarting {self.file} export with {self.__class__.__name__}..."
-            )
+            LOGGER.info(f"\nStarting {self.file} export with {self.__class__.__name__}...")
             result = export_func(self, *args, **kwargs)
             if result:
                 LOGGER.info(
@@ -30,9 +34,7 @@ def export_decorator(export_func):
 
 
 class BaseExporter:
-    def __init__(
-        self, model, im, file, optimize=False, dynamic=False, half=False, simplify=False
-    ):
+    def __init__(self, model, im, file, optimize=False, dynamic=False, half=False, simplify=False):
         self.model = model
         self.im = im
         self.file = Path(file)

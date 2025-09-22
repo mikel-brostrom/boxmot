@@ -281,15 +281,16 @@ def test_track_id_stable_over_frames(tracker_type):
     assert out1[0, 4] == out2[0, 4], "Track ID should remain the same across frames"
 
 
-# def test_create_tracker_invalid_tracker_name():
-#     """Creating a tracker with an unknown name should raise a ValueError."""
-#     with pytest.raises(KeyError):
-#         # invalid tracker_type
-#         create_tracker(
-#             tracker_type="nonexistent_tracker",
-#             tracker_config=get_tracker_config('botsort'),
-#             reid_weights=WEIGHTS / 'mobilenetv2_x1_4_dukemtmcreid.pt',
-#             device='cpu',
-#             half=False,
-#             per_class=False
-#         )
+def test_create_tracker_invalid_tracker_name():
+    """Creating a tracker with an unknown name should raise a ValueError."""
+    with pytest.raises(ValueError, match="Unknown tracker type: nonexistent_tracker"):
+        create_tracker(
+            tracker_type="nonexistent_tracker",
+            tracker_config=get_tracker_config("botsort"),
+            reid_weights=WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt",
+            device="cpu",
+            half=False,
+            per_class=False,
+        )
+
+
