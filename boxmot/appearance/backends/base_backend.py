@@ -31,7 +31,15 @@ class BaseModelBackend:
         )
         self.checker = RequirementsChecker()
         self.load_model(self.weights)
-        self.input_shape = (384, 128) if "lmbn" in self.model_name else (256, 128)
+        
+        # Determine input shape, depending on model name 
+        if "lmbn" in self.model_name:
+            input_shape = (384, 128)
+        elif "hacnn" in self.model_name:
+            input_shape = (160, 64)
+        else: 
+            input_shape = (256, 128)
+        self.input_shape = input_shape
 
     def get_crops(self, xyxys, img):
         h, w = img.shape[:2]
@@ -154,4 +162,3 @@ class BaseModelBackend:
                     f"Choose one of the following:"
                 )
                 ReIDModelRegistry.show_downloadable_models()
-                exit()
