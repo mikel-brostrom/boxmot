@@ -158,7 +158,7 @@ class BotSort(BaseTracker):
         )
 
         # Update lost and removed tracks
-        self._update_track_states(lost_stracks, removed_stracks)
+        self._update_track_states(removed_stracks)
 
         # Merge and prepare output
         return self._prepare_output(
@@ -380,7 +380,7 @@ class BotSort(BaseTracker):
             for track in unmatched_tracks:
                 track.mark_removed()
 
-    def _update_track_states(self, lost_stracks, removed_stracks):
+    def _update_track_states(self, removed_stracks):
         for track in self.lost_stracks:
             if self.frame_count - track.end_frame > self.max_time_lost:
                 track.mark_removed()
