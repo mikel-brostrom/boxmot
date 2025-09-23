@@ -35,7 +35,10 @@ class ReIDModelRegistry:
         """
         device = "cpu" if not torch.cuda.is_available() else None
         checkpoint = torch.load(
-            weight_path, map_location=torch.device("cpu") if device == "cpu" else None
+            weight_path, 
+            map_location=torch.device("cpu") if device == "cpu" else None,
+            weights_only=False,
+            encoding='latin1',
         )
         state_dict = checkpoint.get("state_dict", checkpoint)
         model_dict = model.state_dict()
