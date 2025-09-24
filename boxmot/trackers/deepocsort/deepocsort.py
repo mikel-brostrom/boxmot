@@ -13,6 +13,7 @@ from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.ops import xyxy2xysr
 
+from boxmot.utils import logger as LOGGER
 
 def k_previous_obs(observations, cur_age, k):
     if len(observations) == 0:
@@ -235,29 +236,40 @@ class KalmanBoxTracker:
 
 class DeepOcSort(BaseTracker):
     """
-    DeepOCSort Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
+    Initialize the DeepOcSort tracker with various parameters.
 
-    Args:
-        model_weights (str): Path to the model weights for ReID (Re-Identification).
-        device (str): Device on which to run the model (e.g., 'cpu' or 'cuda').
-        fp16 (bool): Whether to use half-precision (fp16) for faster inference on compatible devices.
-        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class.
-        det_thresh (float, optional): Detection confidence threshold. Detections below this threshold will be ignored.
-        max_age (int, optional): Maximum number of frames to keep a track alive without any detections.
-        min_hits (int, optional): Minimum number of hits required to confirm a track.
-        iou_threshold (float, optional): Intersection over Union (IoU) threshold for data association.
-        delta_t (int, optional): Time delta for velocity estimation in Kalman Filter.
-        asso_func (str, optional): Association function to use for data association. Options include "iou" for IoU-based association.
-        inertia (float, optional): Weight for inertia in motion modeling. Higher values make tracks less responsive to changes.
-        w_association_emb (float, optional): Weight for the embedding-based association score.
-        alpha_fixed_emb (float, optional): Fixed alpha for updating embeddings. Controls the contribution of new and old embeddings in the ReID model.
-        aw_param (float, optional): Parameter for adaptive weighting between association costs.
-        embedding_off (bool, optional): Whether to turn off the embedding-based association.
-        cmc_off (bool, optional): Whether to turn off camera motion compensation (CMC).
-        aw_off (bool, optional): Whether to turn off adaptive weighting.
-        Q_xy_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for position coordinates.
-        Q_s_scaling (float, optional): Scaling factor for the process noise covariance in the Kalman Filter for scale coordinates.
-        **kwargs: Additional arguments for future extensions or parameters.
+    Parameters:
+    - reid_weights (Path): Path to the re-identification model weights.
+    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
+    - half (bool): Whether to use half-precision (fp16) for faster inference.
+    - det_thresh (float): Detection threshold for considering detections.
+    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
+    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
+    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
+    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
+    - per_class (bool): Enables class-separated tracking.
+    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
+    - asso_func (str): Algorithm name used for data association between detections and tracks.
+    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
+    
+    DeepOcSort-specific parameters:
+    - delta_t (int): Time window size for motion estimation.
+    - inertia (float): Motion model weight, higher values favor motion consistency.
+    - w_association_emb (float): Weight for embedding association in the matching cost.
+    - alpha_fixed_emb (float): Fixed update rate for embeddings.
+    - aw_param (float): Adaptive weight parameter for cost function.
+    - embedding_off (bool): Whether to disable appearance embedding for tracking.
+    - cmc_off (bool): Whether to disable camera motion compensation.
+    - aw_off (bool): Whether to disable adaptive weights for appearance/motion balance.
+    - Q_xy_scaling (float): Scaling factor for process noise in position coordinates.
+    - Q_s_scaling (float): Scaling factor for process noise in scale coordinates.
+    
+    Attributes:
+    - frame_count (int): Counter for the frames processed.
+    - active_tracks (list): List to hold active tracks.
+    - model: ReID model for appearance feature extraction.
+    - cmc: Camera motion compensation object.
+    - kalman_filter: Kalman filter for motion estimation.
     """
 
     def __init__(
@@ -265,13 +277,18 @@ class DeepOcSort(BaseTracker):
         reid_weights: Path,
         device: torch.device,
         half: bool,
-        per_class: bool = False,
+        # BaseTracker parameters
         det_thresh: float = 0.3,
         max_age: int = 30,
+        max_obs: int = 50,
         min_hits: int = 3,
         iou_threshold: float = 0.3,
-        delta_t: int = 3,
+        per_class: bool = False,
+        nr_classes: int = 80,
         asso_func: str = "iou",
+        is_obb: bool = False,
+        # DeepOcSort-specific parameters
+        delta_t: int = 3,
         inertia: float = 0.2,
         w_association_emb: float = 0.5,
         alpha_fixed_emb: float = 0.95,
@@ -281,9 +298,22 @@ class DeepOcSort(BaseTracker):
         aw_off: bool = False,
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001,
-        **kwargs: dict,
+        **kwargs  # Additional BaseTracker parameters
     ):
-        super().__init__(max_age=max_age, per_class=per_class, asso_func=asso_func)
+        # Forward all BaseTracker parameters explicitly
+        super().__init__(
+            det_thresh=det_thresh,
+            max_age=max_age,
+            max_obs=max_obs,
+            min_hits=min_hits,
+            iou_threshold=iou_threshold,
+            per_class=per_class,
+            nr_classes=nr_classes,
+            asso_func=asso_func,
+            is_obb=is_obb,
+            **kwargs
+        )
+        
         """
         Sets key parameters for SORT
         """
@@ -311,6 +341,8 @@ class DeepOcSort(BaseTracker):
         self.cmc_off = cmc_off
         self.aw_off = aw_off
 
+        LOGGER.success("Initialized DeepOcSort")
+        
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(
