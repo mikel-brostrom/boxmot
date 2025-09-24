@@ -349,48 +349,75 @@ class KalmanBoxTracker(object):
 
 class HybridSort(BaseTracker):
     """
-    HybridSORT Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking
-    and temporal consistency models (TCM) for improved tracking accuracy and robustness.
+    Initialize the HybridSort tracker with various parameters.
 
-    Args:
-        reid_weights (str): Path to the model weights for ReID (Re-Identification).
-        device (str): Device on which to run the model (e.g., 'cpu' or 'cuda').
-        half (bool): Whether to use half-precision (fp16) for faster inference on compatible devices.
-        det_thresh (float): Detection confidence threshold. Detections below this threshold will be ignored in the first association step.
-        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class.
-        max_age (int, optional): Maximum number of frames to keep a track alive without any detections.
-        min_hits (int, optional): Minimum number of hits required to confirm a track.
-        iou_threshold (float, optional): Intersection over Union (IoU) threshold for data association.
-        delta_t (int, optional): Time delta for velocity estimation in Kalman Filter.
-        asso_func (str, optional): Association function to use for data association. Options include "iou" for IoU-based association.
-        inertia (float, optional): Weight for inertia in motion modeling. Higher values make tracks less responsive to changes.
-        longterm_reid_weight (float, optional): Weight for the long-term ReID feature in the association process.
-        TCM_first_step_weight (float, optional): Weight for the Temporal Consistency Model (TCM) in the first association step.
-        use_byte (bool, optional): Whether to use BYTE association in the second association step.
+    Parameters:
+    - reid_weights (Path): Path to the re-identification model weights.
+    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
+    - half (bool): Whether to use half-precision (fp16) for faster inference.
+    - det_thresh (float): Detection threshold for considering detections.
+    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
+    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
+    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
+    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
+    - per_class (bool): Enables class-separated tracking.
+    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
+    - asso_func (str): Algorithm name used for data association between detections and tracks.
+    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
+    
+    HybridSort-specific parameters:
+    - delta_t (int): Time window size for motion estimation in frames.
+    - inertia (float): Motion model weight for data association.
+    - longterm_reid_weight (float): Weight for long-term ReID features in association.
+    - TCM_first_step_weight (float): Weight for Temporal Consistency Model in first association step.
+    - use_byte (bool): Whether to use BYTE association in second association step.
+    - ECC (bool): Whether to use Enhanced Correlation Coefficient for camera motion compensation.
+    
+    Attributes:
+    - frame_count (int): Counter for the frames processed.
+    - active_tracks (list): List to hold active tracks.
+    - model: ReID model for appearance feature extraction.
+    - cmc: Camera motion compensation object.
     """
 
     def __init__(
         self,
         reid_weights,
         device,
-        half,
-        det_thresh,
-        per_class=False,
-        max_age=30,
-        min_hits=3,
-        iou_threshold=0.3,
-        delta_t=3,
-        asso_func="iou",
-        inertia=0.2,
-        longterm_reid_weight=0,
-        TCM_first_step_weight=0,
-        use_byte=False,
+        half: bool,
+        # BaseTracker parameters
+        det_thresh: float = 0.3,
+        max_age: int = 30,
+        max_obs: int = 50,
+        min_hits: int = 3,
+        iou_threshold: float = 0.3,
+        per_class: bool = False,
+        nr_classes: int = 80,
+        asso_func: str = "iou",
+        is_obb: bool = False,
+        # HybridSort-specific parameters
+        delta_t: int = 3,
+        inertia: float = 0.2,
+        longterm_reid_weight: float = 0,
+        TCM_first_step_weight: float = 0,
+        use_byte: bool = False,
+        **kwargs  # Additional BaseTracker parameters
     ):
-        super().__init__(max_age=max_age, per_class=per_class, asso_func=asso_func)
+        # Forward all BaseTracker parameters explicitly
+        super().__init__(
+            det_thresh=det_thresh,
+            max_age=max_age,
+            max_obs=max_obs,
+            min_hits=min_hits,
+            iou_threshold=iou_threshold,
+            per_class=per_class,
+            nr_classes=nr_classes,
+            asso_func=asso_func,
+            is_obb=is_obb,
+            **kwargs
+        )
 
-        """
-        Sets key parameters for SORT
-        """
+        # Store parameters for HybridSort
         self.max_age: int = max_age
         self.min_hits: int = min_hits
         self.iou_threshold: float = iou_threshold
