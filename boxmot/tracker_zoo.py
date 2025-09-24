@@ -40,6 +40,9 @@ def create_tracker(
 
     # Load configuration from file or use provided dictionary
     if evolve_param_dict is None:
+        if tracker_config is None: 
+            # Load default tracker config 
+            tracker_config = get_tracker_config(tracker_type)
         with open(tracker_config, "r") as f:
             yaml_config = yaml.load(f, Loader=yaml.FullLoader)
             tracker_args = {
