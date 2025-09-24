@@ -21,7 +21,6 @@ class BaseTracker(ABC):
         nr_classes: int = 80,
         asso_func: str = "iou",
         is_obb: bool = False,
-        verbose: bool = True,
         **kwargs,
     ):
         """
@@ -48,28 +47,26 @@ class BaseTracker(ABC):
         - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes? 
                 If False (default): If True: dets.shape[1] == 6, i.e. (x1,y1,x2,y2,conf,cls)
                 If True: dets.shape[1] == 7, i.e. (cx,cy,w,h,angle,conf,cls)
-        - verbose (bool): Print parameter values during initialization
 
         Attributes:
         - frame_count (int): Counter for the frames processed.
         - active_tracks (list): List to hold active tracks, may be used differently in subclasses.
         """
-        # Print parameters if verbose is True
-        if verbose:
-            print("BaseTracker initialization parameters:")
-            print(f"  det_thresh: {det_thresh}")
-            print(f"  max_age: {max_age}")
-            print(f"  max_obs: {max_obs}")
-            print(f"  min_hits: {min_hits}")
-            print(f"  iou_threshold: {iou_threshold}")
-            print(f"  per_class: {per_class}")
-            print(f"  nr_classes: {nr_classes}")
-            print(f"  asso_func: {asso_func}")
-            print(f"  is_obb: {is_obb}")
-            if kwargs:
-                print("  Additional parameters:")
-                for key, value in kwargs.items():
-                    print(f"    {key}: {value}")
+
+        LOGGER.info("BaseTracker initialization parameters:")
+        LOGGER.info(f"det_thresh: {det_thresh}")
+        LOGGER.info(f"max_age: {max_age}")
+        LOGGER.info(f"max_obs: {max_obs}")
+        LOGGER.info(f"min_hits: {min_hits}")
+        LOGGER.info(f"iou_threshold: {iou_threshold}")
+        LOGGER.info(f"per_class: {per_class}")
+        LOGGER.info(f"nr_classes: {nr_classes}")
+        LOGGER.info(f"asso_func: {asso_func}")
+        LOGGER.info(f"is_obb: {is_obb}")
+        if kwargs:
+            LOGGER.info("Additional parameters:")
+            for key, value in kwargs.items():
+                LOGGER.info(f"{key}: {value}")
         
         self.det_thresh = det_thresh
         self.max_age = max_age
