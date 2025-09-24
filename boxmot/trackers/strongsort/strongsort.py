@@ -13,6 +13,7 @@ from boxmot.trackers.strongsort.sort.tracker import Tracker
 from boxmot.trackers.strongsort.sort.linear_assignment import NearestNeighborDistanceMetric
 from boxmot.utils.ops import xyxy2tlwh
 
+from boxmot.utils import logger as LOGGER
 
 class StrongSort(BaseTracker):
     """
@@ -107,6 +108,8 @@ class StrongSort(BaseTracker):
         # Initialize camera motion compensation
         self.cmc = get_cmc_method("ecc")()
 
+        LOGGER.success("Initialized StrongSort")
+        
     @BaseTracker.per_class_decorator
     def update(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None

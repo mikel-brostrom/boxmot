@@ -14,6 +14,7 @@ from boxmot.trackers.boosttrack.assoc import (
     soft_biou_batch,
 )
 from boxmot.trackers.boosttrack.kalmanfilter import KalmanFilter
+from boxmot.utils import logger as LOGGER
 
 
 def convert_bbox_to_z(bbox):
@@ -248,6 +249,8 @@ class BoostTrack(BaseTracker):
             self.cmc = get_cmc_method(cmc_method)()
         else:
             self.cmc = None
+            
+        LOGGER.success("Initialized BoostTrack")
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

@@ -18,6 +18,7 @@ from boxmot.trackers.hybridsort.association import (
     embedding_distance,
     linear_assignment,
 )
+from boxmot.utils import logger as LOGGER
 
 np.random.seed(0)
 
@@ -449,6 +450,9 @@ class HybridSort(BaseTracker):
         ).model
         self.cmc = get_cmc_method("ecc")()
 
+        LOGGER.success("Initialized HybridSort")
+        
+        
     def camera_update(self, trackers, warp_matrix):
         for tracker in trackers:
             tracker.camera_update(warp_matrix)

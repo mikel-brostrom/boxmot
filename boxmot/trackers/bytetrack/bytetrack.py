@@ -10,6 +10,7 @@ from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
 from boxmot.utils.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
 
+from boxmot.utils import logger as LOGGER
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilterXYAH()
@@ -200,6 +201,8 @@ class ByteTrack(BaseTracker):
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
+
+        LOGGER.success("Initialized ByteTrack")
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

@@ -13,6 +13,7 @@ from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.ops import xyxy2xysr
 
+from boxmot.utils import logger as LOGGER
 
 def k_previous_obs(observations, cur_age, k, is_obb=False):
     if len(observations) == 0:
@@ -268,6 +269,8 @@ class OcSort(BaseTracker):
         # Initialize tracker collections
         self.active_tracks: list = [] 
 
+        LOGGER.success("Initialized OcSort")
+        
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(

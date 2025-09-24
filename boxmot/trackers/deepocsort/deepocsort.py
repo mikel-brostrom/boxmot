@@ -13,6 +13,7 @@ from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.ops import xyxy2xysr
 
+from boxmot.utils import logger as LOGGER
 
 def k_previous_obs(observations, cur_age, k):
     if len(observations) == 0:
@@ -340,6 +341,8 @@ class DeepOcSort(BaseTracker):
         self.cmc_off = cmc_off
         self.aw_off = aw_off
 
+        LOGGER.success("Initialized DeepOcSort")
+        
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(

@@ -22,6 +22,7 @@ from boxmot.utils.matching import (
     iou_distance,
     linear_assignment,
 )
+from boxmot.utils import logger as LOGGER
 
 
 class BotSort(BaseTracker):
@@ -134,6 +135,8 @@ class BotSort(BaseTracker):
         self.cmc = get_cmc_method(cmc_method)()
         self.fuse_first_associate = fuse_first_associate
 
+        LOGGER.success("Initialized BotSort")
+        
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(
