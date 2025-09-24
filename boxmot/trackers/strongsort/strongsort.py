@@ -13,23 +13,39 @@ from boxmot.trackers.strongsort.sort.tracker import Tracker
 from boxmot.trackers.strongsort.sort.linear_assignment import NearestNeighborDistanceMetric
 from boxmot.utils.ops import xyxy2tlwh
 
+from boxmot.utils import logger as LOGGER
 
-class StrongSort(object):
+class StrongSort(BaseTracker):
     """
-    StrongSORT Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
+    Initialize the StrongSort tracker with various parameters.
 
-    Args:
-        model_weights (str): Path to the model weights for ReID (Re-Identification).
-        device (str): Device on which to run the model (e.g., 'cpu' or 'cuda').
-        fp16 (bool): Whether to use half-precision (fp16) for faster inference on compatible devices.
-        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class.
-        max_dist (float, optional): Maximum cosine distance for ReID feature matching in Nearest Neighbor Distance Metric.
-        max_iou_dist (float, optional): Maximum Intersection over Union (IoU) distance for data association. Controls the maximum allowed distance between tracklets and detections for a match.
-        max_age (int, optional): Maximum number of frames to keep a track alive without any detections.
-        n_init (int, optional): Number of consecutive frames required to confirm a track.
-        nn_budget (int, optional): Maximum size of the feature library for Nearest Neighbor Distance Metric. If the library size exceeds this value, the oldest features are removed.
-        mc_lambda (float, optional): Weight for motion consistency in the track state estimation. Higher values give more weight to motion information.
-        ema_alpha (float, optional): Alpha value for exponential moving average (EMA) update of appearance features. Controls the contribution of new and old embeddings in the ReID model.
+    Parameters:
+    - reid_weights (Path): Path to the re-identification model weights.
+    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
+    - half (bool): Whether to use half-precision (fp16) for faster inference.
+    - det_thresh (float): Detection threshold for considering detections.
+    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
+    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
+    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
+    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
+    - per_class (bool): Enables class-separated tracking.
+    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
+    - asso_func (str): Algorithm name used for data association between detections and tracks.
+    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
+    
+    StrongSort-specific parameters:
+    - min_conf (float): Minimum confidence threshold for detections.
+    - max_cos_dist (float): Maximum cosine distance for ReID feature matching in Nearest Neighbor Distance Metric.
+    - max_iou_dist (float): Maximum IoU distance for data association.
+    - n_init (int): Number of consecutive frames required to confirm a track.
+    - nn_budget (int): Maximum size of the feature library for Nearest Neighbor Distance Metric.
+    - mc_lambda (float): Weight for motion consistency in the track state estimation.
+    - ema_alpha (float): Alpha value for exponential moving average (EMA) update of appearance features.
+    
+    Attributes:
+    - model: ReID model for appearance feature extraction.
+    - tracker: StrongSort tracker instance.
+    - cmc: Camera motion compensation object.
     """
 
     def __init__(
@@ -37,23 +53,49 @@ class StrongSort(object):
         reid_weights: Path,
         device: device,
         half: bool,
+        # BaseTracker parameters
+        det_thresh: float = 0.3,
+        max_age: int = 30,
+        max_obs: int = 50,
+        min_hits: int = 3,
+        iou_threshold: float = 0.3,
         per_class: bool = False,
+        nr_classes: int = 80,
+        asso_func: str = "iou",
+        is_obb: bool = False,
+        # StrongSort-specific parameters
         min_conf: float = 0.1,
-        max_cos_dist=0.2,
-        max_iou_dist=0.7,
-        max_age=30,
-        n_init=3,
-        nn_budget=100,
-        mc_lambda=0.98,
-        ema_alpha=0.9,
+        max_cos_dist: float = 0.2,
+        max_iou_dist: float = 0.7,
+        n_init: int = 3,
+        nn_budget: int = 100,
+        mc_lambda: float = 0.98,
+        ema_alpha: float = 0.9,
+        **kwargs  # Additional BaseTracker parameters
     ):
-
-        self.per_class = per_class
+        # Forward all BaseTracker parameters explicitly
+        super().__init__(
+            det_thresh=det_thresh,
+            max_age=max_age,
+            max_obs=max_obs,
+            min_hits=min_hits,
+            iou_threshold=iou_threshold,
+            per_class=per_class,
+            nr_classes=nr_classes,
+            asso_func=asso_func,
+            is_obb=is_obb,
+            **kwargs
+        )
+        
+        # Store StrongSort-specific parameters
         self.min_conf = min_conf
+        
+        # Initialize ReID model
         self.model = ReidAutoBackend(
             weights=reid_weights, device=device, half=half
         ).model
 
+        # Initialize StrongSort tracker
         self.tracker = Tracker(
             metric=NearestNeighborDistanceMetric("cosine", max_cos_dist, nn_budget),
             max_iou_dist=max_iou_dist,
@@ -62,8 +104,12 @@ class StrongSort(object):
             mc_lambda=mc_lambda,
             ema_alpha=ema_alpha,
         )
+        
+        # Initialize camera motion compensation
         self.cmc = get_cmc_method("ecc")()
 
+        LOGGER.success("Initialized StrongSort")
+        
     @BaseTracker.per_class_decorator
     def update(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
