@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Script to apply targeted patch modifications to:
+Patch the file:
   boxmot/engine/trackeval/trackeval/datasets/mot_challenge_2d_box.py
 
-What this patch does:
-- Change default classes from ['pedestrian'] to ['person', 'car']
-- Remove "pedestrian-only" class validation and allow arbitrary classes
-- Replace the MOT class-id map with a COCO 80-class map
-- Update deprecated NumPy dtypes (np.float/np.int) → float/int
-- Simplify distractor handling (empty list) and remove the MOT20 special-case append
-- Keep all other logic intact
+Changes applied (to match your target file):
+- Default classes: ['pedestrian'] → ["person","bicycle","car"]
+- Remove pedestrian-only validation & allow arbitrary classes
+- Replace MOT class-id map with COCO-80 map
+- Fix deprecated NumPy dtypes: np.float / np.int → float / int
+- Replace entire get_preprocessed_seq_data() with class-filtering version
+- (Optional) keep earlier safeguards; warn if the file differs
 
 The script is defensive:
-- Creates a .backup alongside the target file
-- Uses tolerant regexes with DOTALL
-- Warns if any expected pattern is not found (file may be a different version)
+- Creates a .backup next to the target file
+- Uses tolerant regex with DOTALL where appropriate
+- Emits warnings if patterns are not found
 """
 
 import os
@@ -25,10 +25,9 @@ from pathlib import Path
 
 
 def sub_or_warn(pattern, repl, text, flags=0, label=""):
-    """Run re.sub with a counter; warn if no replacements were made."""
     new_text, n = re.subn(pattern, repl, text, flags=flags)
     if n == 0:
-        print(f"⚠️  Warning: pattern for '{label}' not found. The source file may differ from the expected version.")
+        print(f"⚠️  Warning: pattern for '{label}' not found. The source may differ.")
     else:
         print(f"✅ Applied '{label}' ({n} replacement{'s' if n != 1 else ''}).")
     return new_text, n
@@ -50,17 +49,17 @@ def apply_trackeval_patch(file_path: str) -> bool:
 
         total_changes = 0
 
-        # 1) Default classes ['pedestrian'] -> ['person', 'car']
+        # 1) Default classes: set to ["person","bicycle","car"]
         content, n = sub_or_warn(
             r"'CLASSES_TO_EVAL':\s*\['pedestrian'\],\s*#\s*Valid:\s*\['pedestrian'\]",
-            "'CLASSES_TO_EVAL': ['person', 'car'],  # Valid: any class names (patched)",
+            "'CLASSES_TO_EVAL': [\n                \"person\",\"bicycle\",\"car\"\n            ],  # Valid: any class names (patched)",
             content,
             flags=re.MULTILINE,
-            label="default classes",
+            label="default classes list",
         )
         total_changes += n
 
-        # 2) Replace class validation logic block to allow arbitrary classes
+        # 2) Replace class validation block to allow arbitrary classes
         pattern_class_validation = (
             r"(\#\s*Get classes to eval\s*\n\s*"
             r"self\.valid_classes\s*=\s*\['pedestrian'\]\s*\n\s*"
@@ -85,7 +84,6 @@ def apply_trackeval_patch(file_path: str) -> bool:
         total_changes += n
 
         # 3) Replace the MOT class map with a COCO 80-class map
-        #    We anchor on presence of 'reflection' and 'crowd' keys to limit scope.
         pattern_class_map = (
             r"self\.class_name_to_class_id\s*=\s*\{[^}]*?'pedestrian':\s*1,.*?'reflection':\s*12, 'crowd':\s*13\s*\}"
         )
@@ -110,7 +108,7 @@ def apply_trackeval_patch(file_path: str) -> bool:
         )
         total_changes += n
 
-        # 4) dtype fixes: np.float → float; np.int → int in astype and np.array([], np.int)
+        # 4) dtype fixes: np.float → float; np.int → int (astype and array([],...))
         content, n1 = sub_or_warn(
             r"dtype\s*=\s*np\.float",
             "dtype=float",
@@ -130,63 +128,113 @@ def apply_trackeval_patch(file_path: str) -> bool:
         total_changes += n2
 
         content, n3 = sub_or_warn(
-            r"np\.array\(\s*\[\s*\]\s*,\s*np\.int\s*\)",
-            "np.array([], int)",
-            content,
-            flags=re.MULTILINE,
-            label="np.array([], np.int) → np.array([], int)",
-        )
-        total_changes += n3
-
-        # 5) Remove specific distractor set list (make it empty)
-        content, n = sub_or_warn(
-            r"distractor_class_names\s*=\s*\[\s*'person_on_vehicle'\s*,\s*'static_person'\s*,\s*'distractor'\s*,\s*'reflection'\s*\]",
-            "distractor_class_names = []",
-            content,
-            flags=re.MULTILINE,
-            label="distractor list → []",
-        )
-        total_changes += n
-
-        # 5b) Remove MOT20 special-case append for 'non_mot_vehicle' (prevents KeyError with COCO map)
-        content, n = sub_or_warn(
-            r"distractor_class_names\s*=\s*\[\]\s*\n\s*if\s+self\.benchmark\s*==\s*'MOT20':\s*\n\s*distractor_class_names\.append\('non_mot_vehicle'\)",
-            "distractor_class_names = []  # no MOT20 distractors with COCO map",
-            content,
-            flags=re.MULTILINE,
-            label="remove MOT20 distractor append",
-        )
-        total_changes += n
-
-        # 6) Comment out pedestrian-only validation in get_preprocessed_seq_data
-        pattern_ped_only_block = (
-            r"(\#\s*Evaluation\s+is\s+ONLY\s+valid\s+for\s+pedestrian\s+class\s*\n\s*"
-            r"if\s+len\(tracker_classes\)\s*>\s*0\s*and\s*np\.max\(tracker_classes\)\s*>\s*1:\s*\n\s*"
-            r"raise\s*TrackEvalException\([\s\S]*?timestep %i\.'\s*%\s*\(np\.max\(tracker_classes\),\s*raw_data\['seq'\],\s*t\)\))"
-        )
-        replacement_ped_only_block = (
-            "            # Class validation removed to allow arbitrary classes\n"
-            "            # if len(tracker_classes) > 0 and np.max(tracker_classes) > 1:\n"
-            "            #     raise TrackEvalException(\n"
-            "            #         'Evaluation is only valid for pedestrian class. Non pedestrian class (%i) found in sequence %s at '\n"
-            "            #         'timestep %i.' % (np.max(tracker_classes), raw_data['seq'], t))"
-        )
-        content, n = sub_or_warn(
-            pattern_ped_only_block,
-            replacement_ped_only_block,
-            content,
-            flags=re.DOTALL,
-            label="remove pedestrian-only check",
-        )
-        total_changes += n
-
-        # 7) Also fix any remaining 'np.int' occurrences that may appear elsewhere (safe)
-        content, n = sub_or_warn(
             r"\bnp\.int\b",
             "int",
             content,
             flags=re.MULTILINE,
             label="loose np.int → int",
+        )
+        total_changes += n3
+
+        # 5) Replace the entire get_preprocessed_seq_data() block with your class-filtering version
+        pattern_whole_func = (
+            r"@_timing\.time\s*\n\s*def\s+get_preprocessed_seq_data\(\s*self\s*,\s*raw_data\s*,\s*cls\s*\):"
+            r"[\s\S]*?(?=\n\s*def\s+_calculate_similarities\s*\()"
+        )
+
+        replacement_whole_func = (
+            "@_timing.time\n"
+            "    def get_preprocessed_seq_data(self, raw_data, cls):\n"
+            "        \"\"\" Preprocess data for a single sequence and a single class ready for evaluation. \"\"\"\n"
+            "        # Check that input data has unique ids\n"
+            "        self._check_unique_ids(raw_data)\n\n"
+            "        cls_id = self.class_name_to_class_id[cls]\n\n"
+            "        data_keys = ['gt_ids', 'tracker_ids', 'gt_dets', 'tracker_dets',\n"
+            "                    'tracker_confidences', 'similarity_scores']\n"
+            "        data = {key: [None] * raw_data['num_timesteps'] for key in data_keys}\n"
+            "        unique_gt_ids = []\n"
+            "        unique_tracker_ids = []\n"
+            "        num_gt_dets = 0\n"
+            "        num_tracker_dets = 0\n\n"
+            "        for t in range(raw_data['num_timesteps']):\n"
+            "            # Get all per-timestep data\n"
+            "            gt_ids = raw_data['gt_ids'][t]\n"
+            "            gt_dets = raw_data['gt_dets'][t]\n"
+            "            gt_classes = raw_data['gt_classes'][t]\n"
+            "            gt_zero_marked = raw_data['gt_extras'][t]['zero_marked']\n\n"
+            "            tracker_ids = raw_data['tracker_ids'][t]\n"
+            "            tracker_dets = raw_data['tracker_dets'][t]\n"
+            "            tracker_classes = raw_data['tracker_classes'][t]\n"
+            "            tracker_confidences = raw_data['tracker_confidences'][t]\n"
+            "            similarity_scores = raw_data['similarity_scores'][t]  # shape: (num_gt, num_trk)\n\n"
+            "            # ---------- NEW: keep ONLY tracker detections for the class under evaluation ----------\n"
+            "            # Mask columns (trackers) by class\n"
+            "            trk_keep_mask = (tracker_classes == cls_id)\n"
+            "            if similarity_scores.size > 0:\n"
+            "                similarity_scores = similarity_scores[:, trk_keep_mask]\n"
+            "            data_trk_ids = tracker_ids[trk_keep_mask]\n"
+            "            data_trk_dets = tracker_dets[trk_keep_mask, :] if tracker_dets.size else tracker_dets\n"
+            "            data_trk_confs = tracker_confidences[trk_keep_mask]\n\n"
+            "            # ---------- Keep ONLY GT detections for the class under evaluation (and not zero-marked) ----------\n"
+            "            if self.do_preproc and self.benchmark != 'MOT15':\n"
+            "                gt_keep_mask = (gt_zero_marked != 0) & (gt_classes == cls_id)\n"
+            "            else:\n"
+            "                # MOT15 has no classes, but we still want \"one-class-at-a-time\" behavior; keep all non-zero-marked.\n"
+            "                gt_keep_mask = (gt_zero_marked != 0)\n\n"
+            "            data_gt_ids = gt_ids[gt_keep_mask]\n"
+            "            data_gt_dets = gt_dets[gt_keep_mask, :] if gt_dets.size else gt_dets\n"
+            "            if similarity_scores.size > 0:\n"
+            "                similarity_scores = similarity_scores[gt_keep_mask, :]\n\n"
+            "            # No cross-class distractor removal needed anymore since other classes were filtered out.\n"
+            "            data['tracker_ids'][t] = data_trk_ids\n"
+            "            data['tracker_dets'][t] = data_trk_dets\n"
+            "            data['tracker_confidences'][t] = data_trk_confs\n"
+            "            data['gt_ids'][t] = data_gt_ids\n"
+            "            data['gt_dets'][t] = data_gt_dets\n"
+            "            data['similarity_scores'][t] = similarity_scores\n\n"
+            "            unique_gt_ids += list(np.unique(data_gt_ids))\n"
+            "            unique_tracker_ids += list(np.unique(data_trk_ids))\n"
+            "            num_tracker_dets += len(data_trk_ids)\n"
+            "            num_gt_dets += len(data_gt_ids)\n\n"
+            "        # Re-label IDs such that there are no empty IDs\n"
+            "        if len(unique_gt_ids) > 0:\n"
+            "            unique_gt_ids = np.unique(unique_gt_ids)\n"
+            "            gt_id_map = np.nan * np.ones((np.max(unique_gt_ids) + 1))\n"
+            "            gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))\n"
+            "            for t in range(raw_data['num_timesteps']):\n"
+            "                if len(data['gt_ids'][t]) > 0:\n"
+            "                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)\n\n"
+            "        if len(unique_tracker_ids) > 0:\n"
+            "            unique_tracker_ids = np.unique(unique_tracker_ids)\n"
+            "            tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))\n"
+            "            tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))\n"
+            "            for t in range(raw_data['num_timesteps']):\n"
+            "                if len(data['tracker_ids'][t]) > 0:\n"
+            "                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)\n\n"
+            "        # Record overview statistics.\n"
+            "        data['num_tracker_dets'] = num_tracker_dets\n"
+            "        data['num_gt_dets'] = num_gt_dets\n"
+            "        data['num_tracker_ids'] = len(np.unique(unique_tracker_ids)) if len(unique_tracker_ids) > 0 else 0\n"
+            "        data['num_gt_ids'] = len(np.unique(unique_gt_ids)) if len(unique_gt_ids) > 0 else 0\n"
+            "        data['num_timesteps'] = raw_data['num_timesteps']\n"
+            "        data['seq'] = raw_data['seq']\n\n"
+            "        # Ensure again that ids are unique per timestep after preproc.\n"
+            "        self._check_unique_ids(data, after_preproc=True)\n\n"
+            "        return data\n\n"
+        )
+        content, n = sub_or_warn(
+            pattern_whole_func, replacement_whole_func, content, flags=re.DOTALL | re.MULTILINE,
+            label="replace get_preprocessed_seq_data()"
+        )
+        total_changes += n
+
+        # 6) (Optional legacy) Remove pedestrian-only check if it still exists (harmless if we already replaced func)
+        content, n = sub_or_warn(
+            r"Evaluation is only valid for pedestrian class",
+            "Class validation removed",
+            content,
+            flags=re.DOTALL,
+            label="remove pedestrian-only message (if any remains)",
         )
         total_changes += n
 
@@ -196,7 +244,7 @@ def apply_trackeval_patch(file_path: str) -> bool:
 
         print("\n🎉 Patch completed.")
         print(f"Total replacement operations applied: {total_changes}")
-        print("The MotChallenge2DBox class should now support arbitrary object classes.")
+        print("The file should now match your target behavior.")
         return True
 
     except Exception as e:
@@ -208,29 +256,20 @@ def apply_trackeval_patch(file_path: str) -> bool:
 
 
 def main():
-    # Default path as provided
     target_file = Path("boxmot/engine/trackeval/trackeval/datasets/mot_challenge_2d_box.py")
 
-    # Allow optional CLI argument to override the path
     if len(sys.argv) > 1:
         target_file = Path(sys.argv[1])
 
     if not target_file.exists():
         print(f"❌ Error: Target file not found: {target_file}")
-        print("Please ensure you're running this script from the correct directory,")
-        print("and that the 'boxmot' directory structure exists.")
+        print("Run this from the repo root, or pass the full path to mot_challenge_2d_box.py")
         sys.exit(1)
 
     print(f"🔧 Applying patch to: {target_file}")
     ok = apply_trackeval_patch(str(target_file))
     if ok:
         print("\n✅ Patch applied successfully!")
-        print("Key changes made:")
-        print("- Default classes changed from ['pedestrian'] to ['person', 'car']")
-        print("- Class validation removed to allow arbitrary classes")
-        print("- Class mapping expanded to 80 COCO classes")
-        print("- Deprecated NumPy data types updated")
-        print("- Distractor class handling simplified; MOT20 special-case removed")
         sys.exit(0)
     else:
         print("\n❌ Failed to apply patch")
