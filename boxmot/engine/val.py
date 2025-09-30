@@ -59,11 +59,9 @@ def eval_init(args,
     Modifies args in place.
     """
 
-    # 0) ensure the TrackEval patch is applied
-    apply_trackeval_patch(TRACKEVAL / "trackeval/datasets/mot_challenge_2d_box.py")
-
     # 1) download the TrackEval code
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
+    apply_trackeval_patch(TRACKEVAL / "trackeval/datasets/mot_challenge_2d_box.py")
 
     # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
     if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack-ablation", "vizdrone-ablation"):
