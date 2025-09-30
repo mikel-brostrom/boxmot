@@ -44,7 +44,7 @@ jobs:
         id: cache-restore
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/trackeval/MOT17-ablation.zip
+          path: boxmot/engine/TrackEval/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v3
 
       # Cache data for future runs (only if the cache was not already restored)
@@ -52,66 +52,14 @@ jobs:
         if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/trackeval/MOT17-ablation.zip
+          path: boxmot/engine/TrackEval/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v3
 
       - name: Evaluation and Summarize Results
         run: |
           source .venv/bin/activate
 
-          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source boxmot/engine/trackeval/data/MOT17-ablation/train; then
-            STATUS="✅"
-          else
-            STATUS="❌"
-          fi
-
-          if [ -f ${{ matrix.tracker }}_output.json ]; then
-            HOTA=$(jq -r '.HOTA' ${{ matrix.tracker }}_output.json)
-            MOTA=$(jq -r '.MOTA' ${{ matrix.tracker }}_output.json)
-            IDF1=$(jq -r '.IDF1' ${{ matrix.tracker }}_output.json)
-          else
-            HOTA=""
-            MOTA=""
-            IDF1=""
-          fi
-
-          mkdir results
-          TRACKER_NAME=$(echo "${{ matrix.tracker }}" | awk '{print tolower($0)}')
-
-          if [ "$STATUS" == "❌" ]; then
-            fps=""
-          else
-            # Define static FPS values per tracker
-            declare -A tracker_fps
-            tracker_fps["deepocsort"]=12
-            tracker_fps["bytetrack"]=1265
-            tracker_fps["ocsort"]=1483
-            tracker_fps["strongsort"]=17
-            tracker_fps["botsort"]=46
-            tracker_fps["hybridsort"]=25
-            tracker_fps["boosttrack"]=25
-
-            # Retrieve the static FPS value for the current tracker
-            fps=${tracker_fps[$TRACKER_NAME]}
-          fi
-
-          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}.txt
-
-      - name: Verify dataset layout
-        run: |
-          ls -la boxmot/engine/trackeval/data
-          ls -la boxmot/engine/trackeval/data/MOT17-ablation || true
-          ls -la boxmot/engine/trackeval/data/MOT17-ablation/train || true
-
-      - name: Evaluation and Summarize Results
-        run: |
-
-          ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval
-          ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval/trackeval
-
-          source .venv/bin/activate
-
-          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source boxmot/engine/trackeval/data/MOT17-ablation/train; then
+          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source MOT17-ablation; then
             STATUS="✅"
           else
             STATUS="❌"
