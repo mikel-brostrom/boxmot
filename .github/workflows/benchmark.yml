@@ -99,9 +99,9 @@ jobs:
 
       - name: Verify dataset layout
         run: |
-          ls -la boxmot/engine/TrackEval/data
-          ls -la boxmot/engine/TrackEval/data/MOT17-ablation || true
-          ls -la boxmot/engine/TrackEval/data/MOT17-ablation/train || true
+          ls -la boxmot/engine/trackeval/data
+          ls -la boxmot/engine/trackeval/data/MOT17-ablation || true
+          ls -la boxmot/engine/trackeval/data/MOT17-ablation/train || true
 
       - name: Evaluation and Summarize Results
         run: |
