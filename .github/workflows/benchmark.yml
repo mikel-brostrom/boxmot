@@ -105,6 +105,10 @@ jobs:
 
       - name: Evaluation and Summarize Results
         run: |
+
+          ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval
+          ls /home/runner/work/boxmot/boxmot/boxmot/engine/trackeval/trackeval
+
           source .venv/bin/activate
 
           if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source boxmot/engine/trackeval/data/MOT17-ablation/train; then
