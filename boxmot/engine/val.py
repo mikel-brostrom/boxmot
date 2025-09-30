@@ -25,7 +25,6 @@ from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, TRACKEVAL
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
-from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
 from boxmot.utils.trackeval_patch import apply_trackeval_patch
 from boxmot.utils.misc import increment_path, prompt_overwrite
