@@ -279,7 +279,7 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
-              'classes': [0],
+              'classes': list(range(80)),  # COCO 80 classes -> indices 0..79
               'source': src,
               'benchmark': bench,
               'split': split}
@@ -327,9 +327,9 @@ def all(ctx, yolo_model, reid_model, classes, **kwargs):
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
     params = {**kwargs,
-              'yolo_model': list(yolo-model),
-              'reid_model': list(reid-model),
-              'classes': [0],
+              'yolo_model': list(yolo_model),
+              'reid_model': list(reid_model),
+              'classes': list(range(80)),  # COCO 80 classes -> indices 0..79
               'source': src,
               'benchmark': bench,
               'split': split}
