@@ -53,7 +53,7 @@ def apply_trackeval_patch(file_path: str) -> bool:
         # 1) Default classes: set to ["person","bicycle","car"]
         content, n = sub_or_warn(
             r"'CLASSES_TO_EVAL':\s*\['pedestrian'\],\s*#\s*Valid:\s*\['pedestrian'\]",
-            "'CLASSES_TO_EVAL': [\n                \"person\",\"bicycle\",\"car\"\n            ],  # Valid: any class names (patched)",
+            "'CLASSES_TO_EVAL': [\n                \"person\"\n            ],  # Valid: any class names (patched)",
             content,
             flags=re.MULTILINE,
             label="default classes list",
