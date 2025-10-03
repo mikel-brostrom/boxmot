@@ -467,7 +467,7 @@ class HybridSort(BaseTracker):
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
         Requires: this method must be called once for each frame even with empty detections
         (use np.empty((0, 5)) for frames without detections).
-        Returns the a similar array, where the last column is the object ID.
+        Returns a similar array, where the last column is the object ID.
         NOTE: The number of objects returned may differ from the number of detections provided.
         """
 
@@ -485,9 +485,12 @@ class HybridSort(BaseTracker):
         scores = dets[:, 4]
         bboxes = dets[:, :4]
 
+        # Add detection indices to the original dets array
+        det_indices = np.arange(len(dets)).reshape(-1, 1)
+        dets0 = np.hstack([dets, det_indices])  # [x1, y1, x2, y2, score, class, det_index]
+
+        # Extract embeddings for the detections
         dets_embs = self.model.get_features(bboxes, img)
-        dets0 = np.concatenate((dets, np.expand_dims(scores, axis=-1)), axis=1)
-        dets = np.concatenate((bboxes, np.expand_dims(scores, axis=-1)), axis=1)
         inds_low = scores > self.low_thresh
         inds_high = scores < self.det_thresh
         inds_second = np.logical_and(
@@ -542,13 +545,40 @@ class HybridSort(BaseTracker):
                 for trk in self.active_tracks
             ]
         )
-        last_boxes = np.array([trk.last_observation for trk in self.active_tracks])
-        k_observations = np.array(
-            [
-                k_previous_obs(trk.observations, trk.age, self.delta_t)
-                for trk in self.active_tracks
-            ]
-        )
+        
+        try:
+            last_boxes = np.array([trk.last_observation for trk in self.active_tracks])
+        except ValueError:
+            # Handle inconsistent shapes by ensuring uniform dimensions
+            last_boxes = []
+            for trk in self.active_tracks:
+                # Ensure each observation is a consistent 5-element array
+                if isinstance(trk.last_observation, np.ndarray) and trk.last_observation.shape == (5,):
+                    last_boxes.append(trk.last_observation)
+                else:
+                    # Use placeholder for inconsistent observations
+                    last_boxes.append(np.array([-1, -1, -1, -1, -1]))
+            last_boxes = np.array(last_boxes)
+            
+        try:
+            k_observations = np.array(
+                [
+                    k_previous_obs(trk.observations, trk.age, self.delta_t)
+                    for trk in self.active_tracks
+                ]
+            )
+        except ValueError:
+            # Handle inconsistent shapes by ensuring uniform dimensions
+            k_observations = []
+            for trk in self.active_tracks:
+                obs = k_previous_obs(trk.observations, trk.age, self.delta_t)
+                # Ensure each observation is exactly 5 elements
+                if isinstance(obs, np.ndarray) and obs.shape == (5,):
+                    k_observations.append(obs)
+                else:
+                    # Convert to array or use placeholder for inconsistent observations
+                    k_observations.append(np.array([-1, -1, -1, -1, -1]))
+            k_observations = np.array(k_observations)
 
         """
             First round of association
@@ -632,7 +662,10 @@ class HybridSort(BaseTracker):
         # update with id feature
         for m in matched:
             self.active_tracks[m[1]].update(
-                dets[m[0], :], dets0[m[0], 5], dets0[m[0], 6], id_feature_keep[m[0], :]
+                dets[m[0], :], 
+                dets0[m[0], 5],  # class
+                int(dets0[m[0], 6]),  # detection index
+                id_feature_keep[m[0], :]
             )
 
         """
@@ -737,8 +770,8 @@ class HybridSort(BaseTracker):
         for i in unmatched_dets:
             trk = KalmanBoxTracker(
                 dets[i, :],
-                dets0[i, 5],
-                dets0[i, 6],
+                dets0[i, 5],  # class
+                int(dets0[i, 6]),  # detection index
                 id_feature_keep[i, :],
                 delta_t=self.delta_t,
                 max_obs=self.max_obs,
