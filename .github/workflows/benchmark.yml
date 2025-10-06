@@ -199,7 +199,6 @@ jobs:
           add-paths: README.md
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ env.BRANCH_NAME }}
-          base: main
           commit-message: Overwrite tracker results in README.md
           title: Overwrite tracker results in README.md
           body: "This PR updates the tracker results table in the README.md."
