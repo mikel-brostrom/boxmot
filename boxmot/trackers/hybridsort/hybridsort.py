@@ -374,21 +374,21 @@ class HybridSort(BaseTracker):
         with_reid: bool = True,
 
         # BaseTracker params
-        det_thresh: float = 0.5,
+        det_thresh: float = 0.7,
         max_age: int = 30,
         max_obs: int = 50,
         min_hits: int = 3,
-        iou_threshold: float = 0.3,
+        iou_threshold: float = 0.15,
         per_class: bool = False,
         nr_classes: int = 80,
-        asso_func: str = "iou",
+        asso_func: str = "hmiou",
         is_obb: bool = False,  # not used here (AABB only)
 
         # Hybrid-SORT specific
         low_thresh: float = 0.1,
         delta_t: int = 3,
-        inertia: float = 0.2,
-        use_byte: bool = False,
+        inertia: float = 0.05,
+        use_byte: bool = True,
 
         # KF / ReID
         use_custom_kf: bool = True,
@@ -398,21 +398,21 @@ class HybridSort(BaseTracker):
         track_thresh: float = 0.5,
 
         # Embedding-guided association
-        EG_weight_high_score: float = 0.0,
-        EG_weight_low_score: float = 0.0,
+        EG_weight_high_score: float = 4.6,
+        EG_weight_low_score: float = 1.3,
 
         # Two-step toggles / thresholds
         TCM_first_step: bool = True,
-        TCM_byte_step: bool = False,
-        TCM_byte_step_weight: float = 0.0,
+        TCM_byte_step: bool = True,
+        TCM_byte_step_weight: float = 1.0,
         high_score_matching_thresh: float = 0.7,
 
         # Long-term reid
-        with_longterm_reid: bool = False,
+        with_longterm_reid: bool = True,
         longterm_reid_weight: float = 0.0,
-        with_longterm_reid_correction: bool = False,
-        longterm_reid_correction_thresh: float = 0.5,
-        longterm_reid_correction_thresh_low: float = 0.5,
+        with_longterm_reid_correction: bool = True,
+        longterm_reid_correction_thresh: float = 0.4,
+        longterm_reid_correction_thresh_low: float = 0.4,
 
         # misc
         dataset: str = "",

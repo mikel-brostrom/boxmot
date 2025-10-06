@@ -539,7 +539,7 @@ def associate_4_points_with_score(detections, trackers, iou_threshold, lt, rt, l
     angle_diff_cost = cost_lt + cost_rt + cost_lb + cost_rb
 
     # TCM
-    angle_diff_cost -= score_dif * 0.6
+    angle_diff_cost -= score_dif * 1.0 # args.TCM_first_step_weight
 
     if min(iou_matrix.shape) > 0:
         a = (iou_matrix > iou_threshold).astype(np.int32)
@@ -596,7 +596,7 @@ def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold,
     angle_diff_cost = cost_lt + cost_rt + cost_lb + cost_rb
 
     # TCM
-    angle_diff_cost -= score_dif * 0.6
+    angle_diff_cost -= score_dif * 1.0 # args.TCM_first_step_weight
 
     if min(iou_matrix.shape) > 0:
         if emb_cost is None:
@@ -633,7 +633,7 @@ def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold,
     if with_longterm_reid_correction:
         for m in matched_indices:
             if (emb_cost[m[0], m[1]] > longterm_reid_correction_thresh) and (iou_matrix_thre[m[0], m[1]] < iou_threshold):
-                print("correction:", emb_cost[m[0], m[1]])
+                #print("correction:", emb_cost[m[0], m[1]])
                 unmatched_detections.append(m[0])
                 unmatched_trackers.append(m[1])
             else:
@@ -742,7 +742,7 @@ def embedding_distance(tracks_feat, detections_feat, metric='cosine'):
     :return: cost_matrix np.ndarray
     """
 
-    cost_matrix = np.zeros((len(tracks_feat), len(detections_feat)), dtype=np.float)
+    cost_matrix = np.zeros((len(tracks_feat), len(detections_feat)), dtype=float)
     if cost_matrix.size == 0:
         return cost_matrix
     # det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float)    # [detection_num, emd_dim]
