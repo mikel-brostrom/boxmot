@@ -56,6 +56,7 @@
 | [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 67.796 | 75.868 | 80.514 | 12 |
 | [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 1265 |
 | [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.548 | 77.899 | 1483 |
+| [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | 66.364 | 71.382 | 77.312 | 25 |
 
 <!-- END TRACKER TABLE -->
 
