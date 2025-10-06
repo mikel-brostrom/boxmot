@@ -8,8 +8,7 @@
 
 from collections import deque
 from pathlib import Path
-from typing import List
-
+from typing import List, Optional, Union
 import numpy as np
 import torch
 
@@ -264,7 +263,7 @@ class KalmanBoxTracker(object):
         # write back to KF (keep score)
         self.kf.x[:5] = convert_bbox_to_z([x1_, y1_, x2_, y2_, float(score)])
 
-    def update(self, bbox, id_feature, update_feature: bool = True, *, cls: int | None = None, det_ind: int | None = None):
+    def update(self, bbox, id_feature, update_feature: bool = True, *, cls: Optional[int] = None, det_ind: Optional[int] = None):
         vlt = vrt = vlb = vrb = None
         if bbox is not None:
             if self.last_observation.sum() >= 0:
@@ -372,7 +371,7 @@ class HybridSort(BaseTracker):
     def __init__(
         self,
         # ReID & CMC
-        reid_weights: Path | str | None,
+        reid_weights: Optional[Union[Path, str]],
         device: torch.device,
         half: bool,
         cmc_method: str = "ecc",
