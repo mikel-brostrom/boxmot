@@ -14,44 +14,78 @@ class BaseTracker(ABC):
         self,
         det_thresh: float = 0.3,
         max_age: int = 30,
+        max_obs: int = 50,
         min_hits: int = 3,
         iou_threshold: float = 0.3,
-        max_obs: int = 50,
-        nr_classes: int = 80,
         per_class: bool = False,
+        nr_classes: int = 80,
         asso_func: str = "iou",
         is_obb: bool = False,
+        **kwargs,
     ):
         """
-        Initialize the BaseTracker object with detection threshold, maximum age, minimum hits,
-        and Intersection Over Union (IOU) threshold for tracking objects in video frames.
+        Initialize the BaseTracker object
 
         Parameters:
         - det_thresh (float): Detection threshold for considering detections.
-        - max_age (int): Maximum age of a track before it is considered lost.
+        - max_age (int): Maximum age (in frames) of a track before it is considered lost.
+        - max_obs (int): Maximum number of historical observations (bounding boxes) stored for each track. max_obs is always greater than max_age by minimum 5. 
         - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
         - iou_threshold (float): IOU threshold for determining match between detection and tracks.
+        - per_class (bool): Enables class-separated tracking
+        - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True)
+        - asso_func (str): Algorithm name used for data association between detections and tracks
+            Options:
+                - "iou" (default): Standard Intersection over Union
+                - "iou_obb": IoU for oriented bounding boxes
+                - "hmiou": Height-modified IoU that incorporates vertical overlap ratio
+                - "giou": Generalized IoU that penalizes non-overlapping boxes
+                - "ciou": Complete IoU with center point distance and aspect ratio consistency
+                - "diou": Distance IoU that considers center point distance
+                - "centroid": Distance between centroids of bounding boxes
+                - "centroid_obb": Centroid distance for oriented bounding boxes
+        - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes? 
+                If False (default): If True: dets.shape[1] == 6, i.e. (x1,y1,x2,y2,conf,cls)
+                If True: dets.shape[1] == 7, i.e. (cx,cy,w,h,angle,conf,cls)
 
         Attributes:
         - frame_count (int): Counter for the frames processed.
         - active_tracks (list): List to hold active tracks, may be used differently in subclasses.
         """
+
+        LOGGER.info("BaseTracker initialization parameters:")
+        LOGGER.info(f"det_thresh: {det_thresh}")
+        LOGGER.info(f"max_age: {max_age}")
+        LOGGER.info(f"max_obs: {max_obs}")
+        LOGGER.info(f"min_hits: {min_hits}")
+        LOGGER.info(f"iou_threshold: {iou_threshold}")
+        LOGGER.info(f"per_class: {per_class}")
+        LOGGER.info(f"nr_classes: {nr_classes}")
+        LOGGER.info(f"asso_func: {asso_func}")
+        LOGGER.info(f"is_obb: {is_obb}")
+        if kwargs:
+            LOGGER.info("Additional parameters:")
+            for key, value in kwargs.items():
+                LOGGER.info(f"{key}: {value}")
+        
         self.det_thresh = det_thresh
         self.max_age = max_age
         self.max_obs = max_obs
         self.min_hits = min_hits
-        self.per_class = per_class  # Track per class or not
-        self.nr_classes = nr_classes
         self.iou_threshold = iou_threshold
-        self.last_emb_size = None
+        self.per_class = per_class  
+        self.nr_classes = nr_classes
         self.asso_func_name = asso_func + "_obb" if is_obb else asso_func
         self.is_obb = is_obb
 
+        # Attributes
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
+        
         self.per_class_active_tracks = None
         self._first_frame_processed = False  # Flag to track if the first frame has been processed
         self._first_dets_processed = False
+        self.last_emb_size = None # Tracks the dimensionality of embedding vectors used for re-identification during tracking. 
 
         # Initialize per-class active tracks
         if self.per_class:
@@ -398,7 +432,7 @@ class BaseTracker(ABC):
             if not a.history_observations: continue
             if len(a.history_observations) < 3: continue
             box = a.history_observations[-1]
-            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
+            img = self.plot_box_on_img(img, box, a.confidence, a.cls, a.id, thickness, fontscale)
             if not show_trajectories: continue
             img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
         return img

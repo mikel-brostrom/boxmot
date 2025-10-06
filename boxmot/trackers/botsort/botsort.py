@@ -22,28 +22,48 @@ from boxmot.utils.matching import (
     iou_distance,
     linear_assignment,
 )
+from boxmot.utils import logger as LOGGER
 
 
 class BotSort(BaseTracker):
     """
-    BoTSORT Tracker: A tracking algorithm that combines appearance and motion-based tracking.
+    Initialize the BotSort tracker with various parameters.
 
-    Args:
-        reid_weights (str): Path to the model weights for ReID.
-        device (torch.device): Device to run the model on (e.g., 'cpu' or 'cuda').
-        half (bool): Use half-precision (fp16) for faster inference.
-        per_class (bool, optional): Whether to perform per-class tracking.
-        track_high_thresh (float, optional): Detection confidence threshold for first association.
-        track_low_thresh (float, optional): Detection confidence threshold for ignoring detections.
-        new_track_thresh (float, optional): Threshold for creating a new track.
-        track_buffer (int, optional): Frames to keep a track alive after last detection.
-        match_thresh (float, optional): Matching threshold for data association.
-        proximity_thresh (float, optional): IoU threshold for first-round association.
-        appearance_thresh (float, optional): Appearance embedding distance threshold for ReID.
-        cmc_method (str, optional): Method for correcting camera motion, e.g., "sof" (simple optical flow).
-        frame_rate (int, optional): Video frame rate, used to scale the track buffer.
-        fuse_first_associate (bool, optional): Fuse appearance and motion in the first association step.
-        with_reid (bool, optional): Use ReID features for association.
+    Parameters:
+    - reid_weights (Path): Path to the re-identification model weights.
+    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
+    - half (bool): Whether to use half-precision (fp16) for faster inference.
+    - det_thresh (float): Detection threshold for considering detections.
+    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
+    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
+    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
+    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
+    - per_class (bool): Enables class-separated tracking.
+    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
+    - asso_func (str): Algorithm name used for data association between detections and tracks.
+    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
+    
+    BotSort-specific parameters:
+    - track_high_thresh (float): Detection confidence threshold for first association.
+    - track_low_thresh (float): Detection confidence threshold for ignoring detections.
+    - new_track_thresh (float): Threshold for creating a new track.
+    - track_buffer (int): Frames to keep a track alive after last detection.
+    - match_thresh (float): Matching threshold for data association.
+    - proximity_thresh (float): IoU threshold for first-round association.
+    - appearance_thresh (float): Appearance embedding distance threshold for ReID.
+    - cmc_method (str): Method for correcting camera motion, e.g., "sof" (simple optical flow).
+    - frame_rate (int): Video frame rate, used to scale the track buffer.
+    - fuse_first_associate (bool): Fuse appearance and motion in the first association step.
+    - with_reid (bool): Use ReID features for association.
+    
+    Attributes:
+    - frame_count (int): Counter for the frames processed.
+    - active_tracks (list): List to hold active tracks.
+    - lost_stracks (list[STrack]): List of lost tracks.
+    - removed_stracks (list[STrack]): List of removed tracks.
+    - buffer_size (int): Size of the track buffer based on frame rate.
+    - max_time_lost (int): Maximum time a track can be lost.
+    - kalman_filter (KalmanFilterXYWH): Kalman filter for motion prediction.
     """
 
     def __init__(
@@ -51,7 +71,17 @@ class BotSort(BaseTracker):
         reid_weights: Path,
         device: torch.device,
         half: bool,
+        # BaseTracker parameters
+        det_thresh: float = 0.3,
+        max_age: int = 30,
+        max_obs: int = 50,
+        min_hits: int = 3,
+        iou_threshold: float = 0.3,
         per_class: bool = False,
+        nr_classes: int = 80,
+        asso_func: str = "iou",
+        is_obb: bool = False,
+        # BotSort-specific parameters
         track_high_thresh: float = 0.5,
         track_low_thresh: float = 0.1,
         new_track_thresh: float = 0.6,
@@ -60,11 +90,25 @@ class BotSort(BaseTracker):
         proximity_thresh: float = 0.5,
         appearance_thresh: float = 0.25,
         cmc_method: str = "ecc",
-        frame_rate=30,
+        frame_rate: int = 30,
         fuse_first_associate: bool = False,
         with_reid: bool = True,
+        **kwargs  # Additional BaseTracker parameters
     ):
-        super().__init__(per_class=per_class)
+        # Forward all BaseTracker parameters explicitly
+        super().__init__(
+            det_thresh=det_thresh,
+            max_age=max_age,
+            max_obs=max_obs,
+            min_hits=min_hits,
+            iou_threshold=iou_threshold,
+            per_class=per_class,
+            nr_classes=nr_classes,
+            asso_func=asso_func,
+            is_obb=is_obb,
+            **kwargs
+        )
+        
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
         BaseTrack.clear_count()
@@ -91,6 +135,8 @@ class BotSort(BaseTracker):
         self.cmc = get_cmc_method(cmc_method)()
         self.fuse_first_associate = fuse_first_associate
 
+        LOGGER.success("Initialized BotSort")
+        
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(
@@ -158,7 +204,7 @@ class BotSort(BaseTracker):
         )
 
         # Update lost and removed tracks
-        self._update_track_states(lost_stracks, removed_stracks)
+        self._update_track_states(removed_stracks)
 
         # Merge and prepare output
         return self._prepare_output(
@@ -380,7 +426,7 @@ class BotSort(BaseTracker):
             for track in unmatched_tracks:
                 track.mark_removed()
 
-    def _update_track_states(self, lost_stracks, removed_stracks):
+    def _update_track_states(self, removed_stracks):
         for track in self.lost_stracks:
             if self.frame_count - track.end_frame > self.max_time_lost:
                 track.mark_removed()

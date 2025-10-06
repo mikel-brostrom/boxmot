@@ -10,6 +10,7 @@ from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
 from boxmot.utils.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
 
+from boxmot.utils import logger as LOGGER
 
 class STrack(BaseTrack):
     # Shared instance *only* for the write-free multi_predict().
@@ -159,42 +160,90 @@ class STrack(BaseTrack):
 
 class ByteTrack(BaseTracker):
     """
-    BYTETracker: A tracking algorithm based on ByteTrack, which utilizes motion-based tracking.
+    Initialize the ByteTrack tracker with various parameters.
 
-    Args:
-        min_conf (float, optional): Threshold for detection confidence. Detections below this threshold are discarded.
-        track_thresh (float, optional): Threshold for detection confidence. Detections above this threshold are considered for tracking in the first association round.
-        match_thresh (float, optional): Threshold for the matching step in data association. Controls the maximum distance allowed between tracklets and detections for a match.
-        track_buffer (int, optional): Number of frames to keep a track alive after it was last detected. A longer buffer allows for more robust tracking but may increase identity switches.
-        frame_rate (int, optional): Frame rate of the video being processed. Used to scale the track buffer size.
-        per_class (bool, optional): Whether to perform per-class tracking. If True, tracks are maintained separately for each object class.
+    Parameters:
+    - det_thresh (float): Detection threshold for considering detections.
+    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
+    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
+    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
+    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
+    - per_class (bool): Enables class-separated tracking.
+    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
+    - asso_func (str): Algorithm name used for data association between detections and tracks.
+    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
+    
+    ByteTrack-specific parameters:
+    - min_conf (float): Threshold for detection confidence. Detections below this threshold are discarded.
+    - track_thresh (float): Threshold for detection confidence. Detections above this threshold are considered for tracking in the first association round.
+    - match_thresh (float): Threshold for the matching step in data association. Controls the maximum distance allowed between tracklets and detections for a match.
+    - track_buffer (int): Number of frames to keep a track alive after it was last detected.
+    - frame_rate (int): Frame rate of the video being processed. Used to scale the track buffer size.
+    
+    Attributes:
+    - frame_count (int): Counter for the frames processed.
+    - active_tracks (list): List to hold active tracks.
+    - lost_stracks (list[STrack]): List of lost tracks.
+    - removed_stracks (list[STrack]): List of removed tracks.
+    - buffer_size (int): Size of the track buffer based on frame rate.
+    - max_time_lost (int): Maximum time a track can be lost.
+    - kalman_filter (KalmanFilterXYAH): Kalman filter for motion prediction.
     """
 
     def __init__(
         self,
+        # BaseTracker parameters
+        det_thresh: float = 0.3,
+        max_age: int = 30,
+        max_obs: int = 50,
+        min_hits: int = 3,
+        iou_threshold: float = 0.3,
+        per_class: bool = False,
+        nr_classes: int = 80,
+        asso_func: str = "iou",
+        is_obb: bool = False,
+        # ByteTrack-specific parameters
         min_conf: float = 0.1,
         track_thresh: float = 0.45,
         match_thresh: float = 0.8,
         track_buffer: int = 25,
         frame_rate: int = 30,
-        per_class: bool = False,
+        **kwargs  # Additional BaseTracker parameters
     ):
-        super().__init__(per_class=per_class)
+        # Forward all BaseTracker parameters explicitly
+        super().__init__(
+            det_thresh=det_thresh,
+            max_age=max_age,
+            max_obs=max_obs,
+            min_hits=min_hits,
+            iou_threshold=iou_threshold,
+            per_class=per_class,
+            nr_classes=nr_classes,
+            asso_func=asso_func,
+            is_obb=is_obb,
+            **kwargs
+        )
+        
+        # Track lifecycle parameters
+        self.frame_id = 0
+        self.track_buffer = track_buffer
+        self.buffer_size = int(frame_rate / 30.0 * track_buffer)
+        self.max_time_lost = self.buffer_size
+
+        # Detection thresholds
+        self.min_conf = min_conf
+        self.track_thresh = track_thresh
+        self.match_thresh = match_thresh
+        self.det_thresh = track_thresh  # Same as track_thresh
+
+        # Motion model
+        self.kalman_filter = KalmanFilterXYAH()
+        
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
 
-        self.frame_id = 0
-        self.track_buffer = track_buffer
-
-        self.per_class = per_class
-        self.min_conf = min_conf
-        self.track_thresh = track_thresh
-        self.match_thresh = match_thresh
-        self.det_thresh = track_thresh
-        self.buffer_size = int(frame_rate / 30.0 * track_buffer)
-        self.max_time_lost = self.buffer_size
-        self.kalman_filter = AMSKalmanFilterXYWH()
+        LOGGER.success("Initialized ByteTrack")
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

@@ -72,7 +72,7 @@ build-backend = "hatchling.build"
 
 [project]
 name            = "boxmot"
-version         = "15.0.2"
+version         = "15.0.4"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
 requires-python = ">=3.9,<=3.13"
@@ -149,7 +149,7 @@ test = [
   "pytest-cov<7.0.0,>=6.0.0",
 ]
 
-yolo = ["ultralytics"]
+yolo = ["ultralytics>=3.8.200"]
 
 evolve = [
   "ray<3.0.0,>=2.35.0",
