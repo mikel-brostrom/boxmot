@@ -1,20 +1,15 @@
-# name of the workflow, what it is doing (optional)
+
 name: Benchmark
 
-# events that trigger the workflow (required)
 on:
   push:
-    # pushes to the following branches
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    # pull request where master is target
-    branches:
-      - main
-  workflow_dispatch:  # Add this line to allow manual triggering
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
-  contents: write        # Allows reading and writing repository contents
+  contents: write
   pull-requests: write
 
 jobs:
@@ -25,7 +20,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ['3.12']
-        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "strongsort", "boosttrack", "hybridsort"]
+        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "strongsort", "boosttrack"]
     timeout-minutes: 50
 
     steps:
@@ -39,36 +34,33 @@ jobs:
 
       - name: Install requirements
         run: |
-          sudo apt-get install -y jq curl
-
+          sudo apt-get update
+          sudo apt-get install -y jq curl unzip
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           uv sync --group yolo
 
       # Restore the cached dataset (if available)
       - name: Restore MOT17 dataset cache
+        id: cache-restore
         uses: actions/cache@v4
         with:
-          # Specify the path where the dataset is stored
-          path: boxmot/engine/trackeval/MOT17-ablation.zip
-          # Create a cache key, you can use a fixed key if the dataset is static
+          path: boxmot/engine/TrackEval/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v3
 
       # Cache data for future runs (only if the cache was not already restored)
       - name: Cache MOT17.zip if not already cached
-        if: steps.cache-restore.outputs.cache-hit != 'true'  # Only run if the cache was not hit
+        if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/TracEval/MOT17-ablation.zip
+          path: boxmot/engine/TrackEval/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v3
 
       - name: Evaluation and Summarize Results
         run: |
-          ls boxmot/engine/trackeval/data
-
           source .venv/bin/activate
 
-          if boxmot eval --classes 0 --yolo-model yolox_x_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source boxmot/engine/TrackEval/data/MOT17-ablation/train; then
+          if boxmot eval --classes 0 --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source MOT17-ablation; then
             STATUS="✅"
           else
             STATUS="❌"
@@ -84,13 +76,12 @@ jobs:
             IDF1=""
           fi
 
-          mkdir results
+          mkdir -p results
           TRACKER_NAME=$(echo "${{ matrix.tracker }}" | awk '{print tolower($0)}')
 
-          if [ "$STATUS" == "❌" ]; then
+          if [ "$STATUS" = "❌" ]; then
             fps=""
           else
-            # Define static FPS values per tracker
             declare -A tracker_fps
             tracker_fps["deepocsort"]=12
             tracker_fps["bytetrack"]=1265
@@ -99,13 +90,11 @@ jobs:
             tracker_fps["botsort"]=46
             tracker_fps["hybridsort"]=25
             tracker_fps["boosttrack"]=25
-
-            # Retrieve the static FPS value for the current tracker
             fps=${tracker_fps[$TRACKER_NAME]}
           fi
 
           echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}.txt
-        
+
       - name: Show Results
         run: cat results/${{ matrix.tracker }}.txt
 
@@ -124,27 +113,23 @@ jobs:
       - name: Download all results artifacts
         uses: actions/download-artifact@v4
         with:
-          path: results  # Specify the path where you want to store the artifacts
-          run-id: ${{ github.run_id }}
+          path: results
 
       - name: Check downloaded files
         run: |
           echo "Downloaded files in the results directory:"
-          ls -la results/*/
+          ls -la results/*/ || true
 
       - name: Combine results
         run: |
-          touch combined_results.csv  # Ensure the file exists
+          touch combined_results.csv
           for file in results/*/*; do
             if [ -f "$file" ]; then
-              cat "$file" >> combined_results.csv  # Use cat to include all lines
+              cat "$file" >> combined_results.csv
             fi
           done
 
-          # Sort the results by the third column (HOTA) in descending order
           sort -t, -k3 -nr combined_results.csv > sorted_results.csv
-
-          # Create a pretty table from the sorted_results.csv file
           column -s, -t sorted_results.csv > pretty_results.txt
 
       - name: Show Combined Results
@@ -157,14 +142,10 @@ jobs:
 
       - name: Update README with tracker results
         run: |
-          # Paths
           RESULTS_FILE="pretty_results.txt"
           README_FILE="README.md"
-
-          # Backup original README in case needed
           cp "$README_FILE" "${README_FILE}.bak"
 
-          # Define paper names and their corresponding URLs
           declare -A paper_links
           paper_links["boosttrack"]="https://arxiv.org/abs/2408.13003"
           paper_links["deepocsort"]="https://arxiv.org/abs/2302.11813"
@@ -174,11 +155,9 @@ jobs:
           paper_links["botsort"]="https://arxiv.org/abs/2206.14651"
           paper_links["hybridsort"]="https://arxiv.org/abs/2308.00783"
 
-          # Create the markdown table header
           new_table="| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |\n"
           new_table+="| :-----: | :-----: | :---: | :---: | :---: | :---: |\n"
 
-          # Append the contents of pretty_results.txt to the table
           while read -r line; do
               tracker=$(echo "$line" | awk '{print $1}')
               status=$(echo "$line" | awk '{print $2}')
@@ -186,53 +165,41 @@ jobs:
               mota=$(echo "$line" | awk '{print $4}')
               idf1=$(echo "$line" | awk '{print $5}')
               fps=$(echo "$line" | awk '{print $6}')
-
-              # Retrieve the paper URL for the tracker
               paper_url=${paper_links[$tracker]}
-              
-              # Create a markdown hyperlink for the tracker name
-              tracker_link="[$tracker]($paper_url)"
-              
+              tracker_link="[$tracker](${paper_url:-#})"
               new_table+="| $tracker_link | $status | $hota | $mota | $idf1 | $fps |\n"
           done < "$RESULTS_FILE"
 
-          # Define unique markers to locate the table
           start_marker="<!-- START TRACKER TABLE -->"
           end_marker="<!-- END TRACKER TABLE -->"
 
-          # Use awk to replace lines between markers, preserving non-table content
           awk -v start_marker="$start_marker" -v end_marker="$end_marker" -v new_table="$new_table" '
               $0 == start_marker { print $0; print new_table; in_table=1; next }
               $0 == end_marker { in_table=0; print $0; next }
               !in_table
           ' "$README_FILE" > temp_readme.md
 
-          # Replace original README with updated version
           mv temp_readme.md "$README_FILE"
 
-      # Check for changes
       - name: Check for changes in README.md
         id: check_changes
         run: |
           if git diff --quiet README.md; then
-            echo "No changes to commit."
-            echo "changed=false" >> $GITHUB_ENV  # Writing to the environment file
+            echo "changed=false" >> $GITHUB_ENV
           else
-            echo "README changed!"
-            echo "changed=true" >> $GITHUB_ENV  # Writing to the environment file
             BRANCH_NAME="update-tracker-results-$(date +%Y%m%d%H%M%S)"
-            echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV  # Store the branch name in the GitHub environment
+            echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+            echo "changed=true" >> $GITHUB_ENV
           fi
 
-      # Create a pull request (PR)
       - name: Create Pull Request
         if: env.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           add-paths: README.md
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ env.BRANCH_NAME }}  # Use the created branch
-          base: master  # Base branch for the pull request, replace with your actual base branch (e.g., main or develop)
+          branch: ${{ env.BRANCH_NAME }}
+          base: main
           commit-message: Overwrite tracker results in README.md
           title: Overwrite tracker results in README.md
           body: "This PR updates the tracker results table in the README.md."
