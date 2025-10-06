@@ -27,16 +27,18 @@ TRACKEVAL  = ENGINE / "trackeval"
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of multiprocessing threads
 
 def _is_main_process(record):
-    return mp.current_process().name == "MainProcess"
+    # Works correctly even with enqueue=True
+    return record["process"].name == "MainProcess"
 
-def configure_logging():
+def configure_logging(main_only: bool = True):
     logger.remove()
     logger.add(
         sys.stderr,
-        level="DEBUG",
+        level="INFO",
         backtrace=True,
         diagnose=True,
         enqueue=True,  # safe with ProcessPool / spawn
+        filter=_is_main_process if main_only else None,
         format=(
             "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> "
             "| {process.name}/{thread.name} "
