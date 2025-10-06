@@ -498,9 +498,6 @@ class HybridSort(BaseTracker):
         # classes (int)
         dets_cls = dets[:, 5].astype(int) if n_dets_full else np.array([], dtype=int)
 
-        # per-class decorator may set current class, but per-detection cls takes precedence elsewhere
-        cur_cls = int(getattr(self, "cur_cls", 0))  # kept for potential fallback
-
         # stable det_ind column for downstream logic and output
         dets_ind = np.arange(n_dets_full, dtype=int)
 
