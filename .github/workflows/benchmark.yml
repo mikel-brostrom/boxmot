@@ -20,7 +20,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ['3.12']
-        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "strongsort", "boosttrack"]
+        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "hybridsort", "strongsort", "boosttrack"]
     timeout-minutes: 50
 
     steps:
