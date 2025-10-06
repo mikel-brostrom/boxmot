@@ -297,8 +297,8 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
             for fut in concurrent.futures.as_completed(futures):
                 try:
                     fut.result()
-                except Exception as exc:
-                    LOGGER.error(f"Error in det/emb task: {exc}")
+                except Exception:
+                    LOGGER.exception("Error in det/emb task")
 
 
 def process_sequence(seq_name: str,
@@ -354,6 +354,12 @@ def process_sequence(seq_name: str,
     return seq_name, kept_frame_ids
 
 
+from boxmot.utils import configure_logging as _configure_logging
+
+def _worker_init():
+    # each spawned process needs its own sinks
+    _configure_logging()
+
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
     # Prepare experiment folder
     base = opt.project / 'mot' / f"{opt.yolo_model[0].stem}_{opt.reid_model[0].stem}_{opt.tracking_method}"
@@ -386,7 +392,7 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
 
     seq_frame_nums = {}
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
         futures = {
             executor.submit(process_sequence, *args): args[0] for args in task_args
         }
@@ -396,8 +402,8 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
             try:
                 seq_name, kept_ids = fut.result()
                 seq_frame_nums[seq_name] = kept_ids
-            except Exception as e:
-                LOGGER.error(f"Error processing {seq}: {e}")
+            except Exception:
+                LOGGER.exception(f"Error processing {seq}")
 
     # Optional GSI
     if getattr(opt, 'gsi', False):
