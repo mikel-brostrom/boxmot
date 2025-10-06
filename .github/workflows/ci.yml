@@ -92,7 +92,7 @@ jobs:
     outputs:
       status: ${{ job.status }}
     env:
-      TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack"
+      TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort"
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
@@ -211,7 +211,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          boxmot track --tracking-method deepocsort --yolo-model yolov8n-seg.pt --source $IMG
+          boxmot track --tracking-method bytetrack --yolo-model yolov8n-seg.pt --source $IMG
   
   export-reid-models:
     runs-on: ubuntu-latest

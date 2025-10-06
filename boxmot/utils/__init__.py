@@ -30,13 +30,21 @@ def _is_main_process(record):
     return mp.current_process().name == "MainProcess"
 
 def configure_logging():
-    # this will remove *all* existing handlers and then add yours
-    logger.configure(handlers=[
-        {
-            "sink": sys.stderr,
-            "level":    "INFO",
-            "filter":   _is_main_process,
-        }
-    ])
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level="DEBUG",
+        backtrace=True,
+        diagnose=True,
+        enqueue=True,  # safe with ProcessPool / spawn
+        format=(
+            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> "
+            "| {process.name}/{thread.name} "
+            "| <level>{level: <8}</level> "
+            "| <cyan>{file.path}</cyan>:<cyan>{line}</cyan> "
+            "| {function} - <level>{message}</level>"
+        ),
+    )
+    return logger
     
 configure_logging()
