@@ -727,8 +727,8 @@ class HybridSort(BaseTracker):
                     *d.tolist(),
                     trk.id + 1,                 # track id
                     trk.confidence,             # conf
-                    int(getattr(trk, "cls", 0)),
-                    int(getattr(trk, "det_ind", -1)),
+                    int(trk.cls),
+                    int(trk.det_ind),
                 ])
 
         # Remove dead tracks
