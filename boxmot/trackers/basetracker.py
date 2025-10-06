@@ -432,7 +432,7 @@ class BaseTracker(ABC):
             if not a.history_observations: continue
             if len(a.history_observations) < 3: continue
             box = a.history_observations[-1]
-            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
+            img = self.plot_box_on_img(img, box, a.confidence, a.cls, a.id, thickness, fontscale)
             if not show_trajectories: continue
             img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
         return img
