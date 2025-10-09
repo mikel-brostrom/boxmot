@@ -1,17 +1,10 @@
-# name of the workflow, what it is doing (optional)
 name: BoxMOT CI
 
-# events that trigger the workflow (required)
 on:
   push:
-    # pushes to the following branches
-    branches:
-      - master
+    branches: [master]
   pull_request:
-    # pull request where master is target
-    branches:
-      - master
-
+    branches: [master]
 
 jobs:
   tracking-methods:
@@ -21,22 +14,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]   # skip windows-latest for
+        os: [ubuntu-latest, macos-14]
         python-version: ['3.12']
-        # leads to too many workflow which ends up queued
-        # tracking-method: [hybridsort, botsort, ocsort, bytetrack] 
-
-    # Timeout: https://stackoverflow.com/a/59076067/4521646
+    env:
+      TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort"
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v4  # Check out the repository
+      - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5  # Prepare environment with python 3.9
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
+          cache: 'pip'
       - name: Install requirements
-        shell: bash  # for Windows compatibility
+        shell: bash
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
@@ -45,76 +36,72 @@ jobs:
         run: |
           source .venv/bin/activate
           boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
-      - name: Run tracking method
+      - name: Run tracking method(s)
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
-            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
+            boxmot track --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
           done
+
   evolution:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]   # skip windows-latest for
+        os: [ubuntu-latest]
         python-version: ['3.9', '3.12']
     outputs:
       status: ${{ job.status }}
-
-    # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v4  # Check out the repository
+      - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5  # Prepare environment with python 3.9
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
-
+          cache: 'pip'
       - name: Install requirements
-        shell: bash  # for Windows compatibility
+        shell: bash
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          uv sync  --group yolo --group evolve
+          uv sync --group yolo --group evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
-          # reuse first set of generated det and prod
           boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
+
   mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]   # skip windows-latest for
+        os: [ubuntu-latest]
         python-version: ['3.9', '3.12']
     outputs:
       status: ${{ job.status }}
     env:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort"
-
-    # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v4  # Check out the repository
+      - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5  # Prepare environment with python 3.9
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
-
+          cache: 'pip'
       - name: Install requirements
-        shell: bash  # for Windows compatibility
+        shell: bash
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          sudo apt-get update
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --group yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+          boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
@@ -127,21 +114,19 @@ jobs:
               STATUS="❌"
             fi
             cat ${tracker}_output.json
-            # Extract the relevant parts of the JSON
             HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
             MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
             IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
             TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
             echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
           done
-          # Sort the results by HOTA in descending order
           (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
-          # Create a pretty table from the sorted_results.csv file
           column -s, -t sorted_results.csv > pretty_results.txt
       - name: Show Results
         shell: bash
         run: |
           cat pretty_results.txt
+
   tracking-with-pose:
     runs-on: ubuntu-latest
     outputs:
@@ -162,6 +147,7 @@ jobs:
         run:  |
           source .venv/bin/activate
           boxmot track --yolo-model weights/yolov8n-pose.pt --imgsz 320 --source $IMG
+
   tracking-with-yolos:
     runs-on: ubuntu-latest
     outputs:
@@ -175,12 +161,12 @@ jobs:
       - run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          # Export so that setuptools picks up clang instead of gcc
+          # Make setuptools pick clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
           uv sync --only-group yolox-build-deps
           uv sync --group yolo
-      - name: Test tracking with pose models
+      - name: Test tracking with various yolo models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
@@ -189,13 +175,12 @@ jobs:
           boxmot track --yolo-model yolov10n.pt --imgsz 320 --source $IMG
           boxmot track --yolo-model yolox_n.pt --imgsz 320 --source $IMG
           boxmot track --yolo-model rf-detr-base.pt --imgsz 320 --source $IMG
+
   tracking-with-seg:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
     steps:
-      - id: set_result
-        run: echo "::set-output name=result::success"
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -205,45 +190,78 @@ jobs:
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync  --group yolo
+          uv sync --group yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
           boxmot track --tracking-method bytetrack --yolo-model yolov8n-seg.pt --source $IMG
-  
+
   export-reid-models:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
     steps:
-      - id: set_result
-        run: echo "::set-output name=result::success"
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
       - name: Install dependencies
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync  --all-groups
+          uv sync --all-groups
           # needed for TFLite export
-          sudo apt-get install flatbuffers-compiler
+          sudo apt-get update
+          sudo apt-get install -y flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
           tar -zxvf flatc.tar.gz
           sudo chmod +x flatc
           sudo mv flatc /usr/bin/
-      - name: Test export models
-        run: | 
+      - name: Export models
+        run: |
           source .venv/bin/activate
           python boxmot/appearance/reid/export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
-      - name: Check export TFLite models
+      - name: Check exported TFLite models
         run: |
-          ls /home/runner/work/boxmot/boxmot/boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
-      - name: Test inference on exported models
+          ls boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
+      - name: Upload exported reid models (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: reid-models-${{ runner.os }}-py311
+          if-no-files-found: error
+          path: |
+            boxmot/engine/weights/osnet_x0_25_msmt17.*
+            boxmot/engine/weights/osnet_x0_25_msmt17_openvino_model*
+            boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/**
+
+  reid-inference-smoke-test:
+    needs: [export-reid-models]
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install runtime deps
+        run: |
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
+          # Only what's needed to run `boxmot track` with reid models
+          uv sync --group yolo
+      - name: Download exported reid models (artifact)
+        uses: actions/download-artifact@v4
+        with:
+          name: reid-models-${{ runner.os }}-py311
+          path: boxmot/engine/weights
+      - name: Smoke test inference with exported models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
@@ -252,8 +270,9 @@ jobs:
           boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
           boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
           boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320
-               
+
   tests:
+    needs: [export-reid-models]
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -263,48 +282,24 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: |
+          cache: 'pip'
+      - name: Install test deps
+        run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip uv
           uv pip install -e . --system --group test --group yolo --group onnx --group openvino --group tflite
-
-      - name: Test export models
-        run: |
-          python boxmot/appearance/reid/export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
-      - name: Pytest tests  # after tracking options as this does not download models
+      - name: Download exported reid models (artifact)
+        uses: actions/download-artifact@v4
+        with:
+          name: reid-models-${{ runner.os }}-py311
+          path: boxmot/engine/weights
+      - name: Pytest tests
         env:
-          # directory of PyPi package to be tested
           PACKAGE_DIR: boxmot
-          # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
           pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
           coverage report --fail-under=$COVERAGE_FAIL_UNDER
-  # test-gpu:
-  #   runs-on: gpu-latest
-  #   outputs:
-  #     status: ${{ job.status }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Set up Python
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: '3.12'
-  #     - run: |
-  #         python -m pip install --upgrade pip setuptools wheel poetry
-  #         poetry config virtualenvs.create false
-  #         poetry install --with test
-
-  #     - name: Pytest tests  # after tracking options as this does not download models
-  #       env:
-  #         # directory of PyPi package to be tested
-  #         PACKAGE_DIR: boxmot
-  #         # minimum acceptable test coverage
-  #         COVERAGE_FAIL_UNDER: 25
-  #       shell: bash  # for Windows compatibility
-  #       run: |
-  #         pytest --cov=$PACKAGE_DIR --cov-report=html -v tests/test_cuda.py
-
 
   check-failures:
     needs:
@@ -312,31 +307,33 @@ jobs:
       - mot-metrics-benchmark
       - evolution
       - export-reid-models
+      - reid-inference-smoke-test
       - tests
       - tracking-with-pose
       - tracking-with-seg
       - tracking-with-yolos
-    if: always()  # This ensures the job runs regardless of previous job failures
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Prepare environment variables
         run: |
           echo "tracking-methods_STATUS=${{ needs.tracking-methods.result }}" >> $GITHUB_ENV
-          echo "mot-metrics_STATUS=${{ needs.mot-metrics.result }}" >> $GITHUB_ENV
+          echo "mot-metrics-benchmark_STATUS=${{ needs.mot-metrics-benchmark.result }}" >> $GITHUB_ENV
           echo "evolution_STATUS=${{ needs.evolution.result }}" >> $GITHUB_ENV
-          echo "export-reid-models_STATUS=${{ needs.export-reid-modelsn.result }}" >> $GITHUB_ENV
+          echo "export-reid-models_STATUS=${{ needs.export-reid-models.result }}" >> $GITHUB_ENV
+          echo "reid-inference-smoke-test_STATUS=${{ needs.reid-inference-smoke-test.result }}" >> $GITHUB_ENV
           echo "tests_STATUS=${{ needs.tests.result }}" >> $GITHUB_ENV
           echo "tracking-with-pose_STATUS=${{ needs.tracking-with-pose.result }}" >> $GITHUB_ENV
           echo "tracking-with-seg_STATUS=${{ needs.tracking-with-seg.result }}" >> $GITHUB_ENV
           echo "tracking-with-yolos_STATUS=${{ needs.tracking-with-yolos.result }}" >> $GITHUB_ENV
       - name: Check for failures and create summary
+        shell: bash
         run: |
           summary=""
           failed=false
-          # Print all environment variables, grep for those ending with _STATUS, then loop
           for var in $(printenv | grep '_STATUS$'); do
-            job_status="${var##*=}"  # Extract the status part
-            job_name="${var%%=*}"  # Extract the job name part
+            job_status="${var##*=}"
+            job_name="${var%%=*}"
             if [[ "$job_status" != "success" ]]; then
               summary+="$job_name failed with status: $job_status\n"
               failed=true
@@ -345,4 +342,4 @@ jobs:
           if [[ "$failed" = false ]]; then
             summary="All jobs succeeded."
           fi
-          echo "Summary: $summary"
+          echo -e "Summary: $summary"
