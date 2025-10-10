@@ -40,7 +40,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          uv sync --group yolo
+          uv sync -E yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -76,7 +76,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          uv sync  --group yolo --group evolve
+          uv sync -E yolo -E evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -110,7 +110,7 @@ jobs:
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync -E yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -155,7 +155,7 @@ jobs:
       - run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync -E yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -178,8 +178,8 @@ jobs:
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync --only-group yolox-build-deps
-          uv sync --group yolo
+          uv sync -E yolox-build-deps
+          uv sync -E yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -205,7 +205,7 @@ jobs:
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync  --group yolo
+          uv sync -E yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -229,7 +229,7 @@ jobs:
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync  --all-groups
+          uv sync --all-extras
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
