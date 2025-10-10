@@ -1,3 +1,4 @@
+import sys
 import subprocess
 import shutil
 from pathlib import Path
@@ -92,52 +93,42 @@ class RequirementsChecker:
         if reqs:
             self.check_packages(reqs, extra_args=extra_args)
 
-    def sync_group_or_extra(
+    def sync_extra(
         self,
-        group: Optional[str] = None,
-        extra: Optional[str] = None,
+        extra: str,
         extra_args: Optional[Sequence[str]] = None,
-        cmds: Optional[Sequence[str]] = None,  # legacy alias
     ):
         """
-        Install either:
-          - a uv dependency *group* (requires uv), or
-          - a project *extra* (PEP 621 optional-dependencies), via uv or pip.
-
-        Exactly one of `group` or `extra` must be provided.
+        Install a project *extra* (PEP 621 optional-dependencies).
+        - From source checkout + uv available: uv pip install ".[extra]"
+        - From source checkout w/o uv:        python -m pip install ".[extra]"
+        - From PyPI install:                  python -m pip install "boxmot[extra]"
         """
-        if extra_args is None and cmds is not None:
-            extra_args = list(cmds)
+        if not extra:
+            raise ValueError("Extra name must be provided (e.g. 'openvino', 'export').")
+        LOGGER.warning(f"Installing extra '{extra}'...")
 
-        if bool(group) == bool(extra):  # both None or both set
-            raise ValueError("Must provide exactly one of 'group' or 'extra'.")
+        in_source = Path("pyproject.toml").is_file()
+        cmd: list[str]
 
-        name = group or extra
-        kind = "group" if group else "extra"
-        LOGGER.warning(f"Installing {kind} '{name}'...")
+        if in_source:
+            if self._uv_available:
+                cmd = ["uv", "pip", "install", "--no-cache-dir", f".[{extra}]"]
+            else:
+                cmd = [sys.executable, "-m", "pip", "install", f".[{extra}]"]
+        else:
+            # Installed from PyPI: install the published dist extra
+            cmd = [sys.executable, "-m", "pip", "install", f"{DIST_NAME}[{extra}]"]
+
+        if extra_args:
+            cmd.extend(extra_args)
 
         try:
-            if group:
-                if not self._uv_available:
-                    raise RuntimeError("uv not found on PATH, cannot sync dependency group.")
-                cmd = ["uv", "sync", "--no-default-groups", "--extra", name]
-                if extra_args:
-                    cmd.extend(extra_args)
-                subprocess.check_call(cmd)
-
-            else:  # extra
-                if self._uv_available:
-                    cmd = ["uv", "pip", "install", "--no-cache-dir", f".[{name}]"]
-                else:
-                    cmd = ["pip", "install", f".[{name}]"]
-                if extra_args:
-                    cmd.extend(extra_args)
-                subprocess.check_call(cmd)
-
-            LOGGER.info(f"{kind.capitalize()} '{name}' installed successfully.")
+            subprocess.check_call(cmd)
+            LOGGER.info(f"Extra '{extra}' installed successfully.")
         except subprocess.CalledProcessError as e:
-            LOGGER.error(f"Failed to install {kind} '{name}': {e}")
-            raise RuntimeError(f"Failed to install {kind} '{name}': {e}")
+            LOGGER.error(f"Failed to install extra '{extra}': {e}")
+            raise RuntimeError(f"Failed to install extra '{extra}': {e}")
 
     # ---------- internals ----------
 
