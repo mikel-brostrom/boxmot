@@ -9,23 +9,16 @@ from types import SimpleNamespace
 from typing import Tuple
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 
-    
+
 def make_args(**kwargs):
     """
     Build an argparse-style namespace for engine entrypoints.
 
     Converts any 'imgsz' tuple in kwargs to a list and returns a SimpleNamespace.
-
-    Args:
-        **kwargs: Keyword arguments corresponding to CLI options.
-
-    Returns:
-        SimpleNamespace: Namespace object with attributes set from kwargs.
     """
-    # Convert imgsz tuple to list if provided
     if 'imgsz' in kwargs and kwargs['imgsz'] is not None:
         size = kwargs['imgsz']
-        kwargs['imgsz'] = [size[0], size[1]]
+        kwargs['imgsz'] = [size[0], size[1]]  # preserve tuple order
     return SimpleNamespace(**kwargs)
 
 
@@ -34,15 +27,7 @@ def parse_tuple(value: str) -> Tuple[int, int]:
     Parse a string into a (width, height) tuple of integers.
 
     Accepts separators 'x', ',' or space, and a single value for square size.
-
-    Args:
-        value (str): Input string, e.g. "640x480", "640,480", "320".
-
-    Returns:
-        Tuple[int, int]: Parsed (width, height) tuple.
-
-    Raises:
-        click.BadParameter: If the input cannot be parsed as one or two integers.
+    Used by non-export commands that expect (w, h).
     """
     s = value.replace('x', ' ').replace(',', ' ')
     parts = s.split()
@@ -64,25 +49,44 @@ def parse_tuple(value: str) -> Tuple[int, int]:
         )
 
 
+def parse_hw_tuple(value) -> Tuple[int, int]:
+    """
+    Accept (h, w) as str like "256,128" or "256x128" or "256 128",
+    or as a tuple/list/int (Click may pass the default as a tuple).
+    """
+    # If Click already gave us a tuple/list/int, normalize and return
+    if isinstance(value, (tuple, list)):
+        if len(value) == 1:
+            n = int(value[0])
+            return (n, n)
+        if len(value) == 2:
+            h, w = int(value[0]), int(value[1])
+            return (h, w)
+        raise click.BadParameter(f"Invalid --imgsz: {value}")
+    if isinstance(value, int):
+        return (value, value)
+
+    # Otherwise parse from string
+    s = value.replace('x', ' ').replace(',', ' ')
+    parts = s.split()
+    if len(parts) == 1:
+        n = int(parts[0])
+        return (n, n)
+    if len(parts) == 2:
+        h, w = int(parts[0]), int(parts[1])
+        return (h, w)
+    raise click.BadParameter(
+        f"--imgsz expects 1 or 2 integers separated by ',' 'x' or space, got '{value}'"
+    )
+
+
 # Core options (excluding model & classes)
 def core_options(func):
-    """
-    Decorator adding core CLI options to a command.
-
-    Options include data source, image size, frame rate, thresholds, devices,
-    output parameters, visualization and tracking flags.
-
-    Args:
-        func (callable): Click command function to wrap.
-
-    Returns:
-        callable: Wrapped function with core options applied.
-    """
     options = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
         click.option('--imgsz', '--img-size', type=parse_tuple, default=None,
-                     help='inference size h,w (e.g. 640,480 or 640x480)'),
+                     help='inference size w,h (e.g. 640,480 or 640x480)'),
         click.option('--fps', type=int, default=30,
                      help='video frame-rate'),
         click.option('--conf', type=float, default=0.01,
@@ -142,18 +146,6 @@ def core_options(func):
 
 
 def singular_model_options(func):
-    """
-    Decorator adding single-model options to a command.
-
-    Options include paths for YOLO detection weights, ReID model weights,
-    and class filters.
-
-    Args:
-        func (callable): Click command function to wrap.
-
-    Returns:
-        callable: Wrapped function with singular model options applied.
-    """
     options = [
         click.option('--yolo-model', type=Path,
                      default=WEIGHTS / 'yolov8n.pt',
@@ -170,18 +162,6 @@ def singular_model_options(func):
 
 
 def plural_model_options(func):
-    """
-    Decorator adding multi-model options to a command.
-
-    Options allow providing multiple YOLO weights, multiple ReID weights,
-    and class filters.
-
-    Args:
-        func (callable): Click command function to wrap.
-
-    Returns:
-        callable: Wrapped function with plural model options applied.
-    """
     options = [
         click.option('--yolo-model', type=Path, multiple=True,
                      default=[WEIGHTS / 'yolov8n.pt'],
@@ -197,13 +177,49 @@ def plural_model_options(func):
     return func
 
 
+def export_options(func):
+    """
+    Decorator adding ReID export options (ported from argparse export script).
+    """
+    options = [
+        click.option('--batch-size', type=int, default=1,
+                     help='Batch size for export'),
+        click.option('--imgsz', '--img', '--img-size', type=parse_hw_tuple,
+                     default=(256, 128), help='Image size as H,W (e.g. 256,128)'),
+        click.option('--device', default='cpu',
+                     help="CUDA device (e.g., '0', '0,1,2,3', or 'cpu')"),
+        click.option('--optimize', is_flag=True,
+                     help='Optimize TorchScript for mobile (CPU export only)'),
+        click.option('--dynamic', is_flag=True,
+                     help='Enable dynamic axes for ONNX/TF/TensorRT export'),
+        click.option('--simplify', is_flag=True,
+                     help='Simplify ONNX model'),
+        click.option('--opset', type=int, default=12,
+                     help='ONNX opset version'),
+        click.option('--workspace', type=int, default=4,
+                     help='TensorRT workspace size (GB)'),
+        click.option('--verbose', is_flag=True,
+                     help='Enable verbose logging for TensorRT'),
+        click.option('--weights', type=Path,
+                     default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+                     help='Path to the model weights (.pt file)'),
+        click.option('--half', is_flag=True,
+                     help='Enable FP16 half-precision export (GPU only)'),
+        click.option('--include', multiple=True, default=('torchscript',),
+                     help='Export formats to include. Options: torchscript, onnx, openvino, engine, tflite'),
+    ]
+    for opt in reversed(options):
+        func = opt(func)
+    return func
+
+
 class CommandFirstGroup(click.Group):
     """Show  COMMAND [OPTIONS]...  instead of  [OPTIONS] COMMAND …"""
     def format_usage(self, ctx, formatter):
-        # ctx.command_path == "boxmot"
         formatter.write_usage(ctx.command_path, "COMMAND [ARGS]...")
-        
-@click.group(cls=CommandFirstGroup)   # ← NEW API
+
+
+@click.group(cls=CommandFirstGroup)
 def boxmot():
     """
     BoxMOT: Pluggable SOTA multi-object tracking modules modules for segmentation, object detection and pose estimation models
@@ -216,11 +232,6 @@ def boxmot():
 @singular_model_options
 @click.pass_context
 def track(ctx, yolo_model, reid_model, classes, **kwargs):
-    """
-    Command 'track': run object tracking only.
-
-    Loads a single YOLO detector and ReID model to track objects in the given source.
-    """
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
@@ -241,12 +252,6 @@ def track(ctx, yolo_model, reid_model, classes, **kwargs):
 @plural_model_options
 @click.pass_context
 def generate(ctx, yolo_model, reid_model, classes, **kwargs):
-    """
-    Command 'generate': produce detection boxes and embedding vectors.
-
-    Uses one or more YOLO models for detection and one or more ReID models
-    to compute embeddings for each detection in the source dataset.
-    """
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
@@ -267,12 +272,6 @@ def generate(ctx, yolo_model, reid_model, classes, **kwargs):
 @plural_model_options
 @click.pass_context
 def eval(ctx, yolo_model, reid_model, classes, **kwargs):
-    """
-    Command 'eval': evaluate tracking results with TrackEval.
-
-    Runs performance metrics (HOTA, MOTA, IDF1, etc.) on precomputed detections and
-    embeddings for the source.
-    """
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
@@ -293,11 +292,6 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
 @plural_model_options
 @click.pass_context
 def tune(ctx, yolo_model, reid_model, classes, **kwargs):
-    """
-    Command 'tune': optimize model hyperparameters using evolutionary search.
-
-    Performs multiple trials to tune tracking parameters based on specified objectives.
-    """
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
@@ -313,36 +307,18 @@ def tune(ctx, yolo_model, reid_model, classes, **kwargs):
     run_tuning(args)
 
 
-@boxmot.command(help='Run all steps: generate, evaluate, tune')
-@core_options
-@plural_model_options
+@boxmot.command(help='Export ReID models')
+@export_options
 @click.pass_context
-def all(ctx, yolo_model, reid_model, classes, **kwargs):
+def export(ctx, **kwargs):
     """
-    Command 'all': execute full pipeline.
-
-    Runs generate, eval, and tune sequentially for the given source and models.
+    Command 'export': export ReID model weights and configurations for deployment.
+    Mirrors the standalone argparse-based export script.
     """
-    src = kwargs.pop('source')
-    source_path = Path(src)
-    bench, split = source_path.parent.name, source_path.name
-    params = {**kwargs,
-              'yolo_model': list(yolo-model),
-              'reid_model': list(reid-model),
-              'classes': [0],
-              'source': src,
-              'benchmark': bench,
-              'split': split}
-    args = make_args(**params)
-    # generate
-    from boxmot.engine.val import run_generate_dets_embs
-    run_generate_dets_embs(args)
-    # eval
-    from boxmot.engine.val import main as run_eval
-    run_eval(args)
-    # tune
-    from boxmot.engine.evolve import main as run_tuning
-    run_tuning(args)
+    # kwargs already contains all export args; convert imgsz tuple -> list
+    args = make_args(**kwargs)
+    from boxmot.appearance.reid.export import main as run_export
+    run_export(args)
 
 
 main = boxmot
