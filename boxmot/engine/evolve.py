@@ -8,15 +8,9 @@ import os
 os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"   # keep CWD constant for all trials
 from pathlib import Path
 
-import yaml
-from ray import tune
-from ray.tune import RunConfig
-from ray.tune.search.optuna import OptunaSearch
-
 from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
 from boxmot.engine.val import (
     eval_init,
-    load_dataset_cfg,
     run_generate_dets_embs,
     run_generate_mot_results,
     run_trackeval,
@@ -25,6 +19,11 @@ from boxmot.utils.checks import RequirementsChecker
 
 checker = RequirementsChecker()
 checker.sync_extra(extra="evolve")  # install
+
+import yaml
+from ray import tune
+from ray.tune import RunConfig
+from ray.tune.search.optuna import OptunaSearch
 
 
 def load_yaml_config(tracking_method: str) -> dict:
