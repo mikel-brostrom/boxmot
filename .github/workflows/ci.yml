@@ -40,7 +40,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          uv sync --group yolo
+          uv sync --extra yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -76,7 +76,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          uv sync  --group yolo --group evolve
+          uv sync --extra yolo --extra evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -110,7 +110,7 @@ jobs:
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --extra yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -155,7 +155,7 @@ jobs:
       - run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --group yolo
+          uv sync --extra yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -178,8 +178,8 @@ jobs:
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync --only-group yolox-build-deps
-          uv sync --group yolo
+          uv sync --extra yolox-build-deps
+          uv sync --extra yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -205,7 +205,7 @@ jobs:
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync  --group yolo
+          uv sync --extra yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -229,7 +229,7 @@ jobs:
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync  --all-groups
+          uv sync --all-extras
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
@@ -239,7 +239,7 @@ jobs:
       - name: Test export models
         run: | 
           source .venv/bin/activate
-          python boxmot/appearance/reid/export.py --include torchscript onnx openvino tflite --device cpu --batch-size 3 --dynamic
+          boxmot export --include torchscript --include onnx --include openvino --include tflite --device cpu --batch-size 3 --dynamic
       - name: Check export TFLite models
         run: |
           ls /home/runner/work/boxmot/boxmot/boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
@@ -266,11 +266,13 @@ jobs:
       - run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip uv
-          uv pip install -e . --system --group test --group yolo --group onnx --group openvino --group tflite
 
       - name: Test export models
         run: |
-          python boxmot/appearance/reid/export.py --include torchscript onnx openvino --device cpu --batch-size 3 --dynamic
+          uv sync --all-extras
+          uv run boxmot export \
+            --include torchscript --include onnx --include openvino --include tflite \
+            --device cpu --batch-size 3 --dynamic
       - name: Pytest tests  # after tracking options as this does not download models
         env:
           # directory of PyPi package to be tested
@@ -278,8 +280,9 @@ jobs:
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
-          pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
-          coverage report --fail-under=$COVERAGE_FAIL_UNDER
+          uv sync --all-extras
+          uv run python -m pytest --cov="$PACKAGE_DIR" --cov-report=html -v -s tests
+          uv run python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
   # test-gpu:
   #   runs-on: gpu-latest
   #   outputs:

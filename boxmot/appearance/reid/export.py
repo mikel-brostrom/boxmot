@@ -15,45 +15,6 @@ from boxmot.utils.torch_utils import select_device
 from boxmot.utils.checks import RequirementsChecker
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="ReID Export Script")
-    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for export")
-    parser.add_argument("--imgsz", "--img", "--img-size",
-                        nargs="+", type=int, default=[256, 128],
-                        help="Image size in the format: height width")
-    parser.add_argument("--device", default="cpu",
-                        help="CUDA device (e.g., '0', '0,1,2,3', or 'cpu')")
-    parser.add_argument("--optimize", action="store_true",
-                        help="Optimize TorchScript for mobile (CPU export only)")
-    parser.add_argument("--dynamic", action="store_true",
-                        help="Enable dynamic axes for ONNX/TF/TensorRT export")
-    parser.add_argument("--simplify", action="store_true",
-                        help="Simplify ONNX model")
-    parser.add_argument("--opset", type=int, default=12,
-                        help="ONNX opset version")
-    parser.add_argument("--workspace", type=int, default=4,
-                        help="TensorRT workspace size (GB)")
-    parser.add_argument("--verbose", action="store_true",
-                        help="Enable verbose logging for TensorRT")
-    parser.add_argument("--weights", type=Path,
-                        default=WEIGHTS / "osnet_x0_25_msmt17.pt",
-                        help="Path to the model weights (.pt file)")
-    parser.add_argument("--half", action="store_true",
-                        help="Enable FP16 half-precision export (GPU only)")
-    parser.add_argument("--include", nargs="+",
-                        default=["torchscript"],
-                        help=("Export formats to include. Options: torchscript, onnx, "
-                              "openvino, engine, tflite"))
-    # Optional convenience flags to auto-install from project extras/groups
-    parser.add_argument("--dep-group", type=str, default=None,
-                        help="Install a uv dependency group before export (requires uv).")
-    parser.add_argument("--dep-extra", type=str, default=None,
-                        help="Install a project extra before export (e.g., 'openvino').")
-    parser.add_argument("--dep-args", nargs="*", default=None,
-                        help="Extra args for the installer, e.g. --upgrade")
-    return parser.parse_args()
-
-
 def validate_export_formats(include):
     available_formats = tuple(export_formats()["Argument"][1:])
     include_lower = [fmt.lower() for fmt in include]
@@ -159,18 +120,8 @@ def perform_exports(export_tasks):
     return exported_files
 
 
-def main():
-    args = parse_args()
+def main(args):
     start_time = time.time()
-
-    # Optional: preflight dependency install from CLI flags
-    if args.dep_group or args.dep_extra:
-        RequirementsChecker().sync_group_or_extra(
-            group=args.dep_group, extra=args.dep_extra, extra_args=args.dep_args
-        )
-
-    # Or, as a fallback, ensure basic reqs from a requirements file:
-    # RequirementsChecker().check_requirements_file()
 
     WEIGHTS.mkdir(parents=False, exist_ok=True)
 
