@@ -49,31 +49,35 @@ def parse_tuple(value: str) -> Tuple[int, int]:
         )
 
 
-def parse_hw_tuple(value: str) -> Tuple[int, int]:
+def parse_hw_tuple(value) -> Tuple[int, int]:
     """
-    Parse a string into a (height, width) tuple of integers.
+    Accept (h, w) as str like "256,128" or "256x128" or "256 128",
+    or as a tuple/list/int (Click may pass the default as a tuple).
+    """
+    # If Click already gave us a tuple/list/int, normalize and return
+    if isinstance(value, (tuple, list)):
+        if len(value) == 1:
+            n = int(value[0])
+            return (n, n)
+        if len(value) == 2:
+            h, w = int(value[0]), int(value[1])
+            return (h, w)
+        raise click.BadParameter(f"Invalid --imgsz: {value}")
+    if isinstance(value, int):
+        return (value, value)
 
-    Mirrors the original export script which uses [H, W].
-    Accepts 'x', ',' or space; a single value yields (n, n).
-    """
+    # Otherwise parse from string
     s = value.replace('x', ' ').replace(',', ' ')
     parts = s.split()
     if len(parts) == 1:
-        try:
-            n = int(parts[0])
-            return (n, n)
-        except ValueError:
-            raise click.BadParameter(f"Invalid --imgsz: {value}")
-    elif len(parts) == 2:
-        try:
-            h, w = int(parts[0]), int(parts[1])
-            return (h, w)
-        except ValueError:
-            raise click.BadParameter(f"Invalid --imgsz: {value}")
-    else:
-        raise click.BadParameter(
-            f"--imgsz expects 1 or 2 integers separated by ',' 'x' or space, got '{value}'"
-        )
+        n = int(parts[0])
+        return (n, n)
+    if len(parts) == 2:
+        h, w = int(parts[0]), int(parts[1])
+        return (h, w)
+    raise click.BadParameter(
+        f"--imgsz expects 1 or 2 integers separated by ',' 'x' or space, got '{value}'"
+    )
 
 
 # Core options (excluding model & classes)
