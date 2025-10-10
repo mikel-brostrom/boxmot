@@ -108,10 +108,10 @@ from torchvision.models.detection import (
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Load model with pretrained weights and preprocessing transforms
+# Load detector with pretrained weights and preprocessing transforms
 weights = Weights.DEFAULT
-model = fasterrcnn_resnet50_fpn_v2(weights=weights, box_score_thresh=0.5)
-model.to(device).eval()
+detector = fasterrcnn_resnet50_fpn_v2(weights=weights, box_score_thresh=0.5)
+detector.to(device).eval()
 transform = weights.transforms()
 
 # Initialize tracker
@@ -126,13 +126,13 @@ with torch.inference_mode():
         if not success:
             break
 
-        # Convert frame to RGB and prepare for model
+        # Convert frame to RGB and prepare for detector
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         tensor = torch.from_numpy(rgb).permute(2, 0, 1).to(torch.uint8)
         input_tensor = transform(tensor).to(device)
 
         # Run detection
-        output = model([input_tensor])[0]
+        output = detector([input_tensor])[0]
         scores = output['scores'].cpu().numpy()
         keep = scores >= 0.5
 
