@@ -11,7 +11,6 @@ from pathlib import Path
 from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
 from boxmot.engine.val import (
     eval_init,
-    load_dataset_cfg,
     run_generate_dets_embs,
     run_generate_mot_results,
     run_trackeval,
