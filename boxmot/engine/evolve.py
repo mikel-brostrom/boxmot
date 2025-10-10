@@ -21,6 +21,10 @@ from boxmot.engine.val import (
     run_generate_mot_results,
     run_trackeval,
 )
+from boxmot.utils.checks import RequirementsChecker
+
+checker = RequirementsChecker()
+checker.sync_extra(extra="evolve")  # install
 
 
 def load_yaml_config(tracking_method: str) -> dict:
