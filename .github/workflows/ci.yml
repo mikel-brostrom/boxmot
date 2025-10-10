@@ -280,8 +280,8 @@ jobs:
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
-          uv run pytest --cov=$PACKAGE_DIR --cov-report=html -v -s tests
-          uv run coverage report --fail-under=$COVERAGE_FAIL_UNDER
+          uv run python -m pytest --cov="$PACKAGE_DIR" --cov-report=html -v -s tests
+          uv run python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
   # test-gpu:
   #   runs-on: gpu-latest
   #   outputs:
