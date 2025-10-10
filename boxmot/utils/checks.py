@@ -120,7 +120,7 @@ class RequirementsChecker:
             if group:
                 if not self._uv_available:
                     raise RuntimeError("uv not found on PATH, cannot sync dependency group.")
-                cmd = ["uv", "sync", "--no-default-groups", "--group", name]
+                cmd = ["uv", "sync", "--no-default-groups", "--extra", name]
                 if extra_args:
                     cmd.extend(extra_args)
                 subprocess.check_call(cmd)
