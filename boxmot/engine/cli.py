@@ -278,7 +278,7 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
-              'classes': [0],
+              'classes': list(range(80)),  # COCO 80 classes -> indices 0..79
               'source': src,
               'benchmark': bench,
               'split': split}
