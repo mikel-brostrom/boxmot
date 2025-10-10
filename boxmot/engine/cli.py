@@ -301,6 +301,7 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
 
 @boxmot.command(help='Tune models via evolutionary algorithms')
 @core_options
+@tune_options
 @plural_model_options
 @click.pass_context
 def tune(ctx, yolo_model, reid_model, classes, **kwargs):
