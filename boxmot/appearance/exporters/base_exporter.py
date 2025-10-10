@@ -15,7 +15,7 @@ def export_decorator(export_func):
                 if extra and self.group:
                     raise ValueError("Provide only one of `group` or `extra` in exporter.")
                 if self.group:
-                    self.checker.sync_extra(group=self.group, extra_args=extra_args)
+                    self.checker.sync_extra(extra=self.group, extra_args=extra_args)
                 elif extra:
                     self.checker.sync_extra(extra=extra, extra_args=extra_args)
 
