@@ -76,7 +76,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          uv sync -E yolo -E evolve
+          uv sync --extra yolo --extra evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -110,7 +110,7 @@ jobs:
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync -E yolo
+          uv sync --extra yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -155,7 +155,7 @@ jobs:
       - run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync -E yolo
+          uv sync --extra yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -178,8 +178,8 @@ jobs:
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync -E yolox-build-deps
-          uv sync -E yolo
+          uv sync --extra yolox-build-deps
+          uv sync --extra yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -205,7 +205,7 @@ jobs:
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync -E yolo
+          uv sync --extra yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -266,7 +266,7 @@ jobs:
       - run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip uv
-          uv pip install -e . --system --group test --group yolo --group onnx --group openvino --group tflite
+          uv pip install -e . --system --extra test --extra yolo --extra onnx --extra openvino --extra tflite
 
       - name: Test export models
         run: |
