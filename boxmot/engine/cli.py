@@ -114,11 +114,6 @@ def core_options(func):
                      help='class-agnostic NMS'),
         click.option('--gsi', is_flag=True,
                      help='apply Gaussian smoothing interpolation'),
-        click.option('--n-trials', type=int, default=4,
-                     help='number of trials for evolutionary tuning'),
-        click.option('--objectives', type=str, multiple=True,
-                     default=["HOTA", "MOTA", "IDF1"],
-                     help='objectives for tuning: HOTA, MOTA, IDF1'),
         click.option('--show', is_flag=True,
                      help='display tracking in a window'),
         click.option('--show-labels/--hide-labels', default=True,
@@ -211,6 +206,23 @@ def export_options(func):
     for opt in reversed(options):
         func = opt(func)
     return func
+
+
+def tune_options(func):
+    """
+    Decorator adding ReID export options (ported from argparse export script).
+    """
+    options = [
+        click.option('--n-trials', type=int, default=4,
+                     help='number of trials for evolutionary tuning'),
+        click.option('--objectives', type=str, multiple=True,
+                     default=["HOTA", "MOTA", "IDF1"],
+                     help='objectives for tuning: HOTA, MOTA, IDF1'),
+    ]
+    for opt in reversed(options):
+        func = opt(func)
+    return func
+
 
 
 class CommandFirstGroup(click.Group):
