@@ -73,25 +73,6 @@ class RequirementsChecker:
         if missing:
             self._install_packages(missing, extra_args)
 
-    def check_requirements_file(self, extra_args: Optional[Sequence[str]] = None):
-        """
-        Parse requirements.txt (or a custom path) and install what’s missing.
-        Comments and blank lines are ignored.
-        """
-        path = self.requirements_file
-        if not path.is_file():
-            LOGGER.warning(f"No requirements file found at {path.resolve()}")
-            return
-
-        reqs: list[str] = []
-        for line in path.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            reqs.append(line)
-
-        if reqs:
-            self.check_packages(reqs, extra_args=extra_args)
 
     def sync_extra(
         self,
@@ -118,7 +99,7 @@ class RequirementsChecker:
                 cmd = [sys.executable, "-m", "pip", "install", f".[{extra}]"]
         else:
             # Installed from PyPI: install the published dist extra
-            cmd = [sys.executable, "-m", "pip", "install", f"{DIST_NAME}[{extra}]"]
+            cmd = [sys.executable, "-m", "pip", "install", f"boxmot[{extra}]"]
 
         if extra_args:
             cmd.extend(extra_args)
