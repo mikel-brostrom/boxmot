@@ -51,6 +51,7 @@
 | :-----: | :-----: | :---: | :---: | :---: | :---: |
 | [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 69.253 | 75.914 | 83.206 | 25 |
 | [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 68.885 | 78.222 | 81.344 | 46 |
+| [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | 68.216 | 76.382 | 81.164 | 25 |
 | [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.05 | 76.185 | 80.763 | 17 |
 | [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 67.796 | 75.868 | 80.514 | 12 |
 | [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 1265 |
@@ -211,7 +212,7 @@ $ boxmot track --source 0                               # webcam
 <details>
 <summary>Select ReID model</summary>
 
-Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/appearance/reid_export.py) script
+Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/boxmot/blob/master/boxmot/appearance/reid/export.py) script
 
 ```bash
 $ boxmot track --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightweight
@@ -287,11 +288,11 @@ We support ReID model export to ONNX, OpenVINO, TorchScript and TensorRT
 
 ```bash
 # export to ONNX
-$ python3 boxmot/appearance/reid_export.py --include onnx --device cpu
+$ boxmot export --reid-model weights/osnet_x0_25_msmt17.pt --include onnx --device cpu
 # export to OpenVINO
-$ python3 boxmot/appearance/reid_export.py --include openvino --device cpu
+$ boxmot export --reid-model weights/osnet_x0_25_msmt17.pt --include openvino --device cpu
 # export to TensorRT with dynamic input
-$ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
+$ boxmot export --reid-model weights/osnet_x0_25_msmt17.pt --include engine --device 0 --dynamic
 ```
 
 </details>

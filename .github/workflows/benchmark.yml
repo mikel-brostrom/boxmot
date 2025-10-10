@@ -19,7 +19,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ['3.12']
-        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "strongsort", "boosttrack"]
+        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "hybridsort", "strongsort", "boosttrack"]
     timeout-minutes: 50
 
     steps:
@@ -37,7 +37,7 @@ jobs:
           sudo apt-get install -y jq curl unzip
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          uv sync --group yolo
+          uv sync --extra yolo
 
       # Restore the cached dataset (if available)
       - name: Restore MOT17 dataset cache
@@ -198,7 +198,6 @@ jobs:
           add-paths: README.md
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ env.BRANCH_NAME }}
-          base: main
           commit-message: Overwrite tracker results in README.md
           title: Overwrite tracker results in README.md
           body: "This PR updates the tracker results table in the README.md."
