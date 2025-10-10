@@ -236,11 +236,9 @@ wheels = [
 
 [[package]]
 name = "boxmot"
-version = "15.0.2"
+version = "15.0.5"
 source = { editable = "." }
 dependencies = [
-    { name = "bayesian-optimization", version = "2.0.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
-    { name = "bayesian-optimization", version = "3.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "click", version = "8.1.8", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "click", version = "8.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "filterpy" },
@@ -270,7 +268,7 @@ dependencies = [
     { name = "yacs" },
 ]
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 dev = [
     { name = "ipykernel" },
 ]
@@ -283,10 +281,30 @@ docs = [
     { name = "mkdocstrings-python" },
 ]
 evolve = [
+    { name = "bayesian-optimization", version = "2.0.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "bayesian-optimization", version = "3.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "joblib" },
     { name = "optuna" },
     { name = "plotly" },
     { name = "ray", extra = ["tune"] },
+]
+export = [
+    { name = "ai-edge-litert" },
+    { name = "flatbuffers" },
+    { name = "ml-dtypes" },
+    { name = "onnx" },
+    { name = "onnx-graphsurgeon" },
+    { name = "onnx2tf", version = "1.20.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "onnx2tf", version = "1.28.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "onnxruntime", version = "1.20.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "onnxruntime", version = "1.22.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "onnxsim" },
+    { name = "onnxslim" },
+    { name = "openvino" },
+    { name = "psutil" },
+    { name = "sng4onnx" },
+    { name = "tensorflow" },
+    { name = "tf-keras" },
 ]
 onnx = [
     { name = "onnx" },
@@ -322,92 +340,82 @@ tflite = [
 yolo = [
     { name = "ultralytics" },
 ]
-yolox-build-deps = [
-    { name = "setuptools" },
-    { name = "torch", version = "2.4.1+cu121", source = { registry = "https://download.pytorch.org/whl/cu121" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(python_full_version >= '3.10' and sys_platform == 'darwin') or (platform_machine == 'arm64' and sys_platform == 'darwin')" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version < '3.10' and platform_machine != 'arm64' and sys_platform == 'darwin'" },
-]
 
 [package.metadata]
 requires-dist = [
-    { name = "bayesian-optimization", specifier = ">=2.0.4" },
+    { name = "ai-edge-litert", marker = "extra == 'export'", specifier = ">=1.2.0" },
+    { name = "ai-edge-litert", marker = "extra == 'tflite'", specifier = ">=1.2.0" },
+    { name = "bayesian-optimization", marker = "extra == 'evolve'", specifier = ">=2.0.4" },
     { name = "click", specifier = ">=8.1.8" },
     { name = "filterpy", specifier = ">=1.4.5,<2.0.0" },
+    { name = "flatbuffers", marker = "extra == 'export'", specifier = ">=23.5.26" },
+    { name = "flatbuffers", marker = "extra == 'tflite'", specifier = ">=23.5.26" },
     { name = "ftfy", specifier = ">=6.1.3,<7.0.0" },
     { name = "gdown", specifier = ">=5.1.0,<6.0.0" },
     { name = "gitpython", specifier = ">=3.1.42,<4.0.0" },
+    { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.29.5,<7.0.0" },
+    { name = "isort", marker = "extra == 'test'", specifier = ">=5.13.2,<6.0.0" },
+    { name = "joblib", marker = "extra == 'evolve'", specifier = ">=1.3.2,<2.0.0" },
     { name = "lapx", specifier = ">=0.5.5,<1.0.0" },
     { name = "loguru", specifier = ">=0.7.2,<1.0.0" },
+    { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.1" },
+    { name = "mkdocs-click", marker = "extra == 'docs'", specifier = ">=0.9.0" },
+    { name = "mkdocs-include-markdown-plugin", marker = "extra == 'docs'", specifier = ">=7.1.6" },
+    { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.6.15" },
+    { name = "mkdocstrings", marker = "extra == 'docs'", specifier = ">=0.30.0" },
+    { name = "mkdocstrings-python", marker = "extra == 'docs'", specifier = ">=1.16.12" },
+    { name = "ml-dtypes", marker = "extra == 'export'", specifier = "==0.3.2" },
+    { name = "ml-dtypes", marker = "extra == 'tflite'", specifier = "==0.3.2" },
     { name = "mplcursors", specifier = ">=0.6" },
     { name = "numpy" },
+    { name = "onnx", marker = "extra == 'export'", specifier = ">=1.16.1,<1.19" },
+    { name = "onnx", marker = "extra == 'onnx'", specifier = ">=1.16.1,<1.19" },
+    { name = "onnx", marker = "extra == 'tflite'", specifier = ">=1.16.1" },
+    { name = "onnx-graphsurgeon", marker = "extra == 'export'", specifier = ">=0.3.26" },
+    { name = "onnx-graphsurgeon", marker = "extra == 'tflite'", specifier = ">=0.3.26" },
+    { name = "onnx2tf", marker = "extra == 'export'", specifier = ">=1.18.0" },
+    { name = "onnx2tf", marker = "extra == 'tflite'", specifier = ">=1.18.0" },
+    { name = "onnxruntime", marker = "extra == 'export'", specifier = ">=1.20.0" },
+    { name = "onnxruntime", marker = "extra == 'onnx'", specifier = ">=1.20.0" },
+    { name = "onnxruntime", marker = "extra == 'tflite'" },
+    { name = "onnxsim", marker = "extra == 'export'", specifier = "==0.4.33" },
+    { name = "onnxsim", marker = "extra == 'tflite'", specifier = "==0.4.33" },
+    { name = "onnxslim", marker = "extra == 'export'", specifier = ">=0.1.67" },
+    { name = "onnxslim", marker = "extra == 'onnx'", specifier = ">=0.1.67" },
+    { name = "onnxslim", marker = "extra == 'tflite'", specifier = ">=0.1.31" },
     { name = "opencv-python", specifier = ">=4.7.0,<5.0.0" },
+    { name = "openvino", marker = "extra == 'export'", specifier = ">=2025.2.0" },
+    { name = "openvino", marker = "extra == 'openvino'", specifier = ">=2025.2.0" },
+    { name = "optuna", marker = "extra == 'evolve'" },
     { name = "pandas", specifier = ">=2.0.0,<3.0.0" },
+    { name = "plotly", marker = "extra == 'evolve'", specifier = ">=5.19.0,<6.0.0" },
+    { name = "psutil", marker = "extra == 'export'", specifier = "==5.9.5" },
+    { name = "psutil", marker = "extra == 'tflite'", specifier = "==5.9.5" },
     { name = "pyqt5", specifier = ">=5.15.11" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0.2,<9.0.0" },
+    { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=6.0.0,<7.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1,<7.0.0" },
+    { name = "ray", marker = "extra == 'evolve'", specifier = ">=2.35.0,<3.0.0" },
+    { name = "ray", extras = ["tune"], marker = "extra == 'evolve'", specifier = ">=2.35.0,<3.0.0" },
     { name = "regex", specifier = ">=2024.0.0,<2025.0.0" },
     { name = "scikit-learn", specifier = ">=1.3.0,<2.0.0" },
     { name = "setuptools" },
+    { name = "sng4onnx", marker = "extra == 'export'", specifier = ">=1.0.1" },
+    { name = "sng4onnx", marker = "extra == 'tflite'", specifier = ">=1.0.1" },
+    { name = "tensorflow", marker = "extra == 'export'", specifier = "==2.17.0" },
+    { name = "tensorflow", marker = "extra == 'tflite'", specifier = "==2.17.0" },
+    { name = "tf-keras", marker = "extra == 'export'" },
+    { name = "tf-keras", marker = "extra == 'tflite'" },
     { name = "torch", marker = "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.2.1,<3.0.0" },
     { name = "torch", marker = "sys_platform == 'darwin'", specifier = ">=2.2.1,<3.0.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.2.1,<3.0.0", index = "https://download.pytorch.org/whl/cu121" },
     { name = "torchvision", marker = "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=0.17.1,<1.0.0" },
     { name = "torchvision", marker = "sys_platform == 'darwin'", specifier = ">=0.17.1,<1.0.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torchvision", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=0.17.1,<1.0.0", index = "https://download.pytorch.org/whl/cu121" },
+    { name = "ultralytics", marker = "extra == 'yolo'", specifier = ">=3.8.200" },
     { name = "yacs", specifier = ">=0.1.8,<1.0.0" },
 ]
-
-[package.metadata.requires-dev]
-dev = [{ name = "ipykernel", specifier = ">=6.29.5,<7.0.0" }]
-docs = [
-    { name = "mkdocs", specifier = ">=1.6.1" },
-    { name = "mkdocs-click", specifier = ">=0.9.0" },
-    { name = "mkdocs-include-markdown-plugin", specifier = ">=7.1.6" },
-    { name = "mkdocs-material", specifier = ">=9.6.15" },
-    { name = "mkdocstrings", specifier = ">=0.30.0" },
-    { name = "mkdocstrings-python", specifier = ">=1.16.12" },
-]
-evolve = [
-    { name = "joblib", specifier = ">=1.3.2,<2.0.0" },
-    { name = "optuna" },
-    { name = "plotly", specifier = ">=5.19.0,<6.0.0" },
-    { name = "ray", specifier = ">=2.35.0,<3.0.0" },
-    { name = "ray", extras = ["tune"], specifier = ">=2.35.0,<3.0.0" },
-]
-onnx = [
-    { name = "onnx", specifier = ">=1.16.1,<1.19" },
-    { name = "onnxruntime", specifier = ">=1.20.0" },
-    { name = "onnxslim", specifier = ">=0.1.67" },
-]
-openvino = [{ name = "openvino", specifier = ">=2025.2.0" }]
-test = [
-    { name = "isort", specifier = ">=5.13.2,<6.0.0" },
-    { name = "pytest", specifier = ">=8.0.2,<9.0.0" },
-    { name = "pytest-cov", specifier = ">=6.0.0,<7.0.0" },
-]
-tflite = [
-    { name = "ai-edge-litert", specifier = ">=1.2.0" },
-    { name = "flatbuffers", specifier = ">=23.5.26" },
-    { name = "ml-dtypes", specifier = "==0.3.2" },
-    { name = "onnx", specifier = ">=1.16.1" },
-    { name = "onnx-graphsurgeon", specifier = ">=0.3.26" },
-    { name = "onnx2tf", specifier = ">=1.18.0" },
-    { name = "onnxruntime" },
-    { name = "onnxsim", specifier = "==0.4.33" },
-    { name = "onnxslim", specifier = ">=0.1.31" },
-    { name = "psutil", specifier = "==5.9.5" },
-    { name = "sng4onnx", specifier = ">=1.0.1" },
-    { name = "tensorflow", specifier = "==2.17.0" },
-    { name = "tf-keras" },
-]
-yolo = [{ name = "ultralytics", specifier = ">=3.8.200" }]
-yolox-build-deps = [
-    { name = "setuptools" },
-    { name = "torch", marker = "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.2.1,<3.0.0" },
-    { name = "torch", marker = "sys_platform == 'darwin'", specifier = ">=2.2.1,<3.0.0", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.2.1,<3.0.0", index = "https://download.pytorch.org/whl/cu121" },
-]
+provides-extras = ["yolo", "evolve", "onnx", "openvino", "tflite", "export", "test", "dev", "docs"]
 
 [[package]]
 name = "bracex"
@@ -2776,7 +2784,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.1.0.70"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or sys_platform == 'win32'" },
+    { name = "nvidia-cublas-cu12", marker = "platform_machine != 'aarch64' and sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9f/fd/713452cd72343f682b1c7b9321e23829f00b842ceaedcda96e742ea0b0b3/nvidia_cudnn_cu12-9.1.0.70-py3-none-manylinux2014_x86_64.whl", hash = "sha256:165764f44ef8c61fcdfdfdbe769d687e06374059fbb388b6c89ecb0e28793a6f", size = 664752741, upload-time = "2024-04-22T15:24:15.253Z" },
@@ -2803,9 +2811,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.4.5.107"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or sys_platform == 'win32'" },
-    { name = "nvidia-cusparse-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or sys_platform == 'win32'" },
-    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or sys_platform == 'win32'" },
+    { name = "nvidia-cublas-cu12", marker = "platform_machine != 'aarch64' and sys_platform == 'linux'" },
+    { name = "nvidia-cusparse-cu12", marker = "platform_machine != 'aarch64' and sys_platform == 'linux'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 'aarch64' and sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bc/1d/8de1e5c67099015c834315e333911273a8c6aaba78923dd1d1e25fc5f217/nvidia_cusolver_cu12-11.4.5.107-py3-none-manylinux1_x86_64.whl", hash = "sha256:8a7ec542f0412294b15072fa7dab71d31334014a69f953004ea7a118206fe0dd", size = 124161928, upload-time = "2023-04-19T15:51:25.781Z" },
@@ -2816,7 +2824,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.1.0.106"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or sys_platform == 'win32'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 'aarch64' and sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/65/5b/cfaeebf25cd9fdec14338ccb16f6b2c4c7fa9163aefcf057d86b9cc248bb/nvidia_cusparse_cu12-12.1.0.106-py3-none-manylinux1_x86_64.whl", hash = "sha256:f3b50f42cf363f86ab21f720998517a659a48131e8d538dc02f8768237bd884c", size = 195958278, upload-time = "2023-04-19T15:51:49.939Z" },
@@ -4934,12 +4942,12 @@ dependencies = [
     { name = "typing-extensions", marker = "(python_full_version >= '3.10' and sys_platform == 'darwin') or (platform_machine == 'arm64' and sys_platform == 'darwin')" },
 ]
 wheels = [
-    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp310-none-macosx_11_0_arm64.whl" },
-    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp311-none-macosx_11_0_arm64.whl" },
-    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp312-none-macosx_11_0_arm64.whl" },
-    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp313-cp313t-macosx_14_0_arm64.whl" },
-    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp313-none-macosx_11_0_arm64.whl" },
-    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp39-none-macosx_11_0_arm64.whl" },
+    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp310-none-macosx_11_0_arm64.whl", hash = "sha256:a467b49fe893a6a6cce89e3aee556edfdc64a722d7195fdfdd75cec9dea13779" },
+    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp311-none-macosx_11_0_arm64.whl", hash = "sha256:3d05017d19bc99741288e458888283a44b0ee881d53f05f72f8b1cfea8998122" },
+    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp312-none-macosx_11_0_arm64.whl", hash = "sha256:a47b7986bee3f61ad217d8a8ce24605809ab425baf349f97de758815edd2ef54" },
+    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp313-cp313t-macosx_14_0_arm64.whl", hash = "sha256:fbe2e149c5174ef90d29a5f84a554dfaf28e003cb4f61fa2c8c024c17ec7ca58" },
+    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp313-none-macosx_11_0_arm64.whl", hash = "sha256:057efd30a6778d2ee5e2374cd63a63f63311aa6f33321e627c655df60abdd390" },
+    { url = "https://download.pytorch.org/whl/cpu/torch-2.8.0-cp39-none-macosx_11_0_arm64.whl", hash = "sha256:6bec1f240968749e23bbb7ea8f6617a08fc3db1b4c766b5cceadf8a28b4197d9" },
 ]
 
 [[package]]
@@ -5118,7 +5126,7 @@ name = "triton"
 version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "filelock", marker = "(python_full_version < '3.13' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'win32')" },
+    { name = "filelock", marker = "python_full_version < '3.13' and platform_machine != 'aarch64' and sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/45/27/14cc3101409b9b4b9241d2ba7deaa93535a217a211c86c4cc7151fb12181/triton-3.0.0-1-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:e1efef76935b2febc365bfadf74bcb65a6f959a9872e5bddf44cc9e0adce1e1a", size = 209376304, upload-time = "2024-07-19T20:56:41.483Z" },
