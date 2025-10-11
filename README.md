@@ -84,10 +84,11 @@ BoxMOT provides a unified CLI `boxmot` with the following subcommands:
 Usage: boxmot COMMAND [ARGS]...
 
 Commands:
-  track                  Run tracking only
-  generate               Generate detections and embeddings
-  eval                   Evaluate tracking performance using the official trackeval repository
-  tune                   Tune tracker hyperparameters based on selected detections and embeddings
+  eval      Evaluate tracking performance
+  export    Export ReID models
+  generate  Generate detections and embeddings
+  track     Run tracking only
+  tune      Tune models via evolutionary algorithms
 ```
 
 ## 🐍 PYTHON
