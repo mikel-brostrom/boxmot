@@ -289,11 +289,11 @@ We support ReID model export to ONNX, OpenVINO, TorchScript and TensorRT
 
 ```bash
 # export to ONNX
-$ boxmot export --reid-model weights/osnet_x0_25_msmt17.pt --include onnx --device cpu
+$ boxmot export --weights weights/osnet_x0_25_msmt17.pt --include onnx --device cpu
 # export to OpenVINO
-$ boxmot export --reid-model weights/osnet_x0_25_msmt17.pt --include openvino --device cpu
+$ boxmot export --weights weights/osnet_x0_25_msmt17.pt --include openvino --device cpu
 # export to TensorRT with dynamic input
-$ boxmot export --reid-model weights/osnet_x0_25_msmt17.pt --include engine --device 0 --dynamic
+$ boxmot export --weights weights/osnet_x0_25_msmt17.pt --include engine --device 0 --dynamic
 ```
 
 </details>
