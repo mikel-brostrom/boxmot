@@ -84,10 +84,11 @@ BoxMOT provides a unified CLI `boxmot` with the following subcommands:
 Usage: boxmot COMMAND [ARGS]...
 
 Commands:
-  track                  Run tracking only
-  generate               Generate detections and embeddings
-  eval                   Evaluate tracking performance using the official trackeval repository
-  tune                   Tune tracker hyperparameters based on selected detections and embeddings
+  eval      Evaluate tracking performance
+  export    Export ReID models
+  generate  Generate detections and embeddings
+  track     Run tracking only
+  tune      Tune models via evolutionary algorithms
 ```
 
 ## 🐍 PYTHON
@@ -288,11 +289,11 @@ We support ReID model export to ONNX, OpenVINO, TorchScript and TensorRT
 
 ```bash
 # export to ONNX
-$ boxmot export --reid-model weights/osnet_x0_25_msmt17.pt --include onnx --device cpu
+$ boxmot export --weights weights/osnet_x0_25_msmt17.pt --include onnx --device cpu
 # export to OpenVINO
-$ boxmot export --reid-model weights/osnet_x0_25_msmt17.pt --include openvino --device cpu
+$ boxmot export --weights weights/osnet_x0_25_msmt17.pt --include openvino --device cpu
 # export to TensorRT with dynamic input
-$ boxmot export --reid-model weights/osnet_x0_25_msmt17.pt --include engine --device 0 --dynamic
+$ boxmot export --weights weights/osnet_x0_25_msmt17.pt --include engine --device 0 --dynamic
 ```
 
 </details>
