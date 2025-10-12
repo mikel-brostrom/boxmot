@@ -1,10 +1,10 @@
-import sys
-import subprocess
 import shutil
+import subprocess
+import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
-from importlib.metadata import version, PackageNotFoundError
 from packaging.requirements import Requirement
 
 # Replace this import with your logger, or use logging.getLogger(__name__)
@@ -26,7 +26,9 @@ class RequirementsChecker:
       - Backward-compatible alias: `cmds` == `extra_args`
     """
 
-    def __init__(self, group: Optional[str] = None, requirements_file: Path = REQUIREMENTS_FILE):
+    def __init__(
+        self, group: Optional[str] = None, requirements_file: Path = REQUIREMENTS_FILE
+    ):
         """
         If `group` is provided, you *may* choose to call `sync_group_or_extra(group=group)`
         before doing work. Otherwise you can use `check_requirements_file()` or `check_packages()`.
@@ -64,7 +66,9 @@ class RequirementsChecker:
                 LOGGER.error(f"Package {name!r} is not installed.")
                 missing.append(str(req))
             else:
-                if req.specifier and not req.specifier.contains(inst_ver, prereleases=True):
+                if req.specifier and not req.specifier.contains(
+                    inst_ver, prereleases=True
+                ):
                     LOGGER.error(
                         f"{name!r} has version {inst_ver} which does not satisfy {req.specifier}."
                     )
@@ -72,7 +76,6 @@ class RequirementsChecker:
 
         if missing:
             self._install_packages(missing, extra_args)
-
 
     def sync_extra(
         self,
@@ -113,7 +116,9 @@ class RequirementsChecker:
 
     # ---------- internals ----------
 
-    def _install_packages(self, packages: Sequence[str], extra_args: Optional[Sequence[str]] = None):
+    def _install_packages(
+        self, packages: Sequence[str], extra_args: Optional[Sequence[str]] = None
+    ):
         """
         Install an explicit list of requirement specifiers with uv (if present) or pip.
         """

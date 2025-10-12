@@ -12,7 +12,9 @@ class ONNXExporter(BaseExporter):
 
         f = self.file.with_suffix(".onnx")
 
-        dynamic = {"images": {0: "batch"}, "output": {0: "batch"}} if self.dynamic else None
+        dynamic = (
+            {"images": {0: "batch"}, "output": {0: "batch"}} if self.dynamic else None
+        )
 
         torch.onnx.export(
             self.model.cpu() if self.dynamic else self.model,
@@ -43,7 +45,7 @@ class ONNXExporter(BaseExporter):
             self.checker.check_packages(
                 (
                     "onnxruntime-gpu" if cuda else "onnxruntime",
-                    "onnx-simplifier>=0.4.1",
+                    "onnxsim>=0.4.1",
                 )
             )
             import onnxsim
