@@ -202,7 +202,7 @@ class KalmanBoxTracker(object):
         # parameters
         self.delta_t = int(delta_t)
         self.confidence_pre = None
-        self.confidence = float(bbox[-1])
+        self.conf = float(bbox[-1])
 
         # ReID buffers
         self.smooth_feat = None
@@ -228,8 +228,8 @@ class KalmanBoxTracker(object):
         else:
             if self.adapfs:
                 assert score > 0, "score must be > 0 when adapfs=True"
-                pre_w = self.alpha * (self.confidence / (self.confidence + score))
-                cur_w = (1.0 - self.alpha) * (score / (self.confidence + score))
+                pre_w = self.alpha * (self.conf / (self.conf + score))
+                cur_w = (1.0 - self.alpha) * (score / (self.conf + score))
                 s = pre_w + cur_w
                 pre_w /= s
                 cur_w /= s
@@ -313,8 +313,8 @@ class KalmanBoxTracker(object):
                     self.update_features(id_feature, score=bbox[-1])
                 else:
                     self.update_features(id_feature)
-            self.confidence_pre = self.confidence
-            self.confidence = float(bbox[-1])
+            self.confidence_pre = self.conf
+            self.conf = float(bbox[-1])
         else:
             self.kf.update(bbox)
             self.confidence_pre = None
@@ -336,10 +336,10 @@ class KalmanBoxTracker(object):
         kalman_score = float(np.clip(x3, self.track_thresh, 1.0))
 
         if not self.confidence_pre:
-            simple_score = float(np.clip(self.confidence, 0.1, self.track_thresh))
+            simple_score = float(np.clip(self.conf, 0.1, self.track_thresh))
         else:
             simple_score = float(np.clip(
-                self.confidence - (self.confidence_pre - self.confidence),
+                self.conf - (self.confidence_pre - self.conf),
                 0.1,
                 self.track_thresh,
             ))
