@@ -127,7 +127,7 @@ def convert_to_mot_format(
                 results[:, 4].astype(np.int32),  # track id
                 tlwh.round().astype(np.int32),  # top,left,width,height
                 np.ones((results.shape[0], 1), dtype=np.int32),  # "not ignored"
-                results[:, 6].astype(np.int32),  # class
+                results[:, 6].astype(np.int32) + 1,  # class
                 results[:, 5],  # confidence (float)
             ))
             return mot_results
@@ -142,7 +142,7 @@ def convert_to_mot_format(
                 results.boxes.id.unsqueeze(1).astype(np.int32), # track id
                 ops.xyxy2ltwh(results.boxes.xyxy).astype(np.int32),  ## top,left,width,height
                 not_ignored, # "not ignored"
-                results.boxes.cls.unsqueeze(1).astype(np.int32), # class
+                results.boxes.cls.unsqueeze(1).astype(np.int32) + 1, # class
                 results.boxes.conf.unsqueeze(1).astype(np.float32), # confidence (float)
             ], dim=1)
 

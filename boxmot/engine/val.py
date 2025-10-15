@@ -26,6 +26,7 @@ from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CO
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
+from boxmot.utils.trackeval_patch import apply_trackeval_patch
 from boxmot.utils.misc import increment_path, prompt_overwrite
 from boxmot.utils.clean import cleanup_mot17
 from typing import Optional, List, Dict, Generator, Union
@@ -57,8 +58,10 @@ def eval_init(args,
     data for ablation runs, then canonicalize args.source.
     Modifies args in place.
     """
+
     # 1) download the TrackEval code
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
+    apply_trackeval_patch(TRACKEVAL / "trackeval/datasets/mot_challenge_2d_box.py")
 
     # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
     if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack-ablation", "vizdrone-ablation"):
@@ -217,8 +220,6 @@ def parse_mot_results(results: str) -> dict:
                     metrics[key] = int(value) if key in int_fields else float(value)
 
     return metrics
-
-
 
 
 def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_folder: Path, metrics: list = ["HOTA", "CLEAR", "Identity"]) -> str:
