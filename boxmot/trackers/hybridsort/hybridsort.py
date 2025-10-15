@@ -736,7 +736,7 @@ class HybridSort(BaseTracker):
                 outputs.append([
                     *d.tolist(),
                     trk.id + 1,                 # track id
-                    float(trk.confidence),      # conf
+                    float(trk.conf),      # conf
                     int(trk.cls),               # cls (from detection)
                     int(trk.det_ind),           # det index (frame-local)
                 ])
