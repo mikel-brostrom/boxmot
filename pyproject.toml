@@ -75,7 +75,7 @@ name            = "boxmot"
 version         = "15.0.9"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
-requires-python = ">=3.9,<=3.13"
+requires-python = ">=3.8,<=3.13"
 license         = { text = "AGPL-3.0" }
 
 authors = [
@@ -147,7 +147,7 @@ evolve = [
   "ray[tune]>=2.35.0,<3.0.0",  
   "plotly>=5.19.0,<6.0.0",  
   "joblib>=1.3.2,<2.0.0", 
-  "bayesian-optimization>=2.0.4",
+  "bayesian-optimization<=2.0.4",
   "optuna"  
 ]  
   
@@ -157,12 +157,12 @@ onnx = [
   "onnxslim>=0.1.67"  
 ]  
   
-openvino = ["openvino>=2025.2.0"]  
+openvino = ["openvino<=2025.2.0"]  
   
 tflite = [  
   "onnx2tf>=1.18.0",  
   "onnx>=1.16.1",  
-  "tensorflow==2.17.0",  
+  "tensorflow<=2.17.0",  
   "tf_keras",  
   "sng4onnx>=1.0.1",  
   "onnx_graphsurgeon>=0.3.26",  
@@ -171,7 +171,7 @@ tflite = [
   "flatbuffers>=23.5.26",  
   "onnxsim==0.4.33",  
   "psutil==5.9.5",  
-  "ml_dtypes==0.3.2",  
+  "ml_dtypes<=0.3.2",  
   "ai_edge_litert>=1.2.0",  
 ]  
   
@@ -180,34 +180,34 @@ export = [
   "onnx>=1.16.1,<1.19",  
   "onnxruntime>=1.20.0",  
   "onnxslim>=0.1.67",  
-  "openvino>=2025.2.0",  
+  "openvino<=2025.2.0",  
   "onnx2tf>=1.18.0",  
-  "tensorflow==2.17.0",  
+  "tensorflow<=2.17.0",  
   "tf_keras",  
   "sng4onnx>=1.0.1",  
   "onnx_graphsurgeon>=0.3.26",  
   "flatbuffers>=23.5.26",  
   "onnxsim==0.4.33",  
   "psutil==5.9.5",  
-  "ml_dtypes==0.3.2",  
+  "ml_dtypes<=0.3.2",  
   "ai_edge_litert>=1.2.0",  
 ]  
   
 test = [  
   "pytest>=8.0.2,<9.0.0",  
   "isort>=5.13.2,<6.0.0",  
-  "pytest-cov>=6.0.0,<7.0.0",  
+  "pytest-cov<=6.0.0",  
 ]  
   
 dev = ["ipykernel>=6.29.5,<7.0.0"]
 
 docs = [
     "mkdocs>=1.6.1",
-    "mkdocs-click>=0.9.0",
-    "mkdocs-include-markdown-plugin>=7.1.6",
+    "mkdocs-click<=0.9.0",
+    "mkdocs-include-markdown-plugin<=7.1.6",
     "mkdocs-material>=9.6.15",
-    "mkdocstrings>=0.30.0",
-    "mkdocstrings-python>=1.16.12",
+    "mkdocstrings<=0.30.0",
+    "mkdocstrings-python<=1.16.12",
 ]
 
 yolox-build-deps = [
