@@ -3,19 +3,21 @@
 """
 This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
+
 from collections import deque
+from typing import Dict, List, Optional
 
 import numpy as np
 
 from boxmot.motion.kalman_filters.aabb.xysr_kf import KalmanFilterXYSR
 from boxmot.motion.kalman_filters.obb.xywha_kf import KalmanBoxTrackerOBB
 from boxmot.trackers.basetracker import BaseTracker
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.ops import xyxy2xysr
 
-from boxmot.utils import logger as LOGGER
 
-def k_previous_obs(observations, cur_age, k, is_obb=False):
+def k_previous_obs(observations: Dict, cur_age: int, k: int, is_obb: bool = False) -> List:
     if len(observations) == 0:
         if is_obb:
             return [-1, -1, -1, -1, -1, -1]
@@ -29,7 +31,7 @@ def k_previous_obs(observations, cur_age, k, is_obb=False):
     return observations[max_age]
 
 
-def convert_x_to_bbox(x, score=None):
+def convert_x_to_bbox(x: np.ndarray, score: Optional[float] = None) -> np.ndarray:
     """
     Takes a bounding box in the centre form [x,y,s,r] and returns it in the form
       [x1,y1,x2,y2] where x1,y1 is the top left and x2,y2 is the bottom right
@@ -37,16 +39,16 @@ def convert_x_to_bbox(x, score=None):
     w = np.sqrt(x[2] * x[3])
     h = x[2] / w
     if score is None:
-        return np.array(
-            [x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0]
-        ).reshape((1, 4))
+        return np.array([x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0]).reshape(
+            (1, 4)
+        )
     else:
         return np.array(
             [x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0, score]
         ).reshape((1, 5))
 
 
-def speed_direction(bbox1, bbox2):
+def speed_direction(bbox1: np.ndarray, bbox2: np.ndarray) -> np.ndarray:
     cx1, cy1 = (bbox1[0] + bbox1[2]) / 2.0, (bbox1[1] + bbox1[3]) / 2.0
     cx2, cy2 = (bbox2[0] + bbox2[2]) / 2.0, (bbox2[1] + bbox2[3]) / 2.0
     speed = np.array([cy2 - cy1, cx2 - cx1])
@@ -63,13 +65,13 @@ class KalmanBoxTracker(object):
 
     def __init__(
         self,
-        bbox,
-        cls,
-        det_ind,
-        delta_t=3,
-        max_obs=50,
-        Q_xy_scaling=0.01,
-        Q_s_scaling=0.0001,
+        bbox: np.ndarray,
+        cls: int,
+        det_ind: int,
+        delta_t: int = 3,
+        max_obs: int = 50,
+        Q_xy_scaling: float = 0.01,
+        Q_s_scaling: float = 0.0001,
     ):
         """
         Initialises a tracker using initial bounding box.
@@ -103,9 +105,7 @@ class KalmanBoxTracker(object):
         )
 
         self.kf.R[2:, 2:] *= 10.0
-        self.kf.P[
-            4:, 4:
-        ] *= 1000.0  # give high uncertainty to the unobservable initial velocities
+        self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
         self.kf.P *= 10.0
 
         self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
@@ -129,12 +129,12 @@ class KalmanBoxTracker(object):
         let's bear it for now.
         """
         self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
-        self.observations = dict()
+        self.observations: Dict[int, np.ndarray] = dict()
         self.history_observations = deque([], maxlen=self.max_obs)
-        self.velocity = None
+        self.velocity: Optional[np.ndarray] = None
         self.delta_t = delta_t
 
-    def update(self, bbox, cls, det_ind):
+    def update(self, bbox: Optional[np.ndarray], cls: Optional[int], det_ind: Optional[int]):
         """
         Updates the state vector with observed bbox.
         """
@@ -169,7 +169,7 @@ class KalmanBoxTracker(object):
         else:
             self.kf.update(bbox)
 
-    def predict(self):
+    def predict(self) -> np.ndarray:
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
@@ -184,7 +184,7 @@ class KalmanBoxTracker(object):
         self.history.append(convert_x_to_bbox(self.kf.x))
         return self.history[-1]
 
-    def get_state(self):
+    def get_state(self) -> np.ndarray:
         """
         Returns the current bounding box estimate.
         """
@@ -205,7 +205,7 @@ class OcSort(BaseTracker):
     - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
     - asso_func (str): Algorithm name used for data association between detections and tracks.
     - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
+
     OcSort-specific parameters:
     - min_conf (float): Minimum confidence threshold for detections to be considered in second-stage association.
     - delta_t (int): Time window size for velocity estimation in Kalman Filter.
@@ -213,7 +213,7 @@ class OcSort(BaseTracker):
     - use_byte (bool): Whether to use BYTE association in the second association step.
     - Q_xy_scaling (float): Scaling factor for process noise in position coordinates.
     - Q_s_scaling (float): Scaling factor for process noise in scale coordinates.
-    
+
     Attributes:
     - frame_count (int): Counter for the frames processed.
     - active_tracks (list): List to hold active tracks.
@@ -239,7 +239,7 @@ class OcSort(BaseTracker):
         use_byte: bool = False,
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs,  # Additional BaseTracker parameters
     ):
         # Forward all BaseTracker parameters explicitly
         super().__init__(
@@ -252,9 +252,9 @@ class OcSort(BaseTracker):
             nr_classes=nr_classes,
             asso_func=asso_func,
             is_obb=is_obb,
-            **kwargs
+            **kwargs,
         )
-        
+
         # Store OcSort-specific parameters
         self.min_conf: float = min_conf
         self.asso_threshold: float = iou_threshold  # Maintain compatibility with existing code
@@ -265,17 +265,15 @@ class OcSort(BaseTracker):
         self.Q_s_scaling: float = Q_s_scaling
         self.frame_count: int = 0
         KalmanBoxTracker.count = 0
-        
+
         # Initialize tracker collections
-        self.active_tracks: list = [] 
+        self.active_tracks: List = []
 
         LOGGER.success("Initialized OcSort")
-        
+
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
-    def update(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
-    ) -> np.ndarray:
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -325,9 +323,7 @@ class OcSort(BaseTracker):
 
         k_observations = np.array(
             [
-                k_previous_obs(
-                    trk.observations, trk.age, self.delta_t, is_obb=self.is_obb
-                )
+                k_previous_obs(trk.observations, trk.age, self.delta_t, is_obb=self.is_obb)
                 for trk in self.active_tracks
             ]
         )
@@ -347,9 +343,7 @@ class OcSort(BaseTracker):
             h,
         )
         for m in matched:
-            self.active_tracks[m[1]].update(
-                dets[m[0], :-2], dets[m[0], -2], dets[m[0], -1]
-            )
+            self.active_tracks[m[1]].update(dets[m[0], :-2], dets[m[0], -2], dets[m[0], -1])
 
         """
             Second round of associaton by OCR
@@ -379,9 +373,7 @@ class OcSort(BaseTracker):
                         dets_second[det_ind, -1],
                     )
                     to_remove_trk_indices.append(trk_ind)
-                unmatched_trks = np.setdiff1d(
-                    unmatched_trks, np.array(to_remove_trk_indices)
-                )
+                unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]
@@ -406,12 +398,8 @@ class OcSort(BaseTracker):
                     )
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
-                unmatched_dets = np.setdiff1d(
-                    unmatched_dets, np.array(to_remove_det_indices)
-                )
-                unmatched_trks = np.setdiff1d(
-                    unmatched_trks, np.array(to_remove_trk_indices)
-                )
+                unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
+                unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
             self.active_tracks[m].update(None, None, None)
@@ -454,9 +442,9 @@ class OcSort(BaseTracker):
             ):
                 # +1 as MOT benchmark requires positive
                 ret.append(
-                    np.concatenate(
-                        (d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])
-                    ).reshape(1, -1)
+                    np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])).reshape(
+                        1, -1
+                    )
                 )
             i -= 1
             # remove dead tracklet

@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -32,13 +33,13 @@ class BaseTrack:
         is_activated (bool): Whether the track has been activated.
         state (TrackState): The current state of the track.
         history (OrderedDict): A history of the track's past states or observations.
-        features (list): A list of feature vectors associated with the track.
-        curr_feature (np.ndarray): The most recent feature vector.
+        features (List): A list of feature vectors associated with the track.
+        curr_feature (Optional[np.ndarray]): The most recent feature vector.
         score (float): The confidence score of the track.
         start_frame (int): The frame where the track started.
         frame_id (int): The most recent frame ID associated with the track.
         time_since_update (int): The number of frames since the track was last updated.
-        location (tuple): The location of the object in multi-camera tracking (set to infinity by default).
+        location (Tuple): The location of the object in multi-camera tracking (set to infinity by default).
     """
 
     _count = 0
@@ -48,15 +49,15 @@ class BaseTrack:
     state: int = TrackState.New
 
     history: OrderedDict = OrderedDict()
-    features: list = []
-    curr_feature: np.ndarray = None
+    features: List = []
+    curr_feature: Optional[np.ndarray] = None
     score: float = 0
     start_frame: int = 0
     frame_id: int = 0
     time_since_update: int = 0
 
     # multi-camera
-    location: tuple = (np.inf, np.inf)
+    location: Tuple = (np.inf, np.inf)
 
     @property
     def end_frame(self) -> int:

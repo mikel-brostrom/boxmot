@@ -1,3 +1,5 @@
+from typing import Optional
+
 import cv2
 import numpy as np
 
@@ -11,7 +13,7 @@ class SOF(BaseCMC):
     the 'sparseOptFlow' method.
     """
 
-    def __init__(self, scale=0.15):
+    def __init__(self, scale: float = 0.15) -> None:
         """
         Initialize the SOF object.
 
@@ -57,11 +59,11 @@ class SOF(BaseCMC):
             criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01),
         )
 
-        self.prevFrame = None
-        self.prevKeyPoints = None
-        self.initializedFirstFrame = False
+        self.prevFrame: Optional[np.ndarray] = None
+        self.prevKeyPoints: Optional[np.ndarray] = None
+        self.initializedFirstFrame: bool = False
 
-    def apply(self, img, detections=None):
+    def apply(self, img: np.ndarray, detections: Optional[np.ndarray] = None) -> np.ndarray:
         """
         Apply sparse optical flow tracking to estimate a warp (affine transformation)
         between the previous frame and the current raw frame.
@@ -87,9 +89,7 @@ class SOF(BaseCMC):
 
         # On the first frame, detect keypoints and initialize internal state.
         if not self.initializedFirstFrame:
-            keypoints = cv2.goodFeaturesToTrack(
-                frame_gray, mask=None, **self.feature_params
-            )
+            keypoints = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
             if keypoints is None:
                 return H
             # Optional subpixel refinement.
@@ -120,13 +120,9 @@ class SOF(BaseCMC):
                 valid_next.append(nextKeypoints[i])
 
         if len(valid_prev) < 4:
-            print(
-                "Warning: not enough matching points detected; redetecting keypoints."
-            )
+            print("Warning: not enough matching points detected; redetecting keypoints.")
             # If too few matches, re-detect keypoints for the current frame.
-            keypoints = cv2.goodFeaturesToTrack(
-                frame_gray, mask=None, **self.feature_params
-            )
+            keypoints = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
             self.prevFrame = frame_gray.copy()
             self.prevKeyPoints = keypoints if keypoints is not None else np.array([])
             return H
@@ -135,9 +131,7 @@ class SOF(BaseCMC):
         valid_next = np.array(valid_next)
 
         # Estimate the affine warp matrix using robust RANSAC.
-        H_est, inliers = cv2.estimateAffinePartial2D(
-            valid_prev, valid_next, method=cv2.RANSAC
-        )
+        H_est, inliers = cv2.estimateAffinePartial2D(valid_prev, valid_next, method=cv2.RANSAC)
         if H_est is None:
             H_est = H
         else:
@@ -148,9 +142,7 @@ class SOF(BaseCMC):
 
         # Update the previous frame and keypoints for the next iteration.
         # Optionally, you might want to re-detect keypoints rather than simply tracking them.
-        new_keypoints = cv2.goodFeaturesToTrack(
-            frame_gray, mask=None, **self.feature_params
-        )
+        new_keypoints = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
         if new_keypoints is None:
             # Use the tracked keypoints if new detection fails.
             new_keypoints = valid_next
@@ -165,7 +157,7 @@ class SOF(BaseCMC):
 # ==============================================================================
 
 
-def main():
+def main() -> None:
     # Create an instance of the SOF class with a downscaling factor, if desired.
     sof_tracker = SOF(scale=0.15)
 

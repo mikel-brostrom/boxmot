@@ -1,6 +1,7 @@
 import colorsys
 import hashlib
 from abc import ABC, abstractmethod
+from typing import List, Optional, Tuple
 
 import cv2 as cv
 import numpy as np
@@ -83,9 +84,7 @@ class BaseTracker(ABC):
         self.active_tracks = []  # This might be handled differently in derived classes
 
         self.per_class_active_tracks = None
-        self._first_frame_processed = (
-            False  # Flag to track if the first frame has been processed
-        )
+        self._first_frame_processed = False  # Flag to track if the first frame has been processed
         self._first_dets_processed = False
         self.last_emb_size = None  # Tracks the dimensionality of embedding vectors used for re-identification during tracking.
 
@@ -96,15 +95,13 @@ class BaseTracker(ABC):
                 self.per_class_active_tracks[i] = []
 
         if self.max_age >= self.max_obs:
-            LOGGER.warning(
-                "Max age > max observations, increasing size of max observations..."
-            )
+            LOGGER.warning("Max age > max observations, increasing size of max observations...")
             self.max_obs = self.max_age + 5
             print("self.max_obs", self.max_obs)
 
     @abstractmethod
     def update(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
+        self, dets: np.ndarray, img: np.ndarray, embs: Optional[np.ndarray] = None
     ) -> np.ndarray:
         """
         Abstract method to update the tracker with new detections for a new frame. This method
@@ -118,18 +115,12 @@ class BaseTracker(ABC):
         Raises:
         - NotImplementedError: If the subclass does not implement this method.
         """
-        raise NotImplementedError(
-            "The update method needs to be implemented by the subclass."
-        )
+        raise NotImplementedError("The update method needs to be implemented by the subclass.")
 
     def get_class_dets_n_embs(self, dets, embs, cls_id):
         # Initialize empty arrays for detections and embeddings
         class_dets = np.empty((0, 6))
-        class_embs = (
-            np.empty((0, self.last_emb_size))
-            if self.last_emb_size is not None
-            else None
-        )
+        class_embs = np.empty((0, self.last_emb_size)) if self.last_emb_size is not None else None
 
         # Check if there are detections
         if dets.size == 0:
@@ -148,9 +139,7 @@ class BaseTracker(ABC):
         class_embs = None
         if embs.size > 0:
             class_embs = embs[class_indices]
-            self.last_emb_size = class_embs.shape[
-                1
-            ]  # Update the last known embedding size
+            self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
         return class_dets, class_embs
 
     @staticmethod
@@ -202,7 +191,7 @@ class BaseTracker(ABC):
         Decorator for the update method to handle per-class processing.
         """
 
-        def wrapper(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None):
+        def wrapper(self, dets: np.ndarray, img: np.ndarray, embs: Optional[np.ndarray] = None):
             # handle different types of inputs
             if dets is None or len(dets) == 0:
                 dets = np.empty((0, 6))
@@ -274,7 +263,7 @@ class BaseTracker(ABC):
 
     def id_to_color(
         self, id: int, saturation: float = 0.75, value: float = 0.95
-    ) -> tuple:
+    ) -> Tuple[int, int, int]:
         """
         Returns green for target_id, otherwise generates a consistent unique BGR color using ID hashing.
 
@@ -284,7 +273,7 @@ class BaseTracker(ABC):
         - value (float): Brightness value for HSV color space.
 
         Returns:
-        - tuple: A BGR color tuple for OpenCV visualization.
+        - Tuple[int, int, int]: A BGR color tuple for OpenCV visualization.
         """
         target_id = getattr(self, "target_id", None)
         if target_id is not None:
@@ -305,7 +294,7 @@ class BaseTracker(ABC):
     def plot_box_on_img(
         self,
         img: np.ndarray,
-        box: tuple,
+        box: Tuple,
         conf: float,
         cls: int,
         id: int,
@@ -317,7 +306,7 @@ class BaseTracker(ABC):
 
         Parameters:
         - img (np.ndarray): The image array to draw on.
-        - box (tuple): The bounding box coordinates as (x1, y1, x2, y2).
+        - box (Tuple): The bounding box coordinates as (x1, y1, x2, y2).
         - conf (float): Confidence score of the detection.
         - cls (int): Class ID of the detection.
         - id (int): Unique identifier for the detection.
@@ -372,7 +361,7 @@ class BaseTracker(ABC):
         return img
 
     def plot_trackers_trajectories(
-        self, img: np.ndarray, observations: list, id: int
+        self, img: np.ndarray, observations: List, id: int
     ) -> np.ndarray:
         """
         Draws the trajectories of tracked objects based on historical observations. Each point
@@ -381,7 +370,7 @@ class BaseTracker(ABC):
 
         Parameters:
         - img (np.ndarray): The image array on which to draw the trajectories.
-        - observations (list): A list of bounding box coordinates representing the historical
+        - observations (List): A list of bounding box coordinates representing the historical
         observations of a tracked object. Each observation is in the format (x1, y1, x2, y2).
         - id (int): The unique identifier of the tracked object for color consistency in visualization.
 
@@ -444,9 +433,7 @@ class BaseTracker(ABC):
             if len(a.history_observations) < 3:
                 continue
             box = a.history_observations[-1]
-            img = self.plot_box_on_img(
-                img, box, a.conf, a.cls, a.id, thickness, fontscale
-            )
+            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
             if not show_trajectories:
                 continue
             img = self.plot_trackers_trajectories(img, a.history_observations, a.id)

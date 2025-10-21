@@ -5,16 +5,18 @@ with support for resuming (restoring) previous tuning runs.
 """
 
 import os
-os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"   # keep CWD constant for all trials
-from pathlib import Path
 
-from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
+os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"  # keep CWD constant for all trials
+from pathlib import Path
+from typing import Any, Dict
+
 from boxmot.engine.val import (
     eval_init,
     run_generate_dets_embs,
     run_generate_mot_results,
     run_trackeval,
 )
+from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
 from boxmot.utils.checks import RequirementsChecker
 
 checker = RequirementsChecker()
@@ -26,7 +28,7 @@ from ray.tune import RunConfig
 from ray.tune.search.optuna import OptunaSearch
 
 
-def load_yaml_config(tracking_method: str) -> dict:
+def load_yaml_config(tracking_method: str) -> Dict[str, Any]:
     """
     Loads the YAML configuration file for the given tracking method.
     """
@@ -35,7 +37,7 @@ def load_yaml_config(tracking_method: str) -> dict:
         return yaml.safe_load(file)
 
 
-def yaml_to_search_space(config: dict) -> dict:
+def yaml_to_search_space(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Converts a YAML configuration dictionary to a Ray Tune search space.
     """
@@ -61,10 +63,11 @@ class Tracker:
     """
     Encapsulates the evaluation of a tracking configuration.
     """
-    def __init__(self, opt):
+
+    def __init__(self, opt: Any) -> None:
         self.opt = opt
 
-    def objective_function(self, config: dict) -> dict:
+    def objective_function(self, config: Dict[str, Any]) -> Dict[str, Any]:
         # Generate MOT-compliant results
         run_generate_mot_results(self.opt, config)
         # Evaluate and extract objectives
@@ -72,7 +75,7 @@ class Tracker:
         return {k: results.get(k) for k in self.opt.objectives}
 
 
-def main(args):
+def main(args: Any) -> None:
     # --- initial setup ---
     args.yolo_model = [Path(y).resolve() for y in args.yolo_model]
     args.reid_model = [Path(r).resolve() for r in args.reid_model]
@@ -86,7 +89,7 @@ def main(args):
     primary_metric = args.objectives[0]
     optuna_search = OptunaSearch(metric=primary_metric, mode="max")
 
-    def tune_wrapper(cfg):
+    def tune_wrapper(cfg: Dict[str, Any]) -> Dict[str, Any]:
         return tracker.objective_function(cfg)
 
     # Paths for storage and restore

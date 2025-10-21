@@ -1,6 +1,11 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
 import os
-import numpy as np
+from typing import Dict, List, Optional, Tuple
+
 import matplotlib.pyplot as plt
+import numpy as np
+
 
 class MetricsPlotter:
     """
@@ -27,7 +32,7 @@ class MetricsPlotter:
         into the root folder under `filename`.
     """
 
-    def __init__(self, root_folder: str = '.'):
+    def __init__(self, root_folder: str = ".") -> None:
         """
         Initialize the MetricsPlotter with a root folder for saving plots.
 
@@ -41,15 +46,17 @@ class MetricsPlotter:
         # Create the directory if it does not exist
         os.makedirs(self.root_folder, exist_ok=True)
 
-    def plot_radar_chart(self,
-                         data: dict,
-                         labels: list,
-                         title: str = 'Radar Chart',
-                         figsize: tuple = (6, 6),
-                         ylim: tuple = (0, 100.0),
-                         yticks: list = None,
-                         ytick_labels: list = None,
-                         filename: str = 'radar_chart.png'):
+    def plot_radar_chart(
+        self,
+        data: Dict[str, List[float]],
+        labels: List[str],
+        title: str = "Radar Chart",
+        figsize: Tuple[int, int] = (6, 6),
+        ylim: Tuple[float, float] = (0, 100.0),
+        yticks: Optional[List[float]] = None,
+        ytick_labels: Optional[List[str]] = None,
+        filename: str = "radar_chart.png",
+    ) -> None:
         """
         Plots a radar chart for multiple methods over a fixed set of metrics, then saves it.
 
@@ -113,21 +120,23 @@ class MetricsPlotter:
         ax.yaxis.grid(True)
 
         # Place legend below the plot
-        plt.legend(loc='lower center', bbox_to_anchor=(0.5, -0.25), ncol=2)
+        plt.legend(loc="lower center", bbox_to_anchor=(0.5, -0.25), ncol=2)
         plt.title(title, y=1.08)
 
         plt.tight_layout()
         # Determine full save path and save
         save_path = os.path.join(self.root_folder, filename)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close(fig)  # Close the figure to free memory
 
-    def plot_fps_metrics(self,
-                         fps: list,
-                         data: dict,
-                         title: str = None,
-                         figsize: tuple = (10, 6),
-                         filename: str = 'fps_metrics.png'):
+    def plot_fps_metrics(
+        self,
+        fps: List[float],
+        data: Dict[str, List[float]],
+        title: Optional[str] = None,
+        figsize: Tuple[int, int] = (10, 6),
+        filename: str = "fps_metrics.png",
+    ) -> None:
         """
         Plots tracking metrics (e.g., HOTA, MOTA, IDF1) versus FPS as line curves, then saves it.
 
@@ -162,42 +171,42 @@ class MetricsPlotter:
 
         fig, ax = plt.subplots(figsize=figsize)
         for metric, values in data.items():
-            ax.plot(fps, values, marker='o', label=metric, linewidth=2)
+            ax.plot(fps, values, marker="o", label=metric, linewidth=2)
 
         ax.set_xlabel("FPS")
         ax.set_ylabel("Metric Value")
         ax.set_title(title)
-        ax.grid(True, linestyle='--', alpha=0.5)
-        ax.legend(loc='lower right')
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.legend(loc="lower right")
 
         plt.tight_layout()
         # Determine full save path and save
         save_path = os.path.join(self.root_folder, filename)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close(fig)  # Close the figure to free memory
 
 
 # Example usage:
 if __name__ == "__main__":
     # Create a MetricsPlotter that saves everything under "plots/" directory
-    plotter = MetricsPlotter(root_folder='./')
+    plotter = MetricsPlotter(root_folder="./")
 
     # 1) Radar chart example (will be saved as 'plots/radar_chart.png' by default)
-    labels = ['HOTA', 'AssA', 'AssR', 'MOTA', 'IDF1']
+    labels = ["HOTA", "AssA", "AssR", "MOTA", "IDF1"]
     radar_data = {
         "BoostTrack": [69.25, 73.859, 77.49, 75.908, 83.199],
-        "ByteTrack":  [67.68, 69.145, 75.031, 78.039, 79.157],
-        "BoTSORT":    [68.888, 71.15, 76.626, 78.232, 81.331],
-        "OCSORT":     [66.441, 69.111, 73.787, 74.548, 77.899],
+        "ByteTrack": [67.68, 69.145, 75.031, 78.039, 79.157],
+        "BoTSORT": [68.888, 71.15, 76.626, 78.232, 81.331],
+        "OCSORT": [66.441, 69.111, 73.787, 74.548, 77.899],
         "StrongSORT": [68.05, 71.092, 74.983, 76.185, 80.763],
     }
     plotter.plot_radar_chart(
         radar_data,
         labels,
-        title='Radar Chart of Method Combinations on DanceTrack',
+        title="Radar Chart of Method Combinations on DanceTrack",
         ylim=(65, 85),
         yticks=[65, 70, 75, 80, 85],
-        ytick_labels=['65', '70', '75', '80', '85']
+        ytick_labels=["65", "70", "75", "80", "85"],
     )
 
     # 2) FPS vs Metrics example (will be saved as 'plots/fps_metrics.png' by default)
@@ -208,8 +217,5 @@ if __name__ == "__main__":
         "BoostTrack IDF1": [69.8, 76.9, 80.1, 81.6, 82.1, 82.2],
     }
     plotter.plot_fps_metrics(
-        fps,
-        fps_data,
-        title='YOLOX-X + BoostTrack MOT17 metrics vs FPS',
-        figsize=(12, 6)
+        fps, fps_data, title="YOLOX-X + BoostTrack MOT17 metrics vs FPS", figsize=(12, 6)
     )
