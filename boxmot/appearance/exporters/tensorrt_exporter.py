@@ -68,7 +68,7 @@ class EngineExporter(BaseExporter):
         )
 
     # ------------------------------------------------------------------------
-    # Helper: keep API close to your function (INT8 removed)
+    # ONNX -> TensorRT engine conversion
     # ------------------------------------------------------------------------
     def _onnx2engine(
         self,
@@ -138,17 +138,23 @@ class EngineExporter(BaseExporter):
         for out in outputs:
             LOGGER.info(f'{prefix} output "{out.name}" with shape {out.shape} {out.dtype}')
 
-        # Dynamic shapes (keep simple & safe ordering min <= opt <= max)
+        # Dynamic shapes (batch-only dynamics for ReID)
         if dynamic:
             if self.im.shape[0] <= 1:
                 LOGGER.warning("WARNING: --dynamic model usually benefits from a larger --batch-size")
-            b, c, h, w = shape
-            profile = builder.create_optimization_profile()
 
-            # Conservative min/opt/max suitable for ReID pipelines
-            min_shape = (1, c, max(32, h // 4), max(32, w // 4))
-            opt_shape = (max(1, b // 2), c, h, w)
-            max_shape = (max(b, 4), c, max(h, h * 2), max(w, w * 2))
+            b, c, h, w = shape  # use your actual model input, e.g., (1,3,256,128)
+
+            # Choose per your GPU (examples)
+            # Jetson:     min_b, opt_b, max_b = 1, 8, 16
+            # 8-12GB PC:  min_b, opt_b, max_b = 1, 16, 32
+            # 24GB+:      min_b, opt_b, max_b = 1, 32, 128
+            min_b, opt_b, max_b = 1, 16, 32  # <<< pick one set
+
+            profile = builder.create_optimization_profile()
+            min_shape = (min_b, c, h, w)
+            opt_shape = (opt_b, c, h, w)
+            max_shape = (max_b, c, h, w)
 
             for inp in inputs:
                 profile.set_shape(inp.name, min=min_shape, opt=opt_shape, max=max_shape)
