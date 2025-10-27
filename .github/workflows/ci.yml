@@ -178,7 +178,6 @@ jobs:
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync --extra yolox-build-deps
           uv sync --extra yolo
       - name: Test tracking with pose models
         env:
@@ -269,7 +268,7 @@ jobs:
 
       - name: Test export models
         run: |
-          uv sync --all-extras
+          uv sync --all-extras --all-groups
           uv run boxmot export \
             --include torchscript --include onnx --include openvino --include tflite \
             --device cpu --batch-size 3 --dynamic
@@ -280,7 +279,7 @@ jobs:
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
-          uv sync --all-extras
+          uv sync --all-extras --all-groups
           uv run python -m pytest --cov="$PACKAGE_DIR" --cov-report=html -v -s tests
           uv run python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
   # test-gpu:
@@ -290,7 +289,7 @@ jobs:
   #   steps:
   #     - uses: actions/checkout@v4
   #     - name: Set up Python
-  #       uses: actions/setup-python@v5
+  #       uses: actions/setup-python@v5<
   #       with:
   #         python-version: '3.12'
   #     - run: |
