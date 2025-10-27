@@ -159,7 +159,9 @@ onnx = [
   "onnxslim>=0.1.67"  
 ]  
   
-openvino = ["openvino>=2025.2.0"]  
+openvino = ["openvino>=2025.2.0"]
+
+tensorrt = ["tensorrt>7.0.0"]
   
 tflite = [  
   "onnx2tf>=1.18.0",  
