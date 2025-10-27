@@ -161,7 +161,8 @@ onnx = [
   
 openvino = ["openvino>=2025.2.0"]
 
-tensorrt = ["tensorrt>7.0.0"]
+tensorrt = ["tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')"]
+
   
 tflite = [  
   "onnx2tf>=1.18.0",  
