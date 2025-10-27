@@ -113,7 +113,7 @@ keywords = [
 ]
 
 dependencies = [
-  "setuptools",
+  # ocsort, deepocsort, hybridsort
   "filterpy<2.0.0,>=1.4.5",
   "gdown<6.0.0,>=5.1.0",
   "lapx<1.0.0,>=0.5.5",
@@ -121,61 +121,75 @@ dependencies = [
   "numpy",
   "pyyaml<7.0.0,>=6.0.1",
   "regex<2025.0.0,>=2024.0.0",
-  "yacs<1.0.0,>=0.1.8",
+  
   "scikit-learn<2.0.0,>=1.3.0",
   "pandas<3.0.0,>=2.0.0",
   "opencv-python<5.0.0,>=4.7.0",
-  "ftfy<7.0.0,>=6.1.3",
-  "gitpython<4.0.0,>=3.1.42",
+  
   "torch>=2.2.1,<3.0.0",
   "torchvision>=0.17.1,<1.0.0",
-  "mplcursors>=0.6",
-  "pyqt5>=5.15.11",
   "click>=8.1.8",
+  # clip reid needs
+  "ftfy<7.0.0,>=6.1.3",
+  "yacs<1.0.0,>=0.1.8",
 ]
 
 [project.scripts]
 boxmot = "boxmot.engine.cli:main"
 
-########################
-# Optional dependecies #
-########################
+########################################
+# local-only “dev/test/docs/ci” stacks #
+########################################
 
-[project.optional-dependencies]  
-yolo = ["ultralytics>=3.8.200"]  
-  
-evolve = [  
-  "ray>=2.35.0,<3.0.0",  
-  "ray[tune]>=2.35.0,<3.0.0",  
-  "plotly>=5.19.0,<6.0.0",  
-  "joblib>=1.3.2,<2.0.0", 
+[dependency-groups]
+dev  = ["ipykernel>=6.29.5,<7.0.0"]
+test = ["pytest>=8.0.2,<9.0.0", "pytest-cov>=6.0.0,<7.0.0", "isort>=5.13.2,<6.0.0"]
+docs = [
+  "mkdocs>=1.6.1", "mkdocs-click>=0.9.0",
+  "mkdocs-include-markdown-plugin>=7.1.6",
+  "mkdocs-material>=9.6.15",
+  "mkdocstrings>=0.30.0", "mkdocstrings-python>=1.16.12",
+]
+
+#############################
+# runtime / feature toggles #
+#############################
+
+[project.optional-dependencies]
+yolo = ["ultralytics>=3.8.200"]
+
+evolve = [
+  "ray>=2.35.0,<3.0.0",
+  "ray[tune]>=2.35.0,<3.0.0",
+  "plotly>=5.19.0,<6.0.0",
+  "joblib>=1.3.2,<2.0.0",
   "bayesian-optimization>=2.0.4",
-  "optuna"  
+  "optuna"
 ]  
   
-onnx = [  
-  "onnx>=1.16.1,<1.19",  
-  "onnxruntime>=1.20.0",  
-  "onnxslim>=0.1.67"  
-]  
+onnx = [
+  "onnx>=1.16.1,<1.19",
+  "onnxruntime>=1.20.0",
+  "onnxslim>=0.1.67"
+]
+
+openvino = ["openvino>=2025.2.0"]
   
-openvino = ["openvino>=2025.2.0"]  
-  
-tflite = [  
-  "onnx2tf>=1.18.0",  
-  "onnx>=1.16.1",  
-  "tensorflow==2.17.0",  
-  "tf_keras",  
-  "sng4onnx>=1.0.1",  
-  "onnx_graphsurgeon>=0.3.26",  
-  "onnxslim>=0.1.31",  
-  "onnxruntime",  
-  "flatbuffers>=23.5.26",  
-  "onnxsim==0.4.33",  
-  "psutil==5.9.5",  
-  "ml_dtypes==0.3.2",  
-  "ai_edge_litert>=1.2.0",  
-]  
+tflite = [
+  "onnx2tf>=1.18.0",
+  "onnx>=1.16.1",
+  "tensorflow==2.17.0",
+  "tf_keras",
+  "sng4onnx>=1.0.1",
+  "onnx_graphsurgeon>=0.3.26",
+  "onnxslim>=0.1.31",
+  "onnxruntime",
+  "flatbuffers>=23.5.26",
+  "onnxsim==0.4.33",
+  "psutil==5.9.5",
+  "ml_dtypes==0.3.2",
+  "ai_edge_litert>=1.2.0",
+]
   
 # Convenience meta-extra for all export backends  
 export = [  
@@ -191,26 +205,9 @@ export = [
   "flatbuffers>=23.5.26",  
   "onnxsim==0.4.33",  
   "psutil==5.9.5",  
-  "ml_dtypes==0.3.2",  
-  "ai_edge_litert>=1.2.0",  
+  "ml_dtypes==0.3.2",
+  "ai_edge_litert>=1.2.0",
 ]  
-  
-test = [  
-  "pytest>=8.0.2,<9.0.0",  
-  "isort>=5.13.2,<6.0.0",  
-  "pytest-cov>=6.0.0,<7.0.0",  
-]  
-  
-dev = ["ipykernel>=6.29.5,<7.0.0"]
-
-docs = [
-    "mkdocs>=1.6.1",
-    "mkdocs-click>=0.9.0",
-    "mkdocs-include-markdown-plugin>=7.1.6",
-    "mkdocs-material>=9.6.15",
-    "mkdocstrings>=0.30.0",
-    "mkdocstrings-python>=1.16.12",
-]
 
 yolox-build-deps = [
   "setuptools",
