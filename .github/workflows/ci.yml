@@ -178,7 +178,6 @@ jobs:
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync --extra yolox-build-deps
           uv sync --extra yolo
       - name: Test tracking with pose models
         env:
