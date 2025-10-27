@@ -269,7 +269,7 @@ jobs:
 
       - name: Test export models
         run: |
-          uv sync --all-extras
+          uv sync --all-extras --all-groups
           uv run boxmot export \
             --include torchscript --include onnx --include openvino --include tflite \
             --device cpu --batch-size 3 --dynamic
@@ -280,7 +280,7 @@ jobs:
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
-          uv sync --all-extras
+          uv sync --all-extras  --all-groups
           uv run python -m pytest --cov="$PACKAGE_DIR" --cov-report=html -v -s tests
           uv run python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
   # test-gpu:
