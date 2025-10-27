@@ -1,20 +1,13 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
-import json
-import shutil
-import time
 import re
 
-import zipfile
 from pathlib import Path
 from typing import Union, Tuple
 
 import numpy as np
 import pandas as pd
-import requests
 import torch
-from git import Repo, exc
-from tqdm import tqdm
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
 
