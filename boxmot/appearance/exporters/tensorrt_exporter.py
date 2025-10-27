@@ -28,8 +28,7 @@ class EngineExporter(BaseExporter):
       If you prefer a pure-TRT engine without a custom header, comment out the metadata block.
     """
 
-    required_packages = ("nvidia-tensorrt",)
-    cmds = "--extra-index-url https://pypi.ngc.nvidia.com"
+    group = "tensorrt"
 
     # Optional knobs the runner/CLI may attach to this instance (safe fallbacks here):
     dla: int | None = None          # DLA core index for Jetson devices, else None
@@ -44,9 +43,10 @@ class EngineExporter(BaseExporter):
 
         try:
             import tensorrt as trt  # noqa: F401
+            print("Hel ya! TensorRT is here.")
         except ImportError as e:
             raise ImportError(
-                "TensorRT not found. Install `nvidia-tensorrt` (often via pip + NGC index) and ensure CUDA-compatible drivers."
+                "TensorRT not found"
             ) from e
 
         # --- Export ONNX first ----------------------------------------------
