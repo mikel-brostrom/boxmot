@@ -42,7 +42,7 @@ requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 
 # Ensure yolox builds with setuptools present in the isolated build env
 [tool.uv.extra-build-dependencies]
-yolox = ["setuptools", "numpy>=1.23", "cython>=0.29.36"]
+yolox = ["setuptools", "numpy>=1.23", "cython>=0.29.36", "torch<3.0.0,>=2.2.1",]
 
 ############
 # Flake8   #
