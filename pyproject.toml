@@ -16,6 +16,11 @@ name     = "torch-gpu"
 url      = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
+[[tool.uv.index]]
+name     = "nvidia"
+url      = "https://pypi.nvidia.com"
+explicit = true
+
 ##################################
 # Pin torch/vision to *an* index #
 ##################################
@@ -30,11 +35,22 @@ torchvision = [
   { index = "torch-gpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 
+# Route TensorRT packages to NVIDIA's index so uv gets real wheels, not PyPI stubs
+tensorrt = [
+  { index = "nvidia", marker = "sys_platform != 'darwin'" },
+]
+"tensorrt-cu13" = [
+  { index = "nvidia", marker = "sys_platform != 'darwin'" },
+]
+"tensorrt-cu13-libs" = [
+  { index = "nvidia", marker = "sys_platform != 'darwin'" },
+]
+
 #########################
 # UV-specific Overrides #
 #########################
 
-# Override yolox's outated dependecies
+# Override yolox's outdated dependencies
 [[tool.uv.dependency-metadata]]
 name          = "yolox"
 version       = "0.3.0"
@@ -42,13 +58,7 @@ requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 
 # Ensure yolox builds with setuptools present in the isolated build env
 [tool.uv.extra-build-dependencies]
-yolox = ["setuptools", "torch<3.0.0,>=2.2.1",]
-
-# Provide static metadata for TensorRT so uv doesn't build the sdist during resolution,
-# and only chase CUDA wheels on Linux/Windows (not Darwin).
-[[tool.uv.dependency-metadata]]
-name          = "tensorrt"
-requires-dist = ["tensorrt-cu13 ; sys_platform != 'darwin'"]
+yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
 
 ############
 # Flake8   #
@@ -200,5 +210,10 @@ tflite = [
 
 tensorrt = [
   # Only install on Linux/Windows
-  "tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')"
+  "tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
+
+##############
+# Build System #
+##############
+# (unchanged above)
