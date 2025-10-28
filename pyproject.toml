@@ -44,6 +44,12 @@ requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 [tool.uv.extra-build-dependencies]
 yolox = ["setuptools", "torch<3.0.0,>=2.2.1",]
 
+# Provide static metadata for TensorRT so uv doesn't build the sdist during resolution,
+# and only chase CUDA wheels on Linux/Windows (not Darwin).
+[[tool.uv.dependency-metadata]]
+name          = "tensorrt"
+requires-dist = ["tensorrt-cu13 ; sys_platform != 'darwin'"]
+
 ############
 # Flake8   #
 ############
@@ -188,5 +194,11 @@ tflite = [
   "onnxsim==0.4.33",
   "psutil==5.9.5",
   "ml_dtypes==0.3.2",
-  "ai_edge_litert>=1.2.0",
+  # Windows lacks wheels for this — exclude on win32
+  "ai_edge_litert>=1.2.0 ; sys_platform != 'win32'",
+]
+
+tensorrt = [
+  # Only install on Linux/Windows
+  "tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')"
 ]
