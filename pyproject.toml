@@ -48,6 +48,14 @@ tensorrt = [
 ]
 
 #########################
+# UV project settings   #
+#########################
+
+[tool.uv]
+# Enable our GPU group by default so `uv sync` installs TensorRT on Linux/Windows automatically.
+default-groups = ["dev", "gpu"]
+
+#########################
 # UV-specific Overrides #
 #########################
 
@@ -61,8 +69,7 @@ requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 [tool.uv.extra-build-dependencies]
 yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
 
-# Stop uv from building TensorRT sdists on macOS during resolution:
-# Describe deps with platform guards so the TRT branch is invisible on Darwin.
+# Prevent uv from trying to build TensorRT sdists on macOS during resolution.
 [[tool.uv.dependency-metadata]]
 name = "tensorrt"
 requires-dist = [
@@ -183,6 +190,12 @@ docs = [
   "mkdocstrings>=0.30.0", "mkdocstrings-python>=1.16.12",
 ]
 
+# NEW: default-installed GPU group (no --extra needed)
+gpu = [
+  # Only install TRT on Linux/Windows
+  "tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')",
+]
+
 #############################
 # runtime / feature toggles #
 #############################
@@ -221,9 +234,4 @@ tflite = [
   "ml_dtypes==0.3.2",
   # Windows lacks wheels — exclude on win32
   "ai_edge_litert>=1.2.0 ; sys_platform != 'win32'",
-]
-
-tensorrt = [
-  # Only install on Linux/Windows
-  "tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
