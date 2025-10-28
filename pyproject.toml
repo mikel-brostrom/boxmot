@@ -1,5 +1,5 @@
 # =====================================================
-# pyproject.toml for BoxMOT ← UV with GPU by default
+# pyproject.toml for BoxMOT ← UV
 # =====================================================
 
 #######################
@@ -46,14 +46,6 @@ tensorrt = [
 "tensorrt-cu13-libs" = [
   { index = "nvidia", marker = "sys_platform != 'darwin'" },
 ]
-
-#########################
-# UV project settings   #
-#########################
-
-[tool.uv]
-# Enable our GPU group by default so `uv sync` installs TensorRT on Linux/Windows automatically.
-default-groups = ["dev", "gpu"]
 
 #########################
 # UV-specific Overrides #
@@ -195,12 +187,6 @@ docs = [
   "mkdocstrings>=0.30.0", "mkdocstrings-python>=1.16.12",
 ]
 
-# Default-installed GPU group (no --extra needed)
-gpu = [
-  # Only install TRT on Linux/Windows (pruned on macOS by marker)
-  "tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')",
-]
-
 #############################
 # runtime / feature toggles #
 #############################
@@ -239,4 +225,9 @@ tflite = [
   "ml_dtypes==0.3.2",
   # Windows lacks wheels — exclude on win32
   "ai_edge_litert>=1.2.0 ; sys_platform != 'win32'",
+]
+
+tensorrt = [
+  # Only install on Linux/Windows
+  "tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
