@@ -1,5 +1,5 @@
 # =====================================================
-# pyproject.toml for BoxMOT ← UV
+# pyproject.toml for BoxMOT ← UV (Option A: pin TRT to cu12 series)
 # =====================================================
 
 #######################
@@ -16,7 +16,7 @@ name     = "torch-gpu"
 url      = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
-# NVIDIA packages (TensorRT, etc.) live here
+# NVIDIA packages (TensorRT, etc.)
 [[tool.uv.index]]
 name     = "nvidia"
 url      = "https://pypi.nvidia.com"
@@ -36,16 +36,27 @@ torchvision = [
   { index = "torch-gpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 
-# Route TensorRT packages to NVIDIA’s index (and never on Darwin)
+# Route TensorRT packages to NVIDIA’s index (never on Darwin)
 tensorrt = [
   { index = "nvidia", marker = "sys_platform != 'darwin'" },
 ]
-"tensorrt-cu13" = [
+"tensorrt-cu12" = [
   { index = "nvidia", marker = "sys_platform != 'darwin'" },
 ]
-"tensorrt-cu13-libs" = [
+"tensorrt-cu12-libs" = [
   { index = "nvidia", marker = "sys_platform != 'darwin'" },
 ]
+
+#########################
+# UV project settings   #
+#########################
+
+[tool.uv]
+# Auto-install GPU group (no --extra needed)
+default-groups = ["dev", "gpu"]
+
+# Pin TensorRT to the CUDA 12 series so it matches torch cu121
+constraint-dependencies = ["tensorrt>=10.12,<10.13"]
 
 #########################
 # UV-specific Overrides #
@@ -61,22 +72,25 @@ requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 [tool.uv.extra-build-dependencies]
 yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
 
-# Prevent uv from building TensorRT sdists on macOS during resolution.
+# Prevent uv from building TRT sdists on macOS; provide version-scoped static metadata for cu12
 [[tool.uv.dependency-metadata]]
 name = "tensorrt"
+version = "10.12.*"
 requires-dist = [
-  "tensorrt-cu13 ; (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tensorrt-cu12 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
 
 [[tool.uv.dependency-metadata]]
-name = "tensorrt-cu13"
+name = "tensorrt-cu12"
+version = "10.12.*"
+# Let uv choose a matching cu12 libs version, or pin if you prefer: ==10.12.*
 requires-dist = [
-  "tensorrt-cu13-libs==10.13.3.9 ; (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tensorrt-cu12-libs ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
 
-# Terminal package; provide empty deps to avoid wheel-stub build on Darwin.
+# Terminal package; empty deps to avoid wheel-stub builds on Darwin
 [[tool.uv.dependency-metadata]]
-name = "tensorrt-cu13-libs"
+name = "tensorrt-cu12-libs"
 requires-dist = []
 
 ############
@@ -228,6 +242,6 @@ tflite = [
 ]
 
 tensorrt = [
-  # Only install on Linux/Windows
+  # Request TRT on Linux/Windows; version pinned by constraint-dependencies above
   "tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
