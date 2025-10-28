@@ -232,5 +232,5 @@ tflite = [
 
 tensorrt = [
   # Request TRT on Linux/Windows; version pinned by constraint-dependencies above
-  "tensorrt>=10.12,<10.13" ; (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tensorrt>=10.12,<10.13 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
