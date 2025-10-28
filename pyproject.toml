@@ -48,6 +48,14 @@ tensorrt = [
 ]
 
 #########################
+# UV project settings   #
+#########################
+
+[tool.uv]
+# Keep TensorRT on the CUDA 12 series so it matches torch cu121
+constraint-dependencies = ["tensorrt>=10.12,<10.13"]
+
+#########################
 # UV-specific Overrides #
 #########################
 
@@ -61,18 +69,15 @@ requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 [tool.uv.extra-build-dependencies]
 yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
 
-# Prevent uv from building TRT sdists on macOS; provide version-scoped static metadata for cu12
+# Prevent uv from building TRT sdists on macOS; provide static metadata (no wildcards)
 [[tool.uv.dependency-metadata]]
 name = "tensorrt"
-version = "10.12.*"
 requires-dist = [
   "tensorrt-cu12 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
 
 [[tool.uv.dependency-metadata]]
 name = "tensorrt-cu12"
-version = "10.12.*"
-# Let uv choose a matching cu12 libs version, or pin if you prefer: ==10.12.*
 requires-dist = [
   "tensorrt-cu12-libs ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
@@ -230,7 +235,7 @@ tflite = [
   "ai_edge_litert>=1.2.0 ; sys_platform != 'win32'",
 ]
 
+# Your extra (safe even with --all-extras thanks to markers + metadata)
 tensorrt = [
-  # Request TRT on Linux/Windows; version pinned by constraint-dependencies above
   "tensorrt>=10.12,<10.13 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
