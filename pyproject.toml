@@ -69,7 +69,7 @@ requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 [tool.uv.extra-build-dependencies]
 yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
 
-# Prevent uv from trying to build TensorRT sdists on macOS during resolution.
+# Prevent uv from building TensorRT sdists on macOS during resolution.
 [[tool.uv.dependency-metadata]]
 name = "tensorrt"
 requires-dist = [
@@ -81,6 +81,11 @@ name = "tensorrt-cu13"
 requires-dist = [
   "tensorrt-cu13-libs==10.13.3.9 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
+
+# Terminal package; provide empty deps to avoid wheel-stub build on Darwin.
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu13-libs"
+requires-dist = []
 
 ############
 # Flake8   #
@@ -190,9 +195,9 @@ docs = [
   "mkdocstrings>=0.30.0", "mkdocstrings-python>=1.16.12",
 ]
 
-# NEW: default-installed GPU group (no --extra needed)
+# Default-installed GPU group (no --extra needed)
 gpu = [
-  # Only install TRT on Linux/Windows
+  # Only install TRT on Linux/Windows (pruned on macOS by marker)
   "tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
 
