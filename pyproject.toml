@@ -48,17 +48,6 @@ tensorrt = [
 ]
 
 #########################
-# UV project settings   #
-#########################
-
-[tool.uv]
-# Auto-install GPU group (no --extra needed)
-default-groups = ["dev", "gpu"]
-
-# Pin TensorRT to the CUDA 12 series so it matches torch cu121
-constraint-dependencies = ["tensorrt>=10.12,<10.13"]
-
-#########################
 # UV-specific Overrides #
 #########################
 
@@ -243,5 +232,5 @@ tflite = [
 
 tensorrt = [
   # Request TRT on Linux/Windows; version pinned by constraint-dependencies above
-  "tensorrt>7.0.0 ; (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tensorrt>=10.12,<10.13" ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
