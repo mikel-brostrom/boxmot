@@ -32,8 +32,10 @@ class BaseModelBackend:
         self.checker = RequirementsChecker()
         self.load_model(self.weights)
         
-        # Determine input shape, depending on model name 
-        if "lmbn" in self.model_name:
+        # Determine input shape, depending on dataset and model name
+        if "vehicleid" in self.model_name or "veri" in self.model_name:
+            input_shape = (256, 256)
+        elif "lmbn" in self.model_name:
             input_shape = (384, 128)
         elif "hacnn" in self.model_name:
             input_shape = (160, 64)
