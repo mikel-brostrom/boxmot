@@ -25,6 +25,7 @@ class BaseModelBackend:
 
         self.model = ReIDModelRegistry.build_model(
             self.model_name,
+            self.weights,
             num_classes=ReIDModelRegistry.get_nr_classes(self.weights),
             pretrained=not (self.weights and self.weights.is_file()),
             use_gpu=device,
@@ -33,7 +34,7 @@ class BaseModelBackend:
         self.load_model(self.weights)
         
         # Determine input shape, depending on dataset and model name
-        if "vehicleid" in self.model_name or "veri" in self.model_name:
+        if "vehicleid" in self.weights.name or "veri" in self.weights.name:
             input_shape = (256, 256)
         elif "lmbn" in self.model_name:
             input_shape = (384, 128)
