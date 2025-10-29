@@ -1,5 +1,5 @@
 # =====================================================
-# pyproject.toml for BoxMOT ← UV with GPU by default
+# pyproject.toml for BoxMOT ← UV (Option A: pin TRT to cu12 series)
 # =====================================================
 
 #######################
@@ -16,6 +16,12 @@ name     = "torch-gpu"
 url      = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
+# NVIDIA packages (TensorRT, etc.)
+[[tool.uv.index]]
+name     = "nvidia"
+url      = "https://pypi.nvidia.com"
+explicit = true
+
 ##################################
 # Pin torch/vision to *an* index #
 ##################################
@@ -30,11 +36,30 @@ torchvision = [
   { index = "torch-gpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 
+# Route TensorRT packages to NVIDIA’s index (never on Darwin)
+tensorrt = [
+  { index = "nvidia", marker = "sys_platform != 'darwin'" },
+]
+"tensorrt-cu12" = [
+  { index = "nvidia", marker = "sys_platform != 'darwin'" },
+]
+"tensorrt-cu12-libs" = [
+  { index = "nvidia", marker = "sys_platform != 'darwin'" },
+]
+
+#########################
+# UV project settings   #
+#########################
+
+[tool.uv]
+# Keep TensorRT on the CUDA 12 series so it matches torch cu121
+constraint-dependencies = ["tensorrt>=10.12,<10.13"]
+
 #########################
 # UV-specific Overrides #
 #########################
 
-# Override yolox's outated dependecies
+# Override yolox's outdated dependencies
 [[tool.uv.dependency-metadata]]
 name          = "yolox"
 version       = "0.3.0"
@@ -42,7 +67,25 @@ requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 
 # Ensure yolox builds with setuptools present in the isolated build env
 [tool.uv.extra-build-dependencies]
-yolox = ["setuptools", "torch<3.0.0,>=2.2.1",]
+yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
+
+# Prevent uv from building TRT sdists on macOS; provide static metadata (no wildcards)
+[[tool.uv.dependency-metadata]]
+name = "tensorrt"
+requires-dist = [
+  "tensorrt-cu12 ; (sys_platform == 'linux' or sys_platform == 'win32')",
+]
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12"
+requires-dist = [
+  "tensorrt-cu12-libs ; (sys_platform == 'linux' or sys_platform == 'win32')",
+]
+
+# Terminal package; empty deps to avoid wheel-stub builds on Darwin
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-libs"
+requires-dist = []
 
 ############
 # Flake8   #
@@ -188,5 +231,11 @@ tflite = [
   "onnxsim==0.4.33",
   "psutil==5.9.5",
   "ml_dtypes==0.3.2",
-  "ai_edge_litert>=1.2.0",
+  # Windows lacks wheels — exclude on win32
+  "ai_edge_litert>=1.2.0 ; sys_platform != 'win32'",
+]
+
+# Your extra (safe even with --all-extras thanks to markers + metadata)
+tensorrt = [
+  "tensorrt>=10.12,<10.13 ; (sys_platform == 'linux' or sys_platform == 'win32')",
 ]
