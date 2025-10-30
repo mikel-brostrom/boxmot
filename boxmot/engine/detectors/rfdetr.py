@@ -26,30 +26,35 @@ class RFDETR(Detector):
     
     Example:
         >>> from boxmot.engine.detectors import RFDETR
-        >>> detector = RFDETR("rfdetr-l.onnx")
+        >>> detector = RFDETR(model="rfdetr-l.onnx")
         >>> boxes = detector("image.jpg")
         >>> 
         >>> # With custom confidence threshold
-        >>> detector = RFDETR("rfdetr-l.onnx", conf_thres=0.5)
+        >>> detector = RFDETR(model="rfdetr-l.onnx", conf_thres=0.5)
         >>> boxes = detector("image.jpg")
+        
+        >>> # Called from track.py via get_yolo_inferer()
+        >>> detector = RFDETR(model="rfdetr-l.onnx", device="cpu", args=args)
     """
     
     def __init__(
         self,
-        path: str,
+        model: str,
         device: str = "cpu",
         conf_thres: float = 0.25,
         classes: list = None,
+        args = None,
     ):
         """
         Initialize RF-DETR detector.
         
         Args:
-            path: Path to RF-DETR ONNX model
+            model: Path to RF-DETR ONNX model
             device: Device to run inference on ('cpu' or 'cuda')
                    Note: RF-DETR uses ONNX Runtime, device handling is internal
             conf_thres: Confidence threshold for detections
             classes: List of class indices to filter detections
+            args: Legacy args object (ignored, for compatibility)
         """
         if not RFDETR_AVAILABLE:
             raise ImportError(
@@ -60,7 +65,7 @@ class RFDETR(Detector):
         self.conf_thres = conf_thres
         self.classes = classes
         
-        super().__init__(path)
+        super().__init__(model)
     
     def _load_model(self, path: Path, **kwargs):
         """Load RF-DETR model."""
