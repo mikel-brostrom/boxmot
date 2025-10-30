@@ -240,25 +240,41 @@ class YoloX(Detector):
         padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
         return padded_img, r
     
-    def preprocess(self, im: np.ndarray, **kwargs) -> np.ndarray:
+    def preprocess(self, im: Union[np.ndarray, list], **kwargs) -> np.ndarray:
         """
-        Preprocess frame for YOLOX.
+        Preprocess frame(s) for YOLOX.
         
         Args:
-            frame: Input image as BGR numpy array
+            im: Input image as BGR numpy array, or list of images for batch processing
             **kwargs: Additional arguments (unused)
             
         Returns:
             Preprocessed tensor ready for YOLOX inference
         """
-        # Apply YOLOX preprocessing
-        img_pre, ratio = self.yolox_preprocess(im, input_size=self.imgsz)
-        
-        # Store ratio for postprocessing
-        self._preproc_ratios.append(ratio)
-        
-        # Convert to tensor
-        img_tensor = torch.from_numpy(img_pre).to(self.device)
+        # Handle batch of images
+        if isinstance(im, list):
+            batch_imgs = []
+            batch_ratios = []
+            
+            for img in im:
+                img_pre, ratio = self.yolox_preprocess(img, input_size=self.imgsz)
+                batch_imgs.append(img_pre)
+                batch_ratios.append(ratio)
+            
+            # Store all ratios for postprocessing
+            self._preproc_ratios.extend(batch_ratios)
+            
+            # Stack into batch and convert to tensor
+            img_tensor = torch.from_numpy(np.stack(batch_imgs, axis=0)).to(self.device)
+        else:
+            # Single image
+            img_pre, ratio = self.yolox_preprocess(im, input_size=self.imgsz)
+            
+            # Store ratio for postprocessing
+            self._preproc_ratios.append(ratio)
+            
+            # Convert to tensor
+            img_tensor = torch.from_numpy(img_pre).to(self.device)
         
         return img_tensor
     
@@ -282,7 +298,7 @@ class YoloX(Detector):
         
         return preds
     
-    def postprocess(self, preds, **kwargs) -> np.ndarray:
+    def postprocess(self, preds, **kwargs) -> Union[np.ndarray, list]:
         """
         Postprocess YOLOX predictions.
         
@@ -292,40 +308,58 @@ class YoloX(Detector):
             
         Returns:
             Processed boxes as numpy array [N, 6] (x1, y1, x2, y2, conf, cls)
+            For batch inputs, returns list of arrays
         """
-        # Get ratio from preprocessing
-        if self._preproc_ratios:
-            ratio = self._preproc_ratios.pop(0)
+        # Determine batch size from predictions shape
+        if hasattr(preds, 'shape'):
+            # Predictions are [batch_size, num_preds, 6] or [num_preds, 6]
+            batch_size = preds.shape[0] if len(preds.shape) == 3 else 1
+            # If batch_size is 1 but we have only 2D, we need to add batch dimension
+            if len(preds.shape) == 2:
+                preds = preds.unsqueeze(0)
         else:
-            ratio = 1.0
+            batch_size = 1
         
         # Apply YOLOX NMS postprocessing
-        pred = postprocess(
-            preds[0].unsqueeze(0) if len(preds[0].shape) == 2 else preds,
-            1,
+        batch_preds = postprocess(
+            preds,
+            batch_size,
             conf_thre=self.conf_thres,
             nms_thre=self.iou_thres,
             class_agnostic=self.agnostic_nms,
-        )[0]
+        )
         
-        if pred is None or len(pred) == 0:
-            return np.empty((0, 6))
+        results = []
         
-        # Scale boxes back to original image size
-        pred[:, 0] = pred[:, 0] / ratio
-        pred[:, 1] = pred[:, 1] / ratio
-        pred[:, 2] = pred[:, 2] / ratio
-        pred[:, 3] = pred[:, 3] / ratio
+        for pred in batch_preds:
+            # Get ratio from preprocessing
+            if self._preproc_ratios:
+                ratio = self._preproc_ratios.pop(0)
+            else:
+                ratio = 1.0
+            
+            if pred is None or len(pred) == 0:
+                results.append(np.empty((0, 6)))
+                continue
+            
+            # Scale boxes back to original image size
+            pred[:, 0] = pred[:, 0] / ratio
+            pred[:, 1] = pred[:, 1] / ratio
+            pred[:, 2] = pred[:, 2] / ratio
+            pred[:, 3] = pred[:, 3] / ratio
+            
+            # Combine object confidence and class confidence
+            pred[:, 4] *= pred[:, 5]
+            
+            # Reorder to [x1, y1, x2, y2, conf, cls]
+            pred = pred[:, [0, 1, 2, 3, 4, 6]]
+            
+            # Filter by classes if specified
+            if self.classes is not None:
+                mask = torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.classes))
+                pred = pred[mask]
+            
+            results.append(pred.cpu().numpy())
         
-        # Combine object confidence and class confidence
-        pred[:, 4] *= pred[:, 5]
-        
-        # Reorder to [x1, y1, x2, y2, conf, cls]
-        pred = pred[:, [0, 1, 2, 3, 4, 6]]
-        
-        # Filter by classes if specified
-        if self.classes is not None:
-            mask = torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.classes))
-            pred = pred[mask]
-        
-        return pred.cpu().numpy()
+        # Return single array if single input, list if batch
+        return results[0] if len(results) == 1 else results
