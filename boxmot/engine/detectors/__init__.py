@@ -5,11 +5,11 @@ from boxmot.utils.checks import RequirementsChecker
 
 checker = RequirementsChecker()
 
-UL_MODELS = ["yolov8", "yolov9", "yolov10", "yolo11", "yolo12", "rtdetr", "sam"]
+ULTRALYTICS_MODELS = ["yolov8", "yolov9", "yolov10", "yolo11", "yolo12", "rtdetr", "sam"]
 
 
 def is_ultralytics_model(yolo_name):
-    return any(yolo in str(yolo_name) for yolo in UL_MODELS)
+    return any(yolo in str(yolo_name) for yolo in ULTRALYTICS_MODELS)
 
 
 def is_yolox_model(yolo_name):
@@ -41,9 +41,9 @@ def get_yolo_inferer(yolo_model):
         return YoloXStrategy
     elif is_ultralytics_model(yolo_model):
         # ultralytics already installed when running track.py
-        from .yolov8 import Yolov8Strategy
+        from .ultralytics import UltralyticsStrategy
 
-        return Yolov8Strategy
+        return UltralyticsStrategy
     elif "rf-detr" in str(yolo_model):
         try:
             import rfdetr
