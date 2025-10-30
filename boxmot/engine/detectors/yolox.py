@@ -11,14 +11,10 @@ from typing import Union
 from boxmot.utils import logger as LOGGER
 from boxmot.engine.detectors.base import Detector
 
-# Check if yolox is available
-try:
-    from yolox.exp import get_exp
-    from yolox.utils import postprocess
-    from yolox.utils.model_utils import fuse_model
-    YOLOX_AVAILABLE = True
-except ImportError:
-    YOLOX_AVAILABLE = False
+from yolox.exp import get_exp
+from yolox.utils import postprocess
+from yolox.utils.model_utils import fuse_model
+
 
 # default model weights for these model names
 YOLOX_ZOO = {
@@ -103,10 +99,6 @@ class YoloX(Detector):
             classes: List of class indices to filter detections
             args: Legacy args object (can override parameters if provided)
         """
-        if not YOLOX_AVAILABLE:
-            raise ImportError(
-                "YOLOX is not installed. Install it with: pip install yolox --no-deps"
-            )
         
         self.device = torch.device(device)
         
