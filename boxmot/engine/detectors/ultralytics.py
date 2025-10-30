@@ -21,17 +21,20 @@ class Ultralytics(Detector):
     
     Example:
         >>> from boxmot.engine.detectors import Ultralytics
-        >>> detector = Ultralytics("yolov8n.pt")
+        >>> detector = Ultralytics(model="yolov8n.pt")
         >>> boxes = detector("image.jpg")
         >>> 
         >>> # With custom parameters
-        >>> detector = Ultralytics("yolov8n.pt", conf_thres=0.5, imgsz=1280)
+        >>> detector = Ultralytics(model="yolov8n.pt", conf_thres=0.5, imgsz=1280)
         >>> boxes = detector("image.jpg")
+        
+        >>> # Called from track.py via get_yolo_inferer()
+        >>> detector = Ultralytics(model="yolov8n.pt", device="cpu", args=args)
     """
     
     def __init__(
         self,
-        path: str,
+        model: str,
         device: str = "cpu",
         imgsz: Union[int, list, tuple] = 640,
         conf_thres: float = 0.25,
@@ -39,12 +42,13 @@ class Ultralytics(Detector):
         agnostic_nms: bool = False,
         classes: list = None,
         verbose: bool = False,
+        args = None,
     ):
         """
         Initialize Ultralytics YOLO detector.
         
         Args:
-            path: Path to YOLO model weights
+            model: Path to YOLO model weights
             device: Device to run inference on ('cpu', 'cuda', 'mps', etc.)
             imgsz: Input image size (int or [width, height])
             conf_thres: Confidence threshold for detections
@@ -52,6 +56,7 @@ class Ultralytics(Detector):
             agnostic_nms: Whether to use class-agnostic NMS
             classes: List of class indices to filter detections
             verbose: Whether to print verbose output
+            args: Legacy args object (can override parameters if provided)
         """
         if not ULTRALYTICS_AVAILABLE:
             raise ImportError(
@@ -59,6 +64,10 @@ class Ultralytics(Detector):
             )
         
         self.device = device
+        
+        # Parse image size from args if available
+        if args is not None and hasattr(args, 'imgsz'):
+            imgsz = args.imgsz
         
         # Parse image size
         if isinstance(imgsz, int):
@@ -74,7 +83,7 @@ class Ultralytics(Detector):
         self.classes = classes
         self.verbose = verbose
         
-        super().__init__(path)
+        super().__init__(model)
     
     def _load_model(self, path: Path, **kwargs):
         """Load Ultralytics YOLO model."""

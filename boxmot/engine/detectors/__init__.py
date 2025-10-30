@@ -6,9 +6,9 @@ BoxMOT Detector Interface
 
 This module provides a standardized interface for object detectors.
 
-New Interface (Recommended):
+Usage:
     >>> from boxmot.engine.detectors import YOLOX, Ultralytics, RFDETR
-    >>> detector = YOLOX("yolox_s.pt", device="cpu", conf_thres=0.5)
+    >>> detector = Ultralytics(model="yolov8n.pt", device="cpu", conf_thres=0.5)
     >>> boxes = detector("image.jpg")
 
 Legacy Interface (Backward Compatibility):
