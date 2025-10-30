@@ -7,7 +7,7 @@ BoxMOT Detector Interface
 This module provides a standardized interface for object detectors.
 
 Usage:
-    >>> from boxmot.engine.detectors import YOLOX, Ultralytics, RFDETR
+    >>> from boxmot.engine.detectors import YoloXStrategy, Ultralytics, RFDETR
     >>> detector = Ultralytics(model="yolov8n.pt", device="cpu", conf_thres=0.5)
     >>> boxes = detector("image.jpg")
 
@@ -31,9 +31,9 @@ from boxmot.engine.detectors.base import Detector, resolve_image
 
 # Detector implementations
 try:
-    from boxmot.engine.detectors.yolox_detector import YOLOX
+    from boxmot.engine.detectors.yolox import YoloX
 except ImportError:
-    YOLOX = None
+    YoloX = None
 
 try:
     from boxmot.engine.detectors.ultralytics import Ultralytics
@@ -137,7 +137,7 @@ __all__ = [
     # New standardized interface
     'Detector',
     'resolve_image',
-    'YOLOX',
+    'YoloX',
     'Ultralytics',
     'RFDETR',
     # Legacy interface
