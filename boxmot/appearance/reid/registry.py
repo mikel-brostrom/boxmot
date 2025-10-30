@@ -83,7 +83,7 @@ class ReIDModelRegistry:
         return NR_CLASSES_DICT.get(dataset_key, 1)
 
     @staticmethod
-    def build_model(name, num_classes, loss="softmax", pretrained=True, use_gpu=True):
+    def build_model(name, weights, num_classes, loss="softmax", pretrained=True, use_gpu=True):
         if name not in MODEL_FACTORY:
             available = list(MODEL_FACTORY.keys())
             raise KeyError(f"Unknown model '{name}'. Must be one of {available}")
@@ -91,6 +91,10 @@ class ReIDModelRegistry:
         # Special case handling for clip model
         if "clip" in name:
             from boxmot.appearance.backbones.clip.config.defaults import _C as cfg
+
+            if "vehicleid" in weights.name or "veri" in weights.name:
+                cfg.INPUT.SIZE_TRAIN = [256, 256]
+                cfg.INPUT.SIZE_TEST = [256, 256]
 
             return MODEL_FACTORY[name](
                 cfg, num_class=num_classes, camera_num=2, view_num=1
