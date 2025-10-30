@@ -3,19 +3,24 @@
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import Union
+from typing import Union, List
 
 
-def resolve_image(image: Union[np.ndarray, str]) -> np.ndarray:
+def resolve_image(image: Union[np.ndarray, str, List]) -> Union[np.ndarray, List[np.ndarray]]:
     """
     Resolve image input to numpy array.
     
     Args:
-        image: Either a numpy array or a path to an image file
+        image: Either a numpy array, a path to an image file, or a list of images/paths
         
     Returns:
-        np.ndarray: Image as numpy array in BGR format
+        np.ndarray or List[np.ndarray]: Image(s) as numpy array in BGR format
     """
+    # Handle list of images
+    if isinstance(image, list):
+        return [resolve_image(img) for img in image]
+    
+    # Handle single image
     if isinstance(image, str):
         image_path = Path(image)
         if not image_path.exists():
@@ -27,7 +32,7 @@ def resolve_image(image: Union[np.ndarray, str]) -> np.ndarray:
         if len(image.shape) not in [2, 3]:
             raise ValueError(f"Expected 2D or 3D image array, got shape: {image.shape}")
     else:
-        raise TypeError(f"Expected str or np.ndarray, got {type(image)}")
+        raise TypeError(f"Expected str, np.ndarray, or list, got {type(image)}")
     
     return image
 
@@ -153,16 +158,16 @@ class Detector:
                 # If warmup fails, it's not critical - just continue
                 pass
     
-    def __call__(self, image: Union[np.ndarray, str], **kwargs):
+    def __call__(self, image: Union[np.ndarray, str, List], **kwargs):
         """
-        Run detection on image.
+        Run detection on image(s).
         
         Args:
-            image: Either a numpy array or path to image file
+            image: Either a numpy array, path to image file, or list of images/paths
             **kwargs: Additional arguments passed to preprocess, process, and postprocess
             
         Returns:
-            Detection results after postprocessing
+            Detection results after postprocessing (single array or list of arrays)
         """
         image = resolve_image(image)
         frame = self.preprocess(image, **kwargs)
