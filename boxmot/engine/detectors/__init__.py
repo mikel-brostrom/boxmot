@@ -104,9 +104,9 @@ def get_yolo_inferer(yolo_model):
             checker.check_packages(("yolox",), extra_args=["--no-deps"])
             checker.check_packages(("tabulate",))
             checker.check_packages(("thop",))
-        from .yolox import YoloXStrategy
-        return YoloXStrategy
-    
+        from .yolox import YoloX
+        return YoloX
+
     # Ultralytics models (YOLOv8, v9, v10, v11, RT-DETR, etc.)
     elif is_ultralytics_model(yolo_model):
         from .ultralytics import Ultralytics
