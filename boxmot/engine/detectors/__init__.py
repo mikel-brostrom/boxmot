@@ -41,7 +41,7 @@ except ImportError:
     Ultralytics = None
 
 try:
-    from boxmot.engine.detectors.rfdetr_detector import RFDETR
+    from boxmot.engine.detectors.rfdetr import RFDETR
 except ImportError:
     RFDETR = None
 
