@@ -119,6 +119,40 @@ class Detector:
         """
         raise NotImplementedError("Subclasses must implement postprocess")
     
+    def warmup(self, imgsz=(640, 640), n=3):
+        """
+        Warm up the model by running dummy inferences.
+        
+        This is useful for:
+        - GPU initialization and memory allocation
+        - JIT compilation (e.g., TorchScript)
+        - Cache warming
+        - Getting accurate timing for subsequent inferences
+        
+        Args:
+            imgsz: Image size as (height, width) tuple or single int
+            n: Number of warmup iterations (default: 3)
+        
+        Example:
+            >>> detector = YOLOX("model.pt", device="cuda")
+            >>> detector.warmup(imgsz=640, n=5)  # Warm up with 5 iterations
+            >>> # Now subsequent detections will be faster
+            >>> boxes = detector("image.jpg")
+        """
+        if isinstance(imgsz, int):
+            imgsz = (imgsz, imgsz)
+        
+        # Create dummy image
+        dummy_image = np.zeros((imgsz[0], imgsz[1], 3), dtype=np.uint8)
+        
+        # Run n warmup iterations
+        for _ in range(n):
+            try:
+                _ = self(dummy_image)
+            except Exception:
+                # If warmup fails, it's not critical - just continue
+                pass
+    
     def __call__(self, image: Union[np.ndarray, str], **kwargs):
         """
         Run detection on image.
