@@ -25,15 +25,22 @@ class BaseModelBackend:
 
         self.model = ReIDModelRegistry.build_model(
             self.model_name,
+            self.weights,
             num_classes=ReIDModelRegistry.get_nr_classes(self.weights),
             pretrained=not (self.weights and self.weights.is_file()),
             use_gpu=device,
         )
         self.checker = RequirementsChecker()
         self.load_model(self.weights)
-        
+
+        self.mean_array = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
+        self.std_array = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
+        if "clip" in self.model_name:
+            self.mean_array = torch.tensor([0.5, 0.5, 0.5], device=self.device).view(1, 3, 1, 1)
+            self.std_array = torch.tensor([0.5, 0.5, 0.5], device=self.device).view(1, 3, 1, 1)
+
         # Determine input shape, depending on dataset and model name
-        if "vehicleid" in self.model_name or "veri" in self.model_name:
+        if "vehicleid" in self.weights.name or "veri" in self.weights.name:
             input_shape = (256, 256)
         elif "lmbn" in self.model_name:
             input_shape = (384, 128)
@@ -46,8 +53,6 @@ class BaseModelBackend:
     def get_crops(self, xyxys, img):
         h, w = img.shape[:2]
         interpolation_method = cv2.INTER_LINEAR
-        mean_array = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
-        std_array = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
         
         # Preallocate tensor for crops
         num_crops = len(xyxys)
@@ -80,7 +85,7 @@ class BaseModelBackend:
         crops = crops / 255.0
 
         # Standardize the batch
-        crops = (crops - mean_array) / std_array
+        crops = (crops - self.mean_array) / self.std_array
 
         return crops
 

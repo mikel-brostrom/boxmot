@@ -38,7 +38,7 @@ def setup_model(args):
     nr_classes = ReIDModelRegistry.get_nr_classes(args.weights)
     pretrained = not (args.weights and args.weights.is_file() and args.weights.suffix == ".pt")
     model = ReIDModelRegistry.build_model(
-        model_name, num_classes=nr_classes, pretrained=pretrained, use_gpu=args.device
+        model_name, args.weights, num_classes=nr_classes, pretrained=pretrained, use_gpu=args.device
     ).to(args.device)
     ReIDModelRegistry.load_pretrained_weights(model, args.weights)
     model.eval()
@@ -46,8 +46,14 @@ def setup_model(args):
     if args.optimize and args.device.type != "cpu":
         raise AssertionError("--optimize not compatible with CUDA devices, use --device cpu")
 
-    if "lmbn" in str(args.weights):
-        args.imgsz = [384, 128]
+    if "vehicleid" in args.weights.name or "veri" in args.weights.name:
+        args.imgsz = (256, 256)
+    elif "lmbn" in model_name:
+        args.imgsz = (384, 128)
+    elif "hacnn" in model_name:
+        args.imgsz = (160, 64)
+    else:
+        args.imgsz = (256, 128)
 
     dummy_input = torch.empty(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(args.device)
     for _ in range(2):
