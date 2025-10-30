@@ -240,7 +240,7 @@ class YoloX(Detector):
         padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
         return padded_img, r
     
-    def preprocess(self, frame: np.ndarray, **kwargs) -> np.ndarray:
+    def preprocess(self, im: np.ndarray, **kwargs) -> np.ndarray:
         """
         Preprocess frame for YOLOX.
         
@@ -252,7 +252,7 @@ class YoloX(Detector):
             Preprocessed tensor ready for YOLOX inference
         """
         # Apply YOLOX preprocessing
-        img_pre, ratio = self.yolox_preprocess(frame, input_size=self.imgsz)
+        img_pre, ratio = self.yolox_preprocess(im, input_size=self.imgsz)
         
         # Store ratio for postprocessing
         self._preproc_ratios.append(ratio)
@@ -262,7 +262,7 @@ class YoloX(Detector):
         
         return img_tensor
     
-    def process(self, frame: np.ndarray, **kwargs):
+    def process(self, im: np.ndarray, **kwargs):
         """
         Run YOLOX inference.
         
@@ -274,11 +274,11 @@ class YoloX(Detector):
             YOLOX predictions
         """
         # Ensure batch dimension
-        if len(frame.shape) == 3:
-            frame = frame.unsqueeze(0)
+        if len(im.shape) == 3:
+            im = im.unsqueeze(0)
         
         with torch.no_grad():
-            preds = self.model(frame)
+            preds = self.model(im)
         
         return preds
     
