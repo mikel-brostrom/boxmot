@@ -85,19 +85,6 @@ class ReidAutoBackend:
         LOGGER.error("This model framework is not supported yet!")
         exit()
 
-    def forward(self, im_batch: torch.Tensor) -> torch.Tensor:
-        """
-        Processes an image batch through the selected backend and returns the processed batch.
-
-        Args:
-            im_batch (torch.Tensor): The batch of images to process.
-
-        Returns:
-            torch.Tensor: The processed image batch.
-        """
-        im_batch = self.backend.preprocess_input(im_batch)
-        return self.backend.get_features(im_batch)
-
     def check_suffix(
         self,
         file: Path = "osnet_x0_25_msmt17.pt",
