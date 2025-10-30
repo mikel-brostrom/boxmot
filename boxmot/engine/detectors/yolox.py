@@ -76,6 +76,8 @@ class YoloX(Detector):
     fp16 = False
     triton = False
     names = COCO_CLASSES
+    ch = 3
+    stride = 32
     
     def __init__(
         self,
