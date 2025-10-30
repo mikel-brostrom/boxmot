@@ -111,9 +111,9 @@ def main(args):
         # If current model is YOLOX, change the preprocess and postprocess
         if not is_ultralytics_model(args.yolo_model):
             # add callback to save image paths for further processing
-            yolo.add_callback(
-                "on_predict_batch_start", lambda p: yolo_model.update_im_paths(p)
-            )
+            # yolo.add_callback(
+            #     "on_predict_batch_start", lambda p: yolo_model.update_im_paths(p)
+            # )
             yolo.predictor.preprocess = lambda imgs: yolo_model.preprocess(im=imgs)
             yolo.predictor.postprocess = lambda preds, im, im0s: yolo_model.postprocess(
                 preds=preds, im=im, im0s=im0s
