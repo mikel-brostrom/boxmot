@@ -23,29 +23,6 @@ from boxmot.utils.checks import RequirementsChecker
 checker = RequirementsChecker()
 
 # ============================================================================
-# NEW STANDARDIZED DETECTOR INTERFACE
-# ============================================================================
-
-# Base classes and utilities
-from boxmot.engine.detectors.base import Detector, resolve_image
-
-# Detector implementations
-try:
-    from boxmot.engine.detectors.yolox import YoloX
-except ImportError:
-    YoloX = None
-
-try:
-    from boxmot.engine.detectors.ultralytics import Ultralytics
-except ImportError:
-    Ultralytics = None
-
-try:
-    from boxmot.engine.detectors.rfdetr import RFDETR
-except ImportError:
-    RFDETR = None
-
-# ============================================================================
 # LEGACY INTERFACE (Backward Compatibility)
 # ============================================================================
 
