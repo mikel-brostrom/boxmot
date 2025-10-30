@@ -36,7 +36,7 @@ except ImportError:
     YOLOX = None
 
 try:
-    from boxmot.engine.detectors.ultralytics_detector import Ultralytics
+    from boxmot.engine.detectors.ultralytics import Ultralytics
 except ImportError:
     Ultralytics = None
 
@@ -109,8 +109,8 @@ def get_yolo_inferer(yolo_model):
     
     # Ultralytics models (YOLOv8, v9, v10, v11, RT-DETR, etc.)
     elif is_ultralytics_model(yolo_model):
-        from .ultralytics import UltralyticsStrategy
-        return UltralyticsStrategy
+        from .ultralytics import Ultralytics
+        return Ultralytics
     
     # RF-DETR models
     elif "rf-detr" in str(yolo_model):
@@ -119,18 +119,8 @@ def get_yolo_inferer(yolo_model):
         except (ImportError, AssertionError, AttributeError):
             checker.check_packages(("onnxruntime",))
             checker.check_packages(("rfdetr",))
-        from .rfdetr import RFDETRStrategy
-        return RFDETRStrategy
-    
-    # YOLO-NAS models
-    elif "yolo_nas" in str(yolo_model):
-        try:
-            import super_gradients
-            assert super_gradients.__version__
-        except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(("super-gradients==3.1.3",))
-        from .yolonas import YoloNASStrategy
-        return YoloNASStrategy
+        from .rfdetr import RFDETR
+        return RFDETR
     
     # Unknown model type
     else:
