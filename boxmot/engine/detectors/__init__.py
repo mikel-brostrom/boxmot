@@ -110,13 +110,13 @@ def get_yolo_inferer(yolo_model):
 # PUBLIC API
 # ============================================================================
 
-# Import base classes and utilities
-from .base import Detector, resolve_image
+# # Import base classes and utilities
+# from .base import Detector, resolve_image
 
-# Import detector implementations
-from .yolox import YoloX
-from .ultralytics import Ultralytics
-from .rfdetr import RFDETR
+# # Import detector implementations
+# from .yolox import YoloX
+# from .ultralytics import Ultralytics
+# from .rfdetr import RFDETR
 
 __all__ = [
     # New standardized interface
