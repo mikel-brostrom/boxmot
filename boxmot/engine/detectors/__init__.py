@@ -89,16 +89,6 @@ def get_yolo_inferer(yolo_model):
         from .ultralytics import Ultralytics
         return Ultralytics
     
-    # RF-DETR models
-    elif "rf-detr" in str(yolo_model):
-        try:
-            import rfdetr
-        except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(("onnxruntime",))
-            checker.check_packages(("rfdetr",))
-        from .rfdetr import RFDETR
-        return RFDETR
-    
     # Unknown model type
     else:
         LOGGER.error("Failed to infer inference mode from yolo model name")
@@ -126,11 +116,6 @@ except ImportError as e:
     LOGGER.debug(f"Ultralytics not available: {e}")
     Ultralytics = None
 
-try:
-    from .rfdetr import RFDETR
-except ImportError as e:
-    LOGGER.debug(f"RFDETR not available: {e}")
-    RFDETR = None
 
 __all__ = [
     # New standardized interface
@@ -138,7 +123,6 @@ __all__ = [
     'resolve_image',
     'YoloX',
     'Ultralytics',
-    'RFDETR',
     # Legacy interface
     'get_yolo_inferer',
     'is_ultralytics_model',
