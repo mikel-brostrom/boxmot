@@ -32,8 +32,6 @@ def setup_model(args):
         raise AssertionError("--half only compatible with GPU export, use --device 0 for GPU")
 
     auto_backend = ReidAutoBackend(weights=args.weights, device=args.device, half=args.half)
-    _ = auto_backend.get_backend()
-
     model_name = ReIDModelRegistry.get_model_name(args.weights)
     model = auto_backend.model.model.eval()
 
