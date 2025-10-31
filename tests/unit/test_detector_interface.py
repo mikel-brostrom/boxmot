@@ -12,8 +12,9 @@ import torch
 from pathlib import Path
 import sys
 
-from boxmot.engine.detectors import YoloX, Ultralytics, resolve_image, Detector
-from boxmot.engine.detectors import get_yolo_inferer, is_yolox_model, is_ultralytics_model
+from boxmot.engine.detectors.base import resolve_image
+from boxmot.engine.detectors.yolox import YoloX
+from boxmot.engine.detectors.ultralytics import Ultralytics
 
 
 class TestResolveImage:

@@ -94,28 +94,3 @@ def get_yolo_inferer(yolo_model):
         LOGGER.error("Failed to infer inference mode from yolo model name")
         LOGGER.error("Your model name has to contain either yolox, yolo_nas or yolov8")
         exit()
-
-
-# ============================================================================
-# PUBLIC API
-# ============================================================================
-
-# Import base classes and utilities
-from .base import Detector, resolve_image
-
-# Import detector implementations
-from .yolox import YoloX
-from .ultralytics import Ultralytics
-
-__all__ = [
-    # New standardized interface
-    'Detector',
-    'resolve_image',
-    'YoloX',
-    'Ultralytics',
-    # Legacy interface
-    'get_yolo_inferer',
-    'is_ultralytics_model',
-    'is_yolox_model',
-    'default_imgsz',
-]
