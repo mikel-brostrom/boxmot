@@ -296,12 +296,19 @@ class YoloX(Detector):
         
         Args:
             preds: Raw predictions from YOLOX model
-            **kwargs: Additional arguments (unused)
+            **kwargs: Additional arguments including:
+                - im: Preprocessed images (for Ultralytics pipeline)
+                - im0s: Original images (for Ultralytics pipeline)
             
         Returns:
             Processed boxes as numpy array [N, 6] (x1, y1, x2, y2, conf, cls)
             For batch inputs, returns list of arrays
+            When used in Ultralytics pipeline (im0s provided), returns list of Results
         """
+        # Check if we're in Ultralytics pipeline (has im0s parameter)
+        im0s = kwargs.get('im0s', None)
+        in_ultralytics_pipeline = im0s is not None
+        
         # Convert numpy to torch if needed
         is_numpy_input = isinstance(preds, np.ndarray)
         if is_numpy_input:
@@ -328,7 +335,7 @@ class YoloX(Detector):
         
         results = []
         
-        for pred in batch_preds:
+        for i, pred in enumerate(batch_preds):
             # Get ratio from preprocessing
             if self._preproc_ratios:
                 ratio = self._preproc_ratios.pop(0)
@@ -336,27 +343,47 @@ class YoloX(Detector):
                 ratio = 1.0
             
             if pred is None or len(pred) == 0:
-                results.append(np.empty((0, 6)))
-                continue
+                # Empty detection
+                det_array = np.empty((0, 6))
+            else:
+                # Scale boxes back to original image size
+                pred[:, 0] = pred[:, 0] / ratio
+                pred[:, 1] = pred[:, 1] / ratio
+                pred[:, 2] = pred[:, 2] / ratio
+                pred[:, 3] = pred[:, 3] / ratio
+                
+                # Combine object confidence and class confidence
+                pred[:, 4] *= pred[:, 5]
+                
+                # Reorder to [x1, y1, x2, y2, conf, cls]
+                pred = pred[:, [0, 1, 2, 3, 4, 6]]
+                
+                # Filter by classes if specified
+                if self.classes is not None:
+                    mask = torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.classes))
+                    pred = pred[mask]
+                
+                det_array = pred.cpu().numpy()
             
-            # Scale boxes back to original image size
-            pred[:, 0] = pred[:, 0] / ratio
-            pred[:, 1] = pred[:, 1] / ratio
-            pred[:, 2] = pred[:, 2] / ratio
-            pred[:, 3] = pred[:, 3] / ratio
-            
-            # Combine object confidence and class confidence
-            pred[:, 4] *= pred[:, 5]
-            
-            # Reorder to [x1, y1, x2, y2, conf, cls]
-            pred = pred[:, [0, 1, 2, 3, 4, 6]]
-            
-            # Filter by classes if specified
-            if self.classes is not None:
-                mask = torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.classes))
-                pred = pred[mask]
-            
-            results.append(pred.cpu().numpy())
+            # If in Ultralytics pipeline, create Results object
+            if in_ultralytics_pipeline:
+                try:
+                    from ultralytics.engine.results import Results
+                    # Get the original image for this batch item
+                    orig_img = im0s[i] if isinstance(im0s, list) else im0s
+                    # Create Results object
+                    result = Results(
+                        orig_img=orig_img,
+                        path=None,
+                        names=self.names,
+                        boxes=det_array,
+                    )
+                    results.append(result)
+                except Exception:
+                    # Fallback to numpy array if Results creation fails
+                    results.append(det_array)
+            else:
+                results.append(det_array)
         
-        # Return single array if single input, list if batch
+        # Return single array/Result if single input, list if batch
         return results[0] if len(results) == 1 else results
