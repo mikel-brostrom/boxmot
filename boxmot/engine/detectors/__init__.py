@@ -74,13 +74,6 @@ def get_yolo_inferer(yolo_model):
     """
     # YOLOX models
     if is_yolox_model(yolo_model):
-        try:
-            import yolox
-            assert yolox.__version__
-        except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(("yolox",), extra_args=["--no-deps"])
-            checker.check_packages(("tabulate",))
-            checker.check_packages(("thop",))
         from .yolox import YoloX
         return YoloX
 
