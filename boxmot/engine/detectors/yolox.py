@@ -343,7 +343,8 @@ class YoloX(Detector):
                 ratio = 1.0
             
             if pred is None or len(pred) == 0:
-                # Empty detection
+                # Empty detection - keep as torch tensor for Results
+                pred_tensor = torch.empty((0, 6))
                 det_array = np.empty((0, 6))
             else:
                 # Scale boxes back to original image size
@@ -363,6 +364,8 @@ class YoloX(Detector):
                     mask = torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.classes))
                     pred = pred[mask]
                 
+                # Keep tensor for Results, convert to numpy for standalone use
+                pred_tensor = pred
                 det_array = pred.cpu().numpy()
             
             # If in Ultralytics pipeline, create Results object
@@ -371,19 +374,40 @@ class YoloX(Detector):
                     from ultralytics.engine.results import Results
                     # Get the original image for this batch item
                     orig_img = im0s[i] if isinstance(im0s, list) else im0s
-                    # Create Results object
+                    
+                    # Try to get path from predictor batch if available
+                    path = ''
+                    try:
+                        if isinstance(kwargs, dict):  # kwargs might be tuple in some cases
+                            predictor = kwargs.get('predictor', None)
+                            if predictor and hasattr(predictor, 'batch') and predictor.batch:
+                                im_files = predictor.batch.get('im_file', None)
+                                if im_files:
+                                    path = im_files[i] if isinstance(im_files, list) else im_files
+                    except Exception as path_error:
+                        LOGGER.debug(f"Could not get path from predictor: {path_error}")
+                    
+                    # Create Results object with torch tensor (not numpy array)
                     result = Results(
                         orig_img=orig_img,
-                        path=None,
+                        path=path,  # Use empty string if path not available
                         names=self.names,
-                        boxes=det_array,
+                        boxes=pred_tensor,  # Pass torch.Tensor, not numpy
                     )
                     results.append(result)
-                except Exception:
+                except Exception as e:
                     # Fallback to numpy array if Results creation fails
+                    LOGGER.warning(f"Failed to create Results object: {e}")
+                    LOGGER.warning(f"Exception details: {type(e).__name__}: {str(e)}")
+                    import traceback
+                    LOGGER.warning(f"Traceback: {traceback.format_exc()}")
                     results.append(det_array)
             else:
                 results.append(det_array)
         
-        # Return single array/Result if single input, list if batch
-        return results[0] if len(results) == 1 else results
+        # When in Ultralytics pipeline, always return a list (even for single image)
+        # Standalone mode: return single array if single input, list if batch
+        if in_ultralytics_pipeline:
+            return results
+        else:
+            return results[0] if len(results) == 1 else results
