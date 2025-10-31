@@ -2,6 +2,7 @@
 
 import cv2
 import numpy as np
+import torch
 from pathlib import Path
 from typing import Union
 
@@ -149,7 +150,7 @@ class RFDETR(Detector):
         detections = self.model.predict(im, threshold=self.conf_thres)
         return detections
     
-    def postprocess(self, preds, **kwargs) -> np.ndarray:
+    def postprocess(self, preds, **kwargs) -> Union[np.ndarray, list]:
         """
         Postprocess RF-DETR predictions.
         
@@ -158,28 +159,69 @@ class RFDETR(Detector):
             **kwargs: Additional arguments including:
                 - im: preprocessed images (for Ultralytics pipeline)
                 - im0s: original images (for Ultralytics pipeline)
+                - predictor: Ultralytics predictor instance (for path extraction)
             
         Returns:
             Processed boxes as numpy array [N, 6] (x1, y1, x2, y2, conf, cls)
+            When used in Ultralytics pipeline (im0s provided), returns list of Results
         """
         # preds is the detections object from __call__
         detections = preds
         
+        # Check if we're in Ultralytics pipeline (has im0s parameter)
+        im0s = kwargs.get('im0s', None)
+        in_ultralytics_pipeline = im0s is not None
+        
         # Check if we have any detections
         if detections is None or len(detections.xyxy) == 0:
-            return np.empty((0, 6))
+            boxes = np.empty((0, 6))
+            boxes_tensor = torch.empty((0, 6))
+        else:
+            # RF-DETR returns detections with xyxy, confidence, and class_id
+            # Combine them into the standard [N, 6] format
+            boxes = np.column_stack([
+                detections.xyxy,                          # [N, 4] - x1, y1, x2, y2
+                detections.confidence[:, np.newaxis],     # [N, 1] - confidence
+                detections.class_id[:, np.newaxis]        # [N, 1] - class_id
+            ])
+            
+            # Filter by class if specified
+            if self.classes is not None:
+                class_mask = np.isin(boxes[:, 5].astype(int), self.classes)
+                boxes = boxes[class_mask]
+            
+            # Create tensor version for Results
+            boxes_tensor = torch.from_numpy(boxes)
         
-        # RF-DETR returns detections with xyxy, confidence, and class_id
-        # Combine them into the standard [N, 6] format
-        boxes = np.column_stack([
-            detections.xyxy,                          # [N, 4] - x1, y1, x2, y2
-            detections.confidence[:, np.newaxis],     # [N, 1] - confidence
-            detections.class_id[:, np.newaxis]        # [N, 1] - class_id
-        ])
-        
-        # Filter by class if specified
-        if self.classes is not None:
-            class_mask = np.isin(boxes[:, 5].astype(int), self.classes)
-            boxes = boxes[class_mask]
-        
-        return boxes
+        # If in Ultralytics pipeline, create Results object
+        if in_ultralytics_pipeline:
+            try:
+                from ultralytics.engine.results import Results
+                # Get the original image (RFDETR processes single images)
+                orig_img = im0s[0] if isinstance(im0s, list) else im0s
+                
+                # Try to get path from predictor batch if available
+                path = ''
+                try:
+                    if isinstance(kwargs, dict):
+                        predictor = kwargs.get('predictor', None)
+                        if predictor and hasattr(predictor, 'batch') and predictor.batch:
+                            im_files = predictor.batch.get('im_file', None)
+                            if im_files:
+                                path = im_files[0] if isinstance(im_files, list) else im_files
+                except Exception:
+                    pass
+                
+                # Create Results object with torch tensor (not numpy array)
+                result = Results(
+                    orig_img=orig_img,
+                    path=path,
+                    names=self.names,
+                    boxes=boxes_tensor,  # Pass torch.Tensor, not numpy
+                )
+                return [result]
+            except Exception as e:
+                LOGGER.warning(f"Failed to create Results object: {e}")
+                return boxes
+        else:
+            return boxes
