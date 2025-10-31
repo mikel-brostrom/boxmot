@@ -124,8 +124,6 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
         # If current model is YOLOX, change the preprocess and postprocess
         if is_yolox_model(y):
             # add callback to save image paths for further processing
-            yolo.add_callback("on_predict_batch_start",
-                              lambda p: yolo_model.update_im_paths(p))
             yolo.predictor.preprocess = (
                 lambda im: yolo_model.preprocess(im=im))
             yolo.predictor.postprocess = (

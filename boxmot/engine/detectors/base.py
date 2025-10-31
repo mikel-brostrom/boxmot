@@ -1,0 +1,195 @@
+# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+
+import cv2
+import numpy as np
+from pathlib import Path
+from typing import Union, List, Any
+
+
+def resolve_image(image: Union[np.ndarray, str, List, Any]) -> Union[np.ndarray, List[np.ndarray]]:
+    """
+    Resolve image input to numpy array.
+    
+    Args:
+        image: Either a numpy array, a path to an image file, a torch.Tensor, or a list of images/paths
+        
+    Returns:
+        np.ndarray or List[np.ndarray]: Image(s) as numpy array in BGR format
+    """
+    # Handle torch.Tensor (check type name to avoid importing torch)
+    if type(image).__name__ == 'Tensor':
+        # Convert torch tensor to numpy
+        if hasattr(image, 'cpu'):
+            image = image.cpu().numpy()
+        else:
+            image = image.numpy()
+        
+        # Handle different tensor formats
+        # BCHW (batch, channels, height, width) -> take first image and convert to HWC
+        if len(image.shape) == 4:
+            image = image[0]  # Take first image from batch
+            if image.shape[0] in [1, 3, 4]:  # Channels first (CHW)
+                image = image.transpose(1, 2, 0)
+        # CHW (channels, height, width) -> convert to HWC
+        elif len(image.shape) == 3 and image.shape[0] in [1, 3, 4]:
+            image = image.transpose(1, 2, 0)
+        # HWC format is already correct, no change needed
+    
+    # Handle list of images
+    if isinstance(image, list):
+        return [resolve_image(img) for img in image]
+    
+    # Handle single image
+    if isinstance(image, str):
+        image_path = Path(image)
+        if not image_path.exists():
+            raise FileNotFoundError(f"Image file not found: {image}")
+        image = cv2.imread(str(image_path))
+        if image is None:
+            raise ValueError(f"Failed to load image from: {image_path}")
+    elif isinstance(image, np.ndarray):
+        if len(image.shape) not in [2, 3]:
+            raise ValueError(f"Expected 2D or 3D image array, got shape: {image.shape}")
+    else:
+        raise TypeError(f"Expected str, np.ndarray, torch.Tensor, or list, got {type(image)}")
+    
+    return image
+
+
+class Detector:
+    """
+    Base class for object detectors.
+    
+    This class provides a standardized interface for all detector implementations.
+    Subclasses should implement preprocess, process, and postprocess methods.
+    
+    Example:
+        >>> from boxmot.engine.detectors import YOLOX
+        >>> detector = YOLOX("model.pt")
+        >>> 
+        >>> # Override methods if needed
+        >>> def custom_preprocess(frame, **kwargs):
+        >>>     # Custom preprocessing logic
+        >>>     return processed_frame
+        >>> 
+        >>> detector.preprocess = custom_preprocess
+        >>> 
+        >>> # Use detector
+        >>> boxes = detector(image)
+        >>> # or
+        >>> boxes = detector("path/to/image.jpg")
+    """
+    
+    def __init__(self, path: str, **kwargs):
+        """
+        Initialize detector.
+        
+        Args:
+            path: Path to model weights
+            **kwargs: Additional arguments for model initialization
+        """
+        self.path = Path(path)
+        self.model = self._load_model(self.path, **kwargs)
+    
+    def _load_model(self, path: Path, **kwargs):
+        """
+        Load model weights.
+        
+        Args:
+            path: Path to model weights
+            **kwargs: Additional arguments for model loading
+            
+        Returns:
+            Loaded model object
+        """
+        raise NotImplementedError("Subclasses must implement _load_model")
+    
+    def preprocess(self, frame: np.ndarray, **kwargs):
+        """
+        Preprocess input frame before detection.
+        
+        Args:
+            frame: Input image as numpy array
+            **kwargs: Additional preprocessing arguments
+            
+        Returns:
+            Preprocessed frame ready for model inference
+        """
+        raise NotImplementedError("Subclasses must implement preprocess")
+    
+    def process(self, frame, **kwargs):
+        """
+        Run model inference on preprocessed frame.
+        
+        Args:
+            frame: Preprocessed frame
+            **kwargs: Additional inference arguments
+            
+        Returns:
+            Raw model predictions
+        """
+        raise NotImplementedError("Subclasses must implement process")
+    
+    def postprocess(self, boxes, **kwargs):
+        """
+        Postprocess raw model predictions.
+        
+        Args:
+            boxes: Raw predictions from model
+            **kwargs: Additional postprocessing arguments
+            
+        Returns:
+            Processed detection results
+        """
+        raise NotImplementedError("Subclasses must implement postprocess")
+    
+    def warmup(self, imgsz=(640, 640), n=3):
+        """
+        Warm up the model by running dummy inferences.
+        
+        This is useful for:
+        - GPU initialization and memory allocation
+        - JIT compilation (e.g., TorchScript)
+        - Cache warming
+        - Getting accurate timing for subsequent inferences
+        
+        Args:
+            imgsz: Image size as (height, width) tuple or single int
+            n: Number of warmup iterations (default: 3)
+        
+        Example:
+            >>> detector = YOLOX("model.pt", device="cuda")
+            >>> detector.warmup(imgsz=640, n=5)  # Warm up with 5 iterations
+            >>> # Now subsequent detections will be faster
+            >>> boxes = detector("image.jpg")
+        """
+        if isinstance(imgsz, int):
+            imgsz = (imgsz, imgsz)
+        
+        # Create dummy image
+        dummy_image = np.zeros((imgsz[0], imgsz[1], 3), dtype=np.uint8)
+        
+        # Run n warmup iterations
+        for _ in range(n):
+            try:
+                _ = self(dummy_image)
+            except Exception:
+                # If warmup fails, it's not critical - just continue
+                pass
+    
+    def __call__(self, image: Union[np.ndarray, str, List], **kwargs):
+        """
+        Run detection on image(s).
+        
+        Args:
+            image: Either a numpy array, path to image file, or list of images/paths
+            **kwargs: Additional arguments passed to preprocess, process, and postprocess
+            
+        Returns:
+            Detection results after postprocessing (single array or list of arrays)
+        """
+        image = resolve_image(image)
+        frame = self.preprocess(image, **kwargs)
+        boxes = self.process(frame, **kwargs)
+        boxes = self.postprocess(boxes, **kwargs)
+        return boxes
