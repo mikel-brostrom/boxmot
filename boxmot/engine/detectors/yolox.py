@@ -11,6 +11,17 @@ from typing import Union
 from boxmot.utils import logger as LOGGER
 from boxmot.engine.detectors.base import Detector
 
+from boxmot.utils.checks import RequirementsChecker
+checker = RequirementsChecker()
+
+try:
+    import yolox
+    assert yolox.__version__
+except (ImportError, AssertionError, AttributeError):
+    checker.check_packages(("yolox",), extra_args=["--no-deps"])
+    checker.check_packages(("tabulate",))
+    checker.check_packages(("thop",))
+
 from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
