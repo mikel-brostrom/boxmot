@@ -50,7 +50,7 @@ class RFDETR(Detector):
         
         Args:
             model: Path to RF-DETR ONNX model
-            device: Device to run inference on ('cpu' or 'cuda')
+            device: Device to run inference on ('cpu', 'cuda', or torch.device object)
                    Note: RF-DETR uses ONNX Runtime, device handling is internal
             conf_thres: Confidence threshold for detections
             classes: List of class indices to filter detections
@@ -60,6 +60,11 @@ class RFDETR(Detector):
             raise ImportError(
                 "RF-DETR is not installed. Install it with: pip install rfdetr"
             )
+        
+        # Convert torch.device to string if needed
+        import torch
+        if isinstance(device, torch.device):
+            device = str(device.type)
         
         self.device = device
         self.conf_thres = conf_thres
