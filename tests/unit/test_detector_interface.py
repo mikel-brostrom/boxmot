@@ -12,7 +12,7 @@ import torch
 from pathlib import Path
 import sys
 
-from boxmot.engine.detectors import YoloX, Ultralytics, RFDETR, resolve_image, Detector
+from boxmot.engine.detectors import YoloX, Ultralytics, resolve_image, Detector
 from boxmot.engine.detectors import get_yolo_inferer, is_yolox_model, is_ultralytics_model
 
 
@@ -89,45 +89,37 @@ def test_yolox_interface():
     print("Testing YOLOX Interface")
     print("=" * 50)
     
-    try:
-        # Check if YOLOX is available
-        from boxmot.engine.detectors.yolox import YoloX
-        
-        print("Creating YOLOX detector...")
-        detector = YoloX(
-            "yolox_s.pt",
-            device="cpu",
-            imgsz=640,
-            conf_thres=0.25
-        )
-        
-        # Check that methods exist
-        assert hasattr(detector, 'preprocess')
-        assert hasattr(detector, 'process')
-        assert hasattr(detector, 'postprocess')
-        assert hasattr(detector, '__call__')
-        assert hasattr(detector, 'warmup')
-        print("✓ All required methods exist")
-        
-        # Test that postprocess uses 'preds' parameter
-        import inspect
-        sig = inspect.signature(detector.postprocess)
-        params = list(sig.parameters.keys())
-        assert 'preds' in params, f"postprocess should have 'preds' parameter, got: {params}"
-        print("✓ postprocess uses 'preds' parameter")
-        
-        # Test method override
-        def custom_preprocess(im, **kwargs):
-            return detector.preprocess(im=im, **kwargs)
-        
-        detector.preprocess = custom_preprocess
-        print("✓ Method override works")
-        
-        print("YOLOX interface tests passed!\n")
-        
-    except ImportError as e:
-        print(f"⚠ YOLOX not available: {e}")
-        print("Install with: pip install yolox --no-deps\n")
+    print("Creating YOLOX detector...")
+    detector = YoloX(
+        "yolox_s.pt",
+        device="cpu",
+        imgsz=640,
+        conf_thres=0.25
+    )
+    
+    # Check that methods exist
+    assert hasattr(detector, 'preprocess')
+    assert hasattr(detector, 'process')
+    assert hasattr(detector, 'postprocess')
+    assert hasattr(detector, '__call__')
+    assert hasattr(detector, 'warmup')
+    print("✓ All required methods exist")
+    
+    # Test that postprocess uses 'preds' parameter
+    import inspect
+    sig = inspect.signature(detector.postprocess)
+    params = list(sig.parameters.keys())
+    assert 'preds' in params, f"postprocess should have 'preds' parameter, got: {params}"
+    print("✓ postprocess uses 'preds' parameter")
+    
+    # Test method override
+    def custom_preprocess(im, **kwargs):
+        return detector.preprocess(im=im, **kwargs)
+    
+    detector.preprocess = custom_preprocess
+    print("✓ Method override works")
+    
+    print("YOLOX interface tests passed!\n")
 
 
 def test_ultralytics_interface():
@@ -136,44 +128,37 @@ def test_ultralytics_interface():
     print("Testing Ultralytics Interface")
     print("=" * 50)
     
-    try:
-        from boxmot.engine.detectors.ultralytics import Ultralytics
-        
-        print("Creating Ultralytics detector...")
-        detector = Ultralytics(
-            "yolov8n.pt",
-            device="cpu",
-            imgsz=640,
-            conf_thres=0.25
-        )
-        
-        # Check that methods exist
-        assert hasattr(detector, 'preprocess')
-        assert hasattr(detector, 'process')
-        assert hasattr(detector, 'postprocess')
-        assert hasattr(detector, '__call__')
-        assert hasattr(detector, 'warmup')
-        print("✓ All required methods exist")
-        
-        # Test that postprocess uses 'preds' parameter
-        import inspect
-        sig = inspect.signature(detector.postprocess)
-        params = list(sig.parameters.keys())
-        assert 'preds' in params, f"postprocess should have 'preds' parameter, got: {params}"
-        print("✓ postprocess uses 'preds' parameter")
-        
-        # Test method override
-        def custom_postprocess(preds, **kwargs):
-            return detector.postprocess(preds=preds, **kwargs)
-        
-        detector.postprocess = custom_postprocess
-        print("✓ Method override works")
-        
-        print("Ultralytics interface tests passed!\n")
-        
-    except ImportError as e:
-        print(f"⚠ Ultralytics not available: {e}")
-        print("Install with: pip install ultralytics\n")
+    print("Creating Ultralytics detector...")
+    detector = Ultralytics(
+        "yolov8n.pt",
+        device="cpu",
+        imgsz=640,
+        conf_thres=0.25
+    )
+    
+    # Check that methods exist
+    assert hasattr(detector, 'preprocess')
+    assert hasattr(detector, 'process')
+    assert hasattr(detector, 'postprocess')
+    assert hasattr(detector, '__call__')
+    assert hasattr(detector, 'warmup')
+    print("✓ All required methods exist")
+    
+    # Test that postprocess uses 'preds' parameter
+    import inspect
+    sig = inspect.signature(detector.postprocess)
+    params = list(sig.parameters.keys())
+    assert 'preds' in params, f"postprocess should have 'preds' parameter, got: {params}"
+    print("✓ postprocess uses 'preds' parameter")
+    
+    # Test method override
+    def custom_postprocess(preds, **kwargs):
+        return detector.postprocess(preds=preds, **kwargs)
+    
+    detector.postprocess = custom_postprocess
+    print("✓ Method override works")
+    
+    print("Ultralytics interface tests passed!\n")
 
 
 def test_detector_base_class():
@@ -235,51 +220,6 @@ def test_detector_base_class():
     print("Base Detector class tests passed!\n")
 
 
-def test_rfdetr_interface():
-    """Test RF-DETR detector interface."""
-    print("\n" + "=" * 50)
-    print("Testing RF-DETR Interface")
-    print("=" * 50)
-    
-    try:
-        from boxmot.engine.detectors.rfdetr import RFDETR
-        
-        print("Creating RF-DETR detector...")
-        detector = RFDETR(
-            "rfdetr-l.onnx",
-            device="cpu",
-            conf_thres=0.25
-        )
-        
-        # Check that methods exist
-        assert hasattr(detector, 'preprocess')
-        assert hasattr(detector, 'process')
-        assert hasattr(detector, 'postprocess')
-        assert hasattr(detector, '__call__')
-        assert hasattr(detector, 'warmup')
-        print("✓ All required methods exist")
-        
-        # Test that postprocess uses 'preds' parameter
-        import inspect
-        sig = inspect.signature(detector.postprocess)
-        params = list(sig.parameters.keys())
-        assert 'preds' in params, f"postprocess should have 'preds' parameter, got: {params}"
-        print("✓ postprocess uses 'preds' parameter")
-        
-        # Test method override
-        def custom_postprocess(preds, **kwargs):
-            return detector.postprocess(preds=preds, **kwargs)
-        
-        detector.postprocess = custom_postprocess
-        print("✓ Method override works")
-        
-        print("RF-DETR interface tests passed!\n")
-        
-    except ImportError as e:
-        print(f"⚠ RF-DETR not available: {e}")
-        print("Install with: pip install rfdetr\n")
-
-
 def main():
     """Run all tests."""
     print("\n" + "=" * 70)
@@ -305,7 +245,6 @@ def main():
     test_detector_base_class()
     test_yolox_interface()
     test_ultralytics_interface()
-    test_rfdetr_interface()
     
     print("=" * 70)
     print("ALL TESTS COMPLETED")
