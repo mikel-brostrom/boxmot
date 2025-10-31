@@ -245,6 +245,7 @@ def main():
     test_detector_base_class()
     test_yolox_interface()
     test_ultralytics_interface()
+    test_rfdetr_interface()
     
     print("=" * 70)
     print("ALL TESTS COMPLETED")
