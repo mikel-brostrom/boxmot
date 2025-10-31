@@ -149,12 +149,12 @@ class RFDETR(Detector):
         detections = self.model.predict(im, threshold=self.conf_thres)
         return detections
     
-    def postprocess(self, detections, **kwargs) -> np.ndarray:
+    def postprocess(self, preds, **kwargs) -> np.ndarray:
         """
         Postprocess RF-DETR predictions.
         
         Args:
-            detections: RF-DETR detections object (from __call__ or process method)
+            preds: RF-DETR detections object (from __call__ or process method)
             **kwargs: Additional arguments including:
                 - im: preprocessed images (for Ultralytics pipeline)
                 - im0s: original images (for Ultralytics pipeline)
@@ -162,6 +162,9 @@ class RFDETR(Detector):
         Returns:
             Processed boxes as numpy array [N, 6] (x1, y1, x2, y2, conf, cls)
         """
+        # preds is the detections object from __call__
+        detections = preds
+        
         # Check if we have any detections
         if detections is None or len(detections.xyxy) == 0:
             return np.empty((0, 6))
