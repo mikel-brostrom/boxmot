@@ -119,6 +119,21 @@ class RFDETR(Detector):
         
         return frame_rgb
     
+    def __call__(self, im, **kwargs):
+        """
+        Run inference (for Ultralytics predictor compatibility).
+        
+        This method is called by the Ultralytics predictor as `self.model(preprocessed)`.
+        
+        Args:
+            im: Preprocessed RGB image(s)
+            **kwargs: Additional arguments
+            
+        Returns:
+            RF-DETR detections object (passed to postprocess)
+        """
+        return self.process(im, **kwargs)
+    
     def process(self, im: np.ndarray, **kwargs):
         """
         Run RF-DETR inference.
@@ -139,8 +154,10 @@ class RFDETR(Detector):
         Postprocess RF-DETR predictions.
         
         Args:
-            detections: RF-DETR detections object
-            **kwargs: Additional arguments (unused)
+            detections: RF-DETR detections object (from __call__ or process method)
+            **kwargs: Additional arguments including:
+                - im: preprocessed images (for Ultralytics pipeline)
+                - im0s: original images (for Ultralytics pipeline)
             
         Returns:
             Processed boxes as numpy array [N, 6] (x1, y1, x2, y2, conf, cls)
