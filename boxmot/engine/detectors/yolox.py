@@ -302,6 +302,11 @@ class YoloX(Detector):
             Processed boxes as numpy array [N, 6] (x1, y1, x2, y2, conf, cls)
             For batch inputs, returns list of arrays
         """
+        # Convert numpy to torch if needed
+        is_numpy_input = isinstance(preds, np.ndarray)
+        if is_numpy_input:
+            preds = torch.from_numpy(preds)
+        
         # Determine batch size from predictions shape
         if hasattr(preds, 'shape'):
             # Predictions are [batch_size, num_preds, 6] or [num_preds, 6]
