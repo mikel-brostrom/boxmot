@@ -21,7 +21,7 @@ class ONNXExporter(BaseExporter):
             self.im.cpu() if self.dynamic else self.im,
             f,
             verbose=False,
-            opset_version=12,
+            opset_version=14,
             do_constant_folding=True,
             input_names=["images"],
             output_names=["output"],
