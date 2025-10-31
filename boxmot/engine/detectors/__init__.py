@@ -103,19 +103,9 @@ def get_yolo_inferer(yolo_model):
 # Import base classes and utilities
 from .base import Detector, resolve_image
 
-# Import detector implementations (with graceful fallback for optional deps)
-try:
-    from .yolox import YoloX
-except ImportError as e:
-    LOGGER.debug(f"YoloX not available: {e}")
-    YoloX = None
-
-try:
-    from .ultralytics import Ultralytics
-except ImportError as e:
-    LOGGER.debug(f"Ultralytics not available: {e}")
-    Ultralytics = None
-
+# Import detector implementations
+from .yolox import YoloX
+from .ultralytics import Ultralytics
 
 __all__ = [
     # New standardized interface
@@ -123,6 +113,7 @@ __all__ = [
     'resolve_image',
     'YoloX',
     'Ultralytics',
+    'RFDETR',
     # Legacy interface
     'get_yolo_inferer',
     'is_ultralytics_model',

@@ -57,12 +57,12 @@ class YoloX(Detector):
     YOLOX provides efficient object detection with models ranging from nano to x-large.
     
     Example:
-        >>> from boxmot.engine.detectors import YoloXStrategy
-        >>> detector = YoloXStrategy(model="yolox_s.pt", device="cpu")
+        >>> from boxmot.engine.detectors import YoloX
+        >>> detector = YoloX(model="yolox_s.pt", device="cpu")
         >>> boxes = detector("image.jpg")
         >>> 
         >>> # With custom parameters
-        >>> detector = YoloXStrategy(model="yolox_s.pt", device="cuda", args=args)
+        >>> detector = YoloX(model="yolox_s.pt", device="cuda", args=args)
         >>> boxes = detector("image.jpg")
     """
     
@@ -243,12 +243,15 @@ class YoloX(Detector):
         Returns:
             Preprocessed tensor ready for YOLOX inference
         """
+        from boxmot.engine.detectors.base import resolve_image
+        
         # Handle batch of images
         if isinstance(im, list):
             batch_imgs = []
             batch_ratios = []
             
             for img in im:
+                img = resolve_image(img)  # Convert to numpy if needed
                 img_pre, ratio = self.yolox_preprocess(img, input_size=self.imgsz)
                 batch_imgs.append(img_pre)
                 batch_ratios.append(ratio)
@@ -259,7 +262,8 @@ class YoloX(Detector):
             # Stack into batch and convert to tensor
             img_tensor = torch.from_numpy(np.stack(batch_imgs, axis=0)).to(self.device)
         else:
-            # Single image
+            # Single image - resolve to numpy array
+            im = resolve_image(im)
             img_pre, ratio = self.yolox_preprocess(im, input_size=self.imgsz)
             
             # Store ratio for postprocessing
