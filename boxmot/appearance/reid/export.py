@@ -32,16 +32,10 @@ def setup_model(args):
         raise AssertionError("--half only compatible with GPU export, use --device 0 for GPU")
 
     auto_backend = ReidAutoBackend(weights=args.weights, device=args.device, half=args.half)
-    _ = auto_backend.get_backend()
+
 
     model_name = ReIDModelRegistry.get_model_name(args.weights)
-    nr_classes = ReIDModelRegistry.get_nr_classes(args.weights)
-    pretrained = not (args.weights and args.weights.is_file() and args.weights.suffix == ".pt")
-    model = ReIDModelRegistry.build_model(
-        model_name, args.weights, num_classes=nr_classes, pretrained=pretrained, use_gpu=args.device
-    ).to(args.device)
-    ReIDModelRegistry.load_pretrained_weights(model, args.weights)
-    model.eval()
+    model = auto_backend.model.model.eval()
 
     if args.optimize and args.device.type != "cpu":
         raise AssertionError("--optimize not compatible with CUDA devices, use --device cpu")
