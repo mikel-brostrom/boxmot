@@ -36,6 +36,12 @@ class RFDETR(Detector):
         >>> # Called from track.py via get_yolo_inferer()
         >>> detector = RFDETR(model="rfdetr-l.onnx", device="cpu", args=args)
     """
+    pt = False
+    stride = 32
+    fp16 = False
+    triton = False
+    names = COCO_CLASSES
+    ch = 3
     
     def __init__(
         self,
