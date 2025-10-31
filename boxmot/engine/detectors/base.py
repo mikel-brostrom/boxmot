@@ -3,19 +3,38 @@
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import Union, List
+from typing import Union, List, Any
 
 
-def resolve_image(image: Union[np.ndarray, str, List]) -> Union[np.ndarray, List[np.ndarray]]:
+def resolve_image(image: Union[np.ndarray, str, List, Any]) -> Union[np.ndarray, List[np.ndarray]]:
     """
     Resolve image input to numpy array.
     
     Args:
-        image: Either a numpy array, a path to an image file, or a list of images/paths
+        image: Either a numpy array, a path to an image file, a torch.Tensor, or a list of images/paths
         
     Returns:
         np.ndarray or List[np.ndarray]: Image(s) as numpy array in BGR format
     """
+    # Handle torch.Tensor (check type name to avoid importing torch)
+    if type(image).__name__ == 'Tensor':
+        # Convert torch tensor to numpy
+        if hasattr(image, 'cpu'):
+            image = image.cpu().numpy()
+        else:
+            image = image.numpy()
+        
+        # Handle different tensor formats
+        # BCHW (batch, channels, height, width) -> take first image and convert to HWC
+        if len(image.shape) == 4:
+            image = image[0]  # Take first image from batch
+            if image.shape[0] in [1, 3, 4]:  # Channels first (CHW)
+                image = image.transpose(1, 2, 0)
+        # CHW (channels, height, width) -> convert to HWC
+        elif len(image.shape) == 3 and image.shape[0] in [1, 3, 4]:
+            image = image.transpose(1, 2, 0)
+        # HWC format is already correct, no change needed
+    
     # Handle list of images
     if isinstance(image, list):
         return [resolve_image(img) for img in image]
@@ -32,7 +51,7 @@ def resolve_image(image: Union[np.ndarray, str, List]) -> Union[np.ndarray, List
         if len(image.shape) not in [2, 3]:
             raise ValueError(f"Expected 2D or 3D image array, got shape: {image.shape}")
     else:
-        raise TypeError(f"Expected str, np.ndarray, or list, got {type(image)}")
+        raise TypeError(f"Expected str, np.ndarray, torch.Tensor, or list, got {type(image)}")
     
     return image
 
