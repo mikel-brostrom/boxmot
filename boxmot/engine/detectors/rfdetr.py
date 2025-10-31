@@ -88,41 +88,41 @@ class RFDETR(Detector):
         
         return model
     
-    def preprocess(self, frame: np.ndarray, **kwargs) -> np.ndarray:
+    def preprocess(self, im: np.ndarray, **kwargs) -> np.ndarray:
         """
-        Preprocess frame for RF-DETR.
+        Preprocess im for RF-DETR.
         
         RF-DETR handles preprocessing internally, but we need to convert
         BGR to RGB as it expects RGB input.
         
         Args:
-            frame: Input image as BGR numpy array
+            im: Input image as BGR numpy array
             **kwargs: Additional arguments (unused)
             
         Returns:
             RGB image ready for RF-DETR inference
         """
         # Convert BGR to RGB (RF-DETR expects RGB)
-        if len(frame.shape) == 3 and frame.shape[2] == 3:
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        if len(im.shape) == 3 and im.shape[2] == 3:
+            frame_rgb = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
         else:
-            frame_rgb = frame
+            frame_rgb = im
         
         return frame_rgb
     
-    def process(self, frame: np.ndarray, **kwargs):
+    def process(self, im: np.ndarray, **kwargs):
         """
         Run RF-DETR inference.
         
         Args:
-            frame: Preprocessed RGB frame
+            im: Preprocessed RGB im
             **kwargs: Additional arguments (unused)
             
         Returns:
             RF-DETR detections object
         """
         # RF-DETR handles inference internally
-        detections = self.model.predict(frame, threshold=self.conf_thres)
+        detections = self.model.predict(im, threshold=self.conf_thres)
         return detections
     
     def postprocess(self, detections, **kwargs) -> np.ndarray:
