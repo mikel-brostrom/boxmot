@@ -63,6 +63,8 @@ class Ultralytics(Detector):
                 "Ultralytics is not installed. Install it with: pip install ultralytics"
             )
         
+        # Convert torch.device to string if needed for compatibility
+        # Ultralytics model.to() handles both string and torch.device
         self.device = device
         
         # Parse image size from args if available
@@ -92,18 +94,19 @@ class Ultralytics(Detector):
         model.to(self.device)
         return model
     
-    def preprocess(self, frame: np.ndarray, **kwargs) -> np.ndarray:
+    def preprocess(self, frame, **kwargs):
         """
-        Preprocess frame for Ultralytics YOLO.
+        Preprocess frame(s) for Ultralytics YOLO.
         
         Ultralytics handles preprocessing internally, so we just return the frame.
+        Supports both single images and lists of images.
         
         Args:
-            frame: Input image as BGR numpy array
+            frame: Input image as BGR numpy array or list of images
             **kwargs: Additional arguments (unused)
             
         Returns:
-            Original frame (preprocessing done internally by Ultralytics)
+            Original frame(s) (preprocessing done internally by Ultralytics)
         """
         return frame
     
@@ -130,23 +133,23 @@ class Ultralytics(Detector):
         )
         return results
     
-    def postprocess(self, boxes, **kwargs) -> np.ndarray:
+    def postprocess(self, preds, **kwargs) -> np.ndarray:
         """
         Postprocess Ultralytics predictions.
         
         Args:
-            boxes: Ultralytics Results object(s)
+            preds: Ultralytics Results object(s)
             **kwargs: Additional arguments (unused)
             
         Returns:
             Processed boxes as numpy array [N, 6] (x1, y1, x2, y2, conf, cls)
         """
         # Handle single or multiple results
-        if not isinstance(boxes, list):
-            boxes = [boxes]
+        if not isinstance(preds, list):
+            preds = [preds]
         
         # Extract boxes from first result
-        result = boxes[0]
+        result = preds[0]
         
         if result.boxes is None or len(result.boxes) == 0:
             return np.empty((0, 6))
