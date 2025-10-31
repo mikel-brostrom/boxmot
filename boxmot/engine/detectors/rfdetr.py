@@ -88,20 +88,29 @@ class RFDETR(Detector):
         
         return model
     
-    def preprocess(self, im: np.ndarray, **kwargs) -> np.ndarray:
+    def preprocess(self, im, **kwargs):
         """
-        Preprocess im for RF-DETR.
+        Preprocess image(s) for RF-DETR.
         
         RF-DETR handles preprocessing internally, but we need to convert
         BGR to RGB as it expects RGB input.
         
         Args:
-            im: Input image as BGR numpy array
+            im: Input image as BGR numpy array or list of images
             **kwargs: Additional arguments (unused)
             
         Returns:
-            RGB image ready for RF-DETR inference
+            RGB image(s) ready for RF-DETR inference
         """
+        from boxmot.engine.detectors.base import resolve_image
+        
+        # Handle list of images (batch processing)
+        if isinstance(im, list):
+            return [self.preprocess(img, **kwargs) for img in im]
+        
+        # Resolve image to numpy array
+        im = resolve_image(im)
+        
         # Convert BGR to RGB (RF-DETR expects RGB)
         if len(im.shape) == 3 and im.shape[2] == 3:
             frame_rgb = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
