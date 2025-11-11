@@ -66,10 +66,6 @@ version       = "0.3.0"
 requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 
 # Ensure yolox builds with setuptools present in the isolated build env
-[tool.uv.extra-build-dependencies]
-yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
-
-# Prevent uv from building TRT sdists on macOS; provide static metadata (no wildcards)
 [[tool.uv.dependency-metadata]]
 name = "tensorrt"
 requires-dist = [
@@ -91,6 +87,10 @@ requires-dist = []
 # Flake8   #
 ############
 
+[tool.uv.extra-build-dependencies]
+yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
+
+# Prevent uv from building TRT sdists on macOS; provide static metadata (no wildcards)
 [tool.flake8]
 max-line-length = 120
 exclude         = [".tox", "*.egg", "build", "temp"]
@@ -114,7 +114,7 @@ build-backend = "hatchling.build"
 
 [project]
 name            = "boxmot"
-version         = "15.0.9"
+version         = "15.0.10"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
 requires-python = ">=3.9,<=3.13"
