@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -42,7 +42,7 @@ class Tracklet:
     scores: List[float] = field(default_factory=list)
     bboxes: List[List[float]] = field(default_factory=list)
     features: List[np.ndarray] = field(default_factory=list)
-    parent_id: int | None = None
+    parent_id: Optional[int] = None
 
     def __post_init__(self) -> None:
         if self.parent_id is None:
@@ -227,10 +227,10 @@ def check_spatial_constraints(
 def merge_tracklets(
     tracklets: Dict[int, Tracklet],
     dist: np.ndarray,
-    seq_name: str | None = None,
-    max_x_range: float | None = None,
-    max_y_range: float | None = None,
-    merge_dist_thres: float | None = None,
+    seq_name: Optional[str] = None,
+    max_x_range: Optional[float] = None,
+    max_y_range: Optional[float] = None,
+    merge_dist_thres: Optional[float] = None,
 ) -> Dict[int, Tracklet]:
     """Iteratively merge tracklets whose average cosine distance is small."""
 
@@ -280,7 +280,7 @@ def merge_tracklets(
 
 
 def detect_id_switch(
-    embs: Sequence[np.ndarray], eps: float, min_samples: int, max_clusters: int | None = None
+    embs: Sequence[np.ndarray], eps: float, min_samples: int, max_clusters: Optional[int] = None
 ) -> Tuple[bool, np.ndarray]:
     """Detect potential identity switches using DBSCAN clustering."""
 
