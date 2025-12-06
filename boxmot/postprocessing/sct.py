@@ -110,7 +110,10 @@ def query_subtracks(
             assert track1.times[s1_end] <= s2_start_frame
             subtracks.extend([subtrack_1, subtrack_2])
         else:
-            assert s1_start_frame >= track2.times[s2_end]
+            if not (s1_start_frame >= track2.times[s2_end]):
+                raise ValueError(
+                    f"s1_start_frame ({s1_start_frame}) is less than track2.times[s2_end] ({track2.times[s2_end]})"
+                )
             subtracks.extend([subtrack_2, subtrack_1])
         seg1.pop(0)
         seg2.pop(0)
