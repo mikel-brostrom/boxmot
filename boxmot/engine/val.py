@@ -405,7 +405,11 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
             except Exception:
                 LOGGER.exception(f"Error processing {seq}")
 
-    # Optional GSI
+    # Optional SCT and GSI
+    if getattr(opt, 'sct', False):
+        from boxmot.postprocessing.sct import sct
+
+        sct(mot_results_folder=exp_dir)
     if getattr(opt, 'gsi', False):
         from boxmot.postprocessing.gsi import gsi
         gsi(mot_results_folder=exp_dir)

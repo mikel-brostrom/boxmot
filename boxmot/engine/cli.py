@@ -114,6 +114,8 @@ def core_options(func):
                      help='class-agnostic NMS'),
         click.option('--gsi', is_flag=True,
                      help='apply Gaussian smoothing interpolation'),
+        click.option('--sct', is_flag=True,
+                     help='apply split-and-connect postprocessing'),
         click.option('--show', is_flag=True,
                      help='display tracking in a window'),
         click.option('--show-labels/--hide-labels', default=True,

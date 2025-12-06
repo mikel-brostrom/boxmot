@@ -262,7 +262,7 @@ $ boxmot eval --yolo-model yolox_x_dancetrack_ablation.pt --reid-model lmbn_n_du
 $ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method deepocsort  --source ./assets/MOT17-mini/train --verbose
 ```
 
-add `--gsi` to your command for postprocessing the MOT results by gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
+Add `--sct` to split-and-connect fragmented tracks using cosine similarity of lightweight appearance cues, or `--gsi` for Gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
 </details>
 
 
