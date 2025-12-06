@@ -486,8 +486,20 @@ def sct(
     spatial_factor: float = 1.0,
     merge_dist_thres: float = 0.4,
 ) -> None:
-    """Run SCT on all MOT result files in a folder."""
+    """
+    Run SCT on all MOT result files in a folder.
 
+    Args:
+        mot_results_folder (Path): Path to the folder containing MOT result files.
+        use_split (bool, optional): Enable tracklet splitting. Defaults to True.
+        use_connect (bool, optional): Enable tracklet merging/connection. Defaults to True.
+        eps (float, optional): DBSCAN epsilon parameter for clustering. Defaults to 0.7.
+        min_samples (int, optional): DBSCAN minimum samples for clustering. Defaults to 10.
+        max_k (int, optional): Maximum number of clusters per tracklet. Defaults to 3.
+        min_len (int, optional): Minimum tracklet length for split consideration. Defaults to 40.
+        spatial_factor (float, optional): Spatial constraint factor. Defaults to 1.0.
+        merge_dist_thres (float, optional): Distance threshold for merging. Defaults to 0.4.
+    """
     tracking_files = list(mot_results_folder.glob("MOT*.txt"))
     total_files = len(tracking_files)
     LOGGER.info(f"Found {total_files} file(s) to process with SCT.")
