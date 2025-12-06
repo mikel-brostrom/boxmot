@@ -460,17 +460,20 @@ def process_file(
         tracklets = split_tracklets(tracklets, eps=eps, max_k=max_k, min_samples=min_samples, len_thres=min_len)
 
     if use_connect:
-        max_x_range, max_y_range = get_spatial_constraints(tracklets, spatial_factor)
-        dist = get_distance_matrix(tracklets)
-        LOGGER.info(f"Merging {len(tracklets)} tracklets in {file_path.name}")
-        tracklets = merge_tracklets(
-            tracklets,
-            dist,
-            seq_name=file_path.stem,
-            max_x_range=max_x_range,
-            max_y_range=max_y_range,
-            merge_dist_thres=merge_dist_thres,
-        )
+        if not tracklets:
+            LOGGER.warning(f"No tracklets remaining in {file_path.name} after splitting. Skipping merge step.")
+        else:
+            max_x_range, max_y_range = get_spatial_constraints(tracklets, spatial_factor)
+            dist = get_distance_matrix(tracklets)
+            LOGGER.info(f"Merging {len(tracklets)} tracklets in {file_path.name}")
+            tracklets = merge_tracklets(
+                tracklets,
+                dist,
+                seq_name=file_path.stem,
+                max_x_range=max_x_range,
+                max_y_range=max_y_range,
+                merge_dist_thres=merge_dist_thres,
+            )
 
     save_results(file_path, tracklets)
 
