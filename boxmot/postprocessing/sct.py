@@ -172,7 +172,10 @@ def get_distance_matrix(tid2track: Dict[int, Tracklet]) -> np.ndarray:
 def get_distance(track1_id: int, track2_id: int, track1: Tracklet, track2: Tracklet) -> float:
     """Compute mean cosine distance between two tracklets' embeddings."""
 
-    assert track1_id == track1.track_id and track2_id == track2.track_id
+    if not (track1_id == track1.track_id and track2_id == track2.track_id):
+        raise ValueError(
+            f"Track ID mismatch: {track1_id} != {track1.track_id} or {track2_id} != {track2.track_id}"
+        )
     does_overlap = False
     if track1_id != track2_id:
         does_overlap = bool(set(track1.times) & set(track2.times))
