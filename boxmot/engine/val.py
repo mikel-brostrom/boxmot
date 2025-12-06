@@ -408,7 +408,6 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     # Optional SCT and GSI
     if getattr(opt, 'gta', False):
         from boxmot.postprocessing.gta import gta
-
         gta(mot_results_folder=exp_dir)
     if getattr(opt, 'gsi', False):
         from boxmot.postprocessing.gsi import gsi
