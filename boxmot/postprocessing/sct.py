@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -42,7 +42,7 @@ class Tracklet:
     scores: List[float] = field(default_factory=list)
     bboxes: List[List[float]] = field(default_factory=list)
     features: List[np.ndarray] = field(default_factory=list)
-    parent_id: int | None = None
+    parent_id: Optional[int] = None
 
     def __post_init__(self) -> None:
         if self.parent_id is None:
