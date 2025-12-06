@@ -205,6 +205,8 @@ def check_spatial_constraints(
     seg_2 = find_consecutive_segments(trk_2.times)
 
     subtracks = query_subtracks(seg_1, seg_2, trk_1, trk_2)
+    if not subtracks:
+        return True  # No subtracks to check, spatial constraint is trivially satisfied
     subtrack_1st = subtracks.pop(0)
     while subtracks:
         subtrack_2nd = subtracks.pop(0)
