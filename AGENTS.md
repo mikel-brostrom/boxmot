@@ -19,6 +19,7 @@
 - PR descriptions should summarize user-facing changes, testing performed, and any follow-up tasks.
 
 ## Testing & Verification
+- Always run the pytest suite before opening a PR: `pytest` (use markers or paths to scope when necessary, but ensure impacted tests run).
 - Run targeted commands relevant to your change when feasible. Typical entry points:
   - `python boxmot/engine/cli.py track ...`
   - `python boxmot/engine/cli.py generate ...`
