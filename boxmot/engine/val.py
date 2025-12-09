@@ -32,6 +32,7 @@ from typing import Optional, List, Dict, Generator, Union
 
 from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
 from boxmot.postprocessing.gsi import gsi
+from boxmot.postprocessing.gta import gta
 
 from ultralytics import YOLO
 from ultralytics.data.build import load_inference_source
@@ -404,6 +405,18 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
                 seq_frame_nums[seq_name] = kept_ids
             except Exception:
                 LOGGER.exception(f"Error processing {seq}")
+
+    if getattr(opt, 'gta', False):
+        from boxmot.postprocessing.gta import gta
+
+        gta(
+            mot_results_folder=exp_dir,
+            data_path=opt.source,
+            model_path=opt.reid_model[0],
+            tracker=opt.tracking_method,
+            device=opt.device,
+            half=opt.half,
+        )
 
     # Optional GSI
     if getattr(opt, 'gsi', False):

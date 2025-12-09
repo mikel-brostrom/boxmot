@@ -3,6 +3,7 @@
 __version__ = '15.0.10'
 
 from boxmot.postprocessing.gsi import gsi
+from boxmot.postprocessing.gta import gta
 from boxmot.tracker_zoo import create_tracker, get_tracker_config
 from boxmot.trackers.boosttrack.boosttrack import BoostTrack
 from boxmot.trackers.botsort.botsort import BotSort
@@ -34,4 +35,5 @@ __all__ = (
     "create_tracker",
     "get_tracker_config",
     "gsi",
+    "gta",
 )
