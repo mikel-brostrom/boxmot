@@ -3,7 +3,8 @@
 > These instructions apply to all directories in this repository. Nested `AGENTS.md` files (if added later) override rules for their subtrees.
 
 ## Quickstart
-- Install `uv` with `pip install uv` (safe to rerun even if present), then use the existing `uv` workflow to install dependencies: `uv sync --all-extras --all-groups`.
+- Install `uv` with `pip install uv` (safe to rerun even if present).
+- Use the existing `uv` workflow to install dependencies: `uv sync --all-extras --all-groups`.
 - Activate the environment in every new shell (`source .venv/bin/activate` if using the default `uv` virtualenv).
 - Create feature branches for work: `git checkout -b codex/<short-topic>`.
 
