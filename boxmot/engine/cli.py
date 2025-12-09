@@ -8,76 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Tuple
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
-
-
-def make_args(**kwargs):
-    """
-    Build an argparse-style namespace for engine entrypoints.
-
-    Converts any 'imgsz' tuple in kwargs to a list and returns a SimpleNamespace.
-    """
-    if 'imgsz' in kwargs and kwargs['imgsz'] is not None:
-        size = kwargs['imgsz']
-        kwargs['imgsz'] = [size[0], size[1]]  # preserve tuple order
-    return SimpleNamespace(**kwargs)
-
-
-def parse_tuple(value: str) -> Tuple[int, int]:
-    """
-    Parse a string into a (width, height) tuple of integers.
-
-    Accepts separators 'x', ',' or space, and a single value for square size.
-    Used by non-export commands that expect (w, h).
-    """
-    s = value.replace('x', ' ').replace(',', ' ')
-    parts = s.split()
-    if len(parts) == 1:
-        try:
-            n = int(parts[0])
-            return (n, n)
-        except ValueError:
-            raise click.BadParameter(f"Invalid --imgsz: {value}")
-    elif len(parts) == 2:
-        try:
-            w, h = int(parts[0]), int(parts[1])
-            return (w, h)
-        except ValueError:
-            raise click.BadParameter(f"Invalid --imgsz: {value}")
-    else:
-        raise click.BadParameter(
-            f"--imgsz expects 1 or 2 integers separated by ',' 'x' or space, got '{value}'"
-        )
-
-
-def parse_hw_tuple(value) -> Tuple[int, int]:
-    """
-    Accept (h, w) as str like "256,128" or "256x128" or "256 128",
-    or as a tuple/list/int (Click may pass the default as a tuple).
-    """
-    # If Click already gave us a tuple/list/int, normalize and return
-    if isinstance(value, (tuple, list)):
-        if len(value) == 1:
-            n = int(value[0])
-            return (n, n)
-        if len(value) == 2:
-            h, w = int(value[0]), int(value[1])
-            return (h, w)
-        raise click.BadParameter(f"Invalid --imgsz: {value}")
-    if isinstance(value, int):
-        return (value, value)
-
-    # Otherwise parse from string
-    s = value.replace('x', ' ').replace(',', ' ')
-    parts = s.split()
-    if len(parts) == 1:
-        n = int(parts[0])
-        return (n, n)
-    if len(parts) == 2:
-        h, w = int(parts[0]), int(parts[1])
-        return (h, w)
-    raise click.BadParameter(
-        f"--imgsz expects 1 or 2 integers separated by ',' 'x' or space, got '{value}'"
-    )
+from boxmot.utils.misc import parse_imgsz
 
 
 # Core options (excluding model & classes)
@@ -85,8 +16,8 @@ def core_options(func):
     options = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
-        click.option('--imgsz', '--img-size', type=parse_tuple, default=None,
-                     help='inference size w,h (e.g. 640,480 or 640x480)'),
+        click.option('--imgsz', callback=parse_imgsz, default=640, type=str,
+                     help='desired image size for the model input. Can be an integer for square images or a tuple (height, width) for specific dimensions.'),
         click.option('--fps', type=int, default=30,
                      help='video frame-rate'),
         click.option('--conf', type=float, default=0.01,
@@ -179,8 +110,8 @@ def export_options(func):
     options = [
         click.option('--batch-size', type=int, default=1,
                      help='Batch size for export'),
-        click.option('--imgsz', '--img', '--img-size', type=parse_hw_tuple,
-                     default=(256, 128), help='Image size as H,W (e.g. 256,128)'),
+        click.option('--imgsz', '--img', '--img-size', callback=parse_imgsz, type=str,
+                     default=640, help='Image size as H,W (e.g. 256,128)'),
         click.option('--device', default='cpu',
                      help="CUDA device (e.g., '0', '0,1,2,3', or 'cpu')"),
         click.option('--optimize', is_flag=True,
@@ -254,7 +185,7 @@ def track(ctx, yolo_model, reid_model, classes, **kwargs):
               'source': src,
               'benchmark': bench,
               'split': split}
-    args = make_args(**params)
+    args = SimpleNamespace(**params)
     from boxmot.engine.track import main as run_track
     run_track(args)
 
@@ -274,7 +205,7 @@ def generate(ctx, yolo_model, reid_model, classes, **kwargs):
               'source': src,
               'benchmark': bench,
               'split': split}
-    args = make_args(**params)
+    args = SimpleNamespace(**params)
     from boxmot.engine.val import run_generate_dets_embs
     run_generate_dets_embs(args)
 
@@ -294,7 +225,7 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
               'source': src,
               'benchmark': bench,
               'split': split}
-    args = make_args(**params)
+    args = SimpleNamespace(**params)
     from boxmot.engine.val import main as run_eval
     run_eval(args)
 
@@ -315,7 +246,7 @@ def tune(ctx, yolo_model, reid_model, classes, **kwargs):
               'source': src,
               'benchmark': bench,
               'split': split}
-    args = make_args(**params)
+    args = SimpleNamespace(**params)
     from boxmot.engine.evolve import main as run_tuning
     run_tuning(args)
 
@@ -329,7 +260,7 @@ def export(ctx, **kwargs):
     Mirrors the standalone argparse-based export script.
     """
     # kwargs already contains all export args; convert imgsz tuple -> list
-    args = make_args(**kwargs)
+    args = SimpleNamespace(**kwargs)
     from boxmot.appearance.reid.export import main as run_export
     run_export(args)
 
