@@ -2,6 +2,39 @@ from pathlib import Path
 import sys
 from boxmot.utils import logger as LOGGER
 import threading
+import click
+
+
+def parse_imgsz(ctx, param, value):
+    """
+    Parse the imgsz argument.
+    Can be an integer for square images or a tuple (height, width) for specific dimensions.
+    """
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, (tuple, list)):
+        if len(value) == 1:
+            return int(value[0])
+        elif len(value) == 2:
+            return (int(value[0]), int(value[1]))
+        else:
+             raise click.BadParameter(f"Invalid --imgsz: {value}")
+
+    # Parse string
+    s = value.replace(',', ' ')
+    parts = s.split()
+    try:
+        if len(parts) == 1:
+            return int(parts[0])
+        elif len(parts) == 2:
+            return (int(parts[0]), int(parts[1]))
+    except ValueError:
+        pass
+    
+    raise click.BadParameter(f"Invalid --imgsz: {value}")
+
 
 
 def increment_path(path, exist_ok=False, sep="", mkdir=False):
