@@ -1,40 +1,39 @@
-# AGENTS.md – Guidelines for AI‑Assisted Contributions to **BoxMOT**
+# AGENTS.md – Working Guidelines for **BoxMOT**
 
-> **Purpose**  This document tells automated coding agents (e.g. GitHub Copilot/Codex, GPT‑based chat agents, or other LLM‑powered tools) exactly how to work inside the BoxMOT repository so that every commit is consistent, reproducible, and performance‑safe.
+> These instructions apply to all directories in this repository. Nested `AGENTS.md` files (if added later) override rules for their subtrees.
 
----
+## Quickstart
+- Install `uv` with `pip install uv` (safe to rerun even if present).
+- Use the existing `uv` workflow to install dependencies: `uv sync --all-extras --all-groups`.
+- Activate the environment in every new shell (`source .venv/bin/activate` if using the default `uv` virtualenv).
+- Create feature branches for work: `git checkout -b codex/<short-topic>`.
 
-## 0 installation
+## Coding Conventions
+- Prefer Python type hints and docstrings for any new or modified functions/classes.
+- Keep imports sorted and remove unused ones; avoid wrapping imports in `try/except`.
+- Maintain consistent logging/messages; avoid printing in library code except for CLIs.
+- Follow existing style in files you edit (e.g., spacing, naming); match the surrounding framework conventions.
 
-```bash
-# Then clone your fork locally
-git clone https://github.com/your-username/boxmot.git
-cd boxmot
-pip install uv
-uv sync --all-extras --all-groups  # builds & installs boxmot in editable mode with all its dependencies
+## Commit & PR Expectations
+- Commit messages should start with one of: `feat:`, `fix:`, `refactor:`, `docs:`, `ci:`, `perf:`.
+- Each commit should represent a coherent change; avoid mixing unrelated edits.
+- PR descriptions should summarize user-facing changes, testing performed, and any follow-up tasks.
 
-# Create a branch
-git checkout -b codex/short-desc
+## Testing & Verification
+- Always run the pytest suite before opening a PR: `pytest` (use markers or paths to scope when necessary, but ensure impacted tests run).
+- Run targeted commands relevant to your change when feasible. Typical entry points:
+  - `python boxmot/engine/cli.py track ...`
+  - `python boxmot/engine/cli.py generate ...`
+  - `python boxmot/engine/cli.py eval ...`
+  - `python boxmot/engine/cli.py tune ...`
+- Note any unrun tests with a short rationale.
 
-# Develop
-# ...
+## Documentation & Examples
+- Update docs or examples when behavior or interfaces change.
+- Keep README snippets and CLI help text in sync with code updates.
 
-# Run functionality where changes were introduced
-python boxmot/engine/cli.py track     --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source my_video.mp4 --classes 0
-python boxmot/engine/cli.py generate  --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method botsort --source my_video.mp4 --classes 0
-python boxmot/engine/cli.py eval      --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method bytetrack --source my_video.mp4 --classes 0
-python boxmot/engine/cli.py tune      --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ocsort --source my_video.mp4 --classes 0
-```
+## Performance & Safety
+- Be mindful of model weights and large assets; do not commit generated artifacts.
+- Prefer deterministic or seeded behavior for tests/examples when practical.
 
-## 1 Ways of working
-
-Whenever you open a new terminal you have to activate the environment based on where it was installed
-
-## 2  Coding Conventions
-
-* Always add docstrings and typehints to the functionality you add
-* Commit messages: `feat:`, `fix:`, `refactor:`, `docs:`, `ci:`, `perf:`.
-
----
-
-*Last updated: 2025‑08‑06*
+*Last updated: 2026-01-01*
