@@ -39,12 +39,12 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          # Simplify torch sources to use CPU-only for all platforms in CI
-          sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
-          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
-          # Debug: verify sed worked
+          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
+          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
+          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
+          # Debug: verify modifications worked
           grep -A2 '\[tool.uv.sources\]' pyproject.toml
-          # Force Linux x86_64 platform resolution
+          # Force platform resolution for CI environment
           uv sync --extra yolos --python-platform linux
       - name: Generate detections and embeddings
         run: |
@@ -80,9 +80,9 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          # Simplify torch sources to use CPU-only for all platforms in CI
-          sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
-          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
+          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
+          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           uv sync --extra yolos --extra evolve --python-platform linux
       - name: Evolve set of parameters for selected tracking method
         run: |
@@ -114,8 +114,9 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
-          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
+          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
+          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolos --python-platform linux
@@ -161,9 +162,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: |
-          # Simplify torch sources to use CPU-only for all platforms in CI
-          sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
-          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
+          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
+          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolos --python-platform linux
       - name: Test tracking with pose models
@@ -183,9 +184,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          # Simplify torch sources to use CPU-only for all platforms in CI
-          sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
-          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
+          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
+          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
@@ -214,9 +215,9 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: |
-          # Simplify torch sources to use CPU-only for all platforms in CI
-          sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
-          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
+          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
+          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolos --python-platform linux
       - name: Test tracking with seg models
@@ -240,7 +241,9 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
+          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
+          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --all-extras
           # needed for TFLite export
@@ -277,9 +280,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          # Simplify torch sources to use CPU-only for all platforms in CI
-          sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
-          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
+          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
+          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip uv
           uv sync --extra yolos --extra evolve --python-platform linux
 
