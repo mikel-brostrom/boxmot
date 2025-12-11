@@ -39,13 +39,8 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
-          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          # Debug: verify modifications worked
-          grep -A2 '\[tool.uv.sources\]' pyproject.toml
-          # Force platform resolution for CI environment
-          uv sync --extra yolos
+          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
+          uv sync --extra yolos --index-url https://download.pytorch.org/whl/cpu
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -80,10 +75,8 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
-          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          uv sync --extra yolos --extra evolve
+          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
+          uv sync --extra yolos --extra evolve --index-url https://download.pytorch.org/whl/cpu
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -114,12 +107,10 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
-          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
+          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolos
+          uv sync --extra yolos --index-url https://download.pytorch.org/whl/cpu
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -162,11 +153,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: |
-          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
-          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolos
+          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
+          uv sync --extra yolos --index-url https://download.pytorch.org/whl/cpu
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -184,14 +173,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
-          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
+          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync --extra yolos
+          uv sync --extra yolos --index-url https://download.pytorch.org/whl/cpu
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -215,11 +202,9 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: |
-          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
-          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolos
+          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
+          uv sync --extra yolos --index-url https://download.pytorch.org/whl/cpu
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -241,11 +226,9 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
-          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --all-extras
+          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
+          uv sync --all-extras --index-url https://download.pytorch.org/whl/cpu
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
@@ -280,11 +263,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
-          perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip uv
-          uv sync --extra yolos --extra evolve
+          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
+          uv sync --extra yolos --extra evolve --index-url https://download.pytorch.org/whl/cpu
 
       - name: Test export models
         run: |
