@@ -63,7 +63,7 @@ constraint-dependencies = ["tensorrt>=10.12,<10.13"]
 [[tool.uv.dependency-metadata]]
 name          = "yolox"
 version       = "0.3.0"
-requires-dist = ["onnx>=1.17.0", "onnxsim==0.4.33"]
+requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
 
 # Ensure yolox builds with setuptools present in the isolated build env
 [[tool.uv.dependency-metadata]]
@@ -200,11 +200,7 @@ docs = [
 #############################
 
 [project.optional-dependencies]
-yolos = [
-  "ultralytics>=3.8.200",
-  "yolox==0.3.0",
-  "tabulate",
-]
+yolo = ["ultralytics>=3.8.200"]
 
 evolve = [
   "ray>=2.35.0,<3.0.0",
