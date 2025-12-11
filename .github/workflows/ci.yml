@@ -39,13 +39,20 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
-          uv sync --extra yolos --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          # Use torch CPU index directly via uv flag
+          # Skip yolos extra on macOS since yolox/onnxsim fails to build on ARM64
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            uv sync --extra yolos --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          else
+            uv sync --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          fi
       - name: Generate detections and embeddings
+        if: runner.os == 'Linux'
         run: |
           source .venv/bin/activate
           boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
       - name: Run tracking method
+        if: runner.os == 'Linux'
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
