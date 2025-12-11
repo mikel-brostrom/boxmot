@@ -3,6 +3,11 @@
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 
+from .detector import Detector
+from .detector import Detector
+from .yolox_detector import YOLOX
+from .ultralytics_detector import UltralyticsYolo
+
 checker = RequirementsChecker()
 
 ULTRALYTICS_MODELS = ["yolov8", "yolov9", "yolov10", "yolo11", "yolo12", "rtdetr", "sam"]

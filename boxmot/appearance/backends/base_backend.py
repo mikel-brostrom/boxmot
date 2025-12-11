@@ -5,6 +5,7 @@ import cv2
 import gdown
 import numpy as np
 import torch
+from pathlib import Path
 from filelock import SoftFileLock
 
 from boxmot.appearance.reid.registry import ReIDModelRegistry
@@ -15,6 +16,8 @@ from boxmot.utils.checks import RequirementsChecker
 class BaseModelBackend:
     def __init__(self, weights, device, half):
         self.weights = weights[0] if isinstance(weights, list) else weights
+        if isinstance(self.weights, str):
+             self.weights = Path(self.weights)
         self.device = device
         self.half = half
         self.model = None
@@ -148,6 +151,8 @@ class BaseModelBackend:
 
 
     def download_model(self, w):
+        if isinstance(w, str): 
+            w = Path(w)
 
         if w.suffix != ".pt":
             return
