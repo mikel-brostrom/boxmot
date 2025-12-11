@@ -83,7 +83,7 @@ jobs:
           # Simplify torch sources to use CPU-only for all platforms in CI (using perl for macOS/Linux compatibility)
           perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
           perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
-          uv sync --extra yolos --extra evolve --python-platform linux
+          uv sync --extra yolos --extra evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -119,7 +119,7 @@ jobs:
           perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolos --python-platform linux
+          uv sync --extra yolos
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -166,7 +166,7 @@ jobs:
           perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
           perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolos --python-platform linux
+          uv sync --extra yolos
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -191,7 +191,7 @@ jobs:
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync --extra yolos --python-platform linux
+          uv sync --extra yolos
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -219,7 +219,7 @@ jobs:
           perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
           perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolos --python-platform linux
+          uv sync --extra yolos
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -284,7 +284,7 @@ jobs:
           perl -i -pe 'BEGIN{undef $/;} s/torch = \[\s*\{[^\]]+\]/torch = [{ index = "torch-cpu" }]/smg' pyproject.toml
           perl -i -pe 'BEGIN{undef $/;} s/torchvision = \[\s*\{[^\]]+\]/torchvision = [{ index = "torch-cpu" }]/smg' pyproject.toml
           python -m pip install --upgrade pip uv
-          uv sync --extra yolos --extra evolve --python-platform linux
+          uv sync --extra yolos --extra evolve
 
       - name: Test export models
         run: |
