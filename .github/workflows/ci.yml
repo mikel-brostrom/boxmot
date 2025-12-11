@@ -39,7 +39,11 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI
+          sed -i'' -e '/^torch = \[$/,/^\]$/c\
+torch = [{ index = "torch-cpu" }]' pyproject.toml
+          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\
+torchvision = [{ index = "torch-cpu" }]' pyproject.toml
           uv sync --extra yolos
       - name: Generate detections and embeddings
         run: |
@@ -75,7 +79,11 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI
+          sed -i'' -e '/^torch = \[$/,/^\]$/c\
+torch = [{ index = "torch-cpu" }]' pyproject.toml
+          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\
+torchvision = [{ index = "torch-cpu" }]' pyproject.toml
           uv sync --extra yolos --extra evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
@@ -107,7 +115,10 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          sed -i'' -e '/^torch = \[$/,/^\]$/c\
+torch = [{ index = "torch-cpu" }]' pyproject.toml
+          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\
+torchvision = [{ index = "torch-cpu" }]' pyproject.toml
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolos
@@ -153,7 +164,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: |
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI
+          sed -i'' -e '/^torch = \[$/,/^\]$/c\
+torch = [{ index = "torch-cpu" }]' pyproject.toml
+          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\
+torchvision = [{ index = "torch-cpu" }]' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolos
       - name: Test tracking with pose models
@@ -173,7 +188,11 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI
+          sed -i'' -e '/^torch = \[$/,/^\]$/c\
+torch = [{ index = "torch-cpu" }]' pyproject.toml
+          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\
+torchvision = [{ index = "torch-cpu" }]' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
@@ -202,7 +221,11 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: |
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI
+          sed -i'' -e '/^torch = \[$/,/^\]$/c\
+torch = [{ index = "torch-cpu" }]' pyproject.toml
+          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\
+torchvision = [{ index = "torch-cpu" }]' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolos
       - name: Test tracking with seg models
@@ -263,7 +286,11 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          # Simplify torch sources to use CPU-only for all platforms in CI
+          sed -i'' -e '/^torch = \[$/,/^\]$/c\
+torch = [{ index = "torch-cpu" }]' pyproject.toml
+          sed -i'' -e '/^torchvision = \[$/,/^\]$/c\
+torchvision = [{ index = "torch-cpu" }]' pyproject.toml
           python -m pip install --upgrade pip uv
 
       - name: Test export models
