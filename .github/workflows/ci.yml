@@ -45,7 +45,7 @@ jobs:
           # Debug: verify modifications worked
           grep -A2 '\[tool.uv.sources\]' pyproject.toml
           # Force platform resolution for CI environment
-          uv sync --extra yolos --python-platform linux
+          uv sync --extra yolos
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
