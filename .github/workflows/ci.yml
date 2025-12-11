@@ -42,7 +42,10 @@ jobs:
           # Simplify torch sources to use CPU-only for all platforms in CI
           sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
           sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
-          uv sync --extra yolos
+          # Debug: verify sed worked
+          grep -A2 '\[tool.uv.sources\]' pyproject.toml
+          # Force Linux x86_64 platform resolution
+          uv sync --extra yolos --python-platform linux
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -80,7 +83,7 @@ jobs:
           # Simplify torch sources to use CPU-only for all platforms in CI
           sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
           sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
-          uv sync --extra yolos --extra evolve
+          uv sync --extra yolos --extra evolve --python-platform linux
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -113,10 +116,9 @@ jobs:
         run: |
           sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
           sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
-          uv sync --extra yolos --extra evolve
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolos
+          uv sync --extra yolos --python-platform linux
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -162,9 +164,8 @@ jobs:
           # Simplify torch sources to use CPU-only for all platforms in CI
           sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
           sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
-          uv sync --extra yolos --extra evolve
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolos
+          uv sync --extra yolos --python-platform linux
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -185,12 +186,11 @@ jobs:
           # Simplify torch sources to use CPU-only for all platforms in CI
           sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
           sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
-          uv sync --extra yolos --extra evolve
           python -m pip install --upgrade pip setuptools wheel uv
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync --extra yolos
+          uv sync --extra yolos --python-platform linux
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -217,9 +217,8 @@ jobs:
           # Simplify torch sources to use CPU-only for all platforms in CI
           sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
           sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
-          uv sync --extra yolos --extra evolve
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolos
+          uv sync --extra yolos --python-platform linux
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -281,8 +280,8 @@ jobs:
           # Simplify torch sources to use CPU-only for all platforms in CI
           sed -i'' -e '/^torch = \[$/,/^\]$/c\torch = [{ index = "torch-cpu" }]' pyproject.toml
           sed -i'' -e '/^torchvision = \[$/,/^\]$/c\torchvision = [{ index = "torch-cpu" }]' pyproject.toml
-          uv sync --extra yolos --extra evolve
           python -m pip install --upgrade pip uv
+          uv sync --extra yolos --extra evolve --python-platform linux
 
       - name: Test export models
         run: |
