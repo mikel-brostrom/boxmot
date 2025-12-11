@@ -39,20 +39,13 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          # Use torch CPU index directly via uv flag
-          # Skip yolos extra on macOS since yolox/onnxsim fails to build on ARM64
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            uv sync --extra yolos --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
-          else
-            uv sync --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
-          fi
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          uv sync --extra yolo
       - name: Generate detections and embeddings
-        if: runner.os == 'Linux'
         run: |
           source .venv/bin/activate
           boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
       - name: Run tracking method
-        if: runner.os == 'Linux'
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
@@ -82,8 +75,8 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
-          uv sync --extra yolos --extra evolve --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          uv sync --extra yolo --extra evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -114,10 +107,10 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolos --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          uv sync --extra yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
@@ -160,9 +153,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: |
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
-          uv sync --extra yolos --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          uv sync --extra yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -180,12 +173,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          uv sync --extra yolos --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          uv sync --extra yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -209,9 +202,9 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: |
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
-          uv sync --extra yolos --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          uv sync --extra yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -233,9 +226,9 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
-          uv sync --all-extras --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          uv sync --all-extras
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
@@ -270,9 +263,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: |
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip uv
-          # Use torch CPU index directly via uv flag (no pyproject.toml modification needed)
-          uv sync --extra yolos --extra evolve --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 
       - name: Test export models
         run: |
