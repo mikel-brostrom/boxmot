@@ -11,6 +11,27 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACK
 from boxmot.utils.misc import parse_imgsz
 
 
+def ensure_model_extension(model_path):
+    """
+    Ensure model path has .pt extension.
+    
+    Args:
+        model_path: Path to model file (str or Path)
+        
+    Returns:
+        Path with .pt extension
+    """
+    if model_path is None:
+        return None
+    
+    model_path = Path(model_path)
+    # If no extension or extension is not a model format, add .pt
+    if not model_path.suffix or model_path.suffix not in ['.pt', '.pth', '.onnx', '.engine', '.tflite']:
+        model_path = model_path.with_suffix('.pt')
+    
+    return model_path
+
+
 # Core options (excluding model & classes)
 def core_options(func):
     options = [
@@ -157,17 +178,145 @@ def tune_options(func):
 
 
 class CommandFirstGroup(click.Group):
-    """Show  COMMAND [OPTIONS]...  instead of  [OPTIONS] COMMAND …"""
+    """Custom Click Group with improved help formatting."""
+    
     def format_usage(self, ctx, formatter):
-        formatter.write_usage(ctx.command_path, "COMMAND [ARGS]...")
+        formatter.write_text("Usage: boxmot TRACKER DETECTOR REID [OPTIONS]")
+        formatter.write_text("   or: boxmot COMMAND [OPTIONS]")
+    
+    def format_help(self, ctx, formatter):
+        """Override to show custom help with examples."""
+        self.format_usage(ctx, formatter)
+        formatter.write_paragraph()
+        
+        # Description
+        formatter.write_text(
+            "BoxMOT: Pluggable SOTA multi-object tracking modules for segmentation, "
+            "object detection and pose estimation models"
+        )
+        formatter.write_paragraph()
+        
+        formatter.write_text("Shorthand (tracking):")
+        with formatter.indentation():
+            formatter.write_text("TRACKER   Tracking method (deepocsort, botsort, bytetrack, etc.)")
+            formatter.write_text("DETECTOR  YOLO model name (yolov8n, yolov9c, etc.)")
+            formatter.write_text("REID      ReID model name (osnet_x0_25_msmt17, etc.)")
+        formatter.write_paragraph()
+        
+        # Commands section
+        formatter.write_text("Commands:")
+        with formatter.indentation():
+            formatter.write_text("track      Run tracking on video/webcam")
+            formatter.write_text("generate   Generate detections and embeddings")
+            formatter.write_text("eval       Evaluate tracking performance")
+            formatter.write_text("tune       Tune tracker hyperparameters")
+            formatter.write_text("export     Export ReID models")
+            formatter.write_text("version    Show BoxMOT version")
+            formatter.write_text("help       Show this help message")
+        formatter.write_paragraph()
+        
+        # Examples section
+        formatter.write_text("Examples:")
+        with formatter.indentation():
+            formatter.write_text("1. Track with shorthand syntax (webcam):")
+            with formatter.indentation():
+                formatter.write_text("boxmot deepocsort yolov8n osnet_x0_25_msmt17 --source 0 --show")
+            formatter.write_paragraph()
+            
+            formatter.write_text("2. Track with explicit command (video file):")
+            with formatter.indentation():
+                formatter.write_text("boxmot track --source video.mp4 --yolo-model yolov8n --reid-model osnet_x0_25_msmt17 --tracking-method botsort")
+            formatter.write_paragraph()
+            
+            formatter.write_text("3. Evaluate tracking performance on MOT dataset:")
+            with formatter.indentation():
+                formatter.write_text("boxmot eval --source MOT17-ablation --yolo-model yolov8n --reid-model osnet_x0_25_msmt17")
+            formatter.write_paragraph()
+            
+            formatter.write_text("4. Tune tracker hyperparameters:")
+            with formatter.indentation():
+                formatter.write_text("boxmot tune --source MOT17-ablation --tracking-method deepocsort --n-trials 10")
+            formatter.write_paragraph()
+            
+            formatter.write_text("5. Show version or get help:")
+            with formatter.indentation():
+                formatter.write_text("boxmot version")
+                formatter.write_text("boxmot track --help")
+        formatter.write_paragraph()
+        
+        # Links
+        formatter.write_text("Resources:")
+        with formatter.indentation():
+            formatter.write_text("Docs:      https://github.com/mikel-brostrom/yolo_tracking")
+            formatter.write_text("GitHub:    https://github.com/mikel-brostrom/yolo_tracking")
+            formatter.write_text("Community: https://github.com/mikel-brostrom/yolo_tracking/discussions")
 
 
-@click.group(cls=CommandFirstGroup)
-def boxmot():
+@click.group(cls=CommandFirstGroup, invoke_without_command=True)
+@click.pass_context
+@click.argument('args', nargs=-1, type=click.UNPROCESSED)
+def boxmot(ctx, args):
     """
-    BoxMOT: Pluggable SOTA multi-object tracking modules modules for segmentation, object detection and pose estimation models
+    BoxMOT: Pluggable SOTA multi-object tracking modules for segmentation, object detection and pose estimation models
     """
-    pass
+    # List of known subcommands
+    known_commands = ['track', 'generate', 'eval', 'tune', 'export', 'version', 'help']
+    
+    # If invoked with a subcommand, let Click handle it normally
+    if ctx.invoked_subcommand is not None:
+        return
+    
+    # If no args provided, show help
+    if not args:
+        click.echo(ctx.get_help())
+        return
+    
+    # Check if first arg is a known command
+    if args[0] in known_commands:
+        # Let Click handle the subcommand
+        return
+    
+    # Otherwise, treat as shorthand: TRACKER DETECTOR REID [OPTIONS]
+    if len(args) < 3:
+        click.echo("Error: Shorthand syntax requires at least 3 arguments: TRACKER DETECTOR REID")
+        click.echo("\nUsage: boxmot TRACKER DETECTOR REID [OPTIONS]")
+        click.echo("   or: boxmot COMMAND [OPTIONS]")
+        click.echo("\nExamples:")
+        click.echo("  boxmot deepocsort yolov8n osnet_x0_25_msmt17 --source 0 --show")
+        click.echo("  boxmot track --source 0 --yolo-model yolov8n --tracking-method deepocsort")
+        ctx.exit(1)
+    
+    # Parse shorthand arguments
+    tracking_method = args[0]
+    yolo_model = ensure_model_extension(args[1])
+    reid_model = ensure_model_extension(args[2])
+    
+    # Remaining args are options - need to parse them
+    remaining_args = list(args[3:])
+    
+    # Create a new context for track command with merged params
+    track_cmd = ctx.command.commands['track']
+    
+    # Build params dict by parsing remaining args
+    import sys
+    old_argv = sys.argv
+    try:
+        # Simulate command line for Click to parse
+        sys.argv = ['boxmot', 'track', 
+                    '--tracking-method', tracking_method,
+                    '--yolo-model', str(yolo_model),
+                    '--reid-model', str(reid_model)] + remaining_args
+        
+        with ctx.scope():
+            sub_ctx = track_cmd.make_context('track', 
+                                             ['--tracking-method', tracking_method,
+                                              '--yolo-model', str(yolo_model),
+                                              '--reid-model', str(reid_model)] + remaining_args,
+                                             parent=ctx)
+            with sub_ctx:
+                track_cmd.invoke(sub_ctx)
+    finally:
+        sys.argv = old_argv
 
 
 @boxmot.command(help='Run tracking only')
@@ -178,6 +327,11 @@ def track(ctx, yolo_model, reid_model, classes, **kwargs):
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
+    
+    # Auto-append .pt extension if missing
+    yolo_model = ensure_model_extension(yolo_model)
+    reid_model = ensure_model_extension(reid_model)
+    
     params = {**kwargs,
               'yolo_model': yolo_model,
               'reid_model': reid_model,
@@ -198,6 +352,11 @@ def generate(ctx, yolo_model, reid_model, classes, **kwargs):
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
+    
+    # Auto-append .pt extension if missing
+    yolo_model = [ensure_model_extension(m) for m in yolo_model]
+    reid_model = [ensure_model_extension(m) for m in reid_model]
+    
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
@@ -218,6 +377,11 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
+    
+    # Auto-append .pt extension if missing
+    yolo_model = [ensure_model_extension(m) for m in yolo_model]
+    reid_model = [ensure_model_extension(m) for m in reid_model]
+    
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
@@ -239,6 +403,11 @@ def tune(ctx, yolo_model, reid_model, classes, **kwargs):
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
+    
+    # Auto-append .pt extension if missing
+    yolo_model = [ensure_model_extension(m) for m in yolo_model]
+    reid_model = [ensure_model_extension(m) for m in reid_model]
+    
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
@@ -263,6 +432,22 @@ def export(ctx, **kwargs):
     args = SimpleNamespace(**kwargs)
     from boxmot.appearance.reid.export import main as run_export
     run_export(args)
+
+
+@boxmot.command(help='Show BoxMOT version')
+def version():
+    """Display the current BoxMOT version."""
+    from boxmot import __version__
+    click.echo(f"BoxMOT {__version__}")
+
+
+@boxmot.command(help='Show help information')
+@click.pass_context
+def help(ctx):
+    """Display help information."""
+    # Get the parent context (main boxmot group)
+    parent_ctx = ctx.parent
+    click.echo(parent_ctx.get_help())
 
 
 main = boxmot

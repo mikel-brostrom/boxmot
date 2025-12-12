@@ -55,6 +55,13 @@ tensorrt = [
 # Keep TensorRT on the CUDA 12 series so it matches torch cu121
 constraint-dependencies = ["tensorrt>=10.12,<10.13"]
 
+# Ensure binary-only packages (torch/torchvision, tensorrt, etc.) have wheels
+# for the CI platform (Linux x86_64). This stops uv from choosing
+# torchvision==0.24.1+d801a34, which only has a win_arm64 wheel.
+required-environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
 #########################
 # UV-specific Overrides #
 #########################

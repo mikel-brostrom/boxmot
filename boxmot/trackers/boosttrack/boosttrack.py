@@ -167,9 +167,9 @@ class BoostTrack(BaseTracker):
 
     def __init__(
         self,
-        reid_weights,
-        device,
-        half: bool,
+        reid_weights=None,
+        device='cpu',
+        half: bool = False,
         # BaseTracker parameters 
         det_thresh: float = 0.6,
         max_age: int = 60,
@@ -196,6 +196,7 @@ class BoostTrack(BaseTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         with_reid: bool = False,
+        reid=None,
         **kwargs  # Additional BaseTracker parameters
     ):
         
@@ -239,11 +240,19 @@ class BoostTrack(BaseTracker):
         self.use_vt = use_vt
 
         self.with_reid = with_reid
-
-        if self.with_reid:
-            self.reid_model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
+        
+        if reid is not None:
+             self.reid_model = reid
+             self.with_reid = True
+             # If device is default 'cpu' but reid has a device, strict update not required but good practice?
+             # But self.device is not stored in __init__ in original code (Wait, I checked earlier).
+             # Original code: 
+             # if self.with_reid: self.reid_model = ...
+             # self.reid_model.model (if ReidAutoBackend)
+        elif self.with_reid and reid_weights is not None:
+             self.reid_model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
         else:
-            self.reid_model = None
+             self.reid_model = None
 
         if self.use_ecc:
             self.cmc = get_cmc_method(cmc_method)()

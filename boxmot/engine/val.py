@@ -21,7 +21,7 @@ import sys
 import copy
 import concurrent.futures
 
-from boxmot.tracker_zoo import create_tracker
+from boxmot.trackers.tracker_zoo import create_tracker
 from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, TRACKEVAL
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
@@ -40,7 +40,6 @@ from boxmot.engine.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model, is_yolox_model)
 from boxmot.engine.utils import convert_to_mot_format, write_mot_results
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
-from tqdm import tqdm
 from boxmot.utils.download import download_eval_data, download_trackeval
 
 checker = RequirementsChecker()
