@@ -19,7 +19,7 @@ jobs:
       - name: Install MkDocs and plugins
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --all-extras --all-groups
+          uv sync --only-group dev --only-group test --only-group docs
 
       - name: Symlink README into docs
         run: cp --remove-destination README.md docs/index.md
