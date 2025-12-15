@@ -1,13 +1,17 @@
 cff-version: 15.0.10
-title: BOXMOT
+
 message: >-
   If you use this software, please cite it using the
   metadata from this file.
-type: software
+
 authors:
   - given-names: Mikel
     family-names: Broström
     orcid: "https://orcid.org/0009-0009-0540-9829"
+
+title: "BoxMOT"
 repository-code: "https://github.com/mikel-brostrom/boxmot"
 license: AGPL-3.0
 version: 15.0.0
+type: software
+
