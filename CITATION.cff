@@ -9,7 +9,11 @@ authors:
     family-names: Broström
     orcid: "https://orcid.org/0009-0009-0540-9829"
 
-title: "BoxMOT"
+abstract: >-
+  BoxMOT is a pluggable collection of state-of-the-art multi-object tracking modules
+  for segmentation, object detection, and pose estimation models.
+
+title: "BoxMOT: pluggable state-of-the-art multi-object tracking modules"
 repository-code: "https://github.com/mikel-brostrom/boxmot"
 license: AGPL-3.0
 version: 15.0.0
