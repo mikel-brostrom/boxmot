@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from pathlib import Path
 from .detector import Detector
+from boxmot.utils import logger as LOGGER
 
 try:
     from yolox.exp import get_exp
@@ -60,15 +61,19 @@ class YOLOX(Detector):
         # Assuming path exists.
         
         if not path_p.exists():
-             from boxmot.utils.torch_utils import attempt_download_asset
-             attempt_download_asset(path_p)
-             
-        if not path_p.exists():
-            # If still missing (download failed or not in zoo), check if it's in our local zoo map
+            # If missing, check if it's in our local zoo map
+            # We prefer gdown over generic download because these are Google Drive links
             if path in YOLOX_ZOO:
-                 from boxmot.utils.torch_utils import download_url
-                 print(f"Downloading {path} from {YOLOX_ZOO[path]}...")
-                 download_url(YOLOX_ZOO[path], save_path=path)
+                 import gdown
+                 LOGGER.info(f"Downloading {path} from {YOLOX_ZOO[path]}...")
+                 gdown.download(YOLOX_ZOO[path], output=path, quiet=False)
+            else:
+                 # Fallback to attempt_download_asset for non-zoo files? 
+                 # Or maybe just try it first? 
+                 # Let's try attempt_download_asset first as a general strategy, 
+                 # but gdown is specific for the ZOO items.
+                 from boxmot.utils.torch_utils import attempt_download_asset
+                 attempt_download_asset(path_p)
         
         if not path_p.exists():
              raise FileNotFoundError(f"YOLOX weights not found at {path}")
