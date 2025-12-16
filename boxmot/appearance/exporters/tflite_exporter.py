@@ -18,7 +18,7 @@ class TFLiteExporter(BaseExporter):
         onnx2tf.convert(
             input_onnx_file_path=input_onnx_file_path,
             output_folder_path=output_folder_path,
-            not_use_onnxsim=True,
+            not_use_onnxsim=False,
             verbosity=True,
             # output_integer_quantized_tflite=self.args.int8,
             # quant_type="per-tensor",  # "per-tensor" (faster) or "per-channel" (slower but more accurate)
