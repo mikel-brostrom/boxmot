@@ -13,13 +13,13 @@ class ONNXBackend(BaseModelBackend):
         # ONNXRuntime will attempt to use the first provider, and if it fails or is not
         # available for some reason, it will fall back to the next provider in the list
         if self.device.type == "mps":
-            self.checker.check_packages(("onnxruntime-silicon==1.20.0",))
+            self.checker.check_packages(("onnxruntime-silicon==1.18.1",))
             providers = ["MPSExecutionProvider", "CPUExecutionProvider"]
         elif self.device.type == "cuda":
-            self.checker.check_packages(("onnxruntime-gpu==1.20.0",))
+            self.checker.check_packages(("onnxruntime-gpu==1.18.1",))
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         else:
-            self.checker.check_packages(("onnxruntime==1.20.0",))
+            self.checker.check_packages(("onnxruntime==1.18.1",))
             providers = ["CPUExecutionProvider"]
 
         # Load the ONNX model using onnxruntime
