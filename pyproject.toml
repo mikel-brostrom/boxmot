@@ -237,22 +237,32 @@ openvino = ["openvino>=2025.2.0"]
 
 tflite = [
   "onnx2tf>=1.18.0",
-  "onnx>=1.16.1",
-  "tensorflow==2.17.0",
-  "tf_keras",
-  "sng4onnx>=1.0.1",
-  "onnx_graphsurgeon>=0.3.26",
-  "onnxslim>=0.1.31",
-  "onnxruntime",
-  "flatbuffers>=23.5.26",
-  "onnxsim==0.4.33",
-  "psutil==5.9.5",
-  "ml_dtypes==0.3.2",
-  # Windows lacks wheels — exclude on win32
-  "ai_edge_litert>=1.2.0 ; sys_platform != 'win32'",
-]
 
-# Your extra (safe even with --all-extras thanks to markers + metadata)
-tensorrt = [
-  "tensorrt>=10.12,<10.13 ; (sys_platform == 'linux' or sys_platform == 'win32')",
+  # onnx2tf env pins
+  "onnx==1.17.0",
+  "onnxruntime==1.18.1",
+
+  # onnx-simplifier (onnxsim) pinned to avoid Slice shape-inference rank mismatch
+  # (alt known-good: 0.4.30)
+  "onnxsim==0.4.33",
+
+  "onnx_graphsurgeon>=0.3.26",
+  "simple-onnx-processing-tools",
+  "sng4onnx>=1.0.1",
+
+  # TF stack (TF 2.19 is supported on Python 3.9–3.12)
+  "tensorflow==2.19.0 ; python_version < '3.13'",
+  "tf-keras==2.19.0 ; python_version < '3.13'",
+
+  "psutil==5.9.5",
+  "ml-dtypes==0.5.1",
+
+  # flatc (flatbuffers-compiler) is an external executable; keep flatbuffers runtime lib here
+  "flatbuffers>=23.1.21",
+
+  # Keep your existing helpers
+  "onnxslim>=0.1.31",
+
+  # Still exclude on Windows (no Windows wheels published on PyPI)
+  "ai-edge-litert==1.2.0 ; sys_platform != 'win32' and python_version < '3.13'",
 ]
