@@ -268,9 +268,7 @@ jobs:
       - name: Test export models
         run: |
           uv sync --all-extras --all-groups
-          uv run boxmot export \
-            --include torchscript --include onnx --include openvino --include tflite \
-            --device cpu --batch-size 3 --dynamic
+          uv run boxmot export --include torchscript --include onnx --include openvino --include tflite --device cpu --batch-size 3 --dynamic
       - name: Pytest tests  # after tracking options as this does not download models
         env:
           # directory of PyPi package to be tested
