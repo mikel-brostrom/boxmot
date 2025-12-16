@@ -4,6 +4,8 @@ import yaml
 
 from boxmot.utils import TRACKER_CONFIGS
 
+REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack"]
+
 
 def get_tracker_config(tracker_type):
     """Returns the path to the tracker configuration file."""
@@ -78,13 +80,8 @@ def create_tracker(
     tracker_class = getattr(__import__(module_path, fromlist=[class_name]), class_name)
 
     # For specific trackers, update tracker arguments with ReID parameters
-    if tracker_type in [
-        "strongsort",
-        "botsort",
-        "deepocsort",
-        "hybridsort",
-        "boosttrack",
-    ]:
+    # For specific trackers, update tracker arguments with ReID parameters
+    if tracker_type in REID_TRACKERS:
         tracker_args["per_class"] = per_class
         tracker_args.update(reid_args)
         if tracker_type in ["strongsort"]:

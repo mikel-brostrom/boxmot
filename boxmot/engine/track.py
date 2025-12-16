@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from boxmot import TRACKERS
-from boxmot.trackers.tracker_zoo import create_tracker
+from boxmot.trackers.tracker_zoo import create_tracker, REID_TRACKERS
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils.checks import RequirementsChecker
 
@@ -42,7 +42,10 @@ def main(args):
         )
 
     # 2. Setup ReID
-    reid = ReID(args.reid_model, device=args.device, half=args.half)
+    if args.tracking_method in REID_TRACKERS:
+        reid = ReID(args.reid_model, device=args.device, half=args.half)
+    else:
+        reid = None
 
     # 3. Setup Tracker
     tracking_config = TRACKER_CONFIGS / (args.tracking_method + '.yaml')
