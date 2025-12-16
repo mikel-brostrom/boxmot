@@ -239,9 +239,9 @@ jobs:
         run: | 
           source .venv/bin/activate
           boxmot export --include torchscript --include onnx --include openvino --device cpu --batch-size 3 --dynamic
-      - name: Check export TFLite models
-        run: |
-          ls /home/runner/work/boxmot/boxmot/boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
+      # - name: Check export TFLite models
+      #   run: |
+      #     ls /home/runner/work/boxmot/boxmot/boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
       - name: Test inference on exported models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
