@@ -11,7 +11,7 @@ from pathlib import Path
 from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
 from boxmot.engine.evaluator import (
     run_generate_dets_embs,
-    parse_opt as parse_val_opt,
+
     run_generate_mot_results,
     run_trackeval,
 )
