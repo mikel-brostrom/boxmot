@@ -217,12 +217,11 @@ yolo = [
 ]
 
 evolve = [
-  "ray>=2.35.0,<3.0.0",
-  "ray[tune]>=2.35.0,<3.0.0",
-  "plotly>=5.19.0,<6.0.0",
-  "bayesian-optimization>=2.0.4",
-  "optuna",
-  "pydantic"
+  "ray[tune]==2.49.2",
+  "plotly==5.19.0",
+  "bayesian-optimization==2.0.4",
+  "optuna==3.5.0",
+  "pydantic==2.7.2"
 ]
 
 onnx = [
