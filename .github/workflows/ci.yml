@@ -42,15 +42,11 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           uv sync --extra yolo
-      - name: Generate detections and embeddings
-        run: |
-          source .venv/bin/activate
-          boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
       - name: Run tracking method
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
-            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker --source ./assets/MOT17-mini/train
+            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker --source $IMG
           done
   evolution:
     runs-on: ${{ matrix.os }}
