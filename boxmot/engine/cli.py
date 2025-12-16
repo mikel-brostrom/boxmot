@@ -26,7 +26,7 @@ def ensure_model_extension(model_path):
     
     model_path = Path(model_path)
     # If no extension, add .pt
-    if not model_path.suffix:
+    if not model_path.suffix and "openvino" not in model_path.name:
         model_path = model_path.with_suffix('.pt')
     
     return model_path

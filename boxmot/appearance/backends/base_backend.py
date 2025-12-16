@@ -162,7 +162,7 @@ class BaseModelBackend:
         lock = SoftFileLock(str(w) + ".lock", timeout=300)  # Wait up to 5 minutes
 
         with lock:
-            if w.exists():
+            if w.exists() or "openvino" in w.name:
                 LOGGER.info(f"[PID {os.getpid()}] Found existing ReID weights at {w}; skipping download.")
                 return
 

@@ -34,7 +34,7 @@ def export_decorator(export_func):
 
 
 class BaseExporter:
-    def __init__(self, model, im, file, optimize=False, dynamic=False, half=False, simplify=False):
+    def __init__(self, model, im, file, optimize=True, dynamic=True, half=True, simplify=True):
         self.model = model
         self.im = im
         self.file = Path(file)
