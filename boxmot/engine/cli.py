@@ -196,15 +196,21 @@ class CommandFirstGroup(click.Group):
         )
         formatter.write_paragraph()
         
-        formatter.write_text("Shorthand (tracking):")
+        formatter.write_text("Shorthand:")
         with formatter.indentation():
-            formatter.write_text("TRACKER   Tracking method (deepocsort, botsort, bytetrack, etc.)")
+            formatter.write_text("boxmot MODE DETECTOR REID TRACKER [OPTIONS]")
+        formatter.write_paragraph()
+        
+        formatter.write_text("Arguments:")
+        with formatter.indentation():
+            formatter.write_text("MODE      Subcommand (track, eval, tune, generate)")
             formatter.write_text("DETECTOR  YOLO model name (yolov8n, yolov9c, etc.)")
             formatter.write_text("REID      ReID model name (osnet_x0_25_msmt17, etc.)")
+            formatter.write_text("TRACKER   Tracking method (deepocsort, botsort, bytetrack, etc.)")
         formatter.write_paragraph()
         
         # Commands section
-        formatter.write_text("Commands:")
+        formatter.write_text("Commands (MODE):")
         with formatter.indentation():
             formatter.write_text("track      Run tracking on video/webcam")
             formatter.write_text("generate   Generate detections and embeddings")
@@ -220,7 +226,7 @@ class CommandFirstGroup(click.Group):
         with formatter.indentation():
             formatter.write_text("1. Track with shorthand syntax (webcam):")
             with formatter.indentation():
-                formatter.write_text("boxmot deepocsort yolov8n osnet_x0_25_msmt17 --source 0 --show")
+                formatter.write_text("boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show")
             formatter.write_paragraph()
             
             formatter.write_text("2. Track with explicit command (video file):")
@@ -230,7 +236,7 @@ class CommandFirstGroup(click.Group):
             
             formatter.write_text("3. Evaluate tracking performance on MOT dataset:")
             with formatter.indentation():
-                formatter.write_text("boxmot eval --source MOT17-ablation --yolo-model yolov8n --reid-model osnet_x0_25_msmt17")
+                formatter.write_text("boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --source MOT17-ablation")
             formatter.write_paragraph()
             
             formatter.write_text("4. Tune tracker hyperparameters:")
@@ -252,78 +258,30 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("Community: https://github.com/mikel-brostrom/yolo_tracking/discussions")
 
 
-@click.group(cls=CommandFirstGroup, invoke_without_command=True)
+@click.group(cls=CommandFirstGroup)
 @click.pass_context
-@click.argument('args', nargs=-1, type=click.UNPROCESSED)
-def boxmot(ctx, args):
+def boxmot(ctx):
     """
     BoxMOT: Pluggable SOTA multi-object tracking modules for segmentation, object detection and pose estimation models
     """
-    # List of known subcommands
-    known_commands = ['track', 'generate', 'eval', 'tune', 'export', 'version', 'help']
-    
-    # If invoked with a subcommand, let Click handle it normally
-    if ctx.invoked_subcommand is not None:
-        return
-    
-    # If no args provided, show help
-    if not args:
-        click.echo(ctx.get_help())
-        return
-    
-    # Check if first arg is a known command
-    if args[0] in known_commands:
-        # Let Click handle the subcommand
-        return
-    
-    # Otherwise, treat as shorthand: TRACKER DETECTOR REID [OPTIONS]
-    if len(args) < 3:
-        click.echo("Error: Shorthand syntax requires at least 3 arguments: TRACKER DETECTOR REID")
-        click.echo("\nUsage: boxmot TRACKER DETECTOR REID [OPTIONS]")
-        click.echo("   or: boxmot COMMAND [OPTIONS]")
-        click.echo("\nExamples:")
-        click.echo("  boxmot deepocsort yolov8n osnet_x0_25_msmt17 --source 0 --show")
-        click.echo("  boxmot track --source 0 --yolo-model yolov8n --tracking-method deepocsort")
-        ctx.exit(1)
-    
-    # Parse shorthand arguments
-    tracking_method = args[0]
-    yolo_model = ensure_model_extension(args[1])
-    reid_model = ensure_model_extension(args[2])
-    
-    # Remaining args are options - need to parse them
-    remaining_args = list(args[3:])
-    
-    # Create a new context for track command with merged params
-    track_cmd = ctx.command.commands['track']
-    
-    # Build params dict by parsing remaining args
-    import sys
-    old_argv = sys.argv
-    try:
-        # Simulate command line for Click to parse
-        sys.argv = ['boxmot', 'track', 
-                    '--tracking-method', tracking_method,
-                    '--yolo-model', str(yolo_model),
-                    '--reid-model', str(reid_model)] + remaining_args
-        
-        with ctx.scope():
-            sub_ctx = track_cmd.make_context('track', 
-                                             ['--tracking-method', tracking_method,
-                                              '--yolo-model', str(yolo_model),
-                                              '--reid-model', str(reid_model)] + remaining_args,
-                                             parent=ctx)
-            with sub_ctx:
-                track_cmd.invoke(sub_ctx)
-    finally:
-        sys.argv = old_argv
+    pass
 
 
 @boxmot.command(help='Run tracking only')
+@click.argument('detector', required=False)
+@click.argument('reid', required=False)
+@click.argument('tracker', required=False)
 @core_options
 @singular_model_options
 @click.pass_context
-def track(ctx, yolo_model, reid_model, classes, **kwargs):
+def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
+    # Override options with positional args if provided
+    if detector:
+        yolo_model = ensure_model_extension(detector)
+    if reid:
+        reid_model = ensure_model_extension(reid)
+    if tracker:
+        kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
@@ -345,10 +303,18 @@ def track(ctx, yolo_model, reid_model, classes, **kwargs):
 
 
 @boxmot.command(help='Generate detections and embeddings')
+@click.argument('detector', required=False)
+@click.argument('reid', required=False)
 @core_options
 @plural_model_options
 @click.pass_context
-def generate(ctx, yolo_model, reid_model, classes, **kwargs):
+def generate(ctx, detector, reid, yolo_model, reid_model, classes, **kwargs):
+    # Override options with positional args if provided
+    # Note: Plural options are tuples, so handle single arg input as list
+    if detector:
+        yolo_model = [ensure_model_extension(detector)]
+    if reid:
+        reid_model = [ensure_model_extension(reid)]
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
@@ -370,10 +336,21 @@ def generate(ctx, yolo_model, reid_model, classes, **kwargs):
 
 
 @boxmot.command(help='Evaluate tracking performance')
+@click.argument('detector', required=False)
+@click.argument('reid', required=False)
+@click.argument('tracker', required=False)
 @core_options
 @plural_model_options
 @click.pass_context
-def eval(ctx, yolo_model, reid_model, classes, **kwargs):
+def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
+    # Override options with positional args if provided
+    # Note: Plural options are tuples, so handle single arg input as list
+    if detector:
+        yolo_model = [ensure_model_extension(detector)]
+    if reid:
+        reid_model = [ensure_model_extension(reid)]
+    if tracker:
+        kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
@@ -395,11 +372,22 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
 
 
 @boxmot.command(help='Tune models via evolutionary algorithms')
+@click.argument('detector', required=False)
+@click.argument('reid', required=False)
+@click.argument('tracker', required=False)
 @core_options
 @tune_options
 @plural_model_options
 @click.pass_context
-def tune(ctx, yolo_model, reid_model, classes, **kwargs):
+def tune(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
+    # Override options with positional args if provided
+    # Note: Plural options are tuples, so handle single arg input as list
+    if detector:
+        yolo_model = [ensure_model_extension(detector)]
+    if reid:
+        reid_model = [ensure_model_extension(reid)]
+    if tracker:
+        kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
