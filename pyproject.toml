@@ -214,7 +214,8 @@ evolve = [
   "ray[tune]>=2.35.0,<3.0.0",
   "plotly>=5.19.0,<6.0.0",
   "bayesian-optimization>=2.0.4",
-  "optuna"
+  "optuna",
+  "pydantic"
 ]
 
 onnx = [
