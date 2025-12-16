@@ -67,14 +67,7 @@ class YOLOX(Detector):
                  import gdown
                  LOGGER.info(f"Downloading {path} from {YOLOX_ZOO[path]}...")
                  gdown.download(YOLOX_ZOO[path], output=path, quiet=False)
-            else:
-                 # Fallback to attempt_download_asset for non-zoo files? 
-                 # Or maybe just try it first? 
-                 # Let's try attempt_download_asset first as a general strategy, 
-                 # but gdown is specific for the ZOO items.
-                 from boxmot.utils.torch_utils import attempt_download_asset
-                 attempt_download_asset(path_p)
-        
+                 
         if not path_p.exists():
              raise FileNotFoundError(f"YOLOX weights not found at {path}")
 
