@@ -24,7 +24,7 @@ class OpenVINOExporter(BaseExporter):
         c, h, w = 3, 256, 128
 
         # Bounded dynamic batch (pick something that covers your worst case)
-        max_batch = 64
+        max_batch = 80
         batch_dim = ov.Dimension(1, max_batch)
 
         if self.dynamic:
