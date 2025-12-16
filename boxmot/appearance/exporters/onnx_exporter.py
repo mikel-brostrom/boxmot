@@ -7,6 +7,10 @@ from boxmot.utils import logger as LOGGER
 class ONNXExporter(BaseExporter):
     group = "onnx"
 
+    def __init__(self, model, im, file, opset=18, dynamic=False, half=False, simplify=False):
+        super().__init__(model, im, file, optimize=False, dynamic=dynamic, half=half, simplify=simplify)
+        self.opset = opset
+
     def export(self):
         import onnx
 
@@ -21,7 +25,7 @@ class ONNXExporter(BaseExporter):
             self.im.cpu() if self.dynamic else self.im,
             f,
             verbose=False,
-            opset_version=14,
+            opset_version=self.opset,
             do_constant_folding=True,
             input_names=["images"],
             output_names=["output"],

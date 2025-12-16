@@ -141,7 +141,7 @@ def export_options(func):
                      help='Enable dynamic axes for ONNX/TF/TensorRT export'),
         click.option('--simplify', is_flag=True,
                      help='Simplify ONNX model'),
-        click.option('--opset', type=int, default=12,
+        click.option('--opset', type=int, default=18,
                      help='ONNX opset version'),
         click.option('--workspace', type=int, default=4,
                      help='TensorRT workspace size (GB)'),
