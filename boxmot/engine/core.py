@@ -119,8 +119,28 @@ class Results:
         print(f"{'Total':<15} | {self.totals['total']:<20.1f} | {total_avg:<20.1f}")
         print("="*65 + "\n")
 
-    def _process(self):
+    def _get_frames(self):
         src = self.source
+        # Check source type for directory
+        if isinstance(src, (str, Path)) and Path(src).is_dir():
+            path_src = Path(src)
+            exts = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.tif', '*.tiff', '*.JPG', '*.JPEG', '*.PNG']
+            images = []
+            for ext in exts:
+                images.extend(path_src.glob(ext))
+            images = sorted(images)
+            
+            if not images:
+                raise ValueError(f"No images found in {src}")
+            
+            for img_path in images:
+                frame = cv2.imread(str(img_path))
+                if frame is None:
+                    continue
+                yield frame
+            return
+
+        # Video source logic
         if isinstance(src, (str, Path)):
              if str(src).isdigit():
                   src = int(src)
@@ -131,14 +151,21 @@ class Results:
         if not cap.isOpened():
              raise ValueError(f"Could not open video source: {src}")
         
-        frame_num = 0
-        
         try:
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
-                
+                yield frame
+        finally:
+            cap.release()
+
+    def _process(self):
+        frame_generator = self._get_frames()
+        frame_num = 0
+        
+        try:
+            for frame in frame_generator:
                 frame_num += 1
                 
                 # 1. Detect
@@ -167,7 +194,6 @@ class Results:
                 yield Tracks(frame, tracks, get_drawer=lambda: self.drawer)
                 
         finally:
-            cap.release()
             if self.verbose:
                 self._print_summary()
 
