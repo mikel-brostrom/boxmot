@@ -25,7 +25,7 @@ jobs:
         python-version: ['3.12']
     env:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack"
-
+      IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
@@ -50,7 +50,7 @@ jobs:
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
-            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
+            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker --source ./assets/MOT17-mini/train
           done
   evolution:
     runs-on: ${{ matrix.os }}
