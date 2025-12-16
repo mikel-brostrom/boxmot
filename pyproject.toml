@@ -70,7 +70,7 @@ required-environments = [
 [[tool.uv.dependency-metadata]]
 name          = "yolox"
 version       = "0.3.0"
-requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
+requires-dist = ["onnx>=1.17.0", "onnxsim==0.4.33"]
 
 # Ensure yolox builds with setuptools present in the isolated build env
 [[tool.uv.dependency-metadata]]
