@@ -61,4 +61,5 @@ def main(args):
     # 5. Output/Show
     for frame_idx, tracks in enumerate(results):
         if args.show:
-            tracks.show()
+            if not tracks.show():
+                break
