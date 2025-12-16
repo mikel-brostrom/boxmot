@@ -1,7 +1,7 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import pandas as pd
-
+from .reid_handler import ReID
 
 def export_formats():
     # yolo tracking export formats

@@ -298,7 +298,7 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
-    from boxmot.engine.track import main as run_track
+    from boxmot.engine.tracker import main as run_track
     run_track(args)
 
 
@@ -331,7 +331,7 @@ def generate(ctx, detector, reid, yolo_model, reid_model, classes, **kwargs):
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
-    from boxmot.engine.val import run_generate_dets_embs
+    from boxmot.engine.evaluator import run_generate_dets_embs
     run_generate_dets_embs(args)
 
 
@@ -367,7 +367,7 @@ def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
-    from boxmot.engine.val import main as run_eval
+    from boxmot.engine.evaluator import main as run_eval
     run_eval(args)
 
 
@@ -404,7 +404,7 @@ def tune(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
-    from boxmot.engine.evolve import main as run_tuning
+    from boxmot.engine.tuner import main as run_tuning
     run_tuning(args)
 
 

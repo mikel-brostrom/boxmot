@@ -9,9 +9,9 @@ os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"   # keep CWD constant for all trials
 from pathlib import Path
 
 from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
-from boxmot.engine.val import (
-    eval_init,
+from boxmot.engine.evaluator import (
     run_generate_dets_embs,
+    parse_opt as parse_val_opt,
     run_generate_mot_results,
     run_trackeval,
 )
