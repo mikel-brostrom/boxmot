@@ -40,6 +40,7 @@ engine/trackeval/
 *.pth
 *.onnx
 *.engine
+*.data
 
 # interactive plots
 *.html
