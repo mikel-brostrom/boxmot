@@ -207,7 +207,10 @@ docs = [
 #############################
 
 [project.optional-dependencies]
-yolo = ["ultralytics>=3.8.200"]
+yolo = [
+  "ultralytics>=3.8.200",
+  "yolox==0.3.0",
+]
 
 evolve = [
   "ray>=2.35.0,<3.0.0",
