@@ -1,6 +1,7 @@
 import sys
 import platform
 import torch
+from torch.export import Dim
 
 from boxmot.appearance.exporters.base_exporter import BaseExporter
 from boxmot.utils import logger as LOGGER
@@ -26,19 +27,18 @@ class ONNXExporter(BaseExporter):
         output_names = self._infer_output_names()
 
         # --- Export ---
+        args = (self.im,)
+
         if self.dynamic:
-             # Ultralytics style: dynamic batch, height, width
-            dynamic_shapes = [{"images": {0: "batch"}, "output": {0: "batch"}}]
+            dynamic_shapes = ({0: Dim("batch")},)   # first (and only) input tensor: dim0 is dynamic
         else:
             dynamic_shapes = None
 
         torch.onnx.export(
             self.model,
-            self.im,
+            args,
             str(f),
-            verbose=False,
             opset_version=opset,
-            do_constant_folding=True,
             input_names=["images"],
             output_names=output_names,
             dynamic_shapes=dynamic_shapes,
