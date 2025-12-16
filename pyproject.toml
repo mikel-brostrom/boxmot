@@ -74,6 +74,7 @@ requires-dist = [
   "onnx>=1.17.0",
   "onnxsim<1.0.0,>=0.4.33 ; python_version < '3.12'",
   "onnxsim-prebuilt>=0.4.36.post1 ; python_version >= '3.12'",
+  "tabulate",
 ]
 
 # Ensure yolox builds with setuptools present in the isolated build env
