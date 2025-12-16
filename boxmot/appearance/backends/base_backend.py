@@ -18,6 +18,7 @@ class BaseModelBackend:
         self.weights = weights[0] if isinstance(weights, list) else weights
         if isinstance(self.weights, str):
              self.weights = Path(self.weights)
+        LOGGER.info(self.weights)
         self.device = device
         self.half = half
         self.model = None
