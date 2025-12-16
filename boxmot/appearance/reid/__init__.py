@@ -1,7 +1,7 @@
 # Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
 
 import pandas as pd
-from .reid_handler import ReID
+
 
 def export_formats():
     # yolo tracking export formats
@@ -14,3 +14,6 @@ def export_formats():
         ["TensorFlow Lite", "tflite", ".tflite", True, False],
     ]
     return pd.DataFrame(x, columns=["Format", "Argument", "Suffix", "CPU", "GPU"])
+
+
+from .reid_handler import ReID
