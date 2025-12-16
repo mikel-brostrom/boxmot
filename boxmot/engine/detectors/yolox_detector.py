@@ -60,7 +60,17 @@ class YOLOX(Detector):
         # Assuming path exists.
         
         if not path_p.exists():
-            # Attempt download? Or raise
+             from boxmot.utils.torch_utils import attempt_download_asset
+             attempt_download_asset(path_p)
+             
+        if not path_p.exists():
+            # If still missing (download failed or not in zoo), check if it's in our local zoo map
+            if path in YOLOX_ZOO:
+                 from boxmot.utils.torch_utils import download_url
+                 print(f"Downloading {path} from {YOLOX_ZOO[path]}...")
+                 download_url(YOLOX_ZOO[path], save_path=path)
+        
+        if not path_p.exists():
              raise FileNotFoundError(f"YOLOX weights not found at {path}")
 
         ckpt = torch.load(path, map_location="cpu")
