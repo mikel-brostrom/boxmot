@@ -1,3 +1,5 @@
+import sys
+import platform
 import torch
 
 from boxmot.appearance.exporters.base_exporter import BaseExporter
@@ -23,9 +25,13 @@ class ONNXExporter(BaseExporter):
         # Determine output count for correct output_names length
         output_names = self._infer_output_names()
 
-        dynamic_axes = self._build_dynamic_axes(output_names) if self.dynamic else None
-
         # --- Export ---
+        if self.dynamic:
+             # Ultralytics style: dynamic batch, height, width
+            dynamic_shapes = [{"images": {0: "batch"}, "output": {0: "batch"}}]
+        else:
+            dynamic_shapes = None
+
         torch.onnx.export(
             self.model,
             self.im,
@@ -35,7 +41,7 @@ class ONNXExporter(BaseExporter):
             do_constant_folding=True,
             input_names=["images"],
             output_names=output_names,
-            dynamic_axes=dynamic_axes,
+            dynamic_shapes=dynamic_shapes,
         )
 
         # --- Load + validate ---
