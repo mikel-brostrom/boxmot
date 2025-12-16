@@ -1,3 +1,4 @@
+
 # =====================================================
 # pyproject.toml for BoxMOT ← UV (Option A: pin TRT to cu12 series)
 # =====================================================
@@ -227,7 +228,7 @@ evolve = [
 
 onnx = [
   "onnx>=1.16.1,<1.19",
-  "onnxruntime==1.18.1",
+  "onnxruntime>=1.20.0",
   "onnxslim>=0.1.67",
   "onnxscript>=0.1.0"
 ]
@@ -236,17 +237,17 @@ openvino = ["openvino>=2025.2.0"]
 
 tflite = [
   "onnx2tf>=1.18.0",
-  "onnx>=1.17.0",
+  "onnx>=1.16.1",
   "tensorflow==2.17.0",
-  "tf-keras==2.19.0",
+  "tf_keras",
   "sng4onnx>=1.0.1",
   "onnx_graphsurgeon>=0.3.26",
   "onnxslim>=0.1.31",
-  "onnxruntime==1.18.1",
+  "onnxruntime",
   "flatbuffers>=23.5.26",
   "onnxsim==0.4.33",
   "psutil==5.9.5",
-  "ml_dtypes==0.5.1",
+  "ml_dtypes==0.3.2",
   # Windows lacks wheels — exclude on win32
   "ai_edge_litert>=1.2.0 ; sys_platform != 'win32'",
 ]
