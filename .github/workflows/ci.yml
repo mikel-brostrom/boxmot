@@ -227,7 +227,7 @@ jobs:
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra onnx --extra openvino
+          uv sync --extra yolo --extra onnx --extra openvino
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
