@@ -25,8 +25,8 @@ def ensure_model_extension(model_path):
         return None
     
     model_path = Path(model_path)
-    # If no extension or extension is not a model format, add .pt
-    if not model_path.suffix or model_path.suffix not in ['.pt', '.pth', '.onnx', '.engine', '.tflite']:
+    # If no extension, add .pt
+    if not model_path.suffix:
         model_path = model_path.with_suffix('.pt')
     
     return model_path

@@ -25,7 +25,12 @@ class OpenVinoBackend(BaseModelBackend):
                 "$ pip install openvino>=2025.2.0\n"
             )
         ie = Core()
-        if not Path(w).is_file():  # if not *.xml
+        w = Path(w)
+        LOGGER.info(w)
+        if w.suffix == '.bin':
+            w = w.with_suffix('.xml')
+
+        if not w.is_file():  # if not *.xml
             w = next(
                 Path(w).glob("*.xml")
             )  # get *.xml file from *_openvino_model dir

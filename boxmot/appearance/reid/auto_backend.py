@@ -124,4 +124,14 @@ class ReidAutoBackend:
         sf = list(export_formats().Suffix)  # export suffixes
         self.check_suffix(p, sf)  # checks
         types = [s in Path(p).name for s in sf]
+        
+        # Explicitly check for OpenVINO extensions (xml, bin)
+        if Path(p).suffix in ['.xml', '.bin']:
+            # Find index of OpenVINO suffix
+            try:
+                ov_idx = sf.index('_openvino_model')
+                types[ov_idx] = True
+            except ValueError:
+                pass
+        
         return types
