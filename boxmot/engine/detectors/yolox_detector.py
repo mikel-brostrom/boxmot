@@ -5,6 +5,7 @@ import torch
 from pathlib import Path
 from .detector import Detector
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.torch_utils import select_device
 
 try:
     from yolox.exp import get_exp
@@ -29,7 +30,7 @@ YOLOX_ZOO = {
 
 class YOLOX(Detector):
     def __init__(self, path: str, device='cpu', conf=0.25, iou=0.45, imgsz=640):
-        self.device = device
+        self.device = select_device(device)
         self.conf = conf
         self.iou = iou
         self.imgsz = imgsz
