@@ -82,7 +82,13 @@ class Results:
     def _log_frame_timings(self, frame_num: int, det_time: float, reid_time: float, track_time: float) -> None:
         """Log timing information for a single frame."""
         total = det_time + reid_time + track_time
-        print(f"Frame {frame_num} | Det: {det_time:.1f}ms | ReID: {reid_time:.1f}ms | Track: {track_time:.1f}ms | Total: {total:.1f}ms")
+        
+        log_msg = f"Frame {frame_num} | Det: {det_time:.1f}ms"
+        if self.reid:
+            log_msg += f" | ReID: {reid_time:.1f}ms"
+        log_msg += f" | Track: {track_time:.1f}ms | Total: {total:.1f}ms"
+        
+        print(log_msg)
         
         # Accumulate
         self.totals['det'] += det_time
@@ -106,7 +112,8 @@ class Results:
         print(f"{'Component':<15} | {'Total Time (ms)':<20} | {'Average Time (ms)':<20}")
         print("-" * 65)
         print(f"{'Detection':<15} | {self.totals['det']:<20.1f} | {det_avg:<20.1f}")
-        print(f"{'ReID':<15} | {self.totals['reid']:<20.1f} | {reid_avg:<20.1f}")
+        if self.reid:
+            print(f"{'ReID':<15} | {self.totals['reid']:<20.1f} | {reid_avg:<20.1f}")
         print(f"{'Tracking':<15} | {self.totals['track']:<20.1f} | {track_avg:<20.1f}")
         print("-" * 65)
         print(f"{'Total':<15} | {self.totals['total']:<20.1f} | {total_avg:<20.1f}")
@@ -140,9 +147,13 @@ class Results:
                 det_time = (time.time() - t0) * 1000
                 
                 # 2. ReID
-                t1 = time.time()
-                features = self.reid(frame, dets) if self.reid else None
-                reid_time = (time.time() - t1) * 1000
+                if self.reid:
+                    t1 = time.time()
+                    features = self.reid(frame, dets)
+                    reid_time = (time.time() - t1) * 1000
+                else:
+                    features = None
+                    reid_time = 0.0
                      
                 # 3. Track
                 t2 = time.time()
