@@ -80,7 +80,7 @@ class YOLOX(Detector):
         # Better: use the logic from engine/detectors/yolox.py
         
         # If model name suggests MOT, it is likely 1 class.
-        if "MOT" in path or "dancetrack" in path or path_p.stem in self.model_type:
+        if "MOT" in str(path) or "dancetrack" in str(path) or path_p.stem in self.model_type:
              # simple heuristic: most zoo models here are 1 class
              exp.num_classes = 1
 
