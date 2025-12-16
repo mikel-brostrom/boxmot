@@ -17,7 +17,7 @@ class OpenVinoBackend(BaseModelBackend):
         LOGGER.info(f"Loading {w} for OpenVINO inference...")
         try:
             # requires openvino-dev: https://pypi.org/project/openvino-dev/
-            from openvino.runtime import Core, Layout
+            from openvino import Core, Layout
         except ImportError:
             LOGGER.error(
                 f"Running {self.__class__} with the specified OpenVINO weights\n{w.name}\n"
