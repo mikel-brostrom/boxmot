@@ -63,10 +63,10 @@ class YOLOX(Detector):
         if not path_p.exists():
             # If missing, check if it's in our local zoo map
             # We prefer gdown over generic download because these are Google Drive links
-            if path in YOLOX_ZOO:
+            if path_p.name in YOLOX_ZOO:
                  import gdown
-                 LOGGER.info(f"Downloading {path} from {YOLOX_ZOO[path]}...")
-                 gdown.download(YOLOX_ZOO[path], output=path, quiet=False)
+                 LOGGER.info(f"Downloading {path_p.name} from {YOLOX_ZOO[path_p.name]}...")
+                 gdown.download(YOLOX_ZOO[path_p.name], output=str(path_p), quiet=False)
                  
         if not path_p.exists():
              raise FileNotFoundError(f"YOLOX weights not found at {path}")
