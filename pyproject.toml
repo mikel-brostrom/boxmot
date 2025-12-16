@@ -224,7 +224,8 @@ evolve = [
 onnx = [
   "onnx>=1.16.1,<1.19",
   "onnxruntime>=1.20.0",
-  "onnxslim>=0.1.67"
+  "onnxslim>=0.1.67",
+  "onnxscript>=0.1.0"
 ]
 
 openvino = ["openvino>=2025.2.0"]
