@@ -236,33 +236,28 @@ onnx = [
 openvino = ["openvino>=2025.2.0"]
 
 tflite = [
-  "onnx2tf>=1.18.0",
+  # onnx2tf stack: only on linux/win, and only on py<3.13
+  "onnx2tf>=1.18.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  # onnx2tf env pins
-  "onnx==1.17.0",
-  "onnxruntime==1.18.1",
+  "onnx==1.17.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnxruntime==1.18.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnxsim==0.4.33 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  # onnx-simplifier (onnxsim) pinned to avoid Slice shape-inference rank mismatch
-  # (alt known-good: 0.4.30)
-  "onnxsim==0.4.33",
+  "onnx_graphsurgeon>=0.3.26 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "simple-onnx-processing-tools ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "sng4onnx>=1.0.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  "onnx_graphsurgeon>=0.3.26",
-  "simple-onnx-processing-tools",
-  "sng4onnx>=1.0.1",
+  "tensorflow==2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tf-keras==2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  # TF stack (TF 2.19 is supported on Python 3.9–3.12)
-  "tensorflow==2.19.0 ; python_version < '3.13'",
-  "tf-keras==2.19.0 ; python_version < '3.13'",
+  "psutil==5.9.5 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "ml-dtypes==0.5.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  "psutil==5.9.5",
-  "ml-dtypes==0.5.1",
+  "flatbuffers>=23.1.21 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  # flatc (flatbuffers-compiler) is an external executable; keep flatbuffers runtime lib here
-  "flatbuffers>=23.1.21",
+  # keep your existing helper if you want it
+  "onnxslim>=0.1.31 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  # Keep your existing helpers
-  "onnxslim>=0.1.31",
-
-  # Still exclude on Windows (no Windows wheels published on PyPI)
-  "ai-edge-litert==1.2.0 ; sys_platform != 'win32' and python_version < '3.13'",
+  # still exclude Windows (no wheels there); linux-only
+  "ai-edge-litert==1.2.0 ; python_version < '3.13' and sys_platform == 'linux'",
 ]
