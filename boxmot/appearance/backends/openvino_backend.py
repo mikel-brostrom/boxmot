@@ -12,7 +12,7 @@ class OpenVinoBackend(BaseModelBackend):
         self.half = half
 
     def load_model(self, w):
-        self.checker.check_packages(("openvino-dev>=2022.3",))
+        self.checker.check_packages(("openvino>=2025.2.0",))
 
         LOGGER.info(f"Loading {w} for OpenVINO inference...")
         try:
@@ -22,7 +22,7 @@ class OpenVinoBackend(BaseModelBackend):
             LOGGER.error(
                 f"Running {self.__class__} with the specified OpenVINO weights\n{w.name}\n"
                 "requires openvino pip package to be installed!\n"
-                "$ pip install openvino-dev>=2022.3\n"
+                "$ pip install openvino>=2025.2.0\n"
             )
         ie = Core()
         if not Path(w).is_file():  # if not *.xml
