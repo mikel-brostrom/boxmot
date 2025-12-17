@@ -53,16 +53,6 @@ class StrongSort(BaseTracker):
         reid_weights: Path,
         device: device,
         half: bool,
-        # BaseTracker parameters
-        det_thresh: float = 0.3,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "iou",
-        is_obb: bool = False,
         # StrongSort-specific parameters
         min_conf: float = 0.1,
         max_cos_dist: float = 0.2,
@@ -71,7 +61,7 @@ class StrongSort(BaseTracker):
         nn_budget: int = 100,
         mc_lambda: float = 0.98,
         ema_alpha: float = 0.9,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
@@ -89,7 +79,7 @@ class StrongSort(BaseTracker):
         self.tracker = Tracker(
             metric=NearestNeighborDistanceMetric("cosine", max_cos_dist, nn_budget),
             max_iou_dist=max_iou_dist,
-            max_age=max_age,
+            max_age=self.max_age,
             n_init=n_init,
             mc_lambda=mc_lambda,
             ema_alpha=ema_alpha,

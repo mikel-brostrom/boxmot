@@ -151,23 +151,13 @@ class ByteTrack(BaseTracker):
 
     def __init__(
         self,
-        # BaseTracker parameters
-        det_thresh: float = 0.3,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "iou",
-        is_obb: bool = False,
         # ByteTrack-specific parameters
         min_conf: float = 0.1,
         track_thresh: float = 0.45,
         match_thresh: float = 0.8,
         track_buffer: int = 25,
         frame_rate: int = 30,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
