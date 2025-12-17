@@ -4,9 +4,8 @@ from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 
 from .detector import Detector
-from .detector import Detector
-from .yolox_detector import YOLOX
-from .ultralytics_detector import UltralyticsYolo
+from .yolox import YOLOX
+from .ultralytics import UltralyticsYolo
 
 checker = RequirementsChecker()
 
