@@ -22,6 +22,36 @@ from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 
 
+class VideoWriter:
+    """Handles video writing for tracking results."""
+    
+    def __init__(self, output_path, fps=30):
+        self.output_path = Path(output_path)
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.fps = fps
+        self.writer = None
+        self.frame_size = None
+    
+    def write(self, frame):
+        """Write a frame to the video."""
+        if self.writer is None:
+            h, w = frame.shape[:2]
+            self.frame_size = (w, h)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self.writer = cv2.VideoWriter(
+                str(self.output_path), fourcc, self.fps, self.frame_size
+            )
+            LOGGER.info(f"Saving video to {self.output_path}")
+        
+        self.writer.write(frame)
+    
+    def release(self):
+        """Release the video writer."""
+        if self.writer is not None:
+            self.writer.release()
+            LOGGER.info(f"Video saved: {self.output_path}")
+
+
 def on_predict_start(predictor, args, timing_stats=None):
     """
     Initialize trackers for object tracking during prediction.
@@ -61,13 +91,14 @@ def on_predict_start(predictor, args, timing_stats=None):
     predictor.custom_args = args  # Store for later use
 
 
-def plot_trajectories(predictor, timing_stats=None):
+def plot_trajectories(predictor, timing_stats=None, video_writer=None):
     """
     Callback to run tracking update and plot trajectories on each frame.
     
     Args:
         predictor (object): The predictor object containing results and trackers.
         timing_stats (TimingStats, optional): Timing statistics tracker.
+        video_writer (VideoWriter, optional): Video writer for saving output.
     """
     # Ensure trackers are initialized
     if not hasattr(predictor, 'trackers') or not predictor.trackers:
@@ -90,7 +121,7 @@ def plot_trajectories(predictor, timing_stats=None):
         if timing_stats:
             timing_stats.start_tracking()
         
-        tracks = tracker.update(dets, img)
+        _ = tracker.update(dets, img)
         
         if timing_stats:
             timing_stats.end_tracking()
@@ -103,6 +134,10 @@ def plot_trajectories(predictor, timing_stats=None):
         
         if timing_stats:
             timing_stats.end_plot()
+        
+        # Save frame to video
+        if video_writer is not None:
+            video_writer.write(result.orig_img)
         
         # Show the frame if requested
         if predictor.custom_args.show:
@@ -152,15 +187,41 @@ def main(args):
     # Initialize timing stats
     timing_stats = TimingStats()
     
+    # Initialize video writer if saving is enabled
+    video_writer = None
+    if args.save:
+        # Determine output path
+        project = Path(args.project) if args.project else Path("runs/track")
+        name = args.name if args.name else "exp"
+        save_dir = project / name
+        
+        # Handle exist_ok
+        if not args.exist_ok:
+            i = 1
+            while save_dir.exists():
+                save_dir = project / f"{name}{i}"
+                i += 1
+        
+        # Determine video filename from source
+        source_path = Path(args.source)
+        if source_path.is_file():
+            video_name = source_path.stem + "_tracked.mp4"
+        elif source_path.is_dir():
+            video_name = source_path.name + "_tracked.mp4"
+        else:
+            video_name = "tracking_output.mp4"
+        
+        video_writer = VideoWriter(save_dir / video_name, fps=30)
+    
     # Initialize YOLO model (use placeholder if non-ultralytics model)
     yolo = YOLO(
         args.yolo_model if is_ultralytics_model(args.yolo_model) else "yolov8n.pt",
     )
 
     # Add callbacks for tracker initialization and trajectory plotting
-    # Pass args and timing_stats through partial to make them available in callbacks
+    # Pass args, timing_stats and video_writer through partial to make them available in callbacks
     yolo.add_callback("on_predict_start", partial(on_predict_start, args=args, timing_stats=timing_stats))
-    yolo.add_callback("on_predict_postprocess_end", partial(plot_trajectories, timing_stats=timing_stats))
+    yolo.add_callback("on_predict_postprocess_end", partial(plot_trajectories, timing_stats=timing_stats, video_writer=video_writer))
     
     # Add callback to start frame timing
     yolo.add_callback("on_predict_batch_start", lambda p: timing_stats.start_frame())
@@ -204,7 +265,7 @@ def main(args):
         show_conf=args.show_conf,
         save_txt=args.save_txt,
         show_labels=args.show_labels,
-        save=args.save,
+        save=False,  # We handle video saving ourselves with tracking overlays
         verbose=args.verbose,
         exist_ok=args.exist_ok,
         project=args.project,
@@ -234,6 +295,9 @@ def main(args):
     except KeyboardInterrupt:
         pass  # Handle Ctrl+C gracefully
     finally:
+        # Release video writer
+        if video_writer is not None:
+            video_writer.release()
         # Print timing summary when done
         if args.verbose:
             timing_stats.print_summary()
