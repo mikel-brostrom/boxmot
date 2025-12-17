@@ -51,16 +51,5 @@ class UltralyticsYolo(Detector):
         return dets
         
     def __call__(self, image, **kwargs):
-        # Optimize by calling directly if we don't need strict separation steps exposed
-        # But base class calls them.
-        # Let's just strictly implement process/postprocess.
-        # Or better:
-        
-        # resolve image
-        if isinstance(image, (str, Path)):
-             # Let ultralytics handle loading if passed to predict?
-             # But base Detector calls resolve_image.
-             # We should probably follow the base class flow.
-             pass
-             
+        # Let ultralytics handle loading if passed to predict  
         return super().__call__(image, **kwargs)
