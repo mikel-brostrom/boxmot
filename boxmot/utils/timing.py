@@ -68,44 +68,48 @@ class TimingStats:
         # Calculate detection total and association time
         det_total = self.totals['preprocess'] + self.totals['inference'] + self.totals['postprocess']
         assoc_time = self.totals['track'] - self.totals['reid']
+        total_time = self.totals['total']
         
-        print("\n" + "=" * 75)
-        print(f"{'TIMING SUMMARY':^75}")
-        print("=" * 75)
-        print(f"{'Component':<20} | {'Total Time (ms)':<20} | {'Avg per Frame (ms)':<20}")
-        print("-" * 75)
+        # Helper to calculate percentage
+        def pct(value):
+            return (value / total_time * 100) if total_time > 0 else 0
+        
+        print("\n" + "=" * 90)
+        print(f"{'TIMING SUMMARY':^90}")
+        print("=" * 90)
+        print(f"{'Component':<20} | {'Total (ms)':<12} | {'Avg (ms)':<12} | {'% of Total':<12}")
+        print("-" * 90)
         
         # Detection pipeline
         for key in ['preprocess', 'inference', 'postprocess']:
             total = self.totals[key]
             avg = total / frames
-            print(f"{key.capitalize():<20} | {total:<20.1f} | {avg:<20.2f}")
+            print(f"{key.capitalize():<20} | {total:<12.1f} | {avg:<12.2f} | {pct(total):<12.1f}")
         
         det_avg = det_total / frames
-        print(f"{'Detection (total)':<20} | {det_total:<20.1f} | {det_avg:<20.2f}")
+        print(f"{'Detection (total)':<20} | {det_total:<12.1f} | {det_avg:<12.2f} | {pct(det_total):<12.1f}")
         
-        print("-" * 75)
+        print("-" * 90)
         
         # Tracking pipeline (split into ReID + Association)
         reid_total = self.totals['reid']
         reid_avg = reid_total / frames
-        print(f"{'ReID':<20} | {reid_total:<20.1f} | {reid_avg:<20.2f}")
+        print(f"{'ReID':<20} | {reid_total:<12.1f} | {reid_avg:<12.2f} | {pct(reid_total):<12.1f}")
         
         assoc_avg = assoc_time / frames
-        print(f"{'Association':<20} | {assoc_time:<20.1f} | {assoc_avg:<20.2f}")
+        print(f"{'Association':<20} | {assoc_time:<12.1f} | {assoc_avg:<12.2f} | {pct(assoc_time):<12.1f}")
         
         track_total = self.totals['track']
         track_avg = track_total / frames
-        print(f"{'Track (total)':<20} | {track_total:<20.1f} | {track_avg:<20.2f}")
+        print(f"{'Track (total)':<20} | {track_total:<12.1f} | {track_avg:<12.2f} | {pct(track_total):<12.1f}")
         
-        print("-" * 75)
-        total_time = self.totals['total']
+        print("-" * 90)
         avg_total = total_time / frames
         fps = 1000 / avg_total if avg_total > 0 else 0
-        print(f"{'Total':<20} | {total_time:<20.1f} | {avg_total:<20.2f}")
-        print(f"{'Frames':<20} | {frames:<20}")
-        print(f"{'Average FPS':<20} | {fps:<20.1f}")
-        print("=" * 75 + "\n")
+        print(f"{'Total':<20} | {total_time:<12.1f} | {avg_total:<12.2f} | {'100.0':<12}")
+        print(f"{'Frames':<20} | {frames:<12}")
+        print(f"{'Average FPS':<20} | {fps:<12.1f}")
+        print("=" * 90 + "\n")
 
 
 class TimedReIDWrapper:
