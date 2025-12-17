@@ -169,19 +169,9 @@ class ByteTrack(BaseTracker):
         frame_rate: int = 30,
         **kwargs  # Additional BaseTracker parameters
     ):
-        # Forward all BaseTracker parameters explicitly
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs
-        )
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='ByteTrack', **kwargs)
         
         # Track lifecycle parameters
         self.frame_id = 0
@@ -201,8 +191,6 @@ class ByteTrack(BaseTracker):
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
-
-        LOGGER.success("Initialized ByteTrack")
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

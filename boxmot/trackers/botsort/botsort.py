@@ -95,19 +95,9 @@ class BotSort(BaseTracker):
         with_reid: bool = True,
         **kwargs  # Additional BaseTracker parameters
     ):
-        # Forward all BaseTracker parameters explicitly
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs
-        )
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='BotSort', **kwargs)
         
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
@@ -134,8 +124,6 @@ class BotSort(BaseTracker):
 
         self.cmc = get_cmc_method(cmc_method)()
         self.fuse_first_associate = fuse_first_associate
-
-        LOGGER.success("Initialized BotSort")
         
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
