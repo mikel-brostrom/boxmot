@@ -2,6 +2,8 @@
 
 import time
 
+from boxmot.utils import logger as LOGGER
+
 
 class TimingStats:
     """Track timing statistics for detection, ReID, and tracking phases."""
@@ -91,60 +93,66 @@ class TimingStats:
         def pct(value):
             return (value / total_time * 100) if total_time > 0 else 0
         
-        print("\n" + "=" * 90)
-        print(f"{'TIMING SUMMARY':^90}")
-        print("=" * 90)
-        print(f"{'Component':<20} | {'Total (ms)':<12} | {'Avg (ms)':<12} | {'% of Total':<12}")
-        print("-" * 90)
+        # Helper to log a line
+        def log(msg):
+            LOGGER.info(msg)
+        
+        log("")
+        log("=" * 90)
+        log(f"{'TIMING SUMMARY':^90}")
+        log("=" * 90)
+        log(f"{'Component':<20} | {'Total (ms)':<12} | {'Avg (ms)':<12} | {'% of Total':<12}")
+        log("-" * 90)
         
         # Detection pipeline
         for key in ['preprocess', 'inference', 'postprocess']:
             total = self.totals[key]
             avg = total / frames
-            print(f"{key.capitalize():<20} | {total:<12.1f} | {avg:<12.2f} | {pct(total):<12.1f}")
+            log(f"{key.capitalize():<20} | {total:<12.1f} | {avg:<12.2f} | {pct(total):<12.1f}")
         
         det_avg = det_total / frames
-        print(f"{'Detection (total)':<20} | {det_total:<12.1f} | {det_avg:<12.2f} | {pct(det_total):<12.1f}")
+        log(f"{'Detection (total)':<20} | {det_total:<12.1f} | {det_avg:<12.2f} | {pct(det_total):<12.1f}")
         
-        print("-" * 90)
+        log("-" * 90)
         
         # Tracking pipeline (split into ReID + Association)
         reid_total = self.totals['reid']
         reid_avg = reid_total / frames
-        print(f"{'ReID':<20} | {reid_total:<12.1f} | {reid_avg:<12.2f} | {pct(reid_total):<12.1f}")
+        log(f"{'ReID':<20} | {reid_total:<12.1f} | {reid_avg:<12.2f} | {pct(reid_total):<12.1f}")
         
         assoc_avg = assoc_time / frames
-        print(f"{'Association':<20} | {assoc_time:<12.1f} | {assoc_avg:<12.2f} | {pct(assoc_time):<12.1f}")
+        log(f"{'Association':<20} | {assoc_time:<12.1f} | {assoc_avg:<12.2f} | {pct(assoc_time):<12.1f}")
         
         track_total = self.totals['track']
         track_avg = track_total / frames
-        print(f"{'Track (total)':<20} | {track_total:<12.1f} | {track_avg:<12.2f} | {pct(track_total):<12.1f}")
+        log(f"{'Track (total)':<20} | {track_total:<12.1f} | {track_avg:<12.2f} | {pct(track_total):<12.1f}")
         
-        print("-" * 90)
+        log("-" * 90)
         
         # Plotting and overhead
         plot_avg = plot_time / frames
-        print(f"{'Plotting':<20} | {plot_time:<12.1f} | {plot_avg:<12.2f} | {pct(plot_time):<12.1f}")
+        log(f"{'Plotting':<20} | {plot_time:<12.1f} | {plot_avg:<12.2f} | {pct(plot_time):<12.1f}")
         
         overhead_avg = overhead / frames
-        print(f"{'Other (I/O, etc)':<20} | {overhead:<12.1f} | {overhead_avg:<12.2f} | {pct(overhead):<12.1f}")
+        log(f"{'Other (I/O, etc)':<20} | {overhead:<12.1f} | {overhead_avg:<12.2f} | {pct(overhead):<12.1f}")
         
         # Sanity check: verify components sum to total
         components_sum = det_total + self.totals['track'] + plot_time + overhead
         sum_pct = pct(det_total) + pct(self.totals['track']) + pct(plot_time) + pct(overhead)
         
-        print("-" * 90)
+        log("-" * 90)
         avg_total = total_time / frames
         fps = 1000 / avg_total if avg_total > 0 else 0
-        print(f"{'Total':<20} | {total_time:<12.1f} | {avg_total:<12.2f} | {sum_pct:<12.1f}")
-        print(f"{'Frames':<20} | {frames:<12}")
-        print(f"{'Average FPS':<20} | {fps:<12.1f}")
+        log(f"{'Total':<20} | {total_time:<12.1f} | {avg_total:<12.2f} | {sum_pct:<12.1f}")
+        log(f"{'Frames':<20} | {frames:<12}")
+        log(f"{'Average FPS':<20} | {fps:<12.1f}")
         
         # Warn if there's a significant discrepancy
         if abs(components_sum - total_time) > 1.0:  # More than 1ms difference
-            print(f"{'WARNING':<20} | Components sum ({components_sum:.1f}ms) != Total ({total_time:.1f}ms)")
+            LOGGER.warning(f"Components sum ({components_sum:.1f}ms) != Total ({total_time:.1f}ms)")
         
-        print("=" * 90 + "\n")
+        log("=" * 90)
+        log("")
 
 
 class TimedReIDWrapper:
