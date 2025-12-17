@@ -199,7 +199,7 @@ class CommandFirstGroup(click.Group):
         formatter.width = 120  # Increase formatter width to prevent wrapping
         with formatter.indentation():
             formatter.write_text("Where   MODE (required) is one of [track, eval, tune, generate, export]")
-            formatter.write_text("        DETECTOR (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolov10s")
+            formatter.write_text("        DETECTOR (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
             formatter.write_text("        REID (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
             formatter.write_text("        TRACKER (optional) is one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort]")
             formatter.write_text("        ARGS (optional) 'arg=value' pairs like 'source=0' 'imgsz=640' that override defaults.")
