@@ -90,7 +90,10 @@ def plot_trajectories(predictor, timing_stats=None):
         # Show the frame if requested
         if predictor.custom_args.show:
             cv2.imshow("BoxMOT", result.orig_img)
-            cv2.waitKey(1)
+            key = cv2.waitKey(1) & 0xFF
+            # Exit on 'q' key press - set flag for clean shutdown
+            if key == ord('q'):
+                predictor.custom_args._user_quit = True
     
     # End frame timing
     if timing_stats:
@@ -196,18 +199,29 @@ def main(args):
         save_crop=args.save_crop,
     )
 
+    # Initialize quit flag
+    args._user_quit = False
+    
     # Iterate through results to run the tracking pipeline
     try:
         for result in results:
+            # Check if user requested quit
+            if args._user_quit:
+                break
+                
             # Record Ultralytics timing from result.speed (populated after yield)
             if hasattr(result, 'speed') and result.speed:
                 timing_stats.totals['preprocess'] += result.speed.get('preprocess', 0) or 0
                 timing_stats.totals['inference'] += result.speed.get('inference', 0) or 0
                 timing_stats.totals['postprocess'] += result.speed.get('postprocess', 0) or 0
+    except KeyboardInterrupt:
+        pass  # Handle Ctrl+C gracefully
     finally:
         # Print timing summary when done
         if args.verbose:
             timing_stats.print_summary()
+        # Clean up windows
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
