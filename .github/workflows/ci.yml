@@ -24,7 +24,7 @@ jobs:
         os: [ubuntu-latest, macos-14]   # skip windows-latest for
         python-version: ['3.12']
     env:
-      TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack"
+      TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort"
       IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
