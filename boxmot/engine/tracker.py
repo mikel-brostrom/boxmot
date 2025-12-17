@@ -8,8 +8,8 @@ from boxmot.utils.checks import RequirementsChecker
 
 # High-level API imports
 from boxmot import track, ReID
-from boxmot.engine.detectors import YOLOX, UltralyticsYolo
-from boxmot.engine.detectors import is_yolox_model
+from boxmot.detectors import YOLOX, UltralyticsYolo
+from boxmot.detectors import is_yolox_model
 
 checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install

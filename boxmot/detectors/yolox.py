@@ -3,7 +3,7 @@ import fnmatch
 import numpy as np
 import torch
 from pathlib import Path
-from .detector import Detector
+from boxmot.detectors.detector import Detector
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device
 

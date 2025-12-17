@@ -1,7 +1,7 @@
 import numpy as np
 from pathlib import Path
 from ultralytics import YOLO
-from .detector import Detector
+from boxmot.detectors.detector import Detector
 
 class UltralyticsYolo(Detector):
     def __init__(self, path: str, device='cpu', conf=0.25, iou=0.45, imgsz=640):
