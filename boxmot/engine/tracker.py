@@ -10,7 +10,7 @@ import torch
 
 from boxmot import TRACKERS
 from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS
+from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS, logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 from boxmot.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
@@ -36,7 +36,9 @@ def on_predict_start(predictor, args, timing_stats=None):
 
     tracking_config = TRACKER_CONFIGS / (args.tracking_method + '.yaml')
     trackers = []
-    for i in range(predictor.dataset.bs):
+    # Ensure at least 1 tracker is created (bs might be 0 for some sources)
+    batch_size = max(1, predictor.dataset.bs)
+    for i in range(batch_size):
         tracker = create_tracker(
             args.tracking_method,
             tracking_config,
@@ -67,8 +69,17 @@ def plot_trajectories(predictor, timing_stats=None):
         predictor (object): The predictor object containing results and trackers.
         timing_stats (TimingStats, optional): Timing statistics tracker.
     """
+    # Ensure trackers are initialized
+    if not hasattr(predictor, 'trackers') or not predictor.trackers:
+        LOGGER.warning("Trackers not initialized, skipping frame")
+        return
+        
     # predictor.results is a list of Results, one per frame in the batch
     for i, result in enumerate(predictor.results):
+        if i >= len(predictor.trackers):
+            LOGGER.warning(f"No tracker for batch index {i}, skipping")
+            continue
+            
         tracker = predictor.trackers[i]
         
         # Get detections from result
@@ -85,7 +96,13 @@ def plot_trajectories(predictor, timing_stats=None):
             timing_stats.end_tracking()
         
         # Plot results
+        if timing_stats:
+            timing_stats.start_plot()
+        
         result.orig_img = tracker.plot_results(img, predictor.custom_args.show_trajectories)
+        
+        if timing_stats:
+            timing_stats.end_plot()
         
         # Show the frame if requested
         if predictor.custom_args.show:
