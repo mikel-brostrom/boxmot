@@ -38,7 +38,7 @@ from ultralytics.data.build import load_inference_source
 
 from boxmot.engine.detectors import (get_yolo_inferer, default_imgsz,
                                 is_ultralytics_model, is_yolox_model)
-from boxmot.engine.utils import convert_to_mot_format, write_mot_results
+from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.utils.download import download_eval_data, download_trackeval
 
