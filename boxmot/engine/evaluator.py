@@ -288,7 +288,11 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
                     continue
             tasks.append((y, mot_folder_path))
 
-        LOGGER.info(f"Generating detections and embeddings for {len(tasks)} sequences with model {y.name}")
+        total_sequences = len(mot_folder_paths)
+        if len(tasks) == 0:
+            LOGGER.info(f"Detections and embeddings cached for all {total_sequences} sequences")
+        else:
+            LOGGER.info(f"Generating detections and embeddings for {len(tasks)}/{total_sequences} sequences with model {y.name}")
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS) as executor:
             futures = [executor.submit(process_single_det_emb, y, source_path, opt) for y, source_path in tasks]
@@ -423,11 +427,24 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     
     trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
+    
+    # Print results summary
+    LOGGER.info("="*60)
+    LOGGER.info("Results Summary")
+    LOGGER.info("="*60)
+    LOGGER.info(f"HOTA:  {hota_mota_idf1['HOTA']:.2f}%")
+    LOGGER.info(f"MOTA:  {hota_mota_idf1['MOTA']:.2f}%")
+    LOGGER.info(f"IDF1:  {hota_mota_idf1['IDF1']:.2f}%")
+    LOGGER.info(f"AssA:  {hota_mota_idf1['AssA']:.2f}%")
+    LOGGER.info(f"AssRe: {hota_mota_idf1['AssRe']:.2f}%")
+    LOGGER.info(f"IDSW:  {hota_mota_idf1['IDSW']}")
+    LOGGER.info(f"IDs:   {hota_mota_idf1['IDs']}")
+    LOGGER.info("="*60)
+    
     if opt.ci:
         with open(opt.tracking_method + "_output.json", "w") as outfile:
             outfile.write(json.dumps(hota_mota_idf1))
-    LOGGER.info(trackeval_results)
-    LOGGER.info(json.dumps(hota_mota_idf1))
+    
     return hota_mota_idf1
 
 
@@ -439,11 +456,30 @@ def load_dataset_cfg(name: str) -> dict:
 
 
 def main(args):
-    # Download TrackEval
+    # Print evaluation pipeline header
+    LOGGER.info("="*60)
+    LOGGER.info(f"BoxMOT Evaluation Pipeline")
+    LOGGER.info("="*60)
+    LOGGER.info(f"Detector:  {args.yolo_model[0]}")
+    LOGGER.info(f"ReID:      {args.reid_model[0]}")
+    LOGGER.info(f"Tracker:   {args.tracking_method}")
+    LOGGER.info(f"Benchmark: {args.source}")
+    LOGGER.info("="*60)
+    
+    # Step 1: Download TrackEval
+    LOGGER.info("[1/4] Setting up TrackEval...")
     eval_init(args)
 
+    # Step 2: Generate detections and embeddings
+    LOGGER.info("[2/4] Generating detections and embeddings...")
     run_generate_dets_embs(args)
+    
+    # Step 3: Generate MOT results
+    LOGGER.info("[3/4] Running tracker...")
     run_generate_mot_results(args)
+    
+    # Step 4: Evaluate with TrackEval
+    LOGGER.info("[4/4] Evaluating results...")
     results = run_trackeval(args)
     
     plotter = MetricsPlotter(args.exp_dir)
