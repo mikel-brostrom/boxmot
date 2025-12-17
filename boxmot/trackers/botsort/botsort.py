@@ -71,16 +71,6 @@ class BotSort(BaseTracker):
         reid_weights: Path,
         device: torch.device,
         half: bool,
-        # BaseTracker parameters
-        det_thresh: float = 0.3,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "iou",
-        is_obb: bool = False,
         # BotSort-specific parameters
         track_high_thresh: float = 0.5,
         track_low_thresh: float = 0.1,
@@ -93,7 +83,7 @@ class BotSort(BaseTracker):
         frame_rate: int = 30,
         fuse_first_associate: bool = False,
         with_reid: bool = True,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
@@ -103,7 +93,6 @@ class BotSort(BaseTracker):
         self.removed_stracks = []  # type: list[STrack]
         BaseTrack.clear_count()
 
-        self.per_class = per_class
         self.track_high_thresh = track_high_thresh
         self.track_low_thresh = track_low_thresh
         self.new_track_thresh = new_track_thresh

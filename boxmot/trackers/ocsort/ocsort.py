@@ -222,16 +222,6 @@ class OcSort(BaseTracker):
 
     def __init__(
         self,
-        # BaseTracker parameters
-        det_thresh: float = 0.2,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "iou",
-        is_obb: bool = False,
         # OcSort-specific parameters
         min_conf: float = 0.1,
         delta_t: int = 3,
@@ -239,7 +229,7 @@ class OcSort(BaseTracker):
         use_byte: bool = False,
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
@@ -247,7 +237,7 @@ class OcSort(BaseTracker):
         
         # Store OcSort-specific parameters
         self.min_conf: float = min_conf
-        self.asso_threshold: float = iou_threshold  # Maintain compatibility with existing code
+        self.asso_threshold: float = self.iou_threshold  # Use from BaseTracker
         self.delta_t: int = delta_t
         self.inertia: float = inertia
         self.use_byte: bool = use_byte

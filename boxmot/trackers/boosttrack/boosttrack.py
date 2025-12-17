@@ -170,16 +170,6 @@ class BoostTrack(BaseTracker):
         reid_weights=None,
         device='cpu',
         half: bool = False,
-        # BaseTracker parameters 
-        det_thresh: float = 0.6,
-        max_age: int = 60,
-        max_obs: int = 50, 
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,  
-        asso_func: str = "iou",  
-        is_obb: bool = False,
         # BoostTrack-specific parameters
         use_ecc: bool = True,
         min_box_area: int = 10,
@@ -197,7 +187,7 @@ class BoostTrack(BaseTracker):
         use_vt: bool = False,
         with_reid: bool = False,
         reid=None,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
@@ -208,10 +198,6 @@ class BoostTrack(BaseTracker):
         self.trackers: List[KalmanBoxTracker] = []
 
         # Parameters for BoostTrack (these can be tuned as needed)
-        self.max_age = max_age            # maximum allowed frames without update
-        self.min_hits = min_hits          # minimum hits to output a track
-        self.det_thresh = det_thresh      # detection confidence threshold
-        self.iou_threshold = iou_threshold   # association IoU threshold
         self.use_ecc = use_ecc            # use ECC for camera motion compensation
         self.min_box_area = min_box_area  # minimum box area for detections
         self.aspect_ratio_thresh = aspect_ratio_thresh  # aspect ratio threshold for detections

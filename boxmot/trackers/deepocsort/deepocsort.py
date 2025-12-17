@@ -277,16 +277,6 @@ class DeepOcSort(BaseTracker):
         reid_weights: Path,
         device: torch.device,
         half: bool,
-        # BaseTracker parameters
-        det_thresh: float = 0.3,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "iou",
-        is_obb: bool = False,
         # DeepOcSort-specific parameters
         delta_t: int = 3,
         inertia: float = 0.2,
@@ -298,7 +288,7 @@ class DeepOcSort(BaseTracker):
         aw_off: bool = False,
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
@@ -307,17 +297,11 @@ class DeepOcSort(BaseTracker):
         """
         Sets key parameters for SORT
         """
-        self.max_age = max_age
-        self.min_hits = min_hits
-        self.iou_threshold = iou_threshold
-        self.det_thresh = det_thresh
         self.delta_t = delta_t
-        self.asso_func = asso_func
         self.inertia = inertia
         self.w_association_emb = w_association_emb
         self.alpha_fixed_emb = alpha_fixed_emb
         self.aw_param = aw_param
-        self.per_class = per_class
         self.Q_xy_scaling = Q_xy_scaling
         self.Q_s_scaling = Q_s_scaling
         KalmanBoxTracker.count = 1

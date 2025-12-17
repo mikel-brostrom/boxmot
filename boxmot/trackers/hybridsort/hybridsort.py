@@ -377,17 +377,6 @@ class HybridSort(BaseTracker):
         cmc_method: str = "ecc",
         with_reid: bool = True,
 
-        # BaseTracker params
-        det_thresh: float = 0.7,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.15,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "hmiou",
-        is_obb: bool = False,  # not used here (AABB only)
-
         # Hybrid-SORT specific
         low_thresh: float = 0.1,
         delta_t: int = 3,
@@ -420,7 +409,7 @@ class HybridSort(BaseTracker):
 
         # misc
         dataset: str = "",
-        **kwargs,
+        **kwargs,  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
