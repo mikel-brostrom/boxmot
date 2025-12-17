@@ -199,20 +199,10 @@ class BoostTrack(BaseTracker):
         reid=None,
         **kwargs  # Additional BaseTracker parameters
     ):
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='BoostTrack', **kwargs)
         
-        # Forward per_class and any additional parameters to BaseTracker
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs
-        )
         self.active_tracks = []
         self.frame_count = 0
         self.trackers: List[KalmanBoxTracker] = []
@@ -244,11 +234,6 @@ class BoostTrack(BaseTracker):
         if reid is not None:
              self.reid_model = reid
              self.with_reid = True
-             # If device is default 'cpu' but reid has a device, strict update not required but good practice?
-             # But self.device is not stored in __init__ in original code (Wait, I checked earlier).
-             # Original code: 
-             # if self.with_reid: self.reid_model = ...
-             # self.reid_model.model (if ReidAutoBackend)
         elif self.with_reid and reid_weights is not None:
              self.reid_model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
         else:
@@ -258,8 +243,6 @@ class BoostTrack(BaseTracker):
             self.cmc = get_cmc_method(cmc_method)()
         else:
             self.cmc = None
-            
-        LOGGER.success("Initialized BoostTrack")
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

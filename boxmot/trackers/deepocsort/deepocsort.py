@@ -300,19 +300,9 @@ class DeepOcSort(BaseTracker):
         Q_s_scaling: float = 0.0001,
         **kwargs  # Additional BaseTracker parameters
     ):
-        # Forward all BaseTracker parameters explicitly
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs
-        )
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='DeepOcSort', **kwargs)
         
         """
         Sets key parameters for SORT
@@ -340,8 +330,6 @@ class DeepOcSort(BaseTracker):
         self.embedding_off = embedding_off
         self.cmc_off = cmc_off
         self.aw_off = aw_off
-
-        LOGGER.success("Initialized DeepOcSort")
         
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

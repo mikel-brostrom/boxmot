@@ -225,4 +225,4 @@ def main(args):
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit("Run via CLI: boxmot track [options]")
