@@ -16,11 +16,13 @@ class TimingStats:
             'postprocess': 0.0,
             'reid': 0.0,
             'track': 0.0,
+            'plot': 0.0,
             'total': 0.0,
         }
         self.frames = 0
         self._frame_start = None
         self._track_start = None
+        self._plot_start = None
     
     def start_frame(self):
         """Mark the start of frame processing."""
@@ -35,6 +37,16 @@ class TimingStats:
         if self._track_start is not None:
             self.totals['track'] += (time.perf_counter() - self._track_start) * 1000
             self._track_start = None
+    
+    def start_plot(self):
+        """Mark the start of plotting phase."""
+        self._plot_start = time.perf_counter()
+    
+    def end_plot(self):
+        """Mark the end of plotting phase and record time."""
+        if self._plot_start is not None:
+            self.totals['plot'] += (time.perf_counter() - self._plot_start) * 1000
+            self._plot_start = None
     
     def add_reid_time(self, time_ms):
         """Add ReID time in milliseconds."""
@@ -69,6 +81,11 @@ class TimingStats:
         det_total = self.totals['preprocess'] + self.totals['inference'] + self.totals['postprocess']
         assoc_time = self.totals['track'] - self.totals['reid']
         total_time = self.totals['total']
+        plot_time = self.totals['plot']
+        
+        # Calculate overhead (unaccounted time)
+        accounted = det_total + self.totals['track'] + plot_time
+        overhead = max(0, total_time - accounted)
         
         # Helper to calculate percentage
         def pct(value):
@@ -104,11 +121,29 @@ class TimingStats:
         print(f"{'Track (total)':<20} | {track_total:<12.1f} | {track_avg:<12.2f} | {pct(track_total):<12.1f}")
         
         print("-" * 90)
+        
+        # Plotting and overhead
+        plot_avg = plot_time / frames
+        print(f"{'Plotting':<20} | {plot_time:<12.1f} | {plot_avg:<12.2f} | {pct(plot_time):<12.1f}")
+        
+        overhead_avg = overhead / frames
+        print(f"{'Other (I/O, etc)':<20} | {overhead:<12.1f} | {overhead_avg:<12.2f} | {pct(overhead):<12.1f}")
+        
+        # Sanity check: verify components sum to total
+        components_sum = det_total + self.totals['track'] + plot_time + overhead
+        sum_pct = pct(det_total) + pct(self.totals['track']) + pct(plot_time) + pct(overhead)
+        
+        print("-" * 90)
         avg_total = total_time / frames
         fps = 1000 / avg_total if avg_total > 0 else 0
-        print(f"{'Total':<20} | {total_time:<12.1f} | {avg_total:<12.2f} | {'100.0':<12}")
+        print(f"{'Total':<20} | {total_time:<12.1f} | {avg_total:<12.2f} | {sum_pct:<12.1f}")
         print(f"{'Frames':<20} | {frames:<12}")
         print(f"{'Average FPS':<20} | {fps:<12.1f}")
+        
+        # Warn if there's a significant discrepancy
+        if abs(components_sum - total_time) > 1.0:  # More than 1ms difference
+            print(f"{'WARNING':<20} | Components sum ({components_sum:.1f}ms) != Total ({total_time:.1f}ms)")
+        
         print("=" * 90 + "\n")
 
 

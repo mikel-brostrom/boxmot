@@ -131,10 +131,16 @@ class YoloXStrategy:
         # model_type one of: 'yolox_n', 'yolox_s', 'yolox_m', 'yolox_l', 'yolox_x'
         model_type = self.get_model_from_weigths(YOLOX_ZOO.keys(), model)
 
+        # Map model type to YOLOX experiment name
+        # Custom trained models (e.g., yolox_x_MOT17_ablation) use the base architecture
         if model_type == "yolox_n":
-            exp = get_exp(None, "yolox_nano")
+            exp_name = "yolox_nano"
+        elif "_MOT" in model_type or "_dancetrack" in model_type:
+            # Extract base model: yolox_x_MOT17_ablation -> yolox_x
+            exp_name = model_type.split("_MOT")[0].split("_dancetrack")[0]
         else:
-            exp = get_exp(None, model_type)
+            exp_name = model_type
+        exp = get_exp(None, exp_name)
 
         LOGGER.info(f"Loading {model_type} with {str(model)}")
 
