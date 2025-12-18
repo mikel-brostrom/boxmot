@@ -122,27 +122,49 @@ def main(args):
     start_time = time.time()
 
     WEIGHTS.mkdir(parents=False, exist_ok=True)
+    
+    # Print header
+    LOGGER.info("")
+    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    LOGGER.opt(colors=True).info("<bold><cyan>🚀 BoxMOT ReID Export</cyan></bold>")
+    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    LOGGER.opt(colors=True).info(f"<bold>Weights:</bold>    <cyan>{args.weights}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Formats:</bold>    <cyan>{', '.join(args.include)}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Device:</bold>     <cyan>{args.device}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Half:</bold>       <cyan>{args.half}</cyan>")
+    LOGGER.opt(colors=True).info("<blue>" + "-"*60 + "</blue>")
 
+    LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up model...")
     model, dummy_input = setup_model(args)
 
     output = model(dummy_input)
     output_tensor = output[0] if isinstance(output, tuple) else output
     output_shape = tuple(output_tensor.shape)
-    LOGGER.info(
-        f"\nStarting from {args.weights} with output shape {output_shape} "
+    LOGGER.opt(colors=True).info(
+        f"<bold>Input shape:</bold>  <cyan>{tuple(dummy_input.shape)}</cyan>"
+    )
+    LOGGER.opt(colors=True).info(
+        f"<bold>Output shape:</bold> <cyan>{output_shape}</cyan> "
         f"({BaseExporter.file_size(args.weights):.1f} MB)"
     )
 
+    LOGGER.opt(colors=True).info("<cyan>[2/3]</cyan> Exporting to formats...")
     export_tasks = create_export_tasks(args, model, dummy_input)
     exported_files = perform_exports(export_tasks)
 
     if exported_files:
         elapsed_time = time.time() - start_time
-        LOGGER.info(
-            f"\nExport complete ({elapsed_time:.1f}s)"
-            f"\nResults saved to {args.weights.parent.resolve()}"
-            f"\nVisualize: https://netron.app"
-        )
+        LOGGER.opt(colors=True).info("<cyan>[3/3]</cyan> Export complete!")
+        LOGGER.info("")
+        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info("<bold><cyan>✅ Export Summary</cyan></bold>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info(f"<bold>Time:</bold>       <cyan>{elapsed_time:.1f}s</cyan>")
+        LOGGER.opt(colors=True).info(f"<bold>Saved to:</bold>   <cyan>{args.weights.parent.resolve()}</cyan>")
+        for fmt, fpath in exported_files.items():
+            LOGGER.opt(colors=True).info(f"<bold>  • {fmt}:</bold> <cyan>{fpath}</cyan>")
+        LOGGER.opt(colors=True).info(f"<bold>Visualize:</bold>  <cyan>https://netron.app</cyan>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
 
 
 if __name__ == "__main__":
