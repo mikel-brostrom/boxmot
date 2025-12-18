@@ -72,7 +72,6 @@ def eval_init(args,
         args.benchmark = cfg["benchmark"]["name"]
         args.split = cfg["benchmark"]["split"]
         args.source = TRACKEVAL / f"data/{args.benchmark}/{args.split}"
-        
 
     # 3) finally, make source an absolute Path everywhere
     args.source = Path(args.source).resolve()
