@@ -273,11 +273,6 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
     mot_folder_paths = sorted([item for item in Path(opt.source).iterdir()])
 
     for y in opt.yolo_model:
-        
-        # Ensure model is present/downloaded before parallel execution to avoid race conditions
-        if is_ultralytics_model(y):
-            YOLO(y)
-
         dets_folder = Path(opt.project) / 'dets_n_embs' / y.stem / 'dets'
         embs_folder = Path(opt.project) / 'dets_n_embs' / y.stem / 'embs' / opt.reid_model[0].stem
 
@@ -299,9 +294,7 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
             LOGGER.info(f"Generating detections and embeddings for {len(tasks)}/{total_sequences} sequences with model {y.name}")
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS) as executor:
-            # Fix for Python 3.12: Ensure 'y' is a string if it's a Path object
-            # This avoids pickling issues with Path objects in multiprocessing on some platforms/versions
-            futures = [executor.submit(process_single_det_emb, str(y), source_path, opt) for y, source_path in tasks]
+            futures = [executor.submit(process_single_det_emb, y, source_path, opt) for y, source_path in tasks]
 
             for fut in concurrent.futures.as_completed(futures):
                 try:
