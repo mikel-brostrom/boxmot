@@ -409,7 +409,7 @@ def export(ctx, **kwargs):
     """
     # kwargs already contains all export args; convert imgsz tuple -> list
     args = SimpleNamespace(**kwargs)
-    from boxmot.appearance.reid.export import main as run_export
+    from boxmot.reid.core.export import main as run_export
     run_export(args)
 
 

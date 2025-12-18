@@ -5,10 +5,10 @@ from pathlib import Path
 
 import torch
 
-from boxmot.appearance.exporters.base_exporter import BaseExporter
-from boxmot.appearance.reid import export_formats
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
-from boxmot.appearance.reid.registry import ReIDModelRegistry
+from boxmot.reid.exporters.base_exporter import BaseExporter
+from boxmot.reid.core import export_formats
+from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device
@@ -63,7 +63,7 @@ def create_export_tasks(args, model, dummy_input):
     tasks = {}
 
     if torchscript_flag:
-        from boxmot.appearance.exporters.torchscript_exporter import TorchScriptExporter
+        from boxmot.reid.exporters.torchscript_exporter import TorchScriptExporter
         tasks["torchscript"] = (
             True,
             TorchScriptExporter,
@@ -71,7 +71,7 @@ def create_export_tasks(args, model, dummy_input):
         )
 
     if onnx_flag:
-        from boxmot.appearance.exporters.onnx_exporter import ONNXExporter
+        from boxmot.reid.exporters.onnx_exporter import ONNXExporter
         tasks["onnx"] = (
             True,
             ONNXExporter,
@@ -79,7 +79,7 @@ def create_export_tasks(args, model, dummy_input):
         )
 
     if engine_flag:
-        from boxmot.appearance.exporters.tensorrt_exporter import EngineExporter
+        from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
         tasks["engine"] = (
             True,
             EngineExporter,
@@ -87,7 +87,7 @@ def create_export_tasks(args, model, dummy_input):
         )
 
     if tflite_flag:
-        from boxmot.appearance.exporters.tflite_exporter import TFLiteExporter
+        from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
         tasks["tflite"] = (
             True,
             TFLiteExporter,
@@ -95,7 +95,7 @@ def create_export_tasks(args, model, dummy_input):
         )
 
     if openvino_flag:
-        from boxmot.appearance.exporters.openvino_exporter import OpenVINOExporter
+        from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
         tasks["openvino"] = (
             True,
             OpenVINOExporter,

@@ -8,7 +8,7 @@ import torch
 from pathlib import Path
 from filelock import SoftFileLock
 
-from boxmot.appearance.reid.registry import ReIDModelRegistry
+from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 

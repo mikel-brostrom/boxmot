@@ -1,6 +1,6 @@
 import torch
 
-from boxmot.appearance.exporters.base_exporter import BaseExporter
+from boxmot.reid.exporters.base_exporter import BaseExporter
 
 
 class TorchScriptExporter(BaseExporter):

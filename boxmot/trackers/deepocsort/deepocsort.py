@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.aabb.xysr_kf import KalmanFilterXYSR
 from boxmot.trackers.basetracker import BaseTracker

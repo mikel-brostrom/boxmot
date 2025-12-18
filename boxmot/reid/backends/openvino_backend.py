@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from boxmot.appearance.backends.base_backend import BaseModelBackend
+from boxmot.reid.backends.base_backend import BaseModelBackend
 from boxmot.utils import logger as LOGGER
 
 

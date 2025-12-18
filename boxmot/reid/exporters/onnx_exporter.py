@@ -3,7 +3,7 @@ import platform
 import torch
 from torch.export import Dim
 
-from boxmot.appearance.exporters.base_exporter import BaseExporter
+from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.utils import logger as LOGGER
 
 

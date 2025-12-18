@@ -5,9 +5,9 @@ import copy
 import torch
 from torch import nn
 
-from boxmot.appearance.backbones.lmbn.attention import BatchFeatureErase_Top
-from boxmot.appearance.backbones.lmbn.bnneck import BNNeck, BNNeck3
-from boxmot.appearance.backbones.osnet import OSBlock, osnet_x1_0
+from boxmot.reid.backbones.lmbn.attention import BatchFeatureErase_Top
+from boxmot.reid.backbones.lmbn.bnneck import BNNeck, BNNeck3
+from boxmot.reid.backbones.osnet import OSBlock, osnet_x1_0
 
 
 class LMBN_n(nn.Module):
