@@ -1,6 +1,6 @@
 include requirements.txt
 include LICENSE
 include setup.py
-include boxmot/appearance/backbones/clip/clip/bpe_simple_vocab_16e6.txt.gz
+include boxmot/reid/backbones/clip/clip/bpe_simple_vocab_16e6.txt.gz
 recursive-include boxmot *.yaml
 recursive-exclude __pycache__ *

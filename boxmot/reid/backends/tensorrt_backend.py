@@ -3,7 +3,7 @@ from collections import OrderedDict, namedtuple
 import numpy as np
 import torch
 
-from boxmot.appearance.backends.base_backend import BaseModelBackend
+from boxmot.reid.backends.base_backend import BaseModelBackend
 from boxmot.utils import logger as LOGGER
 
 

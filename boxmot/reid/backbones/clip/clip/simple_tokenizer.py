@@ -12,7 +12,7 @@ from boxmot.utils import BOXMOT
 
 @lru_cache()
 def default_bpe():
-    return BOXMOT / "appearance/backbones/clip/clip/bpe_simple_vocab_16e6.txt.gz"
+    return BOXMOT / "reid/backbones/clip/clip/bpe_simple_vocab_16e6.txt.gz"
 
 
 @lru_cache()

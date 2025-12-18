@@ -3,13 +3,13 @@ from typing import Tuple, Union
 
 import torch
 
-from boxmot.appearance.backends.onnx_backend import ONNXBackend
-from boxmot.appearance.backends.openvino_backend import OpenVinoBackend
-from boxmot.appearance.backends.pytorch_backend import PyTorchBackend
-from boxmot.appearance.backends.tensorrt_backend import TensorRTBackend
-from boxmot.appearance.backends.tflite_backend import TFLiteBackend
-from boxmot.appearance.backends.torchscript_backend import TorchscriptBackend
-from boxmot.appearance.reid import export_formats
+from boxmot.reid.backends.onnx_backend import ONNXBackend
+from boxmot.reid.backends.openvino_backend import OpenVinoBackend
+from boxmot.reid.backends.pytorch_backend import PyTorchBackend
+from boxmot.reid.backends.tensorrt_backend import TensorRTBackend
+from boxmot.reid.backends.tflite_backend import TFLiteBackend
+from boxmot.reid.backends.torchscript_backend import TorchscriptBackend
+from boxmot.reid.core import export_formats
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device

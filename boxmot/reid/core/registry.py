@@ -3,8 +3,8 @@ from collections import OrderedDict
 
 import torch
 
-from boxmot.appearance.reid.config import MODEL_TYPES, NR_CLASSES_DICT, TRAINED_URLS
-from boxmot.appearance.reid.factory import MODEL_FACTORY
+from boxmot.reid.core.config import MODEL_TYPES, NR_CLASSES_DICT, TRAINED_URLS
+from boxmot.reid.core.factory import MODEL_FACTORY
 from boxmot.utils import logger as LOGGER
 
 
@@ -90,7 +90,7 @@ class ReIDModelRegistry:
 
         # Special case handling for clip model
         if "clip" in name:
-            from boxmot.appearance.backbones.clip.config.defaults import _C as cfg
+            from boxmot.reid.backbones.clip.config.defaults import _C as cfg
 
             if "vehicleid" in weights.name or "veri" in weights.name:
                 cfg.INPUT.SIZE_TRAIN = [256, 256]
