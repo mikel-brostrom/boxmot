@@ -117,14 +117,29 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
         dets = result.boxes.data.cpu().numpy() if result.boxes is not None else np.empty((0, 6))
         img = result.orig_img
         
+        # Reset per-frame ReID accumulator
+        if timing_stats:
+            timing_stats.reset_frame_reid()
+        
         # Run tracking update (includes ReID)
         if timing_stats:
             timing_stats.start_tracking()
         
-        _ = tracker.update(dets, img)
+        tracks = tracker.update(dets, img)
         
+        track_time = reid_time = assoc_time = 0
         if timing_stats:
             timing_stats.end_tracking()
+            track_time = timing_stats.get_last_track_time()
+            reid_time = timing_stats.get_last_reid_time()
+            assoc_time = track_time - reid_time
+        
+        # Store tracks in result for downstream use
+        result.tracks = tracks
+        n_tracks = len(tracks) if tracks is not None and len(tracks) > 0 else 0
+        
+        # Log per-frame tracking info (detection time shown by ultralytics above)
+        LOGGER.info(f"Track: {n_tracks} IDs, reid: {reid_time:.1f}ms, assoc: {assoc_time:.1f}ms, total: {track_time:.1f}ms")
         
         # Plot results
         if timing_stats:
