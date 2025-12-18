@@ -41,7 +41,7 @@ class VideoWriter:
             self.writer = cv2.VideoWriter(
                 str(self.output_path), fourcc, self.fps, self.frame_size
             )
-            LOGGER.info(f"Saving video to {self.output_path}")
+            LOGGER.opt(colors=True).info(f"<bold>Saving video to:</bold> <cyan>{self.output_path}</cyan>")
         
         self.writer.write(frame)
     
@@ -49,7 +49,7 @@ class VideoWriter:
         """Release the video writer."""
         if self.writer is not None:
             self.writer.release()
-            LOGGER.info(f"Video saved: {self.output_path}")
+            LOGGER.opt(colors=True).info(f"<bold>Video saved:</bold> <cyan>{self.output_path}</cyan>")
 
 
 def on_predict_start(predictor, args, timing_stats=None):
@@ -139,7 +139,12 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
         n_tracks = len(tracks) if tracks is not None and len(tracks) > 0 else 0
         
         # Log per-frame tracking info (detection time shown by ultralytics above)
-        LOGGER.info(f"Track: {n_tracks} IDs, reid: {reid_time:.1f}ms, assoc: {assoc_time:.1f}ms, total: {track_time:.1f}ms")
+        LOGGER.opt(colors=True).info(
+            f"<bold>Track:</bold> <cyan>{n_tracks}</cyan> IDs, "
+            f"reid: <blue>{reid_time:.1f}ms</blue>, "
+            f"assoc: <blue>{assoc_time:.1f}ms</blue>, "
+            f"total: <cyan>{track_time:.1f}ms</cyan>"
+        )
         
         # Plot results
         if timing_stats:
@@ -195,6 +200,17 @@ def main(args):
     Args:
         args: Arguments from CLI (SimpleNamespace from cli.py)
     """
+    # Print tracking pipeline header (blue palette)
+    LOGGER.info("")
+    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    LOGGER.opt(colors=True).info("<bold><cyan>🎯 BoxMOT Tracking Pipeline</cyan></bold>")
+    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>  <cyan>{args.yolo_model}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>      <cyan>{args.reid_model}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>   <cyan>{args.tracking_method}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Source:</bold>    <cyan>{args.source}</cyan>")
+    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    
     # Set default image size based on model type
     if args.imgsz is None:
         args.imgsz = default_imgsz(args.yolo_model)
