@@ -123,7 +123,7 @@ def gsi(mot_results_folder: Path, interval: int = 20, tau: float = 10):
     """
     tracking_files = list(mot_results_folder.glob("MOT*.txt"))
     total_files = len(tracking_files)
-    LOGGER.info(f"Found {total_files} file(s) to process.")
+    LOGGER.debug(f"GSI: Found {total_files} file(s) to process.")
 
     with concurrent.futures.ProcessPoolExecutor() as executor:
         futures = {

@@ -2,11 +2,11 @@ import cv2
 import numpy as np
 import pytest
 
-from boxmot.appearance.backends.onnx_backend import ONNXBackend
-from boxmot.appearance.backends.openvino_backend import OpenVinoBackend
-from boxmot.appearance.backends.pytorch_backend import PyTorchBackend
-from boxmot.appearance.backends.torchscript_backend import TorchscriptBackend
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.reid.backends.onnx_backend import ONNXBackend
+from boxmot.reid.backends.openvino_backend import OpenVinoBackend
+from boxmot.reid.backends.pytorch_backend import PyTorchBackend
+from boxmot.reid.backends.torchscript_backend import TorchscriptBackend
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.utils import ROOT, WEIGHTS
 
 # generated in previous job step

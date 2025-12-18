@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from collections import deque
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.aabb.xysr_kf import KalmanFilterXYSR
 from boxmot.trackers.basetracker import BaseTracker
@@ -277,16 +277,6 @@ class DeepOcSort(BaseTracker):
         reid_weights: Path,
         device: torch.device,
         half: bool,
-        # BaseTracker parameters
-        det_thresh: float = 0.3,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "iou",
-        is_obb: bool = False,
         # DeepOcSort-specific parameters
         delta_t: int = 3,
         inertia: float = 0.2,
@@ -298,36 +288,20 @@ class DeepOcSort(BaseTracker):
         aw_off: bool = False,
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs  # BaseTracker parameters
     ):
-        # Forward all BaseTracker parameters explicitly
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs
-        )
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='DeepOcSort', **kwargs)
         
         """
         Sets key parameters for SORT
         """
-        self.max_age = max_age
-        self.min_hits = min_hits
-        self.iou_threshold = iou_threshold
-        self.det_thresh = det_thresh
         self.delta_t = delta_t
-        self.asso_func = asso_func
         self.inertia = inertia
         self.w_association_emb = w_association_emb
         self.alpha_fixed_emb = alpha_fixed_emb
         self.aw_param = aw_param
-        self.per_class = per_class
         self.Q_xy_scaling = Q_xy_scaling
         self.Q_s_scaling = Q_s_scaling
         KalmanBoxTracker.count = 1
@@ -340,8 +314,6 @@ class DeepOcSort(BaseTracker):
         self.embedding_off = embedding_off
         self.cmc_off = cmc_off
         self.aw_off = aw_off
-
-        LOGGER.success("Initialized DeepOcSort")
         
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import os
 import sys
@@ -35,17 +35,12 @@ def configure_logging(main_only: bool = True):
     logger.add(
         sys.stderr,
         level="INFO",
+        colorize=True,
         backtrace=True,
         diagnose=True,
         enqueue=True,  # safe with ProcessPool / spawn
         filter=_is_main_process if main_only else None,
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> "
-            "| {process.name}/{thread.name} "
-            "| <level>{level: <8}</level> "
-            "| <cyan>{file.path}</cyan>:<cyan>{line}</cyan> "
-            "| {function} - <level>{message}</level>"
-        ),
+        format="<level>{level: <8}</level> | <level>{message}</level>",
     )
     return logger
     

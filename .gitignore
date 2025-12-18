@@ -28,7 +28,7 @@ weights/*.engine
 weights/*.tflite
 
 # evaluation tools folder
-val_utils/
+engine/trackeval/
 
 # zip files
 *.zip
@@ -40,6 +40,7 @@ val_utils/
 *.pth
 *.onnx
 *.engine
+*.data
 
 # interactive plots
 *.html

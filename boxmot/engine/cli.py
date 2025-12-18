@@ -11,6 +11,27 @@ from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACK
 from boxmot.utils.misc import parse_imgsz
 
 
+def ensure_model_extension(model_path):
+    """
+    Ensure model path has .pt extension.
+    
+    Args:
+        model_path: Path to model file (str or Path)
+        
+    Returns:
+        Path with .pt extension
+    """
+    if model_path is None:
+        return None
+    
+    model_path = Path(model_path)
+    # If no extension, add .pt
+    if not model_path.suffix and "openvino" not in model_path.name:
+        model_path = model_path.with_suffix('.pt')
+    
+    return model_path
+
+
 # Core options (excluding model & classes)
 def core_options(func):
     options = [
@@ -120,7 +141,7 @@ def export_options(func):
                      help='Enable dynamic axes for ONNX/TF/TensorRT export'),
         click.option('--simplify', is_flag=True,
                      help='Simplify ONNX model'),
-        click.option('--opset', type=int, default=12,
+        click.option('--opset', type=int, default=18,
                      help='ONNX opset version'),
         click.option('--workspace', type=int, default=4,
                      help='TensorRT workspace size (GB)'),
@@ -157,27 +178,109 @@ def tune_options(func):
 
 
 class CommandFirstGroup(click.Group):
-    """Show  COMMAND [OPTIONS]...  instead of  [OPTIONS] COMMAND …"""
-    def format_usage(self, ctx, formatter):
-        formatter.write_usage(ctx.command_path, "COMMAND [ARGS]...")
+    """Custom Click Group with improved help formatting - Ultralytics-style."""
+    
+    def format_help(self, ctx, formatter):
+        """Override to show custom help with Ultralytics-style formatting."""
+        
+        # Main heading
+        formatter.write_paragraph()
+        formatter.write_text(
+            "BoxMOT 'boxmot' commands use the following syntax:"
+        )
+        formatter.write_paragraph()
+        
+        # Command syntax
+        with formatter.indentation():
+            formatter.write_text("boxmot MODE DETECTOR REID TRACKER ARGS")
+        formatter.write_paragraph()
+        
+        # Argument descriptions
+        formatter.width = 120  # Increase formatter width to prevent wrapping
+        with formatter.indentation():
+            formatter.write_text("Where  MODE (required) is one of [track, eval, tune, generate, export]")
+            formatter.write_text("       DETECTOR (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
+            formatter.write_text("       REID (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
+            formatter.write_text("       TRACKER (optional) is one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort]")
+            formatter.write_text("       ARGS (optional) 'arg=value' pairs like 'source=0' 'imgsz=640' that override defaults.")
+            formatter.write_text("          See all ARGS at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
+        formatter.write_paragraph()
+        
+        # Examples
+        formatter.write_text("Examples:")
+        with formatter.indentation():
+            formatter.write_text("1. Track with webcam using defaults:")
+            with formatter.indentation():
+                formatter.write_text("boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show")
+            formatter.write_paragraph()
+            
+            formatter.write_text("2. Track a video file:")
+            with formatter.indentation():
+                formatter.write_text("boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save")
+            formatter.write_paragraph()
+            
+            formatter.write_text("3. Evaluate on MOT dataset:")
+            with formatter.indentation():
+                formatter.write_text("boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --source MOT17-mini/train")
+            formatter.write_paragraph()
+            
+            formatter.write_text("4. Tune tracker hyperparameters:")
+            with formatter.indentation():
+                formatter.write_text("boxmot tune --source MOT17-mini/train --tracking-method deepocsort --n-trials 10")
+            formatter.write_paragraph()
+            
+            formatter.write_text("5. Export ReID model:")
+            with formatter.indentation():
+                formatter.write_text("boxmot export --weights osnet_x0_25_msmt17.pt --include onnx engine")
+        formatter.write_paragraph()
+        
+        # Available modes
+        formatter.write_text("Modes:")
+        with formatter.indentation():
+            formatter.write_text("track      Track objects in video/webcam stream")
+            formatter.write_text("eval       Evaluate tracker performance on MOT dataset")
+            formatter.write_text("tune       Optimize tracker hyperparameters")
+            formatter.write_text("generate   Generate detections and embeddings")
+            formatter.write_text("export     Export ReID models to different formats")
+        formatter.write_paragraph()
+        
+        # Resources
+        formatter.write_text("Docs:      https://github.com/mikel-brostrom/boxmot")
+        formatter.write_text("Community: https://github.com/mikel-brostrom/boxmot/discussions")
 
 
 @click.group(cls=CommandFirstGroup)
-def boxmot():
+@click.pass_context
+def boxmot(ctx):
     """
-    BoxMOT: Pluggable SOTA multi-object tracking modules modules for segmentation, object detection and pose estimation models
+    BoxMOT: Pluggable SOTA multi-object tracking modules for segmentation, object detection and pose estimation models
     """
     pass
 
 
 @boxmot.command(help='Run tracking only')
+@click.argument('detector', required=False)
+@click.argument('reid', required=False)
+@click.argument('tracker', required=False)
 @core_options
 @singular_model_options
 @click.pass_context
-def track(ctx, yolo_model, reid_model, classes, **kwargs):
+def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
+    # Override options with positional args if provided
+    if detector:
+        yolo_model = ensure_model_extension(detector)
+    if reid:
+        reid_model = ensure_model_extension(reid)
+    if tracker:
+        kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
+    
+    # Auto-append .pt extension if missing
+    yolo_model = ensure_model_extension(yolo_model)
+    reid_model = ensure_model_extension(reid_model)
+    
     params = {**kwargs,
               'yolo_model': yolo_model,
               'reid_model': reid_model,
@@ -186,18 +289,31 @@ def track(ctx, yolo_model, reid_model, classes, **kwargs):
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
-    from boxmot.engine.track import main as run_track
+    from boxmot.engine.tracker import main as run_track
     run_track(args)
 
 
 @boxmot.command(help='Generate detections and embeddings')
+@click.argument('detector', required=False)
+@click.argument('reid', required=False)
 @core_options
 @plural_model_options
 @click.pass_context
-def generate(ctx, yolo_model, reid_model, classes, **kwargs):
+def generate(ctx, detector, reid, yolo_model, reid_model, classes, **kwargs):
+    # Override options with positional args if provided
+    # Note: Plural options are tuples, so handle single arg input as list
+    if detector:
+        yolo_model = [ensure_model_extension(detector)]
+    if reid:
+        reid_model = [ensure_model_extension(reid)]
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
+    
+    # Auto-append .pt extension if missing
+    yolo_model = [ensure_model_extension(m) for m in yolo_model]
+    reid_model = [ensure_model_extension(m) for m in reid_model]
+    
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
@@ -206,18 +322,34 @@ def generate(ctx, yolo_model, reid_model, classes, **kwargs):
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
-    from boxmot.engine.val import run_generate_dets_embs
+    from boxmot.engine.evaluator import run_generate_dets_embs
     run_generate_dets_embs(args)
 
 
 @boxmot.command(help='Evaluate tracking performance')
+@click.argument('detector', required=False)
+@click.argument('reid', required=False)
+@click.argument('tracker', required=False)
 @core_options
 @plural_model_options
 @click.pass_context
-def eval(ctx, yolo_model, reid_model, classes, **kwargs):
+def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
+    # Override options with positional args if provided
+    # Note: Plural options are tuples, so handle single arg input as list
+    if detector:
+        yolo_model = [ensure_model_extension(detector)]
+    if reid:
+        reid_model = [ensure_model_extension(reid)]
+    if tracker:
+        kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
+    
+    # Auto-append .pt extension if missing
+    yolo_model = [ensure_model_extension(m) for m in yolo_model]
+    reid_model = [ensure_model_extension(m) for m in reid_model]
+    
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
@@ -226,19 +358,35 @@ def eval(ctx, yolo_model, reid_model, classes, **kwargs):
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
-    from boxmot.engine.val import main as run_eval
+    from boxmot.engine.evaluator import main as run_eval
     run_eval(args)
 
 
 @boxmot.command(help='Tune models via evolutionary algorithms')
+@click.argument('detector', required=False)
+@click.argument('reid', required=False)
+@click.argument('tracker', required=False)
 @core_options
 @tune_options
 @plural_model_options
 @click.pass_context
-def tune(ctx, yolo_model, reid_model, classes, **kwargs):
+def tune(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
+    # Override options with positional args if provided
+    # Note: Plural options are tuples, so handle single arg input as list
+    if detector:
+        yolo_model = [ensure_model_extension(detector)]
+    if reid:
+        reid_model = [ensure_model_extension(reid)]
+    if tracker:
+        kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
     source_path = Path(src)
     bench, split = source_path.parent.name, source_path.name
+    
+    # Auto-append .pt extension if missing
+    yolo_model = [ensure_model_extension(m) for m in yolo_model]
+    reid_model = [ensure_model_extension(m) for m in reid_model]
+    
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
@@ -247,7 +395,7 @@ def tune(ctx, yolo_model, reid_model, classes, **kwargs):
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
-    from boxmot.engine.evolve import main as run_tuning
+    from boxmot.engine.tuner import main as run_tuning
     run_tuning(args)
 
 
@@ -261,8 +409,24 @@ def export(ctx, **kwargs):
     """
     # kwargs already contains all export args; convert imgsz tuple -> list
     args = SimpleNamespace(**kwargs)
-    from boxmot.appearance.reid.export import main as run_export
+    from boxmot.engine.export import main as run_export
     run_export(args)
+
+
+@boxmot.command(help='Show BoxMOT version')
+def version():
+    """Display the current BoxMOT version."""
+    from boxmot import __version__
+    click.echo(f"BoxMOT {__version__}")
+
+
+@boxmot.command(help='Show help information')
+@click.pass_context
+def help(ctx):
+    """Display help information."""
+    # Get the parent context (main boxmot group)
+    parent_ctx = ctx.parent
+    click.echo(parent_ctx.get_help())
 
 
 main = boxmot

@@ -1,11 +1,11 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from pathlib import Path
 
 import numpy as np
 from torch import device
 
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.strongsort.sort.detection import Detection
@@ -53,16 +53,6 @@ class StrongSort(BaseTracker):
         reid_weights: Path,
         device: device,
         half: bool,
-        # BaseTracker parameters
-        det_thresh: float = 0.3,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "iou",
-        is_obb: bool = False,
         # StrongSort-specific parameters
         min_conf: float = 0.1,
         max_cos_dist: float = 0.2,
@@ -71,21 +61,11 @@ class StrongSort(BaseTracker):
         nn_budget: int = 100,
         mc_lambda: float = 0.98,
         ema_alpha: float = 0.9,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs  # BaseTracker parameters
     ):
-        # Forward all BaseTracker parameters explicitly
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs
-        )
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='StrongSort', **kwargs)
         
         # Store StrongSort-specific parameters
         self.min_conf = min_conf
@@ -99,7 +79,7 @@ class StrongSort(BaseTracker):
         self.tracker = Tracker(
             metric=NearestNeighborDistanceMetric("cosine", max_cos_dist, nn_budget),
             max_iou_dist=max_iou_dist,
-            max_age=max_age,
+            max_age=self.max_age,
             n_init=n_init,
             mc_lambda=mc_lambda,
             ema_alpha=ema_alpha,
@@ -107,8 +87,6 @@ class StrongSort(BaseTracker):
         
         # Initialize camera motion compensation
         self.cmc = get_cmc_method("ecc")()
-
-        LOGGER.success("Initialized StrongSort")
         
     @BaseTracker.per_class_decorator
     def update(
