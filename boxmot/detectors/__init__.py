@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker

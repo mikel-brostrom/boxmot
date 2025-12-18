@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 __version__ = '15.0.10'
 
