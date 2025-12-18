@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Utility script to download and extract BoxMOT releases and MOT evaluation tools,
-now with detailed logging of download and extraction paths.
+Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
 import argparse
@@ -35,7 +34,6 @@ def get_http_session(retries: int = 3, backoff_factor: float = 0.3) -> requests.
     adapter = HTTPAdapter(max_retries=retry_strategy)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    LOGGER.debug("Created HTTP session with retry strategy retries=%d, backoff_factor=%0.1f", retries, backoff_factor)
     return session
 
 
@@ -45,20 +43,18 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192, overwrite: bool 
     Returns the path to the downloaded file.
     """
     if dest.exists() and not overwrite:
-        LOGGER.info(f"[BoxMOT] ✅ Skipping download; file already exists at: {dest.resolve()}")
+        LOGGER.debug(f"Cached: {dest.name}")
         return dest
 
     # Ensure parent dir
     dest.parent.mkdir(parents=True, exist_ok=True)
-    LOGGER.info(f"[BoxMOT] ⬇️  Starting download: {url}\n            → Saving to: {dest.resolve()}")
+    LOGGER.info(f"Downloading {dest.name}...")
 
     if "drive.google.com" in url or "drive.usercontent.google.com" in url:
         # Google Drive: use gdown (handles confirm tokens automatically)
-        LOGGER.info("[BoxMOT] 🚗 Detected Google Drive URL, using gdown")
-        # fuzzy=True lets gdown extract the file ID from most URL formats
         gdown.download(
-            url=dataset_url,
-            output=str(dataset_dest),
+            url=url,
+            output=str(dest),
             quiet=False,
             fuzzy=True
         )
@@ -68,7 +64,6 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192, overwrite: bool 
         response.raise_for_status()
 
         total = int(response.headers.get("Content-Length", 0))
-        LOGGER.debug(f"Expected download size: {total} bytes")
 
         with open(dest, "wb") as f, tqdm(
             total=total,
@@ -81,56 +76,47 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192, overwrite: bool 
                     f.write(chunk)
                     pbar.update(len(chunk))
 
-        file_size = dest.stat().st_size
-        LOGGER.info(f"[BoxMOT] ✅ Download complete: {dest.resolve()} ({file_size} bytes)")
-        LOGGER.debug(f"Downloaded URL '{url}' to '{dest}' with final size {file_size} bytes")
-        return dest
+    return dest
 
 
 def extract_zip(zip_path: Path, extract_to: Path, overwrite: bool = False) -> None:
     """
-    Extract a ZIP archive to a target directory, logging each extracted file.
+    Extract a ZIP archive to a target directory.
     """
     if not zip_path.is_file():
         raise FileNotFoundError(f"ZIP file not found: {zip_path}")
 
-    LOGGER.info(f"[BoxMOT] 📦 Preparing to extract: {zip_path.resolve()}\n            → Destination: {extract_to.resolve()}")
     try:
         with ZipFile(zip_path, 'r') as zf:
             members = zf.infolist()
             total_files = len(members)
-            LOGGER.debug(f"ZIP contains {total_files} entries to consider for extraction.")
 
             if not overwrite:
                 already = [member.filename for member in members if (extract_to / member.filename).exists()]
                 if len(already) == total_files:
-                    LOGGER.info(f"[BoxMOT] ✅ All files already extracted in {extract_to.resolve()}, skipping.")
+                    LOGGER.debug(f"Cached: {zip_path.name} (extracted)")
                     return
 
-            LOGGER.info(f"[BoxMOT] 📂 Extracting {zip_path.name} ({total_files} files)...")
+            LOGGER.info(f"Extracting {zip_path.name}...")
             for member in tqdm(members, desc=f"Extracting {zip_path.name}"):
                 target = extract_to / member.filename
                 if target.exists() and not overwrite:
-                    LOGGER.debug(f"Skipping existing file: {target.resolve()}")
                     continue
                 extract_to.mkdir(parents=True, exist_ok=True)
                 zf.extract(member, extract_to)
-                LOGGER.debug(f"Extracted: {target.resolve()}")
-
-        LOGGER.info(f"[BoxMOT] ✅ Extraction complete for {zip_path.name} to {extract_to.resolve()}")
 
     except BadZipFile:
-        LOGGER.error(f"[BoxMOT] ❌ Corrupt ZIP detected: {zip_path.resolve()}. Removing corrupted file.")
+        LOGGER.error(f"Corrupt ZIP: {zip_path.name}")
         try:
             zip_path.unlink()
-            LOGGER.debug(f"Removed corrupted ZIP: {zip_path.resolve()}")
         except FileNotFoundError:
-            LOGGER.warning(f"ZIP file already removed: {zip_path.resolve()}")
+            pass
         raise
 
 
 def patch_deprecated_types(root: Path, deprecated: dict = DEPRECATED_TYPES) -> None:
-    LOGGER.info(f"[BoxMOT] 🛠️  Patching deprecated numpy types in directory: {root.resolve()}")
+    """Patch deprecated numpy types in Python files."""
+    LOGGER.debug(f"Patching numpy types in: {root.name}")
     for file in root.rglob("*"):
         if file.suffix not in {".py", ".txt"}:
             continue
@@ -140,8 +126,6 @@ def patch_deprecated_types(root: Path, deprecated: dict = DEPRECATED_TYPES) -> N
             updated = updated.replace(old, new)
         if updated != text:
             file.write_text(updated, encoding="utf-8")
-            LOGGER.debug(f"Patched deprecated types in: {file.resolve()}")
-    LOGGER.info(f"[BoxMOT] ✅ Deprecated numpy type patching complete.")
 
 
 def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = False) -> None:
@@ -153,12 +137,12 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
         branch (str): Git branch to download (default "master")
         overwrite (bool): if True, force re-download even if dest already exists
     """
-    # If already exists and we’re not overwriting, skip
+    # If already exists and we're not overwriting, skip
     if dest.exists() and not overwrite:
-        LOGGER.info(f"[BoxMOT] ✅ TrackEval already present at {dest.resolve()}, skipping download.")
+        LOGGER.debug("TrackEval already present")
         return
 
-    LOGGER.info(f"[BoxMOT] ⬇️  Downloading TrackEval (branch: {branch})")
+    LOGGER.info("Downloading TrackEval...")
     repo_url = "https://github.com/JonathonLuiten/TrackEval"
     zip_url = f"{repo_url}/archive/refs/heads/{branch}.zip"
     zip_file = dest.parent / f"{dest.name}-{branch}.zip"
@@ -178,22 +162,20 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
             break
 
     if extracted is None:
-        LOGGER.warning(f"[BoxMOT] ❗️ Couldn't locate extracted TrackEval in {dest.parent}, expected folder ending with '-{branch}'")
+        LOGGER.warning("Couldn't locate extracted TrackEval folder")
     else:
         extracted.rename(dest)
-        LOGGER.debug(f"[BoxMOT] Renamed extracted folder: {extracted.resolve()} → {dest.resolve()}")
 
     # Clean up the downloaded zip
     try:
         zip_file.unlink()
-        LOGGER.debug(f"[BoxMOT] Cleaned up ZIP file: {zip_file.resolve()}")
     except FileNotFoundError:
-        LOGGER.warning(f"[BoxMOT] ZIP file not found for cleanup: {zip_file.resolve()}")
+        pass
 
     # Apply any necessary patches for deprecated types
     patch_deprecated_types(dest)
 
-    LOGGER.info(f"[BoxMOT] ✅ TrackEval setup complete at: {dest.resolve()}")
+    LOGGER.debug("TrackEval setup complete")
 
     
 def download_eval_data(
@@ -207,31 +189,24 @@ def download_eval_data(
     """
     Download & extract TrackEval evaluation data.
     If `runs_url` is truthy, downloads+unzips runs.zip; otherwise skips it.
-    Always downloads+unzips the MOT17 data.
+    Always downloads+unzips the benchmark data.
     """
-    LOGGER.info(f"[BoxMOT] ⬇️  Setting up evaluation data")
+    LOGGER.info("Setting up evaluation data...")
 
     # Optional runs data
     if runs_url:
-        LOGGER.info(f"[BoxMOT] ⬇️  Downloading runs.zip from {runs_url}")
         runs_zip = download_file(runs_url, Path("runs.zip"), overwrite=overwrite)
         extract_zip(runs_zip, Path("."), overwrite=overwrite)
-    else:
-        LOGGER.debug(f"[BoxMOT] ⚠️  No runs_url provided, skipping runs download")
 
     # benchmark ZIP
-    LOGGER.info(f"[BoxMOT] ⬇️  Downloading {dataset_url}")
-    benchamrk_zip = download_file(dataset_url, dataset_dest, overwrite=overwrite)
+    benchmark_zip = download_file(dataset_url, dataset_dest, overwrite=overwrite)
     if benchmark == "dancetrack-ablation":
         data_dir = dataset_dest.parent / "data" / "dancetrack-ablation"
     else:
         data_dir = dataset_dest.parent / "data"
-    extract_zip(benchamrk_zip, data_dir, overwrite=overwrite)
+    extract_zip(benchmark_zip, data_dir, overwrite=overwrite)
 
-    LOGGER.info(
-        f"[BoxMOT] ✅ Evaluation data setup complete. "
-        f"becnhmark data at '{data_dir.resolve()}'"
-    )
+    LOGGER.debug(f"Benchmark data ready at: {data_dir}")
 
 
 if __name__ == "__main__":
@@ -241,17 +216,16 @@ if __name__ == "__main__":
     parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
     args = parser.parse_args()
 
-    LOGGER.debug(f"Script started with args: branch={args.branch}, overwrite={args.overwrite}, verbose={args.verbose}")
-
     download_trackeval(
         dest=Path("TrackEval"),
         branch=args.branch,
         overwrite=args.overwrite
     )
 
-    download_MOT17_eval_data(
+    download_eval_data(
         runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
-        mot17_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
-        mot17_dest=Path("boxmot/engine/TrackEval/MOT17-ablation.zip"),
+        dataset_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
+        dataset_dest=Path("boxmot/engine/TrackEval/MOT17-ablation.zip"),
+        benchmark="MOT17-ablation",
         overwrite=args.overwrite
     )

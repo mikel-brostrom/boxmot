@@ -53,21 +53,6 @@ class BaseTracker(ABC):
         - active_tracks (list): List to hold active tracks, may be used differently in subclasses.
         """
 
-        LOGGER.info("BaseTracker initialization parameters:")
-        LOGGER.info(f"det_thresh: {det_thresh}")
-        LOGGER.info(f"max_age: {max_age}")
-        LOGGER.info(f"max_obs: {max_obs}")
-        LOGGER.info(f"min_hits: {min_hits}")
-        LOGGER.info(f"iou_threshold: {iou_threshold}")
-        LOGGER.info(f"per_class: {per_class}")
-        LOGGER.info(f"nr_classes: {nr_classes}")
-        LOGGER.info(f"asso_func: {asso_func}")
-        LOGGER.info(f"is_obb: {is_obb}")
-        if kwargs:
-            LOGGER.info("Additional parameters:")
-            for key, value in kwargs.items():
-                LOGGER.info(f"{key}: {value}")
-
         self.det_thresh = det_thresh
         self.max_age = max_age
         self.max_obs = max_obs
@@ -100,7 +85,21 @@ class BaseTracker(ABC):
                 "Max age > max observations, increasing size of max observations..."
             )
             self.max_obs = self.max_age + 5
-            print("self.max_obs", self.max_obs)
+
+        # Log all params if tracker_name provided via kwargs
+        tracker_name = kwargs.pop('_tracker_name', None)
+        if tracker_name:
+            base_params = {
+                'det_thresh': det_thresh, 'max_age': max_age, 'max_obs': max_obs,
+                'min_hits': min_hits, 'iou_threshold': iou_threshold, 'per_class': per_class,
+                'asso_func': asso_func,
+            }
+            # Filter out internal/non-config params
+            filtered_kwargs = {k: v for k, v in kwargs.items() 
+                              if not k.startswith('_') and k not in ('__class__', 'reid_weights', 'device', 'half')}
+            all_params = {**base_params, **filtered_kwargs}
+            params_str = ", ".join(f"{k}={v}" for k, v in all_params.items())
+            LOGGER.success(f"{tracker_name}: {params_str}")
 
     @abstractmethod
     def update(

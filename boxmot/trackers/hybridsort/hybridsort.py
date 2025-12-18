@@ -12,7 +12,7 @@ from typing import List, Optional, Union
 import numpy as np
 import torch
 
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils import logger as LOGGER
@@ -377,17 +377,6 @@ class HybridSort(BaseTracker):
         cmc_method: str = "ecc",
         with_reid: bool = True,
 
-        # BaseTracker params
-        det_thresh: float = 0.7,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.15,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "hmiou",
-        is_obb: bool = False,  # not used here (AABB only)
-
         # Hybrid-SORT specific
         low_thresh: float = 0.1,
         delta_t: int = 3,
@@ -420,20 +409,11 @@ class HybridSort(BaseTracker):
 
         # misc
         dataset: str = "",
-        **kwargs,
+        **kwargs,  # BaseTracker parameters
     ):
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs,
-        )
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='HybridSort', **kwargs)
 
         # store core knobs
         self.low_thresh = float(low_thresh)
@@ -473,7 +453,6 @@ class HybridSort(BaseTracker):
         # container
         self.active_tracks: List[KalmanBoxTracker] = []
         KalmanBoxTracker.count = 0
-        LOGGER.success("Initialized HybridSortReID (ECC + ReID enabled: %s, %s)", bool(self.cmc), self.with_reid)
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

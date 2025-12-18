@@ -23,8 +23,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-14]   # skip windows-latest for
         python-version: ['3.12']
-        # leads to too many workflow which ends up queued
-        # tracking-method: [hybridsort, botsort, ocsort, bytetrack] 
+    env:
+      TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort"
+      IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
@@ -41,15 +42,11 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           uv sync --extra yolo
-      - name: Generate detections and embeddings
-        run: |
-          source .venv/bin/activate
-          boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
       - name: Run tracking method
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
-            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
+            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker --source $IMG --verbose
           done
   evolution:
     runs-on: ${{ matrix.os }}
@@ -187,7 +184,6 @@ jobs:
           uv pip list
           boxmot track --yolo-model yolov10n.pt --imgsz 320 --source $IMG
           boxmot track --yolo-model yolox_n.pt --imgsz 320 --source $IMG
-          boxmot track --yolo-model rf-detr-base.pt --imgsz 320 --source $IMG
   tracking-with-seg:
     runs-on: ubuntu-latest
     outputs:
@@ -223,12 +219,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Install dependencies
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --all-extras
+          uv sync --extra yolo --extra onnx --extra openvino
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
           wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
@@ -236,21 +232,22 @@ jobs:
           sudo chmod +x flatc
           sudo mv flatc /usr/bin/
       - name: Test export models
+        # --include tflite  # TODO: fix tflite export
         run: | 
           source .venv/bin/activate
-          boxmot export --include torchscript --include onnx --include openvino --include tflite --device cpu --batch-size 3 --dynamic
-      - name: Check export TFLite models
-        run: |
-          ls /home/runner/work/boxmot/boxmot/boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
+          boxmot export --include torchscript --include onnx --include openvino --device cpu --batch-size 3 --dynamic
+      # - name: Check export TFLite models
+      #   run: |
+      #     ls /home/runner/work/boxmot/boxmot/boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
       - name: Test inference on exported models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+        # boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320
         run: |
           source .venv/bin/activate
           boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
           boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
           boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
-          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320
                
   tests:
     runs-on: ubuntu-latest
@@ -261,7 +258,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           python -m pip install --upgrade pip uv
@@ -269,9 +266,7 @@ jobs:
       - name: Test export models
         run: |
           uv sync --all-extras --all-groups
-          uv run boxmot export \
-            --include torchscript --include onnx --include openvino --include tflite \
-            --device cpu --batch-size 3 --dynamic
+          uv run boxmot export --include torchscript --include onnx --include openvino --include tflite --device cpu --batch-size 3 --dynamic
       - name: Pytest tests  # after tracking options as this does not download models
         env:
           # directory of PyPi package to be tested

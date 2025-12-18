@@ -1,3 +1,4 @@
+
 # =====================================================
 # pyproject.toml for BoxMOT ← UV (Option A: pin TRT to cu12 series)
 # =====================================================
@@ -55,6 +56,13 @@ tensorrt = [
 # Keep TensorRT on the CUDA 12 series so it matches torch cu121
 constraint-dependencies = ["tensorrt>=10.12,<10.13"]
 
+# Ensure binary-only packages (torch/torchvision, tensorrt, etc.) have wheels
+# for the CI platform (Linux x86_64). This stops uv from choosing
+# torchvision==0.24.1+d801a34, which only has a win_arm64 wheel.
+required-environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
 #########################
 # UV-specific Overrides #
 #########################
@@ -63,7 +71,12 @@ constraint-dependencies = ["tensorrt>=10.12,<10.13"]
 [[tool.uv.dependency-metadata]]
 name          = "yolox"
 version       = "0.3.0"
-requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
+requires-dist = [
+  "onnx>=1.17.0",
+  "onnxsim<1.0.0,>=0.4.33 ; python_version < '3.12'",
+  "onnxsim-prebuilt>=0.4.36.post1 ; python_version >= '3.12'",
+  "tabulate",
+]
 
 # Ensure yolox builds with setuptools present in the isolated build env
 [[tool.uv.dependency-metadata]]
@@ -117,7 +130,7 @@ name            = "boxmot"
 version         = "15.0.10"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
-requires-python = ">=3.9,<=3.13"
+requires-python = ">=3.9,<3.13"
 license         = { text = "AGPL-3.0" }
 
 authors = [
@@ -200,42 +213,51 @@ docs = [
 #############################
 
 [project.optional-dependencies]
-yolo = ["ultralytics>=3.8.200"]
+yolo = [
+  "ultralytics>=3.8.200",
+  "yolox==0.3.0",
+]
 
 evolve = [
-  "ray>=2.35.0,<3.0.0",
-  "ray[tune]>=2.35.0,<3.0.0",
-  "plotly>=5.19.0,<6.0.0",
-  "bayesian-optimization>=2.0.4",
-  "optuna"
+  "ray[tune]==2.49.2",
+  "plotly==5.19.0",
+  "bayesian-optimization==2.0.4",
+  "optuna==3.5.0",
+  "pydantic==2.7.2"
 ]
 
 onnx = [
   "onnx>=1.16.1,<1.19",
-  "onnxruntime>=1.20.0",
-  "onnxslim>=0.1.67"
+  "onnxruntime>=1.18.1",
+  "onnxslim>=0.1.67",
+  "onnxscript>=0.1.0"
 ]
 
 openvino = ["openvino>=2025.2.0"]
 
 tflite = [
-  "onnx2tf>=1.18.0",
-  "onnx>=1.16.1",
-  "tensorflow==2.17.0",
-  "tf_keras",
-  "sng4onnx>=1.0.1",
-  "onnx_graphsurgeon>=0.3.26",
-  "onnxslim>=0.1.31",
-  "onnxruntime",
-  "flatbuffers>=23.5.26",
-  "onnxsim==0.4.33",
-  "psutil==5.9.5",
-  "ml_dtypes==0.3.2",
-  # Windows lacks wheels — exclude on win32
-  "ai_edge_litert>=1.2.0 ; sys_platform != 'win32'",
-]
+  # onnx2tf stack: only on linux/win, and only on py<3.13
+  "onnx2tf>=1.18.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-# Your extra (safe even with --all-extras thanks to markers + metadata)
-tensorrt = [
-  "tensorrt>=10.12,<10.13 ; (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnx==1.17.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnxruntime==1.18.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnxsim==0.4.33 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  "onnx_graphsurgeon>=0.3.26 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "simple-onnx-processing-tools ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "sng4onnx>=1.0.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  "tensorflow==2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tf-keras==2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  "psutil==5.9.5 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "ml-dtypes==0.5.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  "flatbuffers>=23.1.21 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  # keep your existing helper if you want it
+  "onnxslim>=0.1.31 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  # still exclude Windows (no wheels there); linux-only
+  "ai-edge-litert==1.2.0 ; python_version < '3.13' and sys_platform == 'linux'",
 ]
