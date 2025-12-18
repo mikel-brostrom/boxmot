@@ -37,8 +37,22 @@ class TimingStats:
     def end_tracking(self):
         """Mark the end of tracking phase and record time."""
         if self._track_start is not None:
-            self.totals['track'] += (time.perf_counter() - self._track_start) * 1000
+            elapsed = (time.perf_counter() - self._track_start) * 1000
+            self.totals['track'] += elapsed
+            self._last_track_time = elapsed
             self._track_start = None
+    
+    def get_last_track_time(self):
+        """Get the last tracking time in ms."""
+        return getattr(self, '_last_track_time', 0)
+    
+    def get_last_reid_time(self):
+        """Get the last ReID time in ms (accumulated during last track update)."""
+        return getattr(self, '_last_reid_time', 0)
+    
+    def reset_frame_reid(self):
+        """Reset per-frame ReID accumulator (call before each track update)."""
+        self._last_reid_time = 0
     
     def start_plot(self):
         """Mark the start of plotting phase."""
@@ -53,6 +67,8 @@ class TimingStats:
     def add_reid_time(self, time_ms):
         """Add ReID time in milliseconds."""
         self.totals['reid'] += time_ms
+        # Also accumulate for per-frame tracking
+        self._last_reid_time = getattr(self, '_last_reid_time', 0) + time_ms
     
     def record_ultralytics_times(self, predictor):
         """Record timing from Ultralytics results."""
