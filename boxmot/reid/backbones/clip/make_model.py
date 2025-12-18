@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import torch
 import torch.nn as nn
@@ -142,7 +142,7 @@ class build_transformer(nn.Module):
         param_dict = torch.load(trained_path, map_location=torch.device("cpu"))
         for i in self.state_dict():
             self.state_dict()[i.replace("module.", "")].copy_(param_dict[i])
-        # print('Loading pretrained model from {}'.format('/home/mikel.brostrom/yolo_tracking/clip_market1501.pt'))
+        # print('Loading pretrained model from {}'.format('/home/mikel.brostrom/boxmot/clip_market1501.pt'))
 
     def load_param_finetune(self, model_path):
         param_dict = torch.load(model_path)

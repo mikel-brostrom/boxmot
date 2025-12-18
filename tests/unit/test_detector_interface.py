@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 """
 Quick test script for the new detector interface.

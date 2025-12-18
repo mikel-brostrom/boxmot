@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from yacs.config import CfgNode as CN
 
@@ -26,7 +26,7 @@ _C.MODEL.NAME = "ViT-B-16"
 # Last stride of backbone
 _C.MODEL.LAST_STRIDE = 1
 # Path to pretrained model of backbone
-_C.MODEL.PRETRAIN_PATH = "/home/mikel.brostrom/yolo_tracking/clip_market1501.pt"
+_C.MODEL.PRETRAIN_PATH = "/home/mikel.brostrom/boxmot/clip_market1501.pt"
 
 # Use ImageNet pretrained model to initialize backbone or use self trained model to initialize the whole model
 # Options: 'imagenet' , 'self' , 'finetune'
