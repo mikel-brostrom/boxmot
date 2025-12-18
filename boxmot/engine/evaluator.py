@@ -20,6 +20,7 @@ import threading
 import sys
 import copy
 import concurrent.futures
+import traceback
 
 from boxmot.trackers.tracker_zoo import create_tracker
 from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, TRACKEVAL
@@ -75,6 +76,8 @@ def eval_init(args,
 
     # 3) finally, make source an absolute Path everywhere
     args.source = Path(args.source).resolve()
+    args.project = Path(args.project).resolve()
+    args.project.mkdir(parents=True, exist_ok=True)
 
 
 def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
@@ -132,7 +135,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
 
     reids = []
     for r in args.reid_model:
-        reid_model = ReidAutoBackend(weights=args.reid_model,
+        reid_model = ReidAutoBackend(weights=r,
                                      device=yolo.predictor.device,
                                      half=args.half).model
         reids.append(reid_model)
@@ -266,8 +269,12 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
 
 
 def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace):
-    new_opt = copy.deepcopy(opt)
-    generate_dets_embs(new_opt, y, source=source_path / 'img1')
+    try:
+        new_opt = copy.deepcopy(opt)
+        generate_dets_embs(new_opt, y, source=source_path / 'img1')
+    except Exception:
+        traceback.print_exc()
+        raise
 
 def run_generate_dets_embs(opt: argparse.Namespace) -> None:
     mot_folder_paths = sorted([item for item in Path(opt.source).iterdir()])
@@ -293,7 +300,7 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
         else:
             LOGGER.info(f"Generating detections and embeddings for {len(tasks)}/{total_sequences} sequences with model {y.name}")
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
             futures = [executor.submit(process_single_det_emb, y, source_path, opt) for y, source_path in tasks]
 
             for fut in concurrent.futures.as_completed(futures):
