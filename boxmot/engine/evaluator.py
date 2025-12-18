@@ -414,12 +414,13 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         gsi(mot_results_folder=exp_dir)
 
 
-def run_trackeval(opt: argparse.Namespace) -> dict:
+def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
     """
     Runs the trackeval function to evaluate tracking results.
 
     Args:
         opt (Namespace): Parsed command line arguments.
+        verbose (bool): Whether to print results summary. Default True.
     """
     gt_folder = opt.source
     seq_paths = [p / "img1" for p in opt.source.iterdir() if p.is_dir()]
@@ -428,19 +429,20 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder)
     hota_mota_idf1 = parse_mot_results(trackeval_results)
     
-    # Print results summary with colors (blue palette)
-    LOGGER.info("")
-    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-    LOGGER.opt(colors=True).info("<bold><cyan>📊 Results Summary</cyan></bold>")
-    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>HOTA:</bold>  <cyan>{hota_mota_idf1['HOTA']:.2f}%</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>MOTA:</bold>  <cyan>{hota_mota_idf1['MOTA']:.2f}%</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>IDF1:</bold>  <cyan>{hota_mota_idf1['IDF1']:.2f}%</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>AssA:</bold>  <blue>{hota_mota_idf1['AssA']:.2f}%</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>AssRe:</bold> <blue>{hota_mota_idf1['AssRe']:.2f}%</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>IDSW:</bold>  <light-blue>{hota_mota_idf1['IDSW']}</light-blue>")
-    LOGGER.opt(colors=True).info(f"<bold>IDs:</bold>   <light-blue>{hota_mota_idf1['IDs']}</light-blue>")
-    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    # Print results summary with colors (blue palette) - only if verbose
+    if verbose:
+        LOGGER.info("")
+        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info("<bold><cyan>📊 Results Summary</cyan></bold>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info(f"<bold>HOTA:</bold>  <cyan>{hota_mota_idf1['HOTA']:.2f}%</cyan>")
+        LOGGER.opt(colors=True).info(f"<bold>MOTA:</bold>  <cyan>{hota_mota_idf1['MOTA']:.2f}%</cyan>")
+        LOGGER.opt(colors=True).info(f"<bold>IDF1:</bold>  <cyan>{hota_mota_idf1['IDF1']:.2f}%</cyan>")
+        LOGGER.opt(colors=True).info(f"<bold>AssA:</bold>  <blue>{hota_mota_idf1['AssA']:.2f}%</blue>")
+        LOGGER.opt(colors=True).info(f"<bold>AssRe:</bold> <blue>{hota_mota_idf1['AssRe']:.2f}%</blue>")
+        LOGGER.opt(colors=True).info(f"<bold>IDSW:</bold>  <light-blue>{hota_mota_idf1['IDSW']}</light-blue>")
+        LOGGER.opt(colors=True).info(f"<bold>IDs:</bold>   <light-blue>{hota_mota_idf1['IDs']}</light-blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
     
     if opt.ci:
         with open(opt.tracking_method + "_output.json", "w") as outfile:
