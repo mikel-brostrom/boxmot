@@ -298,9 +298,8 @@ def main(args):
         # Release video writer
         if video_writer is not None:
             video_writer.release()
-        # Print timing summary when done
-        if args.verbose:
-            timing_stats.print_summary()
+        # Always print timing summary when done
+        timing_stats.print_summary()
         # Clean up windows
         cv2.destroyAllWindows()
 
