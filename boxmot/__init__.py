@@ -1,6 +1,6 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-__version__ = '15.1.0'
+__version__ = '16.0.0'
 
 from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
 from boxmot.trackers.boosttrack.boosttrack import BoostTrack
