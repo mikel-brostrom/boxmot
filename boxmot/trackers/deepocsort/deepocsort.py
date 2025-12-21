@@ -10,7 +10,6 @@ from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.aabb.xysr_kf import KalmanFilterXYSR
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils import logger as LOGGER
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.ops import xyxy2xysr
 

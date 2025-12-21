@@ -1,5 +1,3 @@
-import platform
-import sys
 
 import torch
 from torch.export import Dim

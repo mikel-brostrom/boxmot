@@ -10,7 +10,6 @@ from boxmot.trackers.boosttrack.assoc import (MhDist_similarity, associate,
                                               iou_batch, shape_similarity,
                                               soft_biou_batch)
 from boxmot.trackers.boosttrack.kalmanfilter import KalmanFilter
-from boxmot.utils import logger as LOGGER
 
 
 def convert_bbox_to_z(bbox):

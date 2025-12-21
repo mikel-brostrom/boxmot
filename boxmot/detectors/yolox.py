@@ -1,7 +1,6 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import fnmatch
-from pathlib import Path
 
 import cv2
 import gdown

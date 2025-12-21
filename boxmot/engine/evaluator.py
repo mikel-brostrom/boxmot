@@ -9,20 +9,16 @@ except RuntimeError:
 
 import argparse
 import concurrent.futures
-import configparser
 import copy
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
-import threading
 import traceback
 from pathlib import Path
-from typing import Dict, Generator, List, Optional, Union
+from typing import Dict, Optional
 
-import cv2
 import numpy as np
 import torch
 import yaml
@@ -31,14 +27,12 @@ from ultralytics import YOLO
 
 from boxmot.detectors import (default_imgsz, get_yolo_inferer,
                               is_ultralytics_model, is_yolox_model)
-from boxmot.postprocessing.gsi import gsi
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import (DATASET_CONFIGS, NUM_THREADS, ROOT, TRACKER_CONFIGS,
+from boxmot.utils import (DATASET_CONFIGS, NUM_THREADS, TRACKER_CONFIGS,
                           TRACKEVAL, WEIGHTS)
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.clean import cleanup_mot17
 from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
 from boxmot.utils.download import download_eval_data, download_trackeval
 from boxmot.utils.misc import increment_path, prompt_overwrite

@@ -5,10 +5,8 @@ Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
 import argparse
-import logging
-import os
 from pathlib import Path
-from typing import Dict, Generator, List, Optional, Union
+from typing import Optional
 from zipfile import BadZipFile, ZipFile
 
 import gdown

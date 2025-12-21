@@ -8,12 +8,10 @@ and interactive 3D scatter (all points + Pareto front) for MOTA vs HOTA vs IDF1 
 """
 
 import argparse
-import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import plotly.graph_objects as go
 from matplotlib.ticker import FixedLocator
 from ray.tune.analysis import ExperimentAnalysis

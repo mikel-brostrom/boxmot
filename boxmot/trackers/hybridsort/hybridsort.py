@@ -21,7 +21,6 @@ from boxmot.trackers.hybridsort.association import (
     associate_4_points_with_score, associate_4_points_with_score_with_reid,
     cal_score_dif_batch_two_score, ciou_batch, ct_dist, diou_batch,
     embedding_distance, giou_batch, hmiou, iou_batch, linear_assignment)
-from boxmot.utils import logger as LOGGER
 
 
 def k_previous_obs(observations, cur_age, k):

@@ -10,7 +10,6 @@ import numpy as np
 from boxmot.motion.kalman_filters.aabb.xysr_kf import KalmanFilterXYSR
 from boxmot.motion.kalman_filters.obb.xywha_kf import KalmanBoxTrackerOBB
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils import logger as LOGGER
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.ops import xyxy2xysr
 

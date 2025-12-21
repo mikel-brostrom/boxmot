@@ -12,12 +12,10 @@ except RuntimeError:
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Tuple
 
 import click
 
-from boxmot.utils import ROOT, TRACKER_CONFIGS, TRACKEVAL, WEIGHTS
-from boxmot.utils import logger as LOGGER
+from boxmot.utils import ROOT, WEIGHTS
 from boxmot.utils.misc import parse_imgsz
 
 

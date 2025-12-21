@@ -1,6 +1,5 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-import time
 from functools import partial
 from pathlib import Path
 
@@ -12,7 +11,7 @@ from boxmot import TRACKERS
 from boxmot.detectors import (default_imgsz, get_yolo_inferer,
                               is_ultralytics_model)
 from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS
+from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
@@ -21,7 +20,6 @@ checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install
 
 from ultralytics import YOLO
-from ultralytics.utils.plotting import Annotator, colors
 
 
 class VideoWriter:

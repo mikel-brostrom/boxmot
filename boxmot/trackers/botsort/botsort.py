@@ -14,7 +14,6 @@ from boxmot.trackers.botsort.botsort_track import STrack
 from boxmot.trackers.botsort.botsort_utils import (joint_stracks,
                                                    remove_duplicate_stracks,
                                                    sub_stracks)
-from boxmot.utils import logger as LOGGER
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment)
 

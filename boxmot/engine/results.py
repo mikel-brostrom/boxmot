@@ -1,11 +1,10 @@
 import time
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional, Union
+from typing import Any, Callable, Iterator, Union
 
 import cv2
 import numpy as np
 
-from boxmot.utils import logger as LOGGER
 
 try:
     from ultralytics.utils.plotting import Annotator, colors
