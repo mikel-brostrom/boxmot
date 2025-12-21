@@ -1,46 +1,29 @@
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
+
+from __future__ import annotations
+
+from typing import Optional
+
 import cv2
 import numpy as np
 
 from boxmot.motion.cmc.base_cmc import BaseCMC
+from boxmot.utils import logger as LOGGER
 
 
 class SOF(BaseCMC):
     """
-    Sparse Optical Flow (SOF) tracker for estimating a 2x3 warp (affine transformation)
-    between consecutive frames. This class is modeled after a GMC implementation using
-    the 'sparseOptFlow' method.
+    Sparse Optical Flow tracker estimating a 2x3 affine partial transform between frames.
+    Uses:
+      - goodFeaturesToTrack for keypoints
+      - calcOpticalFlowPyrLK for tracking
+      - estimateAffinePartial2D (RANSAC) for robust motion estimation
     """
 
-    def __init__(self, scale=0.15):
-        """
-        Initialize the SOF object.
-
-        Parameters
-        ----------
-        downscale : int, optional
-            Factor by which to downscale the input frames. Defaults to 1 (no downscale).
-        feature_params : dict, optional
-            Parameters for cv2.goodFeaturesToTrack. Defaults to:
-                {
-                    maxCorners: 1000,
-                    qualityLevel: 0.01,
-                    minDistance: 1,
-                    blockSize: 3,
-                    useHarrisDetector: False,
-                    k: 0.04
-                }
-        lk_params : dict, optional
-            Lucas-Kanade optical flow parameters. Defaults to:
-                {
-                    winSize: (21, 21),
-                    maxLevel: 3,
-                    criteria: (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
-                }
-        """
-        self.scale = scale
+    def __init__(self, scale: float = 0.15) -> None:
+        self.scale = float(scale)
         self.grayscale = True
 
-        # Set default feature detection parameters if not provided
         self.feature_params = dict(
             maxCorners=1000,
             qualityLevel=0.01,
@@ -50,138 +33,82 @@ class SOF(BaseCMC):
             k=0.04,
         )
 
-        # Set default Lucas-Kanade optical flow parameters if not provided.
         self.lk_params = dict(
             winSize=(21, 21),
             maxLevel=3,
             criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01),
         )
 
-        self.prevFrame = None
-        self.prevKeyPoints = None
-        self.initializedFirstFrame = False
+        self.prev_frame: Optional[np.ndarray] = None
+        self.prev_keypoints: Optional[np.ndarray] = None
+        self.initialized: bool = False
 
-    def apply(self, img, detections=None):
-        """
-        Apply sparse optical flow tracking to estimate a warp (affine transformation)
-        between the previous frame and the current raw frame.
-
-        Parameters
-        ----------
-        raw_frame : np.ndarray
-            The current input color image.
-        detections : Any, optional
-            (Not used here but provided for API compatibility.)
-
-        Returns
-        -------
-        np.ndarray
-            The estimated 2x3 warp matrix. If estimation fails, returns an identity matrix.
-        """
-        # Convert the raw frame to grayscale.
+    def apply(self, img: np.ndarray, dets: Optional[np.ndarray] = None) -> np.ndarray:
         frame_gray = self.preprocess(img)
-        height, width = frame_gray.shape
-
-        # Default transformation: identity.
         H = np.eye(2, 3, dtype=np.float32)
 
-        # On the first frame, detect keypoints and initialize internal state.
-        if not self.initializedFirstFrame:
-            keypoints = cv2.goodFeaturesToTrack(
-                frame_gray, mask=None, **self.feature_params
-            )
-            if keypoints is None:
+        # First frame init
+        if not self.initialized or self.prev_frame is None or self.prev_keypoints is None:
+            kps = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
+            if kps is None or len(kps) < 4:
+                # can't initialize reliably; keep trying on next frame
+                self.prev_frame = frame_gray.copy()
+                self.prev_keypoints = kps
+                self.initialized = False
                 return H
-            # Optional subpixel refinement.
+
+            # optional refinement for stability
             term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
-            cv2.cornerSubPix(
-                frame_gray,
-                keypoints,
-                winSize=(5, 5),
-                zeroZone=(-1, -1),
-                criteria=term_crit,
-            )
-            self.prevFrame = frame_gray.copy()
-            self.prevKeyPoints = keypoints.copy()
-            self.initializedFirstFrame = True
+            cv2.cornerSubPix(frame_gray, kps, winSize=(5, 5), zeroZone=(-1, -1), criteria=term_crit)
+
+            self.prev_frame = frame_gray.copy()
+            self.prev_keypoints = kps.copy()
+            self.initialized = True
             return H
 
-        # Compute optical flow to track the previous keypoints into the current frame.
-        nextKeypoints, status, err = cv2.calcOpticalFlowPyrLK(
-            self.prevFrame, frame_gray, self.prevKeyPoints, None, **self.lk_params
+        # Track keypoints
+        next_kps, status, _ = cv2.calcOpticalFlowPyrLK(
+            self.prev_frame, frame_gray, self.prev_keypoints, None, **self.lk_params
         )
 
-        # Filter out points that were not successfully tracked.
-        valid_prev = []
-        valid_next = []
-        for i, s in enumerate(status):
-            if s:
-                valid_prev.append(self.prevKeyPoints[i])
-                valid_next.append(nextKeypoints[i])
-
-        if len(valid_prev) < 4:
-            print(
-                "Warning: not enough matching points detected; redetecting keypoints."
-            )
-            # If too few matches, re-detect keypoints for the current frame.
-            keypoints = cv2.goodFeaturesToTrack(
-                frame_gray, mask=None, **self.feature_params
-            )
-            self.prevFrame = frame_gray.copy()
-            self.prevKeyPoints = keypoints if keypoints is not None else np.array([])
+        if next_kps is None or status is None:
+            self._reset(frame_gray)
             return H
 
-        valid_prev = np.array(valid_prev)
-        valid_next = np.array(valid_next)
+        status = status.reshape(-1)
+        prev_valid = self.prev_keypoints[status == 1]
+        next_valid = next_kps[status == 1]
 
-        # Estimate the affine warp matrix using robust RANSAC.
-        H_est, inliers = cv2.estimateAffinePartial2D(
-            valid_prev, valid_next, method=cv2.RANSAC
-        )
+        if prev_valid is None or next_valid is None or len(prev_valid) < 4:
+            # not enough matches -> re-detect
+            self._reset(frame_gray)
+            return H
+
+        # estimate transform
+        H_est, inliers = cv2.estimateAffinePartial2D(prev_valid, next_valid, method=cv2.RANSAC)
         if H_est is None:
             H_est = H
         else:
-            # If the frame was downscaled, adjust the translation parameters back to original scale.
-            if self.scale < 1:
+            H_est = H_est.astype(np.float32, copy=False)
+            if self.scale < 1.0:
+                H_est = H_est.copy()
                 H_est[0, 2] /= self.scale
                 H_est[1, 2] /= self.scale
 
-        # Update the previous frame and keypoints for the next iteration.
-        # Optionally, you might want to re-detect keypoints rather than simply tracking them.
-        new_keypoints = cv2.goodFeaturesToTrack(
-            frame_gray, mask=None, **self.feature_params
-        )
-        if new_keypoints is None:
-            # Use the tracked keypoints if new detection fails.
-            new_keypoints = valid_next
-        self.prevFrame = frame_gray.copy()
-        self.prevKeyPoints = new_keypoints.copy()
+        # refresh keypoints each frame (more stable long-term than purely tracking)
+        new_kps = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
+        if new_kps is None or len(new_kps) < 4:
+            # fallback: keep tracked points
+            new_kps = next_valid
+
+        self.prev_frame = frame_gray.copy()
+        self.prev_keypoints = new_kps.copy()
+        self.initialized = True
 
         return H_est
 
-
-# ==============================================================================
-# Example Usage
-# ==============================================================================
-
-
-def main():
-    # Create an instance of the SOF class with a downscaling factor, if desired.
-    sof_tracker = SOF(scale=0.15)
-
-    # For example purposes, load two consecutive frames.
-    prev_img = cv2.imread("assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000001.jpg")
-    curr_img = cv2.imread("assets/MOT17-mini/train/MOT17-13-FRCNN/img1/000005.jpg")
-
-    # Process the first frame to initialize the tracker.
-    _ = sof_tracker.apply(prev_img)
-
-    # Now process the next frame to compute the warp matrix.
-    H = sof_tracker.apply(curr_img)
-    print("Estimated warp matrix:\n", H)
-
-    # Optionally, you can visualize the transformation (overlay, etc.)
-
-
-if __name__ == "__main__":
-    main()
+    def _reset(self, frame_gray: np.ndarray) -> None:
+        kps = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
+        self.prev_frame = frame_gray.copy()
+        self.prev_keypoints = kps
+        self.initialized = kps is not None and len(kps) >= 4
