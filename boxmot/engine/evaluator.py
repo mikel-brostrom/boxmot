@@ -1,46 +1,44 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import multiprocessing as mp
-mp.set_start_method("spawn", force=True)
+
+try:
+    mp.set_start_method("spawn", force=True)
+except RuntimeError:
+    pass
 
 import argparse
-import subprocess
-from pathlib import Path
-import numpy as np
-from tqdm import tqdm
-import configparser
-import shutil
-import json
-import yaml
-import cv2
-import re
-import os
-import torch
-import threading
-import sys
-import copy
 import concurrent.futures
+import copy
+import json
+import os
+import re
+import subprocess
+import sys
 import traceback
+from pathlib import Path
+from typing import Dict, Optional
 
-from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, TRACKEVAL
-from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.torch_utils import select_device
-from boxmot.utils.plots import MetricsPlotter
-from boxmot.utils.misc import increment_path, prompt_overwrite
-from boxmot.utils.clean import cleanup_mot17
-from typing import Optional, List, Dict, Generator, Union
-
-from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
-from boxmot.postprocessing.gsi import gsi
-
+import numpy as np
+import torch
+import yaml
+from tqdm import tqdm
 from ultralytics import YOLO
 
-from boxmot.detectors import (get_yolo_inferer, default_imgsz,
-                                is_ultralytics_model, is_yolox_model)
-from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
+from boxmot.detectors import (default_imgsz, get_yolo_inferer,
+                              is_ultralytics_model, is_yolox_model)
 from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.trackers.tracker_zoo import create_tracker
+from boxmot.utils import (DATASET_CONFIGS, NUM_THREADS, TRACKER_CONFIGS,
+                          TRACKEVAL, WEIGHTS)
+from boxmot.utils import logger as LOGGER
+from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
 from boxmot.utils.download import download_eval_data, download_trackeval
+from boxmot.utils.misc import increment_path, prompt_overwrite
+from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
+from boxmot.utils.plots import MetricsPlotter
+from boxmot.utils.torch_utils import select_device
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
@@ -79,7 +77,7 @@ def eval_init(args,
     args.project.mkdir(parents=True, exist_ok=True)
 
 
-def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
+def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path, lock: Optional[object] = None) -> None:
     """
     Generates detections and embeddings for the specified 
     arguments, YOLO model and source.
@@ -88,16 +86,24 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
         args (Namespace): Parsed command line arguments.
         y (Path): Path to the YOLO model file.
         source (Path): Path to the source directory.
+        lock (Optional[object]): Lock to synchronize model loading.
     """
     WEIGHTS.mkdir(parents=True, exist_ok=True)
 
     if args.imgsz is None:
         args.imgsz = default_imgsz(y)
 
-    yolo = YOLO(
-        y if is_ultralytics_model(y)
-        else 'yolov8n.pt',
-    )
+    if lock:
+        with lock:
+            yolo = YOLO(
+                y if is_ultralytics_model(y)
+                else 'yolov8n.pt',
+            )
+    else:
+        yolo = YOLO(
+            y if is_ultralytics_model(y)
+            else 'yolov8n.pt',
+        )
 
     results = yolo(
         source=source,
@@ -134,9 +140,15 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
 
     reids = []
     for r in args.reid_model:
-        reid_model = ReidAutoBackend(weights=r,
-                                     device=yolo.predictor.device,
-                                     half=args.half).model
+        if lock:
+            with lock:
+                reid_model = ReidAutoBackend(weights=r,
+                                             device=yolo.predictor.device,
+                                             half=args.half).model
+        else:
+            reid_model = ReidAutoBackend(weights=r,
+                                         device=yolo.predictor.device,
+                                         half=args.half).model
         reids.append(reid_model)
         embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (source.parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
@@ -267,10 +279,10 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
     return stdout
 
 
-def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace):
+def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace, lock: Optional[object] = None):
     try:
         new_opt = copy.deepcopy(opt)
-        generate_dets_embs(new_opt, y, source=source_path / 'img1')
+        generate_dets_embs(new_opt, y, source=source_path / 'img1', lock=lock)
     except Exception:
         traceback.print_exc()
         raise
@@ -299,14 +311,16 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
         else:
             LOGGER.info(f"Generating detections and embeddings for {len(tasks)}/{total_sequences} sequences with model {y.name}")
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
-            futures = [executor.submit(process_single_det_emb, y, source_path, opt) for y, source_path in tasks]
+        with mp.Manager() as manager:
+            lock = manager.Lock()
+            with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
+                futures = [executor.submit(process_single_det_emb, y, source_path, opt, lock) for y, source_path in tasks]
 
-            for fut in concurrent.futures.as_completed(futures):
-                try:
-                    fut.result()
-                except Exception:
-                    LOGGER.exception("Error in det/emb task")
+                for fut in concurrent.futures.as_completed(futures):
+                    try:
+                        fut.result()
+                    except Exception:
+                        LOGGER.exception("Error in det/emb task")
 
 
 def process_sequence(seq_name: str,
@@ -363,6 +377,7 @@ def process_sequence(seq_name: str,
 
 
 from boxmot.utils import configure_logging as _configure_logging
+
 
 def _worker_init():
     # each spawned process needs its own sinks

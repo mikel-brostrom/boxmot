@@ -1,9 +1,8 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import re
-
 from pathlib import Path
-from typing import Union, Tuple
+from typing import Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -11,7 +10,6 @@ import torch
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
 
-from boxmot.utils import ROOT
 from boxmot.utils import logger as LOGGER
 
 

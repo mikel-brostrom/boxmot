@@ -1,10 +1,11 @@
-import os
-import cv2
-import glob
 import csv
-import numpy as np
+import glob
+import os
 from pathlib import Path
-from typing import Union, Generator, List
+from typing import Generator, List, Union
+
+import cv2
+import numpy as np
 
 
 class LazyDataLoader:

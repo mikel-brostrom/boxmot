@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+import argparse
 from pathlib import Path
 from typing import Union
-import argparse
+
+import cv2
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+import numpy as np
+
 from boxmot.utils import TRACKEVAL
+
 
 def plot_gt_boxes_with_trajectories(
     seq_dir: Union[str, Path],

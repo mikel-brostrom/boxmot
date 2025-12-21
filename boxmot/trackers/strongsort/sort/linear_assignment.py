@@ -2,8 +2,8 @@
 
 from __future__ import absolute_import
 
-import torch
 import numpy as np
+import torch
 from scipy.optimize import linear_sum_assignment
 
 from boxmot.utils.matching import chi2inv95

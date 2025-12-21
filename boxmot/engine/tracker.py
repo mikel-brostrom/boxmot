@@ -2,24 +2,24 @@
 
 from functools import partial
 from pathlib import Path
-import time
 
 import cv2
 import numpy as np
 import torch
 
 from boxmot import TRACKERS
+from boxmot.detectors import (default_imgsz, get_yolo_inferer,
+                              is_ultralytics_model)
 from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, TRACKER_CONFIGS, WEIGHTS, logger as LOGGER
+from boxmot.utils import TRACKER_CONFIGS
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
-from boxmot.detectors import default_imgsz, get_yolo_inferer, is_ultralytics_model
 
 checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install
 
 from ultralytics import YOLO
-from ultralytics.utils.plotting import Annotator, colors
 
 
 class VideoWriter:

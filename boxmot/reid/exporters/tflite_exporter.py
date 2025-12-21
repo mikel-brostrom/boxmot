@@ -2,7 +2,6 @@ import os
 import shutil
 from pathlib import Path
 
-import torch
 
 from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.utils import logger as LOGGER
@@ -13,8 +12,8 @@ class TFLiteExporter(BaseExporter):
     cmds = "--extra-index-url https://pypi.ngc.nvidia.com"
 
     def export(self) -> str:
-        import tensorflow as tf
         import onnx2tf
+        import tensorflow as tf
 
         LOGGER.info(f"Exporting TFLite with tensorflow {tf.__version__}...")
 

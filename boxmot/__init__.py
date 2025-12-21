@@ -2,16 +2,16 @@
 
 __version__ = '16.0.0'
 
-from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
-from boxmot.trackers.boosttrack.boosttrack import BoostTrack
 from boxmot.engine.results import track
 from boxmot.reid.core import ReID
+from boxmot.trackers.boosttrack.boosttrack import BoostTrack
 from boxmot.trackers.botsort.botsort import BotSort
 from boxmot.trackers.bytetrack.bytetrack import ByteTrack
 from boxmot.trackers.deepocsort.deepocsort import DeepOcSort
 from boxmot.trackers.hybridsort.hybridsort import HybridSort
 from boxmot.trackers.ocsort.ocsort import OcSort
 from boxmot.trackers.strongsort.strongsort import StrongSort
+from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
 
 TRACKERS = [
     "bytetrack",

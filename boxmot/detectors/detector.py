@@ -1,8 +1,10 @@
+from pathlib import Path
+from typing import Any, Union
+
 import cv2
 import numpy as np
 import torch
-from typing import Union, Any
-from pathlib import Path
+
 
 def resolve_image(image: Union[np.ndarray, str]) -> np.ndarray:
     """
