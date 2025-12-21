@@ -1,7 +1,10 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import multiprocessing as mp
-mp.set_start_method("spawn", force=True)
+try:
+    mp.set_start_method("spawn", force=True)
+except RuntimeError:
+    pass
 
 import argparse
 import subprocess
@@ -79,7 +82,7 @@ def eval_init(args,
     args.project.mkdir(parents=True, exist_ok=True)
 
 
-def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
+def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path, lock: Optional[object] = None) -> None:
     """
     Generates detections and embeddings for the specified 
     arguments, YOLO model and source.
@@ -88,16 +91,24 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
         args (Namespace): Parsed command line arguments.
         y (Path): Path to the YOLO model file.
         source (Path): Path to the source directory.
+        lock (Optional[object]): Lock to synchronize model loading.
     """
     WEIGHTS.mkdir(parents=True, exist_ok=True)
 
     if args.imgsz is None:
         args.imgsz = default_imgsz(y)
 
-    yolo = YOLO(
-        y if is_ultralytics_model(y)
-        else 'yolov8n.pt',
-    )
+    if lock:
+        with lock:
+            yolo = YOLO(
+                y if is_ultralytics_model(y)
+                else 'yolov8n.pt',
+            )
+    else:
+        yolo = YOLO(
+            y if is_ultralytics_model(y)
+            else 'yolov8n.pt',
+        )
 
     results = yolo(
         source=source,
@@ -134,9 +145,15 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
 
     reids = []
     for r in args.reid_model:
-        reid_model = ReidAutoBackend(weights=r,
-                                     device=yolo.predictor.device,
-                                     half=args.half).model
+        if lock:
+            with lock:
+                reid_model = ReidAutoBackend(weights=r,
+                                             device=yolo.predictor.device,
+                                             half=args.half).model
+        else:
+            reid_model = ReidAutoBackend(weights=r,
+                                         device=yolo.predictor.device,
+                                         half=args.half).model
         reids.append(reid_model)
         embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (source.parent.name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
@@ -267,10 +284,10 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
     return stdout
 
 
-def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace):
+def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace, lock: Optional[object] = None):
     try:
         new_opt = copy.deepcopy(opt)
-        generate_dets_embs(new_opt, y, source=source_path / 'img1')
+        generate_dets_embs(new_opt, y, source=source_path / 'img1', lock=lock)
     except Exception:
         traceback.print_exc()
         raise
@@ -299,14 +316,16 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
         else:
             LOGGER.info(f"Generating detections and embeddings for {len(tasks)}/{total_sequences} sequences with model {y.name}")
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
-            futures = [executor.submit(process_single_det_emb, y, source_path, opt) for y, source_path in tasks]
+        with mp.Manager() as manager:
+            lock = manager.Lock()
+            with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
+                futures = [executor.submit(process_single_det_emb, y, source_path, opt, lock) for y, source_path in tasks]
 
-            for fut in concurrent.futures.as_completed(futures):
-                try:
-                    fut.result()
-                except Exception:
-                    LOGGER.exception("Error in det/emb task")
+                for fut in concurrent.futures.as_completed(futures):
+                    try:
+                        fut.result()
+                    except Exception:
+                        LOGGER.exception("Error in det/emb task")
 
 
 def process_sequence(seq_name: str,
