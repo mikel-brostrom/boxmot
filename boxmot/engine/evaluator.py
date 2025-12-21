@@ -414,10 +414,15 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
                 LOGGER.exception(f"Error processing {seq}")
 
     # Optional GSI postprocessing
-    if getattr(opt, 'gsi', False):
+    if getattr(opt, "postprocessing", "none") == "gsi":
         LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GSI postprocessing...")
         from boxmot.postprocessing.gsi import gsi
         gsi(mot_results_folder=exp_dir)
+
+    elif getattr(opt, "postprocessing", "none") == "gbrc":
+        LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GBRC postprocessing...")
+        from boxmot.postprocessing.gbrc import gbrc
+        gbrc(mot_results_folder=exp_dir)
 
 
 def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
