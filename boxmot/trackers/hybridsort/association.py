@@ -1,5 +1,7 @@
 import os
+
 import numpy as np
+
 
 def intersection_batch(bboxes1, bboxes2):
     bboxes2 = np.expand_dims(bboxes2, 0)
@@ -734,6 +736,8 @@ def associate_kitti(detections, trackers, det_cates, iou_threshold,
 
 # compute embedding distance and gating, borrowed and modified from FairMOT
 from scipy.spatial.distance import cdist
+
+
 def embedding_distance(tracks_feat, detections_feat, metric='cosine'):
     """
     :param tracks: list[KalmanBoxTracker]
@@ -777,6 +781,8 @@ def fuse_motion(cost_matrix, tracks, detections, only_position=False, lambda_=0.
 
 # [hgx0411] compute embedding distance and gating, borrowed and modified from FairMOT
 import lap
+
+
 def linear_assignment_appearance(cost_matrix, thresh):
     if cost_matrix.size == 0:
         return np.empty((0, 2), dtype=int), tuple(range(cost_matrix.shape[0])), tuple(range(cost_matrix.shape[1]))

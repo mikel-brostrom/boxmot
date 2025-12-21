@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-import cv2
-import numpy as np
 import argparse
 from pathlib import Path
+
+import cv2
+import numpy as np
 from scipy.linalg import pinv
-from boxmot.utils import TRACKEVAL
 
 from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+from boxmot.utils import TRACKEVAL
 
 
 def build_tracks_from_sequence(

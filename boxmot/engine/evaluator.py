@@ -1,49 +1,50 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import multiprocessing as mp
+
 try:
     mp.set_start_method("spawn", force=True)
 except RuntimeError:
     pass
 
 import argparse
-import subprocess
-from pathlib import Path
-import numpy as np
-from tqdm import tqdm
-import configparser
-import shutil
-import json
-import yaml
-import cv2
-import re
-import os
-import torch
-import threading
-import sys
-import copy
 import concurrent.futures
+import configparser
+import copy
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
 import traceback
+from pathlib import Path
+from typing import Dict, Generator, List, Optional, Union
 
-from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, TRACKEVAL
-from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.torch_utils import select_device
-from boxmot.utils.plots import MetricsPlotter
-from boxmot.utils.misc import increment_path, prompt_overwrite
-from boxmot.utils.clean import cleanup_mot17
-from typing import Optional, List, Dict, Generator, Union
-
-from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
-from boxmot.postprocessing.gsi import gsi
-
+import cv2
+import numpy as np
+import torch
+import yaml
+from tqdm import tqdm
 from ultralytics import YOLO
 
-from boxmot.detectors import (get_yolo_inferer, default_imgsz,
-                                is_ultralytics_model, is_yolox_model)
-from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
+from boxmot.detectors import (default_imgsz, get_yolo_inferer,
+                              is_ultralytics_model, is_yolox_model)
+from boxmot.postprocessing.gsi import gsi
 from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.trackers.tracker_zoo import create_tracker
+from boxmot.utils import (DATASET_CONFIGS, NUM_THREADS, ROOT, TRACKER_CONFIGS,
+                          TRACKEVAL, WEIGHTS)
+from boxmot.utils import logger as LOGGER
+from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.clean import cleanup_mot17
+from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
 from boxmot.utils.download import download_eval_data, download_trackeval
+from boxmot.utils.misc import increment_path, prompt_overwrite
+from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
+from boxmot.utils.plots import MetricsPlotter
+from boxmot.utils.torch_utils import select_device
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
@@ -382,6 +383,7 @@ def process_sequence(seq_name: str,
 
 
 from boxmot.utils import configure_logging as _configure_logging
+
 
 def _worker_init():
     # each spawned process needs its own sinks

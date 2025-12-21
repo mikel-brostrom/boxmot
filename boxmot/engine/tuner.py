@@ -5,18 +5,16 @@ with support for resuming (restoring) previous tuning runs.
 """
 
 import os
+
 os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"   # keep CWD constant for all trials
 from pathlib import Path
 
 import yaml
 
-from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS, logger as LOGGER
-from boxmot.engine.evaluator import (
-    run_generate_dets_embs,
-    eval_init,
-    run_generate_mot_results,
-    run_trackeval,
-)
+from boxmot.engine.evaluator import (eval_init, run_generate_dets_embs,
+                                     run_generate_mot_results, run_trackeval)
+from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
+from boxmot.utils import logger as LOGGER
 
 
 def load_yaml_config(tracking_method: str) -> dict:
@@ -79,7 +77,7 @@ def main(args):
     from ray import tune
     from ray.tune import RunConfig
     from ray.tune.search.optuna import OptunaSearch
-    
+
     # Print tuning pipeline header (blue palette)
     LOGGER.info("")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")

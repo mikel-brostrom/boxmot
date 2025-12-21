@@ -5,14 +5,14 @@ from pathlib import Path
 
 import torch
 
-from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.reid.core import export_formats
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.reid.core.registry import ReIDModelRegistry
+from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.torch_utils import select_device
 from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.torch_utils import select_device
 
 
 def validate_export_formats(include):
@@ -63,7 +63,8 @@ def create_export_tasks(args, model, dummy_input):
     tasks = {}
 
     if torchscript_flag:
-        from boxmot.reid.exporters.torchscript_exporter import TorchScriptExporter
+        from boxmot.reid.exporters.torchscript_exporter import \
+            TorchScriptExporter
         tasks["torchscript"] = (
             True,
             TorchScriptExporter,

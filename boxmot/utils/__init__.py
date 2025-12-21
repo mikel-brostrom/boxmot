@@ -1,13 +1,12 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+import multiprocessing as mp
 import os
 import sys
 import threading
 from pathlib import Path
 
 import numpy as np
-import multiprocessing as mp
-
 # global logger
 from loguru import logger
 

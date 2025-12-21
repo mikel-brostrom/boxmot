@@ -7,10 +7,10 @@ import numpy as np
 from boxmot.motion.kalman_filters.aabb.xyah_kf import KalmanFilterXYAH
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
 from boxmot.utils.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
 
-from boxmot.utils import logger as LOGGER
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilterXYAH()

@@ -1,11 +1,11 @@
-from abc import abstractmethod
-
 import os
+from abc import abstractmethod
+from pathlib import Path
+
 import cv2
 import gdown
 import numpy as np
 import torch
-from pathlib import Path
 from filelock import SoftFileLock
 
 from boxmot.reid.core.registry import ReIDModelRegistry

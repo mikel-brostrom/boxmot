@@ -5,17 +5,18 @@ Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
 import argparse
-import os
-import gdown
 import logging
+import os
 from pathlib import Path
-from zipfile import ZipFile, BadZipFile
-from typing import Optional, List, Dict, Generator, Union
+from typing import Dict, Generator, List, Optional, Union
+from zipfile import BadZipFile, ZipFile
 
+import gdown
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 from tqdm import tqdm
+from urllib3.util.retry import Retry
+
 from boxmot.utils import logger as LOGGER
 
 # Mapping for deprecated numpy types

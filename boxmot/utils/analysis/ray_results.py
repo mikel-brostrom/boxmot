@@ -7,16 +7,16 @@ for each trial by trial index, show Pareto fronts for MOTA vs HOTA (2D),
 and interactive 3D scatter (all points + Pareto front) for MOTA vs HOTA vs IDF1 using Plotly.
 """
 
-import os
 import argparse
+import os
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 from matplotlib.ticker import FixedLocator
 from ray.tune.analysis import ExperimentAnalysis
-import plotly.graph_objects as go
 
 
 def is_pareto_efficient(points: np.ndarray) -> np.ndarray:

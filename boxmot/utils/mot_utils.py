@@ -1,9 +1,8 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import re
-
 from pathlib import Path
-from typing import Union, Tuple
+from typing import Tuple, Union
 
 import numpy as np
 import pandas as pd

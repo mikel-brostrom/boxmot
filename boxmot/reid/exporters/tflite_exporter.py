@@ -13,8 +13,8 @@ class TFLiteExporter(BaseExporter):
     cmds = "--extra-index-url https://pypi.ngc.nvidia.com"
 
     def export(self) -> str:
-        import tensorflow as tf
         import onnx2tf
+        import tensorflow as tf
 
         LOGGER.info(f"Exporting TFLite with tensorflow {tf.__version__}...")
 

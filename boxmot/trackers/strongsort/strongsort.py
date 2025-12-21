@@ -5,15 +5,16 @@ from pathlib import Path
 import numpy as np
 from torch import device
 
-from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.strongsort.sort.detection import Detection
+from boxmot.trackers.strongsort.sort.linear_assignment import \
+    NearestNeighborDistanceMetric
 from boxmot.trackers.strongsort.sort.tracker import Tracker
-from boxmot.trackers.strongsort.sort.linear_assignment import NearestNeighborDistanceMetric
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.ops import xyxy2tlwh
 
-from boxmot.utils import logger as LOGGER
 
 class StrongSort(BaseTracker):
     """

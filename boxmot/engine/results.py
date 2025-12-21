@@ -1,8 +1,10 @@
+import time
+from pathlib import Path
+from typing import Any, Callable, Iterator, Optional, Union
+
 import cv2
 import numpy as np
-from pathlib import Path
-from typing import Union, Iterator, Callable, Any, Optional
-import time
+
 from boxmot.utils import logger as LOGGER
 
 try:
