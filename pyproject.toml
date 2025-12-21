@@ -1,5 +1,6 @@
+
 # =====================================================
-# pyproject.toml for BoxMOT ← UV with GPU by default
+# pyproject.toml for BoxMOT ← UV (Option A: pin TRT to cu12 series)
 # =====================================================
 
 #######################
@@ -11,10 +12,15 @@ name     = "torch-cpu"
 url      = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
-
 [[tool.uv.index]]
 name     = "torch-gpu"
 url      = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+# NVIDIA packages (TensorRT, etc.)
+[[tool.uv.index]]
+name     = "nvidia"
+url      = "https://pypi.nvidia.com"
 explicit = true
 
 ##################################
@@ -31,24 +37,73 @@ torchvision = [
   { index = "torch-gpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 
+# Route TensorRT packages to NVIDIA’s index (never on Darwin)
+tensorrt = [
+  { index = "nvidia", marker = "sys_platform != 'darwin'" },
+]
+"tensorrt-cu12" = [
+  { index = "nvidia", marker = "sys_platform != 'darwin'" },
+]
+"tensorrt-cu12-libs" = [
+  { index = "nvidia", marker = "sys_platform != 'darwin'" },
+]
+
+#########################
+# UV project settings   #
+#########################
+
+[tool.uv]
+# Keep TensorRT on the CUDA 12 series so it matches torch cu121
+constraint-dependencies = ["tensorrt>=10.12,<10.13"]
+
+# Ensure binary-only packages (torch/torchvision, tensorrt, etc.) have wheels
+# for the CI platform (Linux x86_64). This stops uv from choosing
+# torchvision==0.24.1+d801a34, which only has a win_arm64 wheel.
+required-environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 
 #########################
 # UV-specific Overrides #
 #########################
 
+# Override yolox's outdated dependencies
 [[tool.uv.dependency-metadata]]
 name          = "yolox"
 version       = "0.3.0"
-requires-dist = ["onnx>=1.17.0", "onnxsim<1.0.0,>=0.4.36"]
+requires-dist = [
+  "onnx>=1.17.0",
+  "onnxsim<1.0.0,>=0.4.33 ; python_version < '3.12'",
+  "onnxsim-prebuilt>=0.4.36.post1 ; python_version >= '3.12'",
+  "tabulate",
+]
 
-[tool.uv]
-no-build-isolation-package = ["yolox"]
+# Ensure yolox builds with setuptools present in the isolated build env
+[[tool.uv.dependency-metadata]]
+name = "tensorrt"
+requires-dist = [
+  "tensorrt-cu12 ; (sys_platform == 'linux' or sys_platform == 'win32')",
+]
 
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12"
+requires-dist = [
+  "tensorrt-cu12-libs ; (sys_platform == 'linux' or sys_platform == 'win32')",
+]
+
+# Terminal package; empty deps to avoid wheel-stub builds on Darwin
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-libs"
+requires-dist = []
 
 ############
 # Flake8   #
 ############
 
+[tool.uv.extra-build-dependencies]
+yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
+
+# Prevent uv from building TRT sdists on macOS; provide static metadata (no wildcards)
 [tool.flake8]
 max-line-length = 120
 exclude         = [".tox", "*.egg", "build", "temp"]
@@ -72,10 +127,10 @@ build-backend = "hatchling.build"
 
 [project]
 name            = "boxmot"
-version         = "15.0.4"
+version         = "16.0.0"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
-requires-python = ">=3.9,<=3.13"
+requires-python = ">=3.9,<3.13"
 license         = { text = "AGPL-3.0" }
 
 authors = [
@@ -113,88 +168,96 @@ keywords = [
 ]
 
 dependencies = [
-  "setuptools",
+  # Kalman filters for motion models (SORT/OCSort/HybridSort)
   "filterpy<2.0.0,>=1.4.5",
+  # Download pretrained weights/checkpoints from Google Drive
   "gdown<6.0.0,>=5.1.0",
+  # Fast LAP/Hungarian solver for data association
   "lapx<1.0.0,>=0.5.5",
   "loguru<1.0.0,>=0.7.2",
   "numpy",
-  "pyyaml<7.0.0,>=6.0.1",
   "regex<2025.0.0,>=2024.0.0",
-  "yacs<1.0.0,>=0.1.8",
+
   "scikit-learn<2.0.0,>=1.3.0",
   "pandas<3.0.0,>=2.0.0",
   "opencv-python<5.0.0,>=4.7.0",
-  "ftfy<7.0.0,>=6.1.3",
-  "gitpython<4.0.0,>=3.1.42",
+
   "torch>=2.2.1,<3.0.0",
   "torchvision>=0.17.1,<1.0.0",
-  "mplcursors>=0.6",
-  "pyqt5>=5.15.11",
-  "bayesian-optimization>=2.0.4",
   "click>=8.1.8",
+
+  # clip reid needs
+  "ftfy<7.0.0,>=6.1.3",
+  "yacs<1.0.0,>=0.1.8",
 ]
 
 [project.scripts]
 boxmot = "boxmot.engine.cli:main"
 
-#####################
-# Dependency Groups #
-#####################
+########################################
+# local-only “dev/test/docs/ci” stacks #
+########################################
 
 [dependency-groups]
-test = [
-  "pytest<9.0.0,>=8.0.2",
-  "isort<6.0.0,>=5.13.2",
-  "pytest-cov<7.0.0,>=6.0.0",
+dev  = ["ipykernel>=6.29.5,<7.0.0"]
+test = ["pytest>=8.0.2,<9.0.0", "pytest-cov>=6.0.0,<7.0.0", "isort>=5.13.2,<6.0.0"]
+docs = [
+  "mkdocs>=1.6.1", "mkdocs-click>=0.9.0",
+  "mkdocs-include-markdown-plugin>=7.1.6",
+  "mkdocs-material>=9.6.15",
+  "mkdocstrings>=0.30.0", "mkdocstrings-python>=1.16.12",
 ]
 
-yolo = ["ultralytics>=3.8.200"]
+#############################
+# runtime / feature toggles #
+#############################
+
+[project.optional-dependencies]
+yolo = [
+  "ultralytics>=3.8.200",
+  "yolox==0.3.0",
+]
 
 evolve = [
-  "ray<3.0.0,>=2.35.0",
-  "ray[tune]<3.0.0,>=2.35.0",
-  "plotly<6.0.0,>=5.19.0",
-  "joblib<2.0.0,>=1.3.2",
-  "optuna"
-]
-
-dev = ["ipykernel<7.0.0,>=6.29.5"]
-
-yolox-build-deps = [
-  "setuptools",
-  "torch<3.0.0,>=2.2.1",
+  "ray[tune]==2.49.2",
+  "plotly==5.19.0",
+  "bayesian-optimization==2.0.4",
+  "optuna==3.5.0",
+  "pydantic==2.7.2"
 ]
 
 onnx = [
   "onnx>=1.16.1,<1.19",
-  "onnxruntime>=1.20.0",
-  "onnxslim>=0.1.67"
+  "onnxruntime>=1.18.1",
+  "onnxslim>=0.1.67",
+  "onnxscript>=0.1.0"
 ]
 
 openvino = ["openvino>=2025.2.0"]
 
 tflite = [
-  "onnx2tf>=1.18.0",
-  "onnx>=1.16.1",
-  "tensorflow==2.17.0",
-  "tf_keras",
-  "sng4onnx>=1.0.1",
-  "onnx_graphsurgeon>=0.3.26",
-  "onnxslim>=0.1.31",
-  "onnxruntime",
-  "flatbuffers>=23.5.26",
-  "onnxsim==0.4.33",
-  "psutil==5.9.5",
-  "ml_dtypes==0.3.2",
-  "ai_edge_litert>=1.2.0",
-]
+  # onnx2tf stack: only on linux/win, and only on py<3.13
+  "onnx2tf>=1.18.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-docs = [
-    "mkdocs>=1.6.1",
-    "mkdocs-click>=0.9.0",
-    "mkdocs-include-markdown-plugin>=7.1.6",
-    "mkdocs-material>=9.6.15",
-    "mkdocstrings>=0.30.0",
-    "mkdocstrings-python>=1.16.12",
+  "onnx==1.17.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnxruntime==1.18.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnxsim==0.4.33 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  "onnx_graphsurgeon>=0.3.26 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "simple-onnx-processing-tools ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "sng4onnx>=1.0.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  "tensorflow==2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tf-keras==2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  "psutil==5.9.5 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "ml-dtypes==0.5.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  "flatbuffers>=23.1.21 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  # keep your existing helper if you want it
+  "onnxslim>=0.1.31 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+
+  # still exclude Windows (no wheels there); linux-only
+  "ai-edge-litert==1.2.0 ; python_version < '3.13' and sys_platform == 'linux'",
 ]

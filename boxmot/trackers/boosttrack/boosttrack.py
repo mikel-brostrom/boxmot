@@ -3,7 +3,7 @@ from typing import List, Optional
 
 import numpy as np
 
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.boosttrack.assoc import (
@@ -167,19 +167,9 @@ class BoostTrack(BaseTracker):
 
     def __init__(
         self,
-        reid_weights,
-        device,
-        half: bool,
-        # BaseTracker parameters 
-        det_thresh: float = 0.6,
-        max_age: int = 60,
-        max_obs: int = 50, 
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,  
-        asso_func: str = "iou",  
-        is_obb: bool = False,
+        reid_weights=None,
+        device='cpu',
+        half: bool = False,
         # BoostTrack-specific parameters
         use_ecc: bool = True,
         min_box_area: int = 10,
@@ -196,31 +186,18 @@ class BoostTrack(BaseTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         with_reid: bool = False,
-        **kwargs  # Additional BaseTracker parameters
+        reid=None,
+        **kwargs  # BaseTracker parameters
     ):
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='BoostTrack', **kwargs)
         
-        # Forward per_class and any additional parameters to BaseTracker
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs
-        )
         self.active_tracks = []
         self.frame_count = 0
         self.trackers: List[KalmanBoxTracker] = []
 
         # Parameters for BoostTrack (these can be tuned as needed)
-        self.max_age = max_age            # maximum allowed frames without update
-        self.min_hits = min_hits          # minimum hits to output a track
-        self.det_thresh = det_thresh      # detection confidence threshold
-        self.iou_threshold = iou_threshold   # association IoU threshold
         self.use_ecc = use_ecc            # use ECC for camera motion compensation
         self.min_box_area = min_box_area  # minimum box area for detections
         self.aspect_ratio_thresh = aspect_ratio_thresh  # aspect ratio threshold for detections
@@ -239,18 +216,19 @@ class BoostTrack(BaseTracker):
         self.use_vt = use_vt
 
         self.with_reid = with_reid
-
-        if self.with_reid:
-            self.reid_model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
+        
+        if reid is not None:
+             self.reid_model = reid
+             self.with_reid = True
+        elif self.with_reid and reid_weights is not None:
+             self.reid_model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
         else:
-            self.reid_model = None
+             self.reid_model = None
 
         if self.use_ecc:
             self.cmc = get_cmc_method(cmc_method)()
         else:
             self.cmc = None
-            
-        LOGGER.success("Initialized BoostTrack")
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

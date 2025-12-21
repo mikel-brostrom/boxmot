@@ -1,25 +1,23 @@
 # Hybrid-SORT-ReID with ECC + ReID (explicit config, BaseTracker-style)
-# - No self.args usage
+# - Assumes detection input is M x [x1, y1, x2, y2, conf, cls]
 # - ECC via get_cmc_method(...).apply(img, dets)
 # - ReID via ReidAutoBackend(weights, device, half).model.get_features(...)
 # - update(dets, img, embs=None) signature compatible with BoxMOT trackers
-
-from __future__ import annotations
+# - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
+# - Safe with COCO 80 classes; preserves det_ind; guards out-of-range indices
 
 from collections import deque
 from pathlib import Path
-from typing import List, Tuple
-
+from typing import List, Optional, Union
 import numpy as np
 import torch
 
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils import logger as LOGGER
 
-# If you keep your original association functions, import them here:
-# They must provide the same API used below.
+# Keep your original association functions:
 from boxmot.trackers.hybridsort.association import (
     iou_batch, giou_batch, ciou_batch, diou_batch, ct_dist, hmiou,
     associate_4_points_with_score,
@@ -67,14 +65,6 @@ def convert_x_to_bbox(x, score=None):
         return np.array([x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0, score_val]).reshape((1, 5))
 
 
-def speed_direction(bbox1, bbox2):
-    cx1, cy1 = (bbox1[0] + bbox1[2]) / 2.0, (bbox1[1] + bbox1[3]) / 2.0
-    cx2, cy2 = (bbox2[0] + bbox2[2]) / 2.0, (bbox2[1] + bbox2[3]) / 2.0
-    speed = np.array([cy2 - cy1, cx2 - cx1])
-    norm = np.sqrt((cy2 - cy1) ** 2 + (cx2 - cx1) ** 2) + 1e-6
-    return speed / norm
-
-
 def speed_direction_lt(bbox1, bbox2):
     cx1, cy1 = bbox1[0], bbox1[1]
     cx2, cy2 = bbox2[0], bbox2[1]
@@ -110,6 +100,7 @@ def speed_direction_rb(bbox1, bbox2):
 class KalmanBoxTracker(object):
     """
     Single-object tracker with 9D custom KF (u,v,s,c,r, du,dv,ds,dc) by default.
+    Stores `cls` and `det_ind` metadata from the most recent matched detection.
     """
 
     count = 0
@@ -125,6 +116,8 @@ class KalmanBoxTracker(object):
         alpha: float = 0.9,
         adapfs: bool = False,
         track_thresh: float = 0.5,
+        cls: int = 0,
+        det_ind: int = -1,
     ):
         if use_custom_kf:
             from .kalmanfilter_score_new import KalmanFilterNew_score_new as KalmanFilter_score_new
@@ -209,7 +202,7 @@ class KalmanBoxTracker(object):
         # parameters
         self.delta_t = int(delta_t)
         self.confidence_pre = None
-        self.confidence = float(bbox[-1])
+        self.conf = float(bbox[-1])
 
         # ReID buffers
         self.smooth_feat = None
@@ -217,6 +210,10 @@ class KalmanBoxTracker(object):
         self.alpha = float(alpha)
         self.adapfs = bool(adapfs)
         self.track_thresh = float(track_thresh)
+
+        # metadata
+        self.cls = int(cls)
+        self.det_ind = int(det_ind)
 
         # first feature update
         self.update_features(temp_feat)
@@ -231,8 +228,8 @@ class KalmanBoxTracker(object):
         else:
             if self.adapfs:
                 assert score > 0, "score must be > 0 when adapfs=True"
-                pre_w = self.alpha * (self.confidence / (self.confidence + score))
-                cur_w = (1.0 - self.alpha) * (score / (self.confidence + score))
+                pre_w = self.alpha * (self.conf / (self.conf + score))
+                cur_w = (1.0 - self.alpha) * (score / (self.conf + score))
                 s = pre_w + cur_w
                 pre_w /= s
                 cur_w /= s
@@ -251,14 +248,13 @@ class KalmanBoxTracker(object):
         if M.shape == (2, 3):
             M = np.vstack([M, [0.0, 0.0, 1.0]])
         elif M.shape != (3, 3):
-            # unexpected shape: skip motion comp safely
             M = np.eye(3, dtype=float)
 
         # transform corners in homogeneous coords
         p1 = (M @ np.array([x1, y1, 1.0], dtype=float)).ravel()
         p2 = (M @ np.array([x2, y2, 1.0], dtype=float)).ravel()
 
-        # homogeneous divide (no-op for affine; needed for homography)
+        # homogeneous divide
         w1 = p1[2] if abs(p1[2]) > 1e-12 else 1.0
         w2 = p2[2] if abs(p2[2]) > 1e-12 else 1.0
         x1_, y1_ = p1[0] / w1, p1[1] / w1
@@ -267,7 +263,7 @@ class KalmanBoxTracker(object):
         # write back to KF (keep score)
         self.kf.x[:5] = convert_bbox_to_z([x1_, y1_, x2_, y2_, float(score)])
 
-    def update(self, bbox, id_feature, update_feature: bool = True):
+    def update(self, bbox, id_feature, update_feature: bool = True, *, cls: Optional[int] = None, det_ind: Optional[int] = None):
         vlt = vrt = vlb = vrb = None
         if bbox is not None:
             if self.last_observation.sum() >= 0:
@@ -306,13 +302,19 @@ class KalmanBoxTracker(object):
             self.hit_streak += 1
             self.kf.update(convert_bbox_to_z(bbox))
 
+            # update metadata
+            if cls is not None:
+                self.cls = int(cls)
+            if det_ind is not None:
+                self.det_ind = int(det_ind)
+
             if update_feature:
                 if self.adapfs:
                     self.update_features(id_feature, score=bbox[-1])
                 else:
                     self.update_features(id_feature)
-            self.confidence_pre = self.confidence
-            self.confidence = float(bbox[-1])
+            self.confidence_pre = self.conf
+            self.conf = float(bbox[-1])
         else:
             self.kf.update(bbox)
             self.confidence_pre = None
@@ -334,10 +336,10 @@ class KalmanBoxTracker(object):
         kalman_score = float(np.clip(x3, self.track_thresh, 1.0))
 
         if not self.confidence_pre:
-            simple_score = float(np.clip(self.confidence, 0.1, self.track_thresh))
+            simple_score = float(np.clip(self.conf, 0.1, self.track_thresh))
         else:
             simple_score = float(np.clip(
-                self.confidence - (self.confidence_pre - self.confidence),
+                self.conf - (self.confidence_pre - self.conf),
                 0.1,
                 self.track_thresh,
             ))
@@ -361,28 +363,19 @@ class HybridSort(BaseTracker):
 
     - Explicit configuration only (no self.args)
     - ReID model and ECC setup like BotSort
-    - BaseTracker API: update(dets, img, embs=None) -> np.ndarray [[x1,y1,x2,y2,id,conf,cls,det_ind], ...]
+    - BaseTracker API: update(dets, img, embs=None) -> np.ndarray [[x1,y1,x2,y2,track_id,conf,cls,det_ind], ...]
+    - Now outputs real cls & det_ind and guards det_ind bounds
+    - Assumes detection input is [x1,y1,x2,y2,conf,cls]
     """
 
     def __init__(
         self,
         # ReID & CMC
-        reid_weights: Path | str | None,
+        reid_weights: Optional[Union[Path, str]],
         device: torch.device,
         half: bool,
         cmc_method: str = "ecc",
         with_reid: bool = True,
-
-        # BaseTracker params
-        det_thresh: float = 0.7,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.15,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "hmiou",
-        is_obb: bool = False,  # not used here (AABB only)
 
         # Hybrid-SORT specific
         low_thresh: float = 0.1,
@@ -416,20 +409,11 @@ class HybridSort(BaseTracker):
 
         # misc
         dataset: str = "",
-        **kwargs,
+        **kwargs,  # BaseTracker parameters
     ):
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs,
-        )
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='HybridSort', **kwargs)
 
         # store core knobs
         self.low_thresh = float(low_thresh)
@@ -469,47 +453,71 @@ class HybridSort(BaseTracker):
         # container
         self.active_tracks: List[KalmanBoxTracker] = []
         KalmanBoxTracker.count = 0
-        LOGGER.success("Initialized HybridSortReID (ECC + ReID enabled: %s, %s)", bool(self.cmc), self.with_reid)
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
-        dets: ndarray [N,5] -> [x1,y1,x2,y2,conf]
+        dets: ndarray [N,6] -> [x1,y1,x2,y2,conf,cls]
         img: HxWxC image
         embs: optional [N,D] appearance features. If None and with_reid=True, we extract features for provided dets.
         Returns: ndarray [M,8]: [x1,y1,x2,y2,track_id,conf,cls,det_ind]
         """
         self.check_inputs(dets, img, embs)
         self.frame_count += 1
-        h, w = img.shape[:2]
 
-        # Attach det_ind for bookkeeping (like BotSort)
-        dets_idx = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)]) if len(dets) else dets.reshape(0, 6)
-        confs = dets_idx[:, 4] if len(dets_idx) else np.array([])
+        # --- parse inputs: detections are [x1,y1,x2,y2,conf,cls] ---
+        n_dets_full = int(dets.shape[0])
+
+        # core boxes + conf
+        dets_5 = dets[:, :5].copy() if n_dets_full else dets.reshape(0, 5)
+        confs = dets_5[:, 4] if n_dets_full else np.array([])
+
+        # classes (int)
+        dets_cls = dets[:, 5].astype(int) if n_dets_full else np.array([], dtype=int)
+
+        # stable det_ind column for downstream logic and output
+        dets_ind = np.arange(n_dets_full, dtype=int)
+
+        # helper guards
+        def _safe_detind(x: int, n: int) -> int:
+            xi = int(x)
+            return xi if 0 <= xi < n else -1
+
+        def _safe_cls(x: int, n: int) -> int:
+            xi = int(x)
+            return xi if 0 <= xi < n else xi  # change to -1 if you prefer strictness
+
+        # convenience view carrying det_ind in col 6th position
+        dets_idx = np.hstack([dets_5, dets_ind.reshape(-1, 1)]) if n_dets_full else dets.reshape(0, 6)
 
         # ECC: compute warp using all current detections (BotSort pattern)
         warp = self.cmc.apply(img, dets_idx) if len(dets_idx) else np.eye(3)
 
         # Apply camera motion compensation to all active tracks
-        for trk in self.active_tracks:
-            trk.camera_update(warp)
+        for tr in self.active_tracks:
+            tr.camera_update(warp)
 
         # ReID: get features if not provided
         if self.with_reid:
             if embs is None and len(dets_idx):
-                # extract features for *all* current detections; you may restrict to high-confidence if preferred
+                # ReID features extracted on [x1,y1,x2,y2] boxes
                 embs = self.model.get_features(dets_idx[:, 0:4], img)
             elif embs is None:
                 embs = np.zeros((0, 128), dtype=np.float32)  # safe shape
 
-        # FIRST/SECOND stage split (same semantics as original Hybrid)
+        # FIRST/SECOND stage split (Hybrid semantics)
         inds_low = confs > self.low_thresh
         inds_high = confs < self.det_thresh
         inds_second = np.logical_and(inds_low, inds_high)
-        dets_second = dets_idx[inds_second]  # low-conf for BYTE
+
+        dets_second = dets_idx[inds_second]         # low-conf for BYTE
         remain_inds = confs > self.det_thresh
         dets_keep = dets_idx[remain_inds]
+
+        # NEW: classes aligned to the two sets
+        cls_keep = dets_cls[remain_inds]
+        cls_second = dets_cls[inds_second]
 
         # slice embeddings accordingly (if present)
         if embs is None or len(embs) == 0:
@@ -523,17 +531,17 @@ class HybridSort(BaseTracker):
         dets_first = dets_keep[:, :5]
         dets_low = dets_second[:, :5]
 
+        # carry det_ind arrays aligned with above
+        det_inds_keep = dets_keep[:, 5].astype(int) if len(dets_keep) else np.array([], dtype=int)
+        det_inds_second = dets_second[:, 5].astype(int) if len(dets_second) else np.array([], dtype=int)
+
         # ---- Predict step for existing tracks
         trks = np.zeros((len(self.active_tracks), 6))
         to_del = []
-        for t, trk in enumerate(trks):
+        for t in range(len(trks)):
             pos, kal_score, simple_score = self.active_tracks[t].predict()
-
-            # pos is shape (1, 4) -> grab the row once
             x1, y1, x2, y2 = pos[0].tolist()
-
             trks[t] = [x1, y1, x2, y2, kal_score, simple_score]
-
             if np.any(np.isnan(pos)):
                 to_del.append(t)
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
@@ -600,9 +608,15 @@ class HybridSort(BaseTracker):
             unmatched_dets = np.arange(len(dets_first))
             unmatched_trks = np.arange(len(trks))
 
-        # Update matched (update features here)
+        # Update matched (update features here)  —— pass cls & det_ind (safe)
         for m in matched:
-            self.active_tracks[m[1]].update(dets_first[m[0], :], id_feature_keep[m[0], :])
+            det_i = m[0]
+            self.active_tracks[m[1]].update(
+                dets_first[det_i, :],
+                id_feature_keep[det_i, :],
+                cls=_safe_cls(cls_keep[det_i], self.nr_classes),
+                det_ind=_safe_detind(det_inds_keep[det_i], n_dets_full),
+            )
 
         # ===== BYTE / low-score association (optional)
         if self.use_byte and len(dets_low) > 0 and unmatched_trks.shape[0] > 0:
@@ -621,17 +635,23 @@ class HybridSort(BaseTracker):
                 else:
                     matched_indices = linear_assignment(-iou_left)
                 to_remove_trk_indices = []
-                for m in matched_indices:
-                    det_ind_rel, trk_ind_rel = m[0], m[1]
-                    trk_ind = unmatched_trks[trk_ind_rel]
+                for mm in matched_indices:
+                    det_rel, trk_rel = mm[0], mm[1]
+                    trk_ind = unmatched_trks[trk_rel]
                     if self.with_longterm_reid_correction and self.EG_weight_low_score > 0 and self.with_reid:
-                        if iou_left_thre[m[0], m[1]] < self.iou_threshold or emb_dists_low[m[0], m[1]] > self.longterm_reid_correction_thresh_low:
+                        if iou_left_thre[det_rel, trk_rel] < self.iou_threshold or emb_dists_low[det_rel, trk_rel] > self.longterm_reid_correction_thresh_low:
                             continue
                     else:
-                        if iou_left_thre[m[0], m[1]] < self.iou_threshold:
+                        if iou_left_thre[det_rel, trk_rel] < self.iou_threshold:
                             continue
                     # do not update features in BYTE pass
-                    self.active_tracks[trk_ind].update(dets_low[det_ind_rel, :], id_feature_second[det_ind_rel, :], update_feature=False)
+                    self.active_tracks[trk_ind].update(
+                        dets_low[det_rel, :],
+                        id_feature_second[det_rel, :],
+                        update_feature=False,
+                        cls=_safe_cls(cls_second[det_rel], self.nr_classes),
+                        det_ind=_safe_detind(det_inds_second[det_rel], n_dets_full),
+                    )
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
@@ -644,15 +664,21 @@ class HybridSort(BaseTracker):
                 rematched = linear_assignment(-iou_left)
                 to_remove_det_indices = []
                 to_remove_trk_indices = []
-                for m in rematched:
-                    det_ind_rel, trk_ind_rel = m[0], m[1]
-                    if iou_left[det_ind_rel, trk_ind_rel] < self.iou_threshold:
+                for mm in rematched:
+                    det_rel, trk_rel = mm[0], mm[1]
+                    if iou_left[det_rel, trk_rel] < self.iou_threshold:
                         continue
-                    det_ind = unmatched_dets[det_ind_rel]
-                    trk_ind = unmatched_trks[trk_ind_rel]
-                    self.active_tracks[trk_ind].update(dets_first[det_ind, :], id_feature_keep[det_ind, :], update_feature=False)
-                    to_remove_det_indices.append(det_ind)
-                    to_remove_trk_indices.append(trk_ind)
+                    det_abs = unmatched_dets[det_rel]
+                    trk_abs = unmatched_trks[trk_rel]
+                    self.active_tracks[trk_abs].update(
+                        dets_first[det_abs, :],
+                        id_feature_keep[det_abs, :],
+                        update_feature=False,
+                        cls=_safe_cls(cls_keep[det_abs], self.nr_classes),
+                        det_ind=_safe_detind(det_inds_keep[det_abs], n_dets_full),
+                    )
+                    to_remove_det_indices.append(det_abs)
+                    to_remove_trk_indices.append(trk_abs)
                 unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
@@ -660,7 +686,7 @@ class HybridSort(BaseTracker):
         for m in unmatched_trks:
             self.active_tracks[m].update(None, None)
 
-        # Create new trackers for unmatched detections
+        # Create new trackers for unmatched high-score detections
         for i in unmatched_dets:
             trk = KalmanBoxTracker(
                 dets_first[i, :],
@@ -671,6 +697,8 @@ class HybridSort(BaseTracker):
                 alpha=self.alpha,
                 adapfs=self.adapfs,
                 track_thresh=self.track_thresh,
+                cls=_safe_cls(cls_keep[i], self.nr_classes),
+                det_ind=_safe_detind(det_inds_keep[i], n_dets_full) if len(det_inds_keep) else -1,
             )
             self.active_tracks.append(trk)
 
@@ -678,12 +706,19 @@ class HybridSort(BaseTracker):
         outputs = []
         for trk in self.active_tracks[::-1]:
             if trk.last_observation.sum() < 0:
-                # convert current KF state to [x1,y1,x2,y2]
                 d = convert_x_to_bbox(trk.kf.x)[0][:4]
             else:
                 d = trk.last_observation[:4]
+
+            # Only output fresh tracks and valid det_ind for this frame
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
-                outputs.append([*d.tolist(), trk.id + 1, trk.confidence, 0, -1])  # cls=0 default, det_ind=-1 (not tracked here)
+                outputs.append([
+                    *d.tolist(),
+                    trk.id + 1,                 # track id
+                    float(trk.conf),      # conf
+                    int(trk.cls),               # cls (from detection)
+                    int(trk.det_ind),           # det index (frame-local)
+                ])
 
         # Remove dead tracks
         i = len(self.active_tracks)

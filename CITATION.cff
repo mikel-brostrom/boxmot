@@ -1,13 +1,20 @@
-cff-version: 15.0.4
-preferred-citation:
-  type: software
-  message: "If you use Yolo Tracking, please cite it as below."
-  authors:
-  - family-names: Broström
-    given-names: Mikel
-  title: "BoxMOT: pluggable SOTA tracking modules for object detection, segmentation and pose estimation models"
-  version: 15.0.4
-  doi: https://zenodo.org/record/7629840
-  date-released: 2024-6
-  license: AGPL-3.0
-  url: "https://github.com/mikel-brostrom/boxmot"
+cff-version: 16.0.0
+
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+
+authors:
+  - given-names: Mikel
+    family-names: Broström
+    orcid: "https://orcid.org/0009-0009-0540-9829"
+
+abstract: >-
+  BoxMOT is a pluggable collection of state-of-the-art multi-object tracking modules
+  for segmentation, object detection, and pose estimation models.
+
+title: "BoxMOT: pluggable state-of-the-art multi-object tracking modules"
+repository-code: "https://github.com/mikel-brostrom/boxmot"
+license: AGPL-3.0
+version: 16.0.0
+type: software

@@ -1,0 +1,17 @@
+import torch
+
+from boxmot.reid.exporters.base_exporter import BaseExporter
+
+
+class TorchScriptExporter(BaseExporter):
+    def export(self):
+        f = self.file.with_suffix(".torchscript")
+        ts = torch.jit.trace(self.model, self.im, strict=False)
+        if self.optimize:
+            torch.utils.mobile_optimizer.optimize_for_mobile(
+                ts
+            )._save_for_lite_interpreter(str(f))
+        else:
+            ts.save(str(f))
+
+        return f

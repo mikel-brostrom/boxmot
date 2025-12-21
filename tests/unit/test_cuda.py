@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 
 REID_MODELS = [
     Path("mobilenetv2_x1_0_market1501.pt"),

@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 """
 This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
@@ -222,16 +222,6 @@ class OcSort(BaseTracker):
 
     def __init__(
         self,
-        # BaseTracker parameters
-        det_thresh: float = 0.2,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "iou",
-        is_obb: bool = False,
         # OcSort-specific parameters
         min_conf: float = 0.1,
         delta_t: int = 3,
@@ -239,25 +229,15 @@ class OcSort(BaseTracker):
         use_byte: bool = False,
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs  # BaseTracker parameters
     ):
-        # Forward all BaseTracker parameters explicitly
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs
-        )
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='OcSort', **kwargs)
         
         # Store OcSort-specific parameters
         self.min_conf: float = min_conf
-        self.asso_threshold: float = iou_threshold  # Maintain compatibility with existing code
+        self.asso_threshold: float = self.iou_threshold  # Use from BaseTracker
         self.delta_t: int = delta_t
         self.inertia: float = inertia
         self.use_byte: bool = use_byte
@@ -267,9 +247,7 @@ class OcSort(BaseTracker):
         KalmanBoxTracker.count = 0
         
         # Initialize tracker collections
-        self.active_tracks: list = [] 
-
-        LOGGER.success("Initialized OcSort")
+        self.active_tracks: list = []
         
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

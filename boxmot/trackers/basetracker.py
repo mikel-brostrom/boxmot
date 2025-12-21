@@ -29,7 +29,7 @@ class BaseTracker(ABC):
         Parameters:
         - det_thresh (float): Detection threshold for considering detections.
         - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-        - max_obs (int): Maximum number of historical observations (bounding boxes) stored for each track. max_obs is always greater than max_age by minimum 5. 
+        - max_obs (int): Maximum number of historical observations (bounding boxes) stored for each track. max_obs is always greater than max_age by minimum 5.
         - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
         - iou_threshold (float): IOU threshold for determining match between detection and tracks.
         - per_class (bool): Enables class-separated tracking
@@ -44,7 +44,7 @@ class BaseTracker(ABC):
                 - "diou": Distance IoU that considers center point distance
                 - "centroid": Distance between centroids of bounding boxes
                 - "centroid_obb": Centroid distance for oriented bounding boxes
-        - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes? 
+        - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes?
                 If False (default): If True: dets.shape[1] == 6, i.e. (x1,y1,x2,y2,conf,cls)
                 If True: dets.shape[1] == 7, i.e. (cx,cy,w,h,angle,conf,cls)
 
@@ -53,27 +53,12 @@ class BaseTracker(ABC):
         - active_tracks (list): List to hold active tracks, may be used differently in subclasses.
         """
 
-        LOGGER.info("BaseTracker initialization parameters:")
-        LOGGER.info(f"det_thresh: {det_thresh}")
-        LOGGER.info(f"max_age: {max_age}")
-        LOGGER.info(f"max_obs: {max_obs}")
-        LOGGER.info(f"min_hits: {min_hits}")
-        LOGGER.info(f"iou_threshold: {iou_threshold}")
-        LOGGER.info(f"per_class: {per_class}")
-        LOGGER.info(f"nr_classes: {nr_classes}")
-        LOGGER.info(f"asso_func: {asso_func}")
-        LOGGER.info(f"is_obb: {is_obb}")
-        if kwargs:
-            LOGGER.info("Additional parameters:")
-            for key, value in kwargs.items():
-                LOGGER.info(f"{key}: {value}")
-        
         self.det_thresh = det_thresh
         self.max_age = max_age
         self.max_obs = max_obs
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
-        self.per_class = per_class  
+        self.per_class = per_class
         self.nr_classes = nr_classes
         self.asso_func_name = asso_func + "_obb" if is_obb else asso_func
         self.is_obb = is_obb
@@ -81,11 +66,13 @@ class BaseTracker(ABC):
         # Attributes
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
-        
+
         self.per_class_active_tracks = None
-        self._first_frame_processed = False  # Flag to track if the first frame has been processed
+        self._first_frame_processed = (
+            False  # Flag to track if the first frame has been processed
+        )
         self._first_dets_processed = False
-        self.last_emb_size = None # Tracks the dimensionality of embedding vectors used for re-identification during tracking. 
+        self.last_emb_size = None  # Tracks the dimensionality of embedding vectors used for re-identification during tracking.
 
         # Initialize per-class active tracks
         if self.per_class:
@@ -94,12 +81,30 @@ class BaseTracker(ABC):
                 self.per_class_active_tracks[i] = []
 
         if self.max_age >= self.max_obs:
-            LOGGER.warning("Max age > max observations, increasing size of max observations...")
+            LOGGER.warning(
+                "Max age > max observations, increasing size of max observations..."
+            )
             self.max_obs = self.max_age + 5
-            print("self.max_obs", self.max_obs)
+
+        # Log all params if tracker_name provided via kwargs
+        tracker_name = kwargs.pop('_tracker_name', None)
+        if tracker_name:
+            base_params = {
+                'det_thresh': det_thresh, 'max_age': max_age, 'max_obs': max_obs,
+                'min_hits': min_hits, 'iou_threshold': iou_threshold, 'per_class': per_class,
+                'asso_func': asso_func,
+            }
+            # Filter out internal/non-config params
+            filtered_kwargs = {k: v for k, v in kwargs.items() 
+                              if not k.startswith('_') and k not in ('__class__', 'reid_weights', 'device', 'half')}
+            all_params = {**base_params, **filtered_kwargs}
+            params_str = ", ".join(f"{k}={v}" for k, v in all_params.items())
+            LOGGER.success(f"{tracker_name}: {params_str}")
 
     @abstractmethod
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+    def update(
+        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
+    ) -> np.ndarray:
         """
         Abstract method to update the tracker with new detections for a new frame. This method
         should be implemented by subclasses.
@@ -112,12 +117,18 @@ class BaseTracker(ABC):
         Raises:
         - NotImplementedError: If the subclass does not implement this method.
         """
-        raise NotImplementedError("The update method needs to be implemented by the subclass.")
-    
+        raise NotImplementedError(
+            "The update method needs to be implemented by the subclass."
+        )
+
     def get_class_dets_n_embs(self, dets, embs, cls_id):
         # Initialize empty arrays for detections and embeddings
         class_dets = np.empty((0, 6))
-        class_embs = np.empty((0, self.last_emb_size)) if self.last_emb_size is not None else None
+        class_embs = (
+            np.empty((0, self.last_emb_size))
+            if self.last_emb_size is not None
+            else None
+        )
 
         # Check if there are detections
         if dets.size == 0:
@@ -136,7 +147,9 @@ class BaseTracker(ABC):
         class_embs = None
         if embs.size > 0:
             class_embs = embs[class_indices]
-            self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
+            self.last_emb_size = class_embs.shape[
+                1
+            ]  # Update the last known embedding size
         return class_dets, class_embs
 
     @staticmethod
@@ -152,9 +165,8 @@ class BaseTracker(ABC):
             dets = args[0]
             img = args[1] if len(args) > 1 else None
 
-
             # Unwrap `data` attribute if present
-            if hasattr(dets, 'data'):
+            if hasattr(dets, "data"):
                 dets = dets.data
 
             # Convert memoryview to numpy array if needed
@@ -174,9 +186,7 @@ class BaseTracker(ABC):
             if not self._first_frame_processed and img is not None:
                 self.h, self.w = img.shape[0:2]
                 self.asso_func = AssociationFunction(
-                    w=self.w,
-                    h=self.h,
-                    asso_mode=self.asso_func_name
+                    w=self.w, h=self.h, asso_mode=self.asso_func_name
                 ).asso_func
                 self._first_frame_processed = True
 
@@ -184,7 +194,7 @@ class BaseTracker(ABC):
             return method(self, dets, img, *args[2:], **kwargs)
 
         return wrapper
-    
+
     @staticmethod
     def per_class_decorator(update_method):
         """
@@ -210,8 +220,10 @@ class BaseTracker(ABC):
                 # Get detections and embeddings for the current class
                 class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
 
-                LOGGER.debug(f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings"
-                      f" {class_embs.shape if class_embs is not None else None}")
+                LOGGER.debug(
+                    f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings"
+                    f" {class_embs.shape if class_embs is not None else None}"
+                )
 
                 # Activate the specific active tracks for this class id
                 self.active_tracks = self.per_class_active_tracks[cls_id]
@@ -235,32 +247,33 @@ class BaseTracker(ABC):
         return wrapper
 
     def check_inputs(self, dets, img, embs=None):
-        assert isinstance(
-            dets, np.ndarray
-        ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
-        assert isinstance(
-            img, np.ndarray
-        ), f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
-        assert (
-            len(dets.shape) == 2
-        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert isinstance(dets, np.ndarray), (
+            f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
+        )
+        assert isinstance(img, np.ndarray), (
+            f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
+        )
+        assert len(dets.shape) == 2, (
+            "Unsupported 'dets' dimensions, valid number of dimensions is two"
+        )
 
         if embs is not None:
-            assert (
-                dets.shape[0] == embs.shape[0]
-            ), "Missmatch between detections and embeddings sizes"
+            assert dets.shape[0] == embs.shape[0], (
+                "Missmatch between detections and embeddings sizes"
+            )
 
         if self.is_obb:
-            assert (
-                dets.shape[1] == 7
-            ), "Unsupported 'dets' 2nd dimension length, valid length is 7 (cx,cy,w,h,angle,conf,cls)"
+            assert dets.shape[1] == 7, (
+                "Unsupported 'dets' 2nd dimension length, valid length is 7 (cx,cy,w,h,angle,conf,cls)"
+            )
         else:
-            assert (
-                dets.shape[1] == 6
-            ), "Unsupported 'dets' 2nd dimension length, valid lengths is 6 (x1,y1,x2,y2,conf,cls)"
+            assert dets.shape[1] == 6, (
+                "Unsupported 'dets' 2nd dimension length, valid lengths is 6 (x1,y1,x2,y2,conf,cls)"
+            )
 
-
-    def id_to_color(self, id: int, saturation: float = 0.75, value: float = 0.95) -> tuple:
+    def id_to_color(
+        self, id: int, saturation: float = 0.75, value: float = 0.95
+    ) -> tuple:
         """
         Returns green for target_id, otherwise generates a consistent unique BGR color using ID hashing.
 
@@ -272,7 +285,7 @@ class BaseTracker(ABC):
         Returns:
         - tuple: A BGR color tuple for OpenCV visualization.
         """
-        target_id = getattr(self, 'target_id', None)
+        target_id = getattr(self, "target_id", None)
         if target_id is not None:
             return (0, 255, 0) if id == target_id else (0, 0, 0)
 
@@ -287,7 +300,6 @@ class BaseTracker(ABC):
 
         # Convert to BGR
         return rgb_255[::-1]
-
 
     def plot_box_on_img(
         self,
@@ -315,7 +327,6 @@ class BaseTracker(ABC):
         - np.ndarray: The image array with the bounding box drawn on it.
         """
         if self.is_obb:
-
             angle = box[4] * 180.0 / np.pi  # Convert radians to degrees
             box_poly = ((box[0], box[1]), (box[2], box[3]), angle)
             # print((width, height))
@@ -341,7 +352,6 @@ class BaseTracker(ABC):
                 thickness,
             )
         else:
-
             img = cv.rectangle(
                 img,
                 (int(box[0]), int(box[1])),
@@ -388,7 +398,6 @@ class BaseTracker(ABC):
                     thickness=trajectory_thickness,
                 )
             else:
-
                 img = cv.circle(
                     img,
                     (int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2)),
@@ -429,11 +438,16 @@ class BaseTracker(ABC):
                 active_tracks += self.per_class_active_tracks[k]
 
         for a in active_tracks:
-            if not a.history_observations: continue
-            if len(a.history_observations) < 3: continue
+            if not a.history_observations:
+                continue
+            if len(a.history_observations) < 3:
+                continue
             box = a.history_observations[-1]
-            img = self.plot_box_on_img(img, box, a.confidence, a.cls, a.id, thickness, fontscale)
-            if not show_trajectories: continue
+            img = self.plot_box_on_img(
+                img, box, a.conf, a.cls, a.id, thickness, fontscale
+            )
+            if not show_trajectories:
+                continue
             img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
         return img
 

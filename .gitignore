@@ -28,7 +28,7 @@ weights/*.engine
 weights/*.tflite
 
 # evaluation tools folder
-val_utils/
+engine/trackeval/
 
 # zip files
 *.zip
@@ -38,11 +38,15 @@ val_utils/
 *.torchscript
 *.pt
 *.pth
+*.pth
 *.onnx
 *.engine
+*.data
 
 # interactive plots
 *.html
+*.gif
+*.pdf
 
 # tf models
 *saved_model/

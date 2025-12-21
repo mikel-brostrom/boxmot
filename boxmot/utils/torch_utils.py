@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import os
 import platform
@@ -10,7 +10,7 @@ from . import logger as LOGGER
 
 
 def get_system_info():
-    return f"Yolo Tracking v{__version__} 🚀 Python-{platform.python_version()} torch-{torch.__version__}"
+    return f"BoxMOT v{__version__} 🚀 Python-{platform.python_version()} torch-{torch.__version__}"
 
 
 def parse_device(device):

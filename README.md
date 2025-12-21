@@ -78,16 +78,35 @@ If you want to contribute to this package check how to contribute [here](https:/
 
 ## 💻 CLI
 
-BoxMOT provides a unified CLI `boxmot` with the following subcommands:
+BoxMOT provides a unified CLI with a simple syntax:
 
 ```bash
-Usage: boxmot COMMAND [ARGS]...
+boxmot MODE DETECTOR REID TRACKER ARGS
 
-Commands:
-  track                  Run tracking only
-  generate               Generate detections and embeddings
-  eval                   Evaluate tracking performance using the official trackeval repository
-  tune                   Tune tracker hyperparameters based on selected detections and embeddings
+Where:
+  MODE      (required) one of [track, eval, tune, generate, export]
+  DETECTOR  (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x
+  REID      (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4
+  TRACKER   (optional) one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack]
+  ARGS      (optional) 'arg=value' pairs that override defaults
+```
+
+**Quick Examples:**
+```bash
+# Track with webcam
+boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show
+
+# Track a video file
+boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save
+
+# Evaluate on MOT dataset
+boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --source MOT17-mini/train
+
+# Tune tracker hyperparameters
+boxmot tune --source MOT17-mini/train --tracking-method deepocsort --n-trials 10
+
+# Export ReID model
+boxmot export --weights osnet_x0_25_msmt17.pt --include onnx engine
 ```
 
 ## 🐍 PYTHON
@@ -108,10 +127,10 @@ from torchvision.models.detection import (
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Load model with pretrained weights and preprocessing transforms
+# Load detector with pretrained weights and preprocessing transforms
 weights = Weights.DEFAULT
-model = fasterrcnn_resnet50_fpn_v2(weights=weights, box_score_thresh=0.5)
-model.to(device).eval()
+detector = fasterrcnn_resnet50_fpn_v2(weights=weights, box_score_thresh=0.5)
+detector.to(device).eval()
 transform = weights.transforms()
 
 # Initialize tracker
@@ -126,13 +145,13 @@ with torch.inference_mode():
         if not success:
             break
 
-        # Convert frame to RGB and prepare for model
+        # Convert frame to RGB and prepare for detector
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         tensor = torch.from_numpy(rgb).permute(2, 0, 1).to(torch.uint8)
         input_tensor = transform(tensor).to(device)
 
         # Run detection
-        output = model([input_tensor])[0]
+        output = detector([input_tensor])[0]
         scores = output['scores'].cpu().numpy()
         keep = scores >= 0.5
 
@@ -165,15 +184,16 @@ cv2.destroyAllWindows()
 <summary>Tracking</summary>
 
 ```bash
-$ boxmot track --yolo-model rf-detr-base.pt    # bboxes only
-  boxmot track --yolo-model yolox_s.pt         # bboxes only
-  boxmot track --yolo-model yolo12n.pt         # bboxes only
-  boxmot track --yolo-model yolo11n.pt         # bboxes only
-  boxmot track --yolo-model yolov10n.pt        # bboxes only
-  boxmot track --yolo-model yolov9c.pt         # bboxes only
-  boxmot track --yolo-model yolov8n.pt         # bboxes only
-                            yolov8n-seg.pt     # bboxes + segmentation masks
-                            yolov8n-pose.pt    # bboxes + pose estimation
+# Different detector models
+boxmot track rf-detr-base                        # RF-DETR
+boxmot track yolox_s                             # YOLOX  
+boxmot track yolo12n                             # YOLO12
+boxmot track yolo11n                             # YOLO11
+boxmot track yolov10n                            # YOLOv10
+boxmot track yolov9c                             # YOLOv9
+boxmot track yolov8n                             # YOLOv8 bboxes only
+boxmot track yolov8n-seg                         # YOLOv8 + segmentation masks
+boxmot track yolov8n-pose                        # YOLOv8 + pose estimation
 ```
 
   </details>
@@ -182,12 +202,13 @@ $ boxmot track --yolo-model rf-detr-base.pt    # bboxes only
 <summary>Tracking methods</summary>
 
 ```bash
-$ boxmot track --tracking-method deepocsort
-                                 strongsort
-                                 ocsort
-                                 bytetrack
-                                 botsort
-                                 boosttrack
+boxmot track yolov8n osnet_x0_25_msmt17 deepocsort
+boxmot track yolov8n osnet_x0_25_msmt17 strongsort
+boxmot track yolov8n osnet_x0_25_msmt17 ocsort
+boxmot track yolov8n osnet_x0_25_msmt17 bytetrack
+boxmot track yolov8n osnet_x0_25_msmt17 botsort
+boxmot track yolov8n osnet_x0_25_msmt17 boosttrack
+boxmot track yolov8n osnet_x0_25_msmt17 hybridsort
 ```
 
 </details>
@@ -198,13 +219,13 @@ $ boxmot track --tracking-method deepocsort
 Tracking can be run on most video formats
 
 ```bash
-$ boxmot track --source 0                               # webcam
-                        img.jpg                         # image
-                        vid.mp4                         # video
-                        path/                           # directory
-                        path/*.jpg                      # glob
-                        'https://youtu.be/Zgi9g1ksQHc'  # YouTube
-                        'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP stream
+boxmot track yolov8n --source 0                               # webcam
+boxmot track yolov8n --source img.jpg                         # image
+boxmot track yolov8n --source vid.mp4                         # video
+boxmot track yolov8n --source path/                           # directory
+boxmot track yolov8n --source path/*.jpg                      # glob
+boxmot track yolov8n --source 'https://youtu.be/Zgi9g1ksQHc'  # YouTube
+boxmot track yolov8n --source 'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP stream
 ```
 
 </details>
@@ -212,17 +233,16 @@ $ boxmot track --source 0                               # webcam
 <details>
 <summary>Select ReID model</summary>
 
-Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These model can be further optimized for you needs by the [reid_export.py](https://github.com/mikel-brostrom/yolo_tracking/blob/master/boxmot/appearance/reid_export.py) script
+Some tracking methods combine appearance description and motion in the process of tracking. For those which use appearance, you can choose a ReID model based on your needs from this [ReID model zoo](https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO). These models can be further optimized for your needs by the export command.
 
 ```bash
-$ boxmot track --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightweight
-                                       osnet_x0_25_market1501.pt
-                                       mobilenetv2_x1_4_msmt17.engine
-                                       resnet50_msmt17.onnx
-                                       osnet_x1_0_msmt17.pt
-                                       clip_market1501.pt               # heavy
-                                       clip_vehicleid.pt
-                                      ...
+boxmot track yolov8n lmbn_n_cuhk03_d botsort --source 0           # lightweight
+boxmot track yolov8n osnet_x0_25_market1501 botsort --source 0
+boxmot track yolov8n mobilenetv2_x1_4_msmt17 botsort --source 0
+boxmot track yolov8n resnet50_msmt17 botsort --source 0
+boxmot track yolov8n osnet_x1_0_msmt17 botsort --source 0
+boxmot track yolov8n clip_market1501 botsort --source 0           # heavy
+boxmot track yolov8n clip_vehicleid botsort --source 0
 ```
 
 </details>
@@ -232,49 +252,47 @@ $ boxmot track --source 0 --reid-model lmbn_n_cuhk03_d.pt               # lightw
 
 By default the tracker tracks all MS COCO classes.
 
-If you want to track a subset of the classes that you model predicts, add their corresponding index after the classes flag,
+If you want to track a subset of the classes that your model predicts, add their corresponding index after the classes flag:
 
 ```bash
-boxmot track --source 0 --yolo-model yolov8s.pt --classes 16 17  # COCO yolov8 model. Track cats and dogs, only
+boxmot track yolov8s --source 0 --classes 16 17  # Track cats and dogs only
 ```
 
-[Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a Yolov8 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
-
-</details>
-
+[Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a YOLOv8 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
 
 </details>
 
 <details>
 <summary>Evaluation</summary>
 
-Evaluate a combination of detector, tracking method and ReID model on standard MOT dataset or you custom one by
+Evaluate a combination of detector, tracking method and ReID model on standard MOT dataset or your custom one:
 
 ```bash
 # reproduce MOT17 README results
-$ boxmot eval --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source MOT17-ablation --verbose 
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --source MOT17-ablation --verbose 
 # MOT20 results
-$ boxmot eval --yolo-model yolox_x_MOT20_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source MOT20-ablation --verbose 
-# Dancetrack results
-$ boxmot eval --yolo-model yolox_x_dancetrack_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method boosttrack --source dancetrack-ablation --verbose 
+boxmot eval yolox_x_MOT20_ablation lmbn_n_duke boosttrack --source MOT20-ablation --verbose 
+# DanceTrack results
+boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke boosttrack --source dancetrack-ablation --verbose 
 # metrics on custom dataset
-$ boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method deepocsort  --source ./assets/MOT17-mini/train --verbose
+boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --source ./assets/MOT17-mini/train --verbose
 ```
 
-add `--gsi` to your command for postprocessing the MOT results by gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm. Avoiding the overhead of repeatedly generating this data.
+Add `--gsi` to your command for postprocessing the MOT results by Gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm, avoiding the overhead of repeatedly generating this data.
 </details>
 
 
 <details>
-<summary>Evolution</summary>
+<summary>Hyperparameter Tuning</summary>
 
-We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. By default the objectives are: HOTA, MOTA, IDF1. Run it by
+We use a fast and elitist multiobjective genetic algorithm for tracker hyperparameter tuning. By default the objectives are: HOTA, MOTA, IDF1.
 
 ```bash
-# saves dets and embs under ./runs/dets_n_embs separately for each selected yolo and reid model
-$ boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov8n.pt yolov8s.pt --reid-model weights/osnet_x0_25_msmt17.pt
-# evolve parameters for specified tracking method using the selected detections and embeddings generated in the previous step
-$ boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 9 --tracking-method botsort --source ./assets/MOT17-mini/train
+# Generate detections and embeddings (saves under ./runs/dets_n_embs)
+boxmot generate yolov8n osnet_x0_25_msmt17 --source ./assets/MOT17-mini/train
+
+# Tune parameters for specified tracking method
+boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 9 --tracking-method botsort --source ./assets/MOT17-mini/train
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.
@@ -284,15 +302,15 @@ The set of hyperparameters leading to the best HOTA result are written to the tr
 <details>
 <summary>Export</summary>
 
-We support ReID model export to ONNX, OpenVINO, TorchScript and TensorRT
+We support ReID model export to ONNX, OpenVINO, TorchScript and TensorRT:
 
 ```bash
 # export to ONNX
-$ python3 boxmot/appearance/reid_export.py --include onnx --device cpu
+boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --device cpu
 # export to OpenVINO
-$ python3 boxmot/appearance/reid_export.py --include openvino --device cpu
+boxmot export --weights osnet_x0_25_msmt17.pt --include openvino --device cpu
 # export to TensorRT with dynamic input
-$ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
+boxmot export --weights osnet_x0_25_msmt17.pt --include engine --device 0 --dynamic
 ```
 
 </details>
@@ -310,8 +328,8 @@ $ python3 boxmot/appearance/reid_export.py --include engine --device 0 --dynamic
 
 ## Contributors
 
-<a href="https://github.com/mikel-brostrom/yolo_tracking/graphs/contributors ">
-  <img src="https://contrib.rocks/image?repo=mikel-brostrom/yolo_tracking" />
+<a href="https://github.com/mikel-brostrom/boxmot/graphs/contributors ">
+  <img src="https://contrib.rocks/image?repo=mikel-brostrom/boxmot" />
 </a>
 
 ## Contact

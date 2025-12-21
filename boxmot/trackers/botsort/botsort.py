@@ -1,11 +1,11 @@
-# Mikel Broström 🔥 Yolo Tracking 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from pathlib import Path
 
 import numpy as np
 import torch
 
-from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.aabb.xywh_kf import AMSKalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
@@ -71,16 +71,6 @@ class BotSort(BaseTracker):
         reid_weights: Path,
         device: torch.device,
         half: bool,
-        # BaseTracker parameters
-        det_thresh: float = 0.3,
-        max_age: int = 30,
-        max_obs: int = 50,
-        min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        per_class: bool = False,
-        nr_classes: int = 80,
-        asso_func: str = "iou",
-        is_obb: bool = False,
         # BotSort-specific parameters
         track_high_thresh: float = 0.5,
         track_low_thresh: float = 0.1,
@@ -93,27 +83,16 @@ class BotSort(BaseTracker):
         frame_rate: int = 30,
         fuse_first_associate: bool = False,
         with_reid: bool = True,
-        **kwargs  # Additional BaseTracker parameters
+        **kwargs  # BaseTracker parameters
     ):
-        # Forward all BaseTracker parameters explicitly
-        super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            max_obs=max_obs,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            nr_classes=nr_classes,
-            asso_func=asso_func,
-            is_obb=is_obb,
-            **kwargs
-        )
+        # Capture all init params for logging
+        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
+        super().__init__(**init_args, _tracker_name='BotSort', **kwargs)
         
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
         BaseTrack.clear_count()
 
-        self.per_class = per_class
         self.track_high_thresh = track_high_thresh
         self.track_low_thresh = track_low_thresh
         self.new_track_thresh = new_track_thresh
@@ -134,8 +113,6 @@ class BotSort(BaseTracker):
 
         self.cmc = get_cmc_method(cmc_method)()
         self.fuse_first_associate = fuse_first_associate
-
-        LOGGER.success("Initialized BotSort")
         
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator

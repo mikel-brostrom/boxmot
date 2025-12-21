@@ -38,7 +38,7 @@ jobs:
           sudo apt-get install -y jq curl unzip
           python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          uv sync --group yolo
+          uv sync --extra yolo
 
       # Restore the cached dataset (if available)
       - name: Restore MOT17 dataset cache
