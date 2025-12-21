@@ -7,7 +7,7 @@ import torch
 
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.aabb.xywh_kf import AMSKalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.trackers.botsort.botsort_track import STrack
@@ -100,7 +100,7 @@ class BotSort(BaseTracker):
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilterXYWH()
+        self.kalman_filter = AMSKalmanFilterXYWH()
 
         # ReID module
         self.proximity_thresh = proximity_thresh
@@ -267,7 +267,7 @@ class BotSort(BaseTracker):
                 track.update(detections[idet], self.frame_count)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                track.reactivate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
         return matches, u_track, u_detection
@@ -304,7 +304,7 @@ class BotSort(BaseTracker):
                 track.update(det, self.frame_count)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                track.reactivate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
         for it in u_track:
@@ -390,7 +390,7 @@ class BotSort(BaseTracker):
                 track.update(det, self.frame_count)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                track.reactivate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
 
         # Mark only unmatched tracks as removed, if mark_removed flag is True
@@ -426,7 +426,7 @@ class BotSort(BaseTracker):
         )
 
         outputs = [
-            [*t.xyxy, t.id, t.conf, t.cls, t.det_ind]
+            [*t.xyxy, t.id, t.conf, t.cls_id, t.det_idx]
             for t in self.active_tracks
             if t.is_activated
         ]
