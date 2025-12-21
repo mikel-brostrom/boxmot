@@ -4,11 +4,8 @@ CLI for BoxMOT: multi-step multiple object tracking pipeline.
 Provides commands to track, generate detections and embeddings, evaluate performance, tune models, or run all steps.
 """
 import multiprocessing as mp
+mp.set_start_method("spawn", force=True)
 
-try:
-    mp.set_start_method("spawn", force=True)
-except RuntimeError:
-    pass
 
 from pathlib import Path
 from types import SimpleNamespace
