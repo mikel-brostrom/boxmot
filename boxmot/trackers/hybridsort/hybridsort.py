@@ -9,23 +9,18 @@
 from collections import deque
 from pathlib import Path
 from typing import List, Optional, Union
+
 import numpy as np
 import torch
 
-from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils import logger as LOGGER
-
 # Keep your original association functions:
 from boxmot.trackers.hybridsort.association import (
-    iou_batch, giou_batch, ciou_batch, diou_batch, ct_dist, hmiou,
-    associate_4_points_with_score,
-    associate_4_points_with_score_with_reid,
-    embedding_distance,
-    linear_assignment,
-    cal_score_dif_batch_two_score,
-)
+    associate_4_points_with_score, associate_4_points_with_score_with_reid,
+    cal_score_dif_batch_two_score, ciou_batch, ct_dist, diou_batch,
+    embedding_distance, giou_batch, hmiou, iou_batch, linear_assignment)
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -120,7 +115,8 @@ class KalmanBoxTracker(object):
         det_ind: int = -1,
     ):
         if use_custom_kf:
-            from .kalmanfilter_score_new import KalmanFilterNew_score_new as KalmanFilter_score_new
+            from .kalmanfilter_score_new import \
+                KalmanFilterNew_score_new as KalmanFilter_score_new
             self.kf = KalmanFilter_score_new(dim_x=9, dim_z=5)
             self.kf.F = np.array(
                 [

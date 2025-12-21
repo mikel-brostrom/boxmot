@@ -97,14 +97,15 @@ Copyright 2014-2018 Roger R Labbe Jr.
 
 from __future__ import absolute_import, division
 
-from copy import deepcopy
-from math import log, exp, sqrt
 import sys
+from copy import deepcopy
+from math import exp, log, sqrt
+
 import numpy as np
-from numpy import dot, zeros, eye, isscalar, shape
 import numpy.linalg as linalg
-from filterpy.stats import logpdf
 from filterpy.common import pretty_str, reshape_z
+from filterpy.stats import logpdf
+from numpy import dot, eye, isscalar, shape, zeros
 
 
 class KalmanFilterNew_score(object):

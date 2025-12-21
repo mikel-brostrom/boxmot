@@ -1,7 +1,10 @@
 from pathlib import Path
 from typing import Union
+
 import numpy as np
+
 from boxmot.reid.core.auto_backend import ReidAutoBackend
+
 
 class ReID:
     def __init__(self, weights: Union[str, Path], device='cpu', half=False):

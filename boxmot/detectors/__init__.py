@@ -1,12 +1,10 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from boxmot.detectors.detector import Detector, resolve_image
+from boxmot.detectors.ultralytics import UltralyticsYolo
+from boxmot.detectors.yolox import YOLOX
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
-
-from boxmot.detectors.detector import Detector
-from boxmot.detectors.yolox import YOLOX
-from boxmot.detectors.ultralytics import UltralyticsYolo
-from boxmot.detectors.detector import resolve_image
 
 checker = RequirementsChecker()
 

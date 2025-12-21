@@ -3,18 +3,13 @@ from typing import List, Optional
 
 import numpy as np
 
-from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc import get_cmc_method
+from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.boosttrack.assoc import (
-    MhDist_similarity,
-    associate,
-    iou_batch,
-    shape_similarity,
-    soft_biou_batch,
-)
+from boxmot.trackers.boosttrack.assoc import (MhDist_similarity, associate,
+                                              iou_batch, shape_similarity,
+                                              soft_biou_batch)
 from boxmot.trackers.boosttrack.kalmanfilter import KalmanFilter
-from boxmot.utils import logger as LOGGER
 
 
 def convert_bbox_to_z(bbox):

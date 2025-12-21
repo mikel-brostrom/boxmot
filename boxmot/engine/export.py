@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
-import argparse
 import time
-from pathlib import Path
 
 import torch
 
-from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.reid.core import export_formats
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.reid.core.registry import ReIDModelRegistry
+from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device
-from boxmot.utils.checks import RequirementsChecker
 
 
 def validate_export_formats(include):
@@ -63,7 +60,8 @@ def create_export_tasks(args, model, dummy_input):
     tasks = {}
 
     if torchscript_flag:
-        from boxmot.reid.exporters.torchscript_exporter import TorchScriptExporter
+        from boxmot.reid.exporters.torchscript_exporter import \
+            TorchScriptExporter
         tasks["torchscript"] = (
             True,
             TorchScriptExporter,
@@ -163,7 +161,7 @@ def main(args):
         LOGGER.opt(colors=True).info(f"<bold>Saved to:</bold>   <cyan>{args.weights.parent.resolve()}</cyan>")
         for fmt, fpath in exported_files.items():
             LOGGER.opt(colors=True).info(f"<bold>  • {fmt}:</bold> <cyan>{fpath}</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>Visualize:</bold>  <cyan>https://netron.app</cyan>")
+        LOGGER.opt(colors=True).info("<bold>Visualize:</bold>  <cyan>https://netron.app</cyan>")
         LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
 
 

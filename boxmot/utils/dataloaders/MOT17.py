@@ -1,10 +1,12 @@
-import cv2
-import numpy as np
 import configparser
 from pathlib import Path
-from typing import Optional, List, Dict, Generator, Union
-from boxmot.utils import logger as LOGGER
+from typing import Dict, Generator, List, Optional, Union
+
+import cv2
+import numpy as np
 from tqdm import tqdm
+
+from boxmot.utils import logger as LOGGER
 
 
 def read_seq_fps(seq_dir: Path) -> int:

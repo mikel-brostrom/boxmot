@@ -1,11 +1,11 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-import cv2
 import fnmatch
+
+import cv2
 import gdown
 import numpy as np
 import torch
-from pathlib import Path
 from ultralytics.engine.results import Results
 from ultralytics.models.yolo.detect import DetectionPredictor
 from yolox.exp import get_exp

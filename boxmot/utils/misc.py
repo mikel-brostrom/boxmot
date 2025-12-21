@@ -1,8 +1,10 @@
-from pathlib import Path
 import sys
-from boxmot.utils import logger as LOGGER
 import threading
+from pathlib import Path
+
 import click
+
+from boxmot.utils import logger as LOGGER
 
 
 def parse_imgsz(ctx, param, value):
