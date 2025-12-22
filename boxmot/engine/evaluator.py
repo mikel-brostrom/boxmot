@@ -238,7 +238,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
     d = [seq_path.parent.name for seq_path in seq_paths]
 
     args = [
-        sys.executable, TRACKEVAL / 'scripts' / 'run_mot_challenge.py',
+        sys.executable, ROOT / 'boxmot' / 'utils' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
         "--TRACKERS_FOLDER", str(args.exp_dir.parent),
