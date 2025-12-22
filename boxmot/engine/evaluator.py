@@ -285,6 +285,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
     d = [seq_path.parent.name for seq_path in seq_paths]
 
     # Determine classes to evaluate
+    classes_to_eval = ['person']
     if hasattr(args, 'classes') and args.classes is not None:
         class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
         classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
