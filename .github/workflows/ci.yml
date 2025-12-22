@@ -31,18 +31,15 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4  # Check out the repository
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
       - name: Set up Python
         uses: actions/setup-python@v5  # Prepare environment with python 3.9
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip' # caching pip dependencies
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
+          python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           uv sync --extra yolo
       - name: Run tracking method
@@ -65,19 +62,16 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4  # Check out the repository
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
       - name: Set up Python
         uses: actions/setup-python@v5  # Prepare environment with python 3.9
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip' # caching pip dependencies
 
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
+          python -m pip install --upgrade pip setuptools wheel uv
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           uv sync --extra yolo --extra evolve
       - name: Evolve set of parameters for selected tracking method
@@ -101,21 +95,18 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4  # Check out the repository
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
       - name: Set up Python
         uses: actions/setup-python@v5  # Prepare environment with python 3.9
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip' # caching pip dependencies
 
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           sudo apt-get install -y jq
+          python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolo
       - name: Generate detections and embeddings
         run: |
@@ -154,17 +145,13 @@ jobs:
       status: ${{ job.status }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolo
       - name: Test tracking with pose models
         env:
@@ -178,17 +165,13 @@ jobs:
       status: ${{ job.status }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
@@ -209,11 +192,6 @@ jobs:
       - id: set_result
         run: echo "::set-output name=result::success"
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -221,6 +199,7 @@ jobs:
       - name: Install dependencies
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolo
       - name: Test tracking with seg models
         env:
@@ -237,11 +216,6 @@ jobs:
       - id: set_result
         run: echo "::set-output name=result::success"
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -249,6 +223,7 @@ jobs:
       - name: Install dependencies
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolo --extra onnx --extra openvino
           # needed for TFLite export
           sudo apt-get install flatbuffers-compiler
@@ -280,17 +255,13 @@ jobs:
       status: ${{ job.status }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip uv
 
       - name: Test export models
         run: |
@@ -348,9 +319,9 @@ jobs:
       - name: Prepare environment variables
         run: |
           echo "tracking-methods_STATUS=${{ needs.tracking-methods.result }}" >> $GITHUB_ENV
-          echo "mot-metrics_STATUS=${{ needs.mot-metrics-benchmark.result }}" >> $GITHUB_ENV
+          echo "mot-metrics_STATUS=${{ needs.mot-metrics.result }}" >> $GITHUB_ENV
           echo "evolution_STATUS=${{ needs.evolution.result }}" >> $GITHUB_ENV
-          echo "export-reid-models_STATUS=${{ needs.export-reid-models.result }}" >> $GITHUB_ENV
+          echo "export-reid-models_STATUS=${{ needs.export-reid-modelsn.result }}" >> $GITHUB_ENV
           echo "tests_STATUS=${{ needs.tests.result }}" >> $GITHUB_ENV
           echo "tracking-with-pose_STATUS=${{ needs.tracking-with-pose.result }}" >> $GITHUB_ENV
           echo "tracking-with-seg_STATUS=${{ needs.tracking-with-seg.result }}" >> $GITHUB_ENV
