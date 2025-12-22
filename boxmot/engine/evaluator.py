@@ -46,6 +46,25 @@ checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
 
 
+COCO_CLASSES = [
+    'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
+    'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
+    'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
+    'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
+    'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed',
+    'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
+    'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+]
+
+
+def load_dataset_cfg(name: str) -> dict:
+    """Load the dict from boxmot/configs/datasets/{name}.yaml."""
+    path = DATASET_CONFIGS / f"{name}.yaml"
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+
 def eval_init(args,
               trackeval_dest: Path = TRACKEVAL,
               branch: str = "master",
@@ -190,12 +209,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
 def parse_mot_results(results: str) -> dict:
     """
     Extracts COMBINED HOTA, MOTA, IDF1, AssA, AssRe, IDSW, and IDs from MOTChallenge evaluation output.
-
-    Args:
-        results (str): Full MOT evaluation output as a string.
-
-    Returns:
-        dict: Dictionary with parsed metrics.
+    Returns a dictionary keyed by class name.
     """
     metric_specs = {
         'HOTA':   ('HOTA:',      {'HOTA': 0, 'AssA': 2, 'AssRe': 5}),
@@ -205,20 +219,53 @@ def parse_mot_results(results: str) -> dict:
     }
 
     int_fields = {'IDSW', 'IDs'}
-    metrics = {}
+    parsed_results = {}
+    
+    lines = results.splitlines()
+    current_class = None
+    current_metric_type = None
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check for header lines
+        is_header = False
+        for metric_name, (prefix, _) in metric_specs.items():
+            if line.startswith(prefix):
+                is_header = True
+                current_metric_type = metric_name
+                
+                # Format: "HOTA: tracker-classHOTA ..."
+                content = line[len(prefix):].strip()
+                first_word = content.split()[0]
+                if first_word.endswith(metric_name):
+                    tracker_class = first_word[:-len(metric_name)]
+                    if '-' in tracker_class:
+                        current_class = tracker_class.split('-')[-1]
+                    else:
+                        current_class = 'default'
+                    
+                    if current_class not in parsed_results:
+                        parsed_results[current_class] = {}
+                break
+        
+        if is_header:
+            continue
+        
+        # Check for COMBINED row
+        if line.startswith('COMBINED') and current_class and current_metric_type:
+            fields = line.split()
+            if len(fields) > 1:
+                values = fields[1:] # Skip 'COMBINED'
+                _, field_map = metric_specs[current_metric_type]
+                for key, idx in field_map.items():
+                    if idx < len(values):
+                        val = values[idx]
+                        parsed_results[current_class][key] = int(val) if key in int_fields else float(val)
 
-    for section, fields_map in metric_specs.values():
-        match = re.search(fr'{re.escape(section)}.*?COMBINED\s+(.*?)\n', results, re.DOTALL)
-        if match:
-            fields = match.group(1).split()
-            for key, idx in fields_map.items():
-                if idx < len(fields):
-                    value = fields[idx]
-                    metrics[key] = int(value) if key in int_fields else float(value)
-
-    return metrics
-
-
+    return parsed_results
 
 
 def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_folder: Path, metrics: list = ["HOTA", "CLEAR", "Identity"]) -> str:
@@ -237,7 +284,12 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
 
     d = [seq_path.parent.name for seq_path in seq_paths]
 
-    args = [
+    # Determine classes to evaluate
+    if hasattr(args, 'classes') and args.classes is not None:
+        class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
+        classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
+
+    cmd_args = [
         sys.executable, ROOT / 'boxmot' / 'utils' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
@@ -250,11 +302,12 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
         "--NUM_PARALLEL_CORES", str(4),
         "--SKIP_SPLIT_FOL", "True",
         "--GT_LOC_FORMAT", "{gt_folder}/{seq}/gt/gt_temp.txt",
+        "--CLASSES_TO_EVAL", *classes_to_eval,
         "--SEQ_INFO", *d
     ]
 
     p = subprocess.Popen(
-        args=args,
+        args=cmd_args,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
@@ -438,35 +491,41 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
     save_dir = Path(opt.project) / opt.name
     
     trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder)
-    hota_mota_idf1 = parse_mot_results(trackeval_results)
+    parsed_results = parse_mot_results(trackeval_results)
     
-    # Print results summary with colors (blue palette) - only if verbose
+    # Print results summary
     if verbose:
         LOGGER.info("")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
         LOGGER.opt(colors=True).info("<bold><cyan>📊 Results Summary</cyan></bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-        LOGGER.opt(colors=True).info(f"<bold>HOTA:</bold>  <cyan>{hota_mota_idf1['HOTA']:.2f}%</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>MOTA:</bold>  <cyan>{hota_mota_idf1['MOTA']:.2f}%</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>IDF1:</bold>  <cyan>{hota_mota_idf1['IDF1']:.2f}%</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>AssA:</bold>  <blue>{hota_mota_idf1['AssA']:.2f}%</blue>")
-        LOGGER.opt(colors=True).info(f"<bold>AssRe:</bold> <blue>{hota_mota_idf1['AssRe']:.2f}%</blue>")
-        LOGGER.opt(colors=True).info(f"<bold>IDSW:</bold>  <light-blue>{hota_mota_idf1['IDSW']}</light-blue>")
-        LOGGER.opt(colors=True).info(f"<bold>IDs:</bold>   <light-blue>{hota_mota_idf1['IDs']}</light-blue>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
+        
+        headers = ["Class", "HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs"]
+        header_str = "{:<15} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8}".format(*headers)
+        LOGGER.opt(colors=True).info(f"<bold>{header_str}</bold>")
+        LOGGER.opt(colors=True).info("<blue>" + "-"*90 + "</blue>")
+        
+        for cls, metrics in parsed_results.items():
+            row = [
+                cls,
+                f"{metrics.get('HOTA', 0):.2f}%",
+                f"{metrics.get('MOTA', 0):.2f}%",
+                f"{metrics.get('IDF1', 0):.2f}%",
+                f"{metrics.get('AssA', 0):.2f}%",
+                f"{metrics.get('AssRe', 0):.2f}%",
+                f"{metrics.get('IDSW', 0)}",
+                f"{metrics.get('IDs', 0)}"
+            ]
+            row_str = "{:<15} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8}".format(*row)
+            LOGGER.opt(colors=True).info(row_str)
+            
+        LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
     
     if opt.ci:
         with open(opt.tracking_method + "_output.json", "w") as outfile:
-            outfile.write(json.dumps(hota_mota_idf1))
+            outfile.write(json.dumps(parsed_results))
     
-    return hota_mota_idf1
-
-
-def load_dataset_cfg(name: str) -> dict:
-    """Load the dict from boxmot/configs/datasets/{name}.yaml."""
-    path = DATASET_CONFIGS / f"{name}.yaml"
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
+    return parsed_results
 
 
 def main(args):
@@ -497,16 +556,34 @@ def main(args):
     LOGGER.opt(colors=True).info("<cyan>[4/4]</cyan> Evaluating results...")
     results = run_trackeval(args)
     
-    plotter = MetricsPlotter(args.exp_dir)
+    # Only plot if we have results for a single class or handle multi-class plotting differently
+    # For now, let's just skip the radar chart if we have multiple classes or complex structure
+    # Or pick the first class found?
+    # The original code expected a flat dict of metrics. Now we have {class: {metric: val}}
+    
+    # Let's try to plot for each class or just skip for now to avoid breaking
+    # If 'pedestrian' is in results, use that, otherwise use the first key
+    
+    plot_class = 'pedestrian'
+    if plot_class not in results and len(results) > 0:
+        plot_class = list(results.keys())[0]
+        
+    if plot_class in results:
+        metrics_data = results[plot_class]
+        plotter = MetricsPlotter(args.exp_dir)
+        
+        # Filter only the metrics we want to plot
+        plot_metrics = ['HOTA', 'MOTA', 'IDF1']
+        plot_values = [metrics_data.get(m, 0) for m in plot_metrics]
 
-    plotter.plot_radar_chart(
-        {args.tracking_method: list(results.values())},
-        list(results.keys()),
-        title="MOT metrics radar Chart",
-        ylim=(65, 85),
-        yticks=[65, 70, 75, 80, 85],
-        ytick_labels=['65', '70', '75', '80', '85']
-    )
+        plotter.plot_radar_chart(
+            {args.tracking_method: plot_values},
+            plot_metrics,
+            title=f"MOT metrics radar Chart ({plot_class})",
+            ylim=(0, 100),
+            yticks=[20, 40, 60, 80, 100],
+            ytick_labels=['20', '40', '60', '80', '100']
+        )
         
 
 if __name__ == "__main__":
