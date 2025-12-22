@@ -69,8 +69,10 @@ def core_options(func):
                      help='print detailed logs'),
         click.option('--agnostic-nms', is_flag=True,
                      help='class-agnostic NMS'),
-        click.option('--gsi', is_flag=True,
-                     help='apply Gaussian smoothing interpolation'),
+        click.option(
+            "--postprocessing", type=click.Choice(["none", "gsi", "gbrc"], case_sensitive=False), default="none",
+            help="Postprocess tracker output: none | gsi (Gaussian smoothed interpolation) | gbrc (gradient boosting smooth).",
+        ),
         click.option('--show', is_flag=True,
                      help='display tracking in a window'),
         click.option('--show-labels/--hide-labels', default=True,
