@@ -285,7 +285,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
     d = [seq_path.parent.name for seq_path in seq_paths]
 
     # Determine classes to evaluate
-    classes_to_eval = ['pedestrian']
+    classes_to_eval = ['person']
     if hasattr(args, 'classes') and args.classes is not None:
         class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
         classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
@@ -522,11 +522,16 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
             
         LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
     
+    # Flatten results if only one class is present (backward compatibility)
+    final_results = parsed_results
+    if len(parsed_results) == 1:
+        final_results = list(parsed_results.values())[0]
+
     if opt.ci:
         with open(opt.tracking_method + "_output.json", "w") as outfile:
-            outfile.write(json.dumps(parsed_results))
+            outfile.write(json.dumps(final_results))
     
-    return parsed_results
+    return final_results
 
 
 def main(args):
@@ -565,12 +570,19 @@ def main(args):
     # Let's try to plot for each class or just skip for now to avoid breaking
     # If 'pedestrian' is in results, use that, otherwise use the first key
     
-    plot_class = 'pedestrian'
-    if plot_class not in results and len(results) > 0:
-        plot_class = list(results.keys())[0]
-        
-    if plot_class in results:
-        metrics_data = results[plot_class]
+    # Check if results is flat (single class backward compatibility) or nested
+    is_flat = False
+    if results and isinstance(list(results.values())[0], (int, float)):
+        is_flat = True
+        metrics_data = results
+        plot_class = 'single_class'
+    else:
+        plot_class = 'pedestrian'
+        if plot_class not in results and len(results) > 0:
+            plot_class = list(results.keys())[0]
+        metrics_data = results.get(plot_class, {})
+
+    if metrics_data:
         plotter = MetricsPlotter(args.exp_dir)
         
         # Filter only the metrics we want to plot
