@@ -100,13 +100,13 @@ boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show
 boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save
 
 # Evaluate on MOT dataset
-boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --source MOT17-mini/train
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation --classes 0,2 --source MOT17-ablation
 
 # Tune tracker hyperparameters
-boxmot tune --source MOT17-mini/train --tracking-method deepocsort --n-trials 10
+boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke botsort --source MOT17-ablation --classes 0,2 --source dancetrack-ablation --n-trials 1000
 
 # Export ReID model
-boxmot export --weights osnet_x0_25_msmt17.pt --include onnx engine
+boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include openvino --dynamic
 ```
 
 ## 🐍 PYTHON
