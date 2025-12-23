@@ -87,6 +87,12 @@ class BaseTracker(ABC, VisualizationMixin):
             )
             self.max_obs = self.max_age + 5
 
+        # Plotting lifecycle bookkeeping
+        self._plot_frame_idx = -1
+        self._removed_first_seen = {}
+        self._removed_expired = set()
+        self.removed_display_frames = getattr(self, "removed_display_frames", 10)
+
         # Log all params if tracker_name provided via kwargs
         tracker_name = kwargs.pop('_tracker_name', None)
         if tracker_name:
