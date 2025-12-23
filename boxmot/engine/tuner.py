@@ -64,6 +64,14 @@ class Tracker:
         run_generate_mot_results(self.opt, config)
         # Evaluate and extract objectives
         results = run_trackeval(self.opt)
+
+        # If results are nested (multi-class), average the metrics
+        if results and isinstance(next(iter(results.values())), dict):
+            return {
+                k: sum(c.get(k, 0) for c in results.values()) / len(results)
+                for k in self.opt.objectives
+            }
+
         return {k: results.get(k) for k in self.opt.objectives}
 
 
