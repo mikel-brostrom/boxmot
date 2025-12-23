@@ -9,11 +9,20 @@ mp.set_start_method("spawn", force=True)
 
 from pathlib import Path
 from types import SimpleNamespace
+import yaml
 
 import click
 
-from boxmot.utils import ROOT, WEIGHTS
+from boxmot.utils import ROOT, WEIGHTS, DATASET_CONFIGS, TRACKEVAL
+from boxmot.utils.download import download_eval_data
 from boxmot.utils.misc import parse_imgsz
+
+
+def load_dataset_cfg(name: str) -> dict:
+    """Load the dict from boxmot/configs/datasets/{name}.yaml."""
+    path = DATASET_CONFIGS / f"{name}.yaml"
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
 
 
 def ensure_model_extension(model_path):
@@ -81,6 +90,8 @@ def core_options(func):
                      help='show or hide detection confidences'),
         click.option('--show-trajectories', is_flag=True,
                      help='overlay past trajectories'),
+        click.option('--show-lost', is_flag=True,
+                     help='show lost and removed tracks'),
         click.option('--save-txt', is_flag=True,
                      help='save results to a .txt file'),
         click.option('--save-crop', is_flag=True,
@@ -319,10 +330,36 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
+    
+    # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
+    if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
+        cfg = load_dataset_cfg(str(args.source))
+        
+        # Determine dataset destination
+        if cfg["download"]["dataset_url"]:
+            dataset_dest = TRACKEVAL / f"{Path(cfg['benchmark']['source']).name}.zip"
+        else:
+            # For custom datasets without URL, use the path from config if available, or default to assets
+            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{Path(cfg['benchmark']['source']).name}"))
+
+        download_eval_data(
+            runs_url=cfg["download"]["runs_url"],
+            dataset_url=cfg["download"]["dataset_url"],
+            dataset_dest=dataset_dest,
+            overwrite=False
+        )
+        args.benchmark = Path(cfg["benchmark"]["source"]).name
+        args.split = cfg["benchmark"]["split"]
+        if cfg["download"]["dataset_url"]:
+            args.source = TRACKEVAL / f"{args.benchmark}/{args.split}"
+        elif "source" in cfg["benchmark"]:
+            args.source = Path(cfg["benchmark"]["source"]) / args.split
+        else:
+            args.source = dataset_dest / args.split
+
     from boxmot.engine.tracker import main as run_track
     run_track(args)
-
-
+    
 @boxmot.command(help='Generate detections and embeddings')
 @click.argument('detector', required=False)
 @click.argument('reid', required=False)
