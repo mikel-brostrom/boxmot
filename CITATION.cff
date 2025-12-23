@@ -1,4 +1,4 @@
-cff-version: 16.0.1
+cff-version: 16.0.2
 
 message: >-
   If you use this software, please cite it using the
@@ -16,5 +16,5 @@ abstract: >-
 title: "BoxMOT: pluggable state-of-the-art multi-object tracking modules"
 repository-code: "https://github.com/mikel-brostrom/boxmot"
 license: AGPL-3.0
-version: 16.0.1
+version: 16.0.2
 type: software
