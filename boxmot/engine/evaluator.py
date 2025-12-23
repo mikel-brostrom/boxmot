@@ -351,7 +351,7 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
     return stdout
 
 
-def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace):
+def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace, lock):
     try:
         new_opt = copy.deepcopy(opt)
         # Check if img1 exists, otherwise use source_path directly
@@ -359,6 +359,11 @@ def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace):
         if not img_source.exists():
             img_source = source_path
             
+        # Use lock to ensure model loading/downloading is thread-safe
+        with lock:
+            if is_ultralytics_model(y):
+                YOLO(y)
+
         generate_dets_embs(new_opt, y, source=img_source)
     except Exception:
         traceback.print_exc()
@@ -366,6 +371,10 @@ def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace):
 
 def run_generate_dets_embs(opt: argparse.Namespace) -> None:
     mot_folder_paths = sorted([item for item in Path(opt.source).iterdir() if item.is_dir()])
+    
+    # Create a manager to share the lock across processes
+    manager = mp.Manager()
+    lock = manager.Lock()
 
     for y in opt.yolo_model:
         dets_folder = Path(opt.project) / 'dets_n_embs' / y.stem / 'dets'
@@ -389,7 +398,7 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
             LOGGER.info(f"Generating detections and embeddings for {len(tasks)}/{total_sequences} sequences with model {y.name}")
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
-            futures = [executor.submit(process_single_det_emb, y, source_path, opt) for y, source_path in tasks]
+            futures = [executor.submit(process_single_det_emb, y, source_path, opt, lock) for y, source_path in tasks]
 
             for fut in concurrent.futures.as_completed(futures):
                 try:
