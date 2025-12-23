@@ -510,6 +510,14 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
     
     trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder)
     parsed_results = parse_mot_results(trackeval_results)
+
+    # Load config to filter classes
+    cfg = load_dataset_cfg(str(opt.source.parent.name))
+
+    # Filter parsed_results to only include classes from the benchmark
+    if "benchmark" in cfg and "classes" in cfg["benchmark"]:
+        bench_classes = cfg["benchmark"]["classes"].split()
+        parsed_results = {k: v for k, v in parsed_results.items() if k in bench_classes}
     
     # Print results summary
     if verbose:
@@ -540,10 +548,10 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
         LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
     
     # Flatten results if only one class is present (backward compatibility)
-    cfg = load_dataset_cfg(str(opt.source.parent.name))
     final_results = parsed_results
-    if len(cfg["benchmark"]["classes"].split()) == 1:
-        final_results = list(parsed_results.values())[0]
+    if "benchmark" in cfg and "classes" in cfg["benchmark"]:
+        if len(cfg["benchmark"]["classes"].split()) == 1 and len(parsed_results) > 0:
+            final_results = list(parsed_results.values())[0]
 
     if opt.ci:
         with open(opt.tracking_method + "_output.json", "w") as outfile:
