@@ -275,7 +275,7 @@ def parse_mot_results(results: str) -> dict:
                 for key, idx in field_map.items():
                     if idx < len(values):
                         val = values[idx]
-                        parsed_results[current_class][key] = int(val) if key in int_fields else float(val)
+                        parsed_results[current_class][key] = max(0, int(val) if key in int_fields else float(val))
 
     return parsed_results
 
