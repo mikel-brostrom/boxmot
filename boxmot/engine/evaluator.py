@@ -46,6 +46,25 @@ checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
 
 
+COCO_CLASSES = [
+    'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
+    'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
+    'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
+    'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
+    'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed',
+    'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
+    'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+]
+
+
+def load_dataset_cfg(name: str) -> dict:
+    """Load the dict from boxmot/configs/datasets/{name}.yaml."""
+    path = DATASET_CONFIGS / f"{name}.yaml"
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+
 def eval_init(args,
               trackeval_dest: Path = TRACKEVAL,
               branch: str = "master",
@@ -60,18 +79,30 @@ def eval_init(args,
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
 
     # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack-ablation", "vizdrone-ablation"):
+    if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
         cfg = load_dataset_cfg(str(args.source))
+        
+        # Determine dataset destination
+        if cfg["download"]["dataset_url"]:
+            dataset_dest = TRACKEVAL / f"{Path(cfg['benchmark']['source']).name}.zip"
+        else:
+            # For custom datasets without URL, use the path from config if available, or default to assets
+            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{Path(cfg['benchmark']['source']).name}"))
+
         download_eval_data(
             runs_url=cfg["download"]["runs_url"],
             dataset_url=cfg["download"]["dataset_url"],
-            dataset_dest=Path(cfg["download"]["dataset_dest"]),
-            benchmark = cfg["benchmark"]["name"],
+            dataset_dest=dataset_dest,
             overwrite=overwrite
         )
-        args.benchmark = cfg["benchmark"]["name"]
+        args.benchmark = Path(cfg["benchmark"]["source"]).name
         args.split = cfg["benchmark"]["split"]
-        args.source = TRACKEVAL / f"data/{args.benchmark}/{args.split}"
+        if cfg["download"]["dataset_url"]:
+            args.source = TRACKEVAL / f"{args.benchmark}/{args.split}"
+        elif "source" in cfg["benchmark"]:
+            args.source = Path(cfg["benchmark"]["source"]) / args.split
+        else:
+            args.source = dataset_dest / args.split
 
     # 3) finally, make source an absolute Path everywhere
     args.source = Path(args.source).resolve()
@@ -190,12 +221,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
 def parse_mot_results(results: str) -> dict:
     """
     Extracts COMBINED HOTA, MOTA, IDF1, AssA, AssRe, IDSW, and IDs from MOTChallenge evaluation output.
-
-    Args:
-        results (str): Full MOT evaluation output as a string.
-
-    Returns:
-        dict: Dictionary with parsed metrics.
+    Returns a dictionary keyed by class name.
     """
     metric_specs = {
         'HOTA':   ('HOTA:',      {'HOTA': 0, 'AssA': 2, 'AssRe': 5}),
@@ -205,20 +231,53 @@ def parse_mot_results(results: str) -> dict:
     }
 
     int_fields = {'IDSW', 'IDs'}
-    metrics = {}
+    parsed_results = {}
+    
+    lines = results.splitlines()
+    current_class = None
+    current_metric_type = None
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check for header lines
+        is_header = False
+        for metric_name, (prefix, _) in metric_specs.items():
+            if line.startswith(prefix):
+                is_header = True
+                current_metric_type = metric_name
+                
+                # Format: "HOTA: tracker-classHOTA ..."
+                content = line[len(prefix):].strip()
+                first_word = content.split()[0]
+                if first_word.endswith(metric_name):
+                    tracker_class = first_word[:-len(metric_name)]
+                    if '-' in tracker_class:
+                        current_class = tracker_class.split('-')[-1]
+                    else:
+                        current_class = 'default'
+                    
+                    if current_class not in parsed_results:
+                        parsed_results[current_class] = {}
+                break
+        
+        if is_header:
+            continue
+        
+        # Check for COMBINED row
+        if line.startswith('COMBINED') and current_class and current_metric_type:
+            fields = line.split()
+            if len(fields) > 1:
+                values = fields[1:] # Skip 'COMBINED'
+                _, field_map = metric_specs[current_metric_type]
+                for key, idx in field_map.items():
+                    if idx < len(values):
+                        val = values[idx]
+                        parsed_results[current_class][key] = max(0, int(val) if key in int_fields else float(val))
 
-    for section, fields_map in metric_specs.values():
-        match = re.search(fr'{re.escape(section)}.*?COMBINED\s+(.*?)\n', results, re.DOTALL)
-        if match:
-            fields = match.group(1).split()
-            for key, idx in fields_map.items():
-                if idx < len(fields):
-                    value = fields[idx]
-                    metrics[key] = int(value) if key in int_fields else float(value)
-
-    return metrics
-
-
+    return parsed_results
 
 
 def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_folder: Path, metrics: list = ["HOTA", "CLEAR", "Identity"]) -> str:
@@ -237,8 +296,30 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
 
     d = [seq_path.parent.name for seq_path in seq_paths]
 
-    args = [
-        sys.executable, TRACKEVAL / 'scripts' / 'run_mot_challenge.py',
+    # Determine classes to evaluate
+    classes_to_eval = ['person']
+    if hasattr(args, 'classes') and args.classes is not None:
+        class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
+        classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
+
+    # Filter classes based on benchmark config
+    try:
+        if hasattr(args, 'benchmark'):
+            cfg = load_dataset_cfg(args.benchmark)
+            if "benchmark" in cfg and "classes" in cfg["benchmark"]:
+                bench_classes = cfg["benchmark"]["classes"].split()
+                # Map 'people' to 'person'
+                bench_classes = ['person' if c == 'people' else c for c in bench_classes]
+                
+                # Filter classes_to_eval
+                classes_to_eval = [c for c in classes_to_eval if c in bench_classes]
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        LOGGER.warning(f"Error filtering classes: {e}")
+
+    cmd_args = [
+        sys.executable, ROOT / 'boxmot' / 'utils' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
         "--BENCHMARK", "",
         "--TRACKERS_FOLDER", str(args.exp_dir.parent),
@@ -250,11 +331,12 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
         "--NUM_PARALLEL_CORES", str(4),
         "--SKIP_SPLIT_FOL", "True",
         "--GT_LOC_FORMAT", "{gt_folder}/{seq}/gt/gt_temp.txt",
+        "--CLASSES_TO_EVAL", *classes_to_eval,
         "--SEQ_INFO", *d
     ]
 
     p = subprocess.Popen(
-        args=args,
+        args=cmd_args,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
@@ -267,16 +349,30 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
     return stdout
 
 
-def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace):
+def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace, lock):
     try:
         new_opt = copy.deepcopy(opt)
-        generate_dets_embs(new_opt, y, source=source_path / 'img1')
+        # Check if img1 exists, otherwise use source_path directly
+        img_source = source_path / 'img1'
+        if not img_source.exists():
+            img_source = source_path
+            
+        # Use lock to ensure model loading/downloading is thread-safe
+        with lock:
+            if is_ultralytics_model(y):
+                YOLO(y)
+
+        generate_dets_embs(new_opt, y, source=img_source)
     except Exception:
         traceback.print_exc()
         raise
 
 def run_generate_dets_embs(opt: argparse.Namespace) -> None:
-    mot_folder_paths = sorted([item for item in Path(opt.source).iterdir()])
+    mot_folder_paths = sorted([item for item in Path(opt.source).iterdir() if item.is_dir()])
+    
+    # Create a manager to share the lock across processes
+    manager = mp.Manager()
+    lock = manager.Lock()
 
     for y in opt.yolo_model:
         dets_folder = Path(opt.project) / 'dets_n_embs' / y.stem / 'dets'
@@ -300,13 +396,14 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
             LOGGER.info(f"Generating detections and embeddings for {len(tasks)}/{total_sequences} sequences with model {y.name}")
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
-            futures = [executor.submit(process_single_det_emb, y, source_path, opt) for y, source_path in tasks]
+            futures = [executor.submit(process_single_det_emb, y, source_path, opt, lock) for y, source_path in tasks]
 
             for fut in concurrent.futures.as_completed(futures):
                 try:
                     fut.result()
-                except Exception:
-                    LOGGER.exception("Error in det/emb task")
+                except Exception as e:
+                    LOGGER.error(f"An error occurred during detection/embedding generation: {e}")
+                    raise e
 
 
 def process_sequence(seq_name: str,
@@ -438,35 +535,82 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
     save_dir = Path(opt.project) / opt.name
     
     trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder)
-    hota_mota_idf1 = parse_mot_results(trackeval_results)
+    parsed_results = parse_mot_results(trackeval_results)
+
+    # Load config to filter classes
+    # Try to load config from benchmark name first, then fallback to source parent name
+    cfg_name = getattr(opt, 'benchmark', str(opt.source.parent.name))
+    try:
+        cfg = load_dataset_cfg(cfg_name)
+    except FileNotFoundError:
+        # If config not found, try to find it by checking if source path ends with a known config name
+        # This handles cases where source is a custom path
+        found = False
+        for config_file in DATASET_CONFIGS.glob("*.yaml"):
+            if config_file.stem in str(opt.source):
+                cfg = load_dataset_cfg(config_file.stem)
+                found = True
+                break
+        
+        if not found:
+            LOGGER.warning(f"Could not find dataset config for {cfg_name}. Class filtering might be incorrect.")
+            cfg = {}
+
+    # Filter parsed_results based on user provided classes (opt.classes)
+    single_class_mode = False
+
+    # Priority 1: Benchmark config classes (overrides user classes)
+    if "benchmark" in cfg and "classes" in cfg["benchmark"]:
+        bench_classes = cfg["benchmark"]["classes"].split()
+        parsed_results = {k: v for k, v in parsed_results.items() if k in bench_classes}
+        if len(bench_classes) == 1:
+            single_class_mode = True
+    # Priority 2: User provided classes
+    elif hasattr(opt, 'classes') and opt.classes is not None:
+        class_indices = opt.classes if isinstance(opt.classes, list) else [opt.classes]
+        user_classes = [COCO_CLASSES[int(i)] for i in class_indices]
+        parsed_results = {k: v for k, v in parsed_results.items() if k in user_classes}
+        if len(user_classes) == 1:
+            single_class_mode = True
+
+    if single_class_mode and len(parsed_results) > 0:
+        final_results = list(parsed_results.values())[0]
+    else:
+        final_results = parsed_results
     
-    # Print results summary with colors (blue palette) - only if verbose
+    # Print results summary
     if verbose:
         LOGGER.info("")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
         LOGGER.opt(colors=True).info("<bold><cyan>📊 Results Summary</cyan></bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-        LOGGER.opt(colors=True).info(f"<bold>HOTA:</bold>  <cyan>{hota_mota_idf1['HOTA']:.2f}%</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>MOTA:</bold>  <cyan>{hota_mota_idf1['MOTA']:.2f}%</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>IDF1:</bold>  <cyan>{hota_mota_idf1['IDF1']:.2f}%</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>AssA:</bold>  <blue>{hota_mota_idf1['AssA']:.2f}%</blue>")
-        LOGGER.opt(colors=True).info(f"<bold>AssRe:</bold> <blue>{hota_mota_idf1['AssRe']:.2f}%</blue>")
-        LOGGER.opt(colors=True).info(f"<bold>IDSW:</bold>  <light-blue>{hota_mota_idf1['IDSW']}</light-blue>")
-        LOGGER.opt(colors=True).info(f"<bold>IDs:</bold>   <light-blue>{hota_mota_idf1['IDs']}</light-blue>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-    
+        LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
+        
+        headers = ["Class", "HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs"]
+        header_str = "{:<15} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8}".format(*headers)
+        LOGGER.opt(colors=True).info(f"<bold>{header_str}</bold>")
+        LOGGER.opt(colors=True).info("<blue>" + "-"*90 + "</blue>")
+        
+        for cls, metrics in parsed_results.items():
+            row = [
+                cls,
+                f"{metrics.get('HOTA', 0):.2f}%",
+                f"{metrics.get('MOTA', 0):.2f}%",
+                f"{metrics.get('IDF1', 0):.2f}%",
+                f"{metrics.get('AssA', 0):.2f}%",
+                f"{metrics.get('AssRe', 0):.2f}%",
+                f"{metrics.get('IDSW', 0)}",
+                f"{metrics.get('IDs', 0)}"
+            ]
+            row_str = "{:<15} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8}".format(*row)
+            LOGGER.opt(colors=True).info(row_str)
+            
+        LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
+
     if opt.ci:
         with open(opt.tracking_method + "_output.json", "w") as outfile:
-            outfile.write(json.dumps(hota_mota_idf1))
+            outfile.write(json.dumps(final_results))
     
-    return hota_mota_idf1
-
-
-def load_dataset_cfg(name: str) -> dict:
-    """Load the dict from boxmot/configs/datasets/{name}.yaml."""
-    path = DATASET_CONFIGS / f"{name}.yaml"
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
+    return final_results
 
 
 def main(args):
@@ -497,16 +641,41 @@ def main(args):
     LOGGER.opt(colors=True).info("<cyan>[4/4]</cyan> Evaluating results...")
     results = run_trackeval(args)
     
-    plotter = MetricsPlotter(args.exp_dir)
+    # Only plot if we have results for a single class or handle multi-class plotting differently
+    # For now, let's just skip the radar chart if we have multiple classes or complex structure
+    # Or pick the first class found?
+    # The original code expected a flat dict of metrics. Now we have {class: {metric: val}}
+    
+    # Let's try to plot for each class or just skip for now to avoid breaking
+    # If 'pedestrian' is in results, use that, otherwise use the first key
+    
+    # Check if results is flat (single class backward compatibility) or nested
+    is_flat = False
+    if results and isinstance(list(results.values())[0], (int, float)):
+        is_flat = True
+        metrics_data = results
+        plot_class = 'single_class'
+    else:
+        plot_class = 'pedestrian'
+        if plot_class not in results and len(results) > 0:
+            plot_class = list(results.keys())[0]
+        metrics_data = results.get(plot_class, {})
 
-    plotter.plot_radar_chart(
-        {args.tracking_method: list(results.values())},
-        list(results.keys()),
-        title="MOT metrics radar Chart",
-        ylim=(65, 85),
-        yticks=[65, 70, 75, 80, 85],
-        ytick_labels=['65', '70', '75', '80', '85']
-    )
+    if metrics_data:
+        plotter = MetricsPlotter(args.exp_dir)
+        
+        # Filter only the metrics we want to plot
+        plot_metrics = ['HOTA', 'MOTA', 'IDF1']
+        plot_values = [metrics_data.get(m, 0) for m in plot_metrics]
+
+        plotter.plot_radar_chart(
+            {args.tracking_method: plot_values},
+            plot_metrics,
+            title=f"MOT metrics radar Chart ({plot_class})",
+            ylim=(0, 100),
+            yticks=[20, 40, 60, 80, 100],
+            ytick_labels=['20', '40', '60', '80', '100']
+        )
         
 
 if __name__ == "__main__":

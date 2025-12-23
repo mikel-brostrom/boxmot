@@ -1,0 +1,9 @@
+# https://motchallenge.net/data/MOT17/
+download:
+  runs_url: ""
+  dataset_url: ""
+
+benchmark:
+  source: "assets/MOT17-mini"
+  split: "train"
+  classes: "person"

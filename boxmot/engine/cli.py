@@ -99,6 +99,29 @@ def core_options(func):
     return func
 
 
+def parse_classes(classes_input):
+    """
+    Parse classes input which can be a tuple of ints (from multiple=True),
+    a string (comma/space separated), or None.
+    Returns a list of integers or None.
+    """
+    if classes_input is None:
+        return None
+    
+    if isinstance(classes_input, (list, tuple)):
+        # If it's already a list/tuple of ints (from multiple=True)
+        if not classes_input:
+            return None
+        return list(classes_input)
+    
+    if isinstance(classes_input, str):
+        # Handle string input: "0,1" or "0 1"
+        classes_input = classes_input.replace(',', ' ')
+        return [int(x) for x in classes_input.split()]
+    
+    return [int(classes_input)]
+
+
 def singular_model_options(func):
     options = [
         click.option('--yolo-model', type=Path,
@@ -107,8 +130,8 @@ def singular_model_options(func):
         click.option('--reid-model', type=Path,
                      default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                      help='path to ReID model weights'),
-        click.option('--classes', type=int, multiple=True,
-                     help='filter by class indices')
+        click.option('--classes', type=str, default=None,
+                     help='filter by class indices, e.g. 0 or "0,1"')
     ]
     for opt in reversed(options):
         func = opt(func)
@@ -123,8 +146,8 @@ def plural_model_options(func):
         click.option('--reid-model', type=Path, multiple=True,
                      default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'],
                      help='one or more ReID model weights'),
-        click.option('--classes', type=int, multiple=True,
-                     default=[0], help='filter by class indices')
+        click.option('--classes', type=str, default=None,
+                     help='filter by class indices, e.g. 0 or "0,1"')
     ]
     for opt in reversed(options):
         func = opt(func)
@@ -291,7 +314,7 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
     params = {**kwargs,
               'yolo_model': yolo_model,
               'reid_model': reid_model,
-              'classes': list(classes) if classes else None,
+              'classes': parse_classes(classes),
               'source': src,
               'benchmark': bench,
               'split': split}
@@ -324,7 +347,7 @@ def generate(ctx, detector, reid, yolo_model, reid_model, classes, **kwargs):
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
-              'classes': list(classes),
+              'classes': parse_classes(classes),
               'source': src,
               'benchmark': bench,
               'split': split}
@@ -360,7 +383,7 @@ def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
-              'classes': [0],
+              'classes': parse_classes(classes),
               'source': src,
               'benchmark': bench,
               'split': split}
@@ -397,7 +420,7 @@ def tune(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
     params = {**kwargs,
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
-              'classes': list(classes),
+              'classes': parse_classes(classes),
               'source': src,
               'benchmark': bench,
               'split': split}

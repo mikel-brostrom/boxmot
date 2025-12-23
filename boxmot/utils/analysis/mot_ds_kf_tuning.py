@@ -176,7 +176,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--train_root", 
         type=Path,
-        default=TRACKEVAL / "data/MOT17-ablation/train",
+        default=TRACKEVAL / "MOT17-ablation/train",
         help="Root folder containing all MOT17-ablation train sequences"
     )
     parser.add_argument(

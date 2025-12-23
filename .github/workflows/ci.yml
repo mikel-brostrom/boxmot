@@ -78,7 +78,7 @@ jobs:
         run: |
           source .venv/bin/activate
           # reuse first set of generated det and prod
-          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
+          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci --classes 0
   mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -118,7 +118,7 @@ jobs:
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
           for tracker in $TRACKERS; do
-            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
+            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci  --classes 0; then
               STATUS="✅"
             else
               STATUS="❌"

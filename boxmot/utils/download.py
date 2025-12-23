@@ -182,7 +182,6 @@ def download_eval_data(
     runs_url: Optional[str] = None,
     dataset_url: str,
     dataset_dest: Path,
-    benchmark: str,
     overwrite: bool = False
 ) -> None:
     """
@@ -197,15 +196,14 @@ def download_eval_data(
         runs_zip = download_file(runs_url, Path("runs.zip"), overwrite=overwrite)
         extract_zip(runs_zip, Path("."), overwrite=overwrite)
 
+    if not dataset_url:
+        return
+
     # benchmark ZIP
     benchmark_zip = download_file(dataset_url, dataset_dest, overwrite=overwrite)
-    if benchmark == "dancetrack-ablation":
-        data_dir = dataset_dest.parent / "data" / "dancetrack-ablation"
-    else:
-        data_dir = dataset_dest.parent / "data"
-    extract_zip(benchmark_zip, data_dir, overwrite=overwrite)
+    extract_zip(benchmark_zip, dataset_dest.parent, overwrite=overwrite)
 
-    LOGGER.debug(f"Benchmark data ready at: {data_dir}")
+    LOGGER.debug(f"Benchmark data ready at: {dataset_dest.parent}")
 
 
 if __name__ == "__main__":
@@ -225,6 +223,5 @@ if __name__ == "__main__":
         runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
         dataset_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
         dataset_dest=Path("boxmot/engine/TrackEval/MOT17-ablation.zip"),
-        benchmark="MOT17-ablation",
         overwrite=args.overwrite
     )
