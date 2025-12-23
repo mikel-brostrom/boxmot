@@ -1,9 +1,9 @@
-# https://motchallenge.net/data/MOT20/
+# https://github.com/SportsMOT/SportsMOT
 download:
-  runs_url: null
-  dataset_url: "https://onedrive.live.com/?redeem=aHR0cHM6Ly8xZHJ2Lm1zL3UvcyFBdGplTHE3WW5ZR1JnUVJybXFHcjRCLWsteHNDP2U9N1BuZFU4&cid=91819DD8AE2EDED8&id=91819DD8AE2EDED8%21132&parId=91819DD8AE2EDED8%21129&o=OneUp"
-  dataset_dest: "boxmot/engine/trackeval/SportsMOT.zip"
+  runs_url: ""
+  dataset_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/SportsMOT.zip"
 
 benchmark:
-  name: "SportsMOT"
-  split: "train"
+  source: "boxmot/engine/trackeval/SportsMOT"
+  split: "val"
+  classes: "person"
