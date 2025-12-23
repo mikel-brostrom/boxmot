@@ -150,7 +150,11 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
         if timing_stats:
             timing_stats.start_plot()
         
-        result.orig_img = tracker.plot_results(img, predictor.custom_args.show_trajectories)
+        result.orig_img = tracker.plot_results(
+            img,
+            predictor.custom_args.show_trajectories,
+            show_lost=predictor.custom_args.show_lost
+        )
         
         if timing_stats:
             timing_stats.end_plot()

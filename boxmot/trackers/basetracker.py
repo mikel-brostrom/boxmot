@@ -7,9 +7,10 @@ import numpy as np
 
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.iou import AssociationFunction
+from boxmot.utils.visualization import VisualizationMixin
 
 
-class BaseTracker(ABC):
+class BaseTracker(ABC, VisualizationMixin):
     def __init__(
         self,
         det_thresh: float = 0.3,
@@ -85,6 +86,12 @@ class BaseTracker(ABC):
                 "Max age > max observations, increasing size of max observations..."
             )
             self.max_obs = self.max_age + 5
+
+        # Plotting lifecycle bookkeeping
+        self._plot_frame_idx = -1
+        self._removed_first_seen = {}
+        self._removed_expired = set()
+        self.removed_display_frames = getattr(self, "removed_display_frames", 10)
 
         # Log all params if tracker_name provided via kwargs
         tracker_name = kwargs.pop('_tracker_name', None)
@@ -270,186 +277,6 @@ class BaseTracker(ABC):
             assert dets.shape[1] == 6, (
                 "Unsupported 'dets' 2nd dimension length, valid lengths is 6 (x1,y1,x2,y2,conf,cls)"
             )
-
-    def id_to_color(
-        self, id: int, saturation: float = 0.75, value: float = 0.95
-    ) -> tuple:
-        """
-        Returns green for target_id, otherwise generates a consistent unique BGR color using ID hashing.
-
-        Parameters:
-        - id (int): Unique identifier for which to generate a color.
-        - saturation (float): Saturation value for HSV color space.
-        - value (float): Brightness value for HSV color space.
-
-        Returns:
-        - tuple: A BGR color tuple for OpenCV visualization.
-        """
-        target_id = getattr(self, "target_id", None)
-        if target_id is not None:
-            return (0, 255, 0) if id == target_id else (0, 0, 0)
-
-        # Default: consistent hashed color for other IDs
-        hash_object = hashlib.sha256(str(id).encode())
-        hash_digest = hash_object.hexdigest()
-        hue = int(hash_digest[:8], 16) / 0xFFFFFFFF
-
-        # Convert HSV to RGB
-        rgb = colorsys.hsv_to_rgb(hue, saturation, value)
-        rgb_255 = tuple(int(component * 255) for component in rgb)
-
-        # Convert to BGR
-        return rgb_255[::-1]
-
-    def plot_box_on_img(
-        self,
-        img: np.ndarray,
-        box: tuple,
-        conf: float,
-        cls: int,
-        id: int,
-        thickness: int = 2,
-        fontscale: float = 0.5,
-    ) -> np.ndarray:
-        """
-        Draws a bounding box with ID, confidence, and class information on an image.
-
-        Parameters:
-        - img (np.ndarray): The image array to draw on.
-        - box (tuple): The bounding box coordinates as (x1, y1, x2, y2).
-        - conf (float): Confidence score of the detection.
-        - cls (int): Class ID of the detection.
-        - id (int): Unique identifier for the detection.
-        - thickness (int): The thickness of the bounding box.
-        - fontscale (float): The font scale for the text.
-
-        Returns:
-        - np.ndarray: The image array with the bounding box drawn on it.
-        """
-        if self.is_obb:
-            angle = box[4] * 180.0 / np.pi  # Convert radians to degrees
-            box_poly = ((box[0], box[1]), (box[2], box[3]), angle)
-            # print((width, height))
-            rotrec = cv.boxPoints(box_poly)
-            box_poly = np.int_(rotrec)  # Convert to integer
-
-            # Draw the rectangle on the image
-            img = cv.polylines(
-                img,
-                [box_poly],
-                isClosed=True,
-                color=self.id_to_color(id),
-                thickness=thickness,
-            )
-
-            img = cv.putText(
-                img,
-                f"id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}, a: {box[4]:.2f}",
-                (int(box[0]), int(box[1]) - 10),
-                cv.FONT_HERSHEY_SIMPLEX,
-                fontscale,
-                self.id_to_color(id),
-                thickness,
-            )
-        else:
-            img = cv.rectangle(
-                img,
-                (int(box[0]), int(box[1])),
-                (int(box[2]), int(box[3])),
-                self.id_to_color(id),
-                thickness,
-            )
-            img = cv.putText(
-                img,
-                f"id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}",
-                (int(box[0]), int(box[1]) - 10),
-                cv.FONT_HERSHEY_SIMPLEX,
-                fontscale,
-                self.id_to_color(id),
-                thickness,
-            )
-        return img
-
-    def plot_trackers_trajectories(
-        self, img: np.ndarray, observations: list, id: int
-    ) -> np.ndarray:
-        """
-        Draws the trajectories of tracked objects based on historical observations. Each point
-        in the trajectory is represented by a circle, with the thickness increasing for more
-        recent observations to visualize the path of movement.
-
-        Parameters:
-        - img (np.ndarray): The image array on which to draw the trajectories.
-        - observations (list): A list of bounding box coordinates representing the historical
-        observations of a tracked object. Each observation is in the format (x1, y1, x2, y2).
-        - id (int): The unique identifier of the tracked object for color consistency in visualization.
-
-        Returns:
-        - np.ndarray: The image array with the trajectories drawn on it.
-        """
-        for i, box in enumerate(observations):
-            trajectory_thickness = int(np.sqrt(float(i + 1)) * 1.2)
-            if self.is_obb:
-                img = cv.circle(
-                    img,
-                    (int(box[0]), int(box[1])),
-                    2,
-                    color=self.id_to_color(int(id)),
-                    thickness=trajectory_thickness,
-                )
-            else:
-                img = cv.circle(
-                    img,
-                    (int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2)),
-                    2,
-                    color=self.id_to_color(int(id)),
-                    thickness=trajectory_thickness,
-                )
-        return img
-
-    def plot_results(
-        self,
-        img: np.ndarray,
-        show_trajectories: bool,
-        thickness: int = 2,
-        fontscale: float = 0.5,
-    ) -> np.ndarray:
-        """
-        Visualizes the trajectories of all active tracks on the image. For each track,
-        it draws the latest bounding box and the path of movement if the history of
-        observations is longer than two. This helps in understanding the movement patterns
-        of each tracked object.
-
-        Parameters:
-        - img (np.ndarray): The image array on which to draw the trajectories and bounding boxes.
-        - show_trajectories (bool): Whether to show the trajectories.
-        - thickness (int): The thickness of the bounding box.
-        - fontscale (float): The font scale for the text.
-
-        Returns:
-        - np.ndarray: The image array with trajectories and bounding boxes of all active tracks.
-        """
-
-        if self.per_class_active_tracks is None:  # dict
-            active_tracks = self.active_tracks
-        else:
-            active_tracks = []
-            for k in self.per_class_active_tracks.keys():
-                active_tracks += self.per_class_active_tracks[k]
-
-        for a in active_tracks:
-            if not a.history_observations:
-                continue
-            if len(a.history_observations) < 3:
-                continue
-            box = a.history_observations[-1]
-            img = self.plot_box_on_img(
-                img, box, a.conf, a.cls, a.id, thickness, fontscale
-            )
-            if not show_trajectories:
-                continue
-            img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
-        return img
 
     def reset(self):
         pass
