@@ -101,6 +101,8 @@ def eval_init(args,
         args.split = cfg["benchmark"]["split"]
         if cfg["download"]["dataset_url"]:
             args.source = TRACKEVAL / f"{args.benchmark}/{args.split}"
+        elif "source" in cfg["benchmark"]:
+            args.source = Path(cfg["benchmark"]["source"]) / args.split
         else:
             args.source = dataset_dest / args.split
 
@@ -352,7 +354,12 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
 def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace):
     try:
         new_opt = copy.deepcopy(opt)
-        generate_dets_embs(new_opt, y, source=source_path / 'img1')
+        # Check if img1 exists, otherwise use source_path directly
+        img_source = source_path / 'img1'
+        if not img_source.exists():
+            img_source = source_path
+            
+        generate_dets_embs(new_opt, y, source=img_source)
     except Exception:
         traceback.print_exc()
         raise

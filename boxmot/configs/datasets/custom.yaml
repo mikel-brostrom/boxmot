@@ -2,9 +2,9 @@
 download:
   runs_url: ""
   dataset_url: ""
-  dataset_dest: "assets/MOT17-mini"
 
 benchmark:
-  name: "custom"
+  source: "assets/MOT17-mini"
+  name: "MOT17-mini"
   split: "train"
-  classes: "person car"
+  classes: "person"
