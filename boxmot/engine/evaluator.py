@@ -80,7 +80,6 @@ def eval_init(args,
 
     # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
     if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
-        print(str(args.source))
         cfg = load_dataset_cfg(str(args.source))
         
         # Determine dataset destination
