@@ -197,12 +197,15 @@ def download_eval_data(
         runs_zip = download_file(runs_url, Path("runs.zip"), overwrite=overwrite)
         extract_zip(runs_zip, Path("."), overwrite=overwrite)
 
+    if not dataset_url:
+        return
+
     # benchmark ZIP
     benchmark_zip = download_file(dataset_url, dataset_dest, overwrite=overwrite)
     if benchmark == "dancetrack-ablation":
-        data_dir = dataset_dest.parent / "data" / "dancetrack-ablation"
+        data_dir = dataset_dest.parent / "dancetrack-ablation"
     else:
-        data_dir = dataset_dest.parent / "data"
+        data_dir = dataset_dest.parent
     extract_zip(benchmark_zip, data_dir, overwrite=overwrite)
 
     LOGGER.debug(f"Benchmark data ready at: {data_dir}")

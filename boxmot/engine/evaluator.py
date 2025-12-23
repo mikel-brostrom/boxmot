@@ -79,19 +79,30 @@ def eval_init(args,
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
 
     # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack-ablation", "vizdrone-ablation"):
+    if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
         print(str(args.source))
         cfg = load_dataset_cfg(str(args.source))
+        
+        # Determine dataset destination
+        if cfg["download"]["dataset_url"]:
+            dataset_dest = TRACKEVAL / f"{cfg['benchmark']['name']}.zip"
+        else:
+            # For custom datasets without URL, use the path from config if available, or default to assets
+            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{cfg['benchmark']['name']}"))
+
         download_eval_data(
             runs_url=cfg["download"]["runs_url"],
             dataset_url=cfg["download"]["dataset_url"],
-            dataset_dest=Path(cfg["download"]["dataset_dest"]),
+            dataset_dest=dataset_dest,
             benchmark = cfg["benchmark"]["name"],
             overwrite=overwrite
         )
         args.benchmark = cfg["benchmark"]["name"]
         args.split = cfg["benchmark"]["split"]
-        args.source = TRACKEVAL / f"data/{args.benchmark}/{args.split}"
+        if cfg["download"]["dataset_url"]:
+            args.source = TRACKEVAL / f"{args.benchmark}/{args.split}"
+        else:
+            args.source = dataset_dest / args.split
 
     # 3) finally, make source an absolute Path everywhere
     args.source = Path(args.source).resolve()
@@ -347,7 +358,7 @@ def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace):
         raise
 
 def run_generate_dets_embs(opt: argparse.Namespace) -> None:
-    mot_folder_paths = sorted([item for item in Path(opt.source).iterdir()])
+    mot_folder_paths = sorted([item for item in Path(opt.source).iterdir() if item.is_dir()])
 
     for y in opt.yolo_model:
         dets_folder = Path(opt.project) / 'dets_n_embs' / y.stem / 'dets'
@@ -376,8 +387,9 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
             for fut in concurrent.futures.as_completed(futures):
                 try:
                     fut.result()
-                except Exception:
-                    LOGGER.exception("Error in det/emb task")
+                except Exception as e:
+                    LOGGER.error(f"An error occurred during detection/embedding generation: {e}")
+                    raise e
 
 
 def process_sequence(seq_name: str,
@@ -512,7 +524,23 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
     parsed_results = parse_mot_results(trackeval_results)
 
     # Load config to filter classes
-    cfg = load_dataset_cfg(str(opt.source.parent.name))
+    # Try to load config from benchmark name first, then fallback to source parent name
+    cfg_name = getattr(opt, 'benchmark', str(opt.source.parent.name))
+    try:
+        cfg = load_dataset_cfg(cfg_name)
+    except FileNotFoundError:
+        # If config not found, try to find it by checking if source path ends with a known config name
+        # This handles cases where source is a custom path
+        found = False
+        for config_file in DATASET_CONFIGS.glob("*.yaml"):
+            if config_file.stem in str(opt.source):
+                cfg = load_dataset_cfg(config_file.stem)
+                found = True
+                break
+        
+        if not found:
+            LOGGER.warning(f"Could not find dataset config for {cfg_name}. Class filtering might be incorrect.")
+            cfg = {}
 
     # Filter parsed_results to only include classes from the benchmark
     if "benchmark" in cfg and "classes" in cfg["benchmark"]:
