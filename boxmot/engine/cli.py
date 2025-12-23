@@ -81,6 +81,8 @@ def core_options(func):
                      help='show or hide detection confidences'),
         click.option('--show-trajectories', is_flag=True,
                      help='overlay past trajectories'),
+        click.option('--show-lost', is_flag=True,
+                     help='show lost tracks'),
         click.option('--save-txt', is_flag=True,
                      help='save results to a .txt file'),
         click.option('--save-crop', is_flag=True,
