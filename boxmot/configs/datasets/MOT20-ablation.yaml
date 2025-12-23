@@ -7,3 +7,4 @@ download:
 benchmark:
   name: "MOT20-ablation"
   split: "train"
+  classes: "people"

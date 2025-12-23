@@ -7,3 +7,4 @@ download:
 benchmark:
   name: "SportsMOT"
   split: "train"
+  classes: "people"

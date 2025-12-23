@@ -7,3 +7,4 @@ download:
 benchmark:
   name: "VisDrone2019-MOT-val"
   split: ""
+  classes: "people bicycle car van truck tricycle awning-tricycle bus motor"
