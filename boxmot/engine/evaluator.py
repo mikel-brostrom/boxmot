@@ -558,10 +558,27 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
             LOGGER.warning(f"Could not find dataset config for {cfg_name}. Class filtering might be incorrect.")
             cfg = {}
 
-    # Filter parsed_results to only include classes from the benchmark
+    # Filter parsed_results based on user provided classes (opt.classes)
+    single_class_mode = False
+
+    # Priority 1: Benchmark config classes (overrides user classes)
     if "benchmark" in cfg and "classes" in cfg["benchmark"]:
         bench_classes = cfg["benchmark"]["classes"].split()
         parsed_results = {k: v for k, v in parsed_results.items() if k in bench_classes}
+        if len(bench_classes) == 1:
+            single_class_mode = True
+    # Priority 2: User provided classes
+    elif hasattr(opt, 'classes') and opt.classes is not None:
+        class_indices = opt.classes if isinstance(opt.classes, list) else [opt.classes]
+        user_classes = [COCO_CLASSES[int(i)] for i in class_indices]
+        parsed_results = {k: v for k, v in parsed_results.items() if k in user_classes}
+        if len(user_classes) == 1:
+            single_class_mode = True
+
+    if single_class_mode and len(parsed_results) > 0:
+        final_results = list(parsed_results.values())[0]
+    else:
+        final_results = parsed_results
     
     # Print results summary
     if verbose:
@@ -590,12 +607,6 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
             LOGGER.opt(colors=True).info(row_str)
             
         LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
-    
-    # Flatten results if only one class is present (backward compatibility)
-    final_results = parsed_results
-    if "benchmark" in cfg and "classes" in cfg["benchmark"]:
-        if len(cfg["benchmark"]["classes"].split()) == 1 and len(parsed_results) > 0:
-            final_results = list(parsed_results.values())[0]
 
     if opt.ci:
         with open(opt.tracking_method + "_output.json", "w") as outfile:
