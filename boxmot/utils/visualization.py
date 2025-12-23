@@ -231,7 +231,7 @@ class BaseVisualization(ABC):
         show_trajectories: bool,
         thickness: int = 2,
         fontscale: float = 0.5,
-        show_lost: bool = True,
+        show_lost: bool = False,
     ) -> np.ndarray:
         """
         Visualizes the trajectories of all active tracks on the image.
