@@ -80,6 +80,7 @@ def eval_init(args,
 
     # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
     if args.source in ("MOT17-ablation", "MOT20-ablation", "dancetrack-ablation", "vizdrone-ablation"):
+        print(str(args.source))
         cfg = load_dataset_cfg(str(args.source))
         download_eval_data(
             runs_url=cfg["download"]["runs_url"],
@@ -289,6 +290,22 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
     if hasattr(args, 'classes') and args.classes is not None:
         class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
         classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
+
+    # Filter classes based on benchmark config
+    try:
+        if hasattr(args, 'benchmark'):
+            cfg = load_dataset_cfg(args.benchmark)
+            if "benchmark" in cfg and "classes" in cfg["benchmark"]:
+                bench_classes = cfg["benchmark"]["classes"].split()
+                # Map 'people' to 'person'
+                bench_classes = ['person' if c == 'people' else c for c in bench_classes]
+                
+                # Filter classes_to_eval
+                classes_to_eval = [c for c in classes_to_eval if c in bench_classes]
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        LOGGER.warning(f"Error filtering classes: {e}")
 
     cmd_args = [
         sys.executable, ROOT / 'boxmot' / 'utils' / 'run_mot_challenge.py',
@@ -523,8 +540,9 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
         LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
     
     # Flatten results if only one class is present (backward compatibility)
+    cfg = load_dataset_cfg(str(opt.source.parent.name))
     final_results = parsed_results
-    if len(parsed_results) == 1:
+    if len(cfg["benchmark"]["classes"].split()) == 1:
         final_results = list(parsed_results.values())[0]
 
     if opt.ci:

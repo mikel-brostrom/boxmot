@@ -7,3 +7,4 @@ download:
 benchmark:
   name: "dancetrack-ablation"
   split: "val"
+  classes: "person"

@@ -7,4 +7,4 @@ download:
 benchmark:
   name: "MOT17-ablation"
   split: "train"
-  classes: "people"
+  classes: "person"
