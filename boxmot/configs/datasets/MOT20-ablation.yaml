@@ -5,6 +5,5 @@ download:
 
 benchmark:
   source: "boxmot/engine/trackeval/MOT20-ablation"
-  name: "MOT20-ablation"
   split: "train"
   classes: "person"

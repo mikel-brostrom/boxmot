@@ -5,7 +5,5 @@ download:
 
 benchmark:
   source: "boxmot/engine/trackeval/SportsMOT"
-
-  name: "SportsMOT"
-  split: "train"
+  split: "val"
   classes: "person"

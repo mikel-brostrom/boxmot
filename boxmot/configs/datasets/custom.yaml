@@ -5,6 +5,5 @@ download:
 
 benchmark:
   source: "assets/MOT17-mini"
-  name: "MOT17-mini"
   split: "train"
   classes: "person"

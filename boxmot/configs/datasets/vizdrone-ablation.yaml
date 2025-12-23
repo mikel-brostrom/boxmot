@@ -5,6 +5,5 @@ download:
 
 benchmark:
   source: "boxmot/engine/trackeval/vizdrone-ablation"
-  name: "vizdrone-ablation"
   split: "train"
   classes: "person car truck bus van"

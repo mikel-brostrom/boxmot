@@ -5,6 +5,5 @@ download:
 
 benchmark:
   source: "boxmot/engine/trackeval/dancetrack-ablation"
-  name: "dancetrack-ablation"
-  split: "train"
+  split: "val"
   classes: "person"

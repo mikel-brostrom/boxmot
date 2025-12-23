@@ -85,10 +85,10 @@ def eval_init(args,
         
         # Determine dataset destination
         if cfg["download"]["dataset_url"]:
-            dataset_dest = TRACKEVAL / f"{cfg['benchmark']['name']}.zip"
+            dataset_dest = TRACKEVAL / f"{Path(cfg['benchmark']['source']).name}.zip"
         else:
             # For custom datasets without URL, use the path from config if available, or default to assets
-            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{cfg['benchmark']['name']}"))
+            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{Path(cfg['benchmark']['source']).name}"))
 
         download_eval_data(
             runs_url=cfg["download"]["runs_url"],
@@ -96,7 +96,7 @@ def eval_init(args,
             dataset_dest=dataset_dest,
             overwrite=overwrite
         )
-        args.benchmark = cfg["benchmark"]["name"]
+        args.benchmark = Path(cfg["benchmark"]["source"]).name
         args.split = cfg["benchmark"]["split"]
         if cfg["download"]["dataset_url"]:
             args.source = TRACKEVAL / f"{args.benchmark}/{args.split}"
