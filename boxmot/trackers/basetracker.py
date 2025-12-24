@@ -10,7 +10,7 @@ from boxmot.utils.iou import AssociationFunction
 from boxmot.utils.visualization import VisualizationMixin
 
 
-class BaseTracker(ABC, VisualizationMixin):
+class BaseTracker(VisualizationMixin):
     def __init__(
         self,
         det_thresh: float = 0.3,
