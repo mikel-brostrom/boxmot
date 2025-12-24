@@ -93,20 +93,20 @@ Where:
 
 **Quick Examples:**
 ```bash
-# Track with webcam
-boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show
+# Track with webcam, save results, show basic results
+boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show --save
 
-# Track a video file
-boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save
+# Track a video file, save results, show trajectories + lost tracks
+boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save --show-trajectories --show-lost
 
 # Evaluate on MOT dataset
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation --classes 0,2 --source MOT17-ablation
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation
 
-# Tune tracker hyperparameters
-boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke botsort --source MOT17-ablation --classes 0,2 --source dancetrack-ablation --n-trials 1000
+# Tune ocsort's hyperparameters for dancetrack
+boxmot tune yolox_x_dancetrack_ablation lmbn_n_duke ocsort --source dancetrack-ablation --n-trials 10
 
-# Export ReID model
-boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include openvino --dynamic
+# Export ReID model with dynamic sized input
+boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine dynamic
 ```
 
 ## 🐍 PYTHON

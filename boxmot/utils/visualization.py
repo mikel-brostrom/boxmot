@@ -1,11 +1,14 @@
 import colorsys
 import hashlib
+from abc import ABC, abstractmethod
+
 import cv2 as cv
 import numpy as np
 
-class VisualizationMixin:
+
+class BaseVisualization(ABC):
     """
-    Mixin class for visualization methods in BaseTracker.
+    Abstract base class for visualization methods in BaseTracker.
     """
     
     def id_to_color(
@@ -176,67 +179,9 @@ class VisualizationMixin:
 
         return "confirmed"
 
+    @abstractmethod
     def _display_groups(self):
-        """
-        Yield groups of (tracks, forced_state, style) ready for drawing.
-        If ByteTrack-style lists exist, use them with styles and TTLs.
-        Otherwise, fall back to all active tracks and per-track inferred state.
-        """
-        lost_list = getattr(self, "lost_stracks", None)
-        removed_list = getattr(self, "removed_stracks", None)
-
-        # Maintain internal frame index for TTL accounting
-        self._plot_frame_idx += 1
-        now = self._plot_frame_idx
-
-        ttl = int(max(0, getattr(self, "removed_display_frames", self.removed_display_frames)))
-
-        if (lost_list is not None) or (removed_list is not None):
-            # Active
-            yield (self._all_active_tracks(), "confirmed", "solid")
-
-            # Lost (dashed, orange)
-            if lost_list:
-                yield (list(lost_list), "predicted", "dashed")
-
-            # Removed (gray, solid), with TTL + tombstone
-            if removed_list and ttl > 0:
-                filtered_removed = []
-                for a in removed_list:
-                    if not getattr(a, "history_observations", None):
-                        continue
-                    sf = int(getattr(a, "start_frame", getattr(a, "birth_frame", -1)))
-                    rid = int(getattr(a, "id"))
-                    key = (rid, sf) if sf >= 0 else rid
-
-                    if key in self._removed_expired:
-                        continue
-
-                    if key not in self._removed_first_seen:
-                        self._removed_first_seen[key] = now
-
-                    if (now - self._removed_first_seen[key]) < ttl:
-                        filtered_removed.append(a)
-                    else:
-                        self._removed_expired.add(key)
-
-                if filtered_removed:
-                    yield (filtered_removed, "removed", "solid")
-
-            # Optional: simple memory cap
-            if len(self._removed_expired) > 10000:
-                horizon = getattr(self, "removed_tombstone_horizon", 10000)
-                cutoff = now - max(ttl, 1) - horizon
-                to_drop = [k for k, t0 in self._removed_first_seen.items() if t0 < cutoff]
-                for k in to_drop:
-                    self._removed_first_seen.pop(k, None)
-                    self._removed_expired.discard(k)
-
-        else:
-            # Generic fallback: only active tracks; state per track
-            active_tracks = self._all_active_tracks()
-            if active_tracks:
-                yield (active_tracks, None, "dashed")
+        pass
 
     def _draw_track(self, img, a, forced_state, style, thickness, fontscale, show_trajectories):
         if not getattr(a, "history_observations", None):
@@ -286,7 +231,7 @@ class VisualizationMixin:
         show_trajectories: bool,
         thickness: int = 2,
         fontscale: float = 0.5,
-        show_lost: bool = True,
+        show_lost: bool = False,
     ) -> np.ndarray:
         """
         Visualizes the trajectories of all active tracks on the image.
@@ -311,3 +256,89 @@ class VisualizationMixin:
                     show_trajectories=show_trajectories,
                 )
         return img
+
+
+class ExplicitStateVisualization(BaseVisualization):
+    """
+    Visualization for trackers that maintain explicit lists for lost and removed tracks.
+    """
+
+    def _display_groups(self):
+        lost_list = getattr(self, "lost_stracks", None)
+        removed_list = getattr(self, "removed_stracks", None)
+
+        # Maintain internal frame index for TTL accounting
+        self._plot_frame_idx += 1
+        now = self._plot_frame_idx
+
+        ttl = int(max(0, getattr(self, "removed_display_frames", self.removed_display_frames)))
+
+        # Active
+        yield (self._all_active_tracks(), "confirmed", "solid")
+
+        # Lost (dashed, orange)
+        if lost_list:
+            yield (list(lost_list), "predicted", "dashed")
+
+        # Removed (gray, solid), with TTL + tombstone
+        if removed_list and ttl > 0:
+            filtered_removed = []
+            for a in removed_list:
+                if not getattr(a, "history_observations", None):
+                    continue
+                sf = int(getattr(a, "start_frame", getattr(a, "birth_frame", -1)))
+                rid = int(getattr(a, "id"))
+                key = (rid, sf) if sf >= 0 else rid
+
+                if key in self._removed_expired:
+                    continue
+
+                if key not in self._removed_first_seen:
+                    self._removed_first_seen[key] = now
+
+                if (now - self._removed_first_seen[key]) < ttl:
+                    filtered_removed.append(a)
+                else:
+                    self._removed_expired.add(key)
+
+            if filtered_removed:
+                yield (filtered_removed, "removed", "solid")
+
+        # Optional: simple memory cap
+        if len(self._removed_expired) > 10000:
+            horizon = getattr(self, "removed_tombstone_horizon", 10000)
+            cutoff = now - max(ttl, 1) - horizon
+            to_drop = [k for k, t0 in self._removed_first_seen.items() if t0 < cutoff]
+            for k in to_drop:
+                self._removed_first_seen.pop(k, None)
+                self._removed_expired.discard(k)
+
+
+class InferredStateVisualization(BaseVisualization):
+    """
+    Visualization for trackers that only expose active tracks and state is inferred.
+    """
+
+    def _display_groups(self):
+        # Maintain internal frame index for TTL accounting
+        self._plot_frame_idx += 1
+        
+        # Generic fallback: only active tracks; state per track
+        active_tracks = self._all_active_tracks()
+        if active_tracks:
+            yield (active_tracks, None, "dashed")
+
+
+class VisualizationMixin(BaseVisualization):
+    """
+    Mixin class for visualization methods in BaseTracker.
+    """
+    
+    def _display_groups(self):
+        lost_list = getattr(self, "lost_stracks", None)
+        removed_list = getattr(self, "removed_stracks", None)
+        
+        if (lost_list is not None) or (removed_list is not None):
+            return ExplicitStateVisualization._display_groups(self)
+        else:
+            return InferredStateVisualization._display_groups(self)
