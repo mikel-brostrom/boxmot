@@ -6,7 +6,7 @@ min_conf:
 track_thresh:
   type: uniform
   default: 0.6  # from the default parameters
-  range: [0.4, 0.6]
+  range: [0.4, 0.7]
 
 track_buffer:
   type: qrandint
@@ -21,4 +21,4 @@ match_thresh:
 frame_rate:
   type: choice
   default: 30  # from the default parameters
-  choices: [30]  # static choice for Ray Search
+  options: [25, 30]  # static choice for Ray Search

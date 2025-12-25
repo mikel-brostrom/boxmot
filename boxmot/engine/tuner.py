@@ -44,7 +44,7 @@ def yaml_to_search_space(config: dict, tune) -> dict:
         elif t == "qrandint":
             space[param] = tune.qrandint(*details["range"])
         elif t == "choice":
-            space[param] = tune.choice(details["options"])
+            space[param] = tune.choice(details.get("options"))
         elif t == "grid_search":
             # Optuna doesn't support grid_search directly in the same way as basic Tune
             # Mapping grid_search to choice for Optuna compatibility
