@@ -40,7 +40,16 @@ def yaml_to_search_space(config: dict, tune) -> dict:
         if t == "uniform":
             space[param] = tune.uniform(*details["range"])
         elif t == "randint":
-            space[param] = tune.randint(*details["range"])
+            # tune.randint takes (lower, upper)
+            # If range has 3 elements (lower, upper, step), we should use qrandint or handle step manually
+            # But tune.randint doesn't support step directly in all versions or it might be deprecated.
+            # However, the error says "takes 2 positional arguments but 3 were given", implying *details["range"] has 3 items.
+            r = details["range"]
+            if len(r) == 3:
+                # If step is provided, use qrandint which supports quantization (step)
+                space[param] = tune.qrandint(r[0], r[1], r[2])
+            else:
+                space[param] = tune.randint(*r)
         elif t == "qrandint":
             space[param] = tune.qrandint(*details["range"])
         elif t == "choice":

@@ -9,7 +9,7 @@ track_thresh:
   range: [0.4, 0.6]
 
 track_buffer:
-  type: randint
+  type: qrandint
   default: 30  # from the default parameters
   range: [10, 61, 10]  # step size of 10, upper bound exclusive
 
@@ -21,4 +21,4 @@ match_thresh:
 frame_rate:
   type: choice
   default: 30  # from the default parameters
-  choices: [30]  # static choice for Ray Search
+  options: [25, 30]  # static choice for Ray Search
