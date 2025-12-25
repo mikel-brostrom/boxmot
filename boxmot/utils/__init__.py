@@ -11,6 +11,14 @@ import numpy as np
 from loguru import logger
 
 ROOT = Path(__file__).resolve().parents[2]
+
+# If running from a cloned repository, prefer the local path
+# This handles the case where the package is installed in site-packages
+# but the user is running from the source root and expects local data/configs.
+_local_root = Path.cwd()
+if (_local_root / "pyproject.toml").is_file() and (_local_root / "boxmot").is_dir():
+    ROOT = _local_root
+
 DATA = ROOT / "data"
 TOML = ROOT / "pyproject.toml"
 
