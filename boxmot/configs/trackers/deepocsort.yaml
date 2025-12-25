@@ -4,7 +4,7 @@ det_thresh:
   range: [0.3, 0.6]
 
 max_age:
-  type: randint
+  type: qrandint
   default: 30  # from the default parameters
   range: [10, 61, 10]  # step size of 10, upper bound exclusive
 
