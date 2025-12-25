@@ -8,7 +8,7 @@ from typing import Iterable, Optional, Sequence
 from packaging.requirements import Requirement
 
 # Replace this import with your logger, or use logging.getLogger(__name__)
-from boxmot.utils import logger as LOGGER
+from boxmot.utils import logger as LOGGER, ROOT
 
 REQUIREMENTS_FILE = Path("requirements.txt")
 
@@ -21,8 +21,7 @@ class RequirementsChecker:
       - Check/install a list of requirement specifiers (e.g., ["yolox", "onnx>=1.15"])
       - Read and install from a requirements.txt
       - Install a uv dependency *group* (requires uv)
-      - Install a project *extra* (PEP 621 optional-dependencies) via uv or pip
-      - Falls back to pip if uv is not available
+      - Install a project *extra* (PEP 621 optional-dependencies) via uv
       - Backward-compatible alias: `cmds` == `extra_args`
     """
 
@@ -35,7 +34,6 @@ class RequirementsChecker:
         """
         self.group = group
         self.requirements_file = requirements_file
-        self._uv_available = shutil.which("uv") is not None
 
     # ---------- public API ----------
 
@@ -84,25 +82,27 @@ class RequirementsChecker:
     ):
         """
         Install a project *extra* (PEP 621 optional-dependencies).
-        - From source checkout + uv available: uv pip install ".[extra]"
-        - From source checkout w/o uv:        python -m pip install ".[extra]"
-        - From PyPI install:                  python -m pip install "boxmot[extra]"
+        - From source checkout + uv available: uv pip install -e ".[extra]"
+        - From PyPI install:                  uv pip install "boxmot[extra]"
         """
         if not extra:
             raise ValueError("Extra name must be provided (e.g. 'openvino', 'export').")
         LOGGER.warning(f"Installing extra '{extra}'...")
 
-        in_source = Path("pyproject.toml").is_file()
+        # Check if we are running from a source install (editable)
+        # ROOT is the package root. If pyproject.toml exists there, it's an editable install.
+        root_pyproject = ROOT / "pyproject.toml"
+        
         cmd: list[str]
 
-        if in_source:
-            if self._uv_available:
-                cmd = ["uv", "pip", "install", "--no-cache-dir", f".[{extra}]"]
-            else:
-                cmd = [sys.executable, "-m", "pip", "install", f".[{extra}]"]
+        if root_pyproject.is_file():
+            # Editable install detected or running from source root
+            # We use ROOT to point to the source directory
+            target = f"{ROOT}[{extra}]"
+            cmd = ["uv", "pip", "install", "--no-cache-dir", "-e", target]
         else:
             # Installed from PyPI: install the published dist extra
-            cmd = [sys.executable, "-m", "pip", "install", f"boxmot[{extra}]"]
+            cmd = ["uv", "pip", "install", f"boxmot[{extra}]"]
 
         if extra_args:
             cmd.extend(extra_args)
@@ -120,17 +120,14 @@ class RequirementsChecker:
         self, packages: Sequence[str], extra_args: Optional[Sequence[str]] = None
     ):
         """
-        Install an explicit list of requirement specifiers with uv (if present) or pip.
+        Install an explicit list of requirement specifiers with uv.
         """
         try:
             LOGGER.warning(
                 f"\nMissing or mismatched packages: {', '.join(packages)}\n"
                 "Attempting installation..."
             )
-            if self._uv_available:
-                cmd = ["uv", "pip", "install", "--no-cache-dir"]
-            else:
-                cmd = ["pip", "install"]
+            cmd = ["uv", "pip", "install", "--no-cache-dir"]
 
             if extra_args:
                 cmd += list(extra_args)

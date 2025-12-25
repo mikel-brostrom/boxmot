@@ -24,7 +24,7 @@ use_custom_kf:
   options: [True, False]
 
 longterm_bank_length:
-  type: randint
+  type: qrandint
   default: 30
   range: [10, 61, 10]  # step size 10
 
