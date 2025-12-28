@@ -79,8 +79,8 @@ def core_options(func):
         click.option('--agnostic-nms', is_flag=True,
                      help='class-agnostic NMS'),
         click.option(
-            "--postprocessing", type=click.Choice(["none", "gsi", "gbrc"], case_sensitive=False), default="none",
-            help="Postprocess tracker output: none | gsi (Gaussian smoothed interpolation) | gbrc (gradient boosting smooth).",
+            "--postprocessing", type=click.Choice(["none", "gsi", "gbrc", "sct"], case_sensitive=False), default="none",
+            help="Postprocess tracker output: none | gsi (Gaussian smoothed interpolation) | gbrc (gradient boosting smooth) | sct (split connect track).",
         ),
         click.option('--show', is_flag=True,
                      help='display tracking in a window'),
