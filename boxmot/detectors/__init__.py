@@ -87,3 +87,9 @@ try:
     RFDETR = RFDETRStrategy
 except ImportError:
     RFDETR = None
+
+try:
+    from boxmot.detectors.rtdetr import RTDetrStrategy
+    RTDETR = RTDetrStrategy
+except ImportError:
+    RTDETR = None
