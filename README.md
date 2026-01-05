@@ -102,6 +102,9 @@ boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save --show
 # Evaluate on MOT dataset
 boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation
 
+# Evaluate on MOT dataset + GBRC postprocessing
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation --postprocessing gbrc
+
 # Tune ocsort's hyperparameters for dancetrack
 boxmot tune yolox_x_dancetrack_ablation lmbn_n_duke ocsort --source dancetrack-ablation --n-trials 10
 
