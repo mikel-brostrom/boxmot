@@ -56,15 +56,6 @@ def get_yolo_inferer(yolo_model):
         from boxmot.detectors.rtdetr import RTDetrStrategy
 
         return RTDetrStrategy
-    elif "rf-detr" in str(yolo_model):
-        try:
-            import rfdetr
-        except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(("onnxruntime",))  # needed dependency
-            checker.check_packages(("rfdetr",))  # needed dependency
-        from boxmot.detectors.rfdetr import RFDETRStrategy
-
-        return RFDETRStrategy
     else:
         LOGGER.error("Failed to infer inference mode from yolo model name")
         LOGGER.error("Your model name has to contain either yolox, yolo_nas or yolov8")
