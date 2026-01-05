@@ -52,7 +52,8 @@ def create_tracker(
     """
 
     if tracker_type not in TRACKER_MAPPING:
-        raise ValueError(f"Unknown tracker type: {tracker_type}")
+        available = ", ".join(TRACKER_MAPPING.keys())
+        raise ValueError(f"Unknown tracker type: '{tracker_type}'. Available trackers are: {available}")
 
     # Load configuration from file or use provided dictionary
     if evolve_param_dict is None:
