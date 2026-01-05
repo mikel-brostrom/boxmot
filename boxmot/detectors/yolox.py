@@ -3,7 +3,6 @@
 import fnmatch
 
 import cv2
-import gdown
 import numpy as np
 import torch
 from ultralytics.engine.results import Results
@@ -149,8 +148,9 @@ class YoloXStrategy:
             model.stem == model_type or fnmatch.fnmatch(model.stem, "yolox_x_*_ablation")
         ):
             LOGGER.info("Downloading pretrained weights...")
-            gdown.download(
-                url=YOLOX_ZOO[model.stem + ".pt"], output=str(model), quiet=False
+            from boxmot.utils.download import download_file
+            download_file(
+                url=YOLOX_ZOO[model.stem + ".pt"], dest=model, overwrite=False
             )
             # needed for bytetrack yolox people models
             # update with your custom model needs
