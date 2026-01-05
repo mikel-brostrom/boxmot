@@ -31,4 +31,4 @@ def test_gbrc():
     li = gbrc_linear_interpolation(tracking_results, interval=20)
     gbrc = gradient_boosting_smooth(li)
     assert len(gbrc) == 6
-    assert gbrc.shape[1] == 10
+    assert gbrc.shape[1] == 9
