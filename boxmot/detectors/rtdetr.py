@@ -39,6 +39,12 @@ class RTDetrStrategy:
 
     @torch.no_grad()
     def __call__(self, im, augment, visualize, embed):
+        if isinstance(im, torch.Tensor):
+            im = im.cpu().numpy()
+            if im.ndim == 3 and im.shape[0] == 3:
+                im = im.transpose(1, 2, 0)
+            im = np.ascontiguousarray(im)
+
         # Convert numpy image (BGR) to PIL Image (RGB)
         image = Image.fromarray(cv2.cvtColor(im, cv2.COLOR_BGR2RGB))
         
@@ -61,9 +67,9 @@ class RTDetrStrategy:
                 detections.append([*box, score, label])
                 
         if not detections:
-            return torch.zeros((1, 0, 6))
+            return torch.zeros((1, 0, 6), device=self.device)
             
-        return torch.tensor(detections).unsqueeze(0)
+        return torch.tensor(detections, device=self.device).unsqueeze(0)
 
     def warmup(self, imgsz):
         pass
@@ -87,9 +93,14 @@ class RTDetrStrategy:
     def postprocess(self, preds, im, im0s):
         results = []
         for i, pred in enumerate(preds):
-            if pred is None or len(pred) == 0:
-                continue
             im_path = self.im_paths[i] if hasattr(self, 'im_paths') and len(self.im_paths) else ""
+
+            if pred is None or len(pred) == 0:
+                pred = torch.empty((0, 6), device=self.device)
+                results.append(
+                    Results(path=im_path, boxes=pred, orig_img=im0s[i], names=self.names)
+                )
+                continue
             
             if self.args.classes:
                 pred = pred[
