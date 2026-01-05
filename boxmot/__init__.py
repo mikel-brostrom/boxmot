@@ -1,6 +1,6 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-__version__ = '16.0.6'
+__version__ = '16.0.7'
 
 from boxmot.engine.results import track
 from boxmot.reid.core import ReID
