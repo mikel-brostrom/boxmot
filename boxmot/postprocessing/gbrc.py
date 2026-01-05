@@ -63,12 +63,9 @@ def gradient_boosting_smooth(
 ) -> np.ndarray:
     """
     Smooth columns 2..5 (x,y,w,h) per track id using GradientBoostingRegressor.
-
-    Output format (per your original):
-        [frame, id, x, y, w, h, 1, -1, -1, -1]
     """
     if data.size == 0:
-        return np.empty((0, 10), dtype=float)
+        return data
 
     smoothed_rows = []
     unique_ids = np.unique(data[:, 1])
@@ -88,30 +85,14 @@ def gradient_boosting_smooth(
             min_samples_split=min_samples_split,
         )
 
-        xx = _fit_predict_1d(regr, t, tracks[:, 2]).reshape(-1, 1)
-        yy = _fit_predict_1d(regr, t, tracks[:, 3]).reshape(-1, 1)
-        ww = _fit_predict_1d(regr, t, tracks[:, 4]).reshape(-1, 1)
-        hh = _fit_predict_1d(regr, t, tracks[:, 5]).reshape(-1, 1)
+        tracks[:, 2] = _fit_predict_1d(regr, t, tracks[:, 2])
+        tracks[:, 3] = _fit_predict_1d(regr, t, tracks[:, 3])
+        tracks[:, 4] = _fit_predict_1d(regr, t, tracks[:, 4])
+        tracks[:, 5] = _fit_predict_1d(regr, t, tracks[:, 5])
 
-        # Build output rows: frame, id, x,y,w,h, 1,-1,-1,-1
-        # (keeping your intended MOT-like 10 columns)
-        for i in range(len(tracks)):
-            smoothed_rows.append(
-                [
-                    float(tracks[i, 0]),
-                    float(obj_id),
-                    float(xx[i, 0]),
-                    float(yy[i, 0]),
-                    float(ww[i, 0]),
-                    float(hh[i, 0]),
-                    1.0,
-                    -1.0,
-                    -1.0,
-                    -1.0,
-                ]
-            )
+        smoothed_rows.append(tracks)
 
-    out = np.array(smoothed_rows, dtype=float)
+    out = np.concatenate(smoothed_rows)
     return out[np.lexsort((out[:, 0], out[:, 1]))]
 
 
@@ -143,10 +124,12 @@ def process_file(
     # Save like your GSI script: overwrite the same file
     # Use integer frame/id, floats for bbox, then ints for trailing fields.
     # Note: if you want commas instead, switch fmt + delimiter.
+    fmt = ["%d", "%d"] + ["%.2f"] * (smoothed.shape[1] - 2)
     np.savetxt(
         file_path,
         smoothed,
-        fmt="%d %d %.2f %.2f %.2f %.2f %d %d %d %d",
+        fmt=fmt,
+        delimiter=",",
     )
 
 
