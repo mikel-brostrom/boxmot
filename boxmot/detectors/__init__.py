@@ -8,7 +8,7 @@ from boxmot.utils.checks import RequirementsChecker
 
 checker = RequirementsChecker()
 
-ULTRALYTICS_MODELS = ["yolov8", "yolov9", "yolov10", "yolo11", "yolo12", "rtdetr", "sam"]
+ULTRALYTICS_MODELS = ["yolov8", "yolov9", "yolov10", "yolo11", "yolo12", "sam"]
 
 
 def is_ultralytics_model(yolo_name):
@@ -47,6 +47,15 @@ def get_yolo_inferer(yolo_model):
         from boxmot.detectors.ultralytics import UltralyticsStrategy
 
         return UltralyticsStrategy
+    elif "rtdetr" in str(yolo_model):
+        try:
+            import transformers
+        except (ImportError, AssertionError, AttributeError):
+            checker.check_packages(("transformers[torch]",))
+            checker.check_packages(("timm",))
+        from boxmot.detectors.rtdetr import RTDetrStrategy
+
+        return RTDetrStrategy
     elif "rf-detr" in str(yolo_model):
         try:
             import rfdetr
