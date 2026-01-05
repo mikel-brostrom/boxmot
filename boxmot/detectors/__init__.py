@@ -1,7 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from boxmot.detectors.detector import Detector, resolve_image
-from boxmot.detectors.ultralytics import UltralyticsYolo
+from boxmot.detectors.ultralytics import Ultralytics
 from boxmot.detectors.yolox import YOLOX
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
@@ -61,16 +61,3 @@ def get_yolo_inferer(yolo_model):
         LOGGER.error("Your model name has to contain either yolox, yolo_nas or yolov8")
         exit()
 
-# Aliases for convenience
-Ultralytics = UltralyticsYolo
-try:
-    from boxmot.detectors.rfdetr import RFDETRStrategy
-    RFDETR = RFDETRStrategy
-except ImportError:
-    RFDETR = None
-
-try:
-    from boxmot.detectors.rtdetr import RTDetrStrategy
-    RTDETR = RTDetrStrategy
-except ImportError:
-    RTDETR = None
