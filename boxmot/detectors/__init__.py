@@ -65,16 +65,6 @@ def get_yolo_inferer(yolo_model):
         from boxmot.detectors.rfdetr import RFDETRStrategy
 
         return RFDETRStrategy
-    elif "yolo_nas" in str(yolo_model):
-        try:
-            import super_gradients  # for linear_assignment
-
-            assert super_gradients.__version__
-        except (ImportError, AssertionError, AttributeError):
-            checker.check_packages(("super-gradients==3.1.3",))  # install
-        from boxmot.detectors.yolonas import YoloNASStrategy
-
-        return YoloNASStrategy
     else:
         LOGGER.error("Failed to infer inference mode from yolo model name")
         LOGGER.error("Your model name has to contain either yolox, yolo_nas or yolov8")
