@@ -5,7 +5,7 @@ from ultralytics import YOLO
 from boxmot.detectors.detector import Detector
 
 
-class UltralyticsYolo(Detector):
+class Ultralytics(Detector):
     def __init__(self, path: str, device='cpu', conf=0.25, iou=0.45, imgsz=640):
         self.device = device
         self.conf = conf

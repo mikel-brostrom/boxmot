@@ -184,6 +184,8 @@ jobs:
           uv pip list
           boxmot track --yolo-model yolov10n.pt --imgsz 320 --source $IMG
           boxmot track --yolo-model yolox_n.pt --imgsz 320 --source $IMG
+          boxmot track --yolo-model rtdetr_v2_r18vd --imgsz 320 --source $IMG
+
   tracking-with-seg:
     runs-on: ubuntu-latest
     outputs:

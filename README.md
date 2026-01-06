@@ -94,7 +94,7 @@ Where:
 **Quick Examples:**
 ```bash
 # Track with webcam, save results, show basic results
-boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show --save
+boxmot track rtdetr_v2_r101vd osnet_x0_25_msmt17 deepocsort --source 0 --show --save
 
 # Track a video file, save results, show trajectories + lost tracks
 boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save --show-trajectories --show-lost

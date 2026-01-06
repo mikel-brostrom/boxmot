@@ -36,8 +36,13 @@ from boxmot.postprocessing.gsi import gsi
 
 from ultralytics import YOLO
 
-from boxmot.detectors import (get_yolo_inferer, default_imgsz,
-                                is_ultralytics_model, is_yolox_model)
+from boxmot.detectors import (
+    default_imgsz,
+    get_yolo_inferer,
+    is_rtdetr_model,
+    is_ultralytics_model,
+    is_yolox_model,
+)
 from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.utils.download import download_eval_data, download_trackeval
@@ -152,8 +157,8 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
                        args=yolo.predictor.args)
         yolo.predictor.model = yolo_model
 
-        # If current model is YOLOX, change the preprocess and postprocess
-        if is_yolox_model(y):
+        # If current model is YOLOX or RTDetr, change the preprocess and postprocess
+        if is_yolox_model(y) or is_rtdetr_model(y):
             # add callback to save image paths for further processing
             yolo.add_callback("on_predict_batch_start",
                               lambda p: yolo_model.update_im_paths(p))
