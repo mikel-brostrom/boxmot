@@ -1,4 +1,3 @@
-
 import numpy as np
 
 
@@ -10,14 +9,16 @@ def intersection_batch(bboxes1, bboxes2):
     yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
     xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
     yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
-    w = np.maximum(0., xx2 - xx1)
-    h = np.maximum(0., yy2 - yy1)
+    w = np.maximum(0.0, xx2 - xx1)
+    h = np.maximum(0.0, yy2 - yy1)
     intersections = w * h
     return intersections
+
 
 def box_area(bbox):
     area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
     return area
+
 
 def iou_batch(bboxes1, bboxes2):
     """
@@ -25,17 +26,20 @@ def iou_batch(bboxes1, bboxes2):
     """
     bboxes2 = np.expand_dims(bboxes2, 0)
     bboxes1 = np.expand_dims(bboxes1, 1)
-    
+
     xx1 = np.maximum(bboxes1[..., 0], bboxes2[..., 0])
     yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
     xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
     yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
-    w = np.maximum(0., xx2 - xx1)
-    h = np.maximum(0., yy2 - yy1)
+    w = np.maximum(0.0, xx2 - xx1)
+    h = np.maximum(0.0, yy2 - yy1)
     wh = w * h
-    o = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])                                      
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)                                              
-    return(o)
+    o = wh / (
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
+        - wh
+    )
+    return o
 
 
 def cal_score_dif_batch(bboxes1, bboxes2):
@@ -48,7 +52,8 @@ def cal_score_dif_batch(bboxes1, bboxes2):
     score2 = bboxes2[..., 4]
     score1 = bboxes1[..., 4]
 
-    return (abs(score2 - score1))
+    return abs(score2 - score1)
+
 
 def cal_score_dif_batch_two_score(bboxes1, bboxes2):
     """
@@ -60,7 +65,8 @@ def cal_score_dif_batch_two_score(bboxes1, bboxes2):
     score2 = bboxes2[..., 5]
     score1 = bboxes1[..., 4]
 
-    return (abs(score2 - score1))
+    return abs(score2 - score1)
+
 
 def hmiou(bboxes1, bboxes2):
     """
@@ -80,12 +86,16 @@ def hmiou(bboxes1, bboxes2):
     yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
     xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
     yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
-    w = np.maximum(0., xx2 - xx1)
-    h = np.maximum(0., yy2 - yy1)
+    w = np.maximum(0.0, xx2 - xx1)
+    h = np.maximum(0.0, yy2 - yy1)
     wh = w * h
-    o *= wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)
-    return (o)
+    o *= wh / (
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
+        - wh
+    )
+    return o
+
 
 def giou_batch(bboxes1, bboxes2):
     """
@@ -102,23 +112,27 @@ def giou_batch(bboxes1, bboxes2):
     yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
     xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
     yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
-    w = np.maximum(0., xx2 - xx1)
-    h = np.maximum(0., yy2 - yy1)
+    w = np.maximum(0.0, xx2 - xx1)
+    h = np.maximum(0.0, yy2 - yy1)
     wh = w * h
-    iou = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)  
+    iou = wh / (
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
+        - wh
+    )
 
     xxc1 = np.minimum(bboxes1[..., 0], bboxes2[..., 0])
     yyc1 = np.minimum(bboxes1[..., 1], bboxes2[..., 1])
     xxc2 = np.maximum(bboxes1[..., 2], bboxes2[..., 2])
     yyc2 = np.maximum(bboxes1[..., 3], bboxes2[..., 3])
-    wc = xxc2 - xxc1 
-    hc = yyc2 - yyc1 
-    assert((wc > 0).all() and (hc > 0).all())
-    area_enclose = wc * hc 
+    wc = xxc2 - xxc1
+    hc = yyc2 - yyc1
+    assert (wc > 0).all() and (hc > 0).all()
+    area_enclose = wc * hc
     giou = iou - (area_enclose - wh) / area_enclose
-    giou = (giou + 1.)/2.0 # resize from (-1,1) to (0,1)
+    giou = (giou + 1.0) / 2.0  # resize from (-1,1) to (0,1)
     return giou
+
 
 def giou_batch_true(bboxes1, bboxes2):
     """
@@ -135,11 +149,14 @@ def giou_batch_true(bboxes1, bboxes2):
     yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
     xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
     yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
-    w = np.maximum(0., xx2 - xx1)
-    h = np.maximum(0., yy2 - yy1)
+    w = np.maximum(0.0, xx2 - xx1)
+    h = np.maximum(0.0, yy2 - yy1)
     wh = w * h
-    union = ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)
+    union = (
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
+        - wh
+    )
     iou = wh / union
 
     xxc1 = np.minimum(bboxes1[..., 0], bboxes2[..., 0])
@@ -148,11 +165,12 @@ def giou_batch_true(bboxes1, bboxes2):
     yyc2 = np.maximum(bboxes1[..., 3], bboxes2[..., 3])
     wc = xxc2 - xxc1
     hc = yyc2 - yyc1
-    assert((wc > 0).all() and (hc > 0).all())
+    assert (wc > 0).all() and (hc > 0).all()
     area_enclose = wc * hc
     giou = iou - (area_enclose - union) / area_enclose
-    giou = (giou + 1.)/2.0 # resize from (-1,1) to (0,1)
+    giou = (giou + 1.0) / 2.0  # resize from (-1,1) to (0,1)
     return giou
+
 
 def diou_batch(bboxes1, bboxes2):
     """
@@ -170,11 +188,14 @@ def diou_batch(bboxes1, bboxes2):
     yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
     xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
     yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
-    w = np.maximum(0., xx2 - xx1)
-    h = np.maximum(0., yy2 - yy1)
+    w = np.maximum(0.0, xx2 - xx1)
+    h = np.maximum(0.0, yy2 - yy1)
     wh = w * h
-    iou = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])                                      
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh) 
+    iou = wh / (
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
+        - wh
+    )
 
     centerx1 = (bboxes1[..., 0] + bboxes1[..., 2]) / 2.0
     centery1 = (bboxes1[..., 1] + bboxes1[..., 3]) / 2.0
@@ -191,7 +212,8 @@ def diou_batch(bboxes1, bboxes2):
     outer_diag = (xxc2 - xxc1) ** 2 + (yyc2 - yyc1) ** 2
     diou = iou - inner_diag / outer_diag
 
-    return (diou + 1) / 2.0 # resize from (-1,1) to (0,1)
+    return (diou + 1) / 2.0  # resize from (-1,1) to (0,1)
+
 
 def ciou_batch(bboxes1, bboxes2):
     """
@@ -209,11 +231,14 @@ def ciou_batch(bboxes1, bboxes2):
     yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
     xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
     yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
-    w = np.maximum(0., xx2 - xx1)
-    h = np.maximum(0., yy2 - yy1)
+    w = np.maximum(0.0, xx2 - xx1)
+    h = np.maximum(0.0, yy2 - yy1)
     wh = w * h
-    iou = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])                                      
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh) 
+    iou = wh / (
+        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
+        - wh
+    )
 
     centerx1 = (bboxes1[..., 0] + bboxes1[..., 2]) / 2.0
     centery1 = (bboxes1[..., 1] + bboxes1[..., 3]) / 2.0
@@ -228,30 +253,30 @@ def ciou_batch(bboxes1, bboxes2):
     yyc2 = np.maximum(bboxes1[..., 3], bboxes2[..., 3])
 
     outer_diag = (xxc2 - xxc1) ** 2 + (yyc2 - yyc1) ** 2
-    
+
     w1 = bboxes1[..., 2] - bboxes1[..., 0]
     h1 = bboxes1[..., 3] - bboxes1[..., 1]
     w2 = bboxes2[..., 2] - bboxes2[..., 0]
     h2 = bboxes2[..., 3] - bboxes2[..., 1]
 
     # prevent dividing over zero. add one pixel shift
-    h2 = h2 + 1.
-    h1 = h1 + 1.
-    arctan = np.arctan(w2/h2) - np.arctan(w1/h1)
-    v = (4 / (np.pi ** 2)) * (arctan ** 2)
-    S = 1 - iou 
-    alpha = v / (S+v)
+    h2 = h2 + 1.0
+    h1 = h1 + 1.0
+    arctan = np.arctan(w2 / h2) - np.arctan(w1 / h1)
+    v = (4 / (np.pi**2)) * (arctan**2)
+    S = 1 - iou
+    alpha = v / (S + v)
     ciou = iou - inner_diag / outer_diag - alpha * v
-    
-    return (ciou + 1) / 2.0 # resize from (-1,1) to (0,1)
+
+    return (ciou + 1) / 2.0  # resize from (-1,1) to (0,1)
 
 
 def ct_dist(bboxes1, bboxes2):
     """
-        Measure the center distance between two sets of bounding boxes,
-        this is a coarse implementation, we don't recommend using it only
-        for association, which can be unstable and sensitive to frame rate
-        and object speed.
+    Measure the center distance between two sets of bounding boxes,
+    this is a coarse implementation, we don't recommend using it only
+    for association, which can be unstable and sensitive to frame rate
+    and object speed.
     """
     bboxes2 = np.expand_dims(bboxes2, 0)
     bboxes1 = np.expand_dims(bboxes1, 1)
@@ -267,7 +292,7 @@ def ct_dist(bboxes1, bboxes2):
 
     # The linear rescaling is a naive version and needs more study
     ct_dist = ct_dist / ct_dist.max()
-    return ct_dist.max() - ct_dist # resize to (0,1)
+    return ct_dist.max() - ct_dist  # resize to (0,1)
 
 
 def speed_direction_batch(dets, tracks):
@@ -278,19 +303,20 @@ def speed_direction_batch(dets, tracks):
     @return: normalized speed in batch
     """
     tracks = tracks[..., np.newaxis]
-    CX1, CY1 = (dets[:,0] + dets[:,2])/2.0, (dets[:,1]+dets[:,3])/2.0
-    CX2, CY2 = (tracks[:,0] + tracks[:,2]) /2.0, (tracks[:,1]+tracks[:,3])/2.0
-    dx = CX1 - CX2 
-    dy = CY1 - CY2 
+    CX1, CY1 = (dets[:, 0] + dets[:, 2]) / 2.0, (dets[:, 1] + dets[:, 3]) / 2.0
+    CX2, CY2 = (tracks[:, 0] + tracks[:, 2]) / 2.0, (tracks[:, 1] + tracks[:, 3]) / 2.0
+    dx = CX1 - CX2
+    dy = CY1 - CY2
     norm = np.sqrt(dx**2 + dy**2) + 1e-6
-    dx = dx / norm 
+    dx = dx / norm
     dy = dy / norm
-    return dy, dx # size: num_track x num_det
+    return dy, dx  # size: num_track x num_det
 
 
-def linear_assignment(cost_matrix, thresh=0.):
-    try:        # [hgx0411] goes here!
+def linear_assignment(cost_matrix, thresh=0.0):
+    try:  # [hgx0411] goes here!
         import lap
+
         if thresh != 0:
             _, x, y = lap.lapjv(cost_matrix, extend_cost=True, cost_limit=thresh)
         else:
@@ -298,17 +324,18 @@ def linear_assignment(cost_matrix, thresh=0.):
         return np.array([[y[i], i] for i in x if i >= 0])
     except ImportError:
         from scipy.optimize import linear_sum_assignment
+
         x, y = linear_sum_assignment(cost_matrix)
         return np.array(list(zip(x, y)))
 
 
-def associate_detections_to_trackers(detections,trackers,iou_threshold = 0.3):
+def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3):
     """
     Assigns detections to tracked object (both represented as bounding boxes)
     Returns 3 lists of matches, unmatched_detections and unmatched_trackers
     """
-    if(len(trackers)==0):
-        return np.empty((0,2),dtype=int), np.arange(len(detections)), np.empty((0,5),dtype=int)
+    if len(trackers) == 0:
+        return np.empty((0, 2), dtype=int), np.arange(len(detections)), np.empty((0, 5), dtype=int)
 
     iou_matrix = iou_batch(detections, trackers)
 
@@ -319,51 +346,51 @@ def associate_detections_to_trackers(detections,trackers,iou_threshold = 0.3):
         else:
             matched_indices = linear_assignment(-iou_matrix)
     else:
-        matched_indices = np.empty(shape=(0,2))
+        matched_indices = np.empty(shape=(0, 2))
 
     unmatched_detections = []
     for d, det in enumerate(detections):
-        if(d not in matched_indices[:,0]):
+        if d not in matched_indices[:, 0]:
             unmatched_detections.append(d)
     unmatched_trackers = []
     for t, trk in enumerate(trackers):
-        if(t not in matched_indices[:,1]):
+        if t not in matched_indices[:, 1]:
             unmatched_trackers.append(t)
 
-    #filter out matched with low IOU
+    # filter out matched with low IOU
     matches = []
     for m in matched_indices:
-        if(iou_matrix[m[0], m[1]]<iou_threshold):
+        if iou_matrix[m[0], m[1]] < iou_threshold:
             unmatched_detections.append(m[0])
             unmatched_trackers.append(m[1])
         else:
-            matches.append(m.reshape(1,2))
-    if(len(matches)==0):
-        matches = np.empty((0,2),dtype=int)
+            matches.append(m.reshape(1, 2))
+    if len(matches) == 0:
+        matches = np.empty((0, 2), dtype=int)
     else:
-        matches = np.concatenate(matches,axis=0)
+        matches = np.concatenate(matches, axis=0)
 
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
 
-def associate(detections, trackers, iou_threshold, velocities, previous_obs, vdc_weight):    
-    if(len(trackers)==0):
-        return np.empty((0,2),dtype=int), np.arange(len(detections)), np.empty((0,5),dtype=int)
+def associate(detections, trackers, iou_threshold, velocities, previous_obs, vdc_weight):
+    if len(trackers) == 0:
+        return np.empty((0, 2), dtype=int), np.arange(len(detections)), np.empty((0, 5), dtype=int)
 
     Y, X = speed_direction_batch(detections, previous_obs)
-    inertia_Y, inertia_X = velocities[:,0], velocities[:,1]
+    inertia_Y, inertia_X = velocities[:, 0], velocities[:, 1]
     inertia_Y = np.repeat(inertia_Y[:, np.newaxis], Y.shape[1], axis=1)
     inertia_X = np.repeat(inertia_X[:, np.newaxis], X.shape[1], axis=1)
     diff_angle_cos = inertia_X * X + inertia_Y * Y
     diff_angle_cos = np.clip(diff_angle_cos, a_min=-1, a_max=1)
     diff_angle = np.arccos(diff_angle_cos)
-    diff_angle = (np.pi /2.0 - np.abs(diff_angle)) / np.pi
+    diff_angle = (np.pi / 2.0 - np.abs(diff_angle)) / np.pi
 
     valid_mask = np.ones(previous_obs.shape[0])
-    valid_mask[np.where(previous_obs[:,4]<0)] = 0
-    
+    valid_mask[np.where(previous_obs[:, 4] < 0)] = 0
+
     iou_matrix = iou_batch(detections, trackers)
-    scores = np.repeat(detections[:,-1][:, np.newaxis], trackers.shape[0], axis=1)
+    scores = np.repeat(detections[:, -1][:, np.newaxis], trackers.shape[0], axis=1)
     # iou_matrix = iou_matrix * scores # a trick sometiems works, we don't encourage this
     valid_mask = np.repeat(valid_mask[:, np.newaxis], X.shape[1], axis=1)
 
@@ -376,31 +403,31 @@ def associate(detections, trackers, iou_threshold, velocities, previous_obs, vdc
         if a.sum(1).max() == 1 and a.sum(0).max() == 1:
             matched_indices = np.stack(np.where(a), axis=1)
         else:
-            matched_indices = linear_assignment(-(iou_matrix+angle_diff_cost))
+            matched_indices = linear_assignment(-(iou_matrix + angle_diff_cost))
     else:
-        matched_indices = np.empty(shape=(0,2))
+        matched_indices = np.empty(shape=(0, 2))
 
     unmatched_detections = []
     for d, det in enumerate(detections):
-        if(d not in matched_indices[:,0]):
+        if d not in matched_indices[:, 0]:
             unmatched_detections.append(d)
     unmatched_trackers = []
     for t, trk in enumerate(trackers):
-        if(t not in matched_indices[:,1]):
+        if t not in matched_indices[:, 1]:
             unmatched_trackers.append(t)
 
     # filter out matched with low IOU
     matches = []
     for m in matched_indices:
-        if(iou_matrix[m[0], m[1]]<iou_threshold):
+        if iou_matrix[m[0], m[1]] < iou_threshold:
             unmatched_detections.append(m[0])
             unmatched_trackers.append(m[1])
         else:
-            matches.append(m.reshape(1,2))
-    if(len(matches)==0):
-        matches = np.empty((0,2),dtype=int)
+            matches.append(m.reshape(1, 2))
+    if len(matches) == 0:
+        matches = np.empty((0, 2), dtype=int)
     else:
-        matches = np.concatenate(matches,axis=0)
+        matches = np.concatenate(matches, axis=0)
 
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
@@ -428,52 +455,59 @@ def cost_vel(Y, X, trackers, velocities, detections, previous_obs, vdc_weight):
     angle_diff_cost = angle_diff_cost * scores
     return angle_diff_cost
 
+
 def speed_direction_batch_lt(dets, tracks):
     tracks = tracks[..., np.newaxis]
-    CX1, CY1 = dets[:,0], dets[:,1]
-    CX2, CY2 = tracks[:,0], tracks[:,1]
+    CX1, CY1 = dets[:, 0], dets[:, 1]
+    CX2, CY2 = tracks[:, 0], tracks[:, 1]
     dx = CX1 - CX2
     dy = CY1 - CY2
     norm = np.sqrt(dx**2 + dy**2) + 1e-6
     dx = dx / norm
     dy = dy / norm
-    return dy, dx # size: num_track x num_det
+    return dy, dx  # size: num_track x num_det
+
 
 def speed_direction_batch_rt(dets, tracks):
     tracks = tracks[..., np.newaxis]
-    CX1, CY1 = dets[:,0], dets[:,3]
-    CX2, CY2 = tracks[:,0], tracks[:,3]
+    CX1, CY1 = dets[:, 0], dets[:, 3]
+    CX2, CY2 = tracks[:, 0], tracks[:, 3]
     dx = CX1 - CX2
     dy = CY1 - CY2
     norm = np.sqrt(dx**2 + dy**2) + 1e-6
     dx = dx / norm
     dy = dy / norm
-    return dy, dx # size: num_track x num_det
+    return dy, dx  # size: num_track x num_det
+
 
 def speed_direction_batch_lb(dets, tracks):
     tracks = tracks[..., np.newaxis]
-    CX1, CY1 = dets[:,2], dets[:,1]
-    CX2, CY2 = tracks[:,2], tracks[:,1]
+    CX1, CY1 = dets[:, 2], dets[:, 1]
+    CX2, CY2 = tracks[:, 2], tracks[:, 1]
     dx = CX1 - CX2
     dy = CY1 - CY2
     norm = np.sqrt(dx**2 + dy**2) + 1e-6
     dx = dx / norm
     dy = dy / norm
-    return dy, dx # size: num_track x num_det
+    return dy, dx  # size: num_track x num_det
+
 
 def speed_direction_batch_rb(dets, tracks):
     tracks = tracks[..., np.newaxis]
-    CX1, CY1 = dets[:,2], dets[:,3]
-    CX2, CY2 = tracks[:,2], tracks[:,3]
+    CX1, CY1 = dets[:, 2], dets[:, 3]
+    CX2, CY2 = tracks[:, 2], tracks[:, 3]
     dx = CX1 - CX2
     dy = CY1 - CY2
     norm = np.sqrt(dx**2 + dy**2) + 1e-6
     dx = dx / norm
     dy = dy / norm
-    return dy, dx # size: num_track x num_det
+    return dy, dx  # size: num_track x num_det
 
-def associate_4_points(detections, trackers, iou_threshold, lt, rt, lb, rb, previous_obs, vdc_weight, iou_type=None, args=None):
-    if (len(trackers) == 0):
+
+def associate_4_points(
+    detections, trackers, iou_threshold, lt, rt, lb, rb, previous_obs, vdc_weight, iou_type=None, args=None
+):
+    if len(trackers) == 0:
         return np.empty((0, 2), dtype=int), np.arange(len(detections)), np.empty((0, 5), dtype=int)
 
     Y1, X1 = speed_direction_batch_lt(detections, previous_obs)
@@ -500,30 +534,33 @@ def associate_4_points(detections, trackers, iou_threshold, lt, rt, lb, rb, prev
 
     unmatched_detections = []
     for d, det in enumerate(detections):
-        if (d not in matched_indices[:, 0]):
+        if d not in matched_indices[:, 0]:
             unmatched_detections.append(d)
     unmatched_trackers = []
     for t, trk in enumerate(trackers):
-        if (t not in matched_indices[:, 1]):
+        if t not in matched_indices[:, 1]:
             unmatched_trackers.append(t)
 
     # filter out matched with low IOU
     matches = []
     for m in matched_indices:
-        if (iou_matrix[m[0], m[1]] < iou_threshold):
+        if iou_matrix[m[0], m[1]] < iou_threshold:
             unmatched_detections.append(m[0])
             unmatched_trackers.append(m[1])
         else:
             matches.append(m.reshape(1, 2))
-    if (len(matches) == 0):
+    if len(matches) == 0:
         matches = np.empty((0, 2), dtype=int)
     else:
         matches = np.concatenate(matches, axis=0)
 
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
-def associate_4_points_with_score(detections, trackers, iou_threshold, lt, rt, lb, rb, previous_obs, vdc_weight, iou_type=None, args=None):
-    if (len(trackers) == 0):
+
+def associate_4_points_with_score(
+    detections, trackers, iou_threshold, lt, rt, lb, rb, previous_obs, vdc_weight, iou_type=None, args=None
+):
+    if len(trackers) == 0:
         return np.empty((0, 2), dtype=int), np.arange(len(detections)), np.empty((0, 5), dtype=int)
 
     Y1, X1 = speed_direction_batch_lt(detections, previous_obs)
@@ -540,7 +577,7 @@ def associate_4_points_with_score(detections, trackers, iou_threshold, lt, rt, l
     angle_diff_cost = cost_lt + cost_rt + cost_lb + cost_rb
 
     # TCM
-    angle_diff_cost -= score_dif * 1.0 # args.TCM_first_step_weight
+    angle_diff_cost -= score_dif * 1.0  # args.TCM_first_step_weight
 
     if min(iou_matrix.shape) > 0:
         a = (iou_matrix > iou_threshold).astype(np.int32)
@@ -553,34 +590,52 @@ def associate_4_points_with_score(detections, trackers, iou_threshold, lt, rt, l
 
     unmatched_detections = []
     for d, det in enumerate(detections):
-        if (d not in matched_indices[:, 0]):
+        if d not in matched_indices[:, 0]:
             unmatched_detections.append(d)
     unmatched_trackers = []
     for t, trk in enumerate(trackers):
-        if (t not in matched_indices[:, 1]):
+        if t not in matched_indices[:, 1]:
             unmatched_trackers.append(t)
 
     # filter out matched with low IOU
     matches = []
     for m in matched_indices:
-        if (iou_matrix[m[0], m[1]] < iou_threshold):
+        if iou_matrix[m[0], m[1]] < iou_threshold:
             unmatched_detections.append(m[0])
             unmatched_trackers.append(m[1])
         else:
             matches.append(m.reshape(1, 2))
-    if (len(matches) == 0):
+    if len(matches) == 0:
         matches = np.empty((0, 2), dtype=int)
     else:
         matches = np.concatenate(matches, axis=0)
 
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
-def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold, lt, rt, lb, rb, previous_obs, vdc_weight,
-                                            iou_type=None, args=None,emb_cost=None, weights=(1.0, 0), thresh=0.8,
-                                            long_emb_dists=None, with_longterm_reid=False,
-                                            longterm_reid_weight=0.0, with_longterm_reid_correction=False,
-                                            longterm_reid_correction_thresh=0.0, dataset="dancetrack"):
-    if (len(trackers) == 0):
+
+def associate_4_points_with_score_with_reid(
+    detections,
+    trackers,
+    iou_threshold,
+    lt,
+    rt,
+    lb,
+    rb,
+    previous_obs,
+    vdc_weight,
+    iou_type=None,
+    args=None,
+    emb_cost=None,
+    weights=(1.0, 0),
+    thresh=0.8,
+    long_emb_dists=None,
+    with_longterm_reid=False,
+    longterm_reid_weight=0.0,
+    with_longterm_reid_correction=False,
+    longterm_reid_correction_thresh=0.0,
+    dataset="dancetrack",
+):
+    if len(trackers) == 0:
         return np.empty((0, 2), dtype=int), np.arange(len(detections)), np.empty((0, 5), dtype=int)
 
     Y1, X1 = speed_direction_batch_lt(detections, previous_obs)
@@ -597,7 +652,7 @@ def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold,
     angle_diff_cost = cost_lt + cost_rt + cost_lb + cost_rb
 
     # TCM
-    angle_diff_cost -= score_dif * 1.0 # args.TCM_first_step_weight
+    angle_diff_cost -= score_dif * 1.0  # args.TCM_first_step_weight
 
     if min(iou_matrix.shape) > 0:
         if emb_cost is None:
@@ -608,10 +663,15 @@ def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold,
                 matched_indices = linear_assignment(-(iou_matrix + angle_diff_cost))
         else:
             if not with_longterm_reid:
-                matched_indices = linear_assignment(weights[0] * (-(iou_matrix + angle_diff_cost)) + weights[1] * emb_cost) # , thresh=thresh
-            else:   # long-term reid feats
-                matched_indices = linear_assignment(weights[0] * (-(iou_matrix + angle_diff_cost)) +
-                                                    weights[1] * emb_cost + longterm_reid_weight * long_emb_dists)  # , thresh=thresh
+                matched_indices = linear_assignment(
+                    weights[0] * (-(iou_matrix + angle_diff_cost)) + weights[1] * emb_cost
+                )  # , thresh=thresh
+            else:  # long-term reid feats
+                matched_indices = linear_assignment(
+                    weights[0] * (-(iou_matrix + angle_diff_cost))
+                    + weights[1] * emb_cost
+                    + longterm_reid_weight * long_emb_dists
+                )  # , thresh=thresh
 
         if matched_indices.size == 0:
             matched_indices = np.empty(shape=(0, 2))
@@ -620,11 +680,11 @@ def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold,
 
     unmatched_detections = []
     for d, det in enumerate(detections):
-        if (d not in matched_indices[:, 0]):
+        if d not in matched_indices[:, 0]:
             unmatched_detections.append(d)
     unmatched_trackers = []
     for t, trk in enumerate(trackers):
-        if (t not in matched_indices[:, 1]):
+        if t not in matched_indices[:, 1]:
             unmatched_trackers.append(t)
 
     # filter out matched with low IOU (and long-term ReID feats)
@@ -633,21 +693,23 @@ def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold,
     iou_matrix_thre = iou_matrix - score_dif
     if with_longterm_reid_correction:
         for m in matched_indices:
-            if (emb_cost[m[0], m[1]] > longterm_reid_correction_thresh) and (iou_matrix_thre[m[0], m[1]] < iou_threshold):
-                #print("correction:", emb_cost[m[0], m[1]])
+            if (emb_cost[m[0], m[1]] > longterm_reid_correction_thresh) and (
+                iou_matrix_thre[m[0], m[1]] < iou_threshold
+            ):
+                # print("correction:", emb_cost[m[0], m[1]])
                 unmatched_detections.append(m[0])
                 unmatched_trackers.append(m[1])
             else:
                 matches.append(m.reshape(1, 2))
     else:
         for m in matched_indices:
-            if (iou_matrix_thre[m[0], m[1]] < iou_threshold):
+            if iou_matrix_thre[m[0], m[1]] < iou_threshold:
                 unmatched_detections.append(m[0])
                 unmatched_trackers.append(m[1])
             else:
                 matches.append(m.reshape(1, 2))
 
-    if (len(matches) == 0):
+    if len(matches) == 0:
         matches = np.empty((0, 2), dtype=int)
     else:
         matches = np.concatenate(matches, axis=0)
@@ -655,28 +717,27 @@ def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold,
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
 
-def associate_kitti(detections, trackers, det_cates, iou_threshold, 
-        velocities, previous_obs, vdc_weight):
-    if(len(trackers)==0):
-        return np.empty((0,2),dtype=int), np.arange(len(detections)), np.empty((0,5),dtype=int)
+def associate_kitti(detections, trackers, det_cates, iou_threshold, velocities, previous_obs, vdc_weight):
+    if len(trackers) == 0:
+        return np.empty((0, 2), dtype=int), np.arange(len(detections)), np.empty((0, 5), dtype=int)
 
     """
         Cost from the velocity direction consistency
     """
     Y, X = speed_direction_batch(detections, previous_obs)
-    inertia_Y, inertia_X = velocities[:,0], velocities[:,1]
+    inertia_Y, inertia_X = velocities[:, 0], velocities[:, 1]
     inertia_Y = np.repeat(inertia_Y[:, np.newaxis], Y.shape[1], axis=1)
     inertia_X = np.repeat(inertia_X[:, np.newaxis], X.shape[1], axis=1)
     diff_angle_cos = inertia_X * X + inertia_Y * Y
     diff_angle_cos = np.clip(diff_angle_cos, a_min=-1, a_max=1)
     diff_angle = np.arccos(diff_angle_cos)
-    diff_angle = (np.pi /2.0 - np.abs(diff_angle)) / np.pi
+    diff_angle = (np.pi / 2.0 - np.abs(diff_angle)) / np.pi
 
     valid_mask = np.ones(previous_obs.shape[0])
-    valid_mask[np.where(previous_obs[:,4]<0)]=0  
+    valid_mask[np.where(previous_obs[:, 4] < 0)] = 0
     valid_mask = np.repeat(valid_mask[:, np.newaxis], X.shape[1], axis=1)
 
-    scores = np.repeat(detections[:,-1][:, np.newaxis], trackers.shape[0], axis=1)
+    scores = np.repeat(detections[:, -1][:, np.newaxis], trackers.shape[0], axis=1)
     angle_diff_cost = (valid_mask * diff_angle) * vdc_weight
     angle_diff_cost = angle_diff_cost.T
     angle_diff_cost = angle_diff_cost * scores
@@ -685,7 +746,6 @@ def associate_kitti(detections, trackers, det_cates, iou_threshold,
         Cost from IoU
     """
     iou_matrix = iou_batch(detections, trackers)
-    
 
     """
         With multiple categories, generate the cost for catgory mismatch
@@ -694,11 +754,11 @@ def associate_kitti(detections, trackers, det_cates, iou_threshold,
     num_trk = trackers.shape[0]
     cate_matrix = np.zeros((num_dets, num_trk))
     for i in range(num_dets):
-            for j in range(num_trk):
-                if det_cates[i] != trackers[j, 4]:
-                        cate_matrix[i][j] = -1e6
-    
-    cost_matrix = - iou_matrix -angle_diff_cost - cate_matrix
+        for j in range(num_trk):
+            if det_cates[i] != trackers[j, 4]:
+                cate_matrix[i][j] = -1e6
+
+    cost_matrix = -iou_matrix - angle_diff_cost - cate_matrix
 
     if min(iou_matrix.shape) > 0:
         a = (iou_matrix > iou_threshold).astype(np.int32)
@@ -707,37 +767,38 @@ def associate_kitti(detections, trackers, det_cates, iou_threshold,
         else:
             matched_indices = linear_assignment(cost_matrix)
     else:
-        matched_indices = np.empty(shape=(0,2))
+        matched_indices = np.empty(shape=(0, 2))
 
     unmatched_detections = []
     for d, det in enumerate(detections):
-        if(d not in matched_indices[:,0]):
+        if d not in matched_indices[:, 0]:
             unmatched_detections.append(d)
     unmatched_trackers = []
     for t, trk in enumerate(trackers):
-        if(t not in matched_indices[:,1]):
+        if t not in matched_indices[:, 1]:
             unmatched_trackers.append(t)
 
-    #filter out matched with low IOU
+    # filter out matched with low IOU
     matches = []
     for m in matched_indices:
-        if(iou_matrix[m[0], m[1]]<iou_threshold):
+        if iou_matrix[m[0], m[1]] < iou_threshold:
             unmatched_detections.append(m[0])
             unmatched_trackers.append(m[1])
         else:
-            matches.append(m.reshape(1,2))
-    if(len(matches)==0):
-        matches = np.empty((0,2),dtype=int)
+            matches.append(m.reshape(1, 2))
+    if len(matches) == 0:
+        matches = np.empty((0, 2), dtype=int)
     else:
-        matches = np.concatenate(matches,axis=0)
+        matches = np.concatenate(matches, axis=0)
 
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
+
 
 # compute embedding distance and gating, borrowed and modified from FairMOT
 from scipy.spatial.distance import cdist
 
 
-def embedding_distance(tracks_feat, detections_feat, metric='cosine'):
+def embedding_distance(tracks_feat, detections_feat, metric="cosine"):
     """
     :param tracks: list[KalmanBoxTracker]
     :param detections: list[KalmanBoxTracker]
@@ -752,19 +813,14 @@ def embedding_distance(tracks_feat, detections_feat, metric='cosine'):
     # #for i, track in enumerate(tracks):
     #     #cost_matrix[i, :] = np.maximum(0.0, cdist(track.smooth_feat.reshape(1,-1), det_features, metric))
     # track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float)    # [track_num, emd_dim]
-    cost_matrix = np.maximum(0.0, cdist(tracks_feat, detections_feat, metric))  # Nomalized features, metric: cosine, [track_num, detection_num]
+    cost_matrix = np.maximum(
+        0.0, cdist(tracks_feat, detections_feat, metric)
+    )  # Nomalized features, metric: cosine, [track_num, detection_num]
     return cost_matrix
 
-chi2inv95 = {
-    1: 3.8415,
-    2: 5.9915,
-    3: 7.8147,
-    4: 9.4877,
-    5: 11.070,
-    6: 12.592,
-    7: 14.067,
-    8: 15.507,
-    9: 16.919}
+
+chi2inv95 = {1: 3.8415, 2: 5.9915, 3: 7.8147, 4: 9.4877, 5: 11.070, 6: 12.592, 7: 14.067, 8: 15.507, 9: 16.919}
+
 
 # [hgx0411] compute embedding distance and gating, borrowed and modified from FairMOT
 def fuse_motion(cost_matrix, tracks, detections, only_position=False, lambda_=0.98):
@@ -773,10 +829,11 @@ def fuse_motion(cost_matrix, tracks, detections, only_position=False, lambda_=0.
     gating_dim = 2 if only_position else 4
     gating_threshold = chi2inv95[gating_dim]
     for row, track in enumerate(tracks):
-        gating_distance = track.kf.gating_distance(detections, only_position, metric='maha')
+        gating_distance = track.kf.gating_distance(detections, only_position, metric="maha")
         cost_matrix[row, gating_distance > gating_threshold] = np.inf
         cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance
     return cost_matrix
+
 
 # [hgx0411] compute embedding distance and gating, borrowed and modified from FairMOT
 import lap
@@ -795,11 +852,12 @@ def linear_assignment_appearance(cost_matrix, thresh):
     matches = np.asarray(matches)
     return matches, unmatched_a, unmatched_b
 
+
 def fuse_score(cost_matrix, det_scores):
     if cost_matrix.size == 0:
         return cost_matrix
-    iou_sim = - cost_matrix
+    iou_sim = -cost_matrix
     det_scores = np.expand_dims(det_scores, axis=1).repeat(cost_matrix.shape[1], axis=1)
     fuse_sim = iou_sim * det_scores
-    fuse_cost = - fuse_sim
+    fuse_cost = -fuse_sim
     return fuse_cost

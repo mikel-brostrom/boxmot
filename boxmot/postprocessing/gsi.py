@@ -42,9 +42,7 @@ def linear_interpolation(data: np.ndarray, interval: int) -> np.ndarray:
             gap = current_frame - previous_frame - 1
             for i in range(1, gap + 1):
                 # Linear interpolation for each missing frame
-                new_row = previous_row + (row - previous_row) * (
-                    i / (current_frame - previous_frame)
-                )
+                new_row = previous_row + (row - previous_row) * (i / (current_frame - previous_frame))
                 result_rows.append(new_row)
         result_rows.append(row)
         previous_id, previous_frame, previous_row = current_id, current_frame, row
@@ -85,9 +83,7 @@ def gaussian_smooth(data: np.ndarray, tau: float) -> np.ndarray:
 
         # Build new rows with the smoothed data, retaining other columns and appending -1
         for i in range(len(tracks)):
-            new_row = np.concatenate(
-                ([tracks[i, 0], obj_id], smoothed_columns[i], tracks[i, 6:8], [-1])
-            )
+            new_row = np.concatenate(([tracks[i, 0], obj_id], smoothed_columns[i], tracks[i, 6:8], [-1]))
             smoothed_output.append(new_row)
 
     return np.array(smoothed_output)
@@ -126,10 +122,7 @@ def gsi(mot_results_folder: Path, interval: int = 20, tau: float = 10):
     LOGGER.debug(f"GSI: Found {total_files} file(s) to process.")
 
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        futures = {
-            executor.submit(process_file, file_path, interval, tau): file_path
-            for file_path in tracking_files
-        }
+        futures = {executor.submit(process_file, file_path, interval, tau): file_path for file_path in tracking_files}
         for future in tqdm(
             concurrent.futures.as_completed(futures),
             total=total_files,
@@ -146,12 +139,8 @@ def main():
     """
     Parse command line arguments and run the Gaussian Smoothed Interpolation process.
     """
-    parser = argparse.ArgumentParser(
-        description="Apply Gaussian Smoothed Interpolation (GSI) to tracking results."
-    )
-    parser.add_argument(
-        "--path", type=str, required=True, help="Path to MOT results folder"
-    )
+    parser = argparse.ArgumentParser(description="Apply Gaussian Smoothed Interpolation (GSI) to tracking results.")
+    parser.add_argument("--path", type=str, required=True, help="Path to MOT results folder")
     args = parser.parse_args()
 
     mot_results_folder = Path(args.path)

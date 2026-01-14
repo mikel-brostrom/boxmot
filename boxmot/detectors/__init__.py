@@ -91,4 +91,3 @@ def get_yolo_inferer(yolo_model):
         "For custom models, the filename must include one of these substrings to route it to the correct package and architecture."
     )
     exit()
-

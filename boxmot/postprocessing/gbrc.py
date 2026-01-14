@@ -37,9 +37,7 @@ def linear_interpolation(data: np.ndarray, interval: int) -> np.ndarray:
         ):
             gap = current_frame - previous_frame - 1
             for i in range(1, gap + 1):
-                new_row = previous_row + (row - previous_row) * (
-                    i / (current_frame - previous_frame)
-                )
+                new_row = previous_row + (row - previous_row) * (i / (current_frame - previous_frame))
                 result_rows.append(new_row)
 
         result_rows.append(row)

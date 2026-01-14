@@ -132,7 +132,14 @@ class SIFT(BaseCMC):
                 self.prev_img_aligned = None
 
         if self.draw_keypoint_matches:
-            self.matches_img = ORBLikeDraw.draw(prev=self.prev_img, curr=img_p, prev_kp=self.prev_keypoints, curr_kp=keypoints, matches=good_matches, dets=dets)
+            self.matches_img = ORBLikeDraw.draw(
+                prev=self.prev_img,
+                curr=img_p,
+                prev_kp=self.prev_keypoints,
+                curr_kp=keypoints,
+                matches=good_matches,
+                dets=dets,
+            )
         else:
             self.matches_img = None
 

@@ -33,9 +33,7 @@ class STrack(BaseTrack):
         mean_state = self.mean.copy()
         if self.state != TrackState.Tracked:
             mean_state[7] = 0
-        self.mean, self.covariance = self.kalman_filter.predict(
-            mean_state, self.covariance
-        )
+        self.mean, self.covariance = self.kalman_filter.predict(mean_state, self.covariance)
 
     @staticmethod
     def multi_predict(stracks):
@@ -45,9 +43,7 @@ class STrack(BaseTrack):
             for i, st in enumerate(stracks):
                 if st.state != TrackState.Tracked:
                     multi_mean[i][7] = 0
-            multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(
-                multi_mean, multi_covariance
-            )
+            multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(multi_mean, multi_covariance)
             for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
                 stracks[i].mean = mean
                 stracks[i].covariance = cov
@@ -67,9 +63,7 @@ class STrack(BaseTrack):
         self.start_frame = frame_id
 
     def re_activate(self, new_track, frame_id, new_id=False):
-        self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.xyah
-        )
+        self.mean, self.covariance = self.kalman_filter.update(self.mean, self.covariance, new_track.xyah)
         self.tracklet_len = 0
         self.state = TrackState.Tracked
         self.is_activated = True
@@ -92,9 +86,7 @@ class STrack(BaseTrack):
         self.tracklet_len += 1
         self.history_observations.append(self.xyxy)
 
-        self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.xyah
-        )
+        self.mean, self.covariance = self.kalman_filter.update(self.mean, self.covariance, new_track.xyah)
         self.state = TrackState.Tracked
         self.is_activated = True
 
@@ -130,14 +122,14 @@ class ByteTrack(BaseTracker):
     - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
     - asso_func (str): Algorithm name used for data association between detections and tracks.
     - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
+
     ByteTrack-specific parameters:
     - min_conf (float): Threshold for detection confidence. Detections below this threshold are discarded.
     - track_thresh (float): Threshold for detection confidence. Detections above this threshold are considered for tracking in the first association round.
     - match_thresh (float): Threshold for the matching step in data association. Controls the maximum distance allowed between tracklets and detections for a match.
     - track_buffer (int): Number of frames to keep a track alive after it was last detected.
     - frame_rate (int): Frame rate of the video being processed. Used to scale the track buffer size.
-    
+
     Attributes:
     - frame_count (int): Counter for the frames processed.
     - active_tracks (list): List to hold active tracks.
@@ -156,12 +148,12 @@ class ByteTrack(BaseTracker):
         match_thresh: float = 0.8,
         track_buffer: int = 25,
         frame_rate: int = 30,
-        **kwargs  # BaseTracker parameters
+        **kwargs,  # BaseTracker parameters
     ):
         # Capture all init params for logging
-        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
-        super().__init__(**init_args, _tracker_name='ByteTrack', **kwargs)
-        
+        init_args = {k: v for k, v in locals().items() if k not in ("self", "kwargs")}
+        super().__init__(**init_args, _tracker_name="ByteTrack", **kwargs)
+
         # Track lifecycle parameters
         self.frame_id = 0
         self.track_buffer = track_buffer
@@ -176,17 +168,14 @@ class ByteTrack(BaseTracker):
 
         # Motion model
         self.kalman_filter = KalmanFilterXYAH()
-        
+
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
-    def update(
-        self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None
-    ) -> np.ndarray:
-
+    def update(self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None) -> np.ndarray:
         self.check_inputs(dets, img)
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
@@ -228,9 +217,7 @@ class ByteTrack(BaseTracker):
         dists = iou_distance(strack_pool, detections)
         # if not self.args.mot20:
         dists = fuse_score(dists, detections)
-        matches, u_track, u_detection = linear_assignment(
-            dists, thresh=self.match_thresh
-        )
+        matches, u_track, u_detection = linear_assignment(dists, thresh=self.match_thresh)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
@@ -246,16 +233,10 @@ class ByteTrack(BaseTracker):
         # association the untrack to the low conf detections
         if len(dets_second) > 0:
             """Detections"""
-            detections_second = [
-                STrack(det_second, max_obs=self.max_obs) for det_second in dets_second
-            ]
+            detections_second = [STrack(det_second, max_obs=self.max_obs) for det_second in dets_second]
         else:
             detections_second = []
-        r_tracked_stracks = [
-            strack_pool[i]
-            for i in u_track
-            if strack_pool[i].state == TrackState.Tracked
-        ]
+        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
         dists = iou_distance(r_tracked_stracks, detections_second)
         matches, u_track, u_detection_second = linear_assignment(dists, thresh=0.5)
         for itracked, idet in matches:
@@ -301,18 +282,14 @@ class ByteTrack(BaseTracker):
                 track.mark_removed()
                 removed_stracks.append(track)
 
-        self.active_tracks = [
-            t for t in self.active_tracks if t.state == TrackState.Tracked
-        ]
+        self.active_tracks = [t for t in self.active_tracks if t.state == TrackState.Tracked]
         self.active_tracks = joint_stracks(self.active_tracks, activated_starcks)
         self.active_tracks = joint_stracks(self.active_tracks, refind_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.active_tracks)
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
-        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(
-            self.active_tracks, self.lost_stracks
-        )
+        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(self.active_tracks, self.lost_stracks)
         # get confs of lost tracks
         output_stracks = [track for track in self.active_tracks if track.is_activated]
         outputs = []

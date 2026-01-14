@@ -117,6 +117,7 @@ class KalmanBoxTracker(object):
         if use_custom_kf:
             from .kalmanfilter_score_new import \
                 KalmanFilterNew_score_new as KalmanFilter_score_new
+
             self.kf = KalmanFilter_score_new(dim_x=9, dim_z=5)
             self.kf.F = np.array(
                 [
@@ -149,6 +150,7 @@ class KalmanBoxTracker(object):
             self.kf.x[:5] = convert_bbox_to_z(bbox)
         else:
             from filterpy.kalman import KalmanFilter
+
             self.kf = KalmanFilter(dim_x=7, dim_z=4)
             self.kf.F = np.array(
                 [
@@ -259,7 +261,9 @@ class KalmanBoxTracker(object):
         # write back to KF (keep score)
         self.kf.x[:5] = convert_bbox_to_z([x1_, y1_, x2_, y2_, float(score)])
 
-    def update(self, bbox, id_feature, update_feature: bool = True, *, cls: Optional[int] = None, det_ind: Optional[int] = None):
+    def update(
+        self, bbox, id_feature, update_feature: bool = True, *, cls: Optional[int] = None, det_ind: Optional[int] = None
+    ):
         vlt = vrt = vlb = vrb = None
         if bbox is not None:
             if self.last_observation.sum() >= 0:
@@ -334,11 +338,13 @@ class KalmanBoxTracker(object):
         if not self.confidence_pre:
             simple_score = float(np.clip(self.conf, 0.1, self.track_thresh))
         else:
-            simple_score = float(np.clip(
-                self.conf - (self.confidence_pre - self.conf),
-                0.1,
-                self.track_thresh,
-            ))
+            simple_score = float(
+                np.clip(
+                    self.conf - (self.confidence_pre - self.conf),
+                    0.1,
+                    self.track_thresh,
+                )
+            )
 
         return self.history[-1], kalman_score, simple_score
 
@@ -372,44 +378,38 @@ class HybridSort(BaseTracker):
         half: bool,
         cmc_method: str = "ecc",
         with_reid: bool = True,
-
         # Hybrid-SORT specific
         low_thresh: float = 0.1,
         delta_t: int = 3,
         inertia: float = 0.05,
         use_byte: bool = True,
-
         # KF / ReID
         use_custom_kf: bool = True,
         longterm_bank_length: int = 30,
         alpha: float = 0.9,
         adapfs: bool = False,
         track_thresh: float = 0.5,
-
         # Embedding-guided association
         EG_weight_high_score: float = 4.6,
         EG_weight_low_score: float = 1.3,
-
         # Two-step toggles / thresholds
         TCM_first_step: bool = True,
         TCM_byte_step: bool = True,
         TCM_byte_step_weight: float = 1.0,
         high_score_matching_thresh: float = 0.7,
-
         # Long-term reid
         with_longterm_reid: bool = True,
         longterm_reid_weight: float = 0.0,
         with_longterm_reid_correction: bool = True,
         longterm_reid_correction_thresh: float = 0.4,
         longterm_reid_correction_thresh_low: float = 0.4,
-
         # misc
         dataset: str = "",
         **kwargs,  # BaseTracker parameters
     ):
         # Capture all init params for logging
-        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
-        super().__init__(**init_args, _tracker_name='HybridSort', **kwargs)
+        init_args = {k: v for k, v in locals().items() if k not in ("self", "kwargs")}
+        super().__init__(**init_args, _tracker_name="HybridSort", **kwargs)
 
         # store core knobs
         self.low_thresh = float(low_thresh)
@@ -507,7 +507,7 @@ class HybridSort(BaseTracker):
         inds_high = confs < self.det_thresh
         inds_second = np.logical_and(inds_low, inds_high)
 
-        dets_second = dets_idx[inds_second]         # low-conf for BYTE
+        dets_second = dets_idx[inds_second]  # low-conf for BYTE
         remain_inds = confs > self.det_thresh
         dets_keep = dets_idx[remain_inds]
 
@@ -545,10 +545,18 @@ class HybridSort(BaseTracker):
             self.active_tracks.pop(t)
 
         # Prepare motion cues
-        velocities_lt = np.array([t.velocity_lt if t.velocity_lt is not None else np.array((0, 0)) for t in self.active_tracks])
-        velocities_rt = np.array([t.velocity_rt if t.velocity_rt is not None else np.array((0, 0)) for t in self.active_tracks])
-        velocities_lb = np.array([t.velocity_lb if t.velocity_lb is not None else np.array((0, 0)) for t in self.active_tracks])
-        velocities_rb = np.array([t.velocity_rb if t.velocity_rb is not None else np.array((0, 0)) for t in self.active_tracks])
+        velocities_lt = np.array(
+            [t.velocity_lt if t.velocity_lt is not None else np.array((0, 0)) for t in self.active_tracks]
+        )
+        velocities_rt = np.array(
+            [t.velocity_rt if t.velocity_rt is not None else np.array((0, 0)) for t in self.active_tracks]
+        )
+        velocities_lb = np.array(
+            [t.velocity_lb if t.velocity_lb is not None else np.array((0, 0)) for t in self.active_tracks]
+        )
+        velocities_rb = np.array(
+            [t.velocity_rb if t.velocity_rb is not None else np.array((0, 0)) for t in self.active_tracks]
+        )
         last_boxes = np.array([t.last_observation for t in self.active_tracks])
         k_observations = np.array([k_previous_obs(t.observations, t.age, self.delta_t) for t in self.active_tracks])
 
@@ -560,7 +568,10 @@ class HybridSort(BaseTracker):
             long_emb_dists = None
             if self.with_longterm_reid or self.with_longterm_reid_correction:
                 long_track_features = np.asarray(
-                    [np.vstack(list(t.features)).mean(0) if len(t.features) else t.smooth_feat for t in self.active_tracks],
+                    [
+                        np.vstack(list(t.features)).mean(0) if len(t.features) else t.smooth_feat
+                        for t in self.active_tracks
+                    ],
                     dtype=float,
                 )
                 long_emb_dists = embedding_distance(long_track_features, id_feature_keep).T
@@ -635,7 +646,10 @@ class HybridSort(BaseTracker):
                     det_rel, trk_rel = mm[0], mm[1]
                     trk_ind = unmatched_trks[trk_rel]
                     if self.with_longterm_reid_correction and self.EG_weight_low_score > 0 and self.with_reid:
-                        if iou_left_thre[det_rel, trk_rel] < self.iou_threshold or emb_dists_low[det_rel, trk_rel] > self.longterm_reid_correction_thresh_low:
+                        if (
+                            iou_left_thre[det_rel, trk_rel] < self.iou_threshold
+                            or emb_dists_low[det_rel, trk_rel] > self.longterm_reid_correction_thresh_low
+                        ):
                             continue
                     else:
                         if iou_left_thre[det_rel, trk_rel] < self.iou_threshold:
@@ -708,13 +722,15 @@ class HybridSort(BaseTracker):
 
             # Only output fresh tracks and valid det_ind for this frame
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
-                outputs.append([
-                    *d.tolist(),
-                    trk.id + 1,                 # track id
-                    float(trk.conf),      # conf
-                    int(trk.cls),               # cls (from detection)
-                    int(trk.det_ind),           # det index (frame-local)
-                ])
+                outputs.append(
+                    [
+                        *d.tolist(),
+                        trk.id + 1,  # track id
+                        float(trk.conf),  # conf
+                        int(trk.cls),  # cls (from detection)
+                        int(trk.det_ind),  # det index (frame-local)
+                    ]
+                )
 
         # Remove dead tracks
         i = len(self.active_tracks)

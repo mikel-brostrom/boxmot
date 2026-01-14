@@ -2,7 +2,6 @@ import os
 import shutil
 from pathlib import Path
 
-
 from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.utils import logger as LOGGER
 

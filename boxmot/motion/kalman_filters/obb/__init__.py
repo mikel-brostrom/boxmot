@@ -4,5 +4,5 @@ from .xywha_kf import KalmanBoxTrackerOBB, KalmanFilterXYWHA
 
 __all__ = [
     "KalmanFilterXYWHA",
-    "KalmanBoxTrackerOBB", 
+    "KalmanBoxTrackerOBB",
 ]

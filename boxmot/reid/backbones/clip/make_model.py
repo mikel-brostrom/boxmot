@@ -89,22 +89,16 @@ class build_transformer(nn.Module):
 
     def forward(self, x, label=None, cam_label=None, view_label=None):
         if self.model_name == "RN50":
-            image_features_last, image_features, image_features_proj = (
-                self.image_encoder(x)
-            )  # B,512  B,128,512
-            img_feature_last = nn.functional.avg_pool2d(
-                image_features_last, image_features_last.shape[2:4]
-            ).view(x.shape[0], -1)
-            img_feature = nn.functional.avg_pool2d(
-                image_features, image_features.shape[2:4]
-            ).view(x.shape[0], -1)
+            image_features_last, image_features, image_features_proj = self.image_encoder(x)  # B,512  B,128,512
+            img_feature_last = nn.functional.avg_pool2d(image_features_last, image_features_last.shape[2:4]).view(
+                x.shape[0], -1
+            )
+            img_feature = nn.functional.avg_pool2d(image_features, image_features.shape[2:4]).view(x.shape[0], -1)
             img_feature_proj = image_features_proj[0]
 
         elif self.model_name == "ViT-B-16":
             if cam_label is not None and view_label is not None:
-                cv_embed = (
-                    self.sie_coe * self.cv_embed[cam_label * self.view_num + view_label]
-                )
+                cv_embed = self.sie_coe * self.cv_embed[cam_label * self.view_num + view_label]
             elif cam_label is not None:
                 cv_embed = self.sie_coe * self.cv_embed[cam_label]
             elif view_label is not None:
@@ -112,9 +106,7 @@ class build_transformer(nn.Module):
             else:
                 cv_embed = None
             # B,512  B,128,512
-            image_features_last, image_features, image_features_proj = (
-                self.image_encoder(x, cv_embed)
-            )
+            image_features_last, image_features, image_features_proj = self.image_encoder(x, cv_embed)
             img_feature_last = image_features_last[:, 0]
             img_feature = image_features[:, 0]
             img_feature_proj = image_features_proj[:, 0]
@@ -171,8 +163,6 @@ def load_clip_to_cpu(backbone_name, h_resolution, w_resolution, vision_stride_si
     except RuntimeError:
         state_dict = torch.load(model_path, map_location="cpu")
 
-    model = clip.build_model(
-        state_dict or model.state_dict(), h_resolution, w_resolution, vision_stride_size
-    )
+    model = clip.build_model(state_dict or model.state_dict(), h_resolution, w_resolution, vision_stride_size)
 
     return model

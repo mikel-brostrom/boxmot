@@ -101,9 +101,7 @@ class Tracker:
                 continue
             features += track.features
             targets += [track.id for _ in track.features]
-        self.metric.partial_fit(
-            np.asarray(features), np.asarray(targets), active_targets
-        )
+        self.metric.partial_fit(np.asarray(features), np.asarray(targets), active_targets)
 
     def _match(self, detections):
         def gated_metric(tracks, dets, track_indices, detection_indices):
@@ -139,9 +137,7 @@ class Tracker:
         iou_track_candidates = unconfirmed_tracks + [
             k for k in unmatched_tracks_a if self.tracks[k].time_since_update == 1
         ]
-        unmatched_tracks_a = [
-            k for k in unmatched_tracks_a if self.tracks[k].time_since_update != 1
-        ]
+        unmatched_tracks_a = [k for k in unmatched_tracks_a if self.tracks[k].time_since_update != 1]
 
         matches_b, unmatched_tracks_b, unmatched_detections = linear_assignment.min_cost_matching(
             iou_matching.iou_cost,

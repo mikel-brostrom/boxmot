@@ -66,7 +66,7 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path,
             LOGGER.info(f"`{seq_path}` already ≤ split size, skipping.")
             continue
 
-        LOGGER.info(f"{seq_path.name}: keeping frames {split_frame+1}-{max_frame}")
+        LOGGER.info(f"{seq_path.name}: keeping frames {split_frame + 1}-{max_frame}")
 
         # filter and re‐index gt
         df = df[df[0] > split_frame].copy()
@@ -89,9 +89,7 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path,
     return dst_fldr, new_benchmark_name
 
 
-def convert_to_mot_format(
-    results: Union[Results, np.ndarray], frame_idx: int
-) -> np.ndarray:
+def convert_to_mot_format(results: Union[Results, np.ndarray], frame_idx: int) -> np.ndarray:
     """
     Converts tracking results for a single frame into MOT challenge format.
 
@@ -113,14 +111,16 @@ def convert_to_mot_format(
             # Convert numpy array results to MOT format
             tlwh = ops.xyxy2ltwh(results[:, 0:4])
             frame_idx_column = np.full((results.shape[0], 1), frame_idx, dtype=np.int32)
-            mot_results = np.column_stack((
-                frame_idx_column, # frame index
-                results[:, 4].astype(np.int32),  # track id
-                tlwh.round().astype(np.int32),  # top,left,width,height
-                np.ones((results.shape[0], 1), dtype=np.int32),  # "not ignored"
-                results[:, 6].astype(np.int32) + 1,  # class
-                results[:, 5],  # confidence (float)
-            ))
+            mot_results = np.column_stack(
+                (
+                    frame_idx_column,  # frame index
+                    results[:, 4].astype(np.int32),  # track id
+                    tlwh.round().astype(np.int32),  # top,left,width,height
+                    np.ones((results.shape[0], 1), dtype=np.int32),  # "not ignored"
+                    results[:, 6].astype(np.int32) + 1,  # class
+                    results[:, 5],  # confidence (float)
+                )
+            )
             return mot_results
         else:
             # Convert ultralytics results to MOT format
@@ -128,14 +128,17 @@ def convert_to_mot_format(
             frame_indices = torch.full((num_detections, 1), frame_idx + 1, dtype=torch.int32)
             not_ignored = torch.ones((num_detections, 1), dtype=torch.int32)
 
-            mot_results = torch.cat([
-                frame_indices, # frame index
-                results.boxes.id.unsqueeze(1).astype(np.int32), # track id
-                ops.xyxy2ltwh(results.boxes.xyxy).astype(np.int32),  ## top,left,width,height
-                not_ignored, # "not ignored"
-                results.boxes.cls.unsqueeze(1).astype(np.int32) + 1, # class
-                results.boxes.conf.unsqueeze(1).astype(np.float32), # confidence (float)
-            ], dim=1)
+            mot_results = torch.cat(
+                [
+                    frame_indices,  # frame index
+                    results.boxes.id.unsqueeze(1).astype(np.int32),  # track id
+                    ops.xyxy2ltwh(results.boxes.xyxy).astype(np.int32),  ## top,left,width,height
+                    not_ignored,  # "not ignored"
+                    results.boxes.cls.unsqueeze(1).astype(np.int32) + 1,  # class
+                    results.boxes.conf.unsqueeze(1).astype(np.float32),  # confidence (float)
+                ],
+                dim=1,
+            )
 
             return mot_results.numpy()
 

@@ -24,7 +24,6 @@ chi2inv95 = {
 }
 
 
-
 def linear_assignment(cost_matrix, thresh):
     if cost_matrix.size == 0:
         return (
@@ -71,8 +70,6 @@ def iou_distance(atracks, btracks):
     return cost_matrix
 
 
-
-
 def embedding_distance(tracks, detections, metric="cosine"):
     """
     :param tracks: list[STrack]
@@ -84,17 +81,11 @@ def embedding_distance(tracks, detections, metric="cosine"):
     cost_matrix = np.zeros((len(tracks), len(detections)), dtype=np.float32)
     if cost_matrix.size == 0:
         return cost_matrix
-    det_features = np.asarray(
-        [track.curr_feat for track in detections], dtype=np.float32
-    )
+    det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float32)
     # for i, track in enumerate(tracks):
     # cost_matrix[i, :] = np.maximum(0.0, cdist(track.smooth_feat.reshape(1,-1), det_features, metric))
-    track_features = np.asarray(
-        [track.smooth_feat for track in tracks], dtype=np.float32
-    )
-    cost_matrix = np.maximum(
-        0.0, cdist(track_features, det_features, metric)
-    )  # Nomalized features
+    track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float32)
+    cost_matrix = np.maximum(0.0, cdist(track_features, det_features, metric))  # Nomalized features
     return cost_matrix
 
 
@@ -105,9 +96,7 @@ def fuse_motion(kf, cost_matrix, tracks, detections, only_position=False, lambda
     gating_threshold = chi2inv95[gating_dim]
     measurements = np.asarray([det.to_xyah() for det in detections])
     for row, track in enumerate(tracks):
-        gating_distance = kf.gating_distance(
-            track.mean, track.covariance, measurements, only_position, metric="maha"
-        )
+        gating_distance = kf.gating_distance(track.mean, track.covariance, measurements, only_position, metric="maha")
         cost_matrix[row, gating_distance > gating_threshold] = np.inf
         cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance
     return cost_matrix

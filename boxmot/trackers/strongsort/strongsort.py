@@ -32,7 +32,7 @@ class StrongSort(BaseTracker):
     - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
     - asso_func (str): Algorithm name used for data association between detections and tracks.
     - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
+
     StrongSort-specific parameters:
     - min_conf (float): Minimum confidence threshold for detections.
     - max_cos_dist (float): Maximum cosine distance for ReID feature matching in Nearest Neighbor Distance Metric.
@@ -41,7 +41,7 @@ class StrongSort(BaseTracker):
     - nn_budget (int): Maximum size of the feature library for Nearest Neighbor Distance Metric.
     - mc_lambda (float): Weight for motion consistency in the track state estimation.
     - ema_alpha (float): Alpha value for exponential moving average (EMA) update of appearance features.
-    
+
     Attributes:
     - model: ReID model for appearance feature extraction.
     - tracker: StrongSort tracker instance.
@@ -61,19 +61,17 @@ class StrongSort(BaseTracker):
         nn_budget: int = 100,
         mc_lambda: float = 0.98,
         ema_alpha: float = 0.9,
-        **kwargs  # BaseTracker parameters
+        **kwargs,  # BaseTracker parameters
     ):
         # Capture all init params for logging
-        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
-        super().__init__(**init_args, _tracker_name='StrongSort', **kwargs)
-        
+        init_args = {k: v for k, v in locals().items() if k not in ("self", "kwargs")}
+        super().__init__(**init_args, _tracker_name="StrongSort", **kwargs)
+
         # Store StrongSort-specific parameters
         self.min_conf = min_conf
-        
+
         # Initialize ReID model
-        self.model = ReidAutoBackend(
-            weights=reid_weights, device=device, half=half
-        ).model
+        self.model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
 
         # Initialize StrongSort tracker
         self.tracker = Tracker(
@@ -84,30 +82,20 @@ class StrongSort(BaseTracker):
             mc_lambda=mc_lambda,
             ema_alpha=ema_alpha,
         )
-        
+
         # Initialize camera motion compensation
         self.cmc = get_cmc_method("ecc")()
-        
+
     @BaseTracker.per_class_decorator
-    def update(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
-    ) -> np.ndarray:
-        assert isinstance(
-            dets, np.ndarray
-        ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
-        assert isinstance(
-            img, np.ndarray
-        ), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
-        assert (
-            len(dets.shape) == 2
-        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
-        assert (
-            dets.shape[1] == 6
-        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+        assert isinstance(dets, np.ndarray), (
+            f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
+        )
+        assert isinstance(img, np.ndarray), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
+        assert len(dets.shape) == 2, "Unsupported 'dets' dimensions, valid number of dimensions is two"
+        assert dets.shape[1] == 6, "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
         if embs is not None:
-            assert (
-                dets.shape[0] == embs.shape[0]
-            ), "Missmatch between detections and embeddings sizes"
+            assert dets.shape[0] == embs.shape[0], "Missmatch between detections and embeddings sizes"
 
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         remain_inds = dets[:, 4] >= self.min_conf
@@ -132,9 +120,7 @@ class StrongSort(BaseTracker):
         tlwh = xyxy2tlwh(xyxy)
         detections = [
             Detection(box, conf, cls, det_ind, feat)
-            for box, conf, cls, det_ind, feat in zip(
-                tlwh, confs, clss, det_ind, features
-            )
+            for box, conf, cls, det_ind, feat in zip(tlwh, confs, clss, det_ind, features)
         ]
 
         # update tracker
@@ -154,11 +140,7 @@ class StrongSort(BaseTracker):
             cls = track.cls
             det_ind = track.det_ind
 
-            outputs.append(
-                np.concatenate(
-                    ([x1, y1, x2, y2], [id], [conf], [cls], [det_ind])
-                ).reshape(1, -1)
-            )
+            outputs.append(np.concatenate(([x1, y1, x2, y2], [id], [conf], [cls], [det_ind])).reshape(1, -1))
         if len(outputs) > 0:
             return np.concatenate(outputs)
         return np.array([])

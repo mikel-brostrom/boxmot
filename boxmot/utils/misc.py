@@ -22,10 +22,10 @@ def parse_imgsz(ctx, param, value):
         elif len(value) == 2:
             return (int(value[0]), int(value[1]))
         else:
-             raise click.BadParameter(f"Invalid --imgsz: {value}")
+            raise click.BadParameter(f"Invalid --imgsz: {value}")
 
     # Parse string
-    s = value.replace(',', ' ')
+    s = value.replace(",", " ")
     parts = s.split()
     try:
         if len(parts) == 1:
@@ -34,9 +34,8 @@ def parse_imgsz(ctx, param, value):
             return (int(parts[0]), int(parts[1]))
     except ValueError:
         pass
-    
-    raise click.BadParameter(f"Invalid --imgsz: {value}")
 
+    raise click.BadParameter(f"Invalid --imgsz: {value}")
 
 
 def increment_path(path, exist_ok=False, sep="", mkdir=False):
@@ -58,7 +57,7 @@ def increment_path(path, exist_ok=False, sep="", mkdir=False):
     path = Path(path)  # ensures OS compatibility
     if path.exists() and not exist_ok:
         base, suffix = (path.with_suffix(""), path.suffix) if path.is_file() else (path, "")
-        
+
         # Increment path until a non-existing one is found
         for n in range(2, 9999):
             new_path = f"{base}{sep}{n}{suffix}"
@@ -91,7 +90,7 @@ def prompt_overwrite(path_type: str, path: Path, ci: bool = True) -> bool:
         return False
 
     def input_with_timeout(prompt: str, timeout: float = 3.0) -> bool:
-        print(prompt, end='', flush=True)
+        print(prompt, end="", flush=True)
         result = []
         got_input = threading.Event()
 
@@ -106,7 +105,7 @@ def prompt_overwrite(path_type: str, path: Path, ci: bool = True) -> bool:
         t.join(timeout)
 
         if got_input.is_set():
-            return result[0] in ('y', 'yes')
+            return result[0] in ("y", "yes")
         else:
             print("\nNo response, not proceeding with overwrite...")
             return False

@@ -1,4 +1,3 @@
-
 import torch
 from torch.export import Dim
 
@@ -29,7 +28,7 @@ class ONNXExporter(BaseExporter):
         args = (self.im,)
 
         if self.dynamic:
-            dynamic_shapes = ({0: Dim("batch")},)   # first (and only) input tensor: dim0 is dynamic
+            dynamic_shapes = ({0: Dim("batch")},)  # first (and only) input tensor: dim0 is dynamic
         else:
             dynamic_shapes = None
 
@@ -53,9 +52,7 @@ class ONNXExporter(BaseExporter):
 
         # --- IR version clamp for ONNXRuntime compatibility ---
         if getattr(model_onnx, "ir_version", 0) > 10:
-            LOGGER.info(
-                f"Limiting IR version {model_onnx.ir_version} -> 10 for ONNXRuntime compatibility..."
-            )
+            LOGGER.info(f"Limiting IR version {model_onnx.ir_version} -> 10 for ONNXRuntime compatibility...")
             model_onnx.ir_version = 10
 
         # --- Optional FP16 conversion for CPU export ---

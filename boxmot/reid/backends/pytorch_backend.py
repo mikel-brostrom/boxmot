@@ -3,7 +3,6 @@ from boxmot.reid.core.registry import ReIDModelRegistry
 
 
 class PyTorchBackend(BaseModelBackend):
-
     def __init__(self, weights, device, half):
         super().__init__(weights, device, half)
         self.nhwc = False

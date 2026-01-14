@@ -90,10 +90,7 @@ class Track:
         # start with confirmed in Ci as test expect equal amount of outputs as inputs
         self.state = (
             TrackState.Confirmed
-            if (
-                os.getenv("GITHUB_ACTIONS") == "true"
-                and os.getenv("GITHUB_JOB") != "mot-metrics-benchmark"
-            )
+            if (os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("GITHUB_JOB") != "mot-metrics-benchmark")
             else TrackState.Tentative
         )
         self.features = []
@@ -171,15 +168,11 @@ class Track:
         self.conf = detection.conf
         self.cls = detection.cls
         self.det_ind = detection.det_ind
-        self.mean, self.covariance = self.kf.update(
-            self.mean, self.covariance, self.bbox, self.conf
-        )
+        self.mean, self.covariance = self.kf.update(self.mean, self.covariance, self.bbox, self.conf)
 
         feature = detection.feat / np.linalg.norm(detection.feat)
 
-        smooth_feat = (
-            self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
-        )
+        smooth_feat = self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
         smooth_feat /= np.linalg.norm(smooth_feat)
         self.features = [smooth_feat]
 

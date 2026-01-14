@@ -2,14 +2,12 @@ from boxmot.reid.backends.base_backend import BaseModelBackend
 
 
 class ONNXBackend(BaseModelBackend):
-
     def __init__(self, weights, device, half):
         super().__init__(weights, device, half)
         self.nhwc = False
         self.half = half
 
     def load_model(self, w):
-
         # ONNXRuntime will attempt to use the first provider, and if it fails or is not
         # available for some reason, it will fall back to the next provider in the list
         if self.device.type == "mps":

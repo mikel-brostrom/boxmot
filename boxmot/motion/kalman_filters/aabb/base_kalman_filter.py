@@ -59,9 +59,7 @@ class BaseKalmanFilter:
         """
         raise NotImplementedError
 
-    def predict(
-        self, mean: np.ndarray, covariance: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def predict(self, mean: np.ndarray, covariance: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Run Kalman filter prediction step.
         """
@@ -69,10 +67,7 @@ class BaseKalmanFilter:
         motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
 
         mean = np.dot(mean, self._motion_mat.T)
-        covariance = (
-            np.linalg.multi_dot((self._motion_mat, covariance, self._motion_mat.T))
-            + motion_cov
-        )
+        covariance = np.linalg.multi_dot((self._motion_mat, covariance, self._motion_mat.T)) + motion_cov
 
         return mean, covariance
 
@@ -103,14 +98,10 @@ class BaseKalmanFilter:
         innovation_cov = np.diag(np.square(std))
 
         mean = np.dot(self._update_mat, mean)
-        covariance = np.linalg.multi_dot(
-            (self._update_mat, covariance, self._update_mat.T)
-        )
+        covariance = np.linalg.multi_dot((self._update_mat, covariance, self._update_mat.T))
         return mean, covariance + innovation_cov
 
-    def multi_predict(
-        self, mean: np.ndarray, covariance: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def multi_predict(self, mean: np.ndarray, covariance: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Run Kalman filter prediction step (Vectorized version).
         """
@@ -138,9 +129,7 @@ class BaseKalmanFilter:
         """
         projected_mean, projected_cov = self.project(mean, covariance, confidence)
 
-        chol_factor, lower = scipy.linalg.cho_factor(
-            projected_cov, lower=True, check_finite=False
-        )
+        chol_factor, lower = scipy.linalg.cho_factor(projected_cov, lower=True, check_finite=False)
         kalman_gain = scipy.linalg.cho_solve(
             (chol_factor, lower),
             np.dot(covariance, self._update_mat.T).T,
@@ -149,14 +138,10 @@ class BaseKalmanFilter:
         innovation = measurement - projected_mean
 
         new_mean = mean + np.dot(innovation, kalman_gain.T)
-        new_covariance = covariance - np.linalg.multi_dot(
-            (kalman_gain, projected_cov, kalman_gain.T)
-        )
+        new_covariance = covariance - np.linalg.multi_dot((kalman_gain, projected_cov, kalman_gain.T))
         return new_mean, new_covariance
 
-    def _get_multi_process_noise_std(
-        self, mean: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Return standard deviations for process noise in vectorized form.
         Should be implemented by subclasses.
@@ -185,9 +170,7 @@ class BaseKalmanFilter:
             return np.sum(d * d, axis=1)
         elif metric == "maha":
             cholesky_factor = np.linalg.cholesky(covariance)
-            z = scipy.linalg.solve_triangular(
-                cholesky_factor, d.T, lower=True, check_finite=False, overwrite_b=True
-            )
+            z = scipy.linalg.solve_triangular(cholesky_factor, d.T, lower=True, check_finite=False, overwrite_b=True)
             squared_maha = np.sum(z * z, axis=0)
             return squared_maha
         else:

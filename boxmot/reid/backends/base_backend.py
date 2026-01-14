@@ -17,7 +17,7 @@ class BaseModelBackend:
     def __init__(self, weights, device, half):
         self.weights = weights[0] if isinstance(weights, list) else weights
         if isinstance(self.weights, str):
-             self.weights = Path(self.weights)
+            self.weights = Path(self.weights)
         LOGGER.info(self.weights)
         self.device = device
         self.half = half
@@ -50,14 +50,14 @@ class BaseModelBackend:
             input_shape = (384, 128)
         elif "hacnn" in self.model_name:
             input_shape = (160, 64)
-        else: 
+        else:
             input_shape = (256, 128)
         self.input_shape = input_shape
 
     def get_crops(self, xyxys, img):
         h, w = img.shape[:2]
         interpolation_method = cv2.INTER_LINEAR
-        
+
         # Preallocate tensor for crops
         num_crops = len(xyxys)
         crops = torch.empty(
@@ -80,9 +80,7 @@ class BaseModelBackend:
             crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
 
             # Convert to tensor and normalize (convert to [0, 1] by dividing by 255 in batch later)
-            crop = torch.from_numpy(crop).to(
-                self.device, dtype=torch.half if self.half else torch.float
-            )
+            crop = torch.from_numpy(crop).to(self.device, dtype=torch.half if self.half else torch.float)
             crops[i] = torch.permute(crop, (2, 0, 1))  # Change to (C, H, W)
 
         # Normalize the entire batch in one go
@@ -109,9 +107,7 @@ class BaseModelBackend:
         # warmup model by running inference once
         if self.device.type != "cpu":
             im = np.random.randint(0, 255, *imgsz, dtype=np.uint8)
-            crops = self.get_crops(
-                xyxys=np.array([[0, 0, 64, 64], [0, 0, 128, 128]]), img=im
-            )
+            crops = self.get_crops(xyxys=np.array([[0, 0, 64, 64], [0, 0, 128, 128]]), img=im)
             crops = self.inference_preprocess(crops)
             self.forward(crops)  # warmup
 
@@ -136,9 +132,7 @@ class BaseModelBackend:
 
     def inference_postprocess(self, features):
         if isinstance(features, (list, tuple)):
-            return (
-                self.to_numpy(features[0]) if len(features) == 1 else [self.to_numpy(x) for x in features]
-            )
+            return self.to_numpy(features[0]) if len(features) == 1 else [self.to_numpy(x) for x in features]
         else:
             return self.to_numpy(features)
 
@@ -150,9 +144,8 @@ class BaseModelBackend:
     def load_model(self, w):
         raise NotImplementedError("This method should be implemented by subclasses.")
 
-
     def download_model(self, w):
-        if isinstance(w, str): 
+        if isinstance(w, str):
             w = Path(w)
 
         if w.suffix != ".pt":
@@ -170,8 +163,5 @@ class BaseModelBackend:
                 LOGGER.info(f"[PID {os.getpid()}] Downloading ReID weights from {model_url} → {w}")
                 gdown.download(model_url, str(w), quiet=False)
             else:
-                LOGGER.error(
-                    f"No URL associated with the chosen ReID weights ({w}).\n"
-                    f"Choose one of the following:"
-                )
+                LOGGER.error(f"No URL associated with the chosen ReID weights ({w}).\nChoose one of the following:")
                 ReIDModelRegistry.show_downloadable_models()

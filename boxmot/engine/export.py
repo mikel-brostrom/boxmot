@@ -17,9 +17,7 @@ def validate_export_formats(include):
     include_lower = [fmt.lower() for fmt in include]
     flags = [fmt in include_lower for fmt in available_formats]
     if sum(flags) != len(include_lower):
-        raise AssertionError(
-            f"ERROR: Invalid --include {include}, valid arguments are {available_formats}"
-        )
+        raise AssertionError(f"ERROR: Invalid --include {include}, valid arguments are {available_formats}")
     return tuple(flags)
 
 
@@ -62,6 +60,7 @@ def create_export_tasks(args, model, dummy_input):
     if torchscript_flag:
         from boxmot.reid.exporters.torchscript_exporter import \
             TorchScriptExporter
+
         tasks["torchscript"] = (
             True,
             TorchScriptExporter,
@@ -70,6 +69,7 @@ def create_export_tasks(args, model, dummy_input):
 
     if onnx_flag:
         from boxmot.reid.exporters.onnx_exporter import ONNXExporter
+
         tasks["onnx"] = (
             True,
             ONNXExporter,
@@ -78,6 +78,7 @@ def create_export_tasks(args, model, dummy_input):
 
     if engine_flag:
         from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
+
         tasks["engine"] = (
             True,
             EngineExporter,
@@ -86,6 +87,7 @@ def create_export_tasks(args, model, dummy_input):
 
     if tflite_flag:
         from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
+
         tasks["tflite"] = (
             True,
             TFLiteExporter,
@@ -94,6 +96,7 @@ def create_export_tasks(args, model, dummy_input):
 
     if openvino_flag:
         from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
+
         tasks["openvino"] = (
             True,
             OpenVINOExporter,
@@ -101,7 +104,6 @@ def create_export_tasks(args, model, dummy_input):
         )
 
     return tasks
-
 
 
 def perform_exports(export_tasks):
@@ -120,17 +122,17 @@ def main(args):
     start_time = time.time()
 
     WEIGHTS.mkdir(parents=False, exist_ok=True)
-    
+
     # Print header
     LOGGER.info("")
-    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
     LOGGER.opt(colors=True).info("<bold><cyan>🚀 BoxMOT ReID Export</cyan></bold>")
-    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
     LOGGER.opt(colors=True).info(f"<bold>Weights:</bold>    <cyan>{args.weights}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Formats:</bold>    <cyan>{', '.join(args.include)}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Device:</bold>     <cyan>{args.device}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Half:</bold>       <cyan>{args.half}</cyan>")
-    LOGGER.opt(colors=True).info("<blue>" + "-"*60 + "</blue>")
+    LOGGER.opt(colors=True).info("<blue>" + "-" * 60 + "</blue>")
 
     LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up model...")
     model, dummy_input = setup_model(args)
@@ -138,12 +140,9 @@ def main(args):
     output = model(dummy_input)
     output_tensor = output[0] if isinstance(output, tuple) else output
     output_shape = tuple(output_tensor.shape)
+    LOGGER.opt(colors=True).info(f"<bold>Input shape:</bold>  <cyan>{tuple(dummy_input.shape)}</cyan>")
     LOGGER.opt(colors=True).info(
-        f"<bold>Input shape:</bold>  <cyan>{tuple(dummy_input.shape)}</cyan>"
-    )
-    LOGGER.opt(colors=True).info(
-        f"<bold>Output shape:</bold> <cyan>{output_shape}</cyan> "
-        f"({BaseExporter.file_size(args.weights):.1f} MB)"
+        f"<bold>Output shape:</bold> <cyan>{output_shape}</cyan> ({BaseExporter.file_size(args.weights):.1f} MB)"
     )
 
     LOGGER.opt(colors=True).info("<cyan>[2/3]</cyan> Exporting to formats...")
@@ -154,15 +153,15 @@ def main(args):
         elapsed_time = time.time() - start_time
         LOGGER.opt(colors=True).info("<cyan>[3/3]</cyan> Export complete!")
         LOGGER.info("")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
         LOGGER.opt(colors=True).info("<bold><cyan>✅ Export Summary</cyan></bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
         LOGGER.opt(colors=True).info(f"<bold>Time:</bold>       <cyan>{elapsed_time:.1f}s</cyan>")
         LOGGER.opt(colors=True).info(f"<bold>Saved to:</bold>   <cyan>{args.weights.parent.resolve()}</cyan>")
         for fmt, fpath in exported_files.items():
             LOGGER.opt(colors=True).info(f"<bold>  • {fmt}:</bold> <cyan>{fpath}</cyan>")
         LOGGER.opt(colors=True).info("<bold>Visualize:</bold>  <cyan>https://netron.app</cyan>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
 
 
 if __name__ == "__main__":

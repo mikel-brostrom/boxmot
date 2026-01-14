@@ -35,10 +35,10 @@ class ReIDModelRegistry:
         """
         device = "cpu" if not torch.cuda.is_available() else None
         checkpoint = torch.load(
-            weight_path, 
+            weight_path,
             map_location=torch.device("cpu") if device == "cpu" else None,
             weights_only=False,
-            encoding='latin1',
+            encoding="latin1",
         )
         state_dict = checkpoint.get("state_dict", checkpoint)
         model_dict = model.state_dict()
@@ -60,16 +60,12 @@ class ReIDModelRegistry:
             model.load_state_dict(model_dict)
 
             if not matched_layers:
-                LOGGER.debug(
-                    f"Pretrained weights from {weight_path} cannot be loaded. Check key names manually."
-                )
+                LOGGER.debug(f"Pretrained weights from {weight_path} cannot be loaded. Check key names manually.")
             else:
                 LOGGER.success(f"Loaded pretrained weights from {weight_path}")
 
             if discarded_layers:
-                LOGGER.debug(
-                    f"Discarded layers due to unmatched keys or size: {discarded_layers}"
-                )
+                LOGGER.debug(f"Discarded layers due to unmatched keys or size: {discarded_layers}")
 
     @staticmethod
     def show_available_models():
@@ -96,10 +92,6 @@ class ReIDModelRegistry:
                 cfg.INPUT.SIZE_TRAIN = [256, 256]
                 cfg.INPUT.SIZE_TEST = [256, 256]
 
-            return MODEL_FACTORY[name](
-                cfg, num_class=num_classes, camera_num=2, view_num=1
-            )
+            return MODEL_FACTORY[name](cfg, num_class=num_classes, camera_num=2, view_num=1)
 
-        return MODEL_FACTORY[name](
-            num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu
-        )
+        return MODEL_FACTORY[name](num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu)

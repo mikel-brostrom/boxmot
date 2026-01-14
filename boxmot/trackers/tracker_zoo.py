@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import importlib
+
 import yaml
 
 from boxmot.utils import TRACKER_CONFIGS
@@ -9,9 +10,9 @@ REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrac
 
 TRACKER_MAPPING = {
     "strongsort": "boxmot.trackers.strongsort.strongsort.StrongSort",
-    "ocsort"    : "boxmot.trackers.ocsort.ocsort.OcSort",
-    "bytetrack" : "boxmot.trackers.bytetrack.bytetrack.ByteTrack",
-    "botsort"   : "boxmot.trackers.botsort.botsort.BotSort",
+    "ocsort": "boxmot.trackers.ocsort.ocsort.OcSort",
+    "bytetrack": "boxmot.trackers.bytetrack.bytetrack.ByteTrack",
+    "botsort": "boxmot.trackers.botsort.botsort.BotSort",
     "deepocsort": "boxmot.trackers.deepocsort.deepocsort.DeepOcSort",
     "hybridsort": "boxmot.trackers.hybridsort.hybridsort.HybridSort",
     "boosttrack": "boxmot.trackers.boosttrack.boosttrack.BoostTrack",
@@ -57,14 +58,12 @@ def create_tracker(
 
     # Load configuration from file or use provided dictionary
     if evolve_param_dict is None:
-        if tracker_config is None: 
-            # Load default tracker config 
+        if tracker_config is None:
+            # Load default tracker config
             tracker_config = get_tracker_config(tracker_type)
         with open(tracker_config, "r") as f:
             yaml_config = yaml.safe_load(f)
-            tracker_args = {
-                param: details["default"] for param, details in yaml_config.items()
-            }
+            tracker_args = {param: details["default"] for param, details in yaml_config.items()}
     else:
         tracker_args = evolve_param_dict.copy()
 
@@ -72,11 +71,13 @@ def create_tracker(
     tracker_args["per_class"] = per_class
 
     if tracker_type in REID_TRACKERS:
-        tracker_args.update({
-            "reid_weights": reid_weights,
-            "device": device,
-            "half": half,
-        })
+        tracker_args.update(
+            {
+                "reid_weights": reid_weights,
+                "device": device,
+                "half": half,
+            }
+        )
 
     # Tracker-specific adjustments
     if tracker_type == "strongsort":

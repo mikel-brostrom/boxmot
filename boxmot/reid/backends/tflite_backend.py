@@ -71,9 +71,7 @@ class TFLiteBackend(BaseModelBackend):
         # Resize tensors if the new batch size is different from the current allocated batch size
         if batch_size != self.current_allocated_batch_size:
             # print(f"Resizing tensor input to batch size {batch_size}")
-            self.interpreter.resize_tensor_input(
-                self.input_details[0]["index"], [batch_size, 256, 128, 3]
-            )
+            self.interpreter.resize_tensor_input(self.input_details[0]["index"], [batch_size, 256, 128, 3])
             self.interpreter.allocate_tensors()
             self.current_allocated_batch_size = batch_size
 

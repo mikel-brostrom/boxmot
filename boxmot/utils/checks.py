@@ -8,7 +8,8 @@ from typing import Iterable, Optional, Sequence
 from packaging.requirements import Requirement
 
 # Replace this import with your logger, or use logging.getLogger(__name__)
-from boxmot.utils import logger as LOGGER, ROOT
+from boxmot.utils import ROOT
+from boxmot.utils import logger as LOGGER
 
 REQUIREMENTS_FILE = Path("requirements.txt")
 
@@ -25,9 +26,7 @@ class RequirementsChecker:
       - Backward-compatible alias: `cmds` == `extra_args`
     """
 
-    def __init__(
-        self, group: Optional[str] = None, requirements_file: Path = REQUIREMENTS_FILE
-    ):
+    def __init__(self, group: Optional[str] = None, requirements_file: Path = REQUIREMENTS_FILE):
         """
         If `group` is provided, you *may* choose to call `sync_group_or_extra(group=group)`
         before doing work. Otherwise you can use `check_requirements_file()` or `check_packages()`.
@@ -64,12 +63,8 @@ class RequirementsChecker:
                 LOGGER.error(f"Package {name!r} is not installed.")
                 missing.append(str(req))
             else:
-                if req.specifier and not req.specifier.contains(
-                    inst_ver, prereleases=True
-                ):
-                    LOGGER.error(
-                        f"{name!r} has version {inst_ver} which does not satisfy {req.specifier}."
-                    )
+                if req.specifier and not req.specifier.contains(inst_ver, prereleases=True):
+                    LOGGER.error(f"{name!r} has version {inst_ver} which does not satisfy {req.specifier}.")
                     missing.append(str(req))
 
         if missing:
@@ -92,7 +87,7 @@ class RequirementsChecker:
         # Check if we are running from a source install (editable)
         # ROOT is the package root. If pyproject.toml exists there, it's an editable install.
         root_pyproject = ROOT / "pyproject.toml"
-        
+
         cmd: list[str]
 
         if root_pyproject.is_file():
@@ -116,17 +111,12 @@ class RequirementsChecker:
 
     # ---------- internals ----------
 
-    def _install_packages(
-        self, packages: Sequence[str], extra_args: Optional[Sequence[str]] = None
-    ):
+    def _install_packages(self, packages: Sequence[str], extra_args: Optional[Sequence[str]] = None):
         """
         Install an explicit list of requirement specifiers with uv.
         """
         try:
-            LOGGER.warning(
-                f"\nMissing or mismatched packages: {', '.join(packages)}\n"
-                "Attempting installation..."
-            )
+            LOGGER.warning(f"\nMissing or mismatched packages: {', '.join(packages)}\nAttempting installation...")
             cmd = ["uv", "pip", "install", "--no-cache-dir"]
 
             if extra_args:

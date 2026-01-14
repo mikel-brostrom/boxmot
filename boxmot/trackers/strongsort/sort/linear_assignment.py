@@ -188,13 +188,9 @@ def gate_cost_matrix(
     measurements = np.asarray([detections[i].to_xyah() for i in detection_indices])
     for row, track_idx in enumerate(track_indices):
         track = tracks[track_idx]
-        gating_distance = track.kf.gating_distance(
-            track.mean, track.covariance, measurements, only_position
-        )
+        gating_distance = track.kf.gating_distance(track.mean, track.covariance, measurements, only_position)
         cost_matrix[row, gating_distance > gating_threshold] = gated_cost
-        cost_matrix[row] = (
-            mc_lambda * cost_matrix[row] + (1 - mc_lambda) * gating_distance
-        )
+        cost_matrix[row] = mc_lambda * cost_matrix[row] + (1 - mc_lambda) * gating_distance
     return cost_matrix
 
 
@@ -219,6 +215,7 @@ def _cosine_distance(a, b, data_is_normalized=False):
         a = np.asarray(a) / np.linalg.norm(a, axis=1, keepdims=True)
         b = np.asarray(b) / np.linalg.norm(b, axis=1, keepdims=True)
     return 1.0 - np.dot(a, b.T)
+
 
 def _pdist(a, b):
     """Compute pair-wise squared distance between points in `a` and `b`.
@@ -282,6 +279,7 @@ def _nn_cosine_distance(x, y):
     distances = _cosine_distance(x_, y_)
     distances = distances
     return distances.min(axis=0)
+
 
 class NearestNeighborDistanceMetric(object):
     """

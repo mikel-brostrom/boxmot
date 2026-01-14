@@ -21,16 +21,18 @@ def resolve_image(image: Union[np.ndarray, str]) -> np.ndarray:
     else:
         raise ValueError(f"Unsupported image type: {type(image)}")
 
+
 def load_weights(path: str) -> Any:
     """
     Generic weight loader. By default uses torch.load
     """
     if isinstance(path, str) and not Path(path).exists():
-         raise FileNotFoundError(f"Weights file not found: {path}")
-         
+        raise FileNotFoundError(f"Weights file not found: {path}")
+
     # This is a placeholder. Real models often need architecture init before loading weights.
     # But strictly following the user snippet:
-    return torch.load(path, map_location='cpu') 
+    return torch.load(path, map_location="cpu")
+
 
 class Detector:
     def __init__(self, path: str):
@@ -48,12 +50,12 @@ class Detector:
 
     def postprocess(self, boxes, **kwargs):
         raise NotImplementedError()
-        
+
     def __call__(self, image: Union[np.ndarray, str], **kwargs):
         image = resolve_image(image)
-        
+
         frame = self.preprocess(image, **kwargs)
         boxes = self.process(frame, **kwargs)
         boxes = self.postprocess(boxes, **kwargs)
-        
+
         return boxes

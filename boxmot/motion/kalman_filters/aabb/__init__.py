@@ -7,7 +7,7 @@ from .xywh_kf import KalmanFilterXYWH
 
 __all__ = [
     "BaseKalmanFilter",
-    "KalmanFilterXYAH", 
+    "KalmanFilterXYAH",
     "KalmanFilterXYSR",
     "KalmanFilterXYWH",
 ]

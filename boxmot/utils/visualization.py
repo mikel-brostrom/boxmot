@@ -10,14 +10,8 @@ class BaseVisualization(ABC):
     """
     Abstract base class for visualization methods in BaseTracker.
     """
-    
-    def id_to_color(
-        self,
-        id: int,
-        saturation: float = 0.75,
-        value: float = 0.95,
-        state: str = "confirmed"
-    ) -> tuple:
+
+    def id_to_color(self, id: int, saturation: float = 0.75, value: float = 0.95, state: str = "confirmed") -> tuple:
         """
         Returns green for target_id, otherwise generates a consistent unique BGR color using ID hashing.
         """
@@ -168,6 +162,7 @@ class BaseVisualization(ABC):
         if hasattr(a, "state"):
             try:
                 from boxmot.trackers.bytetrack.basetrack import TrackState
+
                 if a.state == TrackState.Tracked:
                     return "confirmed"
                 elif a.state == TrackState.Lost:
@@ -322,7 +317,7 @@ class InferredStateVisualization(BaseVisualization):
     def _display_groups(self):
         # Maintain internal frame index for TTL accounting
         self._plot_frame_idx += 1
-        
+
         # Generic fallback: only active tracks; state per track
         active_tracks = self._all_active_tracks()
         if active_tracks:
@@ -333,11 +328,11 @@ class VisualizationMixin(BaseVisualization):
     """
     Mixin class for visualization methods in BaseTracker.
     """
-    
+
     def _display_groups(self):
         lost_list = getattr(self, "lost_stracks", None)
         removed_list = getattr(self, "removed_stracks", None)
-        
+
         if (lost_list is not None) or (removed_list is not None):
             return ExplicitStateVisualization._display_groups(self)
         else:

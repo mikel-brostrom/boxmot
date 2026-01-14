@@ -29,7 +29,7 @@ YOLOX_ZOO = {
 
 class YoloXStrategy:
     """YOLOX strategy for use with Ultralytics predictor workflow."""
-    
+
     pt = False
     stride = 32
     fp16 = False
@@ -118,10 +118,9 @@ class YoloXStrategy:
     }
 
     def __init__(self, model, device, args):
-
         self.ch = 3
         self.args = args
-        raw = getattr(args, 'imgsz', None) or 640
+        raw = getattr(args, "imgsz", None) or 640
         vals = raw if isinstance(raw, (list, tuple)) else (raw,)
         w, h = (vals * 2)[:2]
         self.imgsz = [w, h]
@@ -145,14 +144,11 @@ class YoloXStrategy:
         LOGGER.info(f"Loading {model_type} with {str(model)}")
 
         # download crowdhuman bytetrack models
-        if not model.exists() and (
-            model.stem == model_type or fnmatch.fnmatch(model.stem, "yolox_x_*_ablation")
-        ):
+        if not model.exists() and (model.stem == model_type or fnmatch.fnmatch(model.stem, "yolox_x_*_ablation")):
             LOGGER.info("Downloading pretrained weights...")
             from boxmot.utils.download import download_file
-            download_file(
-                url=YOLOX_ZOO[model.stem + ".pt"], dest=model, overwrite=False
-            )
+
+            download_file(url=YOLOX_ZOO[model.stem + ".pt"], dest=model, overwrite=False)
             # needed for bytetrack yolox people models
             # update with your custom model needs
             exp.num_classes = 1
@@ -174,7 +170,7 @@ class YoloXStrategy:
     def get_model_from_weigths(self, model_names, weight_path):
         for name in model_names:
             if name in str(weight_path):
-                return name.split('.')[0]
+                return name.split(".")[0]
         return "yolox_s"  # default
 
     @torch.no_grad()
@@ -201,9 +197,7 @@ class YoloXStrategy:
         This function saves image paths for the current batch,
         being passed as callback on_predict_batch_start
         """
-        assert isinstance(
-            predictor, DetectionPredictor
-        ), "Only ultralytics predictors are supported"
+        assert isinstance(predictor, DetectionPredictor), "Only ultralytics predictors are supported"
         self.im_paths = predictor.batch[0]
 
     # This preprocess differs from the current version of YOLOX preprocess, but ByteTrack uses it
@@ -255,7 +249,6 @@ class YoloXStrategy:
         return im_preprocessed
 
     def postprocess(self, preds, im, im0s):
-
         results = []
         for i, pred in enumerate(preds):
             im_path = self.im_paths[i] if len(self.im_paths) else ""
@@ -270,9 +263,7 @@ class YoloXStrategy:
 
             if pred is None:
                 pred = torch.empty((0, 6))
-                r = Results(
-                    path=im_path, boxes=pred, orig_img=im0s[i], names=self.names
-                )
+                r = Results(path=im_path, boxes=pred, orig_img=im0s[i], names=self.names)
                 results.append(r)
             else:
                 ratio = self._preproc_data[i]
@@ -285,13 +276,9 @@ class YoloXStrategy:
 
                 # filter boxes by classes
                 if self.args.classes:
-                    pred = pred[
-                        torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))
-                    ]
+                    pred = pred[torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))]
 
-                r = Results(
-                    path=im_path, boxes=pred, orig_img=im0s[i], names=self.names
-                )
+                r = Results(path=im_path, boxes=pred, orig_img=im0s[i], names=self.names)
 
             results.append(r)
 

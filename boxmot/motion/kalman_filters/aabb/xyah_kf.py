@@ -19,14 +19,14 @@ class KalmanFilterXYAH(BaseKalmanFilter):
         # initial uncertainty in the aspect ratio is very low,
         # suggesting that it is not expected to vary significantly.
         return [
-            2 * self._std_weight_position * measurement[3],     # x
-            2 * self._std_weight_position * measurement[3],     # y
-            1e-2,                                               # a (aspect ratio)
-            2 * self._std_weight_position * measurement[3],     # H
-            10 * self._std_weight_velocity * measurement[3],    # vx
-            10 * self._std_weight_velocity * measurement[3],    # vy
-            1e-5,                                               # va (aspect ration vel)
-            10 * self._std_weight_velocity * measurement[3]     # vh
+            2 * self._std_weight_position * measurement[3],  # x
+            2 * self._std_weight_position * measurement[3],  # y
+            1e-2,  # a (aspect ratio)
+            2 * self._std_weight_position * measurement[3],  # H
+            10 * self._std_weight_velocity * measurement[3],  # vx
+            10 * self._std_weight_velocity * measurement[3],  # vy
+            1e-5,  # va (aspect ration vel)
+            10 * self._std_weight_velocity * measurement[3],  # vh
         ]
 
     def _get_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -48,9 +48,7 @@ class KalmanFilterXYAH(BaseKalmanFilter):
         ]
         return std_pos, std_vel
 
-    def _get_measurement_noise_std(
-        self, mean: np.ndarray, confidence: float
-    ) -> np.ndarray:
+    def _get_measurement_noise_std(self, mean: np.ndarray, confidence: float) -> np.ndarray:
         # small measurement noise standard deviation for
         # aspect ratio state, indicating low expected measurement noise in
         # the aspect ratio.
@@ -62,9 +60,7 @@ class KalmanFilterXYAH(BaseKalmanFilter):
         ]
         return std_noise
 
-    def _get_multi_process_noise_std(
-        self, mean: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         std_pos = [
             self._std_weight_position * mean[:, 3],
             self._std_weight_position * mean[:, 3],

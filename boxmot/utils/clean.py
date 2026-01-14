@@ -2,7 +2,7 @@ import os
 import shutil
 
 
-def cleanup_mot17(data_dir, keep_detection='FRCNN'):
+def cleanup_mot17(data_dir, keep_detection="FRCNN"):
     """
     Cleans up the MOT17 dataset to resemble the MOT16 format by keeping only one detection folder per sequence.
     Skips sequences that have already been cleaned.
@@ -16,7 +16,7 @@ def cleanup_mot17(data_dir, keep_detection='FRCNN'):
     all_dirs = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
 
     # Identify unique sequences by removing detection suffixes
-    unique_sequences = set(seq.split('-')[0] + '-' + seq.split('-')[1] for seq in all_dirs)
+    unique_sequences = set(seq.split("-")[0] + "-" + seq.split("-")[1] for seq in all_dirs)
 
     for seq in unique_sequences:
         # Directory path to the cleaned sequence
@@ -28,8 +28,7 @@ def cleanup_mot17(data_dir, keep_detection='FRCNN'):
             continue
 
         # Directories for each detection method
-        seq_dirs = [os.path.join(data_dir, d)
-                    for d in all_dirs if d.startswith(seq)]
+        seq_dirs = [os.path.join(data_dir, d) for d in all_dirs if d.startswith(seq)]
 
         # Directory path for the detection folder to keep
         keep_dir = os.path.join(data_dir, f"{seq}-{keep_detection}")

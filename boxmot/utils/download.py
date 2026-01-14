@@ -28,7 +28,7 @@ def get_http_session(retries: int = 3, backoff_factor: float = 0.3) -> requests.
         total=retries,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET", "POST"],
-        backoff_factor=backoff_factor
+        backoff_factor=backoff_factor,
     )
     adapter = HTTPAdapter(max_retries=retry_strategy)
     session.mount("https://", adapter)
@@ -51,12 +51,7 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192, overwrite: bool 
 
     if "drive.google.com" in url or "drive.usercontent.google.com" in url:
         # Google Drive: use gdown (handles confirm tokens automatically)
-        gdown.download(
-            url=url,
-            output=str(dest),
-            quiet=False,
-            fuzzy=True
-        )
+        gdown.download(url=url, output=str(dest), quiet=False, fuzzy=True)
     else:
         session = get_http_session()
         response = session.get(url, stream=True, timeout=timeout)
@@ -64,12 +59,10 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192, overwrite: bool 
 
         total = int(response.headers.get("Content-Length", 0))
 
-        with open(dest, "wb") as f, tqdm(
-            total=total,
-            unit="B",
-            unit_scale=True,
-            desc=f"Downloading {dest.name}"
-        ) as pbar:
+        with (
+            open(dest, "wb") as f,
+            tqdm(total=total, unit="B", unit_scale=True, desc=f"Downloading {dest.name}") as pbar,
+        ):
             for chunk in response.iter_content(chunk_size=chunk_size):
                 if chunk:
                     f.write(chunk)
@@ -86,7 +79,7 @@ def extract_zip(zip_path: Path, extract_to: Path, overwrite: bool = False) -> No
         raise FileNotFoundError(f"ZIP file not found: {zip_path}")
 
     try:
-        with ZipFile(zip_path, 'r') as zf:
+        with ZipFile(zip_path, "r") as zf:
             members = zf.infolist()
             total_files = len(members)
 
@@ -152,7 +145,7 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     # Extract into the parent folder
     extract_zip(zip_path, dest.parent, overwrite=overwrite)
 
-    # GitHub will unpack to "TrackEval-master" (with original casing); 
+    # GitHub will unpack to "TrackEval-master" (with original casing);
     # rename it case-insensitively to our lowercase 'trackeval' folder
     extracted = None
     for d in dest.parent.iterdir():
@@ -176,13 +169,9 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
 
     LOGGER.debug("TrackEval setup complete")
 
-    
+
 def download_eval_data(
-    *,
-    runs_url: Optional[str] = None,
-    dataset_url: str,
-    dataset_dest: Path,
-    overwrite: bool = False
+    *, runs_url: Optional[str] = None, dataset_url: str, dataset_dest: Path, overwrite: bool = False
 ) -> None:
     """
     Download & extract TrackEval evaluation data.
@@ -213,15 +202,11 @@ if __name__ == "__main__":
     parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
     args = parser.parse_args()
 
-    download_trackeval(
-        dest=Path("TrackEval"),
-        branch=args.branch,
-        overwrite=args.overwrite
-    )
+    download_trackeval(dest=Path("TrackEval"), branch=args.branch, overwrite=args.overwrite)
 
     download_eval_data(
         runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
         dataset_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
         dataset_dest=Path("boxmot/engine/TrackEval/MOT17-ablation.zip"),
-        overwrite=args.overwrite
+        overwrite=args.overwrite,
     )

@@ -22,9 +22,7 @@ __all__ = [
 
 
 class BatchRandomErasing(nn.Module):
-    def __init__(
-        self, probability=0.5, sl=0.02, sh=0.4, r1=0.3, mean=[0.4914, 0.4822, 0.4465]
-    ):
+    def __init__(self, probability=0.5, sl=0.02, sh=0.4, r1=0.3, mean=[0.4914, 0.4822, 0.4465]):
         super(BatchRandomErasing, self).__init__()
 
         self.probability = probability
@@ -189,12 +187,8 @@ class PAM_Module(Module):
         super(PAM_Module, self).__init__()
         self.chanel_in = in_dim
 
-        self.query_conv = Conv2d(
-            in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1
-        )
-        self.key_conv = Conv2d(
-            in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1
-        )
+        self.query_conv = Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
         self.value_conv = Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
         self.gamma = Parameter(torch.zeros(1))
 
@@ -209,9 +203,7 @@ class PAM_Module(Module):
             attention: B X (HxW) X (HxW)
         """
         m_batchsize, C, height, width = x.size()
-        proj_query = (
-            self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
-        )
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
         proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
         energy = torch.bmm(proj_query, proj_key)
         attention = self.softmax(energy)

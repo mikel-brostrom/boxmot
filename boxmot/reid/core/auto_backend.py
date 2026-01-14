@@ -106,9 +106,7 @@ class ReidAutoBackend:
         for f in files:
             file_suffix = Path(f).suffix.lower()
             if file_suffix and file_suffix not in suffix:
-                LOGGER.error(
-                    f"File {f} does not have an acceptable suffix. Expected: {suffix}"
-                )
+                LOGGER.error(f"File {f} does not have an acceptable suffix. Expected: {suffix}")
 
     def model_type(self, p: Path) -> Tuple[bool, ...]:
         """
@@ -124,14 +122,14 @@ class ReidAutoBackend:
         sf = list(export_formats().Suffix)  # export suffixes
         self.check_suffix(p, sf)  # checks
         types = [s in Path(p).name for s in sf]
-        
+
         # Explicitly check for OpenVINO extensions (xml, bin)
-        if Path(p).suffix in ['.xml', '.bin']:
+        if Path(p).suffix in [".xml", ".bin"]:
             # Find index of OpenVINO suffix
             try:
-                ov_idx = sf.index('_openvino_model')
+                ov_idx = sf.index("_openvino_model")
                 types[ov_idx] = True
             except ValueError:
                 pass
-        
+
         return types

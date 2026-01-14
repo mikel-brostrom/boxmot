@@ -169,10 +169,12 @@ class AssociationFunction:
         return giou
 
     def centroid_batch(self, bboxes1, bboxes2) -> np.ndarray:
-        centroids1 = np.stack(((bboxes1[..., 0] + bboxes1[..., 2]) / 2,
-                               (bboxes1[..., 1] + bboxes1[..., 3]) / 2), axis=-1)
-        centroids2 = np.stack(((bboxes2[..., 0] + bboxes2[..., 2]) / 2,
-                               (bboxes2[..., 1] + bboxes2[..., 3]) / 2), axis=-1)
+        centroids1 = np.stack(
+            ((bboxes1[..., 0] + bboxes1[..., 2]) / 2, (bboxes1[..., 1] + bboxes1[..., 3]) / 2), axis=-1
+        )
+        centroids2 = np.stack(
+            ((bboxes2[..., 0] + bboxes2[..., 2]) / 2, (bboxes2[..., 1] + bboxes2[..., 3]) / 2), axis=-1
+        )
 
         centroids1 = np.expand_dims(centroids1, 1)
         centroids2 = np.expand_dims(centroids2, 0)
@@ -339,8 +341,6 @@ class AssociationFunction:
         }
 
         if asso_mode not in ASSO_FUNCS:
-            raise ValueError(
-                f"Invalid association mode: {asso_mode}. Choose from {list(ASSO_FUNCS.keys())}"
-            )
+            raise ValueError(f"Invalid association mode: {asso_mode}. Choose from {list(ASSO_FUNCS.keys())}")
 
         return ASSO_FUNCS[asso_mode]

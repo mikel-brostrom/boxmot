@@ -63,16 +63,16 @@ class KalmanFilterXYSR(object):
         self.dim_z = dim_z
         self.dim_u = dim_u
 
-        self.x = zeros((dim_x, 1))        # state
-        self.P = eye(dim_x)               # uncertainty covariance
-        self.Q = eye(dim_x)               # process uncertainty
-        self.B = None                     # control transition matrix
-        self.F = eye(dim_x)               # state transition matrix
-        self.H = zeros((dim_z, dim_x))    # measurement function
-        self.R = eye(dim_z)               # measurement uncertainty
-        self._alpha_sq = 1.               # fading memory control
-        self.M = np.zeros((dim_x, dim_z)) # process-measurement cross correlation
-        self.z = np.array([[None]*self.dim_z]).T
+        self.x = zeros((dim_x, 1))  # state
+        self.P = eye(dim_x)  # uncertainty covariance
+        self.Q = eye(dim_x)  # process uncertainty
+        self.B = None  # control transition matrix
+        self.F = eye(dim_x)  # state transition matrix
+        self.H = zeros((dim_z, dim_x))  # measurement function
+        self.R = eye(dim_z)  # measurement uncertainty
+        self._alpha_sq = 1.0  # fading memory control
+        self.M = np.zeros((dim_x, dim_z))  # process-measurement cross correlation
+        self.z = np.array([[None] * self.dim_z]).T
 
         # gain and residual are computed during the innovation step. We
         # save them so that in case you want to inspect them for various
@@ -130,9 +130,7 @@ class KalmanFilterXYSR(object):
             self.attr_saved["P"][:2, :2] = m @ self.attr_saved["P"][:2, :2] @ m.T
             self.attr_saved["P"][4:6, 4:6] = m @ self.attr_saved["P"][4:6, 4:6] @ m.T
 
-            self.attr_saved["last_measurement"][:2] = (
-                m @ self.attr_saved["last_measurement"][:2] + t
-            )
+            self.attr_saved["last_measurement"][:2] = m @ self.attr_saved["last_measurement"][:2] + t
 
     def predict(self, u=None, B=None, F=None, Q=None):
         """
@@ -345,9 +343,7 @@ class KalmanFilterXYSR(object):
         return self._likelihood
 
 
-def batch_filter(
-    x, P, zs, Fs, Qs, Hs, Rs, Bs=None, us=None, update_first=False, saver=None
-):
+def batch_filter(x, P, zs, Fs, Qs, Hs, Rs, Bs=None, us=None, update_first=False, saver=None):
     """
     Batch processes a sequences of measurements.
     Parameters
@@ -427,7 +423,6 @@ def batch_filter(
 
     if update_first:
         for i, (z, F, Q, H, R, B, u) in enumerate(zip(zs, Fs, Qs, Hs, Rs, Bs, us)):
-
             x, P = update(x, P, z, R=R, H=H)
             means[i, :] = x
             covariances[i, :, :] = P
@@ -439,7 +434,6 @@ def batch_filter(
                 saver.save()
     else:
         for i, (z, F, Q, H, R, B, u) in enumerate(zip(zs, Fs, Qs, Hs, Rs, Bs, us)):
-
             x, P = predict(x, P, u=u, B=B, F=F, Q=Q)
             means_p[i, :] = x
             covariances_p[i, :, :] = P

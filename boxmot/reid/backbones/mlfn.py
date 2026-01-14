@@ -217,11 +217,7 @@ def init_pretrained_weights(model, model_url):
     """
     pretrain_dict = model_zoo.load_url(model_url)
     model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
+    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 
@@ -233,8 +229,6 @@ def mlfn(num_classes, loss="softmax", pretrained=True, **kwargs):
         import warnings
 
         warnings.warn(
-            "The imagenet pretrained weights need to be manually downloaded from {}".format(
-                model_urls["imagenet"]
-            )
+            "The imagenet pretrained weights need to be manually downloaded from {}".format(model_urls["imagenet"])
         )
     return model

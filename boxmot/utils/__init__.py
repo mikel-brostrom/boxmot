@@ -22,20 +22,22 @@ if (_local_root / "pyproject.toml").is_file() and (_local_root / "boxmot").is_di
 DATA = ROOT / "data"
 TOML = ROOT / "pyproject.toml"
 
-BOXMOT     = ROOT / "boxmot"
-CONFIGS    = BOXMOT / "configs"
-TRACKER_CONFIGS   = CONFIGS / "trackers"
-DATASET_CONFIGS   = CONFIGS / "datasets"
+BOXMOT = ROOT / "boxmot"
+CONFIGS = BOXMOT / "configs"
+TRACKER_CONFIGS = CONFIGS / "trackers"
+DATASET_CONFIGS = CONFIGS / "datasets"
 
-ENGINE   = BOXMOT / "engine"
-WEIGHTS  = ENGINE / "weights"
-TRACKEVAL  = ENGINE / "trackeval"
+ENGINE = BOXMOT / "engine"
+WEIGHTS = ENGINE / "weights"
+TRACKEVAL = ENGINE / "trackeval"
 
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of multiprocessing threads
+
 
 def _is_main_process(record):
     # Works correctly even with enqueue=True
     return record["process"].name == "MainProcess"
+
 
 def configure_logging(main_only: bool = True):
     logger.remove()
@@ -50,5 +52,6 @@ def configure_logging(main_only: bool = True):
         format="<level>{level: <8}</level> | <level>{message}</level>",
     )
     return logger
-    
+
+
 configure_logging()

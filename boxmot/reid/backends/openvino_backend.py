@@ -5,7 +5,6 @@ from boxmot.utils import logger as LOGGER
 
 
 class OpenVinoBackend(BaseModelBackend):
-
     def __init__(self, weights, device, half):
         super().__init__(weights, device, half)
         self.nhwc = False
@@ -27,19 +26,15 @@ class OpenVinoBackend(BaseModelBackend):
         ie = Core()
         w = Path(w)
         LOGGER.info(w)
-        if w.suffix == '.bin':
-            w = w.with_suffix('.xml')
+        if w.suffix == ".bin":
+            w = w.with_suffix(".xml")
 
         if not w.is_file():  # if not *.xml
-            w = next(
-                Path(w).glob("*.xml")
-            )  # get *.xml file from *_openvino_model dir
+            w = next(Path(w).glob("*.xml"))  # get *.xml file from *_openvino_model dir
         network = ie.read_model(model=w, weights=Path(w).with_suffix(".bin"))
         if network.get_parameters()[0].get_layout().empty:
             network.get_parameters()[0].set_layout(Layout("NCWH"))
-        self.executable_network = ie.compile_model(
-            network, device_name="CPU"
-        )  # device_name="MYRIAD" for Intel NCS2
+        self.executable_network = ie.compile_model(network, device_name="CPU")  # device_name="MYRIAD" for Intel NCS2
         self.output_layer = next(iter(self.executable_network.outputs))
 
     def forward(self, im_batch):

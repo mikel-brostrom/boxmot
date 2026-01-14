@@ -87,9 +87,7 @@ class Conv1x1Linear(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride=1):
         super(Conv1x1Linear, self).__init__()
-        self.conv = nn.Conv2d(
-            in_channels, out_channels, 1, stride=stride, padding=0, bias=False
-        )
+        self.conv = nn.Conv2d(in_channels, out_channels, 1, stride=stride, padding=0, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -130,9 +128,7 @@ class LightConv3x3(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(LightConv3x3, self).__init__()
-        self.conv1 = nn.Conv2d(
-            in_channels, out_channels, 1, stride=1, padding=0, bias=False
-        )
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 1, stride=1, padding=0, bias=False)
         self.conv2 = nn.Conv2d(
             out_channels,
             out_channels,
@@ -173,16 +169,12 @@ class ChannelGate(nn.Module):
             num_gates = in_channels
         self.return_gates = return_gates
         self.global_avgpool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Conv2d(
-            in_channels, in_channels // reduction, kernel_size=1, bias=True, padding=0
-        )
+        self.fc1 = nn.Conv2d(in_channels, in_channels // reduction, kernel_size=1, bias=True, padding=0)
         self.norm1 = None
         if layer_norm:
             self.norm1 = nn.LayerNorm((in_channels // reduction, 1, 1))
         self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(
-            in_channels // reduction, num_gates, kernel_size=1, bias=True, padding=0
-        )
+        self.fc2 = nn.Conv2d(in_channels // reduction, num_gates, kernel_size=1, bias=True, padding=0)
         if gate_activation == "sigmoid":
             self.gate_activation = nn.Sigmoid()
         elif gate_activation == "relu":
@@ -210,9 +202,7 @@ class ChannelGate(nn.Module):
 class OSBlock(nn.Module):
     """Omni-scale feature learning block."""
 
-    def __init__(
-        self, in_channels, out_channels, IN=False, bottleneck_reduction=4, **kwargs
-    ):
+    def __init__(self, in_channels, out_channels, IN=False, bottleneck_reduction=4, **kwargs):
         super(OSBlock, self).__init__()
         mid_channels = out_channels // bottleneck_reduction
         self.conv1 = Conv1x1(in_channels, mid_channels)
@@ -299,26 +289,18 @@ class OSNet(nn.Module):
             reduce_spatial_size=True,
             IN=IN,
         )
-        self.conv3 = self._make_layer(
-            blocks[1], layers[1], channels[1], channels[2], reduce_spatial_size=True
-        )
-        self.conv4 = self._make_layer(
-            blocks[2], layers[2], channels[2], channels[3], reduce_spatial_size=False
-        )
+        self.conv3 = self._make_layer(blocks[1], layers[1], channels[1], channels[2], reduce_spatial_size=True)
+        self.conv4 = self._make_layer(blocks[2], layers[2], channels[2], channels[3], reduce_spatial_size=False)
         self.conv5 = Conv1x1(channels[3], channels[3])
         self.global_avgpool = nn.AdaptiveAvgPool2d(1)
         # fully connected layer
-        self.fc = self._construct_fc_layer(
-            self.feature_dim, channels[3], dropout_p=None
-        )
+        self.fc = self._construct_fc_layer(self.feature_dim, channels[3], dropout_p=None)
         # identity classification layer
         self.classifier = nn.Linear(self.feature_dim, num_classes)
 
         self._init_params()
 
-    def _make_layer(
-        self, block, layer, in_channels, out_channels, reduce_spatial_size, IN=False
-    ):
+    def _make_layer(self, block, layer, in_channels, out_channels, reduce_spatial_size, IN=False):
         layers = []
 
         layers.append(block(in_channels, out_channels, IN=IN))
@@ -326,11 +308,7 @@ class OSNet(nn.Module):
             layers.append(block(out_channels, out_channels, IN=IN))
 
         if reduce_spatial_size:
-            layers.append(
-                nn.Sequential(
-                    Conv1x1(out_channels, out_channels), nn.AvgPool2d(2, stride=2)
-                )
-            )
+            layers.append(nn.Sequential(Conv1x1(out_channels, out_channels), nn.AvgPool2d(2, stride=2)))
 
         return nn.Sequential(*layers)
 
@@ -468,15 +446,10 @@ def init_pretrained_weights(model, key=""):
             "(** ignored and continue **)".format(cached_file)
         )
     else:
-        print(
-            'Successfully loaded imagenet pretrained weights from "{}"'.format(
-                cached_file
-            )
-        )
+        print('Successfully loaded imagenet pretrained weights from "{}"'.format(cached_file))
         if len(discarded_layers) > 0:
             print(
-                "** The following layers are discarded "
-                "due to unmatched keys or layer size: {}".format(discarded_layers)
+                "** The following layers are discarded due to unmatched keys or layer size: {}".format(discarded_layers)
             )
 
 

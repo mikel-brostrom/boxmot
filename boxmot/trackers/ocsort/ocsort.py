@@ -3,6 +3,7 @@
 """
 This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
+
 from collections import deque
 
 import numpy as np
@@ -36,13 +37,9 @@ def convert_x_to_bbox(x, score=None):
     w = np.sqrt(x[2] * x[3])
     h = x[2] / w
     if score is None:
-        return np.array(
-            [x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0]
-        ).reshape((1, 4))
+        return np.array([x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0]).reshape((1, 4))
     else:
-        return np.array(
-            [x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0, score]
-        ).reshape((1, 5))
+        return np.array([x[0] - w / 2.0, x[1] - h / 2.0, x[0] + w / 2.0, x[1] + h / 2.0, score]).reshape((1, 5))
 
 
 def speed_direction(bbox1, bbox2):
@@ -102,9 +99,7 @@ class KalmanBoxTracker(object):
         )
 
         self.kf.R[2:, 2:] *= 10.0
-        self.kf.P[
-            4:, 4:
-        ] *= 1000.0  # give high uncertainty to the unobservable initial velocities
+        self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
         self.kf.P *= 10.0
 
         self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
@@ -204,7 +199,7 @@ class OcSort(BaseTracker):
     - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
     - asso_func (str): Algorithm name used for data association between detections and tracks.
     - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
+
     OcSort-specific parameters:
     - min_conf (float): Minimum confidence threshold for detections to be considered in second-stage association.
     - delta_t (int): Time window size for velocity estimation in Kalman Filter.
@@ -212,7 +207,7 @@ class OcSort(BaseTracker):
     - use_byte (bool): Whether to use BYTE association in the second association step.
     - Q_xy_scaling (float): Scaling factor for process noise in position coordinates.
     - Q_s_scaling (float): Scaling factor for process noise in scale coordinates.
-    
+
     Attributes:
     - frame_count (int): Counter for the frames processed.
     - active_tracks (list): List to hold active tracks.
@@ -228,12 +223,12 @@ class OcSort(BaseTracker):
         use_byte: bool = False,
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001,
-        **kwargs  # BaseTracker parameters
+        **kwargs,  # BaseTracker parameters
     ):
         # Capture all init params for logging
-        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
-        super().__init__(**init_args, _tracker_name='OcSort', **kwargs)
-        
+        init_args = {k: v for k, v in locals().items() if k not in ("self", "kwargs")}
+        super().__init__(**init_args, _tracker_name="OcSort", **kwargs)
+
         # Store OcSort-specific parameters
         self.min_conf: float = min_conf
         self.asso_threshold: float = self.iou_threshold  # Use from BaseTracker
@@ -244,15 +239,13 @@ class OcSort(BaseTracker):
         self.Q_s_scaling: float = Q_s_scaling
         self.frame_count: int = 0
         KalmanBoxTracker.count = 0
-        
+
         # Initialize tracker collections
         self.active_tracks: list = []
-        
+
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
-    def update(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
-    ) -> np.ndarray:
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
@@ -272,9 +265,7 @@ class OcSort(BaseTracker):
 
         inds_low = confs > self.min_conf
         inds_high = confs < self.det_thresh
-        inds_second = np.logical_and(
-            inds_low, inds_high
-        )  # self.det_thresh > score > 0.1, for second matching
+        inds_second = np.logical_and(inds_low, inds_high)  # self.det_thresh > score > 0.1, for second matching
         dets_second = dets[inds_second]  # detections for second matching
         remain_inds = confs > self.det_thresh
         dets = dets[remain_inds]
@@ -293,20 +284,12 @@ class OcSort(BaseTracker):
             self.active_tracks.pop(t)
 
         velocities = np.array(
-            [
-                trk.velocity if trk.velocity is not None else np.array((0, 0))
-                for trk in self.active_tracks
-            ]
+            [trk.velocity if trk.velocity is not None else np.array((0, 0)) for trk in self.active_tracks]
         )
         last_boxes = np.array([trk.last_observation for trk in self.active_tracks])
 
         k_observations = np.array(
-            [
-                k_previous_obs(
-                    trk.observations, trk.age, self.delta_t, is_obb=self.is_obb
-                )
-                for trk in self.active_tracks
-            ]
+            [k_previous_obs(trk.observations, trk.age, self.delta_t, is_obb=self.is_obb) for trk in self.active_tracks]
         )
 
         """
@@ -324,9 +307,7 @@ class OcSort(BaseTracker):
             h,
         )
         for m in matched:
-            self.active_tracks[m[1]].update(
-                dets[m[0], :-2], dets[m[0], -2], dets[m[0], -1]
-            )
+            self.active_tracks[m[1]].update(dets[m[0], :-2], dets[m[0], -2], dets[m[0], -1])
 
         """
             Second round of associaton by OCR
@@ -334,9 +315,7 @@ class OcSort(BaseTracker):
         # BYTE association
         if self.use_byte and len(dets_second) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
-            iou_left = self.asso_func(
-                dets_second, u_trks
-            )  # iou between low score detections and unmatched tracks
+            iou_left = self.asso_func(dets_second, u_trks)  # iou between low score detections and unmatched tracks
             iou_left = np.array(iou_left)
             if iou_left.max() > self.asso_threshold:
                 """
@@ -356,9 +335,7 @@ class OcSort(BaseTracker):
                         dets_second[det_ind, -1],
                     )
                     to_remove_trk_indices.append(trk_ind)
-                unmatched_trks = np.setdiff1d(
-                    unmatched_trks, np.array(to_remove_trk_indices)
-                )
+                unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]
@@ -378,17 +355,11 @@ class OcSort(BaseTracker):
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.asso_threshold:
                         continue
-                    self.active_tracks[trk_ind].update(
-                        dets[det_ind, :-2], dets[det_ind, -2], dets[det_ind, -1]
-                    )
+                    self.active_tracks[trk_ind].update(dets[det_ind, :-2], dets[det_ind, -2], dets[det_ind, -1])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
-                unmatched_dets = np.setdiff1d(
-                    unmatched_dets, np.array(to_remove_det_indices)
-                )
-                unmatched_trks = np.setdiff1d(
-                    unmatched_trks, np.array(to_remove_trk_indices)
-                )
+                unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
+                unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
             self.active_tracks[m].update(None, None, None)
@@ -426,15 +397,9 @@ class OcSort(BaseTracker):
                 we didn't notice significant difference here
                 """
                 d = trk.last_observation[: 4 + self.is_obb]
-            if (trk.time_since_update < 1) and (
-                trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
-            ):
+            if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
                 # +1 as MOT benchmark requires positive
-                ret.append(
-                    np.concatenate(
-                        (d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])
-                    ).reshape(1, -1)
-                )
+                ret.append(np.concatenate((d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])).reshape(1, -1))
             i -= 1
             # remove dead tracklet
             if trk.time_since_update > self.max_age:

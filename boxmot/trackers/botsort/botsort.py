@@ -35,7 +35,7 @@ class BotSort(BaseTracker):
     - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
     - asso_func (str): Algorithm name used for data association between detections and tracks.
     - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
+
     BotSort-specific parameters:
     - track_high_thresh (float): Detection confidence threshold for first association.
     - track_low_thresh (float): Detection confidence threshold for ignoring detections.
@@ -48,7 +48,7 @@ class BotSort(BaseTracker):
     - frame_rate (int): Video frame rate, used to scale the track buffer.
     - fuse_first_associate (bool): Fuse appearance and motion in the first association step.
     - with_reid (bool): Use ReID features for association.
-    
+
     Attributes:
     - frame_count (int): Counter for the frames processed.
     - active_tracks (list): List to hold active tracks.
@@ -76,12 +76,12 @@ class BotSort(BaseTracker):
         frame_rate: int = 30,
         fuse_first_associate: bool = False,
         with_reid: bool = True,
-        **kwargs  # BaseTracker parameters
+        **kwargs,  # BaseTracker parameters
     ):
         # Capture all init params for logging
-        init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
-        super().__init__(**init_args, _tracker_name='BotSort', **kwargs)
-        
+        init_args = {k: v for k, v in locals().items() if k not in ("self", "kwargs")}
+        super().__init__(**init_args, _tracker_name="BotSort", **kwargs)
+
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
         BaseTrack.clear_count()
@@ -100,18 +100,14 @@ class BotSort(BaseTracker):
         self.appearance_thresh = appearance_thresh
         self.with_reid = with_reid
         if self.with_reid:
-            self.model = ReidAutoBackend(
-                weights=reid_weights, device=device, half=half
-            ).model
+            self.model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
 
         self.cmc = get_cmc_method(cmc_method)()
         self.fuse_first_associate = fuse_first_associate
-        
+
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
-    def update(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
-    ) -> np.ndarray:
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         self.check_inputs(dets, img, embs)
         self.frame_count += 1
 
@@ -177,16 +173,12 @@ class BotSort(BaseTracker):
         self._update_track_states(removed_stracks)
 
         # Merge and prepare output
-        return self._prepare_output(
-            activated_stracks, refind_stracks, lost_stracks, removed_stracks
-        )
+        return self._prepare_output(activated_stracks, refind_stracks, lost_stracks, removed_stracks)
 
     def _split_detections(self, dets, embs):
         dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
         confs = dets[:, 4]
-        second_mask = np.logical_and(
-            confs > self.track_low_thresh, confs < self.track_high_thresh
-        )
+        second_mask = np.logical_and(confs > self.track_low_thresh, confs < self.track_high_thresh)
         dets_second = dets[second_mask]
         first_mask = confs > self.track_high_thresh
         dets_first = dets[first_mask]
@@ -196,10 +188,7 @@ class BotSort(BaseTracker):
     def _create_detections(self, dets_first, features_high):
         if len(dets_first) > 0:
             if self.with_reid:
-                detections = [
-                    STrack(det, f, max_obs=self.max_obs)
-                    for (det, f) in zip(dets_first, features_high)
-                ]
+                detections = [STrack(det, f, max_obs=self.max_obs) for (det, f) in zip(dets_first, features_high)]
             else:
                 detections = [STrack(det, max_obs=self.max_obs) for det in dets_first]
         else:
@@ -227,7 +216,6 @@ class BotSort(BaseTracker):
         refind_stracks,
         strack_pool,
     ):
-
         STrack.multi_predict(strack_pool)
 
         # Fix camera motion
@@ -249,9 +237,7 @@ class BotSort(BaseTracker):
         else:
             dists = ious_dists
 
-        matches, u_track, u_detection = linear_assignment(
-            dists, thresh=self.match_thresh
-        )
+        matches, u_track, u_detection = linear_assignment(dists, thresh=self.match_thresh)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
@@ -275,17 +261,11 @@ class BotSort(BaseTracker):
         strack_pool,
     ):
         if len(dets_second) > 0:
-            detections_second = [
-                STrack(det, max_obs=self.max_obs) for det in dets_second
-            ]
+            detections_second = [STrack(det, max_obs=self.max_obs) for det in dets_second]
         else:
             detections_second = []
 
-        r_tracked_stracks = [
-            strack_pool[i]
-            for i in u_track_first
-            if strack_pool[i].state == TrackState.Tracked
-        ]
+        r_tracked_stracks = [strack_pool[i] for i in u_track_first if strack_pool[i].state == TrackState.Tracked]
 
         dists = iou_distance(r_tracked_stracks, detections_second)
         matches, u_track, u_detection = linear_assignment(dists, thresh=0.5)
@@ -308,9 +288,7 @@ class BotSort(BaseTracker):
 
         return matches, u_track, u_detection
 
-    def _handle_unconfirmed_tracks(
-        self, u_detection, detections, activated_stracks, removed_stracks, unconfirmed
-    ):
+    def _handle_unconfirmed_tracks(self, u_detection, detections, activated_stracks, removed_stracks, unconfirmed):
         """
         Handle unconfirmed tracks (tracks with only one detection frame).
 
@@ -334,9 +312,7 @@ class BotSort(BaseTracker):
         if self.with_reid:
             emb_dists = embedding_distance(unconfirmed, detections) / 2.0
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
-            emb_dists[ious_dists_mask] = (
-                1.0  # Apply the IoU mask to embedding distances
-            )
+            emb_dists[ious_dists_mask] = 1.0  # Apply the IoU mask to embedding distances
             dists = np.minimum(ious_dists, emb_dists)
         else:
             dists = ious_dists
@@ -388,11 +364,7 @@ class BotSort(BaseTracker):
 
         # Mark only unmatched tracks as removed, if mark_removed flag is True
         if mark_removed:
-            unmatched_tracks = [
-                strack_pool[i]
-                for i in range(len(strack_pool))
-                if i not in [m[0] for m in matches]
-            ]
+            unmatched_tracks = [strack_pool[i] for i in range(len(strack_pool)) if i not in [m[0] for m in matches]]
             for track in unmatched_tracks:
                 track.mark_removed()
 
@@ -402,26 +374,16 @@ class BotSort(BaseTracker):
                 track.mark_removed()
                 removed_stracks.append(track)
 
-    def _prepare_output(
-        self, activated_stracks, refind_stracks, lost_stracks, removed_stracks
-    ):
-        self.active_tracks = [
-            t for t in self.active_tracks if t.state == TrackState.Tracked
-        ]
+    def _prepare_output(self, activated_stracks, refind_stracks, lost_stracks, removed_stracks):
+        self.active_tracks = [t for t in self.active_tracks if t.state == TrackState.Tracked]
         self.active_tracks = joint_stracks(self.active_tracks, activated_stracks)
         self.active_tracks = joint_stracks(self.active_tracks, refind_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.active_tracks)
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
-        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(
-            self.active_tracks, self.lost_stracks
-        )
+        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(self.active_tracks, self.lost_stracks)
 
-        outputs = [
-            [*t.xyxy, t.id, t.conf, t.cls, t.det_ind]
-            for t in self.active_tracks
-            if t.is_activated
-        ]
+        outputs = [[*t.xyxy, t.id, t.conf, t.cls, t.det_ind] for t in self.active_tracks if t.is_activated]
 
         return np.asarray(outputs)

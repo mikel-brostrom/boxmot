@@ -23,9 +23,7 @@ def export_decorator(export_func):
             LOGGER.info(f"\nStarting {self.file} export with {self.__class__.__name__}...")
             result = export_func(self, *args, **kwargs)
             if result:
-                LOGGER.info(
-                    f"Export success, saved as {result} ({self.file_size(result):.1f} MB)"
-                )
+                LOGGER.info(f"Export success, saved as {result} ({self.file_size(result):.1f} MB)")
             return result
         except Exception as e:
             LOGGER.error(f"Export failure: {e}")

@@ -17,6 +17,7 @@ def _normalize(name: str) -> str:
 @dataclass(frozen=True)
 class _LazyLoader:
     """Lazily import and return a CMC class by module and attribute name."""
+
     module: str
     attr: str
 
@@ -56,10 +57,7 @@ def get_cmc_method(name: Optional[str]) -> Optional[Type[BaseCMC]]:
     key = _normalize(name)
     loader = _CMC_REGISTRY.get(key)
     if loader is None:
-        raise ValueError(
-            f"Unknown cmc_method={name!r}. "
-            f"Supported values: {', '.join(available_cmc_methods())}"
-        )
+        raise ValueError(f"Unknown cmc_method={name!r}. Supported values: {', '.join(available_cmc_methods())}")
     return loader()
 
 

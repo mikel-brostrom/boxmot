@@ -138,7 +138,9 @@ class ORB(BaseCMC):
 
         # optional debug visualization
         if self.draw_keypoint_matches:
-            self.matches_img = self._draw_matches(self.prev_img, img_p, self.prev_keypoints, keypoints, good_matches, dets)
+            self.matches_img = self._draw_matches(
+                self.prev_img, img_p, self.prev_keypoints, keypoints, good_matches, dets
+            )
         else:
             self.matches_img = None
 

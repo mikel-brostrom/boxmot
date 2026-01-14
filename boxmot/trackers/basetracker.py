@@ -69,11 +69,11 @@ class BaseTracker(VisualizationMixin):
         self.active_tracks = []  # This might be handled differently in derived classes
 
         self.per_class_active_tracks = None
-        self._first_frame_processed = (
-            False  # Flag to track if the first frame has been processed
-        )
+        self._first_frame_processed = False  # Flag to track if the first frame has been processed
         self._first_dets_processed = False
-        self.last_emb_size = None  # Tracks the dimensionality of embedding vectors used for re-identification during tracking.
+        self.last_emb_size = (
+            None  # Tracks the dimensionality of embedding vectors used for re-identification during tracking.
+        )
 
         # Initialize per-class active tracks
         if self.per_class:
@@ -82,9 +82,7 @@ class BaseTracker(VisualizationMixin):
                 self.per_class_active_tracks[i] = []
 
         if self.max_age >= self.max_obs:
-            LOGGER.warning(
-                "Max age > max observations, increasing size of max observations..."
-            )
+            LOGGER.warning("Max age > max observations, increasing size of max observations...")
             self.max_obs = self.max_age + 5
 
         # Plotting lifecycle bookkeeping
@@ -94,24 +92,29 @@ class BaseTracker(VisualizationMixin):
         self.removed_display_frames = getattr(self, "removed_display_frames", 10)
 
         # Log all params if tracker_name provided via kwargs
-        tracker_name = kwargs.pop('_tracker_name', None)
+        tracker_name = kwargs.pop("_tracker_name", None)
         if tracker_name:
             base_params = {
-                'det_thresh': det_thresh, 'max_age': max_age, 'max_obs': max_obs,
-                'min_hits': min_hits, 'iou_threshold': iou_threshold, 'per_class': per_class,
-                'asso_func': asso_func,
+                "det_thresh": det_thresh,
+                "max_age": max_age,
+                "max_obs": max_obs,
+                "min_hits": min_hits,
+                "iou_threshold": iou_threshold,
+                "per_class": per_class,
+                "asso_func": asso_func,
             }
             # Filter out internal/non-config params
-            filtered_kwargs = {k: v for k, v in kwargs.items() 
-                              if not k.startswith('_') and k not in ('__class__', 'reid_weights', 'device', 'half')}
+            filtered_kwargs = {
+                k: v
+                for k, v in kwargs.items()
+                if not k.startswith("_") and k not in ("__class__", "reid_weights", "device", "half")
+            }
             all_params = {**base_params, **filtered_kwargs}
             params_str = ", ".join(f"{k}={v}" for k, v in all_params.items())
             LOGGER.success(f"{tracker_name}: {params_str}")
 
     @abstractmethod
-    def update(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
-    ) -> np.ndarray:
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         Abstract method to update the tracker with new detections for a new frame. This method
         should be implemented by subclasses.
@@ -124,18 +127,12 @@ class BaseTracker(VisualizationMixin):
         Raises:
         - NotImplementedError: If the subclass does not implement this method.
         """
-        raise NotImplementedError(
-            "The update method needs to be implemented by the subclass."
-        )
+        raise NotImplementedError("The update method needs to be implemented by the subclass.")
 
     def get_class_dets_n_embs(self, dets, embs, cls_id):
         # Initialize empty arrays for detections and embeddings
         class_dets = np.empty((0, 6))
-        class_embs = (
-            np.empty((0, self.last_emb_size))
-            if self.last_emb_size is not None
-            else None
-        )
+        class_embs = np.empty((0, self.last_emb_size)) if self.last_emb_size is not None else None
 
         # Check if there are detections
         if dets.size == 0:
@@ -154,9 +151,7 @@ class BaseTracker(VisualizationMixin):
         class_embs = None
         if embs.size > 0:
             class_embs = embs[class_indices]
-            self.last_emb_size = class_embs.shape[
-                1
-            ]  # Update the last known embedding size
+            self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
         return class_dets, class_embs
 
     @staticmethod
@@ -192,9 +187,7 @@ class BaseTracker(VisualizationMixin):
             # First frame image-based setup
             if not self._first_frame_processed and img is not None:
                 self.h, self.w = img.shape[0:2]
-                self.asso_func = AssociationFunction(
-                    w=self.w, h=self.h, asso_mode=self.asso_func_name
-                ).asso_func
+                self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
                 self._first_frame_processed = True
 
             # Call the original method with the unwrapped `dets`
@@ -260,14 +253,10 @@ class BaseTracker(VisualizationMixin):
         assert isinstance(img, np.ndarray), (
             f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
         )
-        assert len(dets.shape) == 2, (
-            "Unsupported 'dets' dimensions, valid number of dimensions is two"
-        )
+        assert len(dets.shape) == 2, "Unsupported 'dets' dimensions, valid number of dimensions is two"
 
         if embs is not None:
-            assert dets.shape[0] == embs.shape[0], (
-                "Missmatch between detections and embeddings sizes"
-            )
+            assert dets.shape[0] == embs.shape[0], "Missmatch between detections and embeddings sizes"
 
         if self.is_obb:
             assert dets.shape[1] == 7, (

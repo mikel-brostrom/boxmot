@@ -46,9 +46,7 @@ class Bottleneck(nn.Module):
         mid_channels = in_channels * expansion_factor
         self.use_residual = stride == 1 and in_channels == out_channels
         self.conv1 = ConvBlock(in_channels, mid_channels, 1)
-        self.dwconv2 = ConvBlock(
-            mid_channels, mid_channels, 3, stride, 1, g=mid_channels
-        )
+        self.dwconv2 = ConvBlock(mid_channels, mid_channels, 3, stride, 1, g=mid_channels)
         self.conv3 = nn.Sequential(
             nn.Conv2d(mid_channels, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
@@ -131,9 +129,9 @@ class MobileNetV2(nn.Module):
             self.feature_dim = input_dim
             return None
 
-        assert isinstance(
-            fc_dims, (list, tuple)
-        ), "fc_dims must be either list or tuple, but got {}".format(type(fc_dims))
+        assert isinstance(fc_dims, (list, tuple)), "fc_dims must be either list or tuple, but got {}".format(
+            type(fc_dims)
+        )
 
         layers = []
         for dim in fc_dims:
@@ -205,19 +203,13 @@ def init_pretrained_weights(model, model_url):
     """
     pretrain_dict = model_zoo.load_url(model_url)
     model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
+    pretrain_dict = {k: v for k, v in pretrain_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrain_dict)
     model.load_state_dict(model_dict)
 
 
 def mobilenetv2_x1_0(num_classes, loss, pretrained=True, **kwargs):
-    model = MobileNetV2(
-        num_classes, loss=loss, width_mult=1, fc_dims=None, dropout_p=None, **kwargs
-    )
+    model = MobileNetV2(num_classes, loss=loss, width_mult=1, fc_dims=None, dropout_p=None, **kwargs)
     if pretrained:
         # init_pretrained_weights(model, model_urls['mobilenetv2_x1_0'])
         import warnings
@@ -231,9 +223,7 @@ def mobilenetv2_x1_0(num_classes, loss, pretrained=True, **kwargs):
 
 
 def mobilenetv2_x1_4(num_classes, loss, pretrained=True, **kwargs):
-    model = MobileNetV2(
-        num_classes, loss=loss, width_mult=1.4, fc_dims=None, dropout_p=None, **kwargs
-    )
+    model = MobileNetV2(num_classes, loss=loss, width_mult=1.4, fc_dims=None, dropout_p=None, **kwargs)
     if pretrained:
         # init_pretrained_weights(model, model_urls['mobilenetv2_x1_4'])
         import warnings
