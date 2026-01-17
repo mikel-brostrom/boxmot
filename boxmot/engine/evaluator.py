@@ -301,27 +301,47 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
 
     d = [seq_path.parent.name for seq_path in seq_paths]
 
-    # Determine classes to evaluate
+    # Determine classes, ids, and distractors from dataset config first, then fall back to user args/defaults
     classes_to_eval = ['person']
-    if hasattr(args, 'classes') and args.classes is not None:
-        class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
-        classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
+    class_ids = [1]
+    distractor_ids: list[int] = []
 
-    # Filter classes based on benchmark config
+    cfg = {}
     try:
         if hasattr(args, 'benchmark'):
             cfg = load_dataset_cfg(args.benchmark)
-            if "benchmark" in cfg and "classes" in cfg["benchmark"]:
-                bench_classes = cfg["benchmark"]["classes"].split()
-                # Map 'people' to 'person'
-                bench_classes = ['person' if c == 'people' else c for c in bench_classes]
-                
-                # Filter classes_to_eval
-                classes_to_eval = [c for c in classes_to_eval if c in bench_classes]
     except FileNotFoundError:
-        pass
+        cfg = {}
     except Exception as e:
-        LOGGER.warning(f"Error filtering classes: {e}")
+        LOGGER.warning(f"Error loading dataset config: {e}")
+        cfg = {}
+
+    bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
+    eval_classes_cfg = bench_cfg.get("eval_classes") if isinstance(bench_cfg, dict) else None
+    distractor_cfg = bench_cfg.get("distractor_classes") if isinstance(bench_cfg, dict) else None
+
+    if isinstance(eval_classes_cfg, dict) and len(eval_classes_cfg) > 0:
+        ordered = sorted(((int(k), v) for k, v in eval_classes_cfg.items()), key=lambda kv: kv[0])
+        class_ids = [k for k, _ in ordered]
+        classes_to_eval = [v for _, v in ordered]
+    elif hasattr(args, 'classes') and args.classes is not None:
+        class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
+        classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
+        class_ids = [int(i) + 1 for i in class_indices]
+
+    if isinstance(distractor_cfg, dict) and len(distractor_cfg) > 0:
+        distractor_ids = [int(k) for k in distractor_cfg.keys()]
+
+    # Remove any accidental duplicates while preserving order
+    seen = set()
+    pairs = []
+    for name, cid in zip(classes_to_eval, class_ids):
+        if name in seen:
+            continue
+        seen.add(name)
+        pairs.append((name, cid))
+    classes_to_eval = [name for name, _ in pairs]
+    class_ids = [cid for _, cid in pairs]
 
     cmd_args = [
         sys.executable, ROOT / 'boxmot' / 'utils' / 'run_mot_challenge.py',
@@ -337,8 +357,13 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
         "--SKIP_SPLIT_FOL", "True",
         "--GT_LOC_FORMAT", "{gt_folder}/{seq}/gt/gt_temp.txt",
         "--CLASSES_TO_EVAL", *classes_to_eval,
-        "--SEQ_INFO", *d
+        "--CLASS_IDS", *[str(i) for i in class_ids],
     ]
+
+    if distractor_ids:
+        cmd_args.extend(["--DISTRACTOR_CLASS_IDS", *[str(i) for i in distractor_ids]])
+
+    cmd_args.extend(["--SEQ_INFO", *d])
 
     p = subprocess.Popen(
         args=cmd_args,
@@ -565,11 +590,20 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
     single_class_mode = False
 
     # Priority 1: Benchmark config classes (overrides user classes)
-    if "benchmark" in cfg and "classes" in cfg["benchmark"]:
-        bench_classes = cfg["benchmark"]["classes"].split()
-        parsed_results = {k: v for k, v in parsed_results.items() if k in bench_classes}
-        if len(bench_classes) == 1:
-            single_class_mode = True
+    if "benchmark" in cfg:
+        bench_cfg = cfg["benchmark"]
+        bench_classes = None
+
+        if isinstance(bench_cfg, dict):
+            if "eval_classes" in bench_cfg:
+                bench_classes = [v for _, v in sorted(bench_cfg["eval_classes"].items(), key=lambda kv: int(kv[0]))]
+            elif "classes" in bench_cfg:
+                bench_classes = bench_cfg["classes"].split()
+
+        if bench_classes:
+            parsed_results = {k: v for k, v in parsed_results.items() if k in bench_classes}
+            if len(bench_classes) == 1:
+                single_class_mode = True
     # Priority 2: User provided classes
     elif hasattr(opt, 'classes') and opt.classes is not None:
         class_indices = opt.classes if isinstance(opt.classes, list) else [opt.classes]

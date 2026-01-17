@@ -85,6 +85,8 @@ if __name__ == '__main__':
                 x = None
             elif setting == 'SEQ_INFO':
                 x = dict(zip(args[setting], [None]*len(args[setting])))
+            elif setting in {'CLASS_IDS', 'DISTRACTOR_CLASS_IDS'}:
+                x = [int(v) for v in args[setting]]
             else:
                 x = args[setting]
             config[setting] = x

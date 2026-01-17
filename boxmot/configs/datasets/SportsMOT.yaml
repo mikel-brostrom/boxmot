@@ -6,4 +6,5 @@ download:
 benchmark:
   source: "boxmot/engine/trackeval/SportsMOT"
   split: "val"
-  classes: "person"
+  eval_classes:
+    1: player
