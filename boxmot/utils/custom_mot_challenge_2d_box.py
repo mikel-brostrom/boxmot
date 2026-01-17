@@ -66,10 +66,10 @@ class CustomMotChallenge2DBox(MotChallenge2DBox):
         self._check_unique_ids(raw_data)
         cls_id = self.class_name_to_class_id[cls]
         # MOT distractor set; prefer config override, otherwise fall back to legacy defaults
-        if self.distractor_class_ids is not None:
-            distractor_classes = self.distractor_class_ids
-        else:
-            distractor_classes = [12, 8, 6, 7, 2] if self.benchmark == 'MOT20' else [12, 8, 7, 2]
+        #if self.distractor_class_ids is not None:
+        distractor_classes = self.distractor_class_ids
+        # else:
+        #     distractor_classes = [12, 8, 6, 7, 2] if self.benchmark == 'MOT20' else [12, 8, 7, 2]
 
         data_keys = ['gt_ids', 'tracker_ids', 'gt_dets', 'tracker_dets',
                     'tracker_confidences', 'similarity_scores']
