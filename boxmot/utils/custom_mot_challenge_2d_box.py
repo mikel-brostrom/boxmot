@@ -1,7 +1,6 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from trackeval.datasets.mot_challenge_2d_box import MotChallenge2DBox
-from trackeval.utils import TrackEvalException
 import trackeval._timing as _timing
 
 # Default COCO80 mapping; used when dataset configs do not supply explicit ids.
@@ -30,32 +29,32 @@ class CustomMotChallenge2DBox(MotChallenge2DBox):
 
     def __init__(self, config=None):
         """Initialise dataset, checking that all required files are present"""
-        # Save real classes to eval
-        real_classes = config.get('CLASSES_TO_EVAL', ['person']) if config else ['person']
-        class_ids = config.get('CLASS_IDS') if config else None
-        distractor_ids = config.get('DISTRACTOR_CLASS_IDS') if config else None
+        cfg = {} if config is None else dict(config)
+
+        # Persist the actual evaluation classes in lowercase to keep consistency with TrackEval internals.
+        real_classes = [cls.lower() for cls in cfg.get('CLASSES_TO_EVAL', ['person'])]
+        class_ids = cfg.get('CLASS_IDS')
+        distractor_ids = cfg.get('DISTRACTOR_CLASS_IDS') or []
 
         # Create a temp config with 'pedestrian' to pass super().__init__ validation
-        temp_config = config.copy() if config else {}
+        temp_config = cfg.copy()
         temp_config['CLASSES_TO_EVAL'] = ['pedestrian']
         
         # Initialize parent with temp config
         super().__init__(temp_config)
         
-        # Restore real classes to eval in self.config
+        # Restore real classes and ids in self.config
         self.config['CLASSES_TO_EVAL'] = real_classes
         self.config['CLASS_IDS'] = class_ids
         self.config['DISTRACTOR_CLASS_IDS'] = distractor_ids
         
         # Overwrite class validation and list with real classes
-        self.valid_classes = [cls.lower() for cls in self.config['CLASSES_TO_EVAL']]
-        self.class_list = [cls.lower() for cls in self.config['CLASSES_TO_EVAL']]
+        self.valid_classes = real_classes
+        self.class_list = real_classes
 
         # Build the class-id map from config if provided, otherwise fallback to COCO-80.
         if class_ids is not None and len(class_ids) == len(real_classes):
-            self.class_name_to_class_id = {
-                cls.lower(): int(cid) for cls, cid in zip(real_classes, class_ids)
-            }
+            self.class_name_to_class_id = {cls: int(cid) for cls, cid in zip(real_classes, class_ids)}
         else:
             self.class_name_to_class_id = DEFAULT_CLASS_NAME_TO_ID
 

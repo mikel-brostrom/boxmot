@@ -358,10 +358,8 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
         "--GT_LOC_FORMAT", "{gt_folder}/{seq}/gt/gt_temp.txt",
         "--CLASSES_TO_EVAL", *classes_to_eval,
         "--CLASS_IDS", *[str(i) for i in class_ids],
+        "--DISTRACTOR_CLASS_IDS", *[str(i) for i in distractor_ids]
     ]
-
-    if distractor_ids:
-        cmd_args.extend(["--DISTRACTOR_CLASS_IDS", *[str(i) for i in distractor_ids]])
 
     cmd_args.extend(["--SEQ_INFO", *d])
 
