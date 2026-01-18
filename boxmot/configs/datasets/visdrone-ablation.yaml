@@ -4,11 +4,11 @@
 # Many YOLO/Ultralytics conversions drop 0 & 11 and reindex 1-10 to 0-9.
 download:
   runs_url: ""
-  dataset_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/vizdrone-ablation.zip"
+  dataset_url: "https://drive.google.com/uc?export=download&id=14z8Acxopj1d86-qhsF1NwS4Bv3KYa4Wu"
 
 benchmark:
-  source: "boxmot/engine/trackeval/vizdrone-ablation"
-  split: "train"
+  source: "boxmot/engine/trackeval/VisDrone2019-MOT-test-dev"
+  split: "sequences"
   eval_classes:
     1: pedestrian
     2: people

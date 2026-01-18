@@ -87,7 +87,11 @@ class MOT17DetEmbDataset:
                 continue
             name = seq_dir.name
             img_dir = seq_dir / 'img1'
-            imgs = sorted(img_dir.glob('*.jpg'))
+            if not img_dir.exists():
+                img_dir = seq_dir
+            imgs = sorted(list(img_dir.glob('*.jpg')) + list(img_dir.glob('*.png')))
+            if not imgs:
+                continue
             frame_ids = [int(p.stem) for p in imgs]
 
             det_path = self.dets_dir / f'{name}.txt' if self.dets_dir else None
@@ -156,23 +160,27 @@ class MOT17Sequence:
 
             # 2) if target_fps, build mask once
             if self.target_fps:
-                orig_fps = read_seq_fps(self.meta['seq_dir'])
-                mask = compute_fps_mask(self.dets[:,0], orig_fps, self.target_fps)
+                seq_info_file = self.meta['seq_dir'] / 'seqinfo.ini'
+                if not seq_info_file.exists():
+                    LOGGER.warning(f"Missing seqinfo.ini in {self.meta['seq_dir']}, skipping FPS downsample")
+                else:
+                    orig_fps = read_seq_fps(self.meta['seq_dir'])
+                    mask = compute_fps_mask(self.dets[:,0], orig_fps, self.target_fps)
 
-                # a) filter dets/embs/frame_ids/frame_paths
-                self.dets       = self.dets[mask]
-                self.embs       = self.embs[mask]
-                keep_ids        = set(self.dets[:,0].astype(int))
-                idxs_to_keep    = [i for i, fid in enumerate(self.frame_ids) if fid in keep_ids]
-                self.frame_ids  = self.frame_ids[idxs_to_keep]
-                self.frame_paths= [self.frame_paths[i] for i in idxs_to_keep]
+                    # a) filter dets/embs/frame_ids/frame_paths
+                    self.dets       = self.dets[mask]
+                    self.embs       = self.embs[mask]
+                    keep_ids        = set(self.dets[:,0].astype(int))
+                    idxs_to_keep    = [i for i, fid in enumerate(self.frame_ids) if fid in keep_ids]
+                    self.frame_ids  = self.frame_ids[idxs_to_keep]
+                    self.frame_paths= [self.frame_paths[i] for i in idxs_to_keep]
 
-                # b) filter GT once and write out gt_temp.txt
-                gt_dir      = self.meta['seq_dir'] / 'gt'
-                orig_gt     = np.loadtxt(gt_dir/'gt.txt', delimiter=',')
-                gt_mask     = np.isin(orig_gt[:,0].astype(int), list(keep_ids))
-                filtered_gt = orig_gt[gt_mask]
-                np.savetxt(gt_dir/'gt_temp.txt', filtered_gt, delimiter=',', fmt="%d" if filtered_gt.dtype.kind in 'iu' else "%f")
+                    # b) filter GT once and write out gt_temp.txt
+                    gt_dir      = self.meta['seq_dir'] / 'gt'
+                    orig_gt     = np.loadtxt(gt_dir/'gt.txt', delimiter=',')
+                    gt_mask     = np.isin(orig_gt[:,0].astype(int), list(keep_ids))
+                    filtered_gt = orig_gt[gt_mask]
+                    np.savetxt(gt_dir/'gt_temp.txt', filtered_gt, delimiter=',', fmt="%d" if filtered_gt.dtype.kind in 'iu' else "%f")
 
     def __iter__(self) -> Generator[Dict[str, Union[int, np.ndarray]], None, None]:
         """

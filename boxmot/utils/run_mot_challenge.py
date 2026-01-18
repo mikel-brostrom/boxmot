@@ -86,7 +86,17 @@ if __name__ == '__main__':
             elif type(args[setting]) == type(None):
                 x = None
             elif setting == 'SEQ_INFO':
-                x = dict(zip(args[setting], [None]*len(args[setting])))
+                seq_info_dict = {}
+                for entry in args[setting]:
+                    if ':' in entry:
+                        name, length = entry.split(':', 1)
+                        seq_info_dict[name] = int(length) if length else None
+                    elif '=' in entry:
+                        name, length = entry.split('=', 1)
+                        seq_info_dict[name] = int(length) if length else None
+                    else:
+                        seq_info_dict[entry] = None
+                x = seq_info_dict
             elif setting in {'CLASS_IDS', 'DISTRACTOR_CLASS_IDS'}:
                 x = [int(v) for v in args[setting]] if args[setting] is not None else []
             else:
