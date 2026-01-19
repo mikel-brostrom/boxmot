@@ -105,8 +105,8 @@ boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation
 # Evaluate on MOT dataset + GBRC postprocessing
 boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation --postprocessing gbrc
 
-# Tune ocsort's hyperparameters for dancetrack
-boxmot tune yolox_x_dancetrack_ablation lmbn_n_duke ocsort --source dancetrack-ablation --n-trials 10
+# Tune ocsort's hyperparameters for visdrone
+boxmot tune yolox_x_dancetrack_ablation lmbn_n_duke ocsort --source visdrone-ablation --n-trials 10
 
 # Export ReID model with dynamic sized input
 boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine dynamic
