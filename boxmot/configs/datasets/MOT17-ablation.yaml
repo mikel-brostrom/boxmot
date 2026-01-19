@@ -6,4 +6,11 @@ download:
 benchmark:
   source: "boxmot/engine/trackeval/MOT17-ablation"
   split: "train"
-  classes: "person"
+  eval_classes:
+    1: pedestrian
+  distractor_classes:
+    2: person_on_vehicle
+    7: static_person
+    8: distractor
+    12: reflection
+

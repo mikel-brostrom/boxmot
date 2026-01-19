@@ -1,8 +1,19 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from trackeval.datasets.mot_challenge_2d_box import MotChallenge2DBox
-from trackeval.utils import TrackEvalException
 import trackeval._timing as _timing
+
+# Default COCO80 mapping; used when dataset configs do not supply explicit ids.
+DEFAULT_CLASS_NAME_TO_ID = {
+    'person': 1, 'bicycle': 2, 'car': 3, 'motorcycle': 4, 'airplane': 5, 'bus': 6, 'train': 7, 'truck': 8, 'boat': 9, 'traffic light': 10,
+    'fire hydrant': 11, 'stop sign': 12, 'parking meter': 13, 'bench': 14, 'bird': 15, 'cat': 16, 'dog': 17, 'horse': 18, 'sheep': 19, 'cow': 20,
+    'elephant': 21, 'bear': 22, 'zebra': 23, 'giraffe': 24, 'backpack': 25, 'umbrella': 26, 'handbag': 27, 'tie': 28, 'suitcase': 29, 'frisbee': 30,
+    'skis': 31, 'snowboard': 32, 'sports ball': 33, 'kite': 34, 'baseball bat': 35, 'baseball glove': 36, 'skateboard': 37, 'surfboard': 38, 'tennis racket': 39, 'bottle': 40,
+    'wine glass': 41, 'cup': 42, 'fork': 43, 'knife': 44, 'spoon': 45, 'bowl': 46, 'banana': 47, 'apple': 48, 'sandwich': 49, 'orange': 50,
+    'broccoli': 51, 'carrot': 52, 'hot dog': 53, 'pizza': 54, 'donut': 55, 'cake': 56, 'chair': 57, 'couch': 58, 'potted plant': 59, 'bed': 60,
+    'dining table': 61, 'toilet': 62, 'tv': 63, 'laptop': 64, 'mouse': 65, 'remote': 66, 'keyboard': 67, 'cell phone': 68, 'microwave': 69, 'oven': 70,
+    'toaster': 71, 'sink': 72, 'refrigerator': 73, 'book': 74, 'clock': 75, 'vase': 76, 'scissors': 77, 'teddy bear': 78, 'hair drier': 79, 'toothbrush': 80
+}
 
 class CustomMotChallenge2DBox(MotChallenge2DBox):
     """Custom Dataset class for MOT Challenge 2D bounding box tracking with multi-class support"""
@@ -12,47 +23,53 @@ class CustomMotChallenge2DBox(MotChallenge2DBox):
         """Default class config values"""
         default_config = MotChallenge2DBox.get_default_dataset_config()
         default_config['CLASSES_TO_EVAL'] = ['person']
+        default_config['CLASS_IDS'] = [1]
+        default_config['DISTRACTOR_CLASS_IDS'] = []
         return default_config
 
     def __init__(self, config=None):
         """Initialise dataset, checking that all required files are present"""
-        # Save real classes to eval
-        real_classes = config.get('CLASSES_TO_EVAL', ['person']) if config else ['person']
-        
+        cfg = {} if config is None else dict(config)
+
+        # Persist the actual evaluation classes in lowercase to keep consistency with TrackEval internals.
+        real_classes = [cls.lower() for cls in cfg.get('CLASSES_TO_EVAL', ['person'])]
+        class_ids = cfg.get('CLASS_IDS')
+        distractor_ids = cfg.get('DISTRACTOR_CLASS_IDS') or []
+
         # Create a temp config with 'pedestrian' to pass super().__init__ validation
-        temp_config = config.copy() if config else {}
+        temp_config = cfg.copy()
         temp_config['CLASSES_TO_EVAL'] = ['pedestrian']
         
         # Initialize parent with temp config
         super().__init__(temp_config)
         
-        # Restore real classes to eval in self.config
+        # Restore real classes and ids in self.config
         self.config['CLASSES_TO_EVAL'] = real_classes
+        self.config['CLASS_IDS'] = class_ids
+        self.config['DISTRACTOR_CLASS_IDS'] = distractor_ids
         
         # Overwrite class validation and list with real classes
-        self.valid_classes = [cls.lower() for cls in self.config['CLASSES_TO_EVAL']]
-        self.class_list = [cls.lower() for cls in self.config['CLASSES_TO_EVAL']]
-        
-        # Overwrite class map with COCO-80
-        self.class_name_to_class_id = {
-            'person': 1, 'bicycle': 2, 'car': 3, 'motorcycle': 4, 'airplane': 5, 'bus': 6, 'train': 7, 'truck': 8, 'boat': 9, 'traffic light': 10,
-            'fire hydrant': 11, 'stop sign': 12, 'parking meter': 13, 'bench': 14, 'bird': 15, 'cat': 16, 'dog': 17, 'horse': 18, 'sheep': 19, 'cow': 20,
-            'elephant': 21, 'bear': 22, 'zebra': 23, 'giraffe': 24, 'backpack': 25, 'umbrella': 26, 'handbag': 27, 'tie': 28, 'suitcase': 29, 'frisbee': 30,
-            'skis': 31, 'snowboard': 32, 'sports ball': 33, 'kite': 34, 'baseball bat': 35, 'baseball glove': 36, 'skateboard': 37, 'surfboard': 38, 'tennis racket': 39, 'bottle': 40,
-            'wine glass': 41, 'cup': 42, 'fork': 43, 'knife': 44, 'spoon': 45, 'bowl': 46, 'banana': 47, 'apple': 48, 'sandwich': 49, 'orange': 50,
-            'broccoli': 51, 'carrot': 52, 'hot dog': 53, 'pizza': 54, 'donut': 55, 'cake': 56, 'chair': 57, 'couch': 58, 'potted plant': 59, 'bed': 60,
-            'dining table': 61, 'toilet': 62, 'tv': 63, 'laptop': 64, 'mouse': 65, 'remote': 66, 'keyboard': 67, 'cell phone': 68, 'microwave': 69, 'oven': 70,
-            'toaster': 71, 'sink': 72, 'refrigerator': 73, 'book': 74, 'clock': 75, 'vase': 76, 'scissors': 77, 'teddy bear': 78, 'hair drier': 79, 'toothbrush': 80
-        }
+        self.valid_classes = real_classes
+        self.class_list = real_classes
+
+        # Build the class-id map from config if provided, otherwise fallback to COCO-80.
+        if class_ids is not None and len(class_ids) == len(real_classes):
+            self.class_name_to_class_id = {cls: int(cid) for cls, cid in zip(real_classes, class_ids)}
+        else:
+            self.class_name_to_class_id = DEFAULT_CLASS_NAME_TO_ID
+
+        self.distractor_class_ids = [int(i) for i in distractor_ids] if distractor_ids else None
         self.valid_class_numbers = list(self.class_name_to_class_id.values())
 
     @_timing.time
     def get_preprocessed_seq_data(self, raw_data, cls):
         self._check_unique_ids(raw_data)
         cls_id = self.class_name_to_class_id[cls]
-
-        # MOT distractor set (same as original; add non_mot_vehicle for MOT20)
-        distractor_classes = [12, 8, 6, 7, 2] if self.benchmark == 'MOT20' else [12, 8, 7, 2]
+        # MOT distractor set; prefer config override, otherwise fall back to legacy defaults
+        #if self.distractor_class_ids is not None:
+        distractor_classes = self.distractor_class_ids
+        # else:
+        #     distractor_classes = [12, 8, 6, 7, 2] if self.benchmark == 'MOT20' else [12, 8, 7, 2]
 
         data_keys = ['gt_ids', 'tracker_ids', 'gt_dets', 'tracker_dets',
                     'tracker_confidences', 'similarity_scores']

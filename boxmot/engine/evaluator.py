@@ -130,6 +130,8 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
     if args.imgsz is None:
         args.imgsz = default_imgsz(y)
 
+    seq_name = source.parent.name if source.name == "img1" else source.name
+
     yolo = YOLO(
         y if is_ultralytics_model(y)
         else 'yolov8n.pt',
@@ -174,7 +176,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
                                      device=yolo.predictor.device,
                                      half=args.half).model
         reids.append(reid_model)
-        embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (source.parent.name + '.txt')
+        embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (seq_name + '.txt')
         embs_path.parent.mkdir(parents=True, exist_ok=True)
         embs_path.touch(exist_ok=True)
 
@@ -183,7 +185,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
 
     yolo.predictor.custom_args = args
 
-    dets_path = args.project / 'dets_n_embs' / y.stem / 'dets' / (source.parent.name + '.txt')
+    dets_path = args.project / 'dets_n_embs' / y.stem / 'dets' / (seq_name + '.txt')
     dets_path.parent.mkdir(parents=True, exist_ok=True)
     dets_path.touch(exist_ok=True)
 
@@ -218,7 +220,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
 
         for reid, reid_model_name in zip(reids, args.reid_model):
             embs = reid.get_features(dets[:, 1:5], img)
-            embs_path = args.project / "dets_n_embs" / y.stem / 'embs' / reid_model_name.stem / (source.parent.name + '.txt')
+            embs_path = args.project / "dets_n_embs" / y.stem / 'embs' / reid_model_name.stem / (seq_name + '.txt')
             with open(str(embs_path), 'ab+') as f:
                 np.savetxt(f, embs, fmt='%f')
 
@@ -285,7 +287,102 @@ def parse_mot_results(results: str) -> dict:
     return parsed_results
 
 
-def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_folder: Path, metrics: list = ["HOTA", "CLEAR", "Identity"]) -> str:
+def _sequence_img_dir(seq_dir: Path) -> Path:
+    img1 = seq_dir / "img1"
+    return img1 if img1.exists() else seq_dir
+
+
+def _collect_seq_info(source: Path) -> tuple[list[Path], dict[str, int]]:
+    seq_paths = []
+    seq_info: dict[str, int] = {}
+    for seq_dir in sorted(p for p in source.iterdir() if p.is_dir()):
+        img_dir = _sequence_img_dir(seq_dir)
+        frame_files = sorted(list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")))
+        if not frame_files:
+            continue
+        seq_paths.append(img_dir)
+        seq_info[seq_dir.name] = len(frame_files)
+    return seq_paths, seq_info
+
+
+def build_dataset_eval_settings(
+    args: argparse.Namespace,
+    gt_folder: Path,
+    seq_info: dict[str, int],
+) -> dict:
+    """Derive dataset-specific evaluation settings (classes, ids, distractors, gt path format).
+
+    This centralizes logic for MOT-style datasets and non-MOT layouts such as VisDrone.
+    """
+
+    cfg = {}
+    try:
+        if hasattr(args, "benchmark"):
+            cfg = load_dataset_cfg(args.benchmark)
+    except FileNotFoundError:
+        cfg = {}
+    except Exception as e:  # noqa: BLE001
+        LOGGER.warning(f"Error loading dataset config: {e}")
+        cfg = {}
+
+    bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
+    eval_classes_cfg = bench_cfg.get("eval_classes") if isinstance(bench_cfg, dict) else None
+    distractor_cfg = bench_cfg.get("distractor_classes") if isinstance(bench_cfg, dict) else None
+
+    # Classes and ids
+    classes_to_eval = ["person"]
+    class_ids = [1]
+    if isinstance(eval_classes_cfg, dict) and len(eval_classes_cfg) > 0:
+        ordered = sorted(((int(k), v) for k, v in eval_classes_cfg.items()), key=lambda kv: kv[0])
+        class_ids = [k for k, _ in ordered]
+        classes_to_eval = [v for _, v in ordered]
+    elif hasattr(args, "classes") and args.classes is not None:
+        class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
+        classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
+        class_ids = [int(i) + 1 for i in class_indices]
+
+    # Distractors
+    distractor_ids: list[int] = []
+    if isinstance(distractor_cfg, dict) and len(distractor_cfg) > 0:
+        distractor_ids = [int(k) for k in distractor_cfg.keys()]
+
+    # Remove duplicates while preserving order
+    seen = set()
+    pairs = []
+    for name, cid in zip(classes_to_eval, class_ids):
+        if name in seen:
+            continue
+        seen.add(name)
+        pairs.append((name, cid))
+    classes_to_eval = [name for name, _ in pairs]
+    class_ids = [cid for _, cid in pairs]
+
+    # GT path format (VisDrone uses flat txt under annotations)
+    gt_loc_format = "{gt_folder}/{seq}/gt/gt_temp.txt"
+    is_visdrone = "visdrone" in getattr(args, "benchmark", "").lower() or "visdrone" in str(gt_folder).lower()
+    if is_visdrone:
+        gt_loc_format = "{gt_folder}/{seq}.txt"
+
+    benchmark_name = getattr(args, "benchmark", "")
+
+    return {
+        "classes_to_eval": classes_to_eval,
+        "class_ids": class_ids,
+        "distractor_ids": distractor_ids,
+        "gt_loc_format": gt_loc_format,
+        "benchmark_name": benchmark_name,
+        "seq_info": seq_info,
+    }
+
+
+def trackeval(
+    args: argparse.Namespace,
+    seq_paths: list,
+    save_dir: Path,
+    gt_folder: Path,
+    metrics: list = ["HOTA", "CLEAR", "Identity"],
+    seq_info: Optional[dict] = None,
+) -> str:
     """
     Executes a Python script to evaluate MOT challenge tracking results using specified metrics.
 
@@ -299,34 +396,26 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
         str: Standard output from the evaluation script.
     """
 
-    d = [seq_path.parent.name for seq_path in seq_paths]
+    if not seq_info:
+        seq_names = [seq_path.parent.name if seq_path.name == "img1" else seq_path.name for seq_path in seq_paths]
+        seq_info = {name: None for name in seq_names}
 
-    # Determine classes to evaluate
-    classes_to_eval = ['person']
-    if hasattr(args, 'classes') and args.classes is not None:
-        class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
-        classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
+    seq_info_args = []
+    for name in sorted(seq_info.keys()):
+        length = seq_info[name]
+        seq_info_args.append(f"{name}:{length}" if length else name)
 
-    # Filter classes based on benchmark config
-    try:
-        if hasattr(args, 'benchmark'):
-            cfg = load_dataset_cfg(args.benchmark)
-            if "benchmark" in cfg and "classes" in cfg["benchmark"]:
-                bench_classes = cfg["benchmark"]["classes"].split()
-                # Map 'people' to 'person'
-                bench_classes = ['person' if c == 'people' else c for c in bench_classes]
-                
-                # Filter classes_to_eval
-                classes_to_eval = [c for c in classes_to_eval if c in bench_classes]
-    except FileNotFoundError:
-        pass
-    except Exception as e:
-        LOGGER.warning(f"Error filtering classes: {e}")
+    dataset_settings = build_dataset_eval_settings(args, gt_folder, seq_info)
+    classes_to_eval = dataset_settings["classes_to_eval"]
+    class_ids = dataset_settings["class_ids"]
+    distractor_ids = dataset_settings["distractor_ids"]
+    gt_loc_format = dataset_settings["gt_loc_format"]
+    benchmark_name = dataset_settings["benchmark_name"]
 
     cmd_args = [
         sys.executable, ROOT / 'boxmot' / 'utils' / 'run_mot_challenge.py',
         "--GT_FOLDER", str(gt_folder),
-        "--BENCHMARK", "",
+        "--BENCHMARK", benchmark_name,
         "--TRACKERS_FOLDER", str(args.exp_dir.parent),
         "--TRACKERS_TO_EVAL", args.exp_dir.name,
         "--SPLIT_TO_EVAL", args.split,
@@ -335,9 +424,11 @@ def trackeval(args: argparse.Namespace, seq_paths: list, save_dir: Path, gt_fold
         "--TRACKER_SUB_FOLDER", "",
         "--NUM_PARALLEL_CORES", str(4),
         "--SKIP_SPLIT_FOL", "True",
-        "--GT_LOC_FORMAT", "{gt_folder}/{seq}/gt/gt_temp.txt",
+        "--GT_LOC_FORMAT", gt_loc_format,
         "--CLASSES_TO_EVAL", *classes_to_eval,
-        "--SEQ_INFO", *d
+        "--CLASS_IDS", *[str(i) for i in class_ids],
+        "--DISTRACTOR_CLASS_IDS", *[str(i) for i in distractor_ids],
+        "--SEQ_INFO", *seq_info_args
     ]
 
     p = subprocess.Popen(
@@ -478,10 +569,14 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     opt.exp_dir = exp_dir
 
     # Just collect sequence names by scanning directory names
-    sequence_names = sorted([
-        d.name for d in Path(opt.source).iterdir()
-        if d.is_dir() and (d / "img1").exists()
-    ])
+    sequence_names = []
+    for d in Path(opt.source).iterdir():
+        if not d.is_dir():
+            continue
+        img_dir = d / "img1" if (d / "img1").exists() else d
+        if any(img_dir.glob("*.jpg")) or any(img_dir.glob("*.png")):
+            sequence_names.append(d.name)
+    sequence_names.sort()
 
     # Build task arguments
     task_args = [
@@ -535,11 +630,34 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
         opt (Namespace): Parsed command line arguments.
         verbose (bool): Whether to print results summary. Default True.
     """
-    gt_folder = opt.source
-    seq_paths = [p / "img1" for p in opt.source.iterdir() if p.is_dir()]
+    seq_paths, seq_info = _collect_seq_info(opt.source)
+    annotations_dir = opt.source.parent / "annotations"
+    gt_folder = annotations_dir if annotations_dir.exists() else opt.source
+
+    if not seq_paths:
+        raise ValueError(f"No sequences with images found under {opt.source}")
+
+    if annotations_dir.exists():
+        for seq_name in list(seq_info.keys()):
+            ann_file = annotations_dir / f"{seq_name}.txt"
+            if not ann_file.exists():
+                continue
+            try:
+                with open(ann_file, "r") as f:
+                    max_frame = 0
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        frame_id = int(float(line.split(",", 1)[0]))
+                        if frame_id > max_frame:
+                            max_frame = frame_id
+                    if max_frame:
+                        seq_info[seq_name] = max(seq_info.get(seq_name, 0) or 0, max_frame)
+            except Exception:
+                LOGGER.warning(f"Failed to read annotation file {ann_file} for sequence length inference")
     save_dir = Path(opt.project) / opt.name
     
-    trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder)
+    trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder, seq_info=seq_info)
     parsed_results = parse_mot_results(trackeval_results)
 
     # Load config to filter classes
@@ -565,11 +683,20 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
     single_class_mode = False
 
     # Priority 1: Benchmark config classes (overrides user classes)
-    if "benchmark" in cfg and "classes" in cfg["benchmark"]:
-        bench_classes = cfg["benchmark"]["classes"].split()
-        parsed_results = {k: v for k, v in parsed_results.items() if k in bench_classes}
-        if len(bench_classes) == 1:
-            single_class_mode = True
+    if "benchmark" in cfg:
+        bench_cfg = cfg["benchmark"]
+        bench_classes = None
+
+        if isinstance(bench_cfg, dict):
+            if "eval_classes" in bench_cfg:
+                bench_classes = [v for _, v in sorted(bench_cfg["eval_classes"].items(), key=lambda kv: int(kv[0]))]
+            elif "classes" in bench_cfg:
+                bench_classes = bench_cfg["classes"].split()
+
+        if bench_classes:
+            parsed_results = {k: v for k, v in parsed_results.items() if k in bench_classes}
+            if len(bench_classes) == 1:
+                single_class_mode = True
     # Priority 2: User provided classes
     elif hasattr(opt, 'classes') and opt.classes is not None:
         class_indices = opt.classes if isinstance(opt.classes, list) else [opt.classes]

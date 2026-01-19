@@ -1,0 +1,25 @@
+# https://github.com/VisDrone/VisDrone-Dataset
+# object_category ids: 0 ignored regions*, 1 pedestrian, 2 people, 3 bicycle, 4 car, 5 van, 6 truck,
+# 7 tricycle, 8 awning-tricycle, 9 bus, 10 motor, 11 others*; *0 and 11 are ignored/distractors.
+# Many YOLO/Ultralytics conversions drop 0 & 11 and reindex 1-10 to 0-9.
+download:
+  runs_url: ""
+  dataset_url: "https://drive.google.com/uc?export=download&id=14z8Acxopj1d86-qhsF1NwS4Bv3KYa4Wu"
+
+benchmark:
+  source: "boxmot/engine/trackeval/VisDrone2019-MOT-test-dev"
+  split: "sequences"
+  eval_classes:
+    1: pedestrian
+    2: people
+    3: bicycle
+    4: car
+    5: van
+    6: truck
+    7: tricycle
+    8: awning-tricycle
+    9: bus
+    10: motor
+  distractor_classes:
+    0: ignored regions
+    11: others
