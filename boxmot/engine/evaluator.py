@@ -381,7 +381,7 @@ def trackeval(
     save_dir: Path,
     gt_folder: Path,
     metrics: list = ["HOTA", "CLEAR", "Identity"],
-    seq_info: dict | None = None,
+    seq_info: Optional[dict] = None,
 ) -> str:
     """
     Executes a Python script to evaluate MOT challenge tracking results using specified metrics.
