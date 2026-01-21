@@ -24,7 +24,63 @@ YOLOX_ZOO = {
     "yolox_x_MOT17_ablation.pt": "https://drive.google.com/uc?id=1iqhM-6V_r1FpOlOzrdP_Ejshgk0DxOob",
     "yolox_x_MOT20_ablation.pt": "https://drive.google.com/uc?id=1H1BxOfinONCSdQKnjGq0XlRxVUo_4M8o",
     "yolox_x_dancetrack_ablation.pt": "https://drive.google.com/uc?id=1ZKpYmFYCsRdXuOL60NRuc7VXAFYRskXB",
+    "yolox_x_visdrone.pt": "https://drive.google.com/uc?id=1ajehBs9enBHhuBqGIoQPGqkkzasE9d3o"
 }
+
+
+def _coerce_torch_dtype(dtype, fallback: torch.Tensor) -> torch.dtype:
+    """Map YOLOX's dtype strings (e.g., 'torch.mps.FloatTensor') to real torch dtypes."""
+    if isinstance(dtype, torch.dtype):
+        return dtype
+    if isinstance(dtype, str):
+        lowered = dtype.lower()
+        if "bfloat16" in lowered:
+            return torch.bfloat16
+        if "float16" in lowered or "half" in lowered:
+            return torch.float16
+    # Default to the fallback tensor's dtype or float32.
+    return fallback.dtype if isinstance(fallback, torch.Tensor) else torch.float32
+
+
+def _patch_yolox_head_decode_outputs_for_mps() -> None:
+    """Monkeypatch YOLOXHead.decode_outputs to work on MPS (avoids .type with dtype strings)."""
+    try:
+        from yolox.models.yolo_head import YOLOXHead
+        from yolox.utils import meshgrid
+    except Exception:
+        return
+
+    if getattr(YOLOXHead, "_boxmot_mps_patched", False):
+        return
+
+    def decode_outputs(self, outputs, dtype):
+        dtype = _coerce_torch_dtype(dtype, outputs)
+        device = outputs.device
+        grids = []
+        strides = []
+        for (hsize, wsize), stride in zip(self.hw, self.strides):
+            yv, xv = meshgrid([
+                torch.arange(hsize, device=device),
+                torch.arange(wsize, device=device),
+            ])
+            grid = torch.stack((xv, yv), 2).view(1, -1, 2)
+            grids.append(grid)
+            shape = grid.shape[:2]
+            strides.append(torch.full((*shape, 1), stride, device=device, dtype=grid.dtype))
+
+        grids = torch.cat(grids, dim=1).to(device=device, dtype=dtype)
+        strides = torch.cat(strides, dim=1).to(device=device, dtype=dtype)
+
+        outputs = outputs.clone()
+        outputs[..., :2] = (outputs[..., :2] + grids) * strides
+        outputs[..., 2:4] = torch.exp(outputs[..., 2:4]) * strides
+        return outputs
+
+    YOLOXHead.decode_outputs = decode_outputs
+    YOLOXHead._boxmot_mps_patched = True
+
+
+_patch_yolox_head_decode_outputs_for_mps()
 
 
 class YoloXStrategy:
@@ -135,9 +191,13 @@ class YoloXStrategy:
         # Custom trained models (e.g., yolox_x_MOT17_ablation) use the base architecture
         if model_type == "yolox_n":
             exp_name = "yolox_nano"
-        elif "_MOT" in model_type or "_dancetrack" in model_type:
-            # Extract base model: yolox_x_MOT17_ablation -> yolox_x
-            exp_name = model_type.split("_MOT")[0].split("_dancetrack")[0]
+        elif "_MOT" in model_type or "_dancetrack" in model_type or "_visdrone" in model_type:
+            # Extract base model: yolox_x_MOT17_ablation / yolox_x_visdrone -> yolox_x
+            exp_name = (
+                model_type.split("_MOT")[0]
+                .split("_dancetrack")[0]
+                .split("_visdrone")[0]
+            )
         else:
             exp_name = model_type
         exp = get_exp(None, exp_name)

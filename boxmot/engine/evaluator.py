@@ -21,6 +21,7 @@ import sys
 import copy
 import concurrent.futures
 import traceback
+from contextlib import nullcontext
 
 from boxmot.trackers.tracker_zoo import create_tracker
 from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, TRACKEVAL
@@ -127,8 +128,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
     """
     WEIGHTS.mkdir(parents=True, exist_ok=True)
 
-    if args.imgsz is None:
-        args.imgsz = default_imgsz(y)
+    args.imgsz = [1088, 1920]
 
     seq_name = source.parent.name if source.name == "img1" else source.name
 
@@ -209,11 +209,10 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
             ], axis=1
         )
 
-        # Filter dets with incorrect boxes: (x2 < x1 or y2 < y1)
-        boxes = r.boxes.xyxy.to('cpu').numpy().round().astype(int)
-        boxes_filter = ((np.maximum(0, boxes[:, 0]) < np.minimum(boxes[:, 2], img.shape[1])) &
-                        (np.maximum(0, boxes[:, 1]) < np.minimum(boxes[:, 3], img.shape[0])))
-        dets = dets[boxes_filter]
+        # Keep boxes even if they extend outside the image; only drop invalid geometry
+        boxes = r.boxes.xyxy.to('cpu').numpy()
+        positive = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
+        dets = dets[positive]
 
         with open(str(dets_path), 'ab+') as f:
             np.savetxt(f, dets, fmt='%f')
@@ -287,9 +286,27 @@ def parse_mot_results(results: str) -> dict:
     return parsed_results
 
 
+# ---------------------------
+# Batched det+emb generation
+# ---------------------------
 def _sequence_img_dir(seq_dir: Path) -> Path:
     img1 = seq_dir / "img1"
     return img1 if img1.exists() else seq_dir
+
+
+def _list_sequence_frames(img_dir: Path) -> list[Path]:
+    return sorted(list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")))
+
+
+def _sequence_name_from_img_dir(img_dir: Path) -> str:
+    return img_dir.parent.name if img_dir.name == "img1" else img_dir.name
+
+
+def _read_image_cv2(p: Path):
+    im = cv2.imread(str(p), cv2.IMREAD_COLOR)
+    if im is None:
+        raise RuntimeError(f"Failed to read image: {p}")
+    return im
 
 
 def _collect_seq_info(source: Path) -> tuple[list[Path], dict[str, int]]:
@@ -304,6 +321,414 @@ def _collect_seq_info(source: Path) -> tuple[list[Path], dict[str, int]]:
         seq_info[seq_dir.name] = len(frame_files)
     return seq_paths, seq_info
 
+
+def _autotune_batch_size(yolo, device: str, imgsz, requested: int) -> int:
+    dev_lower = str(device).lower()
+    use_accel = dev_lower.startswith(("cuda", "0", "1", "2", "3", "4", "5", "6", "7", "mps", "metal"))
+    if not use_accel:
+        return max(1, requested)
+
+    def _empty_cache():
+        if dev_lower.startswith("cuda") and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif dev_lower.startswith(("mps", "metal")) and hasattr(torch, "mps"):
+            try:
+                torch.mps.empty_cache()
+            except Exception:
+                pass
+
+    if isinstance(imgsz, (list, tuple)):
+        h, w = int(imgsz[0]), int(imgsz[1])
+    else:
+        h = w = int(imgsz)
+
+    dummy = np.zeros((h, w, 3), dtype=np.uint8)
+
+    bs = max(1, int(requested))
+    while bs >= 1:
+        try:
+            yolo.predict(source=[dummy] * bs, device=device, verbose=False, imgsz=imgsz)
+            if bs < requested:
+                LOGGER.warning(f"Auto-tuned batch size from {requested} -> {bs} to fit device memory.")
+            return bs
+        except RuntimeError as e:
+            if "out of memory" not in str(e).lower():
+                raise
+            _empty_cache()
+            next_bs = max(1, bs // 2)
+            LOGGER.warning(f"Batch size {bs} OOM; retrying with {next_bs}.")
+            if next_bs == bs:
+                break
+            bs = next_bs
+
+    raise RuntimeError("Unable to run even batch size 1; reduce image size or move to CPU.")
+
+
+def _clear_device_cache(device: str) -> None:
+    dev_lower = str(device).lower()
+    if dev_lower.startswith("cuda") and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    elif dev_lower.startswith(("mps", "metal")) and hasattr(torch, "mps"):
+        try:
+            torch.mps.empty_cache()
+        except Exception:
+            pass
+
+
+def _count_data_lines(path: Path, skip_header: bool = False) -> int:
+    """Count non-header lines in a txt file, tolerating missing files."""
+    try:
+        with open(path, "r") as fh:
+            if skip_header:
+                return sum(1 for line in fh if not line.startswith("#"))
+            return sum(1 for _ in fh)
+    except FileNotFoundError:
+        return 0
+
+
+@torch.inference_mode()
+def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: Path) -> None:
+    WEIGHTS.mkdir(parents=True, exist_ok=True)
+
+    batch_size = int(getattr(args, "batch_size", 16))
+    read_threads_val = getattr(args, "read_threads", None)
+    if read_threads_val is None:
+        read_threads_val = min(8, (os.cpu_count() or 8))
+    read_threads = int(read_threads_val)
+    auto_batch = bool(getattr(args, "auto_batch", True))
+    resume = bool(getattr(args, "resume", True))
+
+    #if args.imgsz is None:
+    args.imgsz = [1088, 1920]
+
+    yolo = YOLO(y if is_ultralytics_model(y) else 'yolov8n.pt')
+
+    yolo_model = None
+    if not is_ultralytics_model(y):
+        m = get_yolo_inferer(y)
+
+        def setup_custom_model(predictor):
+            nonlocal yolo_model
+            if yolo_model is not None:
+                return
+            yolo_model = m(model=y, device=predictor.device, args=predictor.args)
+            predictor.model = yolo_model
+
+            if is_yolox_model(y) or is_rtdetr_model(y):
+                predictor.preprocess = (lambda im: yolo_model.preprocess(im=im))
+                predictor.postprocess = (
+                    lambda preds, im, im0s: yolo_model.postprocess(preds=preds, im=im, im0s=im0s)
+                )
+
+        yolo.add_callback("on_predict_start", setup_custom_model)
+
+        if is_yolox_model(y) or is_rtdetr_model(y):
+            yolo.add_callback("on_predict_batch_start", lambda p: yolo_model.update_im_paths(p) if yolo_model else None)
+
+    try:
+        dummy_h, dummy_w = (
+            (int(args.imgsz[0]), int(args.imgsz[1]))
+            if isinstance(args.imgsz, (list, tuple))
+            else (int(args.imgsz), int(args.imgsz))
+        )
+        dummy = np.zeros((dummy_h, dummy_w, 3), dtype=np.uint8)
+        _ = yolo.predict(source=[dummy], device=args.device, verbose=False, imgsz=args.imgsz)
+    except Exception:
+        pass
+
+    if auto_batch:
+        batch_size = _autotune_batch_size(yolo, args.device, args.imgsz, batch_size)
+        args.batch_size = batch_size
+
+    reids = []
+    for r in args.reid_model:
+        reid_model = ReidAutoBackend(weights=r, device=args.device, half=args.half).model
+        reids.append(reid_model)
+
+    mot_folder_paths = sorted([p for p in Path(source_root).iterdir() if p.is_dir()])
+
+    seq_states = {}
+    det_fhs = {}
+    emb_fhs = {r.stem: {} for r in args.reid_model}
+
+    dets_folder = Path(args.project) / 'dets_n_embs' / y.stem / 'dets'
+    embs_root = Path(args.project) / 'dets_n_embs' / y.stem / 'embs'
+    progress_folder = Path(args.project) / 'dets_n_embs' / y.stem / 'progress'
+
+    total_frames = 0
+    initial_done = 0
+    progress_paths: dict[str, Path] = {}
+
+    for seq_dir in mot_folder_paths:
+        img_dir = _sequence_img_dir(seq_dir)
+        frames = _list_sequence_frames(img_dir)
+        if not frames:
+            continue
+
+        seq_name = _sequence_name_from_img_dir(img_dir)
+
+        dets_path = dets_folder / f"{seq_name}.txt"
+        progress_path = progress_folder / f"{seq_name}.progress"
+        progress_paths[seq_name] = progress_path
+        processed = 0
+        if resume and progress_path.exists():
+            try:
+                processed = int(progress_path.read_text().strip() or 0)
+            except Exception:
+                processed = 0
+        processed = min(processed, len(frames))
+
+        emb_paths = {}
+        any_emb_cached = False
+        for r in args.reid_model:
+            ep = embs_root / r.stem / f"{seq_name}.txt"
+            emb_paths[r.stem] = ep
+            if ep.exists():
+                any_emb_cached = True
+
+        if resume and processed > 0:
+            det_rows = _count_data_lines(dets_path, skip_header=True)
+            emb_rows = {stem: _count_data_lines(ep) for stem, ep in emb_paths.items()}
+            expected_files = dets_path.exists() and all(ep.exists() for ep in emb_paths.values())
+            rows_match = len(set([det_rows, *emb_rows.values()])) == 1 if expected_files else False
+            if not expected_files or not rows_match or det_rows == 0:
+                LOGGER.warning(
+                    f"Cached progress for {seq_name} is out of sync with dets/embs; resetting cached data."
+                )
+                for p in [dets_path, *emb_paths.values(), progress_path]:
+                    try:
+                        p.unlink()
+                    except FileNotFoundError:
+                        pass
+                processed = 0
+
+        if resume and processed >= len(frames) and dets_path.exists() and all(ep.exists() for ep in emb_paths.values()):
+            LOGGER.info(f"Skipping {seq_name} (resume: already complete).")
+            initial_done += len(frames)
+            continue
+
+        if (not resume) and dets_path.exists() and any_emb_cached:
+            if not prompt_overwrite('Detections and Embeddings', dets_path, args.ci):
+                LOGGER.debug(f"Skipping {seq_name} (cached).")
+                continue
+
+        dets_path.parent.mkdir(parents=True, exist_ok=True)
+        mode = 'ab' if (resume and dets_path.exists()) else 'wb'
+        det_fhs[seq_name] = open(dets_path, mode, buffering=1024 * 1024)
+        if mode == 'wb' or dets_path.stat().st_size == 0:
+            np.savetxt(det_fhs[seq_name], [], fmt='%f', header=str(img_dir))
+
+        for r in args.reid_model:
+            ep = emb_paths[r.stem]
+            ep.parent.mkdir(parents=True, exist_ok=True)
+            emb_mode = 'ab' if (resume and ep.exists()) else 'wb'
+            emb_fhs[r.stem][seq_name] = open(ep, emb_mode, buffering=1024 * 1024)
+
+        progress_path.parent.mkdir(parents=True, exist_ok=True)
+
+        seq_states[seq_name] = {"frames": frames, "i": processed, "img_dir": img_dir}
+        total_frames += len(frames)
+        initial_done += processed
+
+    if not seq_states:
+        LOGGER.info("No sequences to process (all cached or no images).")
+        return
+
+    seq_names = list(seq_states.keys())
+    rr = 0
+
+    use_cuda = str(args.device).startswith("cuda")
+    amp_ctx = (
+        torch.autocast(device_type="cuda", dtype=torch.float16)
+        if (use_cuda and getattr(args, "half", False))
+        else nullcontext()
+    )
+
+    pbar = tqdm(total=total_frames, desc=f"Batched YOLO+ReID ({y.name}, bs={batch_size})", unit="frame")
+    if initial_done:
+        pbar.update(initial_done)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    try:
+        with ThreadPoolExecutor(max_workers=read_threads) as pool, amp_ctx:
+            alive = True
+            while alive:
+                batch_items = []
+                tried = 0
+                while len(batch_items) < batch_size and tried < len(seq_names):
+                    seq_name = seq_names[rr % len(seq_names)]
+                    rr += 1
+                    tried += 1
+
+                    st = seq_states[seq_name]
+                    if st["i"] >= len(st["frames"]):
+                        continue
+                    frame_id = st["i"] + 1
+                    img_path = st["frames"][st["i"]]
+                    st["i"] += 1
+                    batch_items.append((seq_name, frame_id, img_path))
+
+                if not batch_items:
+                    alive = False
+                    break
+
+                futures = [pool.submit(_read_image_cv2, p) for _, _, p in batch_items]
+                imgs = [f.result() for f in futures]
+
+                yolo_results = None
+                while True:
+                    try:
+                        yolo_results = yolo.predict(
+                            source=imgs[:batch_size],
+                            conf=args.conf,
+                            iou=args.iou,
+                            agnostic_nms=args.agnostic_nms,
+                            device=args.device,
+                            verbose=False,
+                            classes=args.classes,
+                            imgsz=args.imgsz,
+                        )
+                        break
+                    except RuntimeError as e:
+                        if "out of memory" not in str(e).lower():
+                            raise
+                        if batch_size == 1:
+                            raise
+
+                        _clear_device_cache(args.device)
+
+                        for seq_name, _, _ in batch_items:
+                            seq_states[seq_name]["i"] -= 1
+
+                        new_bs = max(1, batch_size // 2)
+                        LOGGER.warning(f"YOLO predict OOM at batch size {batch_size}; retrying with {new_bs}.")
+                        batch_size = new_bs
+                        args.batch_size = batch_size
+                        yolo_results = None
+                        break
+
+                if yolo_results is None:
+                    continue
+
+                det_counts = [int(r.boxes.shape[0]) for r in yolo_results]
+                emb_dims: dict[str, int] = {}
+                LOGGER.info(
+                    f"YOLO batch frames={len(batch_items)} | dets/frame={det_counts} | total_dets={sum(det_counts)}"
+                )
+                touched: set[str] = set()
+
+                for (seq_name, frame_id, _), r, img in zip(batch_items, yolo_results, imgs):
+                    boxes = r.boxes.xyxy
+                    confs = r.boxes.conf
+                    clss = r.boxes.cls
+
+                    nr = int(boxes.shape[0])
+                    if nr == 0:
+                        pbar.update(1)
+                        continue
+
+                    bench = str(getattr(args, "benchmark", "")).lower()
+
+                    x1, y1, x2, y2 = boxes.unbind(1)
+                    positive = (x2 > x1) & (y2 > y1)
+                    if not bool(positive.any()):
+                        pbar.update(1)
+                        continue
+
+                    boxes = boxes[positive]
+                    confs = confs[positive]
+                    clss = clss[positive]
+
+                    widths = boxes[:, 2] - boxes[:, 0]
+                    heights = boxes[:, 3] - boxes[:, 1]
+                    min_wh = (widths >= 10.0) & (heights >= 10.0)
+                    if not bool(min_wh.any()):
+                        pbar.update(1)
+                        continue
+
+                    boxes = boxes[min_wh]
+                    confs = confs[min_wh]
+                    clss = clss[min_wh]
+
+                    frame_col = torch.full(
+                        (boxes.shape[0], 1),
+                        float(frame_id),
+                        device=boxes.device,
+                        dtype=boxes.dtype,
+                    )
+                    dets_t = torch.cat(
+                        [frame_col, boxes, confs.unsqueeze(1), clss.unsqueeze(1)],
+                        dim=1,
+                    )
+
+                    dets_np = dets_t.detach().float().cpu().numpy()
+                    np.savetxt(det_fhs[seq_name], dets_np, fmt="%f")
+
+                    det_boxes_np = dets_np[:, 1:5]
+                    for reid_model, reid_model_name in zip(reids, args.reid_model):
+                        embs = reid_model.get_features(det_boxes_np, img)
+                        if embs.shape[0] != det_boxes_np.shape[0]:
+                            raise RuntimeError(
+                                f"Embedding count mismatch: dets={det_boxes_np.shape[0]} embs={embs.shape[0]}"
+                            )
+                        if embs.ndim >= 2 and reid_model_name.stem not in emb_dims:
+                            emb_dims[reid_model_name.stem] = embs.shape[1]
+                        np.savetxt(emb_fhs[reid_model_name.stem][seq_name], embs, fmt="%f")
+
+                    pbar.update(1)
+                    touched.add(seq_name)
+
+                if emb_dims:
+                    LOGGER.info(
+                        "ReID embedding dims per model: "
+                        + ", ".join([f"{k}={v}" for k, v in emb_dims.items()])
+                    )
+                else:
+                    LOGGER.info("ReID embedding dims per model: n/a (no detections)")
+
+                for seq_name in touched:
+                    try:
+                        progress_paths[seq_name].write_text(str(seq_states[seq_name]["i"]))
+                        det_fhs[seq_name].flush()
+                        for per_reid in emb_fhs.values():
+                            if seq_name in per_reid:
+                                per_reid[seq_name].flush()
+                    except Exception:
+                        pass
+
+                del yolo_results, imgs
+                _clear_device_cache(args.device)
+
+    finally:
+        pbar.close()
+        for fh in det_fhs.values():
+            try:
+                fh.close()
+            except Exception:
+                pass
+        for per_reid in emb_fhs.values():
+            for fh in per_reid.values():
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+
+
+def run_generate_dets_embs(opt: argparse.Namespace) -> None:
+    source_root = Path(opt.source)
+
+    opt.batch_size = int(getattr(opt, "batch_size", 16))
+    if getattr(opt, "read_threads", None) is None:
+        opt.read_threads = min(8, (os.cpu_count() or 8))
+    if not hasattr(opt, "auto_batch"):
+        opt.auto_batch = True
+    if not hasattr(opt, "resume"):
+        opt.resume = True
+
+    for y in opt.yolo_model:
+        LOGGER.info(f"Generating dets+embs (batched single-process): {y.name}")
+        generate_dets_embs_batched(opt, y, source_root)
 
 def build_dataset_eval_settings(
     args: argparse.Namespace,
@@ -445,62 +870,6 @@ def trackeval(
     return stdout
 
 
-def process_single_det_emb(y: Path, source_path: Path, opt: argparse.Namespace, lock):
-    try:
-        new_opt = copy.deepcopy(opt)
-        # Check if img1 exists, otherwise use source_path directly
-        img_source = source_path / 'img1'
-        if not img_source.exists():
-            img_source = source_path
-            
-        # Use lock to ensure model loading/downloading is thread-safe
-        with lock:
-            if is_ultralytics_model(y):
-                YOLO(y)
-
-        generate_dets_embs(new_opt, y, source=img_source)
-    except Exception:
-        traceback.print_exc()
-        raise
-
-def run_generate_dets_embs(opt: argparse.Namespace) -> None:
-    mot_folder_paths = sorted([item for item in Path(opt.source).iterdir() if item.is_dir()])
-    
-    # Create a manager to share the lock across processes
-    manager = mp.Manager()
-    lock = manager.Lock()
-
-    for y in opt.yolo_model:
-        dets_folder = Path(opt.project) / 'dets_n_embs' / y.stem / 'dets'
-        embs_folder = Path(opt.project) / 'dets_n_embs' / y.stem / 'embs' / opt.reid_model[0].stem
-
-        # Filter out already processed sequences
-        tasks = []
-        for i, mot_folder_path in enumerate(mot_folder_paths):
-            dets_path = dets_folder / (mot_folder_path.name + '.txt')
-            embs_path = embs_folder / (mot_folder_path.name + '.txt')
-            if dets_path.exists() and embs_path.exists():
-                if not prompt_overwrite('Detections and Embeddings', dets_path, opt.ci):
-                    LOGGER.debug(f"Skipping generation for {mot_folder_path} as they already exist.")
-                    continue
-            tasks.append((y, mot_folder_path))
-
-        total_sequences = len(mot_folder_paths)
-        if len(tasks) == 0:
-            LOGGER.info(f"Detections and embeddings cached for all {total_sequences} sequences")
-        else:
-            LOGGER.info(f"Generating detections and embeddings for {len(tasks)}/{total_sequences} sequences with model {y.name}")
-
-        with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
-            futures = [executor.submit(process_single_det_emb, y, source_path, opt, lock) for y, source_path in tasks]
-
-            for fut in concurrent.futures.as_completed(futures):
-                try:
-                    fut.result()
-                except Exception as e:
-                    LOGGER.error(f"An error occurred during detection/embedding generation: {e}")
-                    raise e
-
 
 def process_sequence(seq_name: str,
                      mot_root: str,
@@ -546,6 +915,14 @@ def process_sequence(seq_name: str,
         kept_frame_ids.append(fid)
 
         if dets.size and embs.size:
+            if dets.shape[0] != embs.shape[0]:
+                msg = (
+                    f"Detection/embedding count mismatch for {seq_name} frame {fid}: "
+                    f"dets={dets.shape[0]} embs={embs.shape[0]}"
+                )
+                LOGGER.error(msg)
+                raise ValueError(msg)
+
             tracks = tracker.update(dets, img, embs)
             if tracks.size:
                 all_tracks.append(convert_to_mot_format(tracks, fid))
