@@ -457,6 +457,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
     )
 
     pbar = tqdm(total=total_frames, desc=f"Batched YOLO+ReID ({y.name}, bs={batch_size})", unit="frame")
+    reid_pbar = tqdm(total=0, desc="ReID embeddings", unit="det", dynamic_ncols=True)
     if initial_done:
         pbar.update(initial_done)
 
@@ -535,29 +536,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                     confs = r.boxes.conf
                     clss = r.boxes.cls
 
-                    h, w = img.shape[:2]
-
-                    x1, y1, x2, y2 = boxes.unbind(1)
-                    w_t = boxes.new_tensor(float(w))
-                    h_t = boxes.new_tensor(float(h))
-                    zero = torch.zeros_like(x1)
-
-                    boxes_filter = (
-                        (torch.maximum(zero, x1) < torch.minimum(x2, w_t)) &
-                        (torch.maximum(zero, y1) < torch.minimum(y2, h_t))
-                    )
-
-                    boxes = boxes[boxes_filter]
-                    confs = confs[boxes_filter]
-                    clss  = clss[boxes_filter]
-
-                    nr = int(boxes.shape[0])
-                    if nr == 0:
-                        pbar.update(1)
-                        continue
-
-                    bench = str(getattr(args, "benchmark", "")).lower()
-
+                    # Keep only non-degenerate boxes (positive width/height).
                     x1, y1, x2, y2 = boxes.unbind(1)
                     positive = (x2 > x1) & (y2 > y1)
                     if not bool(positive.any()):
@@ -568,10 +547,11 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                     confs = confs[positive]
                     clss = clss[positive]
 
+                    # Drop tiny boxes (<10 px^2 area); do not clip to image bounds.
                     widths = boxes[:, 2] - boxes[:, 0]
                     heights = boxes[:, 3] - boxes[:, 1]
                     areas = widths * heights
-                    valid_area = areas >= 20.0
+                    valid_area = areas >= 10.0
                     if not bool(valid_area.any()):
                         pbar.update(1)
                         continue
@@ -607,6 +587,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                             emb_dims[reid_model_name.stem] = embs.shape[1]
                         np.savetxt(emb_fhs[reid_model_name.stem][seq_name], embs, fmt="%f")
 
+                    reid_pbar.update(det_boxes_np.shape[0])
+
                     pbar.update(1)
                     touched.add(seq_name)
 
@@ -632,6 +614,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
 
     finally:
         pbar.close()
+        reid_pbar.close()
         for fh in det_fhs.values():
             try:
                 fh.close()
