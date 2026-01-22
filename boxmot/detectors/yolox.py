@@ -224,10 +224,13 @@ class YoloXStrategy:
         self.device = device
         self.model = exp.get_model()
         self.model.eval()
-        self.model.load_state_dict(ckpt["model"])
-        self.model = fuse_model(self.model)
+        
+        # folow official yolox loading procedure
+        # https://github.com/Megvii-BaseDetection/YOLOX/blob/d872c71b/tools/eval.py#L148-L176
         self.model.to(self.device)
         self.model.eval()
+        self.model.load_state_dict(ckpt["model"])
+        self.model = fuse_model(self.model)
         self.im_paths = []
         self._preproc_data = []
 
