@@ -431,7 +431,8 @@ def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
               'classes': parse_classes(classes),
               'source': src,
               'benchmark': bench,
-              'split': split}
+              'split': split,
+              'imgsz': [1088, 1920]}
     args = SimpleNamespace(**params)
     from boxmot.engine.evaluator import main as run_eval
     run_eval(args)

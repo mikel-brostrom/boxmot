@@ -38,11 +38,11 @@ from boxmot.postprocessing.gsi import gsi
 from ultralytics import YOLO
 
 from boxmot.detectors import (
-    default_imgsz,
     get_yolo_inferer,
     is_rtdetr_model,
     is_ultralytics_model,
     is_yolox_model,
+    default_imgsz
 )
 from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
 from boxmot.reid.core.auto_backend import ReidAutoBackend
@@ -114,114 +114,6 @@ def eval_init(args,
     args.source = Path(args.source).resolve()
     args.project = Path(args.project).resolve()
     args.project.mkdir(parents=True, exist_ok=True)
-
-
-def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
-    """
-    Generates detections and embeddings for the specified 
-    arguments, YOLO model and source.
-
-    Args:
-        args (Namespace): Parsed command line arguments.
-        y (Path): Path to the YOLO model file.
-        source (Path): Path to the source directory.
-    """
-    WEIGHTS.mkdir(parents=True, exist_ok=True)
-
-    args.imgsz = [1088, 1920]
-
-    seq_name = source.parent.name if source.name == "img1" else source.name
-
-    yolo = YOLO(
-        y if is_ultralytics_model(y)
-        else 'yolov8n.pt',
-    )
-
-    results = yolo(
-        source=source,
-        conf=args.conf,
-        iou=args.iou,
-        agnostic_nms=args.agnostic_nms,
-        stream=True,
-        device=args.device,
-        verbose=False,
-        exist_ok=args.exist_ok,
-        project=args.project,
-        name=args.name,
-        classes=args.classes,
-        imgsz=args.imgsz,
-        vid_stride=args.vid_stride,
-    )
-
-    if not is_ultralytics_model(y):
-        m = get_yolo_inferer(y)
-        yolo_model = m(model=y, device=yolo.predictor.device,
-                       args=yolo.predictor.args)
-        yolo.predictor.model = yolo_model
-
-        # If current model is YOLOX or RTDetr, change the preprocess and postprocess
-        if is_yolox_model(y) or is_rtdetr_model(y):
-            # add callback to save image paths for further processing
-            yolo.add_callback("on_predict_batch_start",
-                              lambda p: yolo_model.update_im_paths(p))
-            yolo.predictor.preprocess = (
-                lambda im: yolo_model.preprocess(im=im))
-            yolo.predictor.postprocess = (
-                lambda preds, im, im0s:
-                yolo_model.postprocess(preds=preds, im=im, im0s=im0s))
-
-    reids = []
-    for r in args.reid_model:
-        reid_model = ReidAutoBackend(weights=r,
-                                     device=yolo.predictor.device,
-                                     half=args.half).model
-        reids.append(reid_model)
-        embs_path = args.project / 'dets_n_embs' / y.stem / 'embs' / r.stem / (seq_name + '.txt')
-        embs_path.parent.mkdir(parents=True, exist_ok=True)
-        embs_path.touch(exist_ok=True)
-
-        if os.path.getsize(embs_path) > 0:
-            open(embs_path, 'w').close()
-
-    yolo.predictor.custom_args = args
-
-    dets_path = args.project / 'dets_n_embs' / y.stem / 'dets' / (seq_name + '.txt')
-    dets_path.parent.mkdir(parents=True, exist_ok=True)
-    dets_path.touch(exist_ok=True)
-
-    if os.path.getsize(dets_path) > 0:
-        open(dets_path, 'w').close()
-
-    with open(str(dets_path), 'ab+') as f:
-        np.savetxt(f, [], fmt='%f', header=str(source))
-
-    for frame_idx, r in enumerate(tqdm(results, desc="Frames")):
-        nr_dets = len(r.boxes)
-        frame_idx = torch.full((1, 1), frame_idx + 1).repeat(nr_dets, 1)
-        img = r.orig_img
-
-        dets = np.concatenate(
-            [
-                frame_idx,
-                r.boxes.xyxy.to('cpu'),
-                r.boxes.conf.unsqueeze(1).to('cpu'),
-                r.boxes.cls.unsqueeze(1).to('cpu'),
-            ], axis=1
-        )
-
-        # Keep boxes even if they extend outside the image; only drop invalid geometry
-        boxes = r.boxes.xyxy.to('cpu').numpy()
-        positive = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
-        dets = dets[positive]
-
-        with open(str(dets_path), 'ab+') as f:
-            np.savetxt(f, dets, fmt='%f')
-
-        for reid, reid_model_name in zip(reids, args.reid_model):
-            embs = reid.get_features(dets[:, 1:5], img)
-            embs_path = args.project / "dets_n_embs" / y.stem / 'embs' / reid_model_name.stem / (seq_name + '.txt')
-            with open(str(embs_path), 'ab+') as f:
-                np.savetxt(f, embs, fmt='%f')
 
 
 def parse_mot_results(results: str) -> dict:
@@ -398,8 +290,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
     auto_batch = bool(getattr(args, "auto_batch", True))
     resume = bool(getattr(args, "resume", True))
 
-    #if args.imgsz is None:
-    args.imgsz = [1088, 1920]
+    if args.imgsz is None:
+        args.imgsz = default_imgsz()
 
     yolo = YOLO(y if is_ultralytics_model(y) else 'yolov8n.pt')
 
@@ -623,6 +515,22 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                     confs = r.boxes.conf
                     clss = r.boxes.cls
 
+                    h, w = img.shape[:2]
+
+                    x1, y1, x2, y2 = boxes.unbind(1)
+                    w_t = boxes.new_tensor(float(w))
+                    h_t = boxes.new_tensor(float(h))
+                    zero = torch.zeros_like(x1)
+
+                    boxes_filter = (
+                        (torch.maximum(zero, x1) < torch.minimum(x2, w_t)) &
+                        (torch.maximum(zero, y1) < torch.minimum(y2, h_t))
+                    )
+
+                    boxes = boxes[boxes_filter]
+                    confs = confs[boxes_filter]
+                    clss  = clss[boxes_filter]
+
                     nr = int(boxes.shape[0])
                     if nr == 0:
                         pbar.update(1)
@@ -642,14 +550,15 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
 
                     widths = boxes[:, 2] - boxes[:, 0]
                     heights = boxes[:, 3] - boxes[:, 1]
-                    min_wh = (widths >= 10.0) & (heights >= 10.0)
-                    if not bool(min_wh.any()):
+                    areas = widths * heights
+                    valid_area = areas >= 20.0
+                    if not bool(valid_area.any()):
                         pbar.update(1)
                         continue
 
-                    boxes = boxes[min_wh]
-                    confs = confs[min_wh]
-                    clss = clss[min_wh]
+                    boxes = boxes[valid_area]
+                    confs = confs[valid_area]
+                    clss = clss[valid_area]
 
                     frame_col = torch.full(
                         (boxes.shape[0], 1),
@@ -663,6 +572,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                     )
 
                     dets_np = dets_t.detach().float().cpu().numpy()
+                    dets_np[:, 1:5] = np.rint(dets_np[:, 1:5])  # round xyxy only
+
                     np.savetxt(det_fhs[seq_name], dets_np, fmt="%f")
 
                     det_boxes_np = dets_np[:, 1:5]
@@ -1132,6 +1043,7 @@ def main(args):
     LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>      <cyan>{args.reid_model[0]}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>   <cyan>{args.tracking_method}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Benchmark:</bold> <cyan>{args.source}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Image size:</bold> <cyan>{getattr(args, 'imgsz', None)}</cyan>")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
     
     # Step 1: Download TrackEval
