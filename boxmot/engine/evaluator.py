@@ -8,19 +8,13 @@ import subprocess
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm
-import configparser
-import shutil
 import json
 import yaml
 import cv2
-import re
 import os
 import torch
-import threading
 import sys
-import copy
 import concurrent.futures
-import traceback
 from contextlib import nullcontext
 
 from boxmot.trackers.tracker_zoo import create_tracker
@@ -29,7 +23,6 @@ from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
 from boxmot.utils.misc import increment_path, prompt_overwrite
-from boxmot.utils.clean import cleanup_mot17
 from typing import Optional, List, Dict, Generator, Union
 
 from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
