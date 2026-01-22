@@ -278,6 +278,29 @@ def _count_data_lines(path: Path, skip_header: bool = False) -> int:
         return 0
 
 
+def _max_frame_id(path: Path) -> int:
+    """Return the maximum frame id (first column) in a dets txt, skipping headers."""
+    max_f = 0
+    try:
+        with open(path, "r") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if not parts:
+                    continue
+                try:
+                    f_val = int(float(parts[0]))
+                except Exception:
+                    continue
+                if f_val > max_f:
+                    max_f = f_val
+    except FileNotFoundError:
+        return 0
+    return max_f
+
+
 @torch.inference_mode()
 def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: Path) -> None:
     WEIGHTS.mkdir(parents=True, exist_ok=True)
@@ -345,11 +368,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
 
     dets_folder = Path(args.project) / 'dets_n_embs' / y.stem / 'dets'
     embs_root = Path(args.project) / 'dets_n_embs' / y.stem / 'embs'
-    progress_folder = Path(args.project) / 'dets_n_embs' / y.stem / 'progress'
-
     total_frames = 0
     initial_done = 0
-    progress_paths: dict[str, Path] = {}
 
     for seq_dir in mot_folder_paths:
         img_dir = _sequence_img_dir(seq_dir)
@@ -360,15 +380,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         seq_name = _sequence_name_from_img_dir(img_dir)
 
         dets_path = dets_folder / f"{seq_name}.txt"
-        progress_path = progress_folder / f"{seq_name}.progress"
-        progress_paths[seq_name] = progress_path
         processed = 0
-        if resume and progress_path.exists():
-            try:
-                processed = int(progress_path.read_text().strip() or 0)
-            except Exception:
-                processed = 0
-        processed = min(processed, len(frames))
 
         emb_paths = {}
         any_emb_cached = False
@@ -378,16 +390,25 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
             if ep.exists():
                 any_emb_cached = True
 
-        if resume and processed > 0:
+        expected_files = False
+        rows_match = False
+        det_rows = 0
+        det_max_frame = 0
+        emb_rows: dict[str, int] = {}
+
+        if resume:
             det_rows = _count_data_lines(dets_path, skip_header=True)
+            det_max_frame = _max_frame_id(dets_path)
             emb_rows = {stem: _count_data_lines(ep) for stem, ep in emb_paths.items()}
             expected_files = dets_path.exists() and all(ep.exists() for ep in emb_paths.values())
             rows_match = len(set([det_rows, *emb_rows.values()])) == 1 if expected_files else False
-            if not expected_files or not rows_match or det_rows == 0:
+            if expected_files and rows_match and det_rows > 0:
+                processed = min(det_max_frame, len(frames))
+            elif expected_files and not rows_match:
                 LOGGER.warning(
-                    f"Cached progress for {seq_name} is out of sync with dets/embs; resetting cached data."
+                    f"Cached det/emb rows mismatch for {seq_name}; resetting cached data."
                 )
-                for p in [dets_path, *emb_paths.values(), progress_path]:
+                for p in [dets_path, *emb_paths.values()]:
                     try:
                         p.unlink()
                     except FileNotFoundError:
@@ -395,9 +416,17 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 processed = 0
 
         if resume and processed >= len(frames) and dets_path.exists() and all(ep.exists() for ep in emb_paths.values()):
-            LOGGER.info(f"Skipping {seq_name} (resume: already complete).")
+            if expected_files and rows_match and det_rows:
+                LOGGER.info(
+                    f"Skipping {seq_name} (cached complete; {processed}/{len(frames)} frames)."
+                )
+            else:
+                LOGGER.info(f"Skipping {seq_name} (resume: already complete).")
             initial_done += len(frames)
             continue
+
+        if resume and 0 < processed < len(frames):
+            LOGGER.info(f"Resuming {seq_name}: cached {processed}/{len(frames)} frames.")
 
         if (not resume) and dets_path.exists() and any_emb_cached:
             if not prompt_overwrite('Detections and Embeddings', dets_path, args.ci):
@@ -415,8 +444,6 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
             ep.parent.mkdir(parents=True, exist_ok=True)
             emb_mode = 'ab' if (resume and ep.exists()) else 'wb'
             emb_fhs[r.stem][seq_name] = open(ep, emb_mode, buffering=1024 * 1024)
-
-        progress_path.parent.mkdir(parents=True, exist_ok=True)
 
         seq_states[seq_name] = {"frames": frames, "i": processed, "img_dir": img_dir}
         total_frames += len(frames)
@@ -600,7 +627,6 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
 
                 for seq_name in touched:
                     try:
-                        progress_paths[seq_name].write_text(str(seq_states[seq_name]["i"]))
                         det_fhs[seq_name].flush()
                         for per_reid in emb_fhs.values():
                             if seq_name in per_reid:
