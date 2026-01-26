@@ -23,22 +23,15 @@ from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
 from boxmot.utils.misc import increment_path, prompt_overwrite
+from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 from typing import Optional, List, Dict, Generator, Union
 
 from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
 from boxmot.postprocessing.gsi import gsi
 
-from ultralytics import YOLO
-
-from boxmot.detectors import (
-    get_yolo_inferer,
-    is_rtdetr_model,
-    is_ultralytics_model,
-    is_yolox_model,
-    default_imgsz
-)
+from boxmot.engine.inference import DetectorReIDPipeline, extract_detections, filter_detections
+from boxmot.detectors import default_imgsz
 from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
-from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.utils.download import download_eval_data, download_trackeval
 
 checker = RequirementsChecker()
@@ -151,22 +144,34 @@ def parse_mot_results(results: str) -> dict:
                         current_class = 'default'
                     
                     if current_class not in parsed_results:
-                        parsed_results[current_class] = {}
+                        parsed_results[current_class] = {'per_sequence': {}}
                 break
         
         if is_header:
             continue
         
-        # Check for COMBINED row
-        if line.startswith('COMBINED') and current_class and current_metric_type:
+        # Check for data rows (COMBINED or sequence names)
+        if current_class and current_metric_type:
             fields = line.split()
             if len(fields) > 1:
-                values = fields[1:] # Skip 'COMBINED'
+                row_name = fields[0]  # Either 'COMBINED' or sequence name like 'MOT17-02-FRCNN'
+                values = fields[1:]
                 _, field_map = metric_specs[current_metric_type]
-                for key, idx in field_map.items():
-                    if idx < len(values):
-                        val = values[idx]
-                        parsed_results[current_class][key] = max(0, int(val) if key in int_fields else float(val))
+                
+                if row_name == 'COMBINED':
+                    # Store COMBINED metrics at class level (backward compatible)
+                    for key, idx in field_map.items():
+                        if idx < len(values):
+                            val = values[idx]
+                            parsed_results[current_class][key] = max(0, int(val) if key in int_fields else float(val))
+                else:
+                    # Store per-sequence metrics
+                    if row_name not in parsed_results[current_class]['per_sequence']:
+                        parsed_results[current_class]['per_sequence'][row_name] = {}
+                    for key, idx in field_map.items():
+                        if idx < len(values):
+                            val = values[idx]
+                            parsed_results[current_class]['per_sequence'][row_name][key] = max(0, int(val) if key in int_fields else float(val))
 
     return parsed_results
 
@@ -295,7 +300,16 @@ def _max_frame_id(path: Path) -> int:
 
 
 @torch.inference_mode()
-def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: Path) -> None:
+def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: Path, timing_stats: Optional[TimingStats] = None) -> None:
+    """
+    Generate detections and embeddings in batches for evaluation.
+    
+    Args:
+        args: CLI arguments.
+        y: Path to YOLO model weights.
+        source_root: Root path containing sequence folders.
+        timing_stats: Optional TimingStats for timing instrumentation.
+    """
     WEIGHTS.mkdir(parents=True, exist_ok=True)
 
     batch_size = int(getattr(args, "batch_size", 16))
@@ -307,51 +321,24 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
     resume = bool(getattr(args, "resume", True))
 
     if args.imgsz is None:
-        args.imgsz = default_imgsz()
+        args.imgsz = default_imgsz(y)
 
-    yolo = YOLO(y if is_ultralytics_model(y) else 'yolov8n.pt')
+    # Use unified DetectorReIDPipeline with timing for both detection and ReID
+    pipeline = DetectorReIDPipeline(
+        yolo_model_path=y,
+        reid_model_paths=args.reid_model,
+        device=args.device,
+        imgsz=args.imgsz,
+        half=args.half,
+        timing_stats=timing_stats,
+    )
 
-    yolo_model = None
-    if not is_ultralytics_model(y):
-        m = get_yolo_inferer(y)
-
-        def setup_custom_model(predictor):
-            nonlocal yolo_model
-            if yolo_model is not None:
-                return
-            yolo_model = m(model=y, device=predictor.device, args=predictor.args)
-            predictor.model = yolo_model
-
-            if is_yolox_model(y) or is_rtdetr_model(y):
-                predictor.preprocess = (lambda im: yolo_model.preprocess(im=im))
-                predictor.postprocess = (
-                    lambda preds, im, im0s: yolo_model.postprocess(preds=preds, im=im, im0s=im0s)
-                )
-
-        yolo.add_callback("on_predict_start", setup_custom_model)
-
-        if is_yolox_model(y) or is_rtdetr_model(y):
-            yolo.add_callback("on_predict_batch_start", lambda p: yolo_model.update_im_paths(p) if yolo_model else None)
-
-    try:
-        dummy_h, dummy_w = (
-            (int(args.imgsz[0]), int(args.imgsz[1]))
-            if isinstance(args.imgsz, (list, tuple))
-            else (int(args.imgsz), int(args.imgsz))
-        )
-        dummy = np.zeros((dummy_h, dummy_w, 3), dtype=np.uint8)
-        _ = yolo.predict(source=[dummy], device=args.device, verbose=False, imgsz=args.imgsz)
-    except Exception:
-        pass
+    # Warmup the model
+    pipeline.warmup()
 
     if auto_batch:
-        batch_size = _autotune_batch_size(yolo, args.device, args.imgsz, batch_size)
+        batch_size = pipeline.autotune_batch_size(batch_size)
         args.batch_size = batch_size
-
-    reids = []
-    for r in args.reid_model:
-        reid_model = ReidAutoBackend(weights=r, device=args.device, half=args.half).model
-        reids.append(reid_model)
 
     mot_folder_paths = sorted([p for p in Path(source_root).iterdir() if p.is_dir()])
 
@@ -492,15 +479,14 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 yolo_results = None
                 while True:
                     try:
-                        yolo_results = yolo.predict(
-                            source=imgs[:batch_size],
+                        # Use unified batch inference from pipeline
+                        yolo_results = pipeline.predict_batch(
+                            images=imgs[:batch_size],
                             conf=args.conf,
                             iou=args.iou,
                             agnostic_nms=args.agnostic_nms,
-                            device=args.device,
-                            verbose=False,
                             classes=args.classes,
-                            imgsz=args.imgsz,
+                            verbose=False,
                         )
                         break
                     except RuntimeError as e:
@@ -524,7 +510,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 if yolo_results is None:
                     continue
 
-                det_counts = [int(r.boxes.shape[0]) for r in yolo_results]
+                det_counts = [int(r.boxes.shape[0]) if r.boxes is not None else 0 for r in yolo_results]
                 emb_dims: dict[str, int] = {}
                 LOGGER.info(
                     f"YOLO batch frames={len(batch_items)} | dets/frame={det_counts} | total_dets={sum(det_counts)}"
@@ -532,63 +518,46 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 touched: set[str] = set()
 
                 for (seq_name, frame_id, _), r, img in zip(batch_items, yolo_results, imgs):
-                    boxes = r.boxes.xyxy
-                    confs = r.boxes.conf
-                    clss = r.boxes.cls
-
-                    # Keep only non-degenerate boxes (positive width/height).
-                    x1, y1, x2, y2 = boxes.unbind(1)
-                    positive = (x2 > x1) & (y2 > y1)
-                    if not bool(positive.any()):
+                    # Use unified detection extraction and filtering
+                    dets = extract_detections(r)
+                    dets = filter_detections(dets, min_area=10.0, remove_degenerate=True)
+                    
+                    if len(dets) == 0:
+                        if timing_stats:
+                            timing_stats.frames += 1
                         pbar.update(1)
                         continue
 
-                    boxes = boxes[positive]
-                    confs = confs[positive]
-                    clss = clss[positive]
+                    boxes = dets[:, :4]
+                    confs = dets[:, 4:5]  # Keep as 2D for concatenation
+                    clss = dets[:, 5:6]   # Keep as 2D for concatenation
 
-                    # Drop tiny boxes (<10 px^2 area); do not clip to image bounds.
-                    widths = boxes[:, 2] - boxes[:, 0]
-                    heights = boxes[:, 3] - boxes[:, 1]
-                    areas = widths * heights
-                    valid_area = areas >= 10.0
-                    if not bool(valid_area.any()):
-                        pbar.update(1)
-                        continue
-
-                    boxes = boxes[valid_area]
-                    confs = confs[valid_area]
-                    clss = clss[valid_area]
-
-                    frame_col = torch.full(
-                        (boxes.shape[0], 1),
-                        float(frame_id),
-                        device=boxes.device,
-                        dtype=boxes.dtype,
-                    )
-                    dets_t = torch.cat(
-                        [frame_col, boxes, confs.unsqueeze(1), clss.unsqueeze(1)],
-                        dim=1,
-                    )
-
-                    dets_np = dets_t.detach().float().cpu().numpy()
+                    # Build detection array with frame_id column: [frame_id, x1, y1, x2, y2, conf, cls]
+                    frame_col = np.full((boxes.shape[0], 1), float(frame_id), dtype=np.float32)
+                    dets_np = np.concatenate([frame_col, boxes, confs, clss], axis=1)
                     dets_np[:, 1:5] = np.rint(dets_np[:, 1:5])  # round xyxy only
 
                     np.savetxt(det_fhs[seq_name], dets_np, fmt="%f")
 
                     det_boxes_np = dets_np[:, 1:5]
-                    for reid_model, reid_model_name in zip(reids, args.reid_model):
-                        embs = reid_model.get_features(det_boxes_np, img)
+                    
+                    # Use pipeline's ReID models (with timing instrumentation)
+                    all_embs = pipeline.get_all_reid_features(det_boxes_np, img)
+                    for reid_name, embs in all_embs.items():
                         if embs.shape[0] != det_boxes_np.shape[0]:
                             raise RuntimeError(
                                 f"Embedding count mismatch: dets={det_boxes_np.shape[0]} embs={embs.shape[0]}"
                             )
-                        if embs.ndim >= 2 and reid_model_name.stem not in emb_dims:
-                            emb_dims[reid_model_name.stem] = embs.shape[1]
-                        np.savetxt(emb_fhs[reid_model_name.stem][seq_name], embs, fmt="%f")
+                        if embs.ndim >= 2 and reid_name not in emb_dims:
+                            emb_dims[reid_name] = embs.shape[1]
+                        np.savetxt(emb_fhs[reid_name][seq_name], embs, fmt="%f")
 
                     reid_pbar.update(det_boxes_np.shape[0])
 
+                    # Update frame count for timing
+                    if timing_stats:
+                        timing_stats.frames += 1
+                    
                     pbar.update(1)
                     touched.add(seq_name)
 
@@ -628,7 +597,14 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                     pass
 
 
-def run_generate_dets_embs(opt: argparse.Namespace) -> None:
+def run_generate_dets_embs(opt: argparse.Namespace, timing_stats: Optional[TimingStats] = None) -> None:
+    """
+    Generate detections and embeddings for all sequences.
+    
+    Args:
+        opt: CLI arguments.
+        timing_stats: Optional TimingStats for timing instrumentation.
+    """
     source_root = Path(opt.source)
 
     opt.batch_size = int(getattr(opt, "batch_size", 16))
@@ -641,7 +617,7 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
 
     for y in opt.yolo_model:
         LOGGER.info(f"Generating dets+embs (batched single-process): {y.name}")
-        generate_dets_embs_batched(opt, y, source_root)
+        generate_dets_embs_batched(opt, y, source_root, timing_stats=timing_stats)
 
 def build_dataset_eval_settings(
     args: argparse.Namespace,
@@ -795,6 +771,14 @@ def process_sequence(seq_name: str,
                      device: str,
                      cfg_dict: Optional[Dict] = None,
                      ):
+    """
+    Process a single sequence: run tracker on pre-computed detections/embeddings.
+    
+    Returns:
+        Tuple of (seq_name, kept_frame_ids, timing_dict) where timing_dict contains
+        'track_time_ms' and 'num_frames' for aggregating timing stats.
+    """
+    import time
 
     device = select_device(device)
     tracker = create_tracker(
@@ -819,6 +803,9 @@ def process_sequence(seq_name: str,
 
     all_tracks = []
     kept_frame_ids = []
+    total_track_time_ms = 0.0
+    num_frames = 0
+    
     for frame in sequence:
         fid  = int(frame['frame_id'])
         dets = frame['dets']
@@ -826,6 +813,7 @@ def process_sequence(seq_name: str,
         img  = frame['img']
 
         kept_frame_ids.append(fid)
+        num_frames += 1
 
         if dets.size and embs.size:
             if dets.shape[0] != embs.shape[0]:
@@ -836,13 +824,22 @@ def process_sequence(seq_name: str,
                 LOGGER.error(msg)
                 raise ValueError(msg)
 
+            # Time the tracker update (association only, embeddings pre-computed)
+            t0 = time.perf_counter()
             tracks = tracker.update(dets, img, embs)
+            total_track_time_ms += (time.perf_counter() - t0) * 1000
+            
             if tracks.size:
                 all_tracks.append(convert_to_mot_format(tracks, fid))
 
     out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
     write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
-    return seq_name, kept_frame_ids
+    
+    timing_dict = {
+        'track_time_ms': total_track_time_ms,
+        'num_frames': num_frames,
+    }
+    return seq_name, kept_frame_ids, timing_dict
 
 
 from boxmot.utils import configure_logging as _configure_logging
@@ -851,7 +848,15 @@ def _worker_init():
     # each spawned process needs its own sinks
     _configure_logging()
 
-def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
+def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None, timing_stats: Optional[TimingStats] = None) -> None:
+    """
+    Run tracker on pre-computed detections/embeddings and generate MOT result files.
+    
+    Args:
+        opt: CLI arguments.
+        evolve_config: Optional config dict for hyperparameter tuning.
+        timing_stats: Optional TimingStats to record tracking/association time.
+    """
     # Prepare experiment folder
     base = opt.project / 'mot' / f"{opt.yolo_model[0].stem}_{opt.reid_model[0].stem}_{opt.tracking_method}"
     exp_dir = increment_path(base, sep="_", exist_ok=False)
@@ -886,6 +891,8 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     ]
 
     seq_frame_nums = {}
+    total_track_time_ms = 0.0
+    total_track_frames = 0
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
         futures = {
@@ -895,10 +902,28 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         for fut in concurrent.futures.as_completed(futures):
             seq = futures[fut]
             try:
-                seq_name, kept_ids = fut.result()
+                seq_name, kept_ids, timing_dict = fut.result()
                 seq_frame_nums[seq_name] = kept_ids
+                # Aggregate timing from worker process
+                total_track_time_ms += timing_dict.get('track_time_ms', 0)
+                total_track_frames += timing_dict.get('num_frames', 0)
             except Exception:
                 LOGGER.exception(f"Error processing {seq}")
+    
+    # Record aggregated tracking time in timing_stats
+    if timing_stats is not None:
+        timing_stats.totals['track'] += total_track_time_ms
+        # Also update frame count if not already set (from batch mode)
+        if timing_stats.frames == 0 and total_track_frames > 0:
+            timing_stats.frames = total_track_frames
+        # Log summary
+        if total_track_frames > 0:
+            avg_track = total_track_time_ms / total_track_frames
+            LOGGER.opt(colors=True).info(
+                f"<bold>Tracking:</bold> {total_track_frames} frames, "
+                f"total: <cyan>{total_track_time_ms:.1f}ms</cyan>, "
+                f"avg: <cyan>{avg_track:.2f}ms/frame</cyan>"
+            )
 
     # Optional GSI postprocessing
     if getattr(opt, "postprocessing", "none") == "gsi":
@@ -1003,30 +1028,49 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
     # Print results summary
     if verbose:
         LOGGER.info("")
-        LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
-        LOGGER.opt(colors=True).info("<bold><cyan>📊 Results Summary</cyan></bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*105 + "</blue>")
+        LOGGER.opt(colors=True).info(f"<bold><cyan>{'📊 RESULTS SUMMARY':^105}</cyan></bold>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*105 + "</blue>")
         
-        headers = ["Class", "HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs"]
-        header_str = "{:<15} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8}".format(*headers)
+        headers = ["Sequence", "HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs"]
+        header_str = "{:<25} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}".format(*headers)
         LOGGER.opt(colors=True).info(f"<bold>{header_str}</bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "-"*90 + "</blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "-"*105 + "</blue>")
         
-        for cls, metrics in parsed_results.items():
-            row = [
-                cls,
-                f"{metrics.get('HOTA', 0):.2f}%",
-                f"{metrics.get('MOTA', 0):.2f}%",
-                f"{metrics.get('IDF1', 0):.2f}%",
-                f"{metrics.get('AssA', 0):.2f}%",
-                f"{metrics.get('AssRe', 0):.2f}%",
-                f"{metrics.get('IDSW', 0)}",
-                f"{metrics.get('IDs', 0)}"
-            ]
-            row_str = "{:<15} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8} {:<8}".format(*row)
-            LOGGER.opt(colors=True).info(row_str)
+        for cls, class_metrics in parsed_results.items():
+            # Print per-sequence metrics first
+            per_sequence = class_metrics.get('per_sequence', {})
+            for seq_name in sorted(per_sequence.keys()):
+                seq_metrics = per_sequence[seq_name]
+                name_col = f"{seq_name:<25}"
+                vals = [
+                    f"{seq_metrics.get('HOTA', 0):>10.2f}",
+                    f"{seq_metrics.get('MOTA', 0):>10.2f}",
+                    f"{seq_metrics.get('IDF1', 0):>10.2f}",
+                    f"{seq_metrics.get('AssA', 0):>10.2f}",
+                    f"{seq_metrics.get('AssRe', 0):>10.2f}",
+                    f"{seq_metrics.get('IDSW', 0):>10}",
+                    f"{seq_metrics.get('IDs', 0):>10}"
+                ]
+                vals_str = " ".join([f"<blue>{v}</blue>" for v in vals])
+                LOGGER.opt(colors=True).info(f"{name_col} {vals_str}")
             
-        LOGGER.opt(colors=True).info("<blue>" + "="*90 + "</blue>")
+            # Print COMBINED row (bold, highlighted)
+            LOGGER.opt(colors=True).info("<blue>" + "-"*105 + "</blue>")
+            name_col = f"{'COMBINED (' + cls + ')':<25}"
+            vals = [
+                f"{class_metrics.get('HOTA', 0):>10.2f}",
+                f"{class_metrics.get('MOTA', 0):>10.2f}",
+                f"{class_metrics.get('IDF1', 0):>10.2f}",
+                f"{class_metrics.get('AssA', 0):>10.2f}",
+                f"{class_metrics.get('AssRe', 0):>10.2f}",
+                f"{class_metrics.get('IDSW', 0):>10}",
+                f"{class_metrics.get('IDs', 0):>10}"
+            ]
+            vals_str = " ".join([f"<cyan>{v}</cyan>" for v in vals])
+            LOGGER.opt(colors=True).info(f"<bold>{name_col} {vals_str}</bold>")
+            
+        LOGGER.opt(colors=True).info("<blue>" + "="*105 + "</blue>")
 
     if opt.ci:
         with open(opt.tracking_method + "_output.json", "w") as outfile:
@@ -1048,21 +1092,28 @@ def main(args):
     LOGGER.opt(colors=True).info(f"<bold>Image size:</bold> <cyan>{getattr(args, 'imgsz', None)}</cyan>")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
     
+    # Initialize timing stats for the evaluation pipeline
+    timing_stats = TimingStats()
+    
     # Step 1: Download TrackEval
     LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
     eval_init(args)
 
-    # Step 2: Generate detections and embeddings
+    # Step 2: Generate detections and embeddings (with timing)
     LOGGER.opt(colors=True).info("<cyan>[2/4]</cyan> Generating detections and embeddings...")
-    run_generate_dets_embs(args)
+    run_generate_dets_embs(args, timing_stats=timing_stats)
     
-    # Step 3: Generate MOT results
+    # Step 3: Generate MOT results (with tracking timing)
     LOGGER.opt(colors=True).info("<cyan>[3/4]</cyan> Running tracker...")
-    run_generate_mot_results(args)
+    run_generate_mot_results(args, timing_stats=timing_stats)
     
     # Step 4: Evaluate with TrackEval
     LOGGER.opt(colors=True).info("<cyan>[4/4]</cyan> Evaluating results...")
     results = run_trackeval(args)
+    
+    # Print timing summary if we collected timing data
+    if timing_stats.frames > 0:
+        timing_stats.print_summary()
     
     # Only plot if we have results for a single class or handle multi-class plotting differently
     # For now, let's just skip the radar chart if we have multiple classes or complex structure

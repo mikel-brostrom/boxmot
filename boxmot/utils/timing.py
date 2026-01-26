@@ -90,84 +90,117 @@ class TimingStats:
     
     def print_summary(self):
         """Print execution time summary table with blue color palette."""
-        if self.frames == 0:
+        # Check if we have any data to display
+        has_data = any(v > 0 for v in self.totals.values())
+        if not has_data:
             return
         
-        frames = self.frames
+        frames = self.frames if self.frames > 0 else 1  # Avoid division by zero
         
-        # Calculate detection total and association time
+        # Calculate detection total
         det_total = self.totals['preprocess'] + self.totals['inference'] + self.totals['postprocess']
-        assoc_time = self.totals['track'] - self.totals['reid']
         total_time = self.totals['total']
         plot_time = self.totals['plot']
+        reid_total = self.totals['reid']
+        track_total = self.totals['track']
         
-        # Calculate overhead (unaccounted time)
-        accounted = det_total + self.totals['track'] + plot_time
+        # Determine workflow mode based on what was recorded
+        # - Real-time tracking: tracking done frame-by-frame with ReID embedded (assoc = track - reid)
+        # - Batch evaluation: ReID + tracking both recorded separately (assoc = track only since ReID is standalone)
+        # 
+        # In batch mode, ReID is done *before* tracking with pre-computed embeddings,
+        # so track_total is pure association time. In real-time, ReID is inside track.
+        # We can detect batch mode if frames==0 (timing was aggregated from subprocess)
+        # or by looking for a flag. For now, use heuristic: if reid_total > 0 but frames==0, batch mode.
+        
+        is_batch_mode = self.frames == 0 or (reid_total > 0 and det_total > 0)
+        
+        # In batch mode: track_total is pure association (ReID was separate)
+        # In real-time mode: association = track - reid
+        if is_batch_mode:
+            assoc_time = track_total  # Track is association-only when ReID is pre-computed
+        else:
+            assoc_time = max(0, track_total - reid_total)
+        
+        # Calculate overhead (unaccounted time) - only meaningful if total was recorded
+        accounted = det_total + reid_total + track_total + plot_time
+        
+        # If no total time recorded, estimate from components
+        if total_time == 0:
+            total_time = accounted
+        
+        # For batch mode, track time doesn't overlap with det+reid
         overhead = max(0, total_time - accounted)
         
         # Helper to calculate percentage
         def pct(value):
             return (value / total_time * 100) if total_time > 0 else 0
         
+        # Helper to calculate FPS from avg ms
+        def fps_from_avg(avg_ms):
+            return 1000 / avg_ms if avg_ms > 0 else 0
+        
         # Helper for colored logging
         def log(msg):
             LOGGER.opt(colors=True).info(msg)
         
         log("")
-        log("<blue>" + "=" * 90 + "</blue>")
-        log(f"<bold><cyan>{'📊 TIMING SUMMARY':^90}</cyan></bold>")
-        log("<blue>" + "=" * 90 + "</blue>")
-        log(f"<bold>{'Component':<20}</bold> | {'Total (ms)':<12} | {'Avg (ms)':<12} | {'% of Total':<12}")
-        log("<blue>" + "-" * 90 + "</blue>")
+        log("<blue>" + "=" * 105 + "</blue>")
+        log(f"<bold><cyan>{'📊 TIMING SUMMARY':^105}</cyan></bold>")
+        log("<blue>" + "=" * 105 + "</blue>")
+        log(f"<bold>{'Component':<20}</bold> | {'Total (ms)':<12} | {'Avg (ms)':<12} | {'FPS':<10} | {'% of Total':<12}")
+        log("<blue>" + "-" * 105 + "</blue>")
         
         # Detection pipeline
         for key in ['preprocess', 'inference', 'postprocess']:
             total = self.totals[key]
             avg = total / frames
-            log(f"{key.capitalize():<20} | <blue>{total:<12.1f}</blue> | <blue>{avg:<12.2f}</blue> | {pct(total):<12.1f}")
+            fps = fps_from_avg(avg)
+            log(f"{key.capitalize():<20} | <blue>{total:<12.1f}</blue> | <blue>{avg:<12.2f}</blue> | <blue>{fps:<10.1f}</blue> | {pct(total):<12.1f}")
         
         det_avg = det_total / frames
-        log(f"<bold>{'Detection (total)':<20}</bold> | <cyan>{det_total:<12.1f}</cyan> | <cyan>{det_avg:<12.2f}</cyan> | {pct(det_total):<12.1f}")
+        det_fps = fps_from_avg(det_avg)
+        log(f"<bold>{'Detection (total)':<20}</bold> | <cyan>{det_total:<12.1f}</cyan> | <cyan>{det_avg:<12.2f}</cyan> | <cyan>{det_fps:<10.1f}</cyan> | {pct(det_total):<12.1f}")
         
-        log("<blue>" + "-" * 90 + "</blue>")
+        log("<blue>" + "-" * 105 + "</blue>")
         
-        # Tracking pipeline (split into ReID + Association)
-        reid_total = self.totals['reid']
-        reid_avg = reid_total / frames
-        log(f"{'ReID':<20} | <blue>{reid_total:<12.1f}</blue> | <blue>{reid_avg:<12.2f}</blue> | {pct(reid_total):<12.1f}")
+        # ReID / Tracking section - display depends on workflow mode
+        reid_avg = reid_total / frames if frames > 0 else 0
+        reid_fps = fps_from_avg(reid_avg)
+        log(f"{'ReID':<20} | <blue>{reid_total:<12.1f}</blue> | <blue>{reid_avg:<12.2f}</blue> | <blue>{reid_fps:<10.1f}</blue> | {pct(reid_total):<12.1f}")
         
-        assoc_avg = assoc_time / frames
-        log(f"{'Association':<20} | <blue>{assoc_time:<12.1f}</blue> | <blue>{assoc_avg:<12.2f}</blue> | {pct(assoc_time):<12.1f}")
+        # Show association/track in both modes (since we now track association in batch mode too)
+        if track_total > 0:
+            assoc_avg = assoc_time / frames if frames > 0 else 0
+            assoc_fps = fps_from_avg(assoc_avg)
+            log(f"{'Association':<20} | <blue>{assoc_time:<12.1f}</blue> | <blue>{assoc_avg:<12.2f}</blue> | <blue>{assoc_fps:<10.1f}</blue> | {pct(assoc_time):<12.1f}")
+            
+            if not is_batch_mode:
+                # In real-time mode, also show track total (which includes reid + assoc)
+                track_avg = track_total / frames if frames > 0 else 0
+                track_fps = fps_from_avg(track_avg)
+                log(f"<bold>{'Track (total)':<20}</bold> | <cyan>{track_total:<12.1f}</cyan> | <cyan>{track_avg:<12.2f}</cyan> | <cyan>{track_fps:<10.1f}</cyan> | {pct(track_total):<12.1f}")
         
-        track_total = self.totals['track']
-        track_avg = track_total / frames
-        log(f"<bold>{'Track (total)':<20}</bold> | <cyan>{track_total:<12.1f}</cyan> | <cyan>{track_avg:<12.2f}</cyan> | {pct(track_total):<12.1f}")
-        
-        log("<blue>" + "-" * 90 + "</blue>")
+        log("<blue>" + "-" * 105 + "</blue>")
         
         # Plotting and overhead
-        plot_avg = plot_time / frames
-        log(f"{'Plotting':<20} | <blue>{plot_time:<12.1f}</blue> | <blue>{plot_avg:<12.2f}</blue> | {pct(plot_time):<12.1f}")
+        if plot_time > 0:
+            plot_avg = plot_time / frames
+            plot_fps = fps_from_avg(plot_avg)
+            log(f"{'Plotting':<20} | <blue>{plot_time:<12.1f}</blue> | <blue>{plot_avg:<12.2f}</blue> | <blue>{plot_fps:<10.1f}</blue> | {pct(plot_time):<12.1f}")
         
-        overhead_avg = overhead / frames
-        log(f"{'Other (I/O, etc)':<20} | <blue>{overhead:<12.1f}</blue> | <blue>{overhead_avg:<12.2f}</blue> | {pct(overhead):<12.1f}")
+        if overhead > 0:
+            overhead_avg = overhead / frames
+            overhead_fps = fps_from_avg(overhead_avg)
+            log(f"{'Other (I/O, etc)':<20} | <blue>{overhead:<12.1f}</blue> | <blue>{overhead_avg:<12.2f}</blue> | <blue>{overhead_fps:<10.1f}</blue> | {pct(overhead):<12.1f}")
         
-        # Sanity check: verify components sum to total
-        components_sum = det_total + self.totals['track'] + plot_time + overhead
-        sum_pct = pct(det_total) + pct(self.totals['track']) + pct(plot_time) + pct(overhead)
-        
-        log("<blue>" + "-" * 90 + "</blue>")
+        log("<blue>" + "-" * 105 + "</blue>")
         avg_total = total_time / frames
-        fps = 1000 / avg_total if avg_total > 0 else 0
-        log(f"<bold>{'Total':<20}</bold> | <cyan>{total_time:<12.1f}</cyan> | <cyan>{avg_total:<12.2f}</cyan> | {sum_pct:<12.1f}")
+        total_fps = fps_from_avg(avg_total)
+        log(f"<bold>{'Total':<20}</bold> | <cyan>{total_time:<12.1f}</cyan> | <cyan>{avg_total:<12.2f}</cyan> | <cyan>{total_fps:<10.1f}</cyan> | {100.0:<12.1f}")
         log(f"<bold>{'Frames':<20}</bold> | <cyan>{frames:<12}</cyan>")
-        log(f"<bold>{'Average FPS':<20}</bold> | <cyan>{fps:<12.1f}</cyan>")
         
-        # Warn if there's a significant discrepancy
-        if abs(components_sum - total_time) > 1.0:  # More than 1ms difference
-            LOGGER.warning(f"Components sum ({components_sum:.1f}ms) != Total ({total_time:.1f}ms)")
-        
-        log("<blue>" + "=" * 90 + "</blue>")
+        log("<blue>" + "=" * 105 + "</blue>")
         log("")
 
 
