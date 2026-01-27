@@ -67,8 +67,6 @@ class Tracker:
         # Evaluate and extract objectives
         results = run_trackeval(self.opt)
 
-        print(results)
-
         if not results:
             return {k: 0 for k in self.opt.objectives}
 
