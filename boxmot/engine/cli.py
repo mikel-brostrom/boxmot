@@ -61,6 +61,14 @@ def core_options(func):
                      help='IoU threshold for NMS'),
         click.option('--device', default='',
                      help='cuda device(s), e.g. 0 or 0,1,2,3 or cpu'),
+        click.option('--batch-size', type=int, default=16, show_default=True,
+                 help='micro-batch size for batched detection/embedding'),
+        click.option('--auto-batch/--no-auto-batch', default=True, show_default=True,
+                 help='probe GPU memory with a dummy pass to pick a safe batch size'),
+        click.option('--resume/--no-resume', default=True, show_default=True,
+             help='resume detection/embedding generation from progress checkpoints'),
+        click.option('--read-threads', type=int, default=None,
+                 help='CPU threads for image decoding; defaults to min(8, cpu_count)'),
         click.option('--project', type=Path, default=ROOT / 'runs',
                      help='save results to project/name'),
         click.option('--name', default='', help='save results to project/name'),
@@ -423,7 +431,8 @@ def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
               'classes': parse_classes(classes),
               'source': src,
               'benchmark': bench,
-              'split': split}
+              'split': split,
+              'imgsz': [1088, 1920]}
     args = SimpleNamespace(**params)
     from boxmot.engine.evaluator import main as run_eval
     run_eval(args)

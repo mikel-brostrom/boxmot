@@ -31,7 +31,7 @@ def default_imgsz(yolo_name):
     if is_ultralytics_model(yolo_name):
         return [640, 640]
     elif is_yolox_model(yolo_name):
-        return [800, 1440]
+        return [1080, 1920]
     else:
         return [640, 640]
 

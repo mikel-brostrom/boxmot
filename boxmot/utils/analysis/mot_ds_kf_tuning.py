@@ -9,8 +9,34 @@ from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
 from boxmot.utils import TRACKEVAL
 
 
+def load_gt_data(seq_dir: Path, annotations_dir: Path = None, use_temp_gt: bool = False):
+    """
+    Load ground-truth data for a sequence.
+    
+    Supports two layouts:
+    - MOT17: seq_dir/gt/gt.txt (or gt_temp.txt)
+    - VisDrone: annotations_dir/{seq_name}.txt
+    
+    Returns:
+        np.ndarray with columns: [frame_id, obj_id, x, y, w, h, ...]
+    """
+    # Try VisDrone layout first (flat annotations folder)
+    if annotations_dir is not None and annotations_dir.exists():
+        ann_file = annotations_dir / f"{seq_dir.name}.txt"
+        if ann_file.exists():
+            return np.loadtxt(ann_file, delimiter=',')
+    
+    # Fall back to MOT17 layout
+    gt_file = seq_dir / "gt" / ("gt_temp.txt" if use_temp_gt else "gt.txt")
+    if gt_file.exists():
+        return np.loadtxt(gt_file, delimiter=',')
+    
+    raise FileNotFoundError(f"No GT file found for sequence {seq_dir.name}")
+
+
 def build_tracks_from_sequence(
     seq_dir: Path,
+    annotations_dir: Path = None,
     use_temp_gt: bool = False,
     min_detections: int = 5,
 ):
@@ -20,8 +46,7 @@ def build_tracks_from_sequence(
     and return (tracks, widths, heights).
     """
     # load GT
-    gt_file = seq_dir / "gt" / ("gt_temp.txt" if use_temp_gt else "gt.txt")
-    orig_gt = np.loadtxt(gt_file, delimiter=',')
+    orig_gt = load_gt_data(seq_dir, annotations_dir, use_temp_gt)
     # filter distractors
     MOT_DISTRACTOR_IDS = []
     mask = ~np.isin(orig_gt[:,1].astype(int), MOT_DISTRACTOR_IDS)
@@ -78,20 +103,48 @@ def main(
     H = np.zeros((4, D))
     H[0,0] = H[1,1] = H[2,2] = H[3,3] = 1
 
+    # Detect dataset layout
+    # VisDrone: has "annotations" and "sequences" subdirectories
+    # MOT17: sequence folders directly under train_root, each with gt/gt.txt
+    annotations_dir = train_root.parent / "annotations" if (train_root.parent / "annotations").exists() else None
+    
+    # For VisDrone, sequences are in a "sequences" subfolder
+    if train_root.name == "sequences":
+        seq_root = train_root
+    elif (train_root / "sequences").exists():
+        seq_root = train_root / "sequences"
+        annotations_dir = train_root / "annotations"
+    else:
+        seq_root = train_root
+    
+    print(f"Dataset root: {train_root}")
+    print(f"Sequences dir: {seq_root}")
+    if annotations_dir:
+        print(f"Annotations dir: {annotations_dir}")
+
     # aggregate across all sequences
     all_tracks = []
     all_ws = []
     all_hs = []
 
-    for seq_dir in sorted(train_root.iterdir()):
+    for seq_dir in sorted(seq_root.iterdir()):
         if not seq_dir.is_dir():
             continue
         print(f"Processing sequence: {seq_dir.name}")
-        tracks, ws, hs = build_tracks_from_sequence(
-            seq_dir, use_temp_gt=use_temp_gt, min_detections=min_detections)
-        all_tracks.extend(tracks)
-        all_ws.append(ws)
-        all_hs.append(hs)
+        try:
+            tracks, ws, hs = build_tracks_from_sequence(
+                seq_dir, annotations_dir=annotations_dir, 
+                use_temp_gt=use_temp_gt, min_detections=min_detections)
+            all_tracks.extend(tracks)
+            all_ws.append(ws)
+            all_hs.append(hs)
+        except FileNotFoundError as e:
+            print(f"  Skipping: {e}")
+        except Exception as e:
+            print(f"  Error: {e}")
+
+    if not all_tracks:
+        raise RuntimeError("No valid tracks found in any sequence. Check dataset path and format.")
 
     # flatten widths/heights
     all_ws = np.concatenate(all_ws)
@@ -171,13 +224,21 @@ def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Estimate Q/R and std_weight_* across all MOT17-ablation train sequences"
+        description="Estimate Q/R and std_weight_* across all sequences in a MOT dataset",
+        epilog="""
+Examples:
+  # MOT17-ablation
+  python -m boxmot.utils.analysis.mot_ds_kf_tuning --train_root boxmot/engine/trackeval/MOT17-ablation/train
+  
+  # VisDrone
+  python -m boxmot.utils.analysis.mot_ds_kf_tuning --train_root boxmot/engine/trackeval/VisDrone2019-MOT-test-dev
+"""
     )
     parser.add_argument(
         "--train_root", 
         type=Path,
         default=TRACKEVAL / "MOT17-ablation/train",
-        help="Root folder containing all MOT17-ablation train sequences"
+        help="Root folder containing sequences (auto-detects MOT17 or VisDrone layout)"
     )
     parser.add_argument(
         "--use_temp_gt", action="store_true",

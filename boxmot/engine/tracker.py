@@ -8,18 +8,12 @@ import numpy as np
 import torch
 
 from boxmot import TRACKERS
-from boxmot.detectors import (default_imgsz, get_yolo_inferer,
-                              is_ultralytics_model)
+from boxmot.detectors import default_imgsz
+from boxmot.engine.inference import DetectorReIDPipeline, extract_detections
 from boxmot.trackers.tracker_zoo import create_tracker
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
-
-checker = RequirementsChecker()
-checker.check_packages(("ultralytics", ))  # install
-
-from ultralytics import YOLO
 
 
 class VideoWriter:
@@ -113,8 +107,8 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
             
         tracker = predictor.trackers[i]
         
-        # Get detections from result
-        dets = result.boxes.data.cpu().numpy() if result.boxes is not None else np.empty((0, 6))
+        # Get detections from result using unified extraction
+        dets = extract_detections(result)
         img = result.orig_img
         
         # Reset per-frame ReID accumulator
@@ -176,26 +170,6 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
         timing_stats.end_frame()
 
 
-def setup_yolox_model(predictor, args, yolo_model_instance):
-    """
-    Setup YOLOX model by replacing the predictor's model with our custom inferer.
-    Called via on_predict_start callback.
-    
-    Args:
-        predictor: The Ultralytics predictor object.
-        args: CLI arguments.
-        yolo_model_instance: The YoloXStrategy instance to use.
-    """
-    # Replace the YOLO model with our custom inferer
-    predictor.model = yolo_model_instance
-
-    # Override preprocess and postprocess for non-ultralytics models
-    predictor.preprocess = lambda imgs: yolo_model_instance.preprocess(im=imgs)
-    predictor.postprocess = lambda preds, im, im0s: yolo_model_instance.postprocess(
-        preds=preds, im=im, im0s=im0s
-    )
-
-
 @torch.no_grad()
 def main(args):
     """
@@ -248,55 +222,29 @@ def main(args):
         
         video_writer = VideoWriter(save_dir / video_name, fps=30)
     
-    # Initialize YOLO model (use placeholder if non-ultralytics model)
-    yolo = YOLO(
-        args.yolo_model if is_ultralytics_model(args.yolo_model) else "yolov8n.pt",
+    # Initialize unified detector + ReID pipeline with timing support
+    pipeline = DetectorReIDPipeline(
+        yolo_model_path=args.yolo_model,
+        reid_model_paths=None,  # ReID handled by tracker for real-time tracking
+        device=args.device,
+        imgsz=args.imgsz,
+        half=args.half,
+        timing_stats=timing_stats,
     )
 
     # Add callbacks for tracker initialization and trajectory plotting
     # Pass args, timing_stats and video_writer through partial to make them available in callbacks
-    yolo.add_callback("on_predict_start", partial(on_predict_start, args=args, timing_stats=timing_stats))
-    yolo.add_callback("on_predict_postprocess_end", partial(plot_trajectories, timing_stats=timing_stats, video_writer=video_writer))
-    
-    # Add callback to start frame timing
-    yolo.add_callback("on_predict_batch_start", lambda p: timing_stats.start_frame())
-
-    # Handle non-ultralytics models (e.g., YOLOX)
-    # We need to setup the model replacement via callback since predictor
-    # doesn't exist until predict() is called
-    yolox_model = None
-    if not is_ultralytics_model(args.yolo_model):
-        # Create the YOLOX model inferer - will be setup in callback
-        m = get_yolo_inferer(args.yolo_model)
-        
-        # Define a callback that will setup YOLOX when predictor is ready
-        def setup_yolox_callback(predictor):
-            nonlocal yolox_model
-            yolox_model = m(
-                model=args.yolo_model,
-                device=predictor.device,
-                args=predictor.args,
-            )
-            setup_yolox_model(predictor, args, yolox_model)
-        
-        # Add the setup callback - it will run on_predict_start
-        yolo.add_callback("on_predict_start", setup_yolox_callback)
-        
-        # Add callback to save image paths for further processing
-        def update_paths_callback(predictor):
-            if yolox_model is not None:
-                yolox_model.update_im_paths(predictor)
-        yolo.add_callback("on_predict_batch_start", update_paths_callback)
+    pipeline.add_callback("on_predict_start", partial(on_predict_start, args=args, timing_stats=timing_stats))
+    pipeline.add_callback("on_predict_postprocess_end", partial(plot_trajectories, timing_stats=timing_stats, video_writer=video_writer))
 
     # Use predict() instead of track() to avoid Ultralytics' default tracking callbacks
-    results = yolo.predict(
+    results = pipeline.predict(
         source=args.source,
         conf=args.conf,
         iou=args.iou,
         agnostic_nms=args.agnostic_nms,
         show=False,
         stream=True,
-        device=args.device,
         show_conf=args.show_conf,
         save_txt=args.save_txt,
         show_labels=args.show_labels,
@@ -306,7 +254,6 @@ def main(args):
         project=args.project,
         name=args.name,
         classes=args.classes,
-        imgsz=args.imgsz,
         vid_stride=args.vid_stride,
         line_width=args.line_width,
         save_crop=args.save_crop,
@@ -316,17 +263,12 @@ def main(args):
     args._user_quit = False
     
     # Iterate through results to run the tracking pipeline
+    # The YOLOInference.predict() generator handles timing automatically
     try:
         for result in results:
             # Check if user requested quit
             if args._user_quit:
                 break
-                
-            # Record Ultralytics timing from result.speed (populated after yield)
-            if hasattr(result, 'speed') and result.speed:
-                timing_stats.totals['preprocess'] += result.speed.get('preprocess', 0) or 0
-                timing_stats.totals['inference'] += result.speed.get('inference', 0) or 0
-                timing_stats.totals['postprocess'] += result.speed.get('postprocess', 0) or 0
     except KeyboardInterrupt:
         pass  # Handle Ctrl+C gracefully
     finally:
