@@ -67,10 +67,29 @@ class Tracker:
         # Evaluate and extract objectives
         results = run_trackeval(self.opt)
 
+        print(results)
+
+        if not results:
+            return {k: 0 for k in self.opt.objectives}
+
+        # Drop per-sequence breakdown if present; we only tune on combined metrics.
+        if isinstance(results, dict) and "per_sequence" in results:
+            results = {k: v for k, v in results.items() if k != "per_sequence"}
+
+        values = list(results.values())
+
         # If results are nested (multi-class), average the metrics
-        if results and isinstance(next(iter(results.values())), dict):
+        if values and all(isinstance(v, dict) for v in values):
             return {
-                k: max(0, sum(c.get(k, 0) for c in results.values()) / len(results))
+                k: max(
+                    0,
+                    sum(
+                        c.get(k, 0)
+                        for c in results.values()
+                        if isinstance(c, dict)
+                    )
+                    / max(1, len(results)),
+                )
                 for k in self.opt.objectives
             }
 
