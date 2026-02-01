@@ -49,14 +49,14 @@
 <!-- START TRACKER TABLE -->
 | Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
 | :-----: | :-----: | :---: | :---: | :---: | :---: |
-| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 69.418 | 78.232 | 81.812 | 46 |
-| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 69.254 | 75.921 | 83.205 | 25 |
-| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.05 | 76.185 | 80.763 | 17 |
+| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 69.418 | 78.232 | 81.812 | 12 |
+| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 69.253 | 75.914 | 83.206 | 13 |
+| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.05 | 76.185 | 80.763 | 11 |
 | [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 67.796 | 75.868 | 80.514 | 12 |
-| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 1265 |
+| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 720 |
 | [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | 67.39 | 74.127 | 79.105 | 25 |
-| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.548 | 77.899 | 1483 |
-| sfsort | ✅ | — | — | — | — |
+| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.548 | 77.899 | 890 |
+| [sfsort](https://arxiv.org/pdf/2404.07553) | ✅ | 62.653 | 76.87 | 69.184 | 6000 |
 
 <!-- END TRACKER TABLE -->
 
