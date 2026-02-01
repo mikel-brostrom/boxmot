@@ -169,17 +169,19 @@ class TimingStats:
         reid_fps = fps_from_avg(reid_avg)
         log(f"{'ReID':<20} | <blue>{reid_total:<12.1f}</blue> | <blue>{reid_avg:<12.2f}</blue> | <blue>{reid_fps:<10.1f}</blue> | {pct(reid_total):<12.1f}")
         
-        # Show association/track in both modes (since we now track association in batch mode too)
+        # Show association/track in both modes
         if track_total > 0:
             assoc_avg = assoc_time / frames if frames > 0 else 0
             assoc_fps = fps_from_avg(assoc_avg)
             log(f"{'Association':<20} | <blue>{assoc_time:<12.1f}</blue> | <blue>{assoc_avg:<12.2f}</blue> | <blue>{assoc_fps:<10.1f}</blue> | {pct(assoc_time):<12.1f}")
-            
-            if not is_batch_mode:
-                # In real-time mode, also show track total (which includes reid + assoc)
-                track_avg = track_total / frames if frames > 0 else 0
-                track_fps = fps_from_avg(track_avg)
-                log(f"<bold>{'Track (total)':<20}</bold> | <cyan>{track_total:<12.1f}</cyan> | <cyan>{track_avg:<12.2f}</cyan> | <cyan>{track_fps:<10.1f}</cyan> | {pct(track_total):<12.1f}")
+
+            tracking_total = track_total if not is_batch_mode else (reid_total + track_total)
+            tracking_avg = tracking_total / frames if frames > 0 else 0
+            tracking_fps = fps_from_avg(tracking_avg)
+            log(
+                f"<bold>{'Tracking (total)':<20}</bold> | <cyan>{tracking_total:<12.1f}</cyan> | "
+                f"<cyan>{tracking_avg:<12.2f}</cyan> | <cyan>{tracking_fps:<10.1f}</cyan> | {pct(tracking_total):<12.1f}"
+            )
         
         log("<blue>" + "-" * 105 + "</blue>")
         

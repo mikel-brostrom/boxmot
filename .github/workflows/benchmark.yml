@@ -86,10 +86,10 @@ jobs:
             tracker_fps["deepocsort"]=12
             tracker_fps["bytetrack"]=720
             tracker_fps["ocsort"]=890
-            tracker_fps["strongsort"]=17
-            tracker_fps["botsort"]=46
+            tracker_fps["strongsort"]=11
+            tracker_fps["botsort"]=12
             tracker_fps["hybridsort"]=25
-            tracker_fps["boosttrack"]=25
+            tracker_fps["boosttrack"]=13
             tracker_fps["sfsort"]="6000"
             fps=${tracker_fps[$TRACKER_NAME]}
           fi
