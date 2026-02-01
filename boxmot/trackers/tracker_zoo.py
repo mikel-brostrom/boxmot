@@ -11,6 +11,7 @@ TRACKER_MAPPING = {
     "strongsort": "boxmot.trackers.strongsort.strongsort.StrongSort",
     "ocsort"    : "boxmot.trackers.ocsort.ocsort.OcSort",
     "bytetrack" : "boxmot.trackers.bytetrack.bytetrack.ByteTrack",
+    "sfsort"    : "boxmot.trackers.sfsort.sfsort.SFSORT",
     "botsort"   : "boxmot.trackers.botsort.botsort.BotSort",
     "deepocsort": "boxmot.trackers.deepocsort.deepocsort.DeepOcSort",
     "hybridsort": "boxmot.trackers.hybridsort.hybridsort.HybridSort",

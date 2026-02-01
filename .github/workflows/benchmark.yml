@@ -20,7 +20,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ['3.12']
-        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "hybridsort", "strongsort", "boosttrack"]
+        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "hybridsort", "strongsort", "boosttrack", "sfsort"]
     timeout-minutes: 50
 
     steps:
@@ -90,6 +90,7 @@ jobs:
             tracker_fps["botsort"]=46
             tracker_fps["hybridsort"]=25
             tracker_fps["boosttrack"]=25
+            tracker_fps["sfsort"]=""
             fps=${tracker_fps[$TRACKER_NAME]}
           fi
 
@@ -154,6 +155,7 @@ jobs:
           paper_links["strongsort"]="https://arxiv.org/abs/2202.13514"
           paper_links["botsort"]="https://arxiv.org/abs/2206.14651"
           paper_links["hybridsort"]="https://arxiv.org/abs/2308.00783"
+          paper_links["sfsort"]="#"
 
           new_table="| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |\n"
           new_table+="| :-----: | :-----: | :---: | :---: | :---: | :---: |\n"

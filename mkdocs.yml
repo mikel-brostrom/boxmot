@@ -40,6 +40,7 @@ nav:
   - Trackers:
       - ByteTrack:    trackers/bytetrack.md
       - BotSort:      trackers/botsort.md
+      - SFSORT:       trackers/sfsort.md
       - StrongSort:   trackers/strongsort.md
       - OcSort:       trackers/ocsort.md
       - DeepOcSort:   trackers/deepocsort.md
