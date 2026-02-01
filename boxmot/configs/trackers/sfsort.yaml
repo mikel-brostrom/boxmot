@@ -1,0 +1,69 @@
+high_th:
+  type: uniform
+  default: 0.6
+  range: [0.4, 0.9]
+
+match_th_first:
+  type: uniform
+  default: 0.67
+  range: [0.4, 0.67]
+
+new_track_th:
+  type: uniform
+  default: 0.7
+  range: [0.6, 0.95]
+
+low_th:
+  type: uniform
+  default: 0.1
+  range: [0.05, 0.4]
+
+match_th_second:
+  type: uniform
+  default: 0.3
+  range: [0.1, 0.6]
+
+dynamic_tuning:
+  type: choice
+  default: false
+  options: [true, false]
+
+cth:
+  type: uniform
+  default: 0.5
+  range: [0.2, 0.8]
+
+high_th_m:
+  type: uniform
+  default: 0.0
+  range: [0.02, 0.1]
+
+new_track_th_m:
+  type: uniform
+  default: 0.0
+  range: [0.02, 0.08]
+
+match_th_first_m:
+  type: uniform
+  default: 0.0
+  range: [0.02, 0.08]
+
+marginal_timeout:
+  type: qrandint
+  default: 0
+  range: [0, 501, 50]
+
+central_timeout:
+  type: qrandint
+  default: 0
+  range: [0, 1001, 100]
+
+horizontal_margin:
+  type: qrandint
+  default: 0
+  range: [0, 641, 50]
+
+vertical_margin:
+  type: qrandint
+  default: 0
+  range: [0, 641, 50]

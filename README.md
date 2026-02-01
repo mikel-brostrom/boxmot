@@ -56,6 +56,7 @@
 | [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 1265 |
 | [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | 67.39 | 74.127 | 79.105 | 25 |
 | [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.548 | 77.899 | 1483 |
+| sfsort | ✅ | — | — | — | — |
 
 <!-- END TRACKER TABLE -->
 
@@ -87,7 +88,7 @@ Where:
   MODE      (required) one of [track, eval, tune, generate, export]
   DETECTOR  (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x
   REID      (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4
-  TRACKER   (optional) one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack]
+  TRACKER   (optional) one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]
   ARGS      (optional) 'arg=value' pairs that override defaults
 ```
 
@@ -212,6 +213,7 @@ boxmot track yolov8n osnet_x0_25_msmt17 bytetrack
 boxmot track yolov8n osnet_x0_25_msmt17 botsort
 boxmot track yolov8n osnet_x0_25_msmt17 boosttrack
 boxmot track yolov8n osnet_x0_25_msmt17 hybridsort
+boxmot track yolov8n osnet_x0_25_msmt17 sfsort
 ```
 
 </details>

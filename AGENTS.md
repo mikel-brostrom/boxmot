@@ -186,3 +186,31 @@ Sometimes the provided environment is missing GPUs, large datasets, or external 
 - Where practical:
   - Use deterministic or seeded behavior for tests/examples.
   - Avoid unnecessary heavy computation in unit tests.
+
+## 9. Integrating a New Tracker (Checklist)
+
+1) Implement the tracker
+  - Add a new module under `boxmot/trackers/<name>/` (e.g., `sfsort.py`).
+  - Implement a tracker class that subclasses `BaseTracker` and defines `update()`.
+
+2) Register the tracker
+  - Add the tracker to `TRACKER_MAPPING` in `boxmot/trackers/tracker_zoo.py`.
+  - Export it in `boxmot/trackers/__init__.py` and `boxmot/__init__.py`.
+  - Add the tracker name to the `TRACKERS` list in `boxmot/__init__.py`.
+
+3) Add default configuration
+  - Create `boxmot/configs/trackers/<name>.yaml` with default parameters and tuning ranges.
+
+4) Update docs
+  - Add a tracker doc page in `docs/trackers/<name>.md`.
+  - Add the tracker to `mkdocs.yml` nav.
+  - Mention it in `docs/index.md` and `README.md` where trackers are listed.
+
+5) Update tests
+  - Register the tracker in `tests/test_config.py` lists so it’s covered by unit tests.
+
+6) Update CI/benchmarks
+  - Add the tracker name to workflow matrices/lists in `.github/workflows/`.
+
+7) Commit new files
+  - Ensure new tracker code, config, and docs are staged and pushed.
