@@ -343,12 +343,13 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
     if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
         cfg = load_dataset_cfg(str(args.source))
         
-        # Determine dataset destination
+        # Determine dataset destination (under trackeval/data so benchmarks don't mix with TrackEval code)
+        bench_name = Path(cfg["benchmark"]["source"]).name
         if cfg["download"]["dataset_url"]:
-            dataset_dest = TRACKEVAL / f"{Path(cfg['benchmark']['source']).name}.zip"
+            dataset_dest = TRACKEVAL / "data" / f"{bench_name}.zip"
         else:
             # For custom datasets without URL, use the path from config if available, or default to assets
-            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{Path(cfg['benchmark']['source']).name}"))
+            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{bench_name}"))
 
         download_eval_data(
             runs_url=cfg["download"]["runs_url"],
@@ -356,10 +357,10 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
             dataset_dest=dataset_dest,
             overwrite=False
         )
-        args.benchmark = Path(cfg["benchmark"]["source"]).name
+        args.benchmark = bench_name
         args.split = cfg["benchmark"]["split"]
         if cfg["download"]["dataset_url"]:
-            args.source = TRACKEVAL / f"{args.benchmark}/{args.split}"
+            args.source = TRACKEVAL / "data" / f"{args.benchmark}/{args.split}"
         elif "source" in cfg["benchmark"]:
             args.source = Path(cfg["benchmark"]["source"]) / args.split
         else:
