@@ -57,6 +57,47 @@ def load_dataset_cfg(name: str) -> dict:
         return yaml.safe_load(f)
 
 
+def load_dataset_cfg_path(path: Path) -> dict:
+    """Load a dataset config directly from a yaml file path."""
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+
+def resolve_dataset_cfg_path(data_ref: Union[str, Path, None]) -> Optional[Path]:
+    """
+    Resolve dataset config references from --data/--source.
+
+    Supports:
+    - config name: "MOT17-ablation"
+    - config filename: "MOT17-ablation.yaml"
+    - explicit path: "/path/to/custom.yaml" or "./custom.yaml"
+    """
+    if data_ref is None:
+        return None
+
+    ref = Path(str(data_ref))
+
+    # Explicit local yaml path (absolute or relative)
+    if ref.suffix in {".yaml", ".yml"} and ref.exists() and ref.is_file():
+        return ref.resolve()
+
+    # Config filename in boxmot/configs/datasets
+    if ref.suffix in {".yaml", ".yml"}:
+        cfg_by_filename = DATASET_CONFIGS / ref.name
+        if cfg_by_filename.exists() and cfg_by_filename.is_file():
+            return cfg_by_filename
+        cfg_by_stem = DATASET_CONFIGS / f"{ref.stem}.yaml"
+        if cfg_by_stem.exists() and cfg_by_stem.is_file():
+            return cfg_by_stem
+
+    # Config name in boxmot/configs/datasets
+    cfg_by_name = DATASET_CONFIGS / f"{str(data_ref)}.yaml"
+    if cfg_by_name.exists() and cfg_by_name.is_file():
+        return cfg_by_name
+
+    return None
+
+
 def eval_init(args,
               trackeval_dest: Path = TRACKEVAL,
               branch: str = "master",
@@ -70,9 +111,11 @@ def eval_init(args,
     # 1) download the TrackEval code
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
 
-    # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
-        cfg = load_dataset_cfg(str(args.source))
+    # 2) if using a dataset yaml, pull down data (if needed) and rewire args.source/split
+    data_ref = getattr(args, "data", None) or getattr(args, "source", None)
+    cfg_path = resolve_dataset_cfg_path(data_ref)
+    if cfg_path is not None:
+        cfg = load_dataset_cfg_path(cfg_path)
         
         # Determine dataset destination
         if cfg["download"]["dataset_url"]:
