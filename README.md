@@ -101,13 +101,13 @@ boxmot track rtdetr_v2_r101vd osnet_x0_25_msmt17 deepocsort --source 0 --show --
 boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save --show-trajectories --show-lost
 
 # Evaluate on MOT dataset
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --data MOT17-ablation
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --data MOT17-ablation.yaml
 
 # Evaluate on MOT dataset + GBRC postprocessing
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --data MOT17-ablation --postprocessing gbrc
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --data MOT17-ablation.yaml --postprocessing gbrc
 
 # Tune ocsort's hyperparameters for visdrone
-boxmot tune yolox_x_dancetrack_ablation lmbn_n_duke ocsort --data visdrone-ablation --n-trials 10
+boxmot tune yolox_x_dancetrack_ablation lmbn_n_duke ocsort --data visdrone-ablation.yaml --n-trials 10
 
 # Export ReID model with dynamic sized input
 boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine dynamic
@@ -274,11 +274,11 @@ Evaluate a combination of detector, tracking method and ReID model on standard M
 
 ```bash
 # reproduce MOT17 README results
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data MOT17-ablation --verbose 
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data MOT17-ablation.yaml --verbose 
 # MOT20 results
-boxmot eval yolox_x_MOT20_ablation lmbn_n_duke boosttrack --data MOT20-ablation --verbose 
+boxmot eval yolox_x_MOT20_ablation lmbn_n_duke boosttrack --data MOT20-ablation.yaml --verbose 
 # DanceTrack results
-boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke boosttrack --data dancetrack-ablation --verbose 
+boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke boosttrack --data dancetrack-ablation.yaml --verbose 
 # metrics on custom dataset
 boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --data ./assets/MOT17-mini/train --verbose
 ```

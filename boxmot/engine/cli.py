@@ -166,7 +166,7 @@ def data_option(func):
         '--data',
         type=str,
         required=True,
-        help='dataset yaml name (e.g. MOT17-ablation) or dataset split path',
+        help='dataset yaml filename (e.g. MOT17-ablation.yaml) or dataset split path',
     )(func)
 
 
@@ -303,7 +303,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("       DETECTOR (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
             formatter.write_text("       REID (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
             formatter.write_text("       TRACKER (optional) is one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort]")
-            formatter.write_text("       ARGS (optional) 'arg=value' pairs like 'source=0' (track) or 'data=MOT17-ablation' (eval/tune) that override defaults.")
+            formatter.write_text("       ARGS (optional) 'arg=value' pairs like 'source=0' (track) or 'data=MOT17-ablation.yaml' (eval/tune) that override defaults.")
             formatter.write_text("          See all ARGS at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
         formatter.write_paragraph()
         
@@ -322,12 +322,12 @@ class CommandFirstGroup(click.Group):
             
             formatter.write_text("3. Evaluate on MOT dataset:")
             with formatter.indentation():
-                formatter.write_text("boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --data MOT17-ablation")
+                formatter.write_text("boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --data MOT17-ablation.yaml")
             formatter.write_paragraph()
             
             formatter.write_text("4. Tune tracker hyperparameters:")
             with formatter.indentation():
-                formatter.write_text("boxmot tune --data MOT17-ablation --tracking-method deepocsort --n-trials 10")
+                formatter.write_text("boxmot tune --data MOT17-ablation.yaml --tracking-method deepocsort --n-trials 10")
             formatter.write_paragraph()
             
             formatter.write_text("5. Export ReID model:")

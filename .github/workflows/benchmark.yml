@@ -60,7 +60,7 @@ jobs:
         run: |
           source .venv/bin/activate
 
-          if boxmot eval --classes 0 --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --data MOT17-ablation; then
+          if boxmot eval --classes 0 --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --data MOT17-ablation.yaml; then
             STATUS="✅"
           else
             STATUS="❌"
