@@ -101,13 +101,13 @@ boxmot track rtdetr_v2_r101vd osnet_x0_25_msmt17 deepocsort --source 0 --show --
 boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save --show-trajectories --show-lost
 
 # Evaluate on MOT dataset
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --data MOT17-ablation
 
 # Evaluate on MOT dataset + GBRC postprocessing
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation --postprocessing gbrc
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --data MOT17-ablation --postprocessing gbrc
 
 # Tune ocsort's hyperparameters for visdrone
-boxmot tune yolox_x_dancetrack_ablation lmbn_n_duke ocsort --source visdrone-ablation --n-trials 10
+boxmot tune yolox_x_dancetrack_ablation lmbn_n_duke ocsort --data visdrone-ablation --n-trials 10
 
 # Export ReID model with dynamic sized input
 boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine dynamic
@@ -274,13 +274,13 @@ Evaluate a combination of detector, tracking method and ReID model on standard M
 
 ```bash
 # reproduce MOT17 README results
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --source MOT17-ablation --verbose 
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data MOT17-ablation --verbose 
 # MOT20 results
-boxmot eval yolox_x_MOT20_ablation lmbn_n_duke boosttrack --source MOT20-ablation --verbose 
+boxmot eval yolox_x_MOT20_ablation lmbn_n_duke boosttrack --data MOT20-ablation --verbose 
 # DanceTrack results
-boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke boosttrack --source dancetrack-ablation --verbose 
+boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke boosttrack --data dancetrack-ablation --verbose 
 # metrics on custom dataset
-boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --source ./assets/MOT17-mini/train --verbose
+boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --data ./assets/MOT17-mini/train --verbose
 ```
 
 Add `--gsi` to your command for postprocessing the MOT results by Gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm, avoiding the overhead of repeatedly generating this data.
@@ -294,10 +294,10 @@ We use a fast and elitist multiobjective genetic algorithm for tracker hyperpara
 
 ```bash
 # Generate detections and embeddings (saves under ./runs/dets_n_embs)
-boxmot generate yolov8n osnet_x0_25_msmt17 --source ./assets/MOT17-mini/train
+boxmot generate yolov8n osnet_x0_25_msmt17 --data ./assets/MOT17-mini/train
 
 # Tune parameters for specified tracking method
-boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 9 --tracking-method botsort --source ./assets/MOT17-mini/train
+boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 9 --tracking-method botsort --data ./assets/MOT17-mini/train
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.

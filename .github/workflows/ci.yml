@@ -78,7 +78,7 @@ jobs:
         run: |
           source .venv/bin/activate
           # reuse first set of generated det and prod
-          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci --classes 0
+          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --data ./assets/MOT17-mini/train --ci --classes 0
   mot-metrics-benchmark:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -111,14 +111,14 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+          boxmot generate --data ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
       - name: Evaluation and Summarize Results
         shell: bash
         run: |
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
           for tracker in $TRACKERS; do
-            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci  --classes 0; then
+            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --data ./assets/MOT17-mini/train --ci  --classes 0; then
               STATUS="✅"
             else
               STATUS="❌"
