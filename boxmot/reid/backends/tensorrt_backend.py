@@ -42,6 +42,8 @@ class TensorRTBackend(BaseModelBackend):
         # Execution context
         self.context = self.model_.create_execution_context()
         self.bindings = OrderedDict()
+        self.input_name = None
+        self.output_name = None
 
         self.is_trt10 = not hasattr(self.model_, "num_bindings")
         num = range(self.model_.num_io_tensors) if self.is_trt10 else range(self.model_.num_bindings)
@@ -77,13 +79,31 @@ class TensorRTBackend(BaseModelBackend):
             data = torch.from_numpy(np.empty(shape, dtype=dtype)).to(self.device)
             self.bindings[name] = Binding(name, dtype, shape, data, int(data.data_ptr()))
 
+            if is_input and self.input_name is None:
+                self.input_name = name
+            if not is_input and self.output_name is None:
+                self.output_name = name
+
+        # Prefer canonical names when present, otherwise fallback to first I/O tensor.
+        if "images" in self.bindings:
+            self.input_name = "images"
+        if "output" in self.bindings:
+            self.output_name = "output"
+        elif "output0" in self.bindings:
+            self.output_name = "output0"
+
+        if self.input_name is None or self.output_name is None:
+            raise RuntimeError(
+                f"Failed to infer TensorRT I/O bindings. Available bindings: {list(self.bindings.keys())}"
+            )
+
         self.binding_addrs = OrderedDict((n, d.ptr) for n, d in self.bindings.items())
 
     def forward(self, im_batch):
         temp_im_batch = im_batch.clone()
         batch_array = []
         inp_batch = im_batch.shape[0]
-        out_batch = self.bindings["output"].shape[0]
+        out_batch = self.bindings[self.output_name].shape[0]
         resultant_features = []
 
         # Divide batch to sub batches
@@ -96,28 +116,28 @@ class TensorRTBackend(BaseModelBackend):
 
         for temp_batch in batch_array:
             # Adjust for dynamic shapes
-            if temp_batch.shape != self.bindings["images"].shape:
+            if temp_batch.shape != self.bindings[self.input_name].shape:
                 if self.is_trt10:
 
-                    self.context.set_input_shape("images", temp_batch.shape)
-                    self.bindings["images"] = self.bindings["images"]._replace(shape=temp_batch.shape)
-                    self.bindings["output"].data.resize_(tuple(self.context.get_tensor_shape("output")))
+                    self.context.set_input_shape(self.input_name, temp_batch.shape)
+                    self.bindings[self.input_name] = self.bindings[self.input_name]._replace(shape=temp_batch.shape)
+                    self.bindings[self.output_name].data.resize_(tuple(self.context.get_tensor_shape(self.output_name)))
                 else:
-                    i_in = self.model_.get_binding_index("images")
-                    i_out = self.model_.get_binding_index("output")
+                    i_in = self.model_.get_binding_index(self.input_name)
+                    i_out = self.model_.get_binding_index(self.output_name)
                     self.context.set_binding_shape(i_in, temp_batch.shape)
-                    self.bindings["images"] = self.bindings["images"]._replace(shape=temp_batch.shape)
+                    self.bindings[self.input_name] = self.bindings[self.input_name]._replace(shape=temp_batch.shape)
                     output_shape = tuple(self.context.get_binding_shape(i_out))
-                    self.bindings["output"].data.resize_(output_shape)
+                    self.bindings[self.output_name].data.resize_(output_shape)
 
-            s = self.bindings["images"].shape
+            s = self.bindings[self.input_name].shape
             assert temp_batch.shape == s, f"Input size {temp_batch.shape} does not match model size {s}"
 
-            self.binding_addrs["images"] = int(temp_batch.data_ptr())
+            self.binding_addrs[self.input_name] = int(temp_batch.data_ptr())
 
             # Execute inference
             self.context.execute_v2(list(self.binding_addrs.values()))
-            features = self.bindings["output"].data
+            features = self.bindings[self.output_name].data
             resultant_features.append(features.clone())
 
         if len(resultant_features) == 1:
