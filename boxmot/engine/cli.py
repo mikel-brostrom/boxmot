@@ -9,6 +9,7 @@ mp.set_start_method("spawn", force=True)
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional
 import yaml
 
 import click
@@ -31,7 +32,7 @@ def load_dataset_cfg_path(path: Path) -> dict:
         return yaml.safe_load(f)
 
 
-def resolve_dataset_cfg_path(data_ref) -> Path | None:
+def resolve_dataset_cfg_path(data_ref) -> Optional[Path]:
     """
     Resolve dataset config references.
 
