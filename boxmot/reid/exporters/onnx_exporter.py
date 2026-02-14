@@ -1,4 +1,4 @@
-
+import inspect
 import torch
 from torch.export import Dim
 
@@ -27,21 +27,54 @@ class ONNXExporter(BaseExporter):
 
         # --- Export ---
         args = (self.im,)
+        export_sig = inspect.signature(torch.onnx.export)
+        has_dynamo_arg = "dynamo" in export_sig.parameters
+
+        export_kwargs = {
+            "opset_version": opset,
+            "input_names": ["images"],
+            "output_names": output_names,
+        }
 
         if self.dynamic:
-            dynamic_shapes = ({0: Dim("batch")},)   # first (and only) input tensor: dim0 is dynamic
-        else:
-            dynamic_shapes = None
+            # Constrain dynamic batch range to satisfy torch.export shape guards on CUDA.
+            export_kwargs["dynamic_shapes"] = ({0: Dim("batch", min=1, max=65535)},)
 
-        torch.onnx.export(
-            self.model,
-            args,
-            str(f),
-            opset_version=opset,
-            input_names=["images"],
-            output_names=output_names,
-            dynamic_shapes=dynamic_shapes,
-        )
+        if has_dynamo_arg:
+            export_kwargs["dynamo"] = True
+
+        try:
+            torch.onnx.export(
+                self.model,
+                args,
+                str(f),
+                **export_kwargs,
+            )
+        except Exception as e:
+            if not self.dynamic:
+                raise
+
+            LOGGER.warning(
+                f"Dynamic export via torch.export failed ({e}). "
+                "Retrying with legacy dynamic_axes export..."
+            )
+
+            # Fallback for torch.export/dynamo dynamic shape guard failures.
+            fallback_kwargs = {
+                "opset_version": opset,
+                "input_names": ["images"],
+                "output_names": output_names,
+                "dynamic_axes": self._build_dynamic_axes(output_names),
+            }
+            if has_dynamo_arg:
+                fallback_kwargs["dynamo"] = False
+
+            torch.onnx.export(
+                self.model,
+                args,
+                str(f),
+                **fallback_kwargs,
+            )
 
         # --- Load + validate ---
         model_onnx = onnx.load(str(f))
