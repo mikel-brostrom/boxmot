@@ -76,7 +76,10 @@ def eval_init(args,
         
         # Determine dataset destination (under trackeval/data so benchmarks don't mix with TrackEval code)
         bench_name = Path(cfg["benchmark"]["source"]).name
-        if cfg["download"]["dataset_url"]:
+        dataset_url = cfg["download"]["dataset_url"]
+        if dataset_url and dataset_url.startswith("hf://"):
+            dataset_dest = TRACKEVAL / "data" / bench_name
+        elif dataset_url:
             dataset_dest = TRACKEVAL / "data" / f"{bench_name}.zip"
         else:
             # For custom datasets without URL, use the path from config if available, or default to assets
