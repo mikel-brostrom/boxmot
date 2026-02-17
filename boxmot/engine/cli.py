@@ -61,6 +61,50 @@ def resolve_dataset_cfg_path(data_ref) -> Optional[Path]:
     return None
 
 
+def resolve_source_from_data_ref(data_ref: str, overwrite: bool = False) -> tuple[str, str, str]:
+    """
+    Resolve a data/source reference into (source_path, benchmark_name, split_name).
+
+    Supports either direct dataset paths or dataset yaml references.
+    """
+    source_path = Path(str(data_ref))
+    benchmark = source_path.parent.name
+    split = source_path.name
+
+    cfg_path = resolve_dataset_cfg_path(data_ref)
+    if cfg_path is None:
+        return str(data_ref), benchmark, split
+
+    cfg = load_dataset_cfg_path(cfg_path)
+    bench_name = Path(cfg["benchmark"]["source"]).name
+    dataset_url = cfg["download"]["dataset_url"]
+
+    if dataset_url:
+        if dataset_url.startswith("hf://"):
+            dataset_dest = TRACKEVAL / bench_name
+        else:
+            dataset_dest = TRACKEVAL / f"{bench_name}.zip"
+    else:
+        dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{bench_name}"))
+
+    download_eval_data(
+        runs_url=cfg["download"]["runs_url"],
+        dataset_url=dataset_url,
+        dataset_dest=dataset_dest,
+        overwrite=overwrite,
+    )
+
+    split = cfg["benchmark"]["split"]
+    if dataset_url:
+        resolved_source = TRACKEVAL / f"{bench_name}/{split}"
+    elif "source" in cfg["benchmark"]:
+        resolved_source = Path(cfg["benchmark"]["source"]) / split
+    else:
+        resolved_source = dataset_dest / split
+
+    return str(resolved_source), bench_name, split
+
+
 def ensure_model_extension(model_path):
     """
     Ensure model path has .pt extension.
@@ -376,8 +420,7 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
     if tracker:
         kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
-    source_path = Path(src)
-    bench, split = source_path.parent.name, source_path.name
+    resolved_source, bench, split = resolve_source_from_data_ref(src)
     
     # Auto-append .pt extension if missing
     yolo_model = ensure_model_extension(yolo_model)
@@ -387,37 +430,10 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
               'yolo_model': yolo_model,
               'reid_model': reid_model,
               'classes': parse_classes(classes),
-              'source': src,
+              'source': resolved_source,
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
-    
-    # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    cfg_path = resolve_dataset_cfg_path(args.source)
-    if cfg_path is not None:
-        cfg = load_dataset_cfg_path(cfg_path)
-        
-        # Determine dataset destination
-        if cfg["download"]["dataset_url"]:
-            dataset_dest = TRACKEVAL / f"{Path(cfg['benchmark']['source']).name}.zip"
-        else:
-            # For custom datasets without URL, use the path from config if available, or default to assets
-            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{Path(cfg['benchmark']['source']).name}"))
-
-        download_eval_data(
-            runs_url=cfg["download"]["runs_url"],
-            dataset_url=cfg["download"]["dataset_url"],
-            dataset_dest=dataset_dest,
-            overwrite=False
-        )
-        args.benchmark = Path(cfg["benchmark"]["source"]).name
-        args.split = cfg["benchmark"]["split"]
-        if cfg["download"]["dataset_url"]:
-            args.source = TRACKEVAL / f"{args.benchmark}/{args.split}"
-        elif "source" in cfg["benchmark"]:
-            args.source = Path(cfg["benchmark"]["source"]) / args.split
-        else:
-            args.source = dataset_dest / args.split
 
     from boxmot.engine.tracker import main as run_track
     run_track(args)
@@ -437,8 +453,7 @@ def generate(ctx, detector, reid, yolo_model, reid_model, classes, **kwargs):
     if reid:
         reid_model = [ensure_model_extension(reid)]
     src = kwargs.pop('data')
-    source_path = Path(src)
-    bench, split = source_path.parent.name, source_path.name
+    resolved_source, bench, split = resolve_source_from_data_ref(src)
     
     # Auto-append .pt extension if missing
     yolo_model = [ensure_model_extension(m) for m in yolo_model]
@@ -449,7 +464,7 @@ def generate(ctx, detector, reid, yolo_model, reid_model, classes, **kwargs):
               'reid_model': list(reid_model),
               'classes': parse_classes(classes),
               'data': src,
-              'source': src,
+              'source': resolved_source,
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
@@ -475,8 +490,6 @@ def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
     if tracker:
         kwargs['tracking_method'] = tracker
     src = kwargs.pop('data')
-    source_path = Path(src)
-    bench, split = source_path.parent.name, source_path.name
     
     # Auto-append .pt extension if missing
     yolo_model = [ensure_model_extension(m) for m in yolo_model]
@@ -487,9 +500,6 @@ def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
               'reid_model': list(reid_model),
               'classes': parse_classes(classes),
               'data': src,
-              'source': src,
-              'benchmark': bench,
-              'split': split,
               'imgsz': [1088, 1920]}
     args = SimpleNamespace(**params)
     from boxmot.engine.evaluator import main as run_eval
@@ -515,8 +525,6 @@ def tune(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
     if tracker:
         kwargs['tracking_method'] = tracker
     src = kwargs.pop('data')
-    source_path = Path(src)
-    bench, split = source_path.parent.name, source_path.name
     
     # Auto-append .pt extension if missing
     yolo_model = [ensure_model_extension(m) for m in yolo_model]
@@ -526,10 +534,7 @@ def tune(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
               'yolo_model': list(yolo_model),
               'reid_model': list(reid_model),
               'classes': parse_classes(classes),
-              'data': src,
-              'source': src,
-              'benchmark': bench,
-              'split': split}
+              'data': src}
     args = SimpleNamespace(**params)
     from boxmot.engine.tuner import main as run_tuning
     run_tuning(args)
