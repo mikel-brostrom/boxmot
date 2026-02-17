@@ -26,7 +26,7 @@ from boxmot.utils.misc import increment_path, prompt_overwrite
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 from typing import Optional, List, Dict, Generator, Union
 
-from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
+from boxmot.utils.dataloaders.dataset import MOTDataset
 from boxmot.postprocessing.gsi import gsi
 
 from boxmot.engine.inference import DetectorReIDPipeline, extract_detections, filter_detections
@@ -816,7 +816,7 @@ def process_sequence(seq_name: str,
     det_emb_root = Path(project_root) / "dets_n_embs"
     if dataset_name:
         det_emb_root = det_emb_root / dataset_name
-    dataset = MOT17DetEmbDataset(
+    dataset = MOTDataset(
         mot_root=mot_root,
         det_emb_root=str(det_emb_root),
         model_name=model_name,
