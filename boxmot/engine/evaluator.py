@@ -649,17 +649,30 @@ def build_dataset_eval_settings(
     eval_classes_cfg = bench_cfg.get("eval_classes") if isinstance(bench_cfg, dict) else None
     distractor_cfg = bench_cfg.get("distractor_classes") if isinstance(bench_cfg, dict) else None
 
-    # Classes and ids
-    classes_to_eval = ["person"]
-    class_ids = [1]
-    if isinstance(eval_classes_cfg, dict) and len(eval_classes_cfg) > 0:
-        ordered = sorted(((int(k), v) for k, v in eval_classes_cfg.items()), key=lambda kv: kv[0])
-        class_ids = [k for k, _ in ordered]
-        classes_to_eval = [v for _, v in ordered]
-    elif hasattr(args, "classes") and args.classes is not None:
+    classes_to_eval = []
+    class_ids = []
+
+    # Filter classes by user provided classes
+    if hasattr(args, "classes") and args.classes is not None:
         class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
         classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
         class_ids = [int(i) + 1 for i in class_indices]
+
+    # Match classes by benchmark config
+    if isinstance(eval_classes_cfg, dict) and len(eval_classes_cfg) > 0:
+        ordered = sorted(((int(k), v) for k, v in eval_classes_cfg.items()), key=lambda kv: kv[0])
+        if class_ids:
+            class_ids = [k for k, _ in ordered if class_ids and k in class_ids]
+            classes_to_eval = [v for k, v in ordered if class_ids and k in class_ids]
+        else:
+            class_ids = [k for k, _ in ordered]
+            classes_to_eval = [v for k, v in ordered]
+
+    # Default classes
+    if not classes_to_eval:
+        classes_to_eval = ["person"]
+    if not class_ids:
+        class_ids = [1]
 
     # Distractors
     distractor_ids: list[int] = []
