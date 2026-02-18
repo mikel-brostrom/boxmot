@@ -4,7 +4,7 @@ download:
   dataset_url: "https://huggingface.co/datasets/noahcao/dancetrack/resolve/main/test1.zip"
 
 benchmark:
-  source: "boxmot/engine/trackeval/test1"
+  source: "boxmot/engine/trackeval/data/test1"
   split: "val"
   eval_classes:
     1: pedestrian

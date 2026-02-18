@@ -4,7 +4,7 @@ download:
   dataset_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/SportsMOT.zip"
 
 benchmark:
-  source: "boxmot/engine/trackeval/SportsMOT"
+  source: "boxmot/engine/trackeval/data/SportsMOT"
   split: "val"
   eval_classes:
     1: player
