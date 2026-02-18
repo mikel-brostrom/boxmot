@@ -200,7 +200,7 @@ class KalmanFilterXYSR(object):
             for i in range(index2 - index1):
                 x, y = x1 + (i + 1) * dx, y1 + (i + 1) * dy
                 w, h = w1 + (i + 1) * dw, h1 + (i + 1) * dh
-                s, r = w * h, w / float(h)
+                s, r = w * h, w / float(h.squeeze())
                 new_box = np.array([x, y, s, r]).reshape((4, 1))
                 self.update(new_box)
                 if not i == (index2 - index1 - 1):
