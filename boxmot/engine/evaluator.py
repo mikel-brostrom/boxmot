@@ -26,7 +26,7 @@ from boxmot.utils.misc import increment_path, prompt_overwrite
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 from typing import Optional, List, Dict, Generator
 
-from boxmot.utils.dataloaders.MOT17 import MOT17DetEmbDataset
+from boxmot.utils.dataloaders.dataset import MOTDataset
 from boxmot.postprocessing.gsi import gsi
 
 from boxmot.engine.inference import DetectorReIDPipeline, extract_detections, filter_detections
@@ -343,8 +343,13 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
     det_fhs = {}
     emb_fhs = {r.stem: {} for r in args.reid_model}
 
-    dets_folder = Path(args.project) / 'dets_n_embs' / y.stem / 'dets'
-    embs_root = Path(args.project) / 'dets_n_embs' / y.stem / 'embs'
+    # runs/dets_n_embs/<dataset_name>/y.stem/... when benchmark is set
+    benchmark = getattr(args, "benchmark", None)
+    dets_base = Path(args.project) / "dets_n_embs"
+    if benchmark:
+        dets_base = dets_base / benchmark
+    dets_folder = dets_base / y.stem / "dets"
+    embs_root = dets_base / y.stem / "embs"
     total_frames = 0
     initial_done = 0
 
@@ -594,27 +599,27 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                     pass
 
 
-def run_generate_dets_embs(opt: argparse.Namespace, timing_stats: Optional[TimingStats] = None) -> None:
+def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[TimingStats] = None) -> None:
     """
     Generate detections and embeddings for all sequences.
     
     Args:
-        opt: CLI arguments.
+        args: CLI arguments.
         timing_stats: Optional TimingStats for timing instrumentation.
     """
-    source_root = Path(opt.source)
+    source_root = Path(args.source)
 
-    opt.batch_size = int(getattr(opt, "batch_size", 16))
-    if getattr(opt, "read_threads", None) is None:
-        opt.read_threads = min(8, (os.cpu_count() or 8))
-    if not hasattr(opt, "auto_batch"):
-        opt.auto_batch = True
-    if not hasattr(opt, "resume"):
-        opt.resume = True
+    args.batch_size = int(getattr(args, "batch_size", 16))
+    if getattr(args, "read_threads", None) is None:
+        args.read_threads = min(8, (os.cpu_count() or 8))
+    if not hasattr(args, "auto_batch"):
+        args.auto_batch = True
+    if not hasattr(args, "resume"):
+        args.resume = True
 
-    for y in opt.yolo_model:
+    for y in args.yolo_model:
         LOGGER.info(f"Generating dets+embs (batched single-process): {y.name}")
-        generate_dets_embs_batched(opt, y, source_root, timing_stats=timing_stats)
+        generate_dets_embs_batched(args, y, source_root, timing_stats=timing_stats)
 
 def build_dataset_eval_settings(
     args: argparse.Namespace,
@@ -640,17 +645,30 @@ def build_dataset_eval_settings(
     eval_classes_cfg = bench_cfg.get("eval_classes") if isinstance(bench_cfg, dict) else None
     distractor_cfg = bench_cfg.get("distractor_classes") if isinstance(bench_cfg, dict) else None
 
-    # Classes and ids
-    classes_to_eval = ["person"]
-    class_ids = [1]
-    if isinstance(eval_classes_cfg, dict) and len(eval_classes_cfg) > 0:
-        ordered = sorted(((int(k), v) for k, v in eval_classes_cfg.items()), key=lambda kv: kv[0])
-        class_ids = [k for k, _ in ordered]
-        classes_to_eval = [v for _, v in ordered]
-    elif hasattr(args, "classes") and args.classes is not None:
+    classes_to_eval = []
+    class_ids = []
+
+    # Filter classes by user provided classes
+    if hasattr(args, "classes") and args.classes is not None:
         class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
         classes_to_eval = [COCO_CLASSES[int(i)] for i in class_indices]
         class_ids = [int(i) + 1 for i in class_indices]
+
+    # Match classes by benchmark config
+    if isinstance(eval_classes_cfg, dict) and len(eval_classes_cfg) > 0:
+        ordered = sorted(((int(k), v) for k, v in eval_classes_cfg.items()), key=lambda kv: kv[0])
+        if class_ids:
+            class_ids = [k for k, _ in ordered if class_ids and k in class_ids]
+            classes_to_eval = [v for k, v in ordered if class_ids and k in class_ids]
+        else:
+            class_ids = [k for k, _ in ordered]
+            classes_to_eval = [v for k, v in ordered]
+
+    # Default classes
+    if not classes_to_eval:
+        classes_to_eval = ["person"]
+    if not class_ids:
+        class_ids = [1]
 
     # Distractors
     distractor_ids: list[int] = []
@@ -767,6 +785,7 @@ def process_sequence(seq_name: str,
                      target_fps: Optional[int],
                      device: str,
                      cfg_dict: Optional[Dict] = None,
+                     dataset_name: Optional[str] = None,
                      ):
     """
     Process a single sequence: run tracker on pre-computed detections/embeddings.
@@ -789,9 +808,13 @@ def process_sequence(seq_name: str,
     )
 
     # load with the user’s FPS
-    dataset = MOT17DetEmbDataset(
+    # runs/dets_n_embs/<dataset_name>/ when dataset_name is set
+    det_emb_root = Path(project_root) / "dets_n_embs"
+    if dataset_name:
+        det_emb_root = det_emb_root / dataset_name
+    dataset = MOTDataset(
         mot_root=mot_root,
-        det_emb_root=str(Path(project_root) / 'dets_n_embs'),
+        det_emb_root=str(det_emb_root),
         model_name=model_name,
         reid_name=reid_name,
         target_fps=target_fps
@@ -845,24 +868,27 @@ def _worker_init():
     # each spawned process needs its own sinks
     _configure_logging()
 
-def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None, timing_stats: Optional[TimingStats] = None) -> None:
+def run_generate_mot_results(args: argparse.Namespace, evolve_config: dict = None, timing_stats: Optional[TimingStats] = None) -> None:
     """
     Run tracker on pre-computed detections/embeddings and generate MOT result files.
     
     Args:
-        opt: CLI arguments.
+        args: CLI arguments.
         evolve_config: Optional config dict for hyperparameter tuning.
         timing_stats: Optional TimingStats to record tracking/association time.
     """
-    # Prepare experiment folder
-    base = opt.project / 'mot' / f"{opt.yolo_model[0].stem}_{opt.reid_model[0].stem}_{opt.tracking_method}"
+    # Prepare experiment folder: runs/mot/<dataset_name>/model_reid_tracker when benchmark is set
+    base = args.project / "mot"
+    if getattr(args, "benchmark", None):
+        base = base / args.benchmark
+    base = base / f"{args.yolo_model[0].stem}_{args.reid_model[0].stem}_{args.tracking_method}"
     exp_dir = increment_path(base, sep="_", exist_ok=False)
     exp_dir.mkdir(parents=True, exist_ok=True)
-    opt.exp_dir = exp_dir
+    args.exp_dir = exp_dir
 
     # Just collect sequence names by scanning directory names
     sequence_names = []
-    for d in Path(opt.source).iterdir():
+    for d in Path(args.source).iterdir():
         if not d.is_dir():
             continue
         img_dir = d / "img1" if (d / "img1").exists() else d
@@ -870,19 +896,21 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
             sequence_names.append(d.name)
     sequence_names.sort()
 
-    # Build task arguments
+    # Build task arguments (include dataset_name for det_emb_root path)
+    dataset_name = getattr(args, "benchmark", None)
     task_args = [
         (
             seq,
-            str(opt.source),
-            str(opt.project),
-            opt.yolo_model[0].stem,
-            opt.reid_model[0].stem,
-            opt.tracking_method,
+            str(args.source),
+            str(args.project),
+            args.yolo_model[0].stem,
+            args.reid_model[0].stem,
+            args.tracking_method,
             str(exp_dir),
-            getattr(opt, 'fps', None),
-            opt.device,
+            getattr(args, "fps", None),
+            args.device,
             evolve_config,
+            dataset_name,
         )
         for seq in sequence_names
     ]
@@ -923,31 +951,31 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
             )
 
     # Optional GSI postprocessing
-    if getattr(opt, "postprocessing", "none") == "gsi":
+    if getattr(args, "postprocessing", "none") == "gsi":
         LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GSI postprocessing...")
         from boxmot.postprocessing.gsi import gsi
         gsi(mot_results_folder=exp_dir)
 
-    elif getattr(opt, "postprocessing", "none") == "gbrc":
+    elif getattr(args, "postprocessing", "none") == "gbrc":
         LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GBRC postprocessing...")
         from boxmot.postprocessing.gbrc import gbrc
         gbrc(mot_results_folder=exp_dir)
 
 
-def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
+def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     """
     Runs the trackeval function to evaluate tracking results.
 
     Args:
-        opt (Namespace): Parsed command line arguments.
+        args (Namespace): Parsed command line arguments.
         verbose (bool): Whether to print results summary. Default True.
     """
-    seq_paths, seq_info = _collect_seq_info(opt.source)
-    annotations_dir = opt.source.parent / "annotations"
-    gt_folder = annotations_dir if annotations_dir.exists() else opt.source
+    seq_paths, seq_info = _collect_seq_info(args.source)
+    annotations_dir = args.source.parent / "annotations"
+    gt_folder = annotations_dir if annotations_dir.exists() else args.source
 
     if not seq_paths:
-        raise ValueError(f"No sequences with images found under {opt.source}")
+        raise ValueError(f"No sequences with images found under {args.source}")
 
     if annotations_dir.exists():
         for seq_name in list(seq_info.keys()):
@@ -967,14 +995,18 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
                         seq_info[seq_name] = max(seq_info.get(seq_name, 0) or 0, max_frame)
             except Exception:
                 LOGGER.warning(f"Failed to read annotation file {ann_file} for sequence length inference")
-    save_dir = Path(opt.project) / opt.name
-    
-    trackeval_results = trackeval(opt, seq_paths, save_dir, gt_folder, seq_info=seq_info)
+    # runs/<dataset_name>/<name> when benchmark is set
+    if getattr(args, "benchmark", None):
+        save_dir = Path(args.project) / args.benchmark / args.name
+    else:
+        save_dir = Path(args.project) / args.name
+
+    trackeval_results = trackeval(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
     parsed_results = parse_mot_results(trackeval_results)
 
     # Load config to filter classes
     # Try to load config from benchmark name first, then fallback to source parent name
-    cfg_name = getattr(opt, 'benchmark', str(opt.source.parent.name))
+    cfg_name = getattr(args, 'benchmark', str(args.source.parent.name))
     try:
         cfg = load_dataset_cfg(cfg_name)
     except FileNotFoundError:
@@ -982,7 +1014,7 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
         # This handles cases where source is a custom path
         found = False
         for config_file in DATASET_CONFIGS.glob("*.yaml"):
-            if config_file.stem in str(opt.source):
+            if config_file.stem in str(args.source):
                 cfg = load_dataset_cfg(config_file.stem)
                 found = True
                 break
@@ -991,7 +1023,7 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
             LOGGER.warning(f"Could not find dataset config for {cfg_name}. Class filtering might be incorrect.")
             cfg = {}
 
-    # Filter parsed_results based on user provided classes (opt.classes)
+    # Filter parsed_results based on user provided classes (args.classes)
     single_class_mode = False
 
     # Priority 1: Benchmark config classes (overrides user classes)
@@ -1010,8 +1042,8 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
             if len(bench_classes) == 1:
                 single_class_mode = True
     # Priority 2: User provided classes
-    elif hasattr(opt, 'classes') and opt.classes is not None:
-        class_indices = opt.classes if isinstance(opt.classes, list) else [opt.classes]
+    elif hasattr(args, 'classes') and args.classes is not None:
+        class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
         user_classes = [COCO_CLASSES[int(i)] for i in class_indices]
         parsed_results = {k: v for k, v in parsed_results.items() if k in user_classes}
         if len(user_classes) == 1:
@@ -1069,8 +1101,8 @@ def run_trackeval(opt: argparse.Namespace, verbose: bool = True) -> dict:
             
         LOGGER.opt(colors=True).info("<blue>" + "="*105 + "</blue>")
 
-    if opt.ci:
-        with open(opt.tracking_method + "_output.json", "w") as outfile:
+    if args.ci:
+        with open(args.tracking_method + "_output.json", "w") as outfile:
             outfile.write(json.dumps(final_results))
     
     return final_results

@@ -7,7 +7,7 @@ download:
   dataset_url: "https://drive.google.com/uc?export=download&id=14z8Acxopj1d86-qhsF1NwS4Bv3KYa4Wu"
 
 benchmark:
-  source: "boxmot/engine/trackeval/VisDrone2019-MOT-test-dev"
+  source: "boxmot/engine/trackeval/data/VisDrone2019-MOT-test-dev"
   split: "sequences"
   eval_classes:
     1: pedestrian

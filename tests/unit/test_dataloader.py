@@ -3,11 +3,11 @@ import numpy as np
 import configparser
 import cv2
 from pathlib import Path
-from boxmot.utils.dataloaders.MOT17 import (
+from boxmot.utils.dataloaders.dataset import (
     read_seq_fps,
     compute_fps_mask,
-    MOT17DetEmbDataset,
-    MOT17Sequence,
+    MOTDataset,
+    MOTSequence,
 )
 
 
@@ -38,7 +38,7 @@ def test_compute_fps_mask():
 @pytest.fixture
 def simple_sequence(tmp_path):
     """
-    Create a minimal MOT17-like sequence structure:
+    Create a minimal MOT sequence structure:
       seq_dir/
         img1/000001.jpg, 000002.jpg
         seqinfo.ini (fps 2)
@@ -94,7 +94,7 @@ def simple_sequence(tmp_path):
 
 
 def test_dataset_indexing_and_iteration(simple_sequence):
-    ds = MOT17DetEmbDataset(
+    ds = MOTDataset(
         mot_root=str(simple_sequence["mot_root"]),
         det_emb_root=str(simple_sequence["det_emb_root"]),
         model_name=simple_sequence["model_name"],
@@ -117,7 +117,7 @@ def test_dataset_indexing_and_iteration(simple_sequence):
 
 
 def test_unknown_sequence_raises(simple_sequence):
-    ds = MOT17DetEmbDataset(mot_root=str(simple_sequence["mot_root"]))
+    ds = MOTDataset(mot_root=str(simple_sequence["mot_root"]))
     with pytest.raises(KeyError):
         _ = ds.get_sequence("DOES_NOT_EXIST")
 
@@ -136,7 +136,7 @@ def test_mismatched_dets_embs_raise(tmp_path, simple_sequence):
     np.savetxt(emb_file, one_emb[None, :], fmt="%f")
 
     with pytest.raises(ValueError):
-        MOT17DetEmbDataset(
+        MOTDataset(
             mot_root=str(simple_sequence["mot_root"]),
             det_emb_root=str(simple_sequence["det_emb_root"]),
             model_name=simple_sequence["model_name"],
@@ -180,7 +180,7 @@ def test_fps_downsampling_and_gt_temp(tmp_path):
     np.savetxt(emb_dir / "S.txt", embs, fmt="%f")
 
     # instantiate and trigger downsampling & gt_temp write
-    ds = MOT17DetEmbDataset(
+    ds = MOTDataset(
         mot_root=str(tmp_path),
         det_emb_root=str(det_emb_root),
         model_name="M",

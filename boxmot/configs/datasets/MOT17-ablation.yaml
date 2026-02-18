@@ -1,10 +1,10 @@
 # https://motchallenge.net/data/MOT17/
 download:
-  runs_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip"
+  runs_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/runs.zip"
   dataset_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip"
 
 benchmark:
-  source: "boxmot/engine/trackeval/MOT17-ablation"
+  source: "boxmot/engine/trackeval/data/MOT17-ablation"
   split: "train"
   eval_classes:
     1: pedestrian

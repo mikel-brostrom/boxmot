@@ -1,0 +1,28 @@
+# FastTracker Benchmark MOT – multi-object tracking in traffic scenes
+# 12 sequences, 15 classes, ~800K detections
+#
+# Frame-based layout (trackeval): <source>/<split>/<seq>/img/*.jpg, <seq>/gt/gt.txt
+download:
+  runs_url: null
+  dataset_url: "hf://Fleyderer/FastTracker-Benchmark-MOT/FastTracker-Benchmark-MOT"
+
+benchmark:
+  source: "boxmot/engine/trackeval/data/FastTracker-Benchmark-MOT"
+  split: "train"
+  eval_classes:
+    1: person
+    2: bus_small
+    3: bus_big
+    4: truck_small
+    5: truck_big
+    6: car
+    7: bike
+    8: motorbike
+    10: tractor
+    11: trailor
+    12: wheelchair
+    13: heavy_equipment
+    14: pm
+    15: umbrella
+  distractor_classes:
+    9: ignore_region

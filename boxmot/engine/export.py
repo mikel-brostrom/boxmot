@@ -44,13 +44,25 @@ def setup_model(args):
     else:
         args.imgsz = (256, 128)
 
-    dummy_input = torch.empty(args.batch_size, 3, args.imgsz[0], args.imgsz[1]).to(args.device)
+    if args.half:
+        model = model.half()
+
+    first_param = next(model.parameters(), None)
+    if first_param is not None:
+        model_dtype = first_param.dtype
+    else:
+        first_buffer = next(model.buffers(), None)
+        model_dtype = first_buffer.dtype if first_buffer is not None else torch.float32
+    dummy_input = torch.empty(
+        args.batch_size,
+        3,
+        args.imgsz[0],
+        args.imgsz[1],
+        device=args.device,
+        dtype=model_dtype,
+    )
     for _ in range(2):
         _ = model(dummy_input)
-
-    if args.half:
-        dummy_input = dummy_input.half()
-        model = model.half()
 
     return model, dummy_input
 

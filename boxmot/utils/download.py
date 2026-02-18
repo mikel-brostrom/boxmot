@@ -177,6 +177,75 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     LOGGER.debug("TrackEval setup complete")
 
     
+def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False) -> None:
+    """
+    Download a dataset from HuggingFace Hub to the given destination.
+
+    Requires ``huggingface_hub`` to be installed (``pip install huggingface_hub``).
+
+    Args:
+        repo_id: HuggingFace dataset repo ID (e.g. "user/dataset").
+        dest: Local directory to save the dataset into.
+        overwrite: If True, re-download even if *dest* already exists.
+    """
+    if dest.exists() and not overwrite:
+        LOGGER.debug(f"HF dataset already present at {dest}")
+        return
+
+    try:
+        from huggingface_hub import HfApi, snapshot_download
+    except ImportError:
+        import subprocess, sys
+        LOGGER.info("Installing huggingface_hub ...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub"])
+        from huggingface_hub import HfApi, snapshot_download
+
+    from tqdm.auto import tqdm as base_tqdm
+    from huggingface_hub.hf_api import RepoFile
+
+    # Get file list with real sizes upfront
+    api = HfApi()
+    files = [
+        f for f in api.list_repo_tree(repo_id=repo_id, repo_type="dataset", recursive=True)
+        if isinstance(f, RepoFile)
+    ]
+    num_files = len(files)
+    total_size = sum(f.size or (f.lfs.size if f.lfs else 0) for f in files)
+
+    LOGGER.info(f"Downloading HuggingFace dataset {repo_id} "
+                f"({num_files} files, {total_size / 1e9:.1f} GB) ...")
+
+    class _TqdmKnownTotal(base_tqdm):
+        """tqdm wrapper that injects pre-computed totals for HF progress bars."""
+        _lock_total = False
+
+        def __init__(self, *args, **kwargs):
+            kwargs.pop("name", None)
+            desc = kwargs.get("desc", "")
+            if desc.startswith("Downloading"):
+                kwargs["total"] = total_size
+                kwargs["desc"] = "Downloading"
+            elif desc.startswith("Fetching"):
+                kwargs["total"] = num_files
+                kwargs["desc"] = f"Fetching {num_files} files"
+            super().__init__(*args, **kwargs)
+            if desc.startswith("Downloading"):
+                self._lock_total = True
+
+        def __setattr__(self, name, value):
+            if name == "total" and self._lock_total:
+                return
+            super().__setattr__(name, value)
+
+    snapshot_download(
+        repo_id=repo_id,
+        repo_type="dataset",
+        local_dir=str(dest.parent),
+        tqdm_class=_TqdmKnownTotal,
+    )
+    LOGGER.debug(f"HF dataset ready at {dest}")
+
+
 def download_eval_data(
     *,
     runs_url: Optional[str] = None,
@@ -197,6 +266,13 @@ def download_eval_data(
         extract_zip(runs_zip, Path("."), overwrite=overwrite)
 
     if not dataset_url:
+        return
+
+    # HuggingFace dataset (hf://owner/repo/subfolder)
+    if dataset_url.startswith("hf://"):
+        parts = dataset_url[len("hf://"):].split("/")
+        repo_id = "/".join(parts[:2])        # e.g. "Fleyderer/FastTracker-Benchmark-MOT"
+        download_hf_dataset(repo_id, dataset_dest, overwrite=overwrite)
         return
 
     # benchmark ZIP
@@ -220,7 +296,7 @@ if __name__ == "__main__":
     )
 
     download_eval_data(
-        runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.7/runs.zip",
+        runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/runs.zip",
         dataset_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
         dataset_dest=Path("boxmot/engine/TrackEval/MOT17-ablation.zip"),
         overwrite=args.overwrite
