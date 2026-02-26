@@ -518,6 +518,15 @@ def _count_data_lines(path: Path, skip_header: bool = False) -> int:
         return 0
 
 
+def _count_binary_rows(bin_path: Path, ndims_path: Path) -> int:
+    """Count rows in a raw float32 binary embedding file via its ndims sidecar."""
+    try:
+        ndims = int(ndims_path.read_text())
+        return bin_path.stat().st_size // (ndims * 4) if ndims > 0 else 0
+    except (FileNotFoundError, ValueError, OSError):
+        return 0
+
+
 def _max_frame_id(path: Path) -> int:
     """Return the maximum frame id (first column) in a dets txt, skipping headers."""
     max_f = 0
@@ -612,7 +621,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         emb_paths = {}
         any_emb_cached = False
         for r in args.reid_model:
-            ep = embs_root / r.stem / f"{seq_name}.txt"
+            ep = embs_root / r.stem / f"{seq_name}.bin"
             emb_paths[r.stem] = ep
             if ep.exists():
                 any_emb_cached = True
@@ -626,7 +635,10 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         if resume:
             det_rows = _count_data_lines(dets_path, skip_header=True)
             det_max_frame = _max_frame_id(dets_path)
-            emb_rows = {stem: _count_data_lines(ep) for stem, ep in emb_paths.items()}
+            emb_rows = {
+                stem: _count_binary_rows(ep, embs_root / stem / "ndims.txt")
+                for stem, ep in emb_paths.items()
+            }
             expected_files = dets_path.exists() and all(ep.exists() for ep in emb_paths.values())
             rows_match = len(set([det_rows, *emb_rows.values()])) == 1 if expected_files else False
             if expected_files and rows_match and det_rows > 0:
@@ -793,7 +805,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                             )
                         if embs.ndim >= 2 and reid_name not in emb_dims:
                             emb_dims[reid_name] = embs.shape[1]
-                        np.savetxt(emb_fhs[reid_name][seq_name], embs, fmt="%f")
+                            (embs_root / reid_name / "ndims.txt").write_text(str(embs.shape[1]))
+                        emb_fhs[reid_name][seq_name].write(embs.astype(np.float32).tobytes())
 
                     reid_pbar.update(det_boxes_np.shape[0])
 
