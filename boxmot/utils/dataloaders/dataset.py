@@ -171,7 +171,12 @@ class MOTDataset:
             frame_ids = [int(p.stem) for p in imgs]
 
             det_path = self.dets_dir / f'{name}.txt' if self.dets_dir else None
-            emb_path = self.embs_dir / f'{name}.txt' if self.embs_dir else None
+            if self.embs_dir:
+                _bin = self.embs_dir / f'{name}.bin'
+                _txt = self.embs_dir / f'{name}.txt'
+                emb_path = _bin if _bin.exists() else (_txt if _txt.exists() else None)
+            else:
+                emb_path = None
 
             self.seqs[name] = {
                 'seq_dir': seq_dir,
@@ -244,7 +249,17 @@ class MOTSequence:
         # 1) Load dets & embs
         if self.meta['det_path'] and self.meta['emb_path']:
             self.dets = np.loadtxt(self.meta['det_path'], comments="#")
-            self.embs = np.loadtxt(self.meta['emb_path'], comments="#")
+            _ep = self.meta['emb_path']
+            if _ep.suffix == '.bin':
+                _n_rows = self.dets.shape[0]
+                if _n_rows == 0:
+                    self.embs = np.empty((0, 0), dtype=np.float32)
+                else:
+                    _flat = np.fromfile(_ep, dtype=np.float32)
+                    _ndims = _flat.size // _n_rows
+                    self.embs = _flat.reshape(_n_rows, _ndims)
+            else:
+                self.embs = np.loadtxt(_ep, comments="#")
             if self.dets.shape[0] != self.embs.shape[0]:
                 raise ValueError(f"Row mismatch in {self.name}")
 

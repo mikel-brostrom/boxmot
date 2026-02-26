@@ -26,6 +26,7 @@ BOXMOT     = ROOT / "boxmot"
 CONFIGS    = BOXMOT / "configs"
 TRACKER_CONFIGS   = CONFIGS / "trackers"
 DATASET_CONFIGS   = CONFIGS / "datasets"
+DETECTOR_CONFIGS  = CONFIGS / "detectors"
 
 ENGINE   = BOXMOT / "engine"
 WEIGHTS  = ENGINE / "weights"

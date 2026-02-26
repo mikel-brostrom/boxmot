@@ -55,23 +55,23 @@ class TimedReIDModel:
     def get_features(self, xyxys: np.ndarray, img: np.ndarray) -> np.ndarray:
         """
         Extract ReID features with timing instrumentation.
-        
+
         Args:
             xyxys: Bounding boxes as numpy array of shape (N, 4) with [x1, y1, x2, y2].
             img: The image as numpy array (BGR).
-        
+
         Returns:
             Feature embeddings as numpy array of shape (N, feature_dim).
         """
         t0 = time.perf_counter()
         features = self._model.get_features(xyxys, img)
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        
+
         if self._timing_stats is not None:
             self._timing_stats.add_reid_time(elapsed_ms)
-        
+
         return features
-    
+
     def __getattr__(self, name):
         """Forward all other attributes to the wrapped model."""
         return getattr(self._model, name)
@@ -278,11 +278,11 @@ class DetectorReIDPipeline:
     ) -> dict[str, np.ndarray]:
         """
         Extract ReID features from all loaded ReID models.
-        
+
         Args:
             xyxys: Bounding boxes as numpy array of shape (N, 4) with [x1, y1, x2, y2].
             img: The image as numpy array (BGR).
-        
+
         Returns:
             Dictionary mapping model name to feature embeddings.
         """
@@ -290,7 +290,7 @@ class DetectorReIDPipeline:
         for model, name in zip(self.reid_models, self.reid_model_names):
             results[name] = model.get_features(xyxys, img)
         return results
-    
+
     def predict(
         self,
         source: Union[str, Path, List, np.ndarray],
@@ -459,7 +459,7 @@ class DetectorReIDPipeline:
                 if "out of memory" not in str(e).lower():
                     raise
                 _empty_cache()
-                next_bs = max(1, bs // 2)
+                next_bs = max(1, bs - 1)
                 LOGGER.warning(f"Batch size {bs} OOM; trying {next_bs}.")
                 if next_bs == bs:
                     break

@@ -11,7 +11,8 @@ from boxmot import TRACKERS
 from boxmot.detectors import default_imgsz
 from boxmot.engine.inference import DetectorReIDPipeline, extract_detections
 from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import TRACKER_CONFIGS
+import yaml as _yaml
+from boxmot.utils import TRACKER_CONFIGS, DETECTOR_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 
@@ -83,6 +84,25 @@ def on_predict_start(predictor, args, timing_stats=None):
 
     predictor.trackers = trackers
     predictor.custom_args = args  # Store for later use
+
+    # Attach detector class names to each tracker for visualization.
+    # Looks for boxmot/configs/detectors/<model_stem>.yaml with a 'classes' dict.
+    _model_stem = Path(getattr(args, 'yolo_model', '') or '').stem
+    _det_cfg_path = DETECTOR_CONFIGS / f"{_model_stem}.yaml"
+    if _det_cfg_path.exists():
+        try:
+            with open(_det_cfg_path, 'r') as _f:
+                _det_cfg = _yaml.safe_load(_f)
+            if isinstance(_det_cfg, dict) and 'classes' in _det_cfg:
+                _names = {int(k): str(v) for k, v in _det_cfg['classes'].items()}
+                for _t in trackers:
+                    _t.names = _names
+                LOGGER.opt(colors=True).info(
+                    f"<cyan>Detector classes loaded from {_det_cfg_path.name}:</cyan> "
+                    + ", ".join(f"{k}:{v}" for k, v in sorted(_names.items()))
+                )
+        except Exception as _e:
+            LOGGER.warning(f"Could not load detector config {_det_cfg_path}: {_e}")
 
 
 def plot_trajectories(predictor, timing_stats=None, video_writer=None):
