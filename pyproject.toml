@@ -128,7 +128,7 @@ name            = "boxmot"
 version         = "16.0.11"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.8,<3.13"
 license         = { text = "AGPL-3.0" }
 
 authors = [
@@ -142,6 +142,7 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -174,14 +175,14 @@ dependencies = [
   "lapx<1.0.0,>=0.5.5",
   "loguru<1.0.0,>=0.7.2",
   "numpy",
-  "regex<2025.0.0,>=2024.0.0",
+  "regex",
 
-  "scikit-learn<2.0.0,>=1.3.0",
-  "pandas<3.0.0,>=2.0.0",
+  "scikit-learn<2.0.0,>=1.1.0",
+  "pandas<3.0.0,>=1.5.0",
   "opencv-python<5.0.0,>=4.7.0",
 
-  "torch>=2.2.1,<3.0.0",
-  "torchvision>=0.17.1,<1.0.0",
+  "torch>=1.13.0,<3.0.0",
+  "torchvision>=0.14.0,<1.0.0",
   "click>=8.1.8",
 
   # clip reid needs
@@ -197,13 +198,16 @@ boxmot = "boxmot.engine.cli:main"
 ########################################
 
 [dependency-groups]
-dev  = ["ipykernel>=6.29.5,<7.0.0", "pre-commit>=4.0.1"]
-test = ["pytest>=8.0.2,<9.0.0", "pytest-cov>=6.0.0,<7.0.0"]
+dev  = [
+    "ipykernel>=6.29.5,<7.0.0",
+    "pre-commit>=3.5.0",
+]
+test = ["pytest>=7.0.0,<9.0.0", "pytest-cov>=4.0.0,<7.0.0"]
 docs = [
-  "mkdocs>=1.6.1", "mkdocs-click>=0.9.0",
-  "mkdocs-include-markdown-plugin>=7.1.6",
-  "mkdocs-material>=9.6.15",
-  "mkdocstrings>=0.30.0", "mkdocstrings-python>=1.16.12",
+  "mkdocs>=1.5.0", "mkdocs-click<=0.9.0",
+  "mkdocs-include-markdown-plugin<=7.1.6",
+  "mkdocs-material>=9.0.0",
+  "mkdocstrings<=0.30.0", "mkdocstrings-python<=1.16.12",
 ]
 
 #############################
@@ -217,11 +221,11 @@ yolo = [
 ]
 
 evolve = [
-  "ray[tune]==2.49.2",
-  "plotly==5.19.0",
-  "bayesian-optimization==2.0.4",
-  "optuna==3.5.0",
-  "pydantic==2.7.2"
+  "ray[tune]>=2.0.0,<3.0.0",
+  "plotly>=5.0.0,<6.0.0",
+  "bayesian-optimization<=2.0.4",
+  "optuna>=3.0.0,<4.0.0",
+  "pydantic>=1.10.0,<3.0.0"
 ]
 
 onnx = [
@@ -231,7 +235,7 @@ onnx = [
   "onnxscript>=0.1.0"
 ]
 
-openvino = ["openvino>=2025.2.0"]
+openvino = ["openvino<=2025.2.0"]
 
 tflite = [
   # onnx2tf stack: only on linux/win, and only on py<3.13
@@ -245,11 +249,11 @@ tflite = [
   "simple-onnx-processing-tools ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
   "sng4onnx>=1.0.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  "tensorflow==2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "tf-keras==2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tensorflow<=2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tf-keras ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
   "psutil==5.9.5 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "ml-dtypes==0.5.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "ml-dtypes<=0.5.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
   "flatbuffers>=23.1.21 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
