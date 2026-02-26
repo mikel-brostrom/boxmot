@@ -1,0 +1,5 @@
+# YOLOX detection model, trained on CrowdHuman and MOT17 Train half:
+# https://github.com/FoundationVision/ByteTrack/tree/main?tab=readme-ov-file#ablation-model
+
+classes:
+  0: person
