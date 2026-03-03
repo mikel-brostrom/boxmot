@@ -9,6 +9,7 @@ from boxmot import (
     create_tracker,
     get_tracker_config,
 )
+from boxmot.motion.kalman_filters.aabb.xysr_kf import KalmanFilterXYSR
 from boxmot.trackers.deepocsort.deepocsort import (
     KalmanBoxTracker as DeepOCSortKalmanBoxTracker,
 )
@@ -279,6 +280,87 @@ def test_track_id_stable_over_frames(tracker_type):
     assert out1.shape == out2.shape == (1, 8), "Unexpected output shape"
     # track ID is at column 1
     assert out1[0, 4] == out2[0, 4], "Track ID should remain the same across frames"
+
+
+def test_xysr_kf_unfreeze_with_column_vectors():
+    """Regression test for mikel-brostrom/boxmot#2207.
+
+    When history_obs stores (4,1) column vectors (as produced by xyxy2xysr),
+    unfreeze() must still work without raising TypeError during the
+    width / height calculations.  Before the fix the unpacking yielded
+    (1,)-shaped arrays instead of scalars, which caused:
+        TypeError: only size-1 arrays can be converted to Python scalars
+    when computing ``w / float(h)``.
+    """
+    kf = KalmanFilterXYSR(dim_x=7, dim_z=4, max_obs=50)
+
+    # Minimal setup so predict/update don't crash
+    kf.F = np.eye(7)
+    kf.F[:4, 4:] = np.pad(np.eye(3), ((0, 1), (0, 0)))  # velocities
+    kf.H = np.zeros((4, 7))
+    kf.H[:4, :4] = np.eye(4)
+    kf.R *= 10.0
+
+    # A realistic (4,1) column-vector observation (as returned by xyxy2xysr)
+    obs1 = np.array([[300.0], [200.0], [50000.0], [1.5]])  # x, y, s, r
+    obs2 = np.array([[320.0], [210.0], [51000.0], [1.4]])
+
+    # Step 1: two observed updates to seed history with (4,1) vectors
+    kf.predict()
+    kf.update(obs1)
+    kf.predict()
+    kf.update(obs2)
+
+    # Step 2: several None updates → triggers freeze
+    for _ in range(5):
+        kf.predict()
+        kf.update(None)
+
+    # Step 3: new observation → triggers unfreeze, which previously crashed
+    obs3 = np.array([[350.0], [230.0], [52000.0], [1.3]])
+    kf.predict()
+    kf.update(obs3)  # should NOT raise TypeError
+
+    # Sanity: state should be finite and roughly near the last observation
+    state = kf.x.flatten()
+    assert np.all(np.isfinite(state)), f"State contains non-finite values: {state}"
+    assert abs(state[0] - 350.0) < 100, "x-center drifted too far"
+    assert abs(state[1] - 230.0) < 100, "y-center drifted too far"
+
+
+def test_xysr_kf_unfreeze_insufficient_history():
+    """Guard: unfreeze() must not crash when history has fewer than 2 non-None entries.
+
+    This can happen when history_obs maxlen truncation discards older
+    observations, leaving only one (or zero) real measurements.  The fix
+    adds ``if len(indices) < 2: return`` consistent with xywha_kf.py.
+    """
+    kf = KalmanFilterXYSR(dim_x=7, dim_z=4, max_obs=4)  # very small buffer
+
+    kf.F = np.eye(7)
+    kf.F[:4, 4:] = np.pad(np.eye(3), ((0, 1), (0, 0)))
+    kf.H = np.zeros((4, 7))
+    kf.H[:4, :4] = np.eye(4)
+    kf.R *= 10.0
+
+    obs1 = np.array([[300.0], [200.0], [50000.0], [1.5]])
+
+    # Single observed update
+    kf.predict()
+    kf.update(obs1)
+
+    # Many None updates — with max_obs=4 the first real obs may be evicted
+    for _ in range(10):
+        kf.predict()
+        kf.update(None)
+
+    # New observation → unfreeze; should NOT raise IndexError
+    obs2 = np.array([[320.0], [210.0], [51000.0], [1.4]])
+    kf.predict()
+    kf.update(obs2)  # previously would crash with IndexError on indices[-2]
+
+    state = kf.x.flatten()
+    assert np.all(np.isfinite(state)), f"State contains non-finite values: {state}"
 
 
 def test_create_tracker_invalid_tracker_name():
