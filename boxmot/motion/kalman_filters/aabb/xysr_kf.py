@@ -187,11 +187,14 @@ class KalmanFilterXYSR(object):
             self.history_obs = deque(list(self.history_obs)[:-1], maxlen=self.max_obs)
             occur = [int(d is None) for d in new_history]
             indices = np.where(np.array(occur) == 0)[0]
+            if len(indices) < 2:
+                return  # not enough measurements to replay
             index1, index2 = indices[-2], indices[-1]
             box1, box2 = new_history[index1], new_history[index2]
-            x1, y1, s1, r1 = box1
+            # Flatten in case boxes are stored as (4,1) column vectors
+            x1, y1, s1, r1 = np.asarray(box1).flatten()
             w1, h1 = np.sqrt(s1 * r1), np.sqrt(s1 / r1)
-            x2, y2, s2, r2 = box2
+            x2, y2, s2, r2 = np.asarray(box2).flatten()
             w2, h2 = np.sqrt(s2 * r2), np.sqrt(s2 / r2)
             time_gap = index2 - index1
             dx, dy = (x2 - x1) / time_gap, (y2 - y1) / time_gap
