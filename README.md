@@ -280,7 +280,7 @@ boxmot eval yolox_x_MOT20_ablation lmbn_n_duke boosttrack --data MOT20-ablation.
 # DanceTrack results
 boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke boosttrack --data dancetrack-ablation.yaml --verbose 
 # metrics on custom dataset
-boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --data ./assets/MOT17-mini/train --verbose
+boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --data MOT17-mini.yaml --verbose
 ```
 
 Add `--gsi` to your command for postprocessing the MOT results by Gaussian smoothed interpolation. Detections and embeddings are stored for the selected YOLO and ReID model respectively. They can then be loaded into any tracking algorithm, avoiding the overhead of repeatedly generating this data.
@@ -294,10 +294,10 @@ We use a fast and elitist multiobjective genetic algorithm for tracker hyperpara
 
 ```bash
 # Generate detections and embeddings (saves under ./runs/dets_n_embs)
-boxmot generate yolov8n osnet_x0_25_msmt17 --data ./assets/MOT17-mini/train
+boxmot generate yolov8n osnet_x0_25_msmt17 --data MOT17-mini.yaml
 
 # Tune parameters for specified tracking method
-boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 9 --tracking-method botsort --data ./assets/MOT17-mini/train
+boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 9 --tracking-method botsort --data MOT17-mini.yaml
 ```
 
 The set of hyperparameters leading to the best HOTA result are written to the tracker's config file.

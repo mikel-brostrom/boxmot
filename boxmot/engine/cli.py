@@ -205,12 +205,25 @@ def track_source_option(func):
     )(func)
 
 
+def validate_data_yaml_option(ctx, param, value):
+    """Validate that `--data` receives a dataset YAML reference."""
+    if value is None:
+        return value
+
+    data_ref = Path(str(value))
+    if data_ref.suffix.lower() not in {'.yaml', '.yml'}:
+        raise click.BadParameter('must point to a dataset YAML file (.yaml or .yml)')
+
+    return value
+
+
 def data_option(func):
     return click.option(
         '--data',
         type=str,
+        callback=validate_data_yaml_option,
         required=True,
-        help='dataset yaml filename (e.g. MOT17-ablation.yaml) or dataset split path',
+        help='dataset YAML filename or path (e.g. MOT17-ablation.yaml)',
     )(func)
 
 
