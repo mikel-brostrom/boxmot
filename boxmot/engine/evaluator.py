@@ -24,7 +24,7 @@ from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
 from boxmot.utils.misc import increment_path, prompt_overwrite
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
-from typing import Optional, List, Dict, Generator, Union
+from typing import Optional, List, Dict, Generator
 
 from boxmot.utils.dataloaders.dataset import MOTDataset
 from boxmot.postprocessing.gsi import gsi
@@ -32,7 +32,7 @@ from boxmot.postprocessing.gsi import gsi
 from boxmot.engine.inference import DetectorReIDPipeline, extract_detections, filter_detections
 from boxmot.detectors import default_imgsz
 from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
-from boxmot.utils.download import download_eval_data, download_trackeval
+from boxmot.utils.download import download_trackeval
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
@@ -70,35 +70,28 @@ def eval_init(args,
     # 1) download the TrackEval code
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
 
-    # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
-        cfg = load_dataset_cfg(str(args.source))
-        
-        # Determine dataset destination (under trackeval/data so benchmarks don't mix with TrackEval code)
-        bench_name = Path(cfg["benchmark"]["source"]).name
-        dataset_url = cfg["download"]["dataset_url"]
-        if dataset_url and dataset_url.startswith("hf://"):
-            dataset_dest = TRACKEVAL / "data" / bench_name
-        elif dataset_url:
-            dataset_dest = TRACKEVAL / "data" / f"{bench_name}.zip"
-        else:
-            # For custom datasets without URL, use the path from config if available, or default to assets
-            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{bench_name}"))
+    # 2) resolve dataset reference via shared CLI helper.
+    # For eval/tune, prefer --data and do not use --source when data is provided.
+    from boxmot.engine.cli import resolve_source_from_data_ref
 
-        download_eval_data(
-            runs_url=cfg["download"]["runs_url"],
-            dataset_url=cfg["download"]["dataset_url"],
-            dataset_dest=dataset_dest,
-            overwrite=overwrite
-        )
-        args.benchmark = bench_name
-        args.split = cfg["benchmark"]["split"]
-        if cfg["download"]["dataset_url"]:
-            args.source = TRACKEVAL / "data" / f"{args.benchmark}/{args.split}"
-        elif "source" in cfg["benchmark"]:
-            args.source = Path(cfg["benchmark"]["source"]) / args.split
+    data_ref = getattr(args, "data", None)
+    if data_ref is not None:
+        resolved_source, benchmark, split = resolve_source_from_data_ref(data_ref, overwrite=overwrite)
+        args.source = resolved_source
+        args.benchmark = benchmark
+        args.split = split
+    else:
+        # Backward-compatible fallback for callers that pass source directly.
+        source_path = Path(str(getattr(args, "source", "")))
+        if source_path.exists() and source_path.is_dir():
+            args.source = source_path
+            args.benchmark = getattr(args, "benchmark", source_path.parent.name)
+            args.split = getattr(args, "split", source_path.name)
         else:
-            args.source = dataset_dest / args.split
+            resolved_source, benchmark, split = resolve_source_from_data_ref(getattr(args, "source", None), overwrite=overwrite)
+            args.source = resolved_source
+            args.benchmark = benchmark
+            args.split = split
 
     # 3) finally, make source an absolute Path everywhere
     args.source = Path(args.source).resolve()
@@ -1116,6 +1109,8 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
 
 
 def main(args):
+    data_ref = getattr(args, "data", getattr(args, "source", None))
+
     # Print evaluation pipeline header (blue palette)
     LOGGER.info("")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
@@ -1124,7 +1119,7 @@ def main(args):
     LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>  <cyan>{args.yolo_model[0]}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>      <cyan>{args.reid_model[0]}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>   <cyan>{args.tracking_method}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Benchmark:</bold> <cyan>{args.source}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Benchmark:</bold> <cyan>{data_ref}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Image size:</bold> <cyan>{getattr(args, 'imgsz', None)}</cyan>")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
     

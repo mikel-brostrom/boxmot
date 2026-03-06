@@ -1,0 +1,15 @@
+# https://motchallenge.net/data/MOT17/
+download:
+  runs_url: ""
+  dataset_url: ""
+
+benchmark:
+  source: "assets/MOT17-mini"
+  split: "train"
+  eval_classes:
+    1: pedestrian
+  distractor_classes:
+    2: person_on_vehicle
+    7: static_person
+    8: distractor
+    12: reflection
