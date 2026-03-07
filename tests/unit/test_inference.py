@@ -1,10 +1,11 @@
 import numpy as np
 
-from boxmot.engine.inference import extract_detections, filter_detections
+from boxmot.engine.inference import extract_detections, filter_detections, resolve_yolo_model_path
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
 from boxmot.utils.iou import iou_obb_pair
+from boxmot.utils import WEIGHTS
 
 
 class _TensorWrapper:
@@ -154,3 +155,16 @@ def test_iou_obb_pair_accepts_column_like_inputs_and_radians():
     iou = iou_obb_pair(0, 0, dets, trks)
 
     assert iou > 0.99
+
+
+def test_resolve_yolo_model_path_routes_non_rtdetr_to_weights_dir():
+    resolved = resolve_yolo_model_path("yolov8n.pt")
+
+    assert resolved == WEIGHTS / "yolov8n.pt"
+
+
+def test_resolve_yolo_model_path_keeps_rtdetr_name_without_path_prefix():
+    resolved = resolve_yolo_model_path("/tmp/models/rtdetr_v2_r18vd.pt")
+
+    assert resolved.name == "rtdetr_v2_r18vd.pt"
+    assert str(resolved.parent) == "."
