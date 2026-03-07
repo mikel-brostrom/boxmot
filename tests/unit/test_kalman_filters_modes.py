@@ -135,6 +135,65 @@ def test_xysr_obb_unfreeze_handles_angle_wrap():
     assert abs(float(kf.y[4, 0])) < 0.3
 
 
+def test_xysr_unfreeze_with_column_vectors():
+    """Regression test for mikel-brostrom/boxmot#2207."""
+    kf = KalmanFilterXYSR(dim_x=7, dim_z=4, max_obs=50)
+
+    kf.F = np.eye(7)
+    kf.F[:4, 4:] = np.pad(np.eye(3), ((0, 1), (0, 0)))
+    kf.H = np.zeros((4, 7))
+    kf.H[:4, :4] = np.eye(4)
+    kf.R *= 10.0
+
+    obs1 = np.array([[300.0], [200.0], [50000.0], [1.5]])
+    obs2 = np.array([[320.0], [210.0], [51000.0], [1.4]])
+
+    kf.predict()
+    kf.update(obs1)
+    kf.predict()
+    kf.update(obs2)
+
+    for _ in range(5):
+        kf.predict()
+        kf.update(None)
+
+    obs3 = np.array([[350.0], [230.0], [52000.0], [1.3]])
+    kf.predict()
+    kf.update(obs3)
+
+    state = kf.x.flatten()
+    assert np.all(np.isfinite(state)), f"State contains non-finite values: {state}"
+    assert abs(state[0] - 350.0) < 100
+    assert abs(state[1] - 230.0) < 100
+
+
+def test_xysr_unfreeze_insufficient_history():
+    """Guard against missing replay anchors after history truncation."""
+    kf = KalmanFilterXYSR(dim_x=7, dim_z=4, max_obs=4)
+
+    kf.F = np.eye(7)
+    kf.F[:4, 4:] = np.pad(np.eye(3), ((0, 1), (0, 0)))
+    kf.H = np.zeros((4, 7))
+    kf.H[:4, :4] = np.eye(4)
+    kf.R *= 10.0
+
+    obs1 = np.array([[300.0], [200.0], [50000.0], [1.5]])
+
+    kf.predict()
+    kf.update(obs1)
+
+    for _ in range(10):
+        kf.predict()
+        kf.update(None)
+
+    obs2 = np.array([[320.0], [210.0], [51000.0], [1.4]])
+    kf.predict()
+    kf.update(obs2)
+
+    state = kf.x.flatten()
+    assert np.all(np.isfinite(state)), f"State contains non-finite values: {state}"
+
+
 def test_xyhr_supports_aabb_mode_and_column_measurement():
     kf = KalmanFilterXYHR(np.array([[100.0], [80.0], [40.0], [1.2]]), dim_z=4, ndim=8)
     pred_x, pred_cov = kf.predict()
