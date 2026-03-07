@@ -4,12 +4,14 @@ import sys
 from collections import deque
 from copy import deepcopy
 from math import exp, log, pi
+from typing import Optional
 
 import numpy as np
 import numpy.linalg as linalg
-from filterpy.common import reshape_z
 from filterpy.stats import logpdf
-from numpy import dot, eye, isscalar, zeros
+from numpy import dot
+
+from boxmot.motion.kalman_filters.aabb.base_kalman_filter import BaseKalmanFilter
 
 
 def speed_direction_obb(bbox1, bbox2):
@@ -161,7 +163,7 @@ class KalmanBoxTrackerOBB(object):
         return self.kf.x[0:5].reshape((1, 5))
 
 
-class KalmanFilterXYWHA(object):
+class KalmanFilterXYWHA(BaseKalmanFilter):
     """
     Implements a Kalman Filter specialized for tracking Oriented Bounding Boxes.
     The default state vector is [x, y, w, h, a]^T:
@@ -174,7 +176,9 @@ class KalmanFilterXYWHA(object):
     observations (no measurements) or out-of-sequence (OOS) smoothing logic.
     """
 
-    def __init__(self, dim_x, dim_z, dim_u=0, max_obs=50):
+    def __init__(
+        self, dim_x: int, dim_z: int, dim_u: int = 0, max_obs: int = 50
+    ) -> None:
         """
         Parameters
         ----------
@@ -194,53 +198,18 @@ class KalmanFilterXYWHA(object):
         if dim_u < 0:
             raise ValueError("dim_u must be 0 or greater")
 
-        self.dim_x = dim_x
-        self.dim_z = dim_z
+        super().__init__(ndim=dim_z, dim_x=dim_x, dim_z=dim_z, max_obs=max_obs)
         self.dim_u = dim_u
-
-        # State: x is a (dim_x, 1) column vector
-        self.x = zeros((dim_x, 1))      # state
-        self.P = eye(dim_x)             # covariance of the state
-        self.Q = eye(dim_x)             # process noise covariance
-        self.B = None                   # control transition matrix
-        self.F = eye(dim_x)             # state transition matrix
-        self.H = zeros((dim_z, dim_x))  # measurement function
-        self.R = eye(dim_z)             # measurement noise covariance
-        self._alpha_sq = 1.0            # fading memory control
-        self.M = np.zeros((dim_x, dim_z))  # cross correlation (rarely used)
-        self.z = np.array([[None] * self.dim_z]).T
-
-        # Gains and residuals computed during update
-        self.K = np.zeros((dim_x, dim_z))  # Kalman gain
-        self.y = zeros((dim_z, 1))         # residual
-        self.S = np.zeros((dim_z, dim_z))  # system uncertainty (innovation covariance)
-        self.SI = np.zeros((dim_z, dim_z)) # inverse system uncertainty
-
-        # Identity matrix (used in update)
-        self._I = np.eye(dim_x)
-
-        # Save prior (after predict) and posterior (after update)
-        self.x_prior = self.x.copy()
-        self.P_prior = self.P.copy()
-        self.x_post = self.x.copy()
-        self.P_post = self.P.copy()
 
         # Internal log-likelihood computations
         self._log_likelihood = log(sys.float_info.min)
         self._likelihood = sys.float_info.min
         self._mahalanobis = None
 
-        # Store recent observations for freeze/unfreeze logic
-        self.max_obs = max_obs
-        self.history_obs = deque([], maxlen=self.max_obs)
-
         # For potential smoothing usage
         self.inv = np.linalg.inv
-        self.attr_saved = None
-        self.observed = False
-        self.last_measurement = None
 
-    def apply_affine_correction(self, m, t):
+    def apply_affine_correction(self, m: np.ndarray, t: np.ndarray) -> None:
         """
         Apply an affine transform to the current state and covariance.
         This is useful if the image or reference frame is warped.
@@ -281,11 +250,18 @@ class KalmanFilterXYWHA(object):
             self.attr_saved["P"][2:4, 2:4] = m @ self.attr_saved["P"][2:4, 2:4] @ m.T
 
             # last_measurement might need updating similarly
-            self.attr_saved["last_measurement"][:2] = (
-                m @ self.attr_saved["last_measurement"][:2] + t
-            )
+            if self.attr_saved["last_measurement"] is not None:
+                self.attr_saved["last_measurement"][:2] = (
+                    m @ self.attr_saved["last_measurement"][:2] + t
+                )
 
-    def predict(self, u=None, B=None, F=None, Q=None):
+    def predict(
+        self,
+        u: Optional[np.ndarray] = None,
+        B: Optional[np.ndarray] = None,
+        F: Optional[np.ndarray] = None,
+        Q: Optional[np.ndarray] = None,
+    ) -> None:
         """
         Predict next state (prior) using the state transition matrix F
         and process noise Q.
@@ -302,27 +278,7 @@ class KalmanFilterXYWHA(object):
             Process noise matrix. If None, self.Q is used. If scalar,
             Q = scalar * I.
         """
-        if B is None:
-            B = self.B
-        if F is None:
-            F = self.F
-        if Q is None:
-            Q = self.Q
-        elif isscalar(Q):
-            Q = eye(self.dim_x) * Q
-
-        # x = F x + B u
-        if B is not None and u is not None:
-            self.x = dot(F, self.x) + dot(B, u)
-        else:
-            self.x = dot(F, self.x)
-
-        # P = F P F^T + Q
-        self.P = self._alpha_sq * dot(dot(F, self.P), F.T) + Q
-
-        # Save the prior
-        self.x_prior = self.x.copy()
-        self.P_prior = self.P.copy()
+        self.predict_state(u=u, B=B, F=F, Q=Q)
 
         # ---- New: Enforce bounding box and angle constraints (if dim_x >= 5) ----
         if self.dim_x >= 5:
@@ -382,7 +338,12 @@ class KalmanFilterXYWHA(object):
                     self.history_obs.pop()
             self.history_obs.pop()
 
-    def update(self, z, R=None, H=None):
+    def update(
+        self,
+        z: Optional[np.ndarray],
+        R: Optional[np.ndarray] = None,
+        H: Optional[np.ndarray] = None,
+    ) -> None:
         """
         Incorporate a new measurement z into the state estimate.
 
@@ -413,7 +374,7 @@ class KalmanFilterXYWHA(object):
             self.z = np.array([[None] * self.dim_z]).T
             self.x_post = self.x.copy()
             self.P_post = self.P.copy()
-            self.y = zeros((self.dim_z, 1))
+            self.y = np.zeros((self.dim_z, 1))
             return
 
         # If we haven't observed for a while, revert to the frozen state
@@ -421,14 +382,13 @@ class KalmanFilterXYWHA(object):
             self.unfreeze()
         self.observed = True
 
-        if R is None:
-            R = self.R
-        elif isscalar(R):
-            R = eye(self.dim_z) * R
+        R = self._resolve_matrix(R, self.R)
+        H = self._resolve_matrix(H, self.H)
 
-        if H is None:
-            H = self.H
-            z = reshape_z(z, self.dim_z, self.x.ndim)
+        if np.isscalar(R):
+            R = np.eye(self.dim_z) * float(R)
+
+        z = self._reshape_measurement(z, self.dim_z)
 
         # y = z - Hx   (residual)
         self.y = z - dot(H, self.x)
@@ -440,17 +400,10 @@ class KalmanFilterXYWHA(object):
         # K = PHT * SI
         self.K = PHT.dot(self.SI)
 
-        # Optional gating (commented out):
-        # mahal_dist = float(self.y.T @ self.SI @ self.y)
-        # gating_threshold = 9.21  # e.g., chi-square with 2-5 dof
-        # if mahal_dist > gating_threshold:
-        #     # Outlier measurement, skip or handle differently
-        #     return
-
         # x = x + K y
         self.x = self.x + dot(self.K, self.y)
 
-        # P = (I - K H) P (I - K H)^T + K R K^T
+        # P = (I - K H) P (I - K H)^T + K R K^T (Joseph form)
         I_KH = self._I - dot(self.K, H)
         self.P = dot(dot(I_KH, self.P), I_KH.T) + dot(dot(self.K, R), self.K.T)
 
