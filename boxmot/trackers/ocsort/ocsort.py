@@ -7,8 +7,7 @@ from collections import deque
 
 import numpy as np
 
-from boxmot.motion.kalman_filters.aabb.xysr_kf import KalmanFilterXYSR
-from boxmot.motion.kalman_filters.obb.xywha_kf import KalmanBoxTrackerOBB
+from boxmot.motion.kalman_filters.xysr import KalmanFilterXYSR
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.ops import xyxy2xysr
@@ -45,9 +44,40 @@ def convert_x_to_bbox(x, score=None):
         ).reshape((1, 5))
 
 
+def convert_obb_to_z(obb):
+    """
+    Convert [cx, cy, w, h, theta] to [cx, cy, s, r, theta].
+    """
+    cx, cy, w, h, theta = obb
+    w = max(float(w), 1e-6)
+    h = max(float(h), 1e-6)
+    s = w * h
+    r = w / h
+    return np.array([cx, cy, s, r, theta], dtype=float).reshape((5, 1))
+
+
+def convert_x_to_obb(x, score=None):
+    """
+    Convert [x, y, s, r, theta] to [x, y, w, h, theta].
+    """
+    w = np.sqrt(max(float(x[2] * x[3]), 1e-12))
+    h = x[2] / max(w, 1e-6)
+    if score is None:
+        return np.array([x[0], x[1], w, h, x[4]], dtype=float).reshape((1, 5))
+    return np.array([x[0], x[1], w, h, x[4], score], dtype=float).reshape((1, 6))
+
+
 def speed_direction(bbox1, bbox2):
     cx1, cy1 = (bbox1[0] + bbox1[2]) / 2.0, (bbox1[1] + bbox1[3]) / 2.0
     cx2, cy2 = (bbox2[0] + bbox2[2]) / 2.0, (bbox2[1] + bbox2[3]) / 2.0
+    speed = np.array([cy2 - cy1, cx2 - cx1])
+    norm = np.sqrt((cy2 - cy1) ** 2 + (cx2 - cx1) ** 2) + 1e-6
+    return speed / norm
+
+
+def speed_direction_obb(bbox1, bbox2):
+    cx1, cy1 = bbox1[0], bbox1[1]
+    cx2, cy2 = bbox2[0], bbox2[1]
     speed = np.array([cy2 - cy1, cx2 - cx1])
     norm = np.sqrt((cy2 - cy1) ** 2 + (cx2 - cx1) ** 2) + 1e-6
     return speed / norm
@@ -69,6 +99,8 @@ class KalmanBoxTracker(object):
         max_obs=50,
         Q_xy_scaling=0.01,
         Q_s_scaling=0.0001,
+        is_obb=False,
+        Q_a_scaling=0.0001,
     ):
         """
         Initialises a tracker using initial bounding box.
@@ -79,38 +111,74 @@ class KalmanBoxTracker(object):
 
         self.Q_xy_scaling = Q_xy_scaling
         self.Q_s_scaling = Q_s_scaling
+        self.Q_a_scaling = Q_a_scaling
+        self.is_obb = is_obb
 
-        self.kf = KalmanFilterXYSR(dim_x=7, dim_z=4, max_obs=max_obs)
-        self.kf.F = np.array(
-            [
-                [1, 0, 0, 0, 1, 0, 0],
-                [0, 1, 0, 0, 0, 1, 0],
-                [0, 0, 1, 0, 0, 0, 1],
-                [0, 0, 0, 1, 0, 0, 0],
-                [0, 0, 0, 0, 1, 0, 0],
-                [0, 0, 0, 0, 0, 1, 0],
-                [0, 0, 0, 0, 0, 0, 1],
-            ]
-        )
-        self.kf.H = np.array(
-            [
-                [1, 0, 0, 0, 0, 0, 0],
-                [0, 1, 0, 0, 0, 0, 0],
-                [0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 1, 0, 0, 0],
-            ]
-        )
+        if self.is_obb:
+            self.kf = KalmanFilterXYSR(dim_x=9, dim_z=5, max_obs=max_obs)
+            self.kf.F = np.array(
+                [
+                    [1, 0, 0, 0, 0, 1, 0, 0, 0],  # x += vx
+                    [0, 1, 0, 0, 0, 0, 1, 0, 0],  # y += vy
+                    [0, 0, 1, 0, 0, 0, 0, 1, 0],  # s += vs
+                    [0, 0, 0, 1, 0, 0, 0, 0, 0],  # r static
+                    [0, 0, 0, 0, 1, 0, 0, 0, 1],  # theta += vtheta
+                    [0, 0, 0, 0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 1, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 1, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 1],
+                ]
+            )
+            self.kf.H = np.array(
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0],  # x
+                    [0, 1, 0, 0, 0, 0, 0, 0, 0],  # y
+                    [0, 0, 1, 0, 0, 0, 0, 0, 0],  # s
+                    [0, 0, 0, 1, 0, 0, 0, 0, 0],  # r
+                    [0, 0, 0, 0, 1, 0, 0, 0, 0],  # theta
+                ]
+            )
+            self.kf.R[2:, 2:] *= 10.0
+            self.kf.P[
+                5:, 5:
+            ] *= 1000.0  # give high uncertainty to the unobservable initial velocities
+            self.kf.P *= 10.0
 
-        self.kf.R[2:, 2:] *= 10.0
-        self.kf.P[
-            4:, 4:
-        ] *= 1000.0  # give high uncertainty to the unobservable initial velocities
-        self.kf.P *= 10.0
+            self.kf.Q[5:7, 5:7] *= self.Q_xy_scaling
+            self.kf.Q[7, 7] *= self.Q_s_scaling
+            self.kf.Q[8, 8] *= self.Q_a_scaling
+            self.kf.x[:5] = convert_obb_to_z(bbox[:5])
+        else:
+            self.kf = KalmanFilterXYSR(dim_x=7, dim_z=4, max_obs=max_obs)
+            self.kf.F = np.array(
+                [
+                    [1, 0, 0, 0, 1, 0, 0],
+                    [0, 1, 0, 0, 0, 1, 0],
+                    [0, 0, 1, 0, 0, 0, 1],
+                    [0, 0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 1, 0, 0],
+                    [0, 0, 0, 0, 0, 1, 0],
+                    [0, 0, 0, 0, 0, 0, 1],
+                ]
+            )
+            self.kf.H = np.array(
+                [
+                    [1, 0, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 1, 0, 0, 0],
+                ]
+            )
 
-        self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
-        self.kf.Q[-1, -1] *= self.Q_s_scaling
+            self.kf.R[2:, 2:] *= 10.0
+            self.kf.P[
+                4:, 4:
+            ] *= 1000.0  # give high uncertainty to the unobservable initial velocities
+            self.kf.P *= 10.0
 
-        self.kf.x[:4] = xyxy2xysr(bbox)
+            self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
+            self.kf.Q[-1, -1] *= self.Q_s_scaling
+            self.kf.x[:4] = xyxy2xysr(bbox)
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
@@ -127,7 +195,11 @@ class KalmanBoxTracker(object):
         fast and unified way, which you would see below k_observations = np.array([k_previous_obs(...]]),
         let's bear it for now.
         """
-        self.last_observation = np.array([-1, -1, -1, -1, -1])  # placeholder
+        self.last_observation = (
+            np.array([-1, -1, -1, -1, -1, -1])
+            if self.is_obb
+            else np.array([-1, -1, -1, -1, -1])
+        )
         self.observations = dict()
         self.history_observations = deque([], maxlen=self.max_obs)
         self.velocity = None
@@ -151,7 +223,10 @@ class KalmanBoxTracker(object):
                 if previous_box is None:
                     previous_box = self.last_observation
                 # Estimate the track speed direction with observations Δt steps away
-                self.velocity = speed_direction(previous_box, bbox)
+                if self.is_obb:
+                    self.velocity = speed_direction_obb(previous_box, bbox)
+                else:
+                    self.velocity = speed_direction(previous_box, bbox)
 
             """
               Insert new observations. This is a ugly way to maintain both self.observations
@@ -164,7 +239,10 @@ class KalmanBoxTracker(object):
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
-            self.kf.update(xyxy2xysr(bbox))
+            if self.is_obb:
+                self.kf.update(convert_obb_to_z(bbox[:5]))
+            else:
+                self.kf.update(xyxy2xysr(bbox))
         else:
             self.kf.update(bbox)
 
@@ -172,21 +250,30 @@ class KalmanBoxTracker(object):
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
-        if (self.kf.x[6] + self.kf.x[2]) <= 0:
-            self.kf.x[6] *= 0.0
+        if self.is_obb:
+            if (self.kf.x[7] + self.kf.x[2]) <= 0:
+                self.kf.x[7] *= 0.0
+        else:
+            if (self.kf.x[6] + self.kf.x[2]) <= 0:
+                self.kf.x[6] *= 0.0
 
         self.kf.predict()
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0
         self.time_since_update += 1
-        self.history.append(convert_x_to_bbox(self.kf.x))
+        if self.is_obb:
+            self.history.append(convert_x_to_obb(self.kf.x))
+        else:
+            self.history.append(convert_x_to_bbox(self.kf.x))
         return self.history[-1]
 
     def get_state(self):
         """
         Returns the current bounding box estimate.
         """
+        if self.is_obb:
+            return convert_x_to_obb(self.kf.x)
         return convert_x_to_bbox(self.kf.x)
 
 
@@ -395,26 +482,17 @@ class OcSort(BaseTracker):
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            if self.is_obb:
-                trk = KalmanBoxTrackerOBB(
-                    dets[i, :-2],
-                    dets[i, -2],
-                    dets[i, -1],
-                    delta_t=self.delta_t,
-                    Q_xy_scaling=self.Q_xy_scaling,
-                    Q_a_scaling=self.Q_s_scaling,
-                    max_obs=self.max_obs,
-                )
-            else:
-                trk = KalmanBoxTracker(
-                    dets[i, :5],
-                    dets[i, 5],
-                    dets[i, 6],
-                    delta_t=self.delta_t,
-                    Q_xy_scaling=self.Q_xy_scaling,
-                    Q_s_scaling=self.Q_s_scaling,
-                    max_obs=self.max_obs,
-                )
+            trk = KalmanBoxTracker(
+                dets[i, :-2] if self.is_obb else dets[i, :5],
+                dets[i, -2] if self.is_obb else dets[i, 5],
+                dets[i, -1] if self.is_obb else dets[i, 6],
+                delta_t=self.delta_t,
+                Q_xy_scaling=self.Q_xy_scaling,
+                Q_s_scaling=self.Q_s_scaling,
+                Q_a_scaling=self.Q_s_scaling,
+                max_obs=self.max_obs,
+                is_obb=self.is_obb,
+            )
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
         for trk in reversed(self.active_tracks):

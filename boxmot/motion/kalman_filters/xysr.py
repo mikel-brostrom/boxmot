@@ -4,18 +4,19 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from boxmot.motion.kalman_filters.aabb.base_kalman_filter import BaseKalmanFilter
+from boxmot.motion.kalman_filters.base import BaseKalmanFilter
+
+
+def _wrap_angle(angle: np.ndarray) -> np.ndarray:
+    return (angle + np.pi) % (2.0 * np.pi) - np.pi
 
 
 class KalmanFilterXYSR(BaseKalmanFilter):
     """
-    Linear Kalman filter for [x, y, s, r, vx, vy, vs].
+    Linear Kalman filter for XYSR with optional OBB angle extension.
 
-    State:
-      x, y: box center
-      s: box scale (area)
-      r: aspect ratio
-      vx, vy, vs: velocities for x, y, s
+    - `dim_z=4, dim_x=7`: [x, y, s, r, vx, vy, vs]
+    - `dim_z=5, dim_x=9`: [x, y, s, r, theta, vx, vy, vs, vtheta]
     """
 
     def __init__(self, dim_x: int = 7, dim_z: int = 4, dim_u: int = 0, max_obs: int = 50):
@@ -25,6 +26,10 @@ class KalmanFilterXYSR(BaseKalmanFilter):
             raise ValueError("dim_z must be 1 or greater")
         if dim_u < 0:
             raise ValueError("dim_u must be 0 or greater")
+        if dim_z == 5 and dim_x != 9:
+            raise ValueError("dim_x must be 9 when dim_z is 5 (XYSR + theta)")
+        if dim_z > 5:
+            raise ValueError("dim_z > 5 is not supported for XYSR")
 
         motion_mat = self._build_motion_matrix(dim_x=dim_x, dim_z=dim_z)
         update_mat = np.zeros((dim_z, dim_x), dtype=float)
@@ -40,6 +45,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         )
 
         self.dim_u = dim_u
+        self._is_obb = dim_z >= 5
         self.inv = np.linalg.inv
 
         self.max_obs = max_obs
@@ -52,6 +58,14 @@ class KalmanFilterXYSR(BaseKalmanFilter):
     def _build_motion_matrix(dim_x: int, dim_z: int) -> np.ndarray:
         """Build xysr-compatible transition matrix with a fallback for custom dims."""
         motion_mat = np.eye(dim_x, dtype=float)
+
+        if dim_x >= 9 and dim_z >= 5:
+            # [x, y, s, r, theta, vx, vy, vs, vtheta]
+            motion_mat[0, 5] = 1.0
+            motion_mat[1, 6] = 1.0
+            motion_mat[2, 7] = 1.0
+            motion_mat[4, 8] = 1.0
+            return motion_mat
 
         if dim_x >= 7 and dim_z >= 4:
             # [x, y, s, r, vx, vy, vs]
@@ -77,8 +91,61 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         h = np.sqrt(s / r)
         return float(max(0.5 * (w + h), 1.0))
 
+    def _measurement_reference_angle(self) -> Optional[float]:
+        if self._is_obb:
+            return float(self.x[4, 0])
+        return None
+
+    def _prepare_measurement(
+        self, z: np.ndarray, reference_angle: Optional[float] = None
+    ) -> np.ndarray:
+        measurement = self._reshape_measurement(z, self.dim_z)
+        measurement[2, 0] = max(float(measurement[2, 0]), 1e-6)
+        measurement[3, 0] = max(float(measurement[3, 0]), 1e-6)
+        if self._is_obb:
+            raw = float(_wrap_angle(measurement[4, 0]))
+            if reference_angle is None:
+                measurement[4, 0] = raw
+            else:
+                measurement[4, 0] = reference_angle + float(_wrap_angle(raw - reference_angle))
+        return measurement
+
+    def _enforce_state_constraints(self) -> None:
+        self.x[2, 0] = max(float(self.x[2, 0]), 1e-6)
+        self.x[3, 0] = max(float(self.x[3, 0]), 1e-6)
+        if self._is_obb:
+            self.x[4, 0] = float(_wrap_angle(self.x[4, 0]))
+        self.P = 0.5 * (self.P + self.P.T)
+
+    @staticmethod
+    def _affine_components(m: np.ndarray) -> Tuple[float, float, float]:
+        u, _, vh = np.linalg.svd(m)
+        rot = u @ vh
+        if np.linalg.det(rot) < 0:
+            u[:, -1] *= -1.0
+            rot = u @ vh
+        angle = float(np.arctan2(rot[1, 0], rot[0, 0]))
+        scale_x = max(float(np.linalg.norm(m[:, 0])), 1e-6)
+        scale_y = max(float(np.linalg.norm(m[:, 1])), 1e-6)
+        return scale_x, scale_y, angle
+
     def _get_initial_covariance_std(self, measurement: np.ndarray) -> np.ndarray:
         scale = self._scale_from_measurement(measurement)
+        if self._is_obb:
+            return np.array(
+                [
+                    2.0 * self._std_weight_position * scale,  # x
+                    2.0 * self._std_weight_position * scale,  # y
+                    2.0 * self._std_weight_position * scale,  # s
+                    1e-2,                                     # r
+                    1e-2,                                     # theta
+                    10.0 * self._std_weight_velocity * scale, # vx
+                    10.0 * self._std_weight_velocity * scale, # vy
+                    10.0 * self._std_weight_velocity * scale, # vs
+                    1e-5,                                     # vtheta
+                ],
+                dtype=float,
+            )
         return np.array(
             [
                 2.0 * self._std_weight_position * scale,
@@ -94,6 +161,21 @@ class KalmanFilterXYSR(BaseKalmanFilter):
 
     def _get_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         scale = self._scale_from_measurement(mean)
+        if self._is_obb:
+            std_pos = [
+                self._std_weight_position * scale,
+                self._std_weight_position * scale,
+                self._std_weight_position * scale,
+                1e-2,
+                1e-2,
+            ]
+            std_vel = [
+                self._std_weight_velocity * scale,
+                self._std_weight_velocity * scale,
+                self._std_weight_velocity * scale,
+                1e-5,
+            ]
+            return std_pos, std_vel
         std_pos = [
             self._std_weight_position * scale,
             self._std_weight_position * scale,
@@ -110,6 +192,17 @@ class KalmanFilterXYSR(BaseKalmanFilter):
 
     def _get_measurement_noise_std(self, mean: np.ndarray, confidence: float) -> np.ndarray:
         scale = self._scale_from_measurement(mean)
+        if self._is_obb:
+            return np.array(
+                [
+                    self._std_weight_position * scale,
+                    self._std_weight_position * scale,
+                    self._std_weight_position * scale,
+                    1e-1,
+                    1e-1,
+                ],
+                dtype=float,
+            )
         return np.array(
             [
                 self._std_weight_position * scale,
@@ -127,6 +220,21 @@ class KalmanFilterXYSR(BaseKalmanFilter):
             raise ValueError("Expected mean to have shape (n, dim_x)")
 
         scales = np.array([self._scale_from_measurement(row) for row in mean], dtype=float)
+        if self._is_obb:
+            std_pos = [
+                self._std_weight_position * scales,
+                self._std_weight_position * scales,
+                self._std_weight_position * scales,
+                1e-2 * np.ones_like(scales),
+                1e-2 * np.ones_like(scales),
+            ]
+            std_vel = [
+                self._std_weight_velocity * scales,
+                self._std_weight_velocity * scales,
+                self._std_weight_velocity * scales,
+                1e-5 * np.ones_like(scales),
+            ]
+            return std_pos, std_vel
         std_pos = [
             self._std_weight_position * scales,
             self._std_weight_position * scales,
@@ -144,33 +252,73 @@ class KalmanFilterXYSR(BaseKalmanFilter):
     def initiate(self, measurement: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Initialize xysr state [x, y, s, r, vx, vy, vs] from a measurement."""
         mean = np.zeros((self.dim_x, 1), dtype=float)
-        measurement = self._reshape_measurement(measurement, self.dim_z)
+        measurement = self._prepare_measurement(measurement, reference_angle=None)
         mean[: self.dim_z] = measurement
 
         std = self._get_initial_covariance_std(measurement)
         covariance = np.eye(self.dim_x, dtype=float)
         covariance[: std.shape[0], : std.shape[0]] = np.diag(np.square(std))
+        mean[2, 0] = max(float(mean[2, 0]), 1e-6)
+        mean[3, 0] = max(float(mean[3, 0]), 1e-6)
+        if self._is_obb:
+            mean[4, 0] = float(_wrap_angle(mean[4, 0]))
+        covariance = 0.5 * (covariance + covariance.T)
         return mean, covariance
 
     def apply_affine_correction(self, m: np.ndarray, t: np.ndarray) -> None:
         """Apply affine correction to state and covariance (used by DeepOcSort CMC)."""
+        m = np.asarray(m, dtype=float).reshape((2, 2))
+        t = np.asarray(t, dtype=float).reshape((2, 1))
+        scale_x, scale_y, rot = self._affine_components(m)
+        area_scale = scale_x * scale_y
+        ratio_scale = scale_x / scale_y
+
+        vel_slice = slice(5, 7) if self._is_obb else slice(4, 6)
         self.x[:2] = m @ self.x[:2] + t
-        self.x[4:6] = m @ self.x[4:6]
+        self.x[vel_slice] = m @ self.x[vel_slice]
+        if self._is_obb:
+            self.x[2, 0] *= area_scale
+            self.x[3, 0] *= ratio_scale
+            self.x[4, 0] = float(_wrap_angle(self.x[4, 0] + rot))
+            self.x[7, 0] *= area_scale
 
         self.P[:2, :2] = m @ self.P[:2, :2] @ m.T
-        self.P[4:6, 4:6] = m @ self.P[4:6, 4:6] @ m.T
+        self.P[vel_slice, vel_slice] = m @ self.P[vel_slice, vel_slice] @ m.T
+        if self._is_obb:
+            self.P[2, 2] *= area_scale**2
+            self.P[3, 3] *= ratio_scale**2
+            self.P[7, 7] *= area_scale**2
 
         if not self.observed and self.attr_saved is not None:
             self.attr_saved["x"][:2] = m @ self.attr_saved["x"][:2] + t
-            self.attr_saved["x"][4:6] = m @ self.attr_saved["x"][4:6]
+            self.attr_saved["x"][vel_slice] = m @ self.attr_saved["x"][vel_slice]
+            if self._is_obb:
+                self.attr_saved["x"][2, 0] *= area_scale
+                self.attr_saved["x"][3, 0] *= ratio_scale
+                self.attr_saved["x"][4, 0] = float(_wrap_angle(self.attr_saved["x"][4, 0] + rot))
+                self.attr_saved["x"][7, 0] *= area_scale
 
             self.attr_saved["P"][:2, :2] = m @ self.attr_saved["P"][:2, :2] @ m.T
-            self.attr_saved["P"][4:6, 4:6] = m @ self.attr_saved["P"][4:6, 4:6] @ m.T
+            self.attr_saved["P"][vel_slice, vel_slice] = (
+                m @ self.attr_saved["P"][vel_slice, vel_slice] @ m.T
+            )
+            if self._is_obb:
+                self.attr_saved["P"][2, 2] *= area_scale**2
+                self.attr_saved["P"][3, 3] *= ratio_scale**2
+                self.attr_saved["P"][7, 7] *= area_scale**2
 
             if self.attr_saved["last_measurement"] is not None:
                 self.attr_saved["last_measurement"][:2] = (
                     m @ self.attr_saved["last_measurement"][:2] + t
                 )
+                if self._is_obb:
+                    self.attr_saved["last_measurement"][2, 0] *= area_scale
+                    self.attr_saved["last_measurement"][3, 0] *= ratio_scale
+                    self.attr_saved["last_measurement"][4, 0] = float(
+                        _wrap_angle(self.attr_saved["last_measurement"][4, 0] + rot)
+                    )
+
+        self._enforce_state_constraints()
 
     def predict(
         self,
@@ -181,6 +329,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
     ) -> None:
         """Predict one state step using shared base framework."""
         self.predict_state(u=u, B=B, F=F, Q=Q)
+        self._enforce_state_constraints()
 
     def freeze(self) -> None:
         """Save parameters before non-observation forward pass."""
@@ -205,14 +354,24 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         index1, index2 = indices[-2], indices[-1]
         box1, box2 = new_history[index1], new_history[index2]
 
-        x1, y1, s1, r1 = np.asarray(box1).flatten()
+        box1 = np.asarray(box1, dtype=float).reshape(-1)
+        box2 = np.asarray(box2, dtype=float).reshape(-1)
+        if box1.size < self.dim_z or box2.size < self.dim_z:
+            return
+
+        x1, y1, s1, r1 = box1[:4]
         w1, h1 = np.sqrt(s1 * r1), np.sqrt(s1 / r1)
-        x2, y2, s2, r2 = np.asarray(box2).flatten()
+        x2, y2, s2, r2 = box2[:4]
         w2, h2 = np.sqrt(s2 * r2), np.sqrt(s2 / r2)
 
         time_gap = index2 - index1
+        if time_gap <= 0:
+            return
         dx, dy = (x2 - x1) / time_gap, (y2 - y1) / time_gap
         dw, dh = (w2 - w1) / time_gap, (h2 - h1) / time_gap
+        if self._is_obb:
+            t1, t2 = box1[4], box2[4]
+            dtheta = float(_wrap_angle(t2 - t1)) / time_gap
 
         for i in range(index2 - index1):
             x = x1 + (i + 1) * dx
@@ -220,7 +379,11 @@ class KalmanFilterXYSR(BaseKalmanFilter):
             w = w1 + (i + 1) * dw
             h = h1 + (i + 1) * dh
             s, r = w * h, w / float(h)
-            new_box = np.array([x, y, s, r], dtype=float).reshape((4, 1))
+            if self._is_obb:
+                theta = float(_wrap_angle(t1 + (i + 1) * dtheta))
+                new_box = np.array([x, y, s, r, theta], dtype=float).reshape((5, 1))
+            else:
+                new_box = np.array([x, y, s, r], dtype=float).reshape((4, 1))
 
             self.update(new_box)
             if i != (index2 - index1 - 1):
@@ -236,9 +399,14 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         H: Optional[np.ndarray] = None,
     ) -> None:
         """Update state with measurement or register missing observation when z is None."""
-        self.history_obs.append(z)
+        measurement = None
+        if z is not None:
+            measurement = self._prepare_measurement(
+                z, reference_angle=self._measurement_reference_angle()
+            )
+        self.history_obs.append(None if measurement is None else measurement.copy())
 
-        if z is None:
+        if measurement is None:
             if self.observed and len(self.history_obs) >= 2:
                 self.last_measurement = self.history_obs[-2]
                 self.freeze()
@@ -254,11 +422,15 @@ class KalmanFilterXYSR(BaseKalmanFilter):
             self.unfreeze()
         self.observed = True
 
-        self.update_state(z=z, R=R, H=H)
+        self.update_state(z=measurement, R=R, H=H)
+        self._enforce_state_constraints()
 
         # Keep legacy behavior where observed measurements are appended twice.
         self.history_obs.append(self.z.copy())
 
     def md_for_measurement(self, z: np.ndarray) -> float:
         """Mahalanobis distance of measurement z against current predicted state."""
-        return self.mahalanobis_distance(z=z, H=self.H, R=self.R)
+        measurement = self._prepare_measurement(
+            z, reference_angle=self._measurement_reference_angle()
+        )
+        return self.mahalanobis_distance(z=measurement, H=self.H, R=self.R)

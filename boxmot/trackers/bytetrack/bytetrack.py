@@ -4,7 +4,7 @@ from collections import deque
 
 import numpy as np
 
-from boxmot.motion.kalman_filters.aabb.xyah_kf import KalmanFilterXYAH
+from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment

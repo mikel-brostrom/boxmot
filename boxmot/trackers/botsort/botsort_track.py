@@ -2,7 +2,7 @@ from collections import deque
 
 import numpy as np
 
-from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 

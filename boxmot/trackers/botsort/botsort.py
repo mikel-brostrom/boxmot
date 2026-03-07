@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
