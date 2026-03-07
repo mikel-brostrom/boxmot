@@ -7,6 +7,10 @@ import scipy.linalg
 from boxmot.motion.kalman_filters.base import BaseKalmanFilter
 
 
+def _wrap_angle(angle: np.ndarray) -> np.ndarray:
+    return (angle + np.pi) % (2.0 * np.pi) - np.pi
+
+
 class ConstantNoiseXYHR:
     """Constant process/measurement noise policy used by BoostTrack."""
 
@@ -16,24 +20,31 @@ class ConstantNoiseXYHR:
 
     def get_init_state_cov(self) -> np.ndarray:
         covariance = np.eye(self.dim_x, dtype=float)
-        covariance[4:, 4:] *= 1000.0
+        covariance[self.dim_z :, self.dim_z :] *= 1000.0
         covariance *= 10.0
         return covariance
 
     def get_r(self) -> np.ndarray:
+        if self.dim_z == 5:
+            return np.diag([1.0, 1.0, 10.0, 0.01, 0.01]).astype(float)
         return np.diag([1.0, 1.0, 10.0, 0.01]).astype(float)
 
     def get_q(self) -> np.ndarray:
         process_noise = np.eye(self.dim_x, dtype=float)
-        process_noise[4:, 4:] *= 0.01
+        process_noise[self.dim_z :, self.dim_z :] *= 0.01
+        if self.dim_z == 5:
+            process_noise[4, 4] = 0.01
         return process_noise
 
 
 class KalmanFilterXYHR(BaseKalmanFilter):
     """
-    Constant-noise Kalman filter for [x, y, h, r, vx, vy, vh, vr].
+    Constant-noise Kalman filter for XYHR with optional OBB extension.
 
-    This preserves BoostTrack's original state and noise model while exposing
+    - `dim_z=4, dim_x=8`: [x, y, h, r, vx, vy, vh, vr]
+    - `dim_z=5, dim_x=10`: [x, y, h, r, theta, vx, vy, vh, vr, vtheta]
+
+    This preserves BoostTrack's original constant-noise model while exposing
     the filter under the shared `boxmot.motion.kalman_filters` namespace.
     """
 
@@ -41,13 +52,26 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         self,
         z: Optional[np.ndarray] = None,
         ndim: int = 8,
+        dim_z: Optional[int] = None,
         dt: float = 1.0,
         track_id: int = -1,
     ):
-        if ndim < 8:
-            raise ValueError("ndim must be >= 8 for XYHR state")
+        inferred_dim_z = 4
+        if z is not None:
+            z_size = int(np.asarray(z).size)
+            inferred_dim_z = 5 if z_size >= 5 else 4
+        if dim_z is None:
+            dim_z = inferred_dim_z
+        if dim_z not in (4, 5):
+            raise ValueError("dim_z must be 4 (AABB) or 5 (OBB)")
 
-        dim_z = 4
+        if dim_z == 5 and ndim == 8:
+            ndim = 10
+        min_dim_x = 2 * dim_z
+        if ndim < min_dim_x:
+            raise ValueError(f"ndim must be >= {min_dim_x} when dim_z is {dim_z}")
+
+        self._is_obb = dim_z == 5
         motion_mat = np.eye(ndim, dtype=float)
         velocity_dims = min(dim_z, max(0, ndim - dim_z))
         for i in range(velocity_dims):
@@ -72,6 +96,7 @@ class KalmanFilterXYHR(BaseKalmanFilter):
 
         if z is not None:
             self.x[: self.dim_z] = self._reshape_measurement_vector(z)
+            self._enforce_state_constraints()
 
     @property
     def covariance(self) -> np.ndarray:
@@ -91,7 +116,19 @@ class KalmanFilterXYHR(BaseKalmanFilter):
             raise ValueError(
                 f"measurement must have at least {self.dim_z} values, got {measurement.size}"
             )
-        return measurement[: self.dim_z]
+        measurement = measurement[: self.dim_z]
+        measurement[2] = max(float(measurement[2]), 1e-4)
+        measurement[3] = max(float(measurement[3]), 1e-4)
+        if self._is_obb:
+            measurement[4] = float(_wrap_angle(measurement[4]))
+        return measurement
+
+    def _enforce_state_constraints(self) -> None:
+        self.x[2] = max(float(self.x[2]), 1e-4)
+        self.x[3] = max(float(self.x[3]), 1e-4)
+        if self._is_obb:
+            self.x[4] = float(_wrap_angle(self.x[4]))
+        self.covariance = 0.5 * (self.covariance + self.covariance.T)
 
     def _get_initial_covariance_std(self, measurement: np.ndarray) -> np.ndarray:
         del measurement
@@ -126,6 +163,8 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         mean = np.zeros((self.dim_x,), dtype=float)
         mean[: self.dim_z] = self._reshape_measurement_vector(measurement)
         covariance = self.cov_update_policy.get_init_state_cov()
+        if self._is_obb:
+            mean[4] = float(_wrap_angle(mean[4]))
         return mean, covariance
 
     def predict(
@@ -150,6 +189,7 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         if update:
             self.x = mean
             self.covariance = covariance
+            self._enforce_state_constraints()
         return mean, covariance
 
     def project(
@@ -172,6 +212,11 @@ class KalmanFilterXYHR(BaseKalmanFilter):
 
     def update(self, z: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         measurement = self._reshape_measurement_vector(z)
+        if self._is_obb:
+            reference_theta = float(self.x[4])
+            measurement[4] = reference_theta + float(
+                _wrap_angle(measurement[4] - reference_theta)
+            )
         projected_mean, projected_cov = self.project()
 
         chol_factor, lower = scipy.linalg.cho_factor(
@@ -188,5 +233,6 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         self.covariance = self.covariance - np.linalg.multi_dot(
             (kalman_gain, projected_cov, kalman_gain.T)
         )
+        self._enforce_state_constraints()
 
         return self.x, self.covariance
