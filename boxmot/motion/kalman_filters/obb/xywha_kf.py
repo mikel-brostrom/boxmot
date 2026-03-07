@@ -4,7 +4,7 @@ import sys
 from collections import deque
 from copy import deepcopy
 from math import exp, log, pi
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import numpy.linalg as linalg
@@ -20,6 +20,11 @@ def speed_direction_obb(bbox1, bbox2):
     speed = np.array([cy2 - cy1, cx2 - cx1])
     norm = np.sqrt((cy2 - cy1) ** 2 + (cx2 - cx1) ** 2) + 1e-6
     return speed / norm
+
+
+def wrap_angle(angle: float) -> float:
+    """Wrap angle to [-pi, pi)."""
+    return float((angle + pi) % (2.0 * pi) - pi)
 
 
 class KalmanBoxTrackerOBB(object):
@@ -82,7 +87,10 @@ class KalmanBoxTrackerOBB(object):
         self.kf.Q[5:7, 5:7] *= self.Q_xy_scaling
         self.kf.Q[-1, -1] *= self.Q_a_scaling
 
-        self.kf.x[:5] = bbox[:5].reshape((5, 1)) # x, y, w, h, angle   (dont take confidence score)
+        self.kf.x[:5] = bbox[:5].reshape(
+            (5, 1)
+        )  # x, y, w, h, angle   (dont take confidence score)
+        self.kf._enforce_obb_constraints()
         self.time_since_update = 0
         self.id = KalmanBoxTrackerOBB.count
         KalmanBoxTrackerOBB.count += 1
@@ -111,6 +119,10 @@ class KalmanBoxTrackerOBB(object):
         """
         self.det_ind = det_ind
         if bbox is not None:
+            bbox = np.asarray(bbox, dtype=float).copy()
+            bbox[:5] = self.kf.prepare_obb_measurement(
+                bbox[:5], reference_angle=None
+            ).reshape(-1)
             self.conf = bbox[-1]
             self.cls = cls
             if self.last_observation.sum() >= 0:  # no previous observation
@@ -176,6 +188,15 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
     observations (no measurements) or out-of-sequence (OOS) smoothing logic.
     """
 
+    ANGLE_IDX = 4
+    WIDTH_IDX = 2
+    HEIGHT_IDX = 3
+    POS_IDX = slice(0, 2)
+    SIZE_IDX = slice(2, 4)
+    VEL_POS_IDX = slice(5, 7)
+    VEL_SIZE_IDX = slice(7, 9)
+    MIN_SIZE = 1e-4
+
     def __init__(
         self, dim_x: int, dim_z: int, dim_u: int = 0, max_obs: int = 50
     ) -> None:
@@ -197,6 +218,10 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
             raise ValueError("dim_z must be 1 or greater")
         if dim_u < 0:
             raise ValueError("dim_u must be 0 or greater")
+        if dim_x < 5:
+            raise ValueError("dim_x must be at least 5 for OBB state [x,y,w,h,a,...]")
+        if dim_z < 5:
+            raise ValueError("dim_z must be at least 5 for OBB measurements [x,y,w,h,a]")
 
         super().__init__(ndim=dim_z, dim_x=dim_x, dim_z=dim_z, max_obs=max_obs)
         self.dim_u = dim_u
@@ -208,6 +233,130 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
 
         # For potential smoothing usage
         self.inv = np.linalg.inv
+
+    def _enforce_obb_constraints(self) -> None:
+        """Keep width/height positive and angle wrapped."""
+        if self.dim_x > self.WIDTH_IDX:
+            self.x[self.WIDTH_IDX, 0] = max(
+                float(self.x[self.WIDTH_IDX, 0]), self.MIN_SIZE
+            )
+        if self.dim_x > self.HEIGHT_IDX:
+            self.x[self.HEIGHT_IDX, 0] = max(
+                float(self.x[self.HEIGHT_IDX, 0]), self.MIN_SIZE
+            )
+        if self.dim_x > self.ANGLE_IDX:
+            self.x[self.ANGLE_IDX, 0] = wrap_angle(float(self.x[self.ANGLE_IDX, 0]))
+
+    def _symmetrize_covariance(self) -> None:
+        """Limit numerical drift by forcing covariance symmetry."""
+        self.P = 0.5 * (self.P + self.P.T)
+
+    def _measurement_reference_angle(self) -> Optional[float]:
+        if self.dim_x > self.ANGLE_IDX:
+            return float(self.x[self.ANGLE_IDX, 0])
+        return None
+
+    def prepare_obb_measurement(
+        self, z: np.ndarray, reference_angle: Optional[float] = None
+    ) -> np.ndarray:
+        """
+        Normalize OBB measurement and, when provided, align angle to the
+        closest equivalent around a reference angle.
+        """
+        measurement = self._reshape_measurement(z, self.dim_z)
+
+        if self.dim_z > self.WIDTH_IDX:
+            measurement[self.WIDTH_IDX, 0] = max(
+                float(measurement[self.WIDTH_IDX, 0]), self.MIN_SIZE
+            )
+        if self.dim_z > self.HEIGHT_IDX:
+            measurement[self.HEIGHT_IDX, 0] = max(
+                float(measurement[self.HEIGHT_IDX, 0]), self.MIN_SIZE
+            )
+
+        if self.dim_z > self.ANGLE_IDX:
+            raw_angle = wrap_angle(float(measurement[self.ANGLE_IDX, 0]))
+            if reference_angle is None:
+                measurement[self.ANGLE_IDX, 0] = raw_angle
+            else:
+                measurement[self.ANGLE_IDX, 0] = (
+                    reference_angle + wrap_angle(raw_angle - reference_angle)
+                )
+        return measurement
+
+    @staticmethod
+    def _affine_components(m: np.ndarray) -> Tuple[float, float, float]:
+        """Extract approximate x/y scaling and rotation from an affine matrix."""
+        u, _, vh = np.linalg.svd(m)
+        rot = u @ vh
+        if np.linalg.det(rot) < 0:
+            u[:, -1] *= -1.0
+            rot = u @ vh
+        angle = np.arctan2(rot[1, 0], rot[0, 0])
+        scale_x = max(float(np.linalg.norm(m[:, 0])), 1e-6)
+        scale_y = max(float(np.linalg.norm(m[:, 1])), 1e-6)
+        return scale_x, scale_y, angle
+
+    def _apply_affine_to_state(
+        self,
+        x: np.ndarray,
+        P: np.ndarray,
+        m: np.ndarray,
+        t: np.ndarray,
+        *,
+        scale_x: float,
+        scale_y: float,
+        delta_angle: float,
+    ) -> None:
+        """Apply affine transform to state/covariance using a linearized Jacobian."""
+        x[self.POS_IDX] = m @ x[self.POS_IDX] + t
+        x[self.SIZE_IDX.start, 0] = max(
+            float(x[self.SIZE_IDX.start, 0]) * scale_x, self.MIN_SIZE
+        )
+        x[self.SIZE_IDX.start + 1, 0] = max(
+            float(x[self.SIZE_IDX.start + 1, 0]) * scale_y, self.MIN_SIZE
+        )
+        x[self.ANGLE_IDX, 0] = wrap_angle(float(x[self.ANGLE_IDX, 0]) + delta_angle)
+
+        if self.dim_x >= self.VEL_POS_IDX.stop:
+            x[self.VEL_POS_IDX] = m @ x[self.VEL_POS_IDX]
+        if self.dim_x >= self.VEL_SIZE_IDX.stop:
+            x[self.VEL_SIZE_IDX.start, 0] *= scale_x
+            x[self.VEL_SIZE_IDX.start + 1, 0] *= scale_y
+
+        jacobian = np.eye(self.dim_x, dtype=float)
+        jacobian[self.POS_IDX, self.POS_IDX] = m
+        jacobian[self.SIZE_IDX.start, self.SIZE_IDX.start] = scale_x
+        jacobian[self.SIZE_IDX.start + 1, self.SIZE_IDX.start + 1] = scale_y
+        if self.dim_x >= self.VEL_POS_IDX.stop:
+            jacobian[self.VEL_POS_IDX, self.VEL_POS_IDX] = m
+        if self.dim_x >= self.VEL_SIZE_IDX.stop:
+            jacobian[self.VEL_SIZE_IDX.start, self.VEL_SIZE_IDX.start] = scale_x
+            jacobian[
+                self.VEL_SIZE_IDX.start + 1, self.VEL_SIZE_IDX.start + 1
+            ] = scale_y
+
+        P[:] = jacobian @ P @ jacobian.T
+        P[:] = 0.5 * (P + P.T)
+
+    def _apply_affine_to_measurement(
+        self,
+        z: np.ndarray,
+        m: np.ndarray,
+        t: np.ndarray,
+        *,
+        scale_x: float,
+        scale_y: float,
+        delta_angle: float,
+    ) -> np.ndarray:
+        measurement = self.prepare_obb_measurement(z, reference_angle=None)
+        measurement[self.POS_IDX] = m @ measurement[self.POS_IDX] + t
+        measurement[self.SIZE_IDX.start, 0] *= scale_x
+        measurement[self.SIZE_IDX.start + 1, 0] *= scale_y
+        measurement[self.ANGLE_IDX, 0] = wrap_angle(
+            float(measurement[self.ANGLE_IDX, 0]) + delta_angle
+        )
+        return measurement
 
     def apply_affine_correction(self, m: np.ndarray, t: np.ndarray) -> None:
         """
@@ -224,35 +373,79 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
         TODO: adapt for oriented bounding box (especially if the orientation
         is also changed by the transform).
         """
-        # For demonstration, we apply the transform to [x, y] and [x_dot, y_dot], etc.
-        # But for your OBB case, consider carefully how w, h, and angle should transform.
+        m = np.asarray(m, dtype=float).reshape((2, 2))
+        t = np.asarray(t, dtype=float).reshape((2, 1))
+        scale_x, scale_y, delta_angle = self._affine_components(m)
 
-        # Example basic approach: transform x, y
-        self.x[:2] = m @ self.x[:2] + t
-
-        # Possibly transform w, h. But if w,h are not purely length in x,y directions,
-        # you might have to do something more elaborate. For demonstration:
-        self.x[2:4] = np.abs(m @ self.x[2:4])  # naive approach: scale w,h
-
-        # P block for positions:
-        self.P[:2, :2] = m @ self.P[:2, :2] @ m.T
-        # P block for widths/heights (again naive if we treat w,h as x,y scale):
-        self.P[2:4, 2:4] = m @ self.P[2:4, 2:4] @ m.T
-
-        # If angle is included, consider adjusting it or leaving it if the transform
-        # is purely in the plane with no orientation offset. Could do angle wrap here.
+        self._apply_affine_to_state(
+            self.x,
+            self.P,
+            m,
+            t,
+            scale_x=scale_x,
+            scale_y=scale_y,
+            delta_angle=delta_angle,
+        )
+        self._apply_affine_to_state(
+            self.x_prior,
+            self.P_prior,
+            m,
+            t,
+            scale_x=scale_x,
+            scale_y=scale_y,
+            delta_angle=delta_angle,
+        )
+        self._apply_affine_to_state(
+            self.x_post,
+            self.P_post,
+            m,
+            t,
+            scale_x=scale_x,
+            scale_y=scale_y,
+            delta_angle=delta_angle,
+        )
+        self._enforce_obb_constraints()
+        self._symmetrize_covariance()
 
         # If we froze the filter, also update the frozen state
         if not self.observed and self.attr_saved is not None:
-            self.attr_saved["x"][:2] = m @ self.attr_saved["x"][:2] + t
-            self.attr_saved["x"][2:4] = np.abs(m @ self.attr_saved["x"][2:4])
-            self.attr_saved["P"][:2, :2] = m @ self.attr_saved["P"][:2, :2] @ m.T
-            self.attr_saved["P"][2:4, 2:4] = m @ self.attr_saved["P"][2:4, 2:4] @ m.T
+            self._apply_affine_to_state(
+                self.attr_saved["x"],
+                self.attr_saved["P"],
+                m,
+                t,
+                scale_x=scale_x,
+                scale_y=scale_y,
+                delta_angle=delta_angle,
+            )
+            self._apply_affine_to_state(
+                self.attr_saved["x_prior"],
+                self.attr_saved["P_prior"],
+                m,
+                t,
+                scale_x=scale_x,
+                scale_y=scale_y,
+                delta_angle=delta_angle,
+            )
+            self._apply_affine_to_state(
+                self.attr_saved["x_post"],
+                self.attr_saved["P_post"],
+                m,
+                t,
+                scale_x=scale_x,
+                scale_y=scale_y,
+                delta_angle=delta_angle,
+            )
 
             # last_measurement might need updating similarly
             if self.attr_saved["last_measurement"] is not None:
-                self.attr_saved["last_measurement"][:2] = (
-                    m @ self.attr_saved["last_measurement"][:2] + t
+                self.attr_saved["last_measurement"] = self._apply_affine_to_measurement(
+                    self.attr_saved["last_measurement"],
+                    m,
+                    t,
+                    scale_x=scale_x,
+                    scale_y=scale_y,
+                    delta_angle=delta_angle,
                 )
 
     def predict(
@@ -279,15 +472,8 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
             Q = scalar * I.
         """
         self.predict_state(u=u, B=B, F=F, Q=Q)
-
-        # ---- New: Enforce bounding box and angle constraints (if dim_x >= 5) ----
-        if self.dim_x >= 5:
-            # clamp w, h > 0
-            self.x[2, 0] = max(self.x[2, 0], 1e-4)
-            self.x[3, 0] = max(self.x[3, 0], 1e-4)
-
-            # wrap angle to [-pi, pi]
-            self.x[4, 0] = (self.x[4, 0] + pi) % (2 * pi) - pi
+        self._enforce_obb_constraints()
+        self._symmetrize_covariance()
 
     def freeze(self):
         """
@@ -297,7 +483,7 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
         """
         self.attr_saved = deepcopy(self.__dict__)
 
-    def unfreeze(self):
+    def unfreeze(self) -> None:
         """
         Revert the filter parameters to the saved (frozen) state, then "replay"
         the missing measurements from history to smooth the intermediate states.
@@ -316,22 +502,28 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
                 return  # not enough measurements to replay
 
             index1, index2 = indices[-2], indices[-1]
-            box1, box2 = new_history[index1], new_history[index2]
-            x1, y1, w1, h1, a1 = box1
-            x2, y2, w2, h2, a2 = box2
+            box1 = np.asarray(new_history[index1], dtype=float).reshape(-1)
+            box2 = np.asarray(new_history[index2], dtype=float).reshape(-1)
+            if box1.size < 5 or box2.size < 5:
+                return
+
+            x1, y1, w1, h1, a1 = box1[:5]
+            x2, y2, w2, h2, a2 = box2[:5]
             time_gap = index2 - index1
+            if time_gap <= 0:
+                return
             dx, dy = (x2 - x1) / time_gap, (y2 - y1) / time_gap
             dw, dh = (w2 - w1) / time_gap, (h2 - h1) / time_gap
-            da = (a2 - a1) / time_gap
+            da = wrap_angle(a2 - a1) / time_gap
 
             for i in range(index2 - index1):
                 x_ = x1 + (i + 1) * dx
                 y_ = y1 + (i + 1) * dy
                 w_ = w1 + (i + 1) * dw
                 h_ = h1 + (i + 1) * dh
-                a_ = a1 + (i + 1) * da
+                a_ = wrap_angle(a1 + (i + 1) * da)
 
-                new_box = np.array([x_, y_, w_, h_, a_]).reshape((5, 1))
+                new_box = np.array([x_, y_, w_, h_, a_], dtype=float).reshape((5, 1))
                 self.update(new_box)
                 if i != (index2 - index1 - 1):
                     self.predict()
@@ -361,11 +553,17 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
         self._likelihood = None
         self._mahalanobis = None
 
-        # Save the observation (even if None)
-        self.history_obs.append(z)
+        measurement = None
+        if z is not None:
+            measurement = self.prepare_obb_measurement(
+                z, reference_angle=self._measurement_reference_angle()
+            )
+        self.history_obs.append(
+            None if measurement is None else deepcopy(measurement)
+        )
 
         # If measurement is missing
-        if z is None:
+        if measurement is None:
             if self.observed:
                 # freeze the current parameters for future potential smoothing
                 self.last_measurement = self.history_obs[-2]
@@ -388,7 +586,7 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
         if np.isscalar(R):
             R = np.eye(self.dim_z) * float(R)
 
-        z = self._reshape_measurement(z, self.dim_z)
+        z = measurement
 
         # y = z - Hx   (residual)
         self.y = z - dot(H, self.x)
@@ -411,15 +609,8 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
         self.z = deepcopy(z)
         self.x_post = self.x.copy()
         self.P_post = self.P.copy()
-
-        # ---- New: Enforce bounding box and angle constraints (if dim_x >= 5) ----
-        if self.dim_x >= 5:
-            # clamp w, h > 0
-            self.x[2, 0] = max(self.x[2, 0], 1e-4)
-            self.x[3, 0] = max(self.x[3, 0], 1e-4)
-
-            # wrap angle to [-pi, pi]
-            self.x[4, 0] = (self.x[4, 0] + pi) % (2 * pi) - pi
+        self._enforce_obb_constraints()
+        self._symmetrize_covariance()
 
     def update_steadystate(self, z, H=None):
         """
@@ -434,17 +625,21 @@ class KalmanFilterXYWHA(BaseKalmanFilter):
         if H is None:
             H = self.H
 
+        measurement = self.prepare_obb_measurement(
+            z, reference_angle=self._measurement_reference_angle()
+        )
+
         # residual
-        self.y = z - dot(H, self.x)
+        self.y = measurement - dot(H, self.x)
 
         # x = x + K_steady_state * y
         self.x = self.x + dot(self.K_steady_state, self.y)
 
         # Save measurement and posterior
-        self.z = deepcopy(z)
+        self.z = deepcopy(measurement)
         self.x_post = self.x.copy()
-
-        self.history_obs.append(z)
+        self._enforce_obb_constraints()
+        self.history_obs.append(measurement)
 
     def log_likelihood_of(self, z=None):
         """
