@@ -90,7 +90,6 @@ jobs:
       status: ${{ job.status }}
     env:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort sfsort"
-      SMOKE_SOURCE: ./assets/DOTA8-MOT/train/P0861__1024__0___1648/img1
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
@@ -114,10 +113,6 @@ jobs:
         run: |
           source .venv/bin/activate
           boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
-      - name: Build DOTA8-MOT smoke dataset
-        run: |
-          source .venv/bin/activate
-          python tools/dota8_to_mot.py --source dota8 --output assets/DOTA8-MOT --frames 8 --frame-rate 8 --rotation-span 14 --overwrite
 
       - name: Evaluate MOT17-mini metrics
         shell: bash
@@ -144,6 +139,39 @@ jobs:
             echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> metrics.csv
           done
 
+      - name: Sort MOT metrics results
+        shell: bash
+        run: |
+          cp metrics.csv results.csv
+          (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
+          column -s, -t sorted_results.csv > pretty_results.txt
+      - name: Show Results
+        shell: bash
+        run: |
+          cat pretty_results.txt
+
+  obb-smoke-tracking:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    env:
+      TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort sfsort"
+      SMOKE_SOURCE: ./assets/DOTA8-MOT/train/P0861__1024__0___1648/img1
+
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install requirements
+        shell: bash
+        run: |
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --extra yolo
       - name: DOTA8-MOT OBB smoke tracking
         shell: bash
         run: |
@@ -158,22 +186,10 @@ jobs:
             TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
             echo "$TRACKER_NAME,$OBB_STATUS" >> obb.csv
           done
-
-      - name: Merge MOT metrics and OBB smoke status
+      - name: Show OBB Results
         shell: bash
         run: |
-          echo "Format,Status❔,OBB,HOTA,MOTA,IDF1" > results.csv
-          tail -n +2 metrics.csv | while IFS=, read -r tracker status hota mota idf1; do
-            obb=$(grep -m1 "^${tracker}," obb.csv | cut -d, -f2)
-            echo "$tracker,$status,$obb,$hota,$mota,$idf1" >> results.csv
-          done
-
-          (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k4 -nr) > sorted_results.csv
-          column -s, -t sorted_results.csv > pretty_results.txt
-      - name: Show Results
-        shell: bash
-        run: |
-          cat pretty_results.txt
+          column -s, -t obb.csv
   tracking-with-pose:
     runs-on: ubuntu-latest
     outputs:
@@ -344,6 +360,7 @@ jobs:
     needs:
       - tracking-methods
       - mot-metrics-benchmark
+      - obb-smoke-tracking
       - evolution
       - export-reid-models
       - tests
@@ -356,9 +373,10 @@ jobs:
       - name: Prepare environment variables
         run: |
           echo "tracking-methods_STATUS=${{ needs.tracking-methods.result }}" >> $GITHUB_ENV
-          echo "mot-metrics_STATUS=${{ needs.mot-metrics.result }}" >> $GITHUB_ENV
+          echo "mot-metrics-benchmark_STATUS=${{ needs.mot-metrics-benchmark.result }}" >> $GITHUB_ENV
+          echo "obb-smoke-tracking_STATUS=${{ needs.obb-smoke-tracking.result }}" >> $GITHUB_ENV
           echo "evolution_STATUS=${{ needs.evolution.result }}" >> $GITHUB_ENV
-          echo "export-reid-models_STATUS=${{ needs.export-reid-modelsn.result }}" >> $GITHUB_ENV
+          echo "export-reid-models_STATUS=${{ needs.export-reid-models.result }}" >> $GITHUB_ENV
           echo "tests_STATUS=${{ needs.tests.result }}" >> $GITHUB_ENV
           echo "tracking-with-pose_STATUS=${{ needs.tracking-with-pose.result }}" >> $GITHUB_ENV
           echo "tracking-with-seg_STATUS=${{ needs.tracking-with-seg.result }}" >> $GITHUB_ENV
