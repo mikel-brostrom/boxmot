@@ -33,6 +33,16 @@ checker.check_packages(("ultralytics",))
 from ultralytics import YOLO
 
 
+def resolve_yolo_model_path(yolo_model_path: Union[str, Path]) -> Path:
+    """Resolve detector weights while preserving RT-DETR model names."""
+    model_path = Path(yolo_model_path)
+
+    if is_rtdetr_model(yolo_model_path):
+        return Path(model_path.name)
+
+    return WEIGHTS / model_path.name
+
+
 class TimedReIDModel:
     """
     Wrapper around ReID model to track timing.
@@ -116,7 +126,12 @@ class DetectorReIDPipeline:
             half: Whether to use half precision (FP16).
             timing_stats: Optional TimingStats instance. If None, creates a new one.
         """
-        self.yolo_model_path = WEIGHTS / Path(yolo_model_path).name
+        # Determine model type
+        self.is_ultralytics = is_ultralytics_model(yolo_model_path)
+        self.is_yolox = is_yolox_model(yolo_model_path)
+        self.is_rtdetr = is_rtdetr_model(yolo_model_path)
+
+        self.yolo_model_path = resolve_yolo_model_path(yolo_model_path)
         self.device = device
         self.half = half
         
@@ -127,11 +142,6 @@ class DetectorReIDPipeline:
         if imgsz is None:
             imgsz = default_imgsz(yolo_model_path)
         self.imgsz = imgsz
-        
-        # Determine model type
-        self.is_ultralytics = is_ultralytics_model(yolo_model_path)
-        self.is_yolox = is_yolox_model(yolo_model_path)
-        self.is_rtdetr = is_rtdetr_model(yolo_model_path)
         
         # Initialize the base YOLO model
         placeholder = self.yolo_model_path if self.is_ultralytics else WEIGHTS / "yolov8n.pt"
