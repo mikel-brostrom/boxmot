@@ -12,7 +12,12 @@ from boxmot import (
 from boxmot.trackers.deepocsort.deepocsort import (
     KalmanBoxTracker as DeepOCSortKalmanBoxTracker,
 )
+from boxmot.trackers.botsort.botsort import BotSort
+from boxmot.trackers.botsort.botsort_track import STrack as BotSortTrack
+from boxmot.trackers.bytetrack.bytetrack import ByteTrack, STrack as ByteTrackTrack
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
+from boxmot.trackers.sfsort.sfsort import SFSORT
+from boxmot.utils.matching import iou_distance
 from boxmot.utils import WEIGHTS
 from tests.test_config import (
     ALL_TRACKERS,
@@ -163,6 +168,84 @@ def test_per_class_tracker_active_tracks(tracker_type):
     tracker.update(det, rgb, embs)
     assert tracker.per_class_active_tracks[0], "No active tracks for class 0"
     assert tracker.per_class_active_tracks[65], "No active tracks for class 65"
+
+
+def test_botsort_supports_obb_without_reid():
+    tracker = BotSort(
+        reid_weights=WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt",
+        device="cpu",
+        half=False,
+        with_reid=False,
+    )
+
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    det = np.array([[320, 240, 80, 40, 0.15, 0.95, 0]], dtype=np.float32)
+
+    out1 = tracker.update(det, rgb)
+    out2 = tracker.update(det, rgb)
+
+    assert out1.shape[1] == 9
+    assert out2.shape[1] == 9
+    np.testing.assert_allclose(out2[0, :5], det[0, :5], atol=1e-2)
+
+
+def test_botsort_obb_matching_uses_oriented_geometry():
+    det = np.array([320, 240, 80, 40, 0.15, 0.95, 0, 0], dtype=np.float32)
+    track_a = BotSortTrack(det, max_obs=10, is_obb=True)
+    track_b = BotSortTrack(det, max_obs=10, is_obb=True)
+
+    cost = iou_distance([track_a], [track_b], is_obb=True)
+
+    assert cost.shape == (1, 1)
+    assert cost[0, 0] < 1e-3
+
+
+def test_bytetrack_supports_obb_outputs():
+    tracker = ByteTrack()
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    det = np.array([[320, 240, 80, 40, 0.15, 0.95, 0]], dtype=np.float32)
+
+    out1 = tracker.update(det, rgb)
+    out2 = tracker.update(det, rgb)
+
+    assert out1.shape == (1, 9)
+    assert out2.shape == (1, 9)
+    np.testing.assert_allclose(out2[0, :5], det[0, :5], atol=1e-2)
+
+
+def test_bytetrack_obb_matching_uses_oriented_geometry():
+    det = np.array([320, 240, 80, 40, 0.15, 0.95, 0, 0], dtype=np.float32)
+    track_a = ByteTrackTrack(det, max_obs=10, is_obb=True)
+    track_b = ByteTrackTrack(det, max_obs=10, is_obb=True)
+
+    cost = iou_distance([track_a], [track_b], is_obb=True)
+
+    assert cost.shape == (1, 1)
+    assert cost[0, 0] < 1e-3
+
+
+def test_sfsort_supports_obb_outputs():
+    tracker = SFSORT()
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    det = np.array([[320, 240, 80, 40, 0.15, 0.95, 0]], dtype=np.float32)
+
+    out1 = tracker.update(det, rgb)
+    out2 = tracker.update(det, rgb)
+
+    assert out1.shape == (1, 9)
+    assert out2.shape == (1, 9)
+    np.testing.assert_allclose(out2[0, :5], det[0, :5], atol=1e-2)
+
+
+def test_sfsort_obb_plotting_draws_tracks():
+    tracker = SFSORT()
+    img = np.zeros((256, 256, 3), dtype=np.uint8)
+    det = np.array([[128, 128, 60, 30, 0.3, 0.95, 0]], dtype=np.float32)
+
+    tracker.update(det, img)
+    rendered = tracker.plot_results(img.copy(), show_trajectories=True)
+
+    assert np.any(rendered != 0)
 
 
 @pytest.mark.parametrize("tracker_type", ALL_TRACKERS)

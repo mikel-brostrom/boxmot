@@ -90,6 +90,7 @@ jobs:
       status: ${{ job.status }}
     env:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort sfsort"
+      SMOKE_SOURCE: ./assets/DOTA8-MOT/train/P0861__1024__0___1648/img1
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
     timeout-minutes: 50
@@ -105,35 +106,69 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          sudo apt-get update
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
-      - name: Evaluation and Summarize Results
+          boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+      - name: Build DOTA8-MOT smoke dataset
+        run: |
+          source .venv/bin/activate
+          python tools/dota8_to_mot.py --source dota8 --output assets/DOTA8-MOT --frames 8 --frame-rate 8 --rotation-span 14 --overwrite
+
+      - name: Evaluate MOT17-mini metrics
         shell: bash
         run: |
           source .venv/bin/activate
-          echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
+          echo "Format,Status❔,HOTA,MOTA,IDF1" > metrics.csv
           for tracker in $TRACKERS; do
-            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci  --classes 0; then
+            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci --classes 0; then
               STATUS="✅"
             else
               STATUS="❌"
             fi
-            cat ${tracker}_output.json
-            # Extract the relevant parts of the JSON
-            HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
-            MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
-            IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
+            if [ -f ${tracker}_output.json ]; then
+              cat ${tracker}_output.json
+              HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
+              MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
+              IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
+            else
+              HOTA=""
+              MOTA=""
+              IDF1=""
+            fi
             TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
-            echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
+            echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> metrics.csv
           done
-          # Sort the results by HOTA in descending order
-          (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
-          # Create a pretty table from the sorted_results.csv file
+
+      - name: DOTA8-MOT OBB smoke tracking
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          echo "Format,OBB" > obb.csv
+          for tracker in $TRACKERS; do
+            if boxmot track --yolo-model yolo11s-obb.pt --reid-model lmbn_n_duke.pt --tracking-method $tracker --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok --save-txt; then
+              OBB_STATUS="✅"
+            else
+              OBB_STATUS="❌"
+            fi
+            TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+            echo "$TRACKER_NAME,$OBB_STATUS" >> obb.csv
+          done
+
+      - name: Merge MOT metrics and OBB smoke status
+        shell: bash
+        run: |
+          echo "Format,Status❔,OBB,HOTA,MOTA,IDF1" > results.csv
+          tail -n +2 metrics.csv | while IFS=, read -r tracker status hota mota idf1; do
+            obb=$(grep -m1 "^${tracker}," obb.csv | cut -d, -f2)
+            echo "$tracker,$status,$obb,$hota,$mota,$idf1" >> results.csv
+          done
+
+          (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k4 -nr) > sorted_results.csv
           column -s, -t sorted_results.csv > pretty_results.txt
       - name: Show Results
         shell: bash

@@ -214,3 +214,80 @@ Sometimes the provided environment is missing GPUs, large datasets, or external 
 
 7) Commit new files
   - Ensure new tracker code, config, and docs are staged and pushed.
+
+## 10. Integrating OBB Support for a Tracker
+
+When adding **oriented bounding box (OBB)** support, keep shared OBB plumbing separate from tracker-specific algorithm changes.
+
+### Reuse the shared OBB plumbing first
+
+- Detection layout switching is centralized in:
+  - `boxmot/trackers/basetracker.py`
+  - `boxmot/trackers/detection_layout.py`
+- Reuse the layout helpers for:
+  - empty detections / outputs
+  - confidence indexing
+  - class indexing
+  - box slicing
+  - appending detection indices
+- Do not duplicate raw column indexing throughout a tracker if the shared layout already provides it.
+
+### Minimum implementation steps
+
+1) Declare capability
+  - Set `supports_obb = True` on the tracker class.
+
+2) Keep AABB and OBB state explicit
+  - If OBB needs a different Kalman state or box representation, keep that as a separate path.
+  - Example pattern:
+    - AABB path uses the tracker’s original motion model.
+    - OBB path uses an OBB-capable state such as `KalmanFilterXYWH(ndim=5)` when appropriate.
+
+3) Isolate geometry-specific parsing
+  - Use the shared detection layout for common parsing.
+  - If the tracker still needs geometry-specific preparation, use small helpers such as:
+    - `_split_aabb_detections()`
+    - `_split_obb_detections()`
+  - Avoid scattering `if self.is_obb` across unrelated code.
+
+4) Update the track state object
+  - The track object should expose the geometry needed by matching and plotting.
+  - For OBB-capable trackers, this usually means:
+    - `xywha`
+    - `xyxy` (enclosing AABB for fallback consumers)
+    - `history_observations`
+    - `id`
+  - If the tracker relies on inferred visualization states, maintain `time_since_update` or the equivalent state.
+
+5) Use OBB-aware association only where needed
+  - Matching should call OBB-aware utilities such as `iou_distance(..., is_obb=self.is_obb)` when in OBB mode.
+  - Keep tracker-specific OBB cost logic local to the tracker if it is not generic.
+
+6) Format outputs correctly
+  - AABB output remains 8 columns.
+  - OBB output should be 9 columns:
+    - `(cx, cy, w, h, angle, id, conf, cls, det_ind)`
+
+7) Preserve visualization compatibility
+  - Ensure the tracker can be consumed by the shared visualization layer in `boxmot/utils/visualization.py`.
+  - If plotting is expected, the track objects must provide the metadata the visualization mixin expects.
+
+### Testing expectations for OBB support
+
+Add focused tests in `tests/unit/test_trackers.py` and related files as appropriate.
+
+At minimum, cover:
+
+- tracker accepts OBB detections
+- tracker returns 9-column OBB outputs
+- OBB matching path uses oriented geometry
+- plotting still works if the tracker participates in visualization
+
+If shared plumbing changes, also consider extending:
+
+- `tests/unit/test_inference.py`
+- `tests/unit/test_base_backend.py`
+
+### Design rule
+
+Use a shared **OBB mode trigger** for common detection plumbing, but only implement tracker-specific OBB internals where the algorithm truly requires them. This keeps trackers from getting bloated while still allowing correct OBB behavior.

@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from typing import Iterable
 
+import cv2
 import numpy as np
 
 from boxmot.trackers.basetracker import BaseTracker
+from boxmot.utils.iou import AssociationFunction
 from boxmot.utils.matching import linear_assignment
 
 
@@ -31,12 +34,28 @@ class Track:
     cls: int
     det_ind: int
     state: int = TrackState.Active
+    history_observations: deque = None
+    time_since_update: int = 0
+
+    def __post_init__(self) -> None:
+        self.bbox = np.asarray(self.bbox, dtype=np.float32)
+        self.conf = float(self.conf)
+        self.cls = int(self.cls)
+        self.det_ind = int(self.det_ind)
+        self.history_observations = deque([self.bbox.copy()], maxlen=50)
+        self.time_since_update = 0
+
+    @property
+    def id(self) -> int:
+        return self.track_id
 
     def update(self, box: np.ndarray, frame_id: int, conf: float, cls: int, det_ind: int) -> None:
         """Update a matched track with latest detection."""
 
-        self.bbox = box
+        self.bbox = np.asarray(box, dtype=np.float32)
+        self.history_observations.append(self.bbox.copy())
         self.state = TrackState.Active
+        self.time_since_update = 0
         self.last_frame = frame_id
         self.conf = float(conf)
         self.cls = int(cls)
@@ -44,6 +63,8 @@ class Track:
 
 
 class SFSORT(BaseTracker):
+    supports_obb = True
+
     """
     SFSORT tracker (v4.2) adapted for BoxMOT.
 
@@ -141,17 +162,13 @@ class SFSORT(BaseTracker):
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
         self.check_inputs(dets=dets, img=img, embs=embs)
-        if self.is_obb:
-            raise AssertionError("SFSORT does not support OBB detections")
 
         if not self._margins_ready and hasattr(self, "w") and hasattr(self, "h"):
             self._maybe_set_margins(self.w, self.h)
 
         self.frame_count += 1
 
-        boxes = dets[:, :4] if dets.size else np.empty((0, 4))
-        scores = dets[:, 4] if dets.size else np.empty((0,))
-        classes = dets[:, 5] if dets.size else np.empty((0,))
+        boxes, scores, classes = self._split_detections(dets)
         det_inds = np.arange(len(dets)) if dets.size else np.empty((0,), dtype=int)
 
         hth, nth, mth = self._dynamic_thresholds(scores)
@@ -171,7 +188,7 @@ class SFSORT(BaseTracker):
             definite_det_inds = det_inds[high_score]
 
             if track_pool:
-                cost = self.calculate_cost(track_pool, definite_boxes)
+                cost = self.calculate_cost(track_pool, definite_boxes, is_obb=self.is_obb)
                 matches, unmatched_tracks, unmatched_detections = linear_assignment(cost, mth)
                 for track_idx, detection_idx in matches:
                     track = track_pool[track_idx]
@@ -220,7 +237,12 @@ class SFSORT(BaseTracker):
             possible_classes = classes[intermediate_score]
             possible_det_inds = det_inds[intermediate_score]
 
-            cost = self.calculate_cost(unmatched_track_pool, possible_boxes, iou_only=True)
+            cost = self.calculate_cost(
+                unmatched_track_pool,
+                possible_boxes,
+                iou_only=True,
+                is_obb=self.is_obb,
+            )
             matches, _, unmatched_detections = linear_assignment(cost, self.match_th_second)
 
             for track_idx, detection_idx in matches:
@@ -245,7 +267,30 @@ class SFSORT(BaseTracker):
         self.active_tracks = next_active_tracks.copy()
 
         outputs = [self._format_track(track) for track in next_active_tracks]
-        return np.asarray(outputs, dtype=float) if outputs else np.empty((0, 8), dtype=float)
+        return np.asarray(outputs, dtype=float) if outputs else self.empty_output(dtype=float)
+
+    def _split_detections(self, dets: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        if self.is_obb:
+            return self._split_obb_detections(dets)
+        return self._split_aabb_detections(dets)
+
+    def _split_aabb_detections(self, dets: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        if dets.size == 0:
+            return (
+                np.empty((0, 4), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+            )
+        return dets[:, :4], dets[:, 4], dets[:, 5]
+
+    def _split_obb_detections(self, dets: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        if dets.size == 0:
+            return (
+                np.empty((0, 5), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+            )
+        return dets[:, :5], dets[:, 5], dets[:, 6]
 
     def _dynamic_thresholds(self, scores: np.ndarray) -> tuple[float, float, float]:
         hth = self.high_th
@@ -272,10 +317,14 @@ class SFSORT(BaseTracker):
 
     def _update_lost_tracks(self, next_lost_tracks: Iterable[Track]) -> None:
         for track in next_lost_tracks:
+            track.time_since_update = max(0, self.frame_count - track.last_frame)
             if track not in self.lost_tracks:
                 self.lost_tracks.append(track)
-                u = track.bbox[0] + (track.bbox[2] - track.bbox[0]) / 2.0
-                v = track.bbox[1] + (track.bbox[3] - track.bbox[1]) / 2.0
+                if track.bbox.shape[0] == 5:
+                    u, v = float(track.bbox[0]), float(track.bbox[1])
+                else:
+                    u = track.bbox[0] + (track.bbox[2] - track.bbox[0]) / 2.0
+                    v = track.bbox[1] + (track.bbox[3] - track.bbox[1]) / 2.0
                 if (self.l_margin < u < self.r_margin) and (self.t_margin < v < self.b_margin):
                     track.state = TrackState.Lost_Central
                 else:
@@ -317,11 +366,8 @@ class SFSORT(BaseTracker):
 
     @staticmethod
     def _format_track(track: Track) -> list[float]:
-        return [
-            float(track.bbox[0]),
-            float(track.bbox[1]),
-            float(track.bbox[2]),
-            float(track.bbox[3]),
+        bbox = [float(v) for v in track.bbox.tolist()]
+        return bbox + [
             float(track.track_id),
             float(track.conf),
             float(track.cls),
@@ -340,15 +386,83 @@ class SFSORT(BaseTracker):
         return SFSORT.clamp(resolved, min_value, max_value)
 
     @staticmethod
-    def calculate_cost(tracks: list[Track], boxes: np.ndarray, iou_only: bool = False) -> np.ndarray:
+    def _obb_to_xyxy(box: np.ndarray) -> np.ndarray:
+        box = np.asarray(box, dtype=np.float32).reshape(-1)
+        cx, cy, w, h, angle = box[:5]
+        rect = ((float(cx), float(cy)), (max(float(w), 1e-4), max(float(h), 1e-4)), float(np.degrees(angle)))
+        corners = cv2.boxPoints(rect)
+        x1, y1 = corners.min(axis=0)
+        x2, y2 = corners.max(axis=0)
+        return np.array([x1, y1, x2, y2], dtype=np.float32)
+
+    @staticmethod
+    def calculate_cost(
+        tracks: list[Track],
+        boxes: np.ndarray,
+        iou_only: bool = False,
+        is_obb: bool = False,
+    ) -> np.ndarray:
         """Calculates the association cost based on IoU and box similarity."""
-        eps = 1e-7
         active_boxes = [track.bbox for track in tracks]
         if len(active_boxes) == 0 or boxes.size == 0:
             return np.empty((len(active_boxes), len(boxes)))
 
-        b1_x1, b1_y1, b1_x2, b1_y2 = np.array(active_boxes).T
-        b2_x1, b2_y1, b2_x2, b2_y2 = np.array(boxes).T
+        active_boxes = np.asarray(active_boxes, dtype=np.float32)
+        boxes = np.asarray(boxes, dtype=np.float32)
+
+        if is_obb:
+            return SFSORT._calculate_cost_obb(active_boxes, boxes, iou_only=iou_only)
+        return SFSORT._calculate_cost_aabb(active_boxes, boxes, iou_only=iou_only)
+
+    @staticmethod
+    def _calculate_cost_obb(
+        active_boxes: np.ndarray,
+        boxes: np.ndarray,
+        iou_only: bool = False,
+    ) -> np.ndarray:
+        eps = 1e-7
+        iou = AssociationFunction.iou_batch_obb(active_boxes, boxes)
+        if iou_only:
+            return 1.0 - iou
+
+        centerx1 = active_boxes[:, 0]
+        centery1 = active_boxes[:, 1]
+        centerx2 = boxes[:, 0]
+        centery2 = boxes[:, 1]
+        active_xyxy = np.vstack([SFSORT._obb_to_xyxy(box) for box in active_boxes])
+        boxes_xyxy = np.vstack([SFSORT._obb_to_xyxy(box) for box in boxes])
+        box1_width = active_boxes[:, 2]
+        box2_width = boxes[:, 2]
+        box1_height = active_boxes[:, 3]
+        box2_height = boxes[:, 3]
+        sw = np.minimum(box1_width[:, None], box2_width) / (
+            np.maximum(box1_width[:, None], box2_width) + eps
+        )
+        sh = np.minimum(box1_height[:, None], box2_height) / (
+            np.maximum(box1_height[:, None], box2_height) + eps
+        )
+
+        return SFSORT._combine_cost_terms(
+            iou=iou,
+            centerx1=centerx1,
+            centery1=centery1,
+            centerx2=centerx2,
+            centery2=centery2,
+            active_xyxy=active_xyxy,
+            boxes_xyxy=boxes_xyxy,
+            sw=sw,
+            sh=sh,
+        )
+
+    @staticmethod
+    def _calculate_cost_aabb(
+        active_boxes: np.ndarray,
+        boxes: np.ndarray,
+        iou_only: bool = False,
+    ) -> np.ndarray:
+        eps = 1e-7
+        b1_x1, b1_y1, b1_x2, b1_y2 = active_boxes.T
+        b2_x1, b2_y1, b2_x2, b2_y2 = boxes.T
 
         h_intersection = (
             np.minimum(b1_x2[:, None], b2_x2) - np.maximum(b1_x1[:, None], b2_x1)
@@ -366,7 +480,6 @@ class SFSORT(BaseTracker):
 
         box1_area = box1_height * box1_width
         box2_area = box2_height * box2_width
-
         union = box2_area + box1_area[:, None] - intersection + eps
         iou = intersection / union
 
@@ -377,22 +490,45 @@ class SFSORT(BaseTracker):
         centery1 = (b1_y1 + b1_y2) / 2.0
         centerx2 = (b2_x1 + b2_x2) / 2.0
         centery2 = (b2_y1 + b2_y2) / 2.0
-        inner_diag = np.abs(centerx1[:, None] - centerx2) + np.abs(centery1[:, None] - centery2)
-
-        xxc1 = np.minimum(b1_x1[:, None], b2_x1)
-        yyc1 = np.minimum(b1_y1[:, None], b2_y1)
-        xxc2 = np.maximum(b1_x2[:, None], b2_x2)
-        yyc2 = np.maximum(b1_y2[:, None], b2_y2)
-        outer_diag = np.abs(xxc2 - xxc1) + np.abs(yyc2 - yyc1)
-
-        diou = iou - (inner_diag / outer_diag)
-
         delta_w = np.abs(box2_width - box1_width[:, None])
         sw = w_intersection / np.abs(w_intersection + delta_w + eps)
-
         delta_h = np.abs(box2_height - box1_height[:, None])
         sh = h_intersection / np.abs(h_intersection + delta_h + eps)
 
+        return SFSORT._combine_cost_terms(
+            iou=iou,
+            centerx1=centerx1,
+            centery1=centery1,
+            centerx2=centerx2,
+            centery2=centery2,
+            active_xyxy=active_boxes,
+            boxes_xyxy=boxes,
+            sw=sw,
+            sh=sh,
+        )
+
+    @staticmethod
+    def _combine_cost_terms(
+        iou: np.ndarray,
+        centerx1: np.ndarray,
+        centery1: np.ndarray,
+        centerx2: np.ndarray,
+        centery2: np.ndarray,
+        active_xyxy: np.ndarray,
+        boxes_xyxy: np.ndarray,
+        sw: np.ndarray,
+        sh: np.ndarray,
+    ) -> np.ndarray:
+        eps = 1e-7
+        inner_diag = np.abs(centerx1[:, None] - centerx2) + np.abs(centery1[:, None] - centery2)
+
+        xxc1 = np.minimum(active_xyxy[:, 0][:, None], boxes_xyxy[:, 0])
+        yyc1 = np.minimum(active_xyxy[:, 1][:, None], boxes_xyxy[:, 1])
+        xxc2 = np.maximum(active_xyxy[:, 2][:, None], boxes_xyxy[:, 2])
+        yyc2 = np.maximum(active_xyxy[:, 3][:, None], boxes_xyxy[:, 3])
+        outer_diag = np.abs(xxc2 - xxc1) + np.abs(yyc2 - yyc1)
+        outer_diag = np.maximum(outer_diag, eps)
+
+        diou = iou - (inner_diag / outer_diag)
         bbsi = diou + sh + sw
-        cost = bbsi / 3.0
-        return 1.0 - cost
+        return 1.0 - (bbsi / 3.0)

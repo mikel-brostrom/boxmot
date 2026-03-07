@@ -43,7 +43,7 @@ def linear_assignment(cost_matrix, thresh):
     return matches, unmatched_a, unmatched_b
 
 
-def iou_distance(atracks, btracks):
+def iou_distance(atracks, btracks, is_obb: bool = False):
     """
     Compute cost based on IoU
     :type atracks: list[STrack]
@@ -58,13 +58,22 @@ def iou_distance(atracks, btracks):
         atlbrs = atracks
         btlbrs = btracks
     else:
-        atlbrs = [track.xyxy for track in atracks]
-        btlbrs = [track.xyxy for track in btracks]
+        is_obb = is_obb or any(getattr(track, "is_obb", False) for track in atracks + btracks)
+        if is_obb:
+            atlbrs = [track.xywha for track in atracks]
+            btlbrs = [track.xywha for track in btracks]
+        else:
+            atlbrs = [track.xyxy for track in atracks]
+            btlbrs = [track.xyxy for track in btracks]
 
     ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
     if ious.size == 0:
         return ious
-    _ious = AssociationFunction.iou_batch(atlbrs, btlbrs)
+    _ious = (
+        AssociationFunction.iou_batch_obb(atlbrs, btlbrs)
+        if is_obb
+        else AssociationFunction.iou_batch(atlbrs, btlbrs)
+    )
 
     cost_matrix = 1 - _ious
 

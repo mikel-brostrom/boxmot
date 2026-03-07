@@ -48,6 +48,7 @@ def convert_obb_to_z(obb):
     """
     Convert [cx, cy, w, h, theta] to [cx, cy, s, r, theta].
     """
+    obb = np.asarray(obb, dtype=float).reshape(-1)
     cx, cy, w, h, theta = obb
     w = max(float(w), 1e-6)
     h = max(float(h), 1e-6)
@@ -60,8 +61,9 @@ def convert_x_to_obb(x, score=None):
     """
     Convert [x, y, s, r, theta] to [x, y, w, h, theta].
     """
+    x = np.asarray(x, dtype=float).reshape(-1)
     w = np.sqrt(max(float(x[2] * x[3]), 1e-12))
-    h = x[2] / max(w, 1e-6)
+    h = float(x[2]) / max(w, 1e-6)
     if score is None:
         return np.array([x[0], x[1], w, h, x[4]], dtype=float).reshape((1, 5))
     return np.array([x[0], x[1], w, h, x[4], score], dtype=float).reshape((1, 6))
@@ -278,6 +280,8 @@ class KalmanBoxTracker(object):
 
 
 class OcSort(BaseTracker):
+    supports_obb = True
+
     """
     Initialize the OcSort tracker with various parameters.
 
@@ -354,8 +358,8 @@ class OcSort(BaseTracker):
         self.frame_count += 1
         h, w = img.shape[0:2]
 
-        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
-        confs = dets[:, 4 + self.is_obb]
+        dets = self.detection_layout.with_detection_indices(dets)
+        confs = self.detection_layout.confidences(dets)
 
         inds_low = confs > self.min_conf
         inds_high = confs < self.det_thresh
@@ -367,12 +371,12 @@ class OcSort(BaseTracker):
         dets = dets[remain_inds]
 
         # get predicted locations from existing trackers.
-        trks = np.zeros((len(self.active_tracks), 5 + self.is_obb))
+        trks = np.zeros((len(self.active_tracks), self.detection_layout.box_with_conf_cols))
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
             pos = self.active_tracks[t].predict()[0]
-            trk[:] = [pos[i] for i in range(4 + self.is_obb)] + [0]
+            trk[:] = [pos[i] for i in range(self.detection_layout.box_cols)] + [0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
@@ -400,7 +404,7 @@ class OcSort(BaseTracker):
             First round of association
         """
         matched, unmatched_dets, unmatched_trks = associate(
-            dets[:, 0 : 5 + self.is_obb],
+            dets[:, 0 : self.detection_layout.box_with_conf_cols],
             trks,
             self.asso_func,
             self.asso_threshold,
@@ -483,9 +487,9 @@ class OcSort(BaseTracker):
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
             trk = KalmanBoxTracker(
-                dets[i, :-2] if self.is_obb else dets[i, :5],
-                dets[i, -2] if self.is_obb else dets[i, 5],
-                dets[i, -1] if self.is_obb else dets[i, 6],
+                dets[i, : self.detection_layout.box_with_conf_cols],
+                dets[i, self.detection_layout.cls_idx],
+                dets[i, self.detection_layout.det_cols],
                 delta_t=self.delta_t,
                 Q_xy_scaling=self.Q_xy_scaling,
                 Q_s_scaling=self.Q_s_scaling,
@@ -503,7 +507,7 @@ class OcSort(BaseTracker):
                 this is optional to use the recent observation or the kalman filter prediction,
                 we didn't notice significant difference here
                 """
-                d = trk.last_observation[: 4 + self.is_obb]
+                d = trk.last_observation[: self.detection_layout.box_cols]
             if (trk.time_since_update < 1) and (
                 trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
             ):

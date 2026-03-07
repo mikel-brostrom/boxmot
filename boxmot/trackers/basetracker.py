@@ -5,12 +5,16 @@ from abc import ABC, abstractmethod
 import cv2 as cv
 import numpy as np
 
+from boxmot.trackers.detection_layout import (get_detection_layout,
+                                              infer_detection_layout)
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.iou import AssociationFunction
 from boxmot.utils.visualization import VisualizationMixin
 
 
 class BaseTracker(VisualizationMixin):
+    supports_obb = False
+
     def __init__(
         self,
         det_thresh: float = 0.3,
@@ -61,8 +65,10 @@ class BaseTracker(VisualizationMixin):
         self.iou_threshold = iou_threshold
         self.per_class = per_class
         self.nr_classes = nr_classes
-        self.asso_func_name = asso_func + "_obb" if is_obb else asso_func
-        self.is_obb = is_obb
+        self._asso_func_base_name = asso_func
+        self.detection_layout = get_detection_layout(is_obb)
+        self.asso_func_name = self.detection_layout.association_mode_name(asso_func)
+        self.is_obb = self.detection_layout.is_obb
 
         # Attributes
         self.frame_count = 0
@@ -130,7 +136,7 @@ class BaseTracker(VisualizationMixin):
 
     def get_class_dets_n_embs(self, dets, embs, cls_id):
         # Initialize empty arrays for detections and embeddings
-        class_dets = np.empty((0, 6))
+        class_dets = self.detection_layout.empty_dets(dtype=np.float32)
         class_embs = (
             np.empty((0, self.last_emb_size))
             if self.last_emb_size is not None
@@ -141,7 +147,7 @@ class BaseTracker(VisualizationMixin):
         if dets.size == 0:
             return class_dets, class_embs
 
-        class_indices = np.where(dets[:, 5] == cls_id)[0]
+        class_indices = np.where(dets[:, self.detection_layout.cls_idx] == cls_id)[0]
         class_dets = dets[class_indices]
 
         if embs is None:
@@ -158,6 +164,25 @@ class BaseTracker(VisualizationMixin):
                 1
             ]  # Update the last known embedding size
         return class_dets, class_embs
+
+    def _set_detection_mode(self, is_obb: bool) -> None:
+        """Update the tracker detection mode and association function name."""
+        self.detection_layout = get_detection_layout(is_obb)
+        self.is_obb = self.detection_layout.is_obb
+        self.asso_func_name = self.detection_layout.association_mode_name(
+            self._asso_func_base_name
+        )
+
+        if self._first_frame_processed and hasattr(self, "w") and hasattr(self, "h"):
+            self.asso_func = AssociationFunction(
+                w=self.w, h=self.h, asso_mode=self.asso_func_name
+            ).asso_func
+
+    def empty_detections(self, dtype=np.float32) -> np.ndarray:
+        return self.detection_layout.empty_dets(dtype=dtype)
+
+    def empty_output(self, dtype=float) -> np.ndarray:
+        return self.detection_layout.empty_output(dtype=dtype)
 
     @staticmethod
     def setup_decorator(method):
@@ -182,11 +207,14 @@ class BaseTracker(VisualizationMixin):
 
             # First-time detection setup
             if not self._first_dets_processed and dets is not None:
-                if dets.ndim == 2 and dets.shape[1] == 6:
-                    self.is_obb = False
-                    self._first_dets_processed = True
-                elif dets.ndim == 2 and dets.shape[1] == 7:
-                    self.is_obb = True
+                layout = infer_detection_layout(dets)
+                if layout is not None:
+                    if layout.is_obb and not self.supports_obb:
+                        raise AssertionError(
+                            f"{self.__class__.__name__} does not support OBB detections. "
+                            "Use OCSort for OBB tracking."
+                        )
+                    self._set_detection_mode(layout.is_obb)
                     self._first_dets_processed = True
 
             # First frame image-based setup
@@ -211,7 +239,7 @@ class BaseTracker(VisualizationMixin):
         def wrapper(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None):
             # handle different types of inputs
             if dets is None or len(dets) == 0:
-                dets = np.empty((0, 6))
+                dets = self.empty_detections()
 
             if not self.per_class:
                 # Process all detections at once if per_class is False
@@ -249,7 +277,10 @@ class BaseTracker(VisualizationMixin):
 
             # Increase frame count by 1
             self.frame_count = frame_count + 1
-            return np.vstack(per_class_tracks) if per_class_tracks else np.empty((0, 8))
+            if per_class_tracks:
+                return np.vstack(per_class_tracks)
+
+            return self.empty_output()
 
         return wrapper
 
@@ -269,14 +300,7 @@ class BaseTracker(VisualizationMixin):
                 "Missmatch between detections and embeddings sizes"
             )
 
-        if self.is_obb:
-            assert dets.shape[1] == 7, (
-                "Unsupported 'dets' 2nd dimension length, valid length is 7 (cx,cy,w,h,angle,conf,cls)"
-            )
-        else:
-            assert dets.shape[1] == 6, (
-                "Unsupported 'dets' 2nd dimension length, valid lengths is 6 (x1,y1,x2,y2,conf,cls)"
-            )
+        self.detection_layout.validate_dets(dets)
 
     def reset(self):
         pass

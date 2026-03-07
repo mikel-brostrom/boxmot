@@ -23,7 +23,7 @@ from boxmot.detectors import (
     is_rtdetr_model,
     is_yolox_model,
 )
-from boxmot.utils import logger as LOGGER
+from boxmot.utils import WEIGHTS, logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.timing import TimingStats
 
@@ -116,7 +116,7 @@ class DetectorReIDPipeline:
             half: Whether to use half precision (FP16).
             timing_stats: Optional TimingStats instance. If None, creates a new one.
         """
-        self.yolo_model_path = Path(yolo_model_path)
+        self.yolo_model_path = WEIGHTS / Path(yolo_model_path).name
         self.device = device
         self.half = half
         
@@ -134,7 +134,7 @@ class DetectorReIDPipeline:
         self.is_rtdetr = is_rtdetr_model(yolo_model_path)
         
         # Initialize the base YOLO model
-        placeholder = yolo_model_path if self.is_ultralytics else "yolov8n.pt"
+        placeholder = self.yolo_model_path if self.is_ultralytics else WEIGHTS / "yolov8n.pt"
         self.yolo = YOLO(placeholder)
         
         # Custom model instance for non-ultralytics models
@@ -172,7 +172,7 @@ class DetectorReIDPipeline:
             reid_model_paths = [reid_model_paths]
         
         for reid_path in reid_model_paths:
-            reid_path = Path(reid_path)
+            reid_path = WEIGHTS / Path(reid_path).name
             reid_backend = ReidAutoBackend(
                 weights=reid_path,
                 device=self.device,
@@ -489,13 +489,22 @@ def extract_detections(result) -> np.ndarray:
         result: A YOLO result object.
     
     Returns:
-        numpy array of shape (N, 6) with columns [x1, y1, x2, y2, conf, cls].
-        Returns empty array (0, 6) if no detections.
+        numpy array of shape (N, 6) for AABB models with columns
+        [x1, y1, x2, y2, conf, cls], or shape (N, 7) for OBB models with
+        columns [cx, cy, w, h, angle, conf, cls].
+        Returns an empty array with the correct width when no detections are present.
     """
-    if result.boxes is None or len(result.boxes) == 0:
-        return np.empty((0, 6))
-    
-    return result.boxes.data.cpu().numpy()
+    if getattr(result, "boxes", None) is not None:
+        if len(result.boxes) == 0:
+            return np.empty((0, 6), dtype=np.float32)
+        return result.boxes.data.cpu().numpy()
+
+    if getattr(result, "obb", None) is not None:
+        if len(result.obb) == 0:
+            return np.empty((0, 7), dtype=np.float32)
+        return result.obb.data.cpu().numpy()
+
+    return np.empty((0, 6), dtype=np.float32)
 
 
 def filter_detections(
@@ -516,6 +525,19 @@ def filter_detections(
     """
     if len(dets) == 0:
         return dets
+
+    if dets.shape[1] == 7:
+        widths, heights = dets[:, 2], dets[:, 3]
+
+        if remove_degenerate:
+            valid = (widths > 0) & (heights > 0)
+            dets = dets[valid]
+            if len(dets) == 0:
+                return dets
+            widths, heights = dets[:, 2], dets[:, 3]
+
+        areas = widths * heights
+        return dets[areas >= min_area]
     
     x1, y1, x2, y2 = dets[:, 0], dets[:, 1], dets[:, 2], dets[:, 3]
     

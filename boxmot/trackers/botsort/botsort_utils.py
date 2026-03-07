@@ -63,7 +63,8 @@ def remove_duplicate_stracks(
     Returns:
         Tuple[List[STrack], List[STrack]]: The filtered track lists, with duplicates removed.
     """
-    pdist = iou_distance(stracksa, stracksb)
+    is_obb = any(getattr(t, "is_obb", False) for t in stracksa + stracksb)
+    pdist = iou_distance(stracksa, stracksb, is_obb=is_obb)
     pairs = np.where(pdist < 0.15)
     dupa, dupb = [], []
 

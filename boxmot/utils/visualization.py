@@ -194,7 +194,9 @@ class BaseVisualization(ABC):
         # If the track is lost (predicted), use the current Kalman Filter prediction
         # instead of the last history observation (which is the last seen detection)
         if state == "predicted":
-            if hasattr(a, "xyxy"):
+            if self.is_obb and hasattr(a, "xywha"):
+                box = a.xywha
+            elif hasattr(a, "xyxy"):
                 box = a.xyxy
             elif hasattr(a, "get_state"):
                 box = a.get_state()
