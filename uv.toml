@@ -1,0 +1,75 @@
+# =====================================================
+# uv.toml for BoxMOT
+# =====================================================
+# NOTE: This file is only read when boxmot is the top-level project.
+# It is NOT propagated to consumers who depend on boxmot as a library.
+# This avoids forcing a specific CUDA version on downstream projects.
+
+#######################
+# Alternative Indexes #
+#######################
+# Non-explicit indexes are searched alongside PyPI for all packages.
+# The CI sed swaps "torch-gpu" URL to the CPU URL for CPU-only runners.
+# Since uv.toml is only read for the top-level project, downstream
+# consumers who depend on boxmot via git are completely unaffected.
+
+[[index]]
+name = "torch-gpu"
+url  = "https://download.pytorch.org/whl/cu121"
+
+# NVIDIA packages — kept explicit so only tensorrt* is fetched from here
+[[index]]
+name     = "nvidia"
+url      = "https://pypi.nvidia.com"
+explicit = true
+
+#########################
+# UV project settings   #
+#########################
+
+# Keep TensorRT on the CUDA 12 series so it matches torch cu121
+constraint-dependencies = ["tensorrt>=10.12,<10.13"]
+
+# Ensure binary-only packages (torch/torchvision, tensorrt, etc.) have wheels
+# for the CI platform (Linux x86_64). This stops uv from choosing
+# torchvision==0.24.1+d801a34, which only has a win_arm64 wheel.
+required-environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+#########################
+# UV-specific Overrides #
+#########################
+
+# Override yolox's outdated dependencies
+[[dependency-metadata]]
+name          = "yolox"
+version       = "0.3.0"
+requires-dist = [
+  "onnx>=1.17.0",
+  "onnxsim<1.0.0,>=0.4.33 ; python_version < '3.12'",
+  "onnxsim-prebuilt>=0.4.36.post1 ; python_version >= '3.12'",
+  "tabulate",
+]
+
+# Redirect tensorrt to the CUDA 12 variant matching torch cu121
+[[dependency-metadata]]
+name = "tensorrt"
+requires-dist = [
+  "tensorrt-cu12 ; (sys_platform == 'linux' or sys_platform == 'win32')",
+]
+
+[[dependency-metadata]]
+name = "tensorrt-cu12"
+requires-dist = [
+  "tensorrt-cu12-libs ; (sys_platform == 'linux' or sys_platform == 'win32')",
+]
+
+# Terminal package; empty deps to avoid wheel-stub builds on Darwin
+[[dependency-metadata]]
+name = "tensorrt-cu12-libs"
+requires-dist = []
+
+# Ensure yolox builds with setuptools present in the isolated build env
+[extra-build-dependencies]
+yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
