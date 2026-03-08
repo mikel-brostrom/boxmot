@@ -1,5 +1,5 @@
 from collections import deque
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import numpy as np
 import scipy.linalg
@@ -109,7 +109,7 @@ class BaseKalmanFilter:
         return measurement
 
     @staticmethod
-    def _wrap_angle(angle: np.ndarray | float) -> np.ndarray | float:
+    def _wrap_angle(angle: Union[np.ndarray, float]) -> Union[np.ndarray, float]:
         wrapped = (np.asarray(angle, dtype=float) + np.pi) % (2.0 * np.pi) - np.pi
         if np.isscalar(angle):
             return float(wrapped)
