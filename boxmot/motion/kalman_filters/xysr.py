@@ -7,10 +7,6 @@ import numpy as np
 from boxmot.motion.kalman_filters.base import BaseKalmanFilter
 
 
-def _wrap_angle(angle: np.ndarray) -> np.ndarray:
-    return (angle + np.pi) % (2.0 * np.pi) - np.pi
-
-
 class KalmanFilterXYSR(BaseKalmanFilter):
     """
     Linear Kalman filter for XYSR with optional OBB angle extension.
@@ -91,30 +87,77 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         h = np.sqrt(s / r)
         return float(max(0.5 * (w + h), 1.0))
 
-    def _measurement_reference_angle(self) -> Optional[float]:
+    def _measurement_reference_state(self) -> Optional[np.ndarray]:
         if self._is_obb:
-            return float(self.x[4, 0])
+            return np.asarray(self.x[: self.dim_z, 0], dtype=float).copy()
         return None
 
+    @classmethod
+    def _align_obb_measurement(
+        cls, measurement: np.ndarray, reference: np.ndarray
+    ) -> np.ndarray:
+        """
+        Resolve equivalent OBB forms in XYSR space before update.
+
+        In XYSR-OBB, a rectangle can be represented as:
+        - (s, r, theta)
+        - (s, r, theta + pi)
+        - (s, 1/r, theta + pi/2)
+        - (s, 1/r, theta - pi/2)
+        Choose the form closest to the reference state to prevent angle flips.
+        """
+        aligned = np.asarray(measurement, dtype=float).copy().reshape((-1,))
+        ref = np.asarray(reference, dtype=float).reshape((-1,))
+
+        ref_r = max(float(ref[3]), 1e-6)
+        ref_theta = float(ref[4])
+
+        s = max(float(aligned[2]), 1e-6)
+        r = max(float(aligned[3]), 1e-6)
+        theta = float(aligned[4])
+
+        candidates = (
+            (s, r, theta),
+            (s, r, theta + np.pi),
+            (s, 1.0 / r, theta + (np.pi / 2.0)),
+            (s, 1.0 / r, theta - (np.pi / 2.0)),
+        )
+        ratio_candidates = tuple(
+            (1.0, cand_r, cand_theta) for _, cand_r, cand_theta in candidates
+        )
+        _, best_r, best_theta = cls._select_obb_candidate(
+            reference_sizes=(1.0, ref_r),
+            reference_angle=ref_theta,
+            candidates=ratio_candidates,
+        )
+        aligned[2] = max(s, 1e-6)
+        aligned[3] = max(best_r, 1e-6)
+        aligned[4] = best_theta
+        return aligned
+
     def _prepare_measurement(
-        self, z: np.ndarray, reference_angle: Optional[float] = None
+        self, z: np.ndarray, reference_state: Optional[np.ndarray] = None
     ) -> np.ndarray:
         measurement = self._reshape_measurement(z, self.dim_z)
         measurement[2, 0] = max(float(measurement[2, 0]), 1e-6)
         measurement[3, 0] = max(float(measurement[3, 0]), 1e-6)
         if self._is_obb:
-            raw = float(_wrap_angle(measurement[4, 0]))
-            if reference_angle is None:
-                measurement[4, 0] = raw
-            else:
-                measurement[4, 0] = reference_angle + float(_wrap_angle(raw - reference_angle))
+            raw = float(self._wrap_angle(measurement[4, 0]))
+            measurement[4, 0] = raw
+            if reference_state is not None:
+                aligned = self._align_obb_measurement(
+                    measurement[:, 0], np.asarray(reference_state, dtype=float).reshape(-1)
+                )
+                measurement[:, 0] = aligned
         return measurement
 
     def _enforce_state_constraints(self) -> None:
-        self.x[2, 0] = max(float(self.x[2, 0]), 1e-6)
-        self.x[3, 0] = max(float(self.x[3, 0]), 1e-6)
-        if self._is_obb:
-            self.x[4, 0] = float(_wrap_angle(self.x[4, 0]))
+        self.x = self._enforce_state_geometry(
+            self.x,
+            positive_indices=(2, 3),
+            angle_index=4 if self._is_obb else None,
+            min_size=1e-6,
+        )
         self.P = 0.5 * (self.P + self.P.T)
 
     @staticmethod
@@ -252,7 +295,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
     def initiate(self, measurement: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Initialize xysr state [x, y, s, r, vx, vy, vs] from a measurement."""
         mean = np.zeros((self.dim_x, 1), dtype=float)
-        measurement = self._prepare_measurement(measurement, reference_angle=None)
+        measurement = self._prepare_measurement(measurement, reference_state=None)
         mean[: self.dim_z] = measurement
 
         std = self._get_initial_covariance_std(measurement)
@@ -261,7 +304,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         mean[2, 0] = max(float(mean[2, 0]), 1e-6)
         mean[3, 0] = max(float(mean[3, 0]), 1e-6)
         if self._is_obb:
-            mean[4, 0] = float(_wrap_angle(mean[4, 0]))
+            mean[4, 0] = float(self._wrap_angle(mean[4, 0]))
         covariance = 0.5 * (covariance + covariance.T)
         return mean, covariance
 
@@ -279,7 +322,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         if self._is_obb:
             self.x[2, 0] *= area_scale
             self.x[3, 0] *= ratio_scale
-            self.x[4, 0] = float(_wrap_angle(self.x[4, 0] + rot))
+            self.x[4, 0] = float(self._wrap_angle(self.x[4, 0] + rot))
             self.x[7, 0] *= area_scale
 
         self.P[:2, :2] = m @ self.P[:2, :2] @ m.T
@@ -295,7 +338,9 @@ class KalmanFilterXYSR(BaseKalmanFilter):
             if self._is_obb:
                 self.attr_saved["x"][2, 0] *= area_scale
                 self.attr_saved["x"][3, 0] *= ratio_scale
-                self.attr_saved["x"][4, 0] = float(_wrap_angle(self.attr_saved["x"][4, 0] + rot))
+                self.attr_saved["x"][4, 0] = float(
+                    self._wrap_angle(self.attr_saved["x"][4, 0] + rot)
+                )
                 self.attr_saved["x"][7, 0] *= area_scale
 
             self.attr_saved["P"][:2, :2] = m @ self.attr_saved["P"][:2, :2] @ m.T
@@ -315,7 +360,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
                     self.attr_saved["last_measurement"][2, 0] *= area_scale
                     self.attr_saved["last_measurement"][3, 0] *= ratio_scale
                     self.attr_saved["last_measurement"][4, 0] = float(
-                        _wrap_angle(self.attr_saved["last_measurement"][4, 0] + rot)
+                        self._wrap_angle(self.attr_saved["last_measurement"][4, 0] + rot)
                     )
 
         self._enforce_state_constraints()
@@ -371,7 +416,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         dw, dh = (w2 - w1) / time_gap, (h2 - h1) / time_gap
         if self._is_obb:
             t1, t2 = box1[4], box2[4]
-            dtheta = float(_wrap_angle(t2 - t1)) / time_gap
+            dtheta = float(self._wrap_angle(t2 - t1)) / time_gap
 
         for i in range(index2 - index1):
             x = x1 + (i + 1) * dx
@@ -380,7 +425,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
             h = h1 + (i + 1) * dh
             s, r = w * h, w / float(h)
             if self._is_obb:
-                theta = float(_wrap_angle(t1 + (i + 1) * dtheta))
+                theta = float(self._wrap_angle(t1 + (i + 1) * dtheta))
                 new_box = np.array([x, y, s, r, theta], dtype=float).reshape((5, 1))
             else:
                 new_box = np.array([x, y, s, r], dtype=float).reshape((4, 1))
@@ -402,7 +447,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         measurement = None
         if z is not None:
             measurement = self._prepare_measurement(
-                z, reference_angle=self._measurement_reference_angle()
+                z, reference_state=self._measurement_reference_state()
             )
         self.history_obs.append(None if measurement is None else measurement.copy())
 
@@ -423,6 +468,8 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         self.observed = True
 
         self.update_state(z=measurement, R=R, H=H)
+        if self._is_obb and self.dim_x >= 9:
+            self.x = self._zero_theta_velocity(self.x)
         self._enforce_state_constraints()
 
         # Keep legacy behavior where observed measurements are appended twice.
@@ -431,6 +478,6 @@ class KalmanFilterXYSR(BaseKalmanFilter):
     def md_for_measurement(self, z: np.ndarray) -> float:
         """Mahalanobis distance of measurement z against current predicted state."""
         measurement = self._prepare_measurement(
-            z, reference_angle=self._measurement_reference_angle()
+            z, reference_state=self._measurement_reference_state()
         )
         return self.mahalanobis_distance(z=measurement, H=self.H, R=self.R)

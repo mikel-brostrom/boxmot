@@ -36,24 +36,56 @@ class Track:
     state: int = TrackState.Active
     history_observations: deque = None
     time_since_update: int = 0
+    _plot_angle: float | None = None
 
     def __post_init__(self) -> None:
         self.bbox = np.asarray(self.bbox, dtype=np.float32)
         self.conf = float(self.conf)
         self.cls = int(self.cls)
         self.det_ind = int(self.det_ind)
-        self.history_observations = deque([self.bbox.copy()], maxlen=50)
+        if self.bbox.shape[0] == 5:
+            self.history_observations = deque([self._state_obb_for_plot()], maxlen=50)
+        else:
+            self.history_observations = deque([self.bbox.copy()], maxlen=50)
         self.time_since_update = 0
 
     @property
     def id(self) -> int:
         return self.track_id
 
+    @staticmethod
+    def _wrap_pi_periodic(delta: float) -> float:
+        return float((delta + (np.pi / 2.0)) % np.pi - (np.pi / 2.0))
+
+    def _state_obb_for_plot(self) -> np.ndarray:
+        """Return current OBB state as corners with state-only angle smoothing."""
+        box = self.bbox.copy()
+        if box[3] > box[2]:
+            box[2], box[3] = box[3], box[2]
+            box[4] = box[4] + (np.pi / 2.0)
+        target = float((box[4] + np.pi) % (2.0 * np.pi) - np.pi)
+        if self._plot_angle is None:
+            self._plot_angle = target
+        else:
+            self._plot_angle = self._plot_angle + self._wrap_pi_periodic(
+                target - self._plot_angle
+            )
+        rect = (
+            (float(box[0]), float(box[1])),
+            (max(float(box[2]), 1e-4), max(float(box[3]), 1e-4)),
+            float(np.degrees(self._plot_angle)),
+        )
+        corners = cv2.boxPoints(rect).reshape(-1)
+        return np.asarray(corners, dtype=np.float32)
+
     def update(self, box: np.ndarray, frame_id: int, conf: float, cls: int, det_ind: int) -> None:
         """Update a matched track with latest detection."""
 
         self.bbox = np.asarray(box, dtype=np.float32)
-        self.history_observations.append(self.bbox.copy())
+        if self.bbox.shape[0] == 5:
+            self.history_observations.append(self._state_obb_for_plot())
+        else:
+            self.history_observations.append(self.bbox.copy())
         self.state = TrackState.Active
         self.time_since_update = 0
         self.last_frame = frame_id

@@ -31,6 +31,7 @@ class STrack(BaseTrack):
         self.is_activated = False
         self.tracklet_len = 0
         self.history_observations = deque([], maxlen=self.max_obs)
+        self._plot_angle = None
 
     def _init_from_aabb_detection(self, det: np.ndarray) -> None:
         self.xywh = xyxy2xywh(det[0:4])
@@ -121,7 +122,8 @@ class STrack(BaseTrack):
         """
         self.frame_id = frame_id
         self.tracklet_len += 1
-        self.history_observations.append(self.xywha if self.is_obb else self.xyxy)
+        if not self.is_obb:
+            self.history_observations.append(self.xyxy)
 
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean,
@@ -134,6 +136,34 @@ class STrack(BaseTrack):
         self.conf = new_track.conf
         self.cls = new_track.cls
         self.det_ind = new_track.det_ind
+        if self.is_obb:
+            self.history_observations.append(self._state_obb_for_plot())
+
+    @staticmethod
+    def _wrap_pi_periodic(delta: float) -> float:
+        return float((delta + (np.pi / 2.0)) % np.pi - (np.pi / 2.0))
+
+    def _state_obb_for_plot(self) -> np.ndarray:
+        """Return post-update OBB state as 4 corners with state-only angle smoothing."""
+        box = self.xywha.copy()
+        if box[3] > box[2]:
+            box[2], box[3] = box[3], box[2]
+            box[4] = box[4] + (np.pi / 2.0)
+        target = float((box[4] + np.pi) % (2.0 * np.pi) - np.pi)
+        if self._plot_angle is None:
+            self._plot_angle = target
+        else:
+            self._plot_angle = self._plot_angle + self._wrap_pi_periodic(
+                target - self._plot_angle
+            )
+        box[4] = self._plot_angle
+        rect = (
+            (float(box[0]), float(box[1])),
+            (max(float(box[2]), 1e-4), max(float(box[3]), 1e-4)),
+            float(np.degrees(box[4])),
+        )
+        corners = cv2.boxPoints(rect).reshape(-1)
+        return np.asarray(corners, dtype=np.float32)
 
     @property
     def xyxy(self):

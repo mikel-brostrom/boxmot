@@ -108,7 +108,31 @@ def test_xysr_supports_obb_mode():
     assert kf.x[2, 0] > 0 and kf.x[3, 0] > 0
     assert -np.pi <= float(kf.x[4, 0]) < np.pi
     assert abs(float(kf.y[4, 0])) < 0.2
+    assert abs(float(kf.x[8, 0])) < 1e-12
     assert np.isfinite(kf.md_for_measurement(measurement))
+
+
+def test_xysr_obb_aligns_equivalent_ratio_angle_forms():
+    kf = KalmanFilterXYSR(dim_x=9, dim_z=5, max_obs=50)
+
+    theta_ref = 0.35
+    init_measurement = np.array([[300.0], [200.0], [50000.0], [2.0], [theta_ref]])
+    mean, covariance = kf.initiate(init_measurement)
+    kf.x = mean.copy()
+    kf.P = covariance.copy()
+
+    kf.predict()
+
+    # Equivalent rectangle representation in XYSR:
+    # r -> 1/r and theta -> theta + pi/2
+    equivalent_measurement = np.array(
+        [[300.5], [199.5], [50050.0], [0.5], [theta_ref + (np.pi / 2.0)]]
+    )
+    kf.update(equivalent_measurement)
+
+    assert abs(_angle_diff(float(kf.x[4, 0]), theta_ref)) < 0.25
+    assert abs(np.log(float(kf.x[3, 0]) / 2.0)) < 0.35
+    assert abs(float(kf.x[8, 0])) < 1e-12
 
 
 def test_xysr_obb_unfreeze_handles_angle_wrap():

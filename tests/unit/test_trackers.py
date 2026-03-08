@@ -200,6 +200,28 @@ def test_botsort_obb_matching_uses_oriented_geometry():
     assert cost[0, 0] < 1e-3
 
 
+def test_botsort_obb_state_history_follows_rotation_without_flips():
+    tracker = BotSort(
+        reid_weights=WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt",
+        device="cpu",
+        half=False,
+        with_reid=False,
+    )
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    angles = np.linspace(0.0, 6.1, 20, dtype=np.float32)
+
+    for angle in angles:
+        det = np.array([[320, 240, 90, 40, angle, 0.95, 0]], dtype=np.float32)
+        tracker.update(det, rgb)
+
+    assert tracker.active_tracks
+    history = np.asarray(tracker.active_tracks[0].history_observations, dtype=np.float32)
+    assert history.shape[1] == 8
+    centers = history.reshape(-1, 4, 2).mean(axis=1)
+    assert np.max(np.abs(centers - centers[0])) < 1e-2
+    assert np.max(np.abs(history[-1] - history[0])) > 1.0
+
+
 def test_bytetrack_supports_obb_outputs():
     tracker = ByteTrack()
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
@@ -222,6 +244,74 @@ def test_bytetrack_obb_matching_uses_oriented_geometry():
 
     assert cost.shape == (1, 1)
     assert cost[0, 0] < 1e-3
+
+
+def test_bytetrack_obb_state_history_follows_rotation_without_flips():
+    tracker = ByteTrack(track_thresh=0.1, min_conf=0.01, match_thresh=0.99)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    angles = np.linspace(0.0, 6.1, 20, dtype=np.float32)
+
+    for angle in angles:
+        det = np.array([[320, 240, 90, 40, angle, 0.95, 0]], dtype=np.float32)
+        tracker.update(det, rgb)
+
+    assert tracker.active_tracks
+    history = np.asarray(tracker.active_tracks[0].history_observations, dtype=np.float32)
+    assert history.shape[1] == 8
+    centers = history.reshape(-1, 4, 2).mean(axis=1)
+    assert np.max(np.abs(centers - centers[0])) < 1e-2
+    assert np.max(np.abs(history[-1] - history[0])) > 1.0
+
+
+def test_ocsort_obb_state_history_uses_state_corners():
+    tracker = OcSort(det_thresh=0.1)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    angles = np.linspace(0.0, 6.1, 20, dtype=np.float32)
+
+    for angle in angles:
+        det = np.array([[320, 240, 90, 40, angle, 0.95, 0]], dtype=np.float32)
+        tracker.update(det, rgb)
+
+    assert tracker.active_tracks
+    history = np.asarray(tracker.active_tracks[0].history_observations, dtype=np.float32)
+    assert history.shape[1] == 8
+    assert np.max(np.abs(history[-1] - history[0])) > 1.0
+
+
+def test_ocsort_obb_state_history_uses_post_update_state_center():
+    tracker = OcSort(det_thresh=0.1, min_hits=1)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+
+    det1 = np.array([[100, 100, 90, 40, 0.0, 0.95, 0]], dtype=np.float32)
+    det2 = np.array([[102, 102, 90, 40, 1.0, 0.95, 0]], dtype=np.float32)
+
+    tracker.update(det1, rgb)
+    tracker.update(det2, rgb)
+
+    assert tracker.active_tracks
+    track = tracker.active_tracks[0]
+    assert len(track.history_observations) >= 1
+
+    history_center = (
+        np.asarray(track.history_observations[-1], dtype=np.float32).reshape(4, 2).mean(axis=0)
+    )
+    state_center = np.asarray(track.get_state()[0][:2], dtype=np.float32)
+    np.testing.assert_allclose(history_center, state_center, atol=0.75)
+
+
+def test_sfsort_obb_state_history_uses_state_corners():
+    tracker = SFSORT()
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    angles = np.linspace(0.0, 6.1, 20, dtype=np.float32)
+
+    for angle in angles:
+        det = np.array([[320, 240, 90, 40, angle, 0.95, 0]], dtype=np.float32)
+        tracker.update(det, rgb)
+
+    assert tracker.active_tracks
+    history = np.asarray(tracker.active_tracks[0].history_observations, dtype=np.float32)
+    assert history.shape[1] == 8
+    assert np.max(np.abs(history[-1] - history[0])) > 1.0
 
 
 def test_sfsort_supports_obb_outputs():

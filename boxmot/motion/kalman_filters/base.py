@@ -108,6 +108,113 @@ class BaseKalmanFilter:
             measurement = measurement.reshape((dim_z, 1))
         return measurement
 
+    @staticmethod
+    def _wrap_angle(angle: np.ndarray | float) -> np.ndarray | float:
+        wrapped = (np.asarray(angle, dtype=float) + np.pi) % (2.0 * np.pi) - np.pi
+        if np.isscalar(angle):
+            return float(wrapped)
+        return wrapped
+
+    @classmethod
+    def _align_angle_to_reference(cls, angle: float, reference_angle: float) -> float:
+        return float(reference_angle + cls._wrap_angle(float(angle) - float(reference_angle)))
+
+    @staticmethod
+    def _theta_velocity_index(dim_x: int) -> int:
+        return dim_x - 1
+
+    @classmethod
+    def _select_obb_candidate(
+        cls,
+        *,
+        reference_sizes: Tuple[float, float],
+        reference_angle: float,
+        candidates: Tuple[Tuple[float, float, float], ...],
+        size_weight: float = 0.05,
+        eps: float = 1e-6,
+    ) -> Tuple[float, float, float]:
+        """Choose equivalent OBB parameterization closest to reference state."""
+        ref_s0 = max(float(reference_sizes[0]), eps)
+        ref_s1 = max(float(reference_sizes[1]), eps)
+        ref_theta = float(reference_angle)
+
+        best_cost = float("inf")
+        best: Tuple[float, float, float] = candidates[0]
+        for cand_s0, cand_s1, cand_theta in candidates:
+            s0 = max(float(cand_s0), eps)
+            s1 = max(float(cand_s1), eps)
+            theta_aligned = cls._align_angle_to_reference(cand_theta, ref_theta)
+            angle_cost = abs(theta_aligned - ref_theta)
+            size_cost = abs(np.log(s0 / ref_s0)) + abs(np.log(s1 / ref_s1))
+            cost = angle_cost + (size_weight * size_cost)
+            if cost < best_cost:
+                best_cost = cost
+                best = (s0, s1, theta_aligned)
+        return best
+
+    @classmethod
+    def _enforce_state_geometry(
+        cls,
+        mean: np.ndarray,
+        *,
+        positive_indices: Tuple[int, ...],
+        angle_index: Optional[int] = None,
+        min_size: float = 1e-4,
+    ) -> np.ndarray:
+        """Clamp geometry dimensions positive and optionally wrap angle."""
+        if mean.ndim == 1:
+            for idx in positive_indices:
+                mean[idx] = max(float(mean[idx]), min_size)
+            if angle_index is not None:
+                mean[angle_index] = float(cls._wrap_angle(mean[angle_index]))
+            return mean
+
+        for idx in positive_indices:
+            mean[idx, :] = np.maximum(mean[idx, :], min_size)
+        if angle_index is not None:
+            mean[angle_index, :] = cls._wrap_angle(mean[angle_index, :])
+        return mean
+
+    @staticmethod
+    def _prepare_gating_inputs(
+        mean: np.ndarray,
+        covariance: np.ndarray,
+        measurements: np.ndarray,
+        project_fn,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        projected_mean, projected_cov = project_fn(mean, covariance)
+        projected_mean = np.asarray(projected_mean, dtype=float).reshape(-1)
+        measurements = np.asarray(measurements, dtype=float).copy()
+        if measurements.ndim == 1:
+            measurements = measurements.reshape(1, -1)
+        return projected_mean, projected_cov, measurements
+
+    @staticmethod
+    def _gating_from_residuals(
+        residuals: np.ndarray, covariance: np.ndarray, metric: str
+    ) -> np.ndarray:
+        if metric == "gaussian":
+            return np.sum(residuals * residuals, axis=1)
+        if metric == "maha":
+            cholesky_factor = np.linalg.cholesky(covariance)
+            solved = scipy.linalg.solve_triangular(
+                cholesky_factor,
+                residuals.T,
+                lower=True,
+                check_finite=False,
+                overwrite_b=True,
+            )
+            return np.sum(solved * solved, axis=0)
+        raise ValueError("invalid distance metric")
+
+    def _zero_theta_velocity(self, mean: np.ndarray) -> np.ndarray:
+        theta_vel_idx = self._theta_velocity_index(self.dim_x)
+        if mean.ndim == 2:
+            mean[theta_vel_idx, :] = 0.0
+        else:
+            mean[theta_vel_idx] = 0.0
+        return mean
+
     def initiate(self, measurement: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Create track from unassociated measurement.

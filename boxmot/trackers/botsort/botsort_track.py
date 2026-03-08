@@ -31,6 +31,7 @@ class STrack(BaseTrack):
         # Classification history and feature history
         self.cls_hist = []
         self.history_observations = deque(maxlen=self.max_obs)
+        self._plot_angle = None
         self.features = deque(maxlen=feat_history)
         self.smooth_feat = None
         self.curr_feat = None
@@ -163,7 +164,8 @@ class STrack(BaseTrack):
         """Update the current track with a matched detection."""
         self.frame_id = frame_id
         self.tracklet_len += 1
-        self.history_observations.append(self.xywha if self.is_obb else self.xyxy)
+        if not self.is_obb:
+            self.history_observations.append(self.xyxy)
 
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, new_track.xywh
@@ -177,6 +179,34 @@ class STrack(BaseTrack):
         self.cls = new_track.cls
         self.det_ind = new_track.det_ind
         self.update_cls(new_track.cls, new_track.conf)
+        if self.is_obb:
+            self.history_observations.append(self._state_obb_for_plot())
+
+    @staticmethod
+    def _wrap_pi_periodic(delta: float) -> float:
+        return float((delta + (np.pi / 2.0)) % np.pi - (np.pi / 2.0))
+
+    def _state_obb_for_plot(self) -> np.ndarray:
+        """Return post-update OBB state as 4 corners with state-only angle smoothing."""
+        box = self.xywha.copy()
+        if box[3] > box[2]:
+            box[2], box[3] = box[3], box[2]
+            box[4] = box[4] + (np.pi / 2.0)
+        target = float((box[4] + np.pi) % (2.0 * np.pi) - np.pi)
+        if self._plot_angle is None:
+            self._plot_angle = target
+        else:
+            self._plot_angle = self._plot_angle + self._wrap_pi_periodic(
+                target - self._plot_angle
+            )
+        box[4] = self._plot_angle
+        rect = (
+            (float(box[0]), float(box[1])),
+            (max(float(box[2]), 1e-4), max(float(box[3]), 1e-4)),
+            float(np.degrees(box[4])),
+        )
+        corners = cv2.boxPoints(rect).reshape(-1)
+        return np.asarray(corners, dtype=np.float32)
 
     @property
     def xyxy(self):

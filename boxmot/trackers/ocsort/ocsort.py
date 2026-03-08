@@ -5,6 +5,7 @@ This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
 from collections import deque
 
+import cv2
 import numpy as np
 
 from boxmot.motion.kalman_filters.xysr import KalmanFilterXYSR
@@ -206,6 +207,32 @@ class KalmanBoxTracker(object):
         self.history_observations = deque([], maxlen=self.max_obs)
         self.velocity = None
         self.delta_t = delta_t
+        self._plot_angle = None
+
+    @staticmethod
+    def _wrap_pi_periodic(delta: float) -> float:
+        return float((delta + (np.pi / 2.0)) % np.pi - (np.pi / 2.0))
+
+    def _state_obb_for_plot(self) -> np.ndarray:
+        """Return current OBB state as corners with state-only angle smoothing."""
+        box = convert_x_to_obb(self.kf.x)[0].astype(np.float32)
+        if box[3] > box[2]:
+            box[2], box[3] = box[3], box[2]
+            box[4] = box[4] + (np.pi / 2.0)
+        target = float((box[4] + np.pi) % (2.0 * np.pi) - np.pi)
+        if self._plot_angle is None:
+            self._plot_angle = target
+        else:
+            self._plot_angle = self._plot_angle + self._wrap_pi_periodic(
+                target - self._plot_angle
+            )
+        rect = (
+            (float(box[0]), float(box[1])),
+            (max(float(box[2]), 1e-4), max(float(box[3]), 1e-4)),
+            float(np.degrees(self._plot_angle)),
+        )
+        corners = cv2.boxPoints(rect).reshape(-1)
+        return np.asarray(corners, dtype=np.float32)
 
     def update(self, bbox, cls, det_ind):
         """
@@ -236,15 +263,15 @@ class KalmanBoxTracker(object):
             """
             self.last_observation = bbox
             self.observations[self.age] = bbox
-            self.history_observations.append(bbox)
-
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
             if self.is_obb:
                 self.kf.update(convert_obb_to_z(bbox[:5]))
+                self.history_observations.append(self._state_obb_for_plot())
             else:
                 self.kf.update(xyxy2xysr(bbox))
+                self.history_observations.append(bbox)
         else:
             self.kf.update(bbox)
 

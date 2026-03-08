@@ -1,13 +1,8 @@
 from typing import Tuple
 
 import numpy as np
-import scipy.linalg
 
 from boxmot.motion.kalman_filters.base import BaseKalmanFilter
-
-
-def _wrap_angle(angle: np.ndarray) -> np.ndarray:
-    return (angle + np.pi) % (2.0 * np.pi) - np.pi
 
 
 class KalmanFilterXYWH(BaseKalmanFilter):
@@ -89,25 +84,59 @@ class KalmanFilterXYWH(BaseKalmanFilter):
             std_vel.append(1e-5 * np.ones_like(mean[:, 2]))
         return std_pos, std_vel
 
-    @staticmethod
-    def _enforce_xywh_constraints(mean: np.ndarray, is_obb: bool) -> np.ndarray:
-        if mean.ndim == 1:
-            mean[2] = max(mean[2], 1e-4)
-            mean[3] = max(mean[3], 1e-4)
-            if is_obb:
-                mean[4] = _wrap_angle(mean[4])
-            return mean
+    @classmethod
+    def _align_obb_measurement(
+        cls, measurement: np.ndarray, reference: np.ndarray
+    ) -> np.ndarray:
+        """
+        Resolve OBB representation ambiguity before update.
 
-        mean[2, :] = np.maximum(mean[2, :], 1e-4)
-        mean[3, :] = np.maximum(mean[3, :], 1e-4)
-        if is_obb:
-            mean[4, :] = _wrap_angle(mean[4, :])
-        return mean
+        A rectangle can be represented by equivalent parameterizations:
+        - (w, h, theta)
+        - (w, h, theta + pi)
+        - (h, w, theta + pi/2)
+        - (h, w, theta - pi/2)
+        Pick the one closest to current state to avoid sudden angle flips.
+        """
+        aligned = np.asarray(measurement, dtype=float).copy().reshape((-1,))
+        ref = np.asarray(reference, dtype=float).reshape((-1,))
+
+        ref_w = max(float(ref[2]), 1e-6)
+        ref_h = max(float(ref[3]), 1e-6)
+        ref_theta = float(ref[4])
+        w = max(float(aligned[2]), 1e-6)
+        h = max(float(aligned[3]), 1e-6)
+        theta = float(aligned[4])
+
+        candidates = (
+            (w, h, theta),
+            (w, h, theta + np.pi),
+            (h, w, theta + (np.pi / 2.0)),
+            (h, w, theta - (np.pi / 2.0)),
+        )
+        best_w, best_h, best_theta = cls._select_obb_candidate(
+            reference_sizes=(ref_w, ref_h),
+            reference_angle=ref_theta,
+            candidates=candidates,
+        )
+        aligned[2] = best_w
+        aligned[3] = best_h
+        aligned[4] = best_theta
+        return aligned
+
+    @classmethod
+    def _enforce_xywh_constraints(cls, mean: np.ndarray, is_obb: bool) -> np.ndarray:
+        return cls._enforce_state_geometry(
+            mean,
+            positive_indices=(2, 3),
+            angle_index=4 if is_obb else None,
+            min_size=1e-4,
+        )
 
     def initiate(self, measurement: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         measurement = np.asarray(measurement, dtype=float).copy()
         if self._is_obb:
-            measurement[4] = _wrap_angle(measurement[4])
+            measurement[4] = self._wrap_angle(measurement[4])
         mean, covariance = super().initiate(measurement)
         mean = self._enforce_xywh_constraints(mean, self._is_obb)
         return mean, covariance
@@ -124,7 +153,7 @@ class KalmanFilterXYWH(BaseKalmanFilter):
         if self._is_obb:
             mean[:, 2] = np.maximum(mean[:, 2], 1e-4)
             mean[:, 3] = np.maximum(mean[:, 3], 1e-4)
-            mean[:, 4] = _wrap_angle(mean[:, 4])
+            mean[:, 4] = self._wrap_angle(mean[:, 4])
         else:
             mean[:, 2] = np.maximum(mean[:, 2], 1e-4)
             mean[:, 3] = np.maximum(mean[:, 3], 1e-4)
@@ -142,18 +171,17 @@ class KalmanFilterXYWH(BaseKalmanFilter):
             measurement_arr = np.asarray(measurement, dtype=float).copy()
             if mean_arr.ndim == 2:
                 measurement_arr = measurement_arr.reshape((self.ndim, 1))
-                reference_theta = float(mean_arr[4, 0])
-                measurement_arr[4, 0] = reference_theta + _wrap_angle(
-                    measurement_arr[4, 0] - reference_theta
+                aligned = self._align_obb_measurement(
+                    measurement_arr[:, 0], mean_arr[:, 0]
                 )
+                measurement_arr[:, 0] = aligned
             else:
                 measurement_arr = measurement_arr.reshape((self.ndim,))
-                reference_theta = float(mean_arr[4])
-                measurement_arr[4] = reference_theta + _wrap_angle(
-                    measurement_arr[4] - reference_theta
-                )
+                measurement_arr = self._align_obb_measurement(measurement_arr, mean_arr)
             measurement = measurement_arr
         new_mean, new_covariance = super().update(mean, covariance, measurement, confidence)
+        if self._is_obb:
+            new_mean = self._zero_theta_velocity(new_mean)
         new_mean = self._enforce_xywh_constraints(new_mean, self._is_obb)
         return new_mean, new_covariance
 
@@ -168,26 +196,11 @@ class KalmanFilterXYWH(BaseKalmanFilter):
         if not self._is_obb or only_position:
             return super().gating_distance(mean, covariance, measurements, only_position, metric)
 
-        projected_mean, projected_cov = self.project(mean, covariance)
-        projected_mean = np.asarray(projected_mean, dtype=float).reshape(-1)
-        measurements = np.asarray(measurements, dtype=float).copy()
-        if measurements.ndim == 1:
-            measurements = measurements.reshape(1, -1)
-        measurements[:, 4] = projected_mean[4] + _wrap_angle(
-            measurements[:, 4] - projected_mean[4]
+        projected_mean, projected_cov, measurements = self._prepare_gating_inputs(
+            mean, covariance, measurements, self.project
         )
+        for i in range(measurements.shape[0]):
+            measurements[i, :] = self._align_obb_measurement(measurements[i, :], projected_mean)
 
-        d = measurements - projected_mean
-        if metric == "gaussian":
-            return np.sum(d * d, axis=1)
-        if metric == "maha":
-            cholesky_factor = np.linalg.cholesky(projected_cov)
-            z = scipy.linalg.solve_triangular(
-                cholesky_factor,
-                d.T,
-                lower=True,
-                check_finite=False,
-                overwrite_b=True,
-            )
-            return np.sum(z * z, axis=0)
-        raise ValueError("invalid distance metric")
+        residuals = measurements - projected_mean
+        return self._gating_from_residuals(residuals, projected_cov, metric)

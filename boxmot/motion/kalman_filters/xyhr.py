@@ -7,10 +7,6 @@ import scipy.linalg
 from boxmot.motion.kalman_filters.base import BaseKalmanFilter
 
 
-def _wrap_angle(angle: np.ndarray) -> np.ndarray:
-    return (angle + np.pi) % (2.0 * np.pi) - np.pi
-
-
 class ConstantNoiseXYHR:
     """Constant process/measurement noise policy used by BoostTrack."""
 
@@ -120,14 +116,16 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         measurement[2] = max(float(measurement[2]), 1e-4)
         measurement[3] = max(float(measurement[3]), 1e-4)
         if self._is_obb:
-            measurement[4] = float(_wrap_angle(measurement[4]))
+            measurement[4] = float(self._wrap_angle(measurement[4]))
         return measurement
 
     def _enforce_state_constraints(self) -> None:
-        self.x[2] = max(float(self.x[2]), 1e-4)
-        self.x[3] = max(float(self.x[3]), 1e-4)
-        if self._is_obb:
-            self.x[4] = float(_wrap_angle(self.x[4]))
+        self.x = self._enforce_state_geometry(
+            self.x,
+            positive_indices=(2, 3),
+            angle_index=4 if self._is_obb else None,
+            min_size=1e-4,
+        )
         self.covariance = 0.5 * (self.covariance + self.covariance.T)
 
     def _get_initial_covariance_std(self, measurement: np.ndarray) -> np.ndarray:
@@ -164,7 +162,7 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         mean[: self.dim_z] = self._reshape_measurement_vector(measurement)
         covariance = self.cov_update_policy.get_init_state_cov()
         if self._is_obb:
-            mean[4] = float(_wrap_angle(mean[4]))
+            mean[4] = float(self._wrap_angle(mean[4]))
         return mean, covariance
 
     def predict(
@@ -214,8 +212,8 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         measurement = self._reshape_measurement_vector(z)
         if self._is_obb:
             reference_theta = float(self.x[4])
-            measurement[4] = reference_theta + float(
-                _wrap_angle(measurement[4] - reference_theta)
+            measurement[4] = self._align_angle_to_reference(
+                measurement[4], reference_theta
             )
         projected_mean, projected_cov = self.project()
 
