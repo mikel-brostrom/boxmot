@@ -212,7 +212,7 @@ class BaseTracker(VisualizationMixin):
                     if layout.is_obb and not self.supports_obb:
                         raise AssertionError(
                             f"{self.__class__.__name__} does not support OBB detections. "
-                            "Use OCSort for OBB tracking."
+                            "Use an OBB-capable tracker such as ByteTrack, BotSort, OCSort, or SFSORT."
                         )
                     self._set_detection_mode(layout.is_obb)
                     self._first_dets_processed = True

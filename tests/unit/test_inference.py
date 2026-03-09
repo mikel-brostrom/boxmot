@@ -133,7 +133,10 @@ def test_tracker_rejects_obb_when_not_supported():
     try:
         tracker.update(obb_dets, image)
     except AssertionError as exc:
-        assert str(exc) == "_DummyTracker does not support OBB detections. Use OCSort for OBB tracking."
+        assert str(exc) == (
+            "_DummyTracker does not support OBB detections. "
+            "Use an OBB-capable tracker such as ByteTrack, BotSort, OCSort, or SFSORT."
+        )
     else:
         raise AssertionError("Expected unsupported OBB trackers to fail fast")
 
