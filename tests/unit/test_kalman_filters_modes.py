@@ -108,7 +108,8 @@ def test_xysr_supports_obb_mode():
     assert kf.x[2, 0] > 0 and kf.x[3, 0] > 0
     assert -np.pi <= float(kf.x[4, 0]) < np.pi
     assert abs(float(kf.y[4, 0])) < 0.2
-    assert abs(float(kf.x[8, 0])) < 1e-12
+    assert np.isfinite(float(kf.x[8, 0]))
+    assert abs(float(kf.x[8, 0])) < 0.2
     assert np.isfinite(kf.md_for_measurement(measurement))
 
 
@@ -132,7 +133,8 @@ def test_xysr_obb_aligns_equivalent_ratio_angle_forms():
 
     assert abs(_angle_diff(float(kf.x[4, 0]), theta_ref)) < 0.25
     assert abs(np.log(float(kf.x[3, 0]) / 2.0)) < 0.35
-    assert abs(float(kf.x[8, 0])) < 1e-12
+    assert np.isfinite(float(kf.x[8, 0]))
+    assert abs(float(kf.x[8, 0])) < 0.2
 
 
 def test_xysr_obb_unfreeze_handles_angle_wrap():

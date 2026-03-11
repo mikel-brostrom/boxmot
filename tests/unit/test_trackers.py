@@ -327,6 +327,25 @@ def test_sfsort_supports_obb_outputs():
     np.testing.assert_allclose(out2[0, :5], det[0, :5], atol=1e-2)
 
 
+def test_sfsort_obb_angle_update_uses_damping():
+    tracker = SFSORT(obb_theta_damping=0.8)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+
+    det1 = np.array([[320, 240, 80, 40, 0.00, 0.95, 0]], dtype=np.float32)
+    det2 = np.array([[320, 240, 80, 40, 0.40, 0.95, 0]], dtype=np.float32)
+
+    out1 = tracker.update(det1, rgb)
+    out2 = tracker.update(det2, rgb)
+
+    assert out1.shape == (1, 9)
+    assert out2.shape == (1, 9)
+    assert int(out2[0, 5]) == int(out1[0, 5])
+
+    measured_delta = abs(float(det2[0, 4] - det1[0, 4]))
+    tracked_delta = abs(float(out2[0, 4] - out1[0, 4]))
+    assert 0.0 < tracked_delta < measured_delta
+
+
 def test_sfsort_obb_plotting_draws_tracks():
     tracker = SFSORT()
     img = np.zeros((256, 256, 3), dtype=np.uint8)

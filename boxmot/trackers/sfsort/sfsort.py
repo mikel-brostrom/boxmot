@@ -37,17 +37,21 @@ class Track:
     history_observations: deque = None
     time_since_update: int = 0
     _plot_angle: float | None = None
+    theta_damping: float = 0.8
+    _theta_velocity: float = 0.0
 
     def __post_init__(self) -> None:
         self.bbox = np.asarray(self.bbox, dtype=np.float32)
         self.conf = float(self.conf)
         self.cls = int(self.cls)
         self.det_ind = int(self.det_ind)
+        self.theta_damping = float(np.clip(self.theta_damping, 0.0, 1.0))
         if self.bbox.shape[0] == 5:
             self.history_observations = deque([self._state_obb_for_plot()], maxlen=50)
         else:
             self.history_observations = deque([self.bbox.copy()], maxlen=50)
         self.time_since_update = 0
+        self._theta_velocity = 0.0
 
     @property
     def id(self) -> int:
@@ -56,6 +60,49 @@ class Track:
     @staticmethod
     def _wrap_pi_periodic(delta: float) -> float:
         return float((delta + (np.pi / 2.0)) % np.pi - (np.pi / 2.0))
+
+    @staticmethod
+    def _wrap_angle(angle: float) -> float:
+        return float((angle + np.pi) % (2.0 * np.pi) - np.pi)
+
+    @classmethod
+    def _align_obb_measurement(
+        cls, measurement: np.ndarray, reference: np.ndarray
+    ) -> np.ndarray:
+        """Align equivalent OBB forms to the current track state."""
+        aligned = np.asarray(measurement, dtype=np.float32).copy().reshape(-1)
+        ref = np.asarray(reference, dtype=np.float32).reshape(-1)
+
+        ref_w = max(float(ref[2]), 1e-6)
+        ref_h = max(float(ref[3]), 1e-6)
+        ref_theta = float(ref[4])
+        w = max(float(aligned[2]), 1e-6)
+        h = max(float(aligned[3]), 1e-6)
+        theta = float(aligned[4])
+
+        candidates = (
+            (w, h, theta),
+            (w, h, theta + np.pi),
+            (h, w, theta + (np.pi / 2.0)),
+            (h, w, theta - (np.pi / 2.0)),
+        )
+        best_cost = float("inf")
+        best = candidates[0]
+        for cand_w, cand_h, cand_theta in candidates:
+            theta_aligned = ref_theta + cls._wrap_angle(cand_theta - ref_theta)
+            angle_cost = abs(theta_aligned - ref_theta)
+            size_cost = abs(np.log(max(cand_w, 1e-6) / ref_w)) + abs(
+                np.log(max(cand_h, 1e-6) / ref_h)
+            )
+            cost = angle_cost + (0.05 * size_cost)
+            if cost < best_cost:
+                best_cost = cost
+                best = (cand_w, cand_h, theta_aligned)
+
+        aligned[2] = float(best[0])
+        aligned[3] = float(best[1])
+        aligned[4] = float(best[2])
+        return aligned
 
     def _state_obb_for_plot(self) -> np.ndarray:
         """Return current OBB state as corners with state-only angle smoothing."""
@@ -81,7 +128,20 @@ class Track:
     def update(self, box: np.ndarray, frame_id: int, conf: float, cls: int, det_ind: int) -> None:
         """Update a matched track with latest detection."""
 
-        self.bbox = np.asarray(box, dtype=np.float32)
+        incoming_bbox = np.asarray(box, dtype=np.float32).reshape(-1)
+        if self.bbox.shape[0] == 5 and incoming_bbox.shape[0] == 5:
+            aligned = self._align_obb_measurement(incoming_bbox, self.bbox)
+            prev_theta = float(self.bbox[4])
+            theta_delta = self._wrap_angle(float(aligned[4]) - prev_theta)
+            self._theta_velocity = (
+                (self.theta_damping * self._theta_velocity)
+                + ((1.0 - self.theta_damping) * theta_delta)
+            )
+            aligned[4] = self._wrap_angle(prev_theta + self._theta_velocity)
+            self.bbox = aligned.astype(np.float32)
+        else:
+            self.bbox = incoming_bbox
+
         if self.bbox.shape[0] == 5:
             self.history_observations.append(self._state_obb_for_plot())
         else:
@@ -122,6 +182,7 @@ class SFSORT(BaseTracker):
     - high_th_m (float): Dynamic adjustment scale for high_th.
     - new_track_th_m (float): Dynamic adjustment scale for new_track_th.
     - match_th_first_m (float): Dynamic adjustment scale for match_th_first.
+    - obb_theta_damping (float): Damping factor for OBB angular-velocity updates (0=no history, 1=full history).
     - marginal_timeout (int): Timeout for marginally lost tracks.
     - central_timeout (int): Timeout for centrally lost tracks.
     - frame_width (int | None): Optional frame width for margin computation.
@@ -142,6 +203,7 @@ class SFSORT(BaseTracker):
         high_th_m: float | None = 0.0,
         new_track_th_m: float | None = 0.0,
         match_th_first_m: float | None = 0.0,
+        obb_theta_damping: float = 0.8,
         marginal_timeout: int | None = 0,
         central_timeout: int | None = 0,
         frame_width: int | None = None,
@@ -170,6 +232,7 @@ class SFSORT(BaseTracker):
             self.high_th_m = 0.0 if high_th_m is None else float(high_th_m)
             self.new_track_th_m = 0.0 if new_track_th_m is None else float(new_track_th_m)
             self.match_th_first_m = 0.0 if match_th_first_m is None else float(match_th_first_m)
+        self.obb_theta_damping = self._resolve_or_default(obb_theta_damping, 0.8, 0.0, 1.0)
 
         self.marginal_timeout = int(self._resolve_or_default(marginal_timeout, 0, 0, 500))
         self.central_timeout = int(self._resolve_or_default(central_timeout, 0, 0, 1000))
@@ -392,6 +455,7 @@ class SFSORT(BaseTracker):
             conf=float(conf),
             cls=int(cls),
             det_ind=int(det_ind),
+            theta_damping=self.obb_theta_damping,
         )
         self.id_counter += 1
         return track

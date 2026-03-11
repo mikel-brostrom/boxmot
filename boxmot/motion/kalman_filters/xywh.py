@@ -181,7 +181,7 @@ class KalmanFilterXYWH(BaseKalmanFilter):
             measurement = measurement_arr
         new_mean, new_covariance = super().update(mean, covariance, measurement, confidence)
         if self._is_obb:
-            new_mean = self._zero_theta_velocity(new_mean)
+            new_mean = self._damp_theta_velocity(new_mean, damping=0.8)
         new_mean = self._enforce_xywh_constraints(new_mean, self._is_obb)
         return new_mean, new_covariance
 

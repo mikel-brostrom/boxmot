@@ -215,6 +215,18 @@ class BaseKalmanFilter:
             mean[theta_vel_idx] = 0.0
         return mean
 
+    def _damp_theta_velocity(
+        self, mean: np.ndarray, damping: float = 0.8
+    ) -> np.ndarray:
+        """Damp angular velocity to reduce jitter while preserving turn dynamics."""
+        theta_vel_idx = self._theta_velocity_index(self.dim_x)
+        damping = float(np.clip(damping, 0.0, 1.0))
+        if mean.ndim == 2:
+            mean[theta_vel_idx, :] *= damping
+        else:
+            mean[theta_vel_idx] *= damping
+        return mean
+
     def initiate(self, measurement: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Create track from unassociated measurement.

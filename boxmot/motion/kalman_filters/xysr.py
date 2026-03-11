@@ -469,7 +469,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
 
         self.update_state(z=measurement, R=R, H=H)
         if self._is_obb and self.dim_x >= 9:
-            self.x = self._zero_theta_velocity(self.x)
+            self.x = self._damp_theta_velocity(self.x, damping=0.8)
         self._enforce_state_constraints()
 
         # Keep legacy behavior where observed measurements are appended twice.
