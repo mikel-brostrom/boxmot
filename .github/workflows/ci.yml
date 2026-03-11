@@ -156,7 +156,7 @@ jobs:
       status: ${{ job.status }}
     env:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort sfsort"
-      SMOKE_SOURCE: ./assets/DOTA8-MOT/train/P0861__1024__0___1648/img1
+      SMOKE_SOURCE: ./assets/DOTA8-MOT/train/P1142__1024__0___824/img1
 
     timeout-minutes: 50
     steps:
