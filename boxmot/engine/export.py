@@ -131,7 +131,8 @@ def perform_exports(export_tasks):
 def main(args):
     start_time = time.time()
 
-    WEIGHTS.mkdir(parents=False, exist_ok=True)
+    WEIGHTS.mkdir(parents=True, exist_ok=True)
+    args.weights = WEIGHTS / args.weights.name
     
     # Print header
     LOGGER.info("")

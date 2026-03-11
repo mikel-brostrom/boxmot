@@ -6,11 +6,14 @@ def iou_obb_pair(i, j, bboxes1, bboxes2):
     """
     Compute IoU for the rotated rectangles at index i and j in the batches `bboxes1`, `bboxes2` .
     """
-    rect1 = bboxes1[int(i)]
-    rect2 = bboxes2[int(j)]
+    rect1 = np.asarray(bboxes1[int(i)], dtype=float).reshape(-1)
+    rect2 = np.asarray(bboxes2[int(j)], dtype=float).reshape(-1)
 
     (cx1, cy1, w1, h1, angle1) = rect1[0:5]
     (cx2, cy2, w2, h2, angle2) = rect2[0:5]
+
+    angle1 = np.degrees(angle1)
+    angle2 = np.degrees(angle2)
 
     r1 = ((cx1, cy1), (w1, h1), angle1)
     r2 = ((cx2, cy2), (w2, h2), angle2)

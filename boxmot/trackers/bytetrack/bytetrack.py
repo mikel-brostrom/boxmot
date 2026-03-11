@@ -2,9 +2,11 @@
 
 from collections import deque
 
+import cv2
 import numpy as np
 
-from boxmot.motion.kalman_filters.aabb.xyah_kf import KalmanFilterXYAH
+from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
@@ -13,26 +15,47 @@ from boxmot.utils.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilterXYAH()
+    shared_kalman_obb = KalmanFilterXYWH(ndim=5)
 
-    def __init__(self, det, max_obs):
+    def __init__(self, det, max_obs, is_obb: bool = False):
         # wait activate
-        self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
-        self.tlwh = xywh2tlwh(self.xywh)  # (xc, yc, w, h) --> (t, l, w, h)
-        self.xyah = tlwh2xyah(self.tlwh)
-        self.conf = det[4]
-        self.cls = det[5]
-        self.det_ind = det[6]
+        self.is_obb = is_obb
+        det = np.asarray(det, dtype=np.float32)
+        if self.is_obb:
+            self._init_from_obb_detection(det)
+        else:
+            self._init_from_aabb_detection(det)
         self.max_obs = max_obs
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
         self.tracklet_len = 0
         self.history_observations = deque([], maxlen=self.max_obs)
+        self._plot_angle = None
+
+    def _init_from_aabb_detection(self, det: np.ndarray) -> None:
+        self.xywh = xyxy2xywh(det[0:4])
+        self.tlwh = xywh2tlwh(self.xywh)
+        self.xyah = tlwh2xyah(self.tlwh)
+        self.conf = det[4]
+        self.cls = det[5]
+        self.det_ind = det[6]
+
+    def _init_from_obb_detection(self, det: np.ndarray) -> None:
+        self.xywh = det[:5].copy()
+        self.tlwh = None
+        self.xyah = None
+        self.conf = det[5]
+        self.cls = det[6]
+        self.det_ind = det[7]
 
     def predict(self):
         mean_state = self.mean.copy()
         if self.state != TrackState.Tracked:
-            mean_state[7] = 0
+            if self.is_obb:
+                mean_state[7:10] = 0
+            else:
+                mean_state[7] = 0
         self.mean, self.covariance = self.kalman_filter.predict(
             mean_state, self.covariance
         )
@@ -42,10 +65,15 @@ class STrack(BaseTrack):
         if len(stracks) > 0:
             multi_mean = np.asarray([st.mean.copy() for st in stracks])
             multi_covariance = np.asarray([st.covariance for st in stracks])
+            is_obb = getattr(stracks[0], "is_obb", False)
             for i, st in enumerate(stracks):
                 if st.state != TrackState.Tracked:
-                    multi_mean[i][7] = 0
-            multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(
+                    if is_obb:
+                        multi_mean[i][7:10] = 0
+                    else:
+                        multi_mean[i][7] = 0
+            kalman = STrack.shared_kalman_obb if is_obb else STrack.shared_kalman
+            multi_mean, multi_covariance = kalman.multi_predict(
                 multi_mean, multi_covariance
             )
             for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
@@ -56,7 +84,9 @@ class STrack(BaseTrack):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.id = self.next_id()
-        self.mean, self.covariance = self.kalman_filter.initiate(self.xyah)
+        self.mean, self.covariance = self.kalman_filter.initiate(
+            self.xywh if self.is_obb else self.xyah
+        )
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
@@ -68,7 +98,9 @@ class STrack(BaseTrack):
 
     def re_activate(self, new_track, frame_id, new_id=False):
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.xyah
+            self.mean,
+            self.covariance,
+            new_track.xywh if self.is_obb else new_track.xyah,
         )
         self.tracklet_len = 0
         self.state = TrackState.Tracked
@@ -90,10 +122,13 @@ class STrack(BaseTrack):
         """
         self.frame_id = frame_id
         self.tracklet_len += 1
-        self.history_observations.append(self.xyxy)
+        if not self.is_obb:
+            self.history_observations.append(self.xyxy)
 
         self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, new_track.xyah
+            self.mean,
+            self.covariance,
+            new_track.xywh if self.is_obb else new_track.xyah,
         )
         self.state = TrackState.Tracked
         self.is_activated = True
@@ -101,12 +136,47 @@ class STrack(BaseTrack):
         self.conf = new_track.conf
         self.cls = new_track.cls
         self.det_ind = new_track.det_ind
+        if self.is_obb:
+            self.history_observations.append(self._state_obb_for_plot())
+
+    @staticmethod
+    def _wrap_pi_periodic(delta: float) -> float:
+        return float((delta + (np.pi / 2.0)) % np.pi - (np.pi / 2.0))
+
+    def _state_obb_for_plot(self) -> np.ndarray:
+        """Return post-update OBB state as 4 corners with state-only angle smoothing."""
+        box = self.xywha.copy()
+        if box[3] > box[2]:
+            box[2], box[3] = box[3], box[2]
+            box[4] = box[4] + (np.pi / 2.0)
+        target = float((box[4] + np.pi) % (2.0 * np.pi) - np.pi)
+        if self._plot_angle is None:
+            self._plot_angle = target
+        else:
+            self._plot_angle = self._plot_angle + self._wrap_pi_periodic(
+                target - self._plot_angle
+            )
+        box[4] = self._plot_angle
+        rect = (
+            (float(box[0]), float(box[1])),
+            (max(float(box[2]), 1e-4), max(float(box[3]), 1e-4)),
+            float(np.degrees(box[4])),
+        )
+        corners = cv2.boxPoints(rect).reshape(-1)
+        return np.asarray(corners, dtype=np.float32)
 
     @property
     def xyxy(self):
         """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
         `(top left, bottom right)`.
         """
+        if self.is_obb:
+            cx, cy, w, h, angle = self.xywha
+            rect = ((float(cx), float(cy)), (max(float(w), 1e-4), max(float(h), 1e-4)), float(np.degrees(angle)))
+            corners = cv2.boxPoints(rect)
+            x1, y1 = corners.min(axis=0)
+            x2, y2 = corners.max(axis=0)
+            return np.array([x1, y1, x2, y2], dtype=np.float32)
         if self.mean is None:
             ret = self.xywh.copy()  # (xc, yc, w, h)
         else:
@@ -115,8 +185,18 @@ class STrack(BaseTrack):
         ret = xywh2xyxy(ret)
         return ret
 
+    @property
+    def xywha(self):
+        if self.is_obb:
+            ret = self.mean[:5].copy() if self.mean is not None else self.xywh.copy()
+            return np.asarray(ret, dtype=np.float32)
+        xywh = self.mean[:4].copy() if self.mean is not None else self.xywh.copy()
+        return np.array([xywh[0], xywh[1], xywh[2], xywh[3], 0.0], dtype=np.float32)
+
 
 class ByteTrack(BaseTracker):
+    supports_obb = True
+
     """
     Initialize the ByteTrack tracker with various parameters.
 
@@ -189,13 +269,14 @@ class ByteTrack(BaseTracker):
 
         self.check_inputs(dets, img)
 
-        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
+        self.kalman_filter = KalmanFilterXYWH(ndim=5) if self.is_obb else KalmanFilterXYAH()
+        dets = self.detection_layout.with_detection_indices(dets)
         self.frame_count += 1
         activated_starcks = []
         refind_stracks = []
         lost_stracks = []
         removed_stracks = []
-        confs = dets[:, 4]
+        confs = self.detection_layout.confidences(dets)
 
         remain_inds = confs > self.track_thresh
 
@@ -208,7 +289,7 @@ class ByteTrack(BaseTracker):
 
         if len(dets) > 0:
             """Detections"""
-            detections = [STrack(det, max_obs=self.max_obs) for det in dets]
+            detections = [STrack(det, max_obs=self.max_obs, is_obb=self.is_obb) for det in dets]
         else:
             detections = []
 
@@ -225,7 +306,7 @@ class ByteTrack(BaseTracker):
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
-        dists = iou_distance(strack_pool, detections)
+        dists = iou_distance(strack_pool, detections, is_obb=self.is_obb)
         # if not self.args.mot20:
         dists = fuse_score(dists, detections)
         matches, u_track, u_detection = linear_assignment(
@@ -247,7 +328,8 @@ class ByteTrack(BaseTracker):
         if len(dets_second) > 0:
             """Detections"""
             detections_second = [
-                STrack(det_second, max_obs=self.max_obs) for det_second in dets_second
+                STrack(det_second, max_obs=self.max_obs, is_obb=self.is_obb)
+                for det_second in dets_second
             ]
         else:
             detections_second = []
@@ -256,7 +338,7 @@ class ByteTrack(BaseTracker):
             for i in u_track
             if strack_pool[i].state == TrackState.Tracked
         ]
-        dists = iou_distance(r_tracked_stracks, detections_second)
+        dists = iou_distance(r_tracked_stracks, detections_second, is_obb=self.is_obb)
         matches, u_track, u_detection_second = linear_assignment(dists, thresh=0.5)
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
@@ -276,7 +358,7 @@ class ByteTrack(BaseTracker):
 
         """Deal with unconfirmed tracks, usually tracks with only one beginning frame"""
         detections = [detections[i] for i in u_detection]
-        dists = iou_distance(unconfirmed, detections)
+        dists = iou_distance(unconfirmed, detections, is_obb=self.is_obb)
         # if not self.args.mot20:
         dists = fuse_score(dists, detections)
         matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)
@@ -318,14 +400,13 @@ class ByteTrack(BaseTracker):
         outputs = []
         for t in output_stracks:
             output = []
-            output.extend(t.xyxy)
+            output.extend(t.xywha if self.is_obb else t.xyxy)
             output.append(t.id)
             output.append(t.conf)
             output.append(t.cls)
             output.append(t.det_ind)
             outputs.append(output)
-        outputs = np.asarray(outputs)
-        return outputs
+        return np.asarray(outputs, dtype=np.float32) if outputs else self.empty_output(dtype=np.float32)
 
 
 # id, class_id, conf

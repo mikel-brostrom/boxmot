@@ -1,8 +1,10 @@
+from pathlib import Path
 
 import numpy as np
 from ultralytics import YOLO
 
 from boxmot.detectors.detector import Detector
+from boxmot.utils import WEIGHTS
 
 
 class Ultralytics(Detector):
@@ -18,7 +20,7 @@ class Ultralytics(Detector):
         
     def _load_model(self, path: str):
         # We rely on ultralytics own loading mechanism
-        return YOLO(path)
+        return YOLO(WEIGHTS / Path(path).name)
         
     def preprocess(self, image: np.ndarray, **kwargs):
         # Ultralytics handles preprocessing internally in __call__ usually,
