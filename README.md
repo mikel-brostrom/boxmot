@@ -41,6 +41,16 @@
 - **Reusable Detections & Embeddings**  
   Save once, run evaluations with no redundant preprocessing lightning fast.
 
+- **Native AABB + OBB Detection Layouts**
+  - Automatic mode selection by detection tensor shape:
+    - AABB input: `(N, 6)` = `(x1, y1, x2, y2, conf, cls)`
+    - OBB input: `(N, 7)` = `(cx, cy, w, h, angle, conf, cls)`
+  - Output format follows the selected geometry:
+    - AABB output: `(N, 8)` = `(x1, y1, x2, y2, id, conf, cls, det_ind)`
+    - OBB output: `(N, 9)` = `(cx, cy, w, h, angle, id, conf, cls, det_ind)`
+  - OBB-specific tracking paths are only used when OBB detections are provided.
+  - OBB-capable trackers: `bytetrack`, `botsort`, `ocsort`, `sfsort`.
+
 
 ## 📊 Benchmark Results (MOT17 ablation split)
 
@@ -180,7 +190,6 @@ with torch.inference_mode():
 cap.release()
 cv2.destroyAllWindows()
 ```
-
 
 ## 📝 Code Examples & Tutorials
 
