@@ -250,10 +250,14 @@ When adding oriented bounding box (OBB) support, follow this generic implementat
 2) Use a motion model that supports OBB state
   - Keep AABB and OBB state/measurement handling explicit.
   - If OBB adds dimensions (for example angle), ensure `initiate`, `predict`, and `update` all use matching state sizes.
+  - For KF-based trackers, keep angle dynamics explicit (`theta`, `v_theta`/`omega`) and prefer damping over hard resets.
+  - For non-KF trackers, maintain per-track angular velocity state and apply damping during OBB updates.
 
 3) Keep mode-dependent predict/update logic
   - If velocity/state reset behavior differs between AABB and OBB, implement separate branches.
   - Avoid combining incompatible state assumptions in one path.
+  - Do not hard-zero OBB angular velocity after every update unless there is a tracker-specific reason.
+  - Preferred default: damp angular velocity each update (for example `omega *= 0.8` or equivalent blend).
 
 4) Wire OBB-aware association
   - Ensure association uses OBB geometry in OBB mode.
@@ -268,6 +272,12 @@ When adding oriented bounding box (OBB) support, follow this generic implementat
 6) Keep OBB plotting/history stable
   - Append post-update OBB geometry to `history_observations`.
   - If angles are used for plotting, add angle continuity handling to avoid wrap/flip artifacts.
+  - Before OBB update, resolve equivalent rectangle forms relative to current state:
+    - `(w, h, theta)`
+    - `(w, h, theta + pi)`
+    - `(h, w, theta + pi/2)`
+    - `(h, w, theta - pi/2)`
+  - Choose the candidate closest to the reference state, then apply damped angular update.
 
 7) Emit schema-correct outputs
   - AABB outputs must remain 8 columns.
@@ -282,6 +292,9 @@ At minimum, add or update tests to cover:
 - tracker returns 9-column OBB outputs
 - OBB association path uses oriented geometry
 - OBB plotting/history path remains stable across frames
+- OBB angle update is smooth:
+  - track angle moves toward the new detection
+  - track angle does not jump the full detection delta when damping is enabled
 
 If shared OBB plumbing changes, also consider extending:
 
