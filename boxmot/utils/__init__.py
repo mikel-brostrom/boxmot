@@ -28,7 +28,7 @@ TRACKER_CONFIGS   = CONFIGS / "trackers"
 DATASET_CONFIGS   = CONFIGS / "datasets"
 
 ENGINE   = BOXMOT / "engine"
-WEIGHTS  = ENGINE / "weights"
+WEIGHTS  = ROOT / "models"
 TRACKEVAL  = ENGINE / "trackeval"
 
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of multiprocessing threads

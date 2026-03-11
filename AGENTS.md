@@ -214,3 +214,93 @@ Sometimes the provided environment is missing GPUs, large datasets, or external 
 
 7) Commit new files
   - Ensure new tracker code, config, and docs are staged and pushed.
+
+## 10. Integrating OBB Support for New Trackers
+
+When adding oriented bounding box (OBB) support, follow this generic implementation guide.
+
+### Core requirements
+
+- Set `supports_obb = True` on the tracker class.
+- Keep `@BaseTracker.setup_decorator` enabled so detection shape can trigger OBB mode automatically.
+- Reuse shared detection plumbing from:
+  - `boxmot/trackers/basetracker.py`
+  - `boxmot/trackers/detection_layout.py`
+- Do not hardcode column indices if layout helpers already provide them:
+  - `self.detection_layout.boxes(...)`
+  - `self.detection_layout.confidences(...)`
+  - `self.detection_layout.classes(...)`
+  - `self.detection_layout.with_detection_indices(...)`
+
+### Data contract
+
+- Input detections:
+  - AABB: `(x1, y1, x2, y2, conf, cls)` (6 columns)
+  - OBB: `(cx, cy, w, h, angle, conf, cls)` (7 columns)
+- Output tracks:
+  - AABB: 8 columns
+  - OBB: 9 columns `(cx, cy, w, h, angle, id, conf, cls, det_ind)`
+
+### Implementation checklist
+
+1) Split AABB and OBB parsing paths
+  - Add explicit detection parsing/init branches for each mode.
+  - Preserve `conf`, `cls`, and `det_ind` in both paths.
+
+2) Use a motion model that supports OBB state
+  - Keep AABB and OBB state/measurement handling explicit.
+  - If OBB adds dimensions (for example angle), ensure `initiate`, `predict`, and `update` all use matching state sizes.
+  - For KF-based trackers, keep angle dynamics explicit (`theta`, `v_theta`/`omega`) and prefer damping over hard resets.
+  - For non-KF trackers, maintain per-track angular velocity state and apply damping during OBB updates.
+
+3) Keep mode-dependent predict/update logic
+  - If velocity/state reset behavior differs between AABB and OBB, implement separate branches.
+  - Avoid combining incompatible state assumptions in one path.
+  - Do not hard-zero OBB angular velocity after every update unless there is a tracker-specific reason.
+  - Preferred default: damp angular velocity each update (for example `omega *= 0.8` or equivalent blend).
+
+4) Wire OBB-aware association
+  - Ensure association uses OBB geometry in OBB mode.
+  - For IoU distance matching, pass `is_obb=self.is_obb` where applicable.
+  - If using `self.asso_func`, verify the OBB association mode is selected in OBB mode.
+
+5) Preserve geometry accessors for downstream consumers
+  - Expose `xywha` in OBB mode.
+  - Keep `xyxy` available as enclosing AABB for compatibility where needed.
+  - Maintain `history_observations` and `id` for plotting and lifecycle logic.
+
+6) Keep OBB plotting/history stable
+  - Append post-update OBB geometry to `history_observations`.
+  - If angles are used for plotting, add angle continuity handling to avoid wrap/flip artifacts.
+  - Before OBB update, resolve equivalent rectangle forms relative to current state:
+    - `(w, h, theta)`
+    - `(w, h, theta + pi)`
+    - `(h, w, theta + pi/2)`
+    - `(h, w, theta - pi/2)`
+  - Choose the candidate closest to the reference state, then apply damped angular update.
+
+7) Emit schema-correct outputs
+  - AABB outputs must remain 8 columns.
+  - OBB outputs must remain 9 columns in the exact order:
+    `(cx, cy, w, h, angle, id, conf, cls, det_ind)`.
+
+### Testing expectations
+
+At minimum, add or update tests to cover:
+
+- tracker accepts OBB detections
+- tracker returns 9-column OBB outputs
+- OBB association path uses oriented geometry
+- OBB plotting/history path remains stable across frames
+- OBB angle update is smooth:
+  - track angle moves toward the new detection
+  - track angle does not jump the full detection delta when damping is enabled
+
+If shared OBB plumbing changes, also consider extending:
+
+- `tests/unit/test_inference.py`
+- `tests/unit/test_base_backend.py`
+
+### Design rule
+
+Use shared OBB plumbing for detection mode/layout and keep tracker-specific OBB internals limited to algorithm-specific motion and association details.

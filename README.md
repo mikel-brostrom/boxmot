@@ -41,22 +41,32 @@
 - **Reusable Detections & Embeddings**  
   Save once, run evaluations with no redundant preprocessing lightning fast.
 
+- **Native AABB + OBB Detection Layouts**
+  - Automatic mode selection by detection tensor shape:
+    - AABB input: `(N, 6)` = `(x1, y1, x2, y2, conf, cls)`
+    - OBB input: `(N, 7)` = `(cx, cy, w, h, angle, conf, cls)`
+  - Output format follows the selected geometry:
+    - AABB output: `(N, 8)` = `(x1, y1, x2, y2, id, conf, cls, det_ind)`
+    - OBB output: `(N, 9)` = `(cx, cy, w, h, angle, id, conf, cls, det_ind)`
+  - OBB-specific tracking paths are only used when OBB detections are provided.
+  - OBB-capable trackers: `bytetrack`, `botsort`, `ocsort`, `sfsort`.
+
 
 ## 📊 Benchmark Results (MOT17 ablation split)
 
 <div align="center" markdown="1">
 
 <!-- START TRACKER TABLE -->
-| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
-| :-----: | :-----: | :---: | :---: | :---: | :---: |
-| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 69.418 | 78.232 | 81.812 | 12 |
-| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 69.253 | 75.914 | 83.206 | 13 |
-| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.05 | 76.185 | 80.763 | 11 |
-| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 67.796 | 75.868 | 80.514 | 12 |
-| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 720 |
-| [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | 67.39 | 74.127 | 79.105 | 25 |
-| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.548 | 77.899 | 890 |
-| [sfsort](https://arxiv.org/pdf/2404.07553) | ✅ | 62.653 | 76.87 | 69.184 | 6000 |
+| Tracker | Status  | OBB | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
+| :-----: | :-----: | :-: | :---: | :---: | :---: | :---: |
+| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | ✅ | 69.418 | 78.232 | 81.812 | 12 |
+| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | ❌ | 69.253 | 75.914 | 83.206 | 13 |
+| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | ❌ | 68.05 | 76.185 | 80.763 | 11 |
+| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | ❌ | 67.796 | 75.868 | 80.514 | 12 |
+| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | ✅ | 67.68 | 78.039 | 79.157 | 720 |
+| [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | ❌ | 67.39 | 74.127 | 79.105 | 25 |
+| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | ✅ | 66.441 | 74.548 | 77.899 | 890 |
+| [sfsort](https://arxiv.org/pdf/2404.07553) | ✅ | ✅ | 62.653 | 76.87 | 69.184 | 6000 |
 
 <!-- END TRACKER TABLE -->
 
@@ -180,7 +190,6 @@ with torch.inference_mode():
 cap.release()
 cv2.destroyAllWindows()
 ```
-
 
 ## 📝 Code Examples & Tutorials
 

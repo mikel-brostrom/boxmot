@@ -9,7 +9,7 @@ import torch
 from filelock import SoftFileLock
 
 from boxmot.reid.core.registry import ReIDModelRegistry
-from boxmot.utils import logger as LOGGER
+from boxmot.utils import WEIGHTS, logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 
 
@@ -17,7 +17,8 @@ class BaseModelBackend:
     def __init__(self, weights, device, half):
         self.weights = weights[0] if isinstance(weights, list) else weights
         if isinstance(self.weights, str):
-             self.weights = Path(self.weights)
+            self.weights = Path(self.weights)
+        self.weights = WEIGHTS / self.weights.name
         LOGGER.info(self.weights)
         self.device = device
         self.half = half
@@ -54,9 +55,90 @@ class BaseModelBackend:
             input_shape = (256, 128)
         self.input_shape = input_shape
 
+    @staticmethod
+    def _obb_to_xyxy(box: np.ndarray) -> np.ndarray:
+        """Convert a single OBB `[cx, cy, w, h, angle]` to its enclosing AABB."""
+        box = np.asarray(box, dtype=np.float32).reshape(-1)
+        cx, cy, bw, bh, angle = box[:5]
+        rect = ((float(cx), float(cy)), (max(float(bw), 1e-4), max(float(bh), 1e-4)), float(np.degrees(angle)))
+        corners = cv2.boxPoints(rect)
+        x1, y1 = corners.min(axis=0)
+        x2, y2 = corners.max(axis=0)
+        return np.array([x1, y1, x2, y2], dtype=np.float32)
+
+    @staticmethod
+    def _order_corners(corners: np.ndarray) -> np.ndarray:
+        """Return corners ordered as top-left, top-right, bottom-right, bottom-left."""
+        corners = np.asarray(corners, dtype=np.float32)
+        ordered = np.zeros((4, 2), dtype=np.float32)
+        s = corners.sum(axis=1)
+        d = np.diff(corners, axis=1).reshape(-1)
+        ordered[0] = corners[np.argmin(s)]
+        ordered[2] = corners[np.argmax(s)]
+        ordered[1] = corners[np.argmin(d)]
+        ordered[3] = corners[np.argmax(d)]
+        return ordered
+
+    @staticmethod
+    def _crop_obb(box: np.ndarray, img: np.ndarray) -> np.ndarray:
+        """Extract a rectified crop from an oriented box `[cx, cy, w, h, angle]`."""
+        box = np.asarray(box, dtype=np.float32).reshape(-1)
+        cx, cy, bw, bh, angle = box[:5]
+        bw = max(float(bw), 1.0)
+        bh = max(float(bh), 1.0)
+        rect = ((float(cx), float(cy)), (bw, bh), float(np.degrees(angle)))
+        src = BaseModelBackend._order_corners(cv2.boxPoints(rect))
+        dst = np.array(
+            [[0, 0], [bw - 1, 0], [bw - 1, bh - 1], [0, bh - 1]],
+            dtype=np.float32,
+        )
+        matrix = cv2.getPerspectiveTransform(src, dst)
+        return cv2.warpPerspective(
+            img,
+            matrix,
+            (max(int(round(bw)), 1), max(int(round(bh)), 1)),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(0, 0, 0),
+        )
+
+    @staticmethod
+    def _is_obb_box(box: np.ndarray) -> bool:
+        """Return whether a single row is in one of the supported OBB layouts."""
+        return np.asarray(box).reshape(-1).shape[0] in (5, 7, 9)
+
+    @classmethod
+    def _boxes_to_xyxy(cls, boxes: np.ndarray) -> np.ndarray:
+        """
+        Normalize AABB/OBB detections to `[x1, y1, x2, y2]` for ReID cropping.
+
+        Accepted layouts:
+        - AABB: `[x1, y1, x2, y2]` or rows with at least 4 leading AABB coordinates
+        - OBB: `[cx, cy, w, h, angle]`, `[cx, cy, w, h, angle, conf, cls]`,
+          or track outputs with 9 leading OBB fields.
+        """
+        boxes = np.asarray(boxes, dtype=np.float32)
+        if boxes.size == 0:
+            return boxes.reshape(0, 4)
+        if boxes.ndim == 1:
+            boxes = boxes.reshape(1, -1)
+
+        if boxes.shape[1] in (5, 7, 9):
+            return np.vstack([cls._obb_to_xyxy(box[:5]) for box in boxes]).astype(np.float32)
+
+        if boxes.shape[1] < 4:
+            raise ValueError("Expected detections with at least 4 coordinates")
+
+        return boxes[:, :4].astype(np.float32, copy=False)
+
     def get_crops(self, xyxys, img):
         h, w = img.shape[:2]
         interpolation_method = cv2.INTER_LINEAR
+        xyxys = np.asarray(xyxys, dtype=np.float32)
+        if xyxys.size == 0:
+            xyxys = xyxys.reshape(0, 4)
+        elif xyxys.ndim == 1:
+            xyxys = xyxys.reshape(1, -1)
         
         # Preallocate tensor for crops
         num_crops = len(xyxys)
@@ -67,9 +149,20 @@ class BaseModelBackend:
         )
 
         for i, box in enumerate(xyxys):
-            x1, y1, x2, y2 = box.round().astype("int")
-            x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w, x2), min(h, y2)
-            crop = img[y1:y2, x1:x2]
+            if self._is_obb_box(box):
+                crop = self._crop_obb(box[:5], img)
+            else:
+                x1, y1, x2, y2 = box[:4].round().astype("int")
+                x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w, x2), min(h, y2)
+
+                if x2 <= x1:
+                    x1 = min(max(0, x1), max(0, w - 1))
+                    x2 = min(w, x1 + 1)
+                if y2 <= y1:
+                    y1 = min(max(0, y1), max(0, h - 1))
+                    y2 = min(h, y1 + 1)
+
+                crop = img[y1:y2, x1:x2]
 
             # Resize and convert color in one step
             crop = cv2.resize(
@@ -154,9 +247,12 @@ class BaseModelBackend:
     def download_model(self, w):
         if isinstance(w, str): 
             w = Path(w)
+        w = WEIGHTS / w.name
 
         if w.suffix != ".pt":
             return
+
+        w.parent.mkdir(parents=True, exist_ok=True)
 
         model_url = ReIDModelRegistry.get_model_url(w)
         lock = SoftFileLock(str(w) + ".lock", timeout=300)  # Wait up to 5 minutes

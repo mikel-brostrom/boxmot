@@ -14,7 +14,7 @@ on:
 
 
 jobs:
-  tracking-methods:
+  trackers:
     runs-on: ${{ matrix.os }}
     outputs:
       status: ${{ job.status }}
@@ -48,7 +48,7 @@ jobs:
           for tracker in $TRACKERS; do
             boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker --source $IMG --verbose
           done
-  evolution:
+  tune:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -79,7 +79,7 @@ jobs:
           source .venv/bin/activate
           # reuse first set of generated det and prod
           boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci --classes 0
-  mot-metrics-benchmark:
+  metrics:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -105,41 +105,92 @@ jobs:
         shell: bash  # for Windows compatibility
         run: |
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          sudo apt-get update
           sudo apt-get install -y jq
           python -m pip install --upgrade pip setuptools wheel uv
           uv sync --extra yolo
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
-      - name: Evaluation and Summarize Results
+          boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+
+      - name: Evaluate MOT17-mini metrics
         shell: bash
         run: |
           source .venv/bin/activate
-          echo "Format,Status❔,HOTA,MOTA,IDF1" > results.csv
+          echo "Format,Status❔,HOTA,MOTA,IDF1" > metrics.csv
           for tracker in $TRACKERS; do
-            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci  --classes 0; then
+            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci --classes 0; then
               STATUS="✅"
             else
               STATUS="❌"
             fi
-            cat ${tracker}_output.json
-            # Extract the relevant parts of the JSON
-            HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
-            MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
-            IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
+            if [ -f ${tracker}_output.json ]; then
+              cat ${tracker}_output.json
+              HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
+              MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
+              IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
+            else
+              HOTA=""
+              MOTA=""
+              IDF1=""
+            fi
             TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
-            echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
+            echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> metrics.csv
           done
-          # Sort the results by HOTA in descending order
+
+      - name: Sort MOT metrics results
+        shell: bash
+        run: |
+          cp metrics.csv results.csv
           (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
-          # Create a pretty table from the sorted_results.csv file
           column -s, -t sorted_results.csv > pretty_results.txt
       - name: Show Results
         shell: bash
         run: |
           cat pretty_results.txt
-  tracking-with-pose:
+
+  obb:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    env:
+      TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort sfsort"
+      SMOKE_SOURCE: ./assets/DOTA8-MOT/train/P0861__1024__0___1648/img1
+
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install requirements
+        shell: bash
+        run: |
+          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --extra yolo
+      - name: DOTA8-MOT OBB smoke tracking
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          echo "Format,OBB" > obb.csv
+          for tracker in $TRACKERS; do
+            if boxmot track --yolo-model yolo11s-obb.pt --reid-model lmbn_n_duke.pt --tracking-method $tracker --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok --save-txt; then
+              OBB_STATUS="✅"
+            else
+              OBB_STATUS="❌"
+            fi
+            TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+            echo "$TRACKER_NAME,$OBB_STATUS" >> obb.csv
+          done
+      - name: Show OBB Results
+        shell: bash
+        run: |
+          column -s, -t obb.csv
+  pose:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -158,8 +209,8 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run:  |
           source .venv/bin/activate
-          boxmot track --yolo-model weights/yolov8n-pose.pt --imgsz 320 --source $IMG
-  tracking-with-yolos:
+          boxmot track --yolo-model yolov8n-pose.pt --imgsz 320 --source $IMG
+  yolos:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -186,7 +237,7 @@ jobs:
           boxmot track --yolo-model yolox_n.pt --imgsz 320 --source $IMG
           boxmot track --yolo-model rtdetr_v2_r18vd --imgsz 320 --source $IMG
 
-  tracking-with-seg:
+  seg:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -210,7 +261,7 @@ jobs:
           source .venv/bin/activate
           boxmot track --tracking-method bytetrack --yolo-model yolov8n-seg.pt --source $IMG
   
-  export-reid-models:
+  export:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
@@ -247,9 +298,9 @@ jobs:
         # boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320
         run: |
           source .venv/bin/activate
-          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
-          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
-          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/models/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/models/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/models/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
                
   tests:
     runs-on: ubuntu-latest
@@ -307,27 +358,29 @@ jobs:
 
   check-failures:
     needs:
-      - tracking-methods
-      - mot-metrics-benchmark
-      - evolution
-      - export-reid-models
+      - trackers
+      - metrics
+      - obb
+      - tune
+      - export
       - tests
-      - tracking-with-pose
-      - tracking-with-seg
-      - tracking-with-yolos
+      - pose
+      - seg
+      - yolos
     if: always()  # This ensures the job runs regardless of previous job failures
     runs-on: ubuntu-latest
     steps:
       - name: Prepare environment variables
         run: |
-          echo "tracking-methods_STATUS=${{ needs.tracking-methods.result }}" >> $GITHUB_ENV
-          echo "mot-metrics_STATUS=${{ needs.mot-metrics.result }}" >> $GITHUB_ENV
-          echo "evolution_STATUS=${{ needs.evolution.result }}" >> $GITHUB_ENV
-          echo "export-reid-models_STATUS=${{ needs.export-reid-modelsn.result }}" >> $GITHUB_ENV
+          echo "trackers_STATUS=${{ needs.trackers.result }}" >> $GITHUB_ENV
+          echo "metrics_STATUS=${{ needs.metrics.result }}" >> $GITHUB_ENV
+          echo "obb_STATUS=${{ needs.obb.result }}" >> $GITHUB_ENV
+          echo "tune_STATUS=${{ needs.tune.result }}" >> $GITHUB_ENV
+          echo "export_STATUS=${{ needs.export.result }}" >> $GITHUB_ENV
           echo "tests_STATUS=${{ needs.tests.result }}" >> $GITHUB_ENV
-          echo "tracking-with-pose_STATUS=${{ needs.tracking-with-pose.result }}" >> $GITHUB_ENV
-          echo "tracking-with-seg_STATUS=${{ needs.tracking-with-seg.result }}" >> $GITHUB_ENV
-          echo "tracking-with-yolos_STATUS=${{ needs.tracking-with-yolos.result }}" >> $GITHUB_ENV
+          echo "pose_STATUS=${{ needs.pose.result }}" >> $GITHUB_ENV
+          echo "seg_STATUS=${{ needs.seg.result }}" >> $GITHUB_ENV
+          echo "yolos_STATUS=${{ needs.yolos.result }}" >> $GITHUB_ENV
       - name: Check for failures and create summary
         run: |
           summary=""

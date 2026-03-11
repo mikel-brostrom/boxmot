@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from pathlib import Path
+
 import cv2
 import numpy as np
 import torch
@@ -22,8 +24,8 @@ class RTDetrStrategy:
         self.args = args
         self.device = device
 
-        model = str(model)
-        if model.endswith(".pt"):
+        model = Path(str(model)).name
+        while model.endswith(".pt"):
             model = model[:-3]
         if not model.startswith("PekingU/"):
             model = f"PekingU/{model}"

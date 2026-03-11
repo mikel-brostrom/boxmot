@@ -22,6 +22,8 @@ jobs:
         python-version: ['3.12']
         tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "hybridsort", "strongsort", "boosttrack", "sfsort"]
     timeout-minutes: 50
+    env:
+      SMOKE_SOURCE: assets/DOTA8-MOT/train/P0861__1024__0___1648/img1
 
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +42,6 @@ jobs:
           sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
           uv sync --extra yolo
 
-      # Restore the cached dataset (if available)
       - name: Restore MOT17 dataset cache
         id: cache-restore
         uses: actions/cache@v4
@@ -48,7 +49,6 @@ jobs:
           path: boxmot/engine/TrackEval/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v3
 
-      # Cache data for future runs (only if the cache was not already restored)
       - name: Cache MOT17.zip if not already cached
         if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache@v4
@@ -56,9 +56,22 @@ jobs:
           path: boxmot/engine/TrackEval/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v3
 
-      - name: Evaluation and Summarize Results
+      - name: DOTA8-MOT OBB smoke tracking
+        id: obb_smoke
         run: |
           source .venv/bin/activate
+
+          if boxmot track --yolo-model yolo11n-obb.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --source "$SMOKE_SOURCE" --project runs/benchmark_ci --name ${{ matrix.tracker }} --exist-ok --save-txt; then
+            echo "obb_status=✅" >> $GITHUB_OUTPUT
+          else
+            echo "obb_status=❌" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Evaluation and summarize MOT metrics
+        run: |
+          source .venv/bin/activate
+
+          OBB_STATUS="${{ steps.obb_smoke.outputs.obb_status }}"
 
           if boxmot eval --classes 0 --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source MOT17-ablation; then
             STATUS="✅"
@@ -94,7 +107,7 @@ jobs:
             fps=${tracker_fps[$TRACKER_NAME]}
           fi
 
-          echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}.txt
+          echo "$TRACKER_NAME,$STATUS,$OBB_STATUS,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}.txt
 
       - name: Show Results
         run: cat results/${{ matrix.tracker }}.txt
@@ -123,18 +136,17 @@ jobs:
 
       - name: Combine results
         run: |
-          touch combined_results.csv
+          : > combined_results.csv
           for file in results/*/*; do
             if [ -f "$file" ]; then
               cat "$file" >> combined_results.csv
             fi
           done
 
-          sort -t, -k3 -nr combined_results.csv > sorted_results.csv
-          column -s, -t sorted_results.csv > pretty_results.txt
+          sort -t, -k4 -nr combined_results.csv > sorted_results.csv
 
       - name: Show Combined Results
-        run: cat pretty_results.txt
+        run: cat sorted_results.csv
 
       - name: Set up Git
         run: |
@@ -143,7 +155,7 @@ jobs:
 
       - name: Update README with tracker results
         run: |
-          RESULTS_FILE="pretty_results.txt"
+          RESULTS_FILE="sorted_results.csv"
           README_FILE="README.md"
           cp "$README_FILE" "${README_FILE}.bak"
 
@@ -157,19 +169,13 @@ jobs:
           paper_links["hybridsort"]="https://arxiv.org/abs/2308.00783"
           paper_links["sfsort"]="https://arxiv.org/pdf/2404.07553"
 
-          new_table="| Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |\n"
-          new_table+="| :-----: | :-----: | :---: | :---: | :---: | :---: |\n"
+            new_table="| Tracker | Status | OBB | HOTA↑ | MOTA↑ | IDF1↑ | FPS |\n"
+            new_table+="| :-----: | :----: | :---: | :---: | :---: | :---: | :---: |\n"
 
-          while read -r line; do
-              tracker=$(echo "$line" | awk '{print $1}')
-              status=$(echo "$line" | awk '{print $2}')
-              hota=$(echo "$line" | awk '{print $3}')
-              mota=$(echo "$line" | awk '{print $4}')
-              idf1=$(echo "$line" | awk '{print $5}')
-              fps=$(echo "$line" | awk '{print $6}')
+            while IFS=, read -r tracker status obb hota mota idf1 fps; do
               paper_url=${paper_links[$tracker]}
               tracker_link="[$tracker](${paper_url:-#})"
-              new_table+="| $tracker_link | $status | $hota | $mota | $idf1 | $fps |\n"
+              new_table+="| $tracker_link | $status | $obb | $hota | $mota | $idf1 | $fps |\n"
           done < "$RESULTS_FILE"
 
           start_marker="<!-- START TRACKER TABLE -->"
@@ -183,24 +189,29 @@ jobs:
 
           mv temp_readme.md "$README_FILE"
 
-      - name: Check for changes in README.md
+      - name: Sync docs benchmark table
+        run: cp README.md docs/index.md
+
+      - name: Check for changes in benchmark docs
         id: check_changes
         run: |
-          if git diff --quiet README.md; then
-            echo "changed=false" >> $GITHUB_ENV
+          if git diff --quiet README.md docs/index.md; then
+            echo "changed=false" >> $GITHUB_OUTPUT
           else
             BRANCH_NAME="update-tracker-results-$(date +%Y%m%d%H%M%S)"
-            echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
-            echo "changed=true" >> $GITHUB_ENV
+            echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+            echo "changed=true" >> $GITHUB_OUTPUT
           fi
 
       - name: Create Pull Request
-        if: env.changed == 'true'
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
-          add-paths: README.md
+          add-paths: |
+            README.md
+            docs/index.md
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ env.BRANCH_NAME }}
-          commit-message: Overwrite tracker results in README.md
-          title: Overwrite tracker results in README.md
-          body: "This PR updates the tracker results table in the README.md."
+          branch: ${{ steps.check_changes.outputs.branch_name }}
+          commit-message: "docs: update benchmark results"
+          title: "docs: update benchmark results"
+          body: "This PR updates the benchmark tables in the README and docs index."
