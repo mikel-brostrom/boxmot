@@ -215,79 +215,139 @@ Sometimes the provided environment is missing GPUs, large datasets, or external 
 7) Commit new files
   - Ensure new tracker code, config, and docs are staged and pushed.
 
-## 10. Integrating OBB Support for a Tracker
+## 10. OBB Integration Playbook (BotSort, ByteTrack, OCSort)
 
-When adding **oriented bounding box (OBB)** support, keep shared OBB plumbing separate from tracker-specific algorithm changes.
+Use this as the canonical implementation pattern when adding OBB support to another tracker.
 
-### Reuse the shared OBB plumbing first
+### Shared OBB contract (all trackers)
 
-- Detection layout switching is centralized in:
+- Declare `supports_obb = True` on the tracker class.
+- Reuse shared mode/layout plumbing in:
   - `boxmot/trackers/basetracker.py`
   - `boxmot/trackers/detection_layout.py`
-- Reuse the layout helpers for:
-  - empty detections / outputs
-  - confidence indexing
-  - class indexing
-  - box slicing
-  - appending detection indices
-- Do not duplicate raw column indexing throughout a tracker if the shared layout already provides it.
+- Do not hardcode OBB column indices when layout helpers already provide them:
+  - `self.detection_layout.boxes(...)`
+  - `self.detection_layout.confidences(...)`
+  - `self.detection_layout.classes(...)`
+  - `self.detection_layout.with_detection_indices(...)`
+- Expect input shapes:
+  - AABB detections: `(x1, y1, x2, y2, conf, cls)` (6 cols)
+  - OBB detections: `(cx, cy, w, h, angle, conf, cls)` (7 cols)
+- Output shapes must stay consistent with `DetectionLayout`:
+  - AABB output: 8 cols
+  - OBB output: 9 cols `(cx, cy, w, h, angle, id, conf, cls, det_ind)`
+- Association mode naming is automatic via layout:
+  - base `"iou"` becomes `"iou_obb"` in OBB mode.
+- Keep plotting compatibility:
+  - Track objects should expose `xywha`, `xyxy`, `history_observations`, `id`.
 
-### Minimum implementation steps
+### BotSort OBB reference (`boxmot/trackers/botsort/`)
 
-1) Declare capability
-  - Set `supports_obb = True` on the tracker class.
+- Tracker-level behavior:
+  - Uses `KalmanFilterXYWH(ndim=self.detection_layout.box_cols)` in `update()`.
+  - Disables camera motion compensation in OBB mode (`self.cmc = None`).
+  - Uses `self.detection_layout` for detection splitting and confidence indexing.
+  - Passes `is_obb=self.is_obb` in all IoU matching calls.
+- Track object behavior (`botsort_track.py`):
+  - Keeps explicit init paths:
+    - AABB: `xyxy -> xywh`
+    - OBB: `det[:5] -> xywh` (where `xywh` holds `xywha` in OBB mode)
+  - Uses separate shared Kalman instances:
+    - AABB: `KalmanFilterXYWH()`
+    - OBB: `KalmanFilterXYWH(ndim=5)`
+  - Prediction zeroing differs by mode:
+    - AABB resets `[6:8]`
+    - OBB resets `[7:10]` (size/angle velocities)
+  - Maintains OBB-specific plotting history via `_state_obb_for_plot()`:
+    - swaps `w/h` when needed
+    - unwraps angle with periodic wrapping
+    - stores flattened 4-corner polygons (8 values)
+  - `xyxy` for OBB is enclosing AABB from `cv2.boxPoints`.
+  - Final output uses `t.xywha` in OBB mode.
 
-2) Keep AABB and OBB state explicit
-  - If OBB needs a different Kalman state or box representation, keep that as a separate path.
-  - Example pattern:
-    - AABB path uses the tracker’s original motion model.
-    - OBB path uses an OBB-capable state such as `KalmanFilterXYWH(ndim=5)` when appropriate.
+### ByteTrack OBB reference (`boxmot/trackers/bytetrack/`)
 
-3) Isolate geometry-specific parsing
-  - Use the shared detection layout for common parsing.
-  - If the tracker still needs geometry-specific preparation, use small helpers such as:
-    - `_split_aabb_detections()`
-    - `_split_obb_detections()`
-  - Avoid scattering `if self.is_obb` across unrelated code.
+- Tracker-level behavior:
+  - Switches motion model in `update()`:
+    - AABB: `KalmanFilterXYAH()`
+    - OBB: `KalmanFilterXYWH(ndim=5)`
+  - Uses layout helpers for detection indexing and confidence filtering.
+  - Uses OBB-aware IoU in all association stages with `is_obb=self.is_obb`.
+  - Builds outputs with `t.xywha` in OBB mode.
+- Track object behavior (`bytetrack.py::STrack`):
+  - AABB init stores `xywh`, `tlwh`, `xyah`.
+  - OBB init stores 5D geometry in `xywh`, sets `tlwh/xyah=None`.
+  - Activation/update/re-activation choose measurement by mode:
+    - OBB: `xywh` (5D)
+    - AABB: `xyah` (4D)
+  - Uses separate shared Kalman filters:
+    - AABB `shared_kalman = KalmanFilterXYAH()`
+    - OBB `shared_kalman_obb = KalmanFilterXYWH(ndim=5)`
+  - Keeps the same OBB plotting/corner-history strategy as BotSort.
 
-4) Update the track state object
-  - The track object should expose the geometry needed by matching and plotting.
-  - For OBB-capable trackers, this usually means:
-    - `xywha`
-    - `xyxy` (enclosing AABB for fallback consumers)
-    - `history_observations`
-    - `id`
-  - If the tracker relies on inferred visualization states, maintain `time_since_update` or the equivalent state.
+### OCSort OBB reference (`boxmot/trackers/ocsort/ocsort.py`)
 
-5) Use OBB-aware association only where needed
-  - Matching should call OBB-aware utilities such as `iou_distance(..., is_obb=self.is_obb)` when in OBB mode.
-  - Keep tracker-specific OBB cost logic local to the tracker if it is not generic.
+- Core difference from BotSort/ByteTrack:
+  - OCSort uses an XYSR-state Kalman model, not XYWH/XYAH.
+- OBB state mapping:
+  - `convert_obb_to_z([cx, cy, w, h, theta]) -> [cx, cy, s, r, theta]`
+  - `convert_x_to_obb([x, y, s, r, theta, ...]) -> [x, y, w, h, theta]`
+- Kalman dimensions:
+  - AABB: `dim_x=7, dim_z=4`
+  - OBB: `dim_x=9, dim_z=5` (adds angle and angle velocity)
+- OBB-specific tracking logic:
+  - `k_previous_obs(..., is_obb=True)` returns 6-element placeholders.
+  - Uses `speed_direction_obb` (center-to-center velocity direction).
+  - On update, OBB path calls `kf.update(convert_obb_to_z(bbox[:5]))`.
+  - OBB plotting history uses state-derived corners via `_state_obb_for_plot()`.
+  - Prediction/state retrieval for OBB uses `convert_x_to_obb(...)`.
+- Association/output:
+  - Uses layout-driven slices (`box_cols`, `box_with_conf_cols`, `cls_idx`).
+  - Uses `self.asso_func` from `BaseTracker`; in OBB mode this becomes `*_obb`.
+  - Output includes 5 box values + `[id(+1 in current OCSort code), conf, cls, det_ind]` => 9 columns.
 
-6) Format outputs correctly
-  - AABB output remains 8 columns.
-  - OBB output should be 9 columns:
-    - `(cx, cy, w, h, angle, id, conf, cls, det_ind)`
+### Required checklist for adding OBB to another tracker
 
-7) Preserve visualization compatibility
-  - Ensure the tracker can be consumed by the shared visualization layer in `boxmot/utils/visualization.py`.
-  - If plotting is expected, the track objects must provide the metadata the visualization mixin expects.
+1) Declare capability and use shared mode inference
+  - Set `supports_obb = True`.
+  - Keep `@BaseTracker.setup_decorator` active so detection shape can trigger OBB mode.
 
-### Testing expectations for OBB support
+2) Add explicit AABB vs OBB detection parsing
+  - Implement separate parse/init branches in the track object.
+  - Always preserve `conf`, `cls`, `det_ind`.
 
-Add focused tests in `tests/unit/test_trackers.py` and related files as appropriate.
+3) Use an OBB-capable motion state
+  - Either follow BotSort/ByteTrack (`KalmanFilterXYWH(ndim=5)`) or OCSort-style mapped state (`[x,y,s,r,theta]`), depending on algorithm.
 
-At minimum, cover:
+4) Keep mode-dependent predict/update measurement paths
+  - Avoid one-size-fits-all updates if AABB and OBB states differ.
 
-- tracker accepts OBB detections
-- tracker returns 9-column OBB outputs
-- OBB matching path uses oriented geometry
-- plotting still works if the tracker participates in visualization
+5) Wire OBB-aware association
+  - For IoU matching paths, use `iou_distance(..., is_obb=self.is_obb)` or ensure `self.asso_func` resolves to OBB variants.
 
-If shared plumbing changes, also consider extending:
+6) Preserve plotting/history semantics
+  - For OBB, append 4-corner history (8 values) from the post-update state.
+  - Keep angle continuity logic to avoid 90-degree flip artifacts.
 
-- `tests/unit/test_inference.py`
-- `tests/unit/test_base_backend.py`
+7) Emit correct output schema
+  - AABB: 8 cols, OBB: 9 cols.
+  - For OBB output use `(cx, cy, w, h, angle, id, conf, cls, det_ind)`.
+
+8) Add/extend tests
+  - In `tests/unit/test_trackers.py` at minimum:
+    - tracker accepts OBB detections
+    - tracker returns 9-column OBB output
+    - OBB matching uses oriented geometry
+    - OBB history/plotting path remains stable
+  - If shared plumbing changed, also extend:
+    - `tests/unit/test_inference.py`
+    - `tests/unit/test_base_backend.py`
 
 ### Design rule
 
-Use a shared **OBB mode trigger** for common detection plumbing, but only implement tracker-specific OBB internals where the algorithm truly requires them. This keeps trackers from getting bloated while still allowing correct OBB behavior.
+Mirror shared OBB plumbing from `BaseTracker`/`DetectionLayout`, and copy tracker-specific internals from the closest existing pattern:
+
+- BotSort/ByteTrack pattern: XYWH + 5D Kalman in OBB mode.
+- OCSort pattern: XYSR(+theta) mapped OBB state.
+
+Do not mix patterns unless the algorithm requires it.
