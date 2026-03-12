@@ -8,6 +8,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  UV_TORCH_BACKEND: cpu
+  UV_INDEX_STRATEGY: unsafe-best-match
+
 permissions:
   contents: write
   pull-requests: write
@@ -38,9 +42,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq curl unzip
-          python -m pip install --upgrade pip setuptools wheel uv
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          uv sync --extra yolo
+          bash .github/scripts/uv_ci_install.sh ".[yolo]"
 
       - name: Restore MOT17 dataset cache
         id: cache-restore
