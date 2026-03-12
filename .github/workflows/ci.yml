@@ -168,7 +168,7 @@ jobs:
         shell: bash
         run: |
           bash .github/scripts/uv_ci_install.sh ".[yolo]"
-      - name: DOTA8-MOT OBB smoke tracking
+      - name: Run obb tracking method
         shell: bash
         run: |
           source .venv/bin/activate
