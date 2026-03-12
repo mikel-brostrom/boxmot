@@ -75,16 +75,6 @@ BoxMOT provides a unified CLI with a simple syntax:
 boxmot MODE [OPTIONS] [DETECTOR] [REID] [TRACKER]
 ```
 
-Where:
-
-```text
-MODE      (required) one of [track, eval, tune, generate, export]
-DETECTOR  (optional) model like yolov8n, yolov9c, yolo11m, yolox_x, rf-detr-base
-REID      (optional) model like osnet_x0_25_msmt17, mobilenetv2_x1_4, lmbn_n_duke
-TRACKER   (optional) one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]
-OPTIONS   (optional) flags like --source 0, --imgsz 640, --postprocessing gbrc
-```
-
 Modes:
 
 ```text
