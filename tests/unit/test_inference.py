@@ -1,5 +1,8 @@
+from pathlib import Path
+
 import numpy as np
 
+from boxmot.engine.cli import ensure_model_extension
 from boxmot.engine.inference import extract_detections, filter_detections, resolve_yolo_model_path
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
@@ -171,3 +174,17 @@ def test_resolve_yolo_model_path_keeps_rtdetr_name_without_path_prefix():
 
     assert resolved.name == "rtdetr_v2_r18vd.pt"
     assert str(resolved.parent) == "."
+
+
+def test_ensure_model_extension_preserves_explicit_export_paths():
+    model_path = "models/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite"
+
+    resolved = ensure_model_extension(model_path)
+
+    assert resolved == Path(model_path)
+
+
+def test_ensure_model_extension_keeps_bare_reid_names_in_weights_dir():
+    resolved = ensure_model_extension("osnet_x0_25_msmt17")
+
+    assert resolved == WEIGHTS / "osnet_x0_25_msmt17.pt"

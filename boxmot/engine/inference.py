@@ -25,6 +25,7 @@ from boxmot.detectors import (
 )
 from boxmot.utils import WEIGHTS, logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.misc import resolve_model_path
 from boxmot.utils.timing import TimingStats
 
 checker = RequirementsChecker()
@@ -182,7 +183,7 @@ class DetectorReIDPipeline:
             reid_model_paths = [reid_model_paths]
         
         for reid_path in reid_model_paths:
-            reid_path = WEIGHTS / Path(reid_path).name
+            reid_path = resolve_model_path(reid_path)
             reid_backend = ReidAutoBackend(
                 weights=reid_path,
                 device=self.device,

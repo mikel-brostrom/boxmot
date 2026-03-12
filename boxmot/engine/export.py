@@ -101,7 +101,7 @@ def create_export_tasks(args, model, dummy_input):
         tasks["tflite"] = (
             True,
             TFLiteExporter,
-            (model, dummy_input, args.weights),
+            (model, dummy_input, args.weights, args.opset, args.dynamic, args.half, args.simplify),
         )
 
     if openvino_flag:
