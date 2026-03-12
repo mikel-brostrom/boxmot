@@ -1,7 +1,3 @@
-# BoxMOT
-
-BoxMOT: Pluggable SOTA multi-object tracking modules with support for axis-aligned and oriented bounding boxes
-
 <div align="center" markdown="1">
 
   <img width="640"
