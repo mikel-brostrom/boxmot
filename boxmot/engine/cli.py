@@ -241,7 +241,7 @@ class CommandFirstGroup(click.Group):
         
         # Command syntax
         with formatter.indentation():
-            formatter.write_text("boxmot MODE DETECTOR REID TRACKER ARGS")
+            formatter.write_text("boxmot MODE [OPTIONS] [DETECTOR] [REID] [TRACKER]")
         formatter.write_paragraph()
         
         # Argument descriptions
@@ -250,9 +250,9 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("Where  MODE (required) is one of [track, eval, tune, generate, export]")
             formatter.write_text("       DETECTOR (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
             formatter.write_text("       REID (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
-            formatter.write_text("       TRACKER (optional) is one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort]")
-            formatter.write_text("       ARGS (optional) 'arg=value' pairs like 'source=0' 'imgsz=640' that override defaults.")
-            formatter.write_text("          See all ARGS at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
+            formatter.write_text("       TRACKER (optional) is one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]")
+            formatter.write_text("       OPTIONS (optional) flags like '--source 0' '--imgsz 640' that override defaults.")
+            formatter.write_text("          See all options at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
         formatter.write_paragraph()
         
         # Examples
@@ -280,7 +280,7 @@ class CommandFirstGroup(click.Group):
             
             formatter.write_text("5. Export ReID model:")
             with formatter.indentation():
-                formatter.write_text("boxmot export --weights osnet_x0_25_msmt17.pt --include onnx engine")
+                formatter.write_text("boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic")
         formatter.write_paragraph()
         
         # Available modes
