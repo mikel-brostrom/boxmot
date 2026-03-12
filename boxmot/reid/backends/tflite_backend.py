@@ -1,4 +1,6 @@
 from pathlib import Path
+from importlib import import_module
+from typing import Any
 
 import numpy as np
 import torch
@@ -9,12 +11,12 @@ from boxmot.utils import logger as LOGGER
 
 class TFLiteBackend(BaseModelBackend):
     """
-    A class to handle TensorFlow Lite model inference with dynamic batch size support.
+    A class to handle LiteRT inference for TFLite models with dynamic batch size support.
 
     Attributes:
         nhwc (bool): A flag indicating the order of dimensions.
         half (bool): A flag to indicate if half precision is used.
-        interpreter (tf.lite.Interpreter): The TensorFlow Lite interpreter.
+        interpreter: The LiteRT interpreter instance.
         current_allocated_batch_size (int): The current batch size allocated in the interpreter.
     """
 
@@ -33,20 +35,25 @@ class TFLiteBackend(BaseModelBackend):
         # self.interpreter: tf.lite.Interpreter = None
         # self.current_allocated_batch_size: int = None
 
+    def _get_interpreter_class(self) -> type[Any]:
+        """Resolve the LiteRT interpreter class, installing LiteRT when needed."""
+        try:
+            litert = import_module("ai_edge_litert.interpreter")
+        except ModuleNotFoundError:
+            self.checker.check_packages(("ai-edge-litert",))
+            litert = import_module("ai_edge_litert.interpreter")
+        return litert.Interpreter
+
     def load_model(self, w):
         """
-        Loads the TensorFlow Lite model and initializes the interpreter.
+        Loads the TFLite model and initializes the LiteRT interpreter.
 
         Args:
             w (str): Path to the TFLite model file.
         """
-        self.checker.check_packages(("tensorflow",))
-
-        LOGGER.info(f"Loading {str(w)} for TensorFlow Lite inference...")
-
-        import tensorflow as tf
-
-        self.interpreter = tf.lite.Interpreter(model_path=str(w))
+        interpreter_class = self._get_interpreter_class()
+        LOGGER.info(f"Loading {str(w)} for LiteRT inference...")
+        self.interpreter = interpreter_class(model_path=str(w))
 
         self.interpreter.allocate_tensors()  # allocate
         self.input_details = self.interpreter.get_input_details()  # inputs
