@@ -294,15 +294,14 @@ jobs:
           for i in "${!engines[@]}"; do
             engine="${engines[$i]}"
             model_path="${model_paths[$i]}"
-            export_status="missing"
-            inference_status="not-run"
+            export_status="❌"
+            inference_status="❌"
 
             if [ -n "$model_path" ] && [ -e "$model_path" ]; then
-              export_status="success"
+              export_status="✅"
               if boxmot track --reid-model "$model_path" --imgsz 320 --source "$IMG"; then
-                inference_status="success"
+                inference_status="✅"
               else
-                inference_status="failed"
                 failed=1
               fi
             else
@@ -324,7 +323,7 @@ jobs:
             exit 0
           fi
 
-          successful_engines=$(awk -F, 'NR > 1 && $2 == "success" && $3 == "success" {print $1}' engine_results.csv)
+          successful_engines=$(awk -F, 'NR > 1 && $2 == "✅" && $3 == "✅" {print $1}' engine_results.csv)
 
           {
             echo "## Export and inference engines"
