@@ -198,7 +198,7 @@ boxmot = "boxmot.engine.cli:main"
 
 [dependency-groups]
 dev  = ["ipykernel>=6.29.5,<7.0.0", "pre-commit>=4.0.1"]
-test = ["pytest>=8.0.2,<9.0.0", "pytest-cov>=6.0.0,<7.0.0"]
+test = ["pytest>=8.0.2,<10.0.0", "pytest-cov>=6.0.0,<7.0.0"]
 docs = [
   "mkdocs>=1.6.1", "mkdocs-click>=0.9.0",
   "mkdocs-include-markdown-plugin>=7.1.6",
@@ -225,8 +225,10 @@ evolve = [
 ]
 
 onnx = [
-  "onnx>=1.16.1,<1.19",
-  "onnxruntime>=1.18.1",
+  "onnx==1.17.0 ; python_version < '3.10'",
+  "onnx==1.20.1 ; python_version >= '3.10'",
+  "onnxruntime==1.18.1 ; python_version < '3.10'",
+  "onnxruntime==1.24.3 ; python_version >= '3.10'",
   "onnxslim>=0.1.67",
   "onnxscript>=0.1.0"
 ]
@@ -234,28 +236,24 @@ onnx = [
 openvino = ["openvino>=2025.2.0"]
 
 tflite = [
-  # onnx2tf stack: only on linux/win, and only on py<3.13
-  "onnx2tf>=1.18.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  # onnx2tf flatbuffer_direct stack: only on linux/win, and only on py3.12
+  "onnx2tf>=2.3.3,<3.0.0 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  "onnx==1.17.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "onnxruntime==1.18.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "onnxsim==0.4.33 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnx==1.20.1 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnxruntime==1.24.3 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnxsim-prebuilt==0.4.39.post2 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnxoptimizer==0.4.2 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "sne4onnx>=2.0.1 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "sng4onnx>=2.0.1 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  "onnx_graphsurgeon>=0.3.26 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "simple-onnx-processing-tools ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "sng4onnx>=1.0.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tensorflow==2.19.0 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "tf-keras==2.19.0 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "h5py==3.12.1 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  "tensorflow==2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "tf-keras==2.19.0 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "psutil==5.9.5 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "ml-dtypes==0.5.1 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "flatbuffers==25.12.19 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "onnxslim>=0.1.31 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  "psutil==5.9.5 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "ml-dtypes==0.5.1 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-
-  "flatbuffers>=23.1.21 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-
-  # keep your existing helper if you want it
-  "onnxslim>=0.1.31 ; python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-
-  # still exclude Windows (no wheels there); linux-only
-  "ai-edge-litert==1.2.0 ; python_version < '3.13' and sys_platform == 'linux'",
+  "ai-edge-litert==2.1.2 ; python_version >= '3.12' and python_version < '3.13' and sys_platform == 'linux'",
 ]
