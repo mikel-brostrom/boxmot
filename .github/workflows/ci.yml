@@ -273,17 +273,81 @@ jobs:
         run: | 
           source .venv/bin/activate
           boxmot export --include torchscript --include onnx --include openvino --include tflite --device cpu --batch-size 3 --dynamic
-      - name: Test inference on exported models
+      - name: Smoke test exported engines
+        if: always()
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
           TFLITE_MODEL=$(find models -name '*_float32.tflite' | head -n 1)
-          test -n "$TFLITE_MODEL"
-          boxmot track --reid-model models/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
-          boxmot track --reid-model models/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
-          boxmot track --reid-model models/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
-          boxmot track --reid-model "$TFLITE_MODEL"                          --imgsz 320 --source $IMG
+          engines=(torchscript onnx openvino tflite)
+          model_paths=(
+            "models/osnet_x0_25_msmt17.torchscript"
+            "models/osnet_x0_25_msmt17.onnx"
+            "models/osnet_x0_25_msmt17_openvino_model"
+            "$TFLITE_MODEL"
+          )
+
+          echo "Engine,Export,Inference,Model" > engine_results.csv
+          failed=0
+
+          for i in "${!engines[@]}"; do
+            engine="${engines[$i]}"
+            model_path="${model_paths[$i]}"
+            export_status="missing"
+            inference_status="not-run"
+
+            if [ -n "$model_path" ] && [ -e "$model_path" ]; then
+              export_status="success"
+              if boxmot track --reid-model "$model_path" --imgsz 320 --source "$IMG"; then
+                inference_status="success"
+              else
+                inference_status="failed"
+                failed=1
+              fi
+            else
+              failed=1
+            fi
+
+            echo "$engine,$export_status,$inference_status,$model_path" >> engine_results.csv
+          done
+
+          column -s, -t engine_results.csv
+          exit "$failed"
+      - name: Summarize exported engines
+        if: always()
+        run: |
+          if [ ! -f engine_results.csv ]; then
+            echo "## Export and inference engines" >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "No engine summary was generated." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          successful_engines=$(awk -F, 'NR > 1 && $2 == "success" && $3 == "success" {print $1}' engine_results.csv)
+
+          {
+            echo "## Export and inference engines"
+            echo
+            if [ -n "$successful_engines" ]; then
+              echo "Successful export and inference engines:"
+              echo
+              while IFS= read -r engine; do
+                [ -n "$engine" ] && echo "- $engine"
+              done <<< "$successful_engines"
+            else
+              echo "No engines completed both export and inference successfully."
+            fi
+            echo
+            echo "| Engine | Export | Inference | Model |"
+            echo "| --- | --- | --- | --- |"
+            while IFS=, read -r engine export_status inference_status model_path; do
+              if [ "$engine" = "Engine" ]; then
+                continue
+              fi
+              echo "| $engine | $export_status | $inference_status | \`$model_path\` |"
+            done < engine_results.csv
+          } >> "$GITHUB_STEP_SUMMARY"
                
   tests:
     runs-on: ubuntu-latest
@@ -297,10 +361,6 @@ jobs:
           python-version: '3.12'
       - run: |
           bash .github/scripts/uv_ci_install.sh ".[yolo,evolve,onnx,openvino,tflite]" --group dev --group test --group docs
-
-      - name: Test export models
-        run: |
-          uv run boxmot export --include torchscript --include onnx --include openvino --include tflite --device cpu --batch-size 3 --dynamic
       - name: Pytest tests  # after tracking options as this does not download models
         env:
           # directory of PyPi package to be tested
