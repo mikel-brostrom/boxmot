@@ -175,5 +175,5 @@ tflite = [
   "flatbuffers==25.12.19 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
   "onnxslim>=0.1.31 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
-  "ai-edge-litert==2.1.2 ; python_version >= '3.12' and python_version < '3.13' and sys_platform == 'linux'",
+  "ai-edge-litert==2.1.2 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 ]

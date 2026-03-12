@@ -77,7 +77,6 @@ class TFLiteExporter(BaseExporter):
             sig = None
 
         self._set_if_supported(kwargs, sig, "tflite_backend", "flatbuffer_direct")
-        self._set_if_supported(kwargs, sig, "not_use_onnxsim", True)
         self._set_if_supported(kwargs, sig, "verbosity", "info")
         self._set_if_supported(kwargs, sig, "output_float16_tflite", bool(self.half))
 
