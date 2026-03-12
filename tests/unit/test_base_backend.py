@@ -1,8 +1,10 @@
 import numpy as np
 import torch
 import cv2
+from pathlib import Path
 
 from boxmot.reid.backends.base_backend import BaseModelBackend
+from boxmot.reid.core.registry import ReIDModelRegistry
 
 
 class DummyBackend(BaseModelBackend):
@@ -19,6 +21,14 @@ class DummyBackend(BaseModelBackend):
 
     def load_model(self, w):
         return None
+
+
+class InitOnlyBackend(BaseModelBackend):
+    def forward(self, im_batch):
+        return im_batch
+
+    def load_model(self, w):
+        self.loaded_weights = Path(w)
 
 
 def test_boxes_to_xyxy_keeps_aabb_boxes():
@@ -73,3 +83,15 @@ def test_get_crops_rectifies_rotated_obb_boxes():
 
     assert tuple(crops.shape) == (1, 3, 16, 8)
     assert crop.mean() > 0.2
+
+
+def test_base_backend_preserves_explicit_export_paths(monkeypatch):
+    monkeypatch.setattr(ReIDModelRegistry, "get_model_name", lambda _weights: "osnet_x0_25")
+    monkeypatch.setattr(ReIDModelRegistry, "get_nr_classes", lambda _weights: 1)
+    monkeypatch.setattr(ReIDModelRegistry, "build_model", lambda *args, **kwargs: object())
+
+    explicit_path = Path("models/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite")
+    backend = InitOnlyBackend(explicit_path, torch.device("cpu"), half=False)
+
+    assert backend.weights == explicit_path
+    assert backend.loaded_weights == explicit_path

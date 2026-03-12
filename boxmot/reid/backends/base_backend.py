@@ -11,6 +11,7 @@ from filelock import SoftFileLock
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.utils import WEIGHTS, logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.misc import resolve_model_path
 
 
 class BaseModelBackend:
@@ -18,7 +19,7 @@ class BaseModelBackend:
         self.weights = weights[0] if isinstance(weights, list) else weights
         if isinstance(self.weights, str):
             self.weights = Path(self.weights)
-        self.weights = WEIGHTS / self.weights.name
+        self.weights = resolve_model_path(self.weights)
         LOGGER.info(self.weights)
         self.device = device
         self.half = half
@@ -247,7 +248,7 @@ class BaseModelBackend:
     def download_model(self, w):
         if isinstance(w, str): 
             w = Path(w)
-        w = WEIGHTS / w.name
+        w = resolve_model_path(w)
 
         if w.suffix != ".pt":
             return

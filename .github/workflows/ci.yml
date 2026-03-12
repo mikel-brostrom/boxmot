@@ -278,7 +278,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          TFLITE_MODEL=$(find models -name '*.tflite' | head -n 1)
+          TFLITE_MODEL=$(find models -name '*_float32.tflite' | head -n 1)
           test -n "$TFLITE_MODEL"
           boxmot track --reid-model models/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
           boxmot track --reid-model models/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG

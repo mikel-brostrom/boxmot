@@ -15,7 +15,7 @@ import click
 
 from boxmot.utils import ROOT, WEIGHTS, DATASET_CONFIGS, TRACKEVAL
 from boxmot.utils.download import download_eval_data
-from boxmot.utils.misc import parse_imgsz
+from boxmot.utils.misc import parse_imgsz, resolve_model_path
 
 
 def load_dataset_cfg(name: str) -> dict:
@@ -27,13 +27,13 @@ def load_dataset_cfg(name: str) -> dict:
 
 def ensure_model_extension(model_path):
     """
-    Ensure model path has .pt extension.
+    Ensure model path has the default `.pt` suffix when omitted and preserve explicit paths.
     
     Args:
         model_path: Path to model file (str or Path)
         
     Returns:
-        Path with .pt extension
+        Resolved model path.
     """
     if model_path is None:
         return None
@@ -43,7 +43,7 @@ def ensure_model_extension(model_path):
     if not model_path.suffix and "openvino" not in model_path.name:
         model_path = model_path.with_suffix('.pt')
 
-    return WEIGHTS / model_path.name
+    return resolve_model_path(model_path)
 
 
 # Core options (excluding model & classes)
