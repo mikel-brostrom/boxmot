@@ -22,7 +22,11 @@
 
 BoxMOT gives you one CLI and one Python API for running, evaluating, tuning, and exporting modern multi-object tracking pipelines. Swap trackers without rewriting your detector stack, reuse cached detections and embeddings across experiments, and benchmark locally on MOT-style datasets.
 
-[Installation](#installation) • [Quickstart](#quickstart) • [Python API](#python-api) • [Benchmarks](#benchmark-results-mot17-ablation-split) • [Examples](#examples-and-notebooks) • [Contributing](#contributing)
+<div align="center" markdown="1">
+
+[Installation](#installation) • [Metrics](#benchmark-results-mot17-ablation-split) • [CLI](#cli) • [Python API](#python-api) • [Detection Layouts](#detection-layouts) • [Examples](#examples) • [Contributing](#contributing)
+
+</div>
 
 ## Why BoxMOT
 
@@ -42,15 +46,58 @@ pip install boxmot
 boxmot --help
 ```
 
-## Quickstart
+## Benchmark Results (MOT17 ablation split)
 
-The CLI supports positional shortcuts for the common case:
+<div align="center" markdown="1">
+
+<!-- START TRACKER TABLE -->
+| Tracker | Status  | OBB | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
+| :-----: | :-----: | :-: | :---: | :---: | :---: | :---: |
+| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | ✅ | 69.418 | 78.232 | 81.812 | 12 |
+| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | ❌ | 69.253 | 75.914 | 83.206 | 13 |
+| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | ❌ | 68.05 | 76.185 | 80.763 | 11 |
+| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | ❌ | 67.796 | 75.868 | 80.514 | 12 |
+| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | ✅ | 67.68 | 78.039 | 79.157 | 720 |
+| [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | ❌ | 67.39 | 74.127 | 79.105 | 25 |
+| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | ✅ | 66.441 | 74.548 | 77.899 | 890 |
+| [sfsort](https://arxiv.org/pdf/2404.07553) | ✅ | ✅ | 62.653 | 76.87 | 69.184 | 6000 |
+<!-- END TRACKER TABLE -->
+
+<sub>Evaluation was run on the second half of the MOT17 training set because the validation split is not public and the ablation detector was trained on the first half. Results used [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip) with each tracker configured from its default repository settings.</sub>
+
+</div>
+
+## CLI
+
+BoxMOT provides a unified CLI with a simple syntax:
 
 ```bash
 boxmot MODE [OPTIONS] [DETECTOR] [REID] [TRACKER]
 ```
 
+Where:
+
+```text
+MODE      (required) one of [track, eval, tune, generate, export]
+DETECTOR  (optional) model like yolov8n, yolov9c, yolo11m, yolox_x, rf-detr-base
+REID      (optional) model like osnet_x0_25_msmt17, mobilenetv2_x1_4, lmbn_n_duke
+TRACKER   (optional) one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]
+OPTIONS   (optional) flags like --source 0, --imgsz 640, --postprocessing gbrc
+```
+
+Modes:
+
+```text
+track      run detector + tracker on webcam, images, videos, directories, or streams
+generate   precompute detections and embeddings for later reuse
+eval       benchmark on MOT-style datasets and apply optional postprocessing
+tune       optimize tracker hyperparameters with multi-objective search
+export     export ReID models to deployment formats
+```
+
 Use `boxmot MODE --help` for mode-specific flags.
+
+Quick examples:
 
 ```bash
 # Track a webcam feed
@@ -79,48 +126,6 @@ If you want to track only selected classes, pass a comma-separated list:
 ```bash
 boxmot track yolov8s --source 0 --classes 16,17
 ```
-
-## Modes
-
-| Mode | Purpose |
-| --- | --- |
-| `track` | Run detector + tracker on webcam, images, videos, directories, or streams. |
-| `generate` | Precompute detections and embeddings for later reuse. |
-| `eval` | Benchmark on MOT-style datasets and apply optional postprocessing. |
-| `tune` | Optimize tracker hyperparameters with multi-objective search. |
-| `export` | Export ReID models to deployment formats. |
-
-## Detection Layouts
-
-BoxMOT switches tracking mode from the detection tensor shape:
-
-| Geometry | Input detections | Output tracks |
-| --- | --- | --- |
-| AABB | `(N, 6)` = `(x1, y1, x2, y2, conf, cls)` | `(N, 8)` = `(x1, y1, x2, y2, id, conf, cls, det_ind)` |
-| OBB | `(N, 7)` = `(cx, cy, w, h, angle, conf, cls)` | `(N, 9)` = `(cx, cy, w, h, angle, id, conf, cls, det_ind)` |
-
-OBB-specific tracking paths are enabled automatically when OBB detections are provided. Current OBB-capable trackers: `bytetrack`, `botsort`, `ocsort`, and `sfsort`.
-
-## Benchmark Results (MOT17 ablation split)
-
-<div align="center" markdown="1">
-
-<!-- START TRACKER TABLE -->
-| Tracker | Status  | OBB | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
-| :-----: | :-----: | :-: | :---: | :---: | :---: | :---: |
-| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | ✅ | 69.418 | 78.232 | 81.812 | 12 |
-| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | ❌ | 69.253 | 75.914 | 83.206 | 13 |
-| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | ❌ | 68.05 | 76.185 | 80.763 | 11 |
-| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | ❌ | 67.796 | 75.868 | 80.514 | 12 |
-| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | ✅ | 67.68 | 78.039 | 79.157 | 720 |
-| [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | ❌ | 67.39 | 74.127 | 79.105 | 25 |
-| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | ✅ | 66.441 | 74.548 | 77.899 | 890 |
-| [sfsort](https://arxiv.org/pdf/2404.07553) | ✅ | ✅ | 62.653 | 76.87 | 69.184 | 6000 |
-<!-- END TRACKER TABLE -->
-
-<sub>Evaluation was run on the second half of the MOT17 training set because the validation split is not public and the ablation detector was trained on the first half. Results used [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip) with each tracker configured from its default repository settings.</sub>
-
-</div>
 
 ## Python API
 
@@ -166,6 +171,17 @@ cv2.destroyAllWindows()
 ```
 
 For end-to-end detector integrations, see the notebooks in [examples](examples).
+
+## Detection Layouts
+
+BoxMOT switches tracking mode from the detection tensor shape:
+
+| Geometry | Input detections | Output tracks |
+| --- | --- | --- |
+| AABB | `(N, 6)` = `(x1, y1, x2, y2, conf, cls)` | `(N, 8)` = `(x1, y1, x2, y2, id, conf, cls, det_ind)` |
+| OBB | `(N, 7)` = `(cx, cy, w, h, angle, conf, cls)` | `(N, 9)` = `(cx, cy, w, h, angle, id, conf, cls, det_ind)` |
+
+OBB-specific tracking paths are enabled automatically when OBB detections are provided. Current OBB-capable trackers: `bytetrack`, `botsort`, `ocsort`, and `sfsort`.
 
 ## Examples
 
