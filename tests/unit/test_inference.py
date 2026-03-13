@@ -1,8 +1,11 @@
 from pathlib import Path
 
 import numpy as np
+import torch
 
 from boxmot.detectors.detector import Detections
+import boxmot.detectors.ultralytics as ultralytics_detector_module
+from boxmot.detectors.ultralytics import UltralyticsDetector
 from boxmot.engine.cli import ensure_model_extension
 from boxmot.engine.inference import prepare_detections
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
@@ -72,6 +75,56 @@ def test_prepare_detections_filters_invalid_obb_boxes():
 
     assert out.shape == (1, 7)
     np.testing.assert_array_equal(out[0], dets[0])
+
+
+def test_ultralytics_detector_preserves_obb_results(monkeypatch):
+    class _FakeOBB:
+        def __init__(self, values):
+            tensor = torch.tensor(values, dtype=torch.float32)
+            self.xywhr = tensor[:, :5]
+            self.conf = tensor[:, 5]
+            self.cls = tensor[:, 6]
+
+        def __len__(self):
+            return len(self.conf)
+
+    class _FakeResult:
+        def __init__(self, values):
+            self.obb = _FakeOBB(values)
+            self.boxes = None
+            self.orig_img = _DUMMY_IMG
+            self.path = "frame.jpg"
+            self.names = {0: "plane"}
+
+    class _FakeYOLO:
+        def __init__(self, model):
+            self.model = model
+            self.names = {0: "plane"}
+
+        def predict(self, **kwargs):
+            return [
+                _FakeResult(
+                    [[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]]
+                )
+            ]
+
+    monkeypatch.setattr(ultralytics_detector_module, "YOLO", _FakeYOLO)
+
+    detector = UltralyticsDetector(model="fake-obb.pt", device="cpu", imgsz=[64, 64])
+    results = detector(
+        [_DUMMY_IMG],
+        conf=0.25,
+        iou=0.7,
+        classes=None,
+        agnostic_nms=False,
+    )
+
+    assert len(results) == 1
+    assert results[0].is_obb is True
+    np.testing.assert_array_equal(
+        results[0].dets,
+        np.array([[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]], dtype=np.float32),
+    )
 
 
 def test_tracker_infers_obb_mode_on_empty_followup_frame():

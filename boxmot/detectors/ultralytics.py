@@ -31,6 +31,33 @@ class UltralyticsDetector(Detector):
     def postprocess(self, detections):
         raise NotImplementedError("Use __call__ directly for UltralyticsDetector")
 
+    @staticmethod
+    def _as_numpy(values) -> np.ndarray:
+        if hasattr(values, "cpu"):
+            values = values.cpu()
+        if hasattr(values, "numpy"):
+            values = values.numpy()
+        return np.asarray(values, dtype=np.float32)
+
+    def _extract_dets(self, result) -> np.ndarray:
+        if result.obb is not None:
+            if len(result.obb) == 0:
+                return np.empty((0, 7), dtype=np.float32)
+            xywhr = self._as_numpy(result.obb.xywhr)
+            conf = self._as_numpy(result.obb.conf).reshape(-1, 1)
+            cls = self._as_numpy(result.obb.cls).reshape(-1, 1)
+            return np.concatenate([xywhr, conf, cls], axis=1)
+
+        if result.boxes is not None:
+            if len(result.boxes) == 0:
+                return np.empty((0, 6), dtype=np.float32)
+            xyxy = self._as_numpy(result.boxes.xyxy)
+            conf = self._as_numpy(result.boxes.conf).reshape(-1, 1)
+            cls = self._as_numpy(result.boxes.cls).reshape(-1, 1)
+            return np.concatenate([xyxy, conf, cls], axis=1)
+
+        return np.empty((0, 6), dtype=np.float32)
+
     def __call__(self, images: list, conf, iou, classes, agnostic_nms) -> list:
         yolo_results = self._yolo.predict(
             source=images,
@@ -45,13 +72,7 @@ class UltralyticsDetector(Detector):
         )
         detections = []
         for r in yolo_results:
-            if r.boxes is not None and len(r.boxes) > 0:
-                xyxy = r.boxes.xyxy.cpu().numpy()
-                conf = r.boxes.conf.cpu().numpy().reshape(-1, 1)
-                cls  = r.boxes.cls.cpu().numpy().reshape(-1, 1)
-                dets = np.concatenate([xyxy, conf, cls], axis=1)
-            else:
-                dets = np.empty((0, 6))
+            dets = self._extract_dets(r)
             detections.append(Detections(
                 dets=dets,
                 orig_img=r.orig_img,
