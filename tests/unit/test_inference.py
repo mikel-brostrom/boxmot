@@ -30,13 +30,13 @@ class _DummyOBBTracker(_DummyTracker):
 
 
 def test_prepare_detections_reads_aabb_result():
-    dets = np.array([[1, 2, 3, 4, 0.9, 0]], dtype=np.float32)
+    dets = np.array([[10, 20, 30, 40, 0.9, 0]], dtype=np.float32)
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
     out = prepare_detections(result, _DUMMY_IMG)
 
     assert out.shape == (1, 6)
-    np.testing.assert_array_equal(out[0], dets[0])
+    np.testing.assert_array_equal(out[0], np.array([10, 20, 30, 40, 0.9, 0], dtype=np.float32))
 
 
 def test_prepare_detections_reads_obb_result():
