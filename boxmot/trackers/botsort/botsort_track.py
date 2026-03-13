@@ -1,21 +1,25 @@
 from collections import deque
 
+import cv2
 import numpy as np
 
-from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilterXYWH()
+    shared_kalman_obb = KalmanFilterXYWH(ndim=5)
 
-    def __init__(self, det, feat=None, feat_history=50, max_obs=50):
+    def __init__(self, det, feat=None, feat_history=50, max_obs=50, is_obb=False):
         # Initialize detection parameters
-        self.xywh = xyxy2xywh(det[:4])  # Convert to (xc, yc, w, h)
-        self.conf = det[4]
-        self.cls = det[5]
-        self.det_ind = det[6]
+        self.is_obb = is_obb
+        det = np.asarray(det, dtype=np.float32)
+        if self.is_obb:
+            self._init_from_obb_detection(det)
+        else:
+            self._init_from_aabb_detection(det)
         self.max_obs = max_obs
 
         # Kalman filter and tracking state
@@ -27,6 +31,7 @@ class STrack(BaseTrack):
         # Classification history and feature history
         self.cls_hist = []
         self.history_observations = deque(maxlen=self.max_obs)
+        self._plot_angle = None
         self.features = deque(maxlen=feat_history)
         self.smooth_feat = None
         self.curr_feat = None
@@ -36,6 +41,18 @@ class STrack(BaseTrack):
         self.update_cls(self.cls, self.conf)
         if feat is not None:
             self.update_features(feat)
+
+    def _init_from_aabb_detection(self, det: np.ndarray) -> None:
+        self.xywh = xyxy2xywh(det[:4])
+        self.conf = det[4]
+        self.cls = det[5]
+        self.det_ind = det[6]
+
+    def _init_from_obb_detection(self, det: np.ndarray) -> None:
+        self.xywh = det[:5].copy()
+        self.conf = det[5]
+        self.cls = det[6]
+        self.det_ind = det[7]
 
     def update_features(self, feat):
         """Normalize and update feature vectors."""
@@ -67,7 +84,10 @@ class STrack(BaseTrack):
         """Predict the next state using Kalman filter."""
         mean_state = self.mean.copy()
         if self.state != TrackState.Tracked:
-            mean_state[6:8] = 0  # Reset velocities
+            if self.is_obb:
+                mean_state[7:10] = 0  # Reset size/angle velocities
+            else:
+                mean_state[6:8] = 0
         self.mean, self.covariance = self.kalman_filter.predict(
             mean_state, self.covariance
         )
@@ -79,10 +99,15 @@ class STrack(BaseTrack):
             return
         multi_mean = np.asarray([st.mean.copy() for st in stracks])
         multi_covariance = np.asarray([st.covariance for st in stracks])
+        is_obb = getattr(stracks[0], "is_obb", False)
         for i, st in enumerate(stracks):
             if st.state != TrackState.Tracked:
-                multi_mean[i][6:8] = 0  # Reset velocities
-        multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(
+                if is_obb:
+                    multi_mean[i][7:10] = 0
+                else:
+                    multi_mean[i][6:8] = 0  # Reset velocities
+        kalman = STrack.shared_kalman_obb if is_obb else STrack.shared_kalman
+        multi_mean, multi_covariance = kalman.multi_predict(
             multi_mean, multi_covariance
         )
         for st, mean, cov in zip(stracks, multi_mean, multi_covariance):
@@ -92,6 +117,8 @@ class STrack(BaseTrack):
     def multi_gmc(stracks, H=np.eye(2, 3)):
         """Apply geometric motion compensation to multiple tracks."""
         if not stracks:
+            return
+        if getattr(stracks[0], "is_obb", False):
             return
         R = H[:2, :2]
         R8x8 = np.kron(np.eye(4), R)
@@ -137,7 +164,8 @@ class STrack(BaseTrack):
         """Update the current track with a matched detection."""
         self.frame_id = frame_id
         self.tracklet_len += 1
-        self.history_observations.append(self.xyxy)
+        if not self.is_obb:
+            self.history_observations.append(self.xyxy)
 
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, new_track.xywh
@@ -151,9 +179,53 @@ class STrack(BaseTrack):
         self.cls = new_track.cls
         self.det_ind = new_track.det_ind
         self.update_cls(new_track.cls, new_track.conf)
+        if self.is_obb:
+            self.history_observations.append(self._state_obb_for_plot())
+
+    @staticmethod
+    def _wrap_pi_periodic(delta: float) -> float:
+        return float((delta + (np.pi / 2.0)) % np.pi - (np.pi / 2.0))
+
+    def _state_obb_for_plot(self) -> np.ndarray:
+        """Return post-update OBB state as 4 corners with state-only angle smoothing."""
+        box = self.xywha.copy()
+        if box[3] > box[2]:
+            box[2], box[3] = box[3], box[2]
+            box[4] = box[4] + (np.pi / 2.0)
+        target = float((box[4] + np.pi) % (2.0 * np.pi) - np.pi)
+        if self._plot_angle is None:
+            self._plot_angle = target
+        else:
+            self._plot_angle = self._plot_angle + self._wrap_pi_periodic(
+                target - self._plot_angle
+            )
+        box[4] = self._plot_angle
+        rect = (
+            (float(box[0]), float(box[1])),
+            (max(float(box[2]), 1e-4), max(float(box[3]), 1e-4)),
+            float(np.degrees(box[4])),
+        )
+        corners = cv2.boxPoints(rect).reshape(-1)
+        return np.asarray(corners, dtype=np.float32)
 
     @property
     def xyxy(self):
         """Convert bounding box format to `(min x, min y, max x, max y)`."""
+        if self.is_obb:
+            cx, cy, w, h, angle = self.xywha
+            rect = ((float(cx), float(cy)), (max(float(w), 1e-4), max(float(h), 1e-4)), float(np.degrees(angle)))
+            corners = cv2.boxPoints(rect)
+            x1, y1 = corners.min(axis=0)
+            x2, y2 = corners.max(axis=0)
+            return np.array([x1, y1, x2, y2], dtype=np.float32)
         ret = self.mean[:4].copy() if self.mean is not None else self.xywh.copy()
         return xywh2xyxy(ret)
+
+    @property
+    def xywha(self):
+        """Return oriented bbox format `(cx, cy, w, h, angle)` when OBB mode is enabled."""
+        if not self.is_obb:
+            xywh = self.mean[:4].copy() if self.mean is not None else self.xywh.copy()
+            return np.array([xywh[0], xywh[1], xywh[2], xywh[3], 0.0], dtype=np.float32)
+        ret = self.mean[:5].copy() if self.mean is not None else self.xywh.copy()
+        return np.asarray(ret, dtype=np.float32)

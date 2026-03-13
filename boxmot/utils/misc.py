@@ -4,7 +4,7 @@ from pathlib import Path
 
 import click
 
-from boxmot.utils import logger as LOGGER
+from boxmot.utils import WEIGHTS, logger as LOGGER
 
 
 def parse_imgsz(ctx, param, value):
@@ -36,6 +36,21 @@ def parse_imgsz(ctx, param, value):
         pass
     
     raise click.BadParameter(f"Invalid --imgsz: {value}")
+
+
+def resolve_model_path(model_path, default_dir: Path = WEIGHTS) -> Path:
+    """
+    Preserve explicit model paths and fall back to the weights directory for bare names.
+
+    Examples:
+    - ``osnet_x0_25_msmt17.pt`` -> ``models/osnet_x0_25_msmt17.pt``
+    - ``models/foo/bar.tflite`` -> ``models/foo/bar.tflite``
+    - ``/abs/path/model.onnx`` -> ``/abs/path/model.onnx``
+    """
+    path = Path(model_path)
+    if path.is_absolute() or path.exists() or path.parent != Path("."):
+        return path
+    return default_dir / path.name
 
 
 

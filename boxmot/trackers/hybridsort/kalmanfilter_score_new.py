@@ -397,13 +397,19 @@ class KalmanFilterNew_score_new(object):
             self.history_obs = self.history_obs[:-1]
             occur = [int(d is None) for d in new_history]
             indices = np.where(np.array(occur)==0)[0]
+            if len(indices) < 2:
+                return
             index1 = indices[-2]
             index2 = indices[-1]
-            box1 = new_history[index1]
+            box1 = np.asarray(new_history[index1], dtype=float).reshape(-1)
+            if box1.size < 5:
+                return
             x1, y1, s1, c1, r1 = box1
             w1 = np.sqrt(s1 * r1)
             h1 = np.sqrt(s1 / r1)
-            box2 = new_history[index2]
+            box2 = np.asarray(new_history[index2], dtype=float).reshape(-1)
+            if box2.size < 5:
+                return
             x2, y2, s2, c2, r2 = box2
             w2 = np.sqrt(s2 * r2)
             h2 = np.sqrt(s2 / r2)
@@ -424,9 +430,9 @@ class KalmanFilterNew_score_new(object):
                 w = w1 + (i+1) * dw 
                 h = h1 + (i+1) * dh
                 s = w * h 
-                r = w / float(h)
+                r = w / (h + 1e-12)
                 c = c1 + (i+1) * dc
-                new_box = np.array([x, y, s, c, r]).reshape((5, 1))
+                new_box = np.array([x, y, s, c, r], dtype=float).reshape((5, 1))
                 """
                     I still use predict-update loop here to refresh the parameters,
                     but this can be faster by directly modifying the internal parameters

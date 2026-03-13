@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import cv2
 import numpy as np
 import pytest
@@ -9,27 +11,27 @@ from boxmot.reid.backends.torchscript_backend import TorchscriptBackend
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.utils import ROOT, WEIGHTS
 
-# generated in previous job step
-EXPORTED_REID_MODELS = [
-    WEIGHTS / "osnet_x0_25_msmt17.pt",
-    WEIGHTS / "osnet_x0_25_msmt17.torchscript",
-    WEIGHTS / "osnet_x0_25_msmt17.onnx",
-    WEIGHTS / "osnet_x0_25_msmt17_openvino_model",
-]
-
-ASSOCIATED_BACKEND = [
-    PyTorchBackend,
-    TorchscriptBackend,
-    ONNXBackend,
-    OpenVinoBackend
+# Exported artifacts are covered by the dedicated CI export job.
+REID_MODEL_CASES = [
+    (WEIGHTS / "osnet_x0_25_msmt17.pt", PyTorchBackend, False),
+    (WEIGHTS / "osnet_x0_25_msmt17.torchscript", TorchscriptBackend, True),
+    (WEIGHTS / "osnet_x0_25_msmt17.onnx", ONNXBackend, True),
+    (WEIGHTS / "osnet_x0_25_msmt17_openvino_model", OpenVinoBackend, True),
 ]
 
 
-@pytest.mark.parametrize("reid_model", EXPORTED_REID_MODELS)
-def test_reidbackend_output(reid_model):
+def get_backend(weights: Path, requires_export: bool):
+    """Return a backend instance, skipping exported formats when artifacts are absent."""
+    if requires_export and not weights.exists():
+        pytest.skip(f"Missing exported ReID artifact: {weights}")
 
-    rab = ReidAutoBackend(weights=reid_model, device="cpu", half=False)
-    b = rab.get_backend()
+    rab = ReidAutoBackend(weights=weights, device="cpu", half=False)
+    return rab.get_backend()
+
+
+@pytest.mark.parametrize("reid_model, _, requires_export", REID_MODEL_CASES)
+def test_reidbackend_output(reid_model, _, requires_export):
+    b = get_backend(reid_model, requires_export)
 
     img = cv2.imread(
         str(ROOT / "assets/MOT17-mini/train/MOT17-04-FRCNN/img1/000001.jpg")
@@ -42,12 +44,7 @@ def test_reidbackend_output(reid_model):
     assert embs.shape[1] == 512  # osnet embeddings are of size 512
 
 
-@pytest.mark.parametrize(
-    "exported_reid_model, backend", zip(EXPORTED_REID_MODELS, ASSOCIATED_BACKEND)
-)
-def test_reidbackend_type(exported_reid_model, backend):
-
-    rab = ReidAutoBackend(weights=exported_reid_model, device="cpu", half=False)
-    b = rab.get_backend()
-
+@pytest.mark.parametrize("reid_model, backend, requires_export", REID_MODEL_CASES)
+def test_reidbackend_type(reid_model, backend, requires_export):
+    b = get_backend(reid_model, requires_export)
     assert isinstance(b, backend)
