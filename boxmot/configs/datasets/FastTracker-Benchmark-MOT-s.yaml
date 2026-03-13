@@ -7,7 +7,7 @@ download:
   dataset_url: "hf://Fleyderer/FastTracker-Benchmark-MOT/FastTracker-Benchmark-MOT"
 
 benchmark:
-  source: "boxmot/engine/trackeval/data/FastTracker-Benchmark-MOT"
+  source: "boxmot/engine/trackeval/data/FastTracker-Benchmark-MOT-s"
   split: "train"
   eval_classes:
     1: person
@@ -30,7 +30,7 @@ benchmark:
     bus_small: Bus
     bus_big: Bus
     truck_small: Cargo
-  #   truck_big: Cargo
-  #   car: Car
-  #   bike: Moto
-  #   motorbike: Moto
+    truck_big: Cargo
+    car: Car
+    bike: Moto
+    motorbike: Moto

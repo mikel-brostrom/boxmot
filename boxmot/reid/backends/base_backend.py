@@ -140,7 +140,9 @@ class BaseModelBackend:
             xyxys = xyxys.reshape(0, 4)
         elif xyxys.ndim == 1:
             xyxys = xyxys.reshape(1, -1)
-        
+
+        is_obb = self._is_obb_box(xyxys[0]) if len(xyxys) > 0 else False
+
         # Preallocate tensor for crops
         num_crops = len(xyxys)
         crops = torch.empty(
@@ -150,14 +152,17 @@ class BaseModelBackend:
         )
 
         for i, box in enumerate(xyxys):
-            x1, y1, x2, y2 = box.round().astype("int")
-            cx1, cy1 = max(0, x1), max(0, y1)
-            cx2, cy2 = min(w, x2), min(h, y2)
-            if cx2 > cx1 and cy2 > cy1:
-                crop = img[cy1:cy2, cx1:cx2]
+            if is_obb:
+                crop = self._crop_obb(box[:5], img)
             else:
-                # Box is entirely outside the image — use a blank crop
-                crop = np.zeros((self.input_shape[0], self.input_shape[1], 3), dtype=np.uint8)
+                x1, y1, x2, y2 = self._boxes_to_xyxy(box.reshape(1, -1))[0].round().astype("int")
+                cx1, cy1 = max(0, x1), max(0, y1)
+                cx2, cy2 = min(w, x2), min(h, y2)
+                if cx2 > cx1 and cy2 > cy1:
+                    crop = img[cy1:cy2, cx1:cx2]
+                else:
+                    # Box is entirely outside the image — use a blank crop
+                    crop = np.zeros((self.input_shape[0], self.input_shape[1], 3), dtype=np.uint8)
 
             # Resize and convert color in one step
             crop = cv2.resize(
