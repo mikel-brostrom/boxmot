@@ -370,26 +370,25 @@ def prepare_detections(result: Detections, img: np.ndarray) -> np.ndarray:
     """
     Extract detections from a result and sanitize them for downstream use.
 
-    Steps applied in order:
-      1. Round coordinates to nearest pixel.
-      2. Clip to image boundaries (prevents out-of-bounds crops in ReID).
-      3. Remove degenerate boxes (zero/negative width or height after clipping).
-      4. Remove boxes with area < 10 px².
+    For AABB (N, 6) — [x1, y1, x2, y2, conf, cls]:
+      removes boxes where x2 <= x1, y2 <= y1, or area < 10 px².
 
-    Returns (N, 6) float32 array [x1, y1, x2, y2, conf, cls],
-    or empty (0, 6) when no valid detections remain.
+    For OBB (N, 7) — [cx, cy, w, h, angle, conf, cls]:
+      removes boxes where w <= 0, h <= 0, or w*h < 10 px².
+
+    Returns filtered array of the same width, or empty (0, 6)/(0, 7) when
+    no valid detections remain.
     """
     dets = result.dets
     if dets is None or len(dets) == 0:
-        return np.empty((0, 6))
+        n_cols = dets.shape[1] if dets is not None and dets.ndim == 2 else 6
+        return np.empty((0, n_cols))
 
-    # h, w = img.shape[:2]
-    # dets = dets.copy()
-    # dets[:, :4] = np.rint(dets[:, :4])
-    # dets[:, [0, 2]] = dets[:, [0, 2]].clip(0, w)  # x1, x2
-    # dets[:, [1, 3]] = dets[:, [1, 3]].clip(0, h)  # y1, y2
+    if result.is_obb:
+        w, h = dets[:, 2], dets[:, 3]
+        valid = (w > 0) & (h > 0) & (w * h >= 10.0)
+    else:
+        x1, y1, x2, y2 = dets[:, 0], dets[:, 1], dets[:, 2], dets[:, 3]
+        valid = (x2 > x1) & (y2 > y1) & ((x2 - x1) * (y2 - y1) >= 10.0)
 
-    # Filter degenerate and tiny boxes (catches anything zeroed out by clipping)
-    x1, y1, x2, y2 = dets[:, 0], dets[:, 1], dets[:, 2], dets[:, 3]
-    valid = (x2 > x1) & (y2 > y1) & ((x2 - x1) * (y2 - y1) >= 10.0)
     return dets[valid]

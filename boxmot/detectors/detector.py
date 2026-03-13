@@ -12,17 +12,15 @@ class Detections:
     """
     Unified detection result returned by all BoxMOT detectors.
 
+    AABB format — dets shape (N, 6): [x1, y1, x2, y2, conf, cls]
+    OBB  format — dets shape (N, 7): [cx, cy, w, h, angle, conf, cls]
+
     Fields:
-        dets:     (N, 6) numpy array [x1, y1, x2, y2, conf, cls].
-                  Empty (0, 6) when no detections.
+        dets:     numpy array of shape (N, 6) or (N, 7).
+                  Empty (0, 6) or (0, 7) when no detections.
         orig_img: Original BGR image as numpy array.
         path:     Source image/video path (empty string when unavailable).
         names:    Class name mapping {class_id: name}.
-
-    Properties:
-        boxes:    dets[:, :4]  — xyxy coordinates
-        conf:     dets[:, 4]   — confidence scores
-        classes:  dets[:, 5]   — class IDs (int)
     """
     dets: np.ndarray
     orig_img: np.ndarray
@@ -30,16 +28,20 @@ class Detections:
     names: dict = field(default_factory=dict)
 
     @property
+    def is_obb(self) -> bool:
+        return self.dets.ndim == 2 and self.dets.shape[1] == 7
+
+    @property
     def boxes(self) -> np.ndarray:
         return self.dets[:, :4]
 
     @property
     def conf(self) -> np.ndarray:
-        return self.dets[:, 4]
+        return self.dets[:, 5] if self.is_obb else self.dets[:, 4]
 
     @property
     def classes(self) -> np.ndarray:
-        return self.dets[:, 5].astype(int)
+        return (self.dets[:, 6] if self.is_obb else self.dets[:, 5]).astype(int)
 
 
 def resolve_image(image: Union[np.ndarray, str]) -> np.ndarray:
