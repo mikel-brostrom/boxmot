@@ -7,21 +7,21 @@ import numpy as np
 import torch
 from PIL import Image
 from transformers import RTDetrImageProcessor, RTDetrV2ForObjectDetection
-from ultralytics.engine.results import Results
-from ultralytics.models.yolo.detect import DetectionPredictor
 
+from boxmot.detectors.detector import Detections, Detector
 from boxmot.utils import logger as LOGGER
 
 
-class RTDetrStrategy:
+class RTDetrDetector(Detector):
+
     pt = False
     stride = 32
     fp16 = False
     triton = False
     ch = 3
 
-    def __init__(self, model, device, args):
-        self.args = args
+    def __init__(self, model, device, args=None, imgsz=None):
+        # args/imgsz accepted for a consistent constructor signature; RTDetr uses its own processor
         self.device = device
 
         model = Path(str(model)).name
@@ -31,85 +31,60 @@ class RTDetrStrategy:
             model = f"PekingU/{model}"
 
         LOGGER.info(f"Loading RTDetr model: {model}")
-        
-        # Load model and processor from Hugging Face
+
         self.image_processor = RTDetrImageProcessor.from_pretrained(model)
         self.model = RTDetrV2ForObjectDetection.from_pretrained(model).to(device)
-
-        # Get class names from model config
         self.names = self.model.config.id2label
+        self._im0s = []
+
+    def preprocess(self, images: list):
+        """Convert BGR numpy images to PIL RGB and run image_processor."""
+        assert isinstance(images, list)
+        self._im0s = images
+        pil_images = [Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)) for img in images]
+        self._sizes = torch.tensor([(img.height, img.width) for img in pil_images], device=self.device)
+        return self.image_processor(images=pil_images, return_tensors="pt").to(self.device)
 
     @torch.no_grad()
-    def __call__(self, im, augment, visualize, embed):
-        if isinstance(im, torch.Tensor):
-            im = im.cpu().numpy()
-            if im.ndim == 3 and im.shape[0] == 3:
-                im = im.transpose(1, 2, 0)
-            im = np.ascontiguousarray(im)
+    def process(self, preprocessed) -> torch.Tensor:
+        """
+        Run RT-DETR inference on preprocessed inputs.
+        Returns raw detections tensor of shape (B, N, 6): [x1, y1, x2, y2, conf, cls].
+        """
+        outputs = self.model(**preprocessed)
 
-        # Convert numpy image (BGR) to PIL Image (RGB)
-        image = Image.fromarray(cv2.cvtColor(im, cv2.COLOR_BGR2RGB))
-        
-        inputs = self.image_processor(images=image, return_tensors="pt").to(self.device)
-        outputs = self.model(**inputs)
-        
+        # threshold=0.0: collect all; conf filtering happens in postprocess
         results = self.image_processor.post_process_object_detection(
-            outputs, 
-            target_sizes=torch.tensor([(image.height, image.width)], device=self.device), 
-            threshold=self.args.conf
+            outputs,
+            target_sizes=self._sizes,
+            threshold=0.0,
         )
-        
-        # Format results: [x1, y1, x2, y2, conf, cls]
+
         detections = []
-        for result in results:
-            for score, label, box in zip(result["scores"], result["labels"], result["boxes"]):
-                box = box.cpu().numpy()
-                score = score.item()
-                label = label.item()
-                detections.append([*box, score, label])
-                
+        for r in results:
+            for box, score, label in zip(r["boxes"], r["scores"], r["labels"]):
+                detections.append([*box.cpu().tolist(), score.item(), float(label.item())])
+
         if not detections:
             return torch.zeros((1, 0, 6), device=self.device)
-            
+
         return torch.tensor(detections, device=self.device).unsqueeze(0)
 
-    def warmup(self, imgsz):
-        pass
-
-    def update_im_paths(self, predictor: DetectionPredictor):
-        """
-        This function saves image paths for the current batch,
-        being passed as callback on_predict_batch_start
-        """
-        assert isinstance(
-            predictor, DetectionPredictor
-        ), "Only ultralytics predictors are supported"
-        self.im_paths = predictor.batch[0]
-
-    def preprocess(self, im) -> torch.Tensor:
-        # RTDetr expects PIL images or list of them, but here we just pass through
-        # The actual preprocessing happens in __call__
-        assert isinstance(im, list)
-        return im[0]
-
-    def postprocess(self, preds, im, im0s):
+    def postprocess(self, detections, conf, classes, **kwargs) -> list:
         results = []
-        for i, pred in enumerate(preds):
-            im_path = self.im_paths[i] if hasattr(self, 'im_paths') and len(self.im_paths) else ""
+        for i, det in enumerate(detections):
+            orig_img = self._im0s[i] if i < len(self._im0s) else None
 
-            if pred is None or len(pred) == 0:
-                pred = torch.empty((0, 6), device=self.device)
-                results.append(
-                    Results(path=im_path, boxes=pred, orig_img=im0s[i], names=self.names)
-                )
+            if det is None or len(det) == 0:
+                results.append(Detections(dets=np.empty((0, 6)), orig_img=orig_img, names=self.names))
                 continue
-            
-            if self.args.classes:
-                pred = pred[
-                    torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))
-                ]
-            
-            results.append(
-                Results(path=im_path, boxes=pred, orig_img=im0s[i], names=self.names)
-            )
+
+            det_np = det.cpu().numpy() if isinstance(det, torch.Tensor) else det
+            det_np = det_np[det_np[:, 4] >= conf]
+
+            if classes:
+                det_np = det_np[np.isin(det_np[:, 5].astype(int), classes)]
+
+            results.append(Detections(dets=det_np, orig_img=orig_img, names=self.names))
+
         return results

@@ -1,0 +1,8 @@
+imgsz: [640, 640]
+conf: 0.25
+classes:
+  0: Moto
+  1: Car
+  2: Van
+  3: Cargo
+  4: Bus

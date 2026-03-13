@@ -18,7 +18,7 @@ import concurrent.futures
 from contextlib import nullcontext
 
 from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, logger as LOGGER, TRACKEVAL
+from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, DETECTOR_CONFIGS, logger as LOGGER, TRACKEVAL
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
@@ -29,8 +29,8 @@ from typing import Optional, List, Dict, Generator, Union
 from boxmot.utils.dataloaders.dataset import MOTDataset
 from boxmot.postprocessing.gsi import gsi
 
-from boxmot.engine.inference import DetectorReIDPipeline, extract_detections, filter_detections
-from boxmot.detectors import default_imgsz
+from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
+from boxmot.detectors import default_imgsz, default_conf
 from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
 from boxmot.utils.download import download_eval_data, download_trackeval
 
@@ -55,6 +55,211 @@ def load_dataset_cfg(name: str) -> dict:
     path = DATASET_CONFIGS / f"{name}.yaml"
     with open(path, 'r') as f:
         return yaml.safe_load(f)
+
+
+def load_detector_cfg(model_stem: str) -> Optional[dict]:
+    """Load detector config from boxmot/configs/detectors/{model_stem}.yaml, or None if absent."""
+    path = DETECTOR_CONFIGS / f"{model_stem}.yaml"
+    if not path.exists():
+        return None
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+
+def build_gt_class_remap(
+    bench_cfg: dict,
+    det_cfg: Optional[dict],
+    benchmark_name: str = "",
+    model_stem: str = "",
+) -> Optional[tuple]:
+    """Build a GT class-ID remapping so that gt_temp.txt class IDs match tracker output.
+
+    The tracker writes MOT-format files using ``det_class_id + 1`` (see
+    ``mot_utils.convert_to_mot_format``).  This function produces a remap dict
+    ``{bench_gt_id: det_id + 1}`` together with the resulting detector class lists
+    that should be passed to TrackEval.
+
+    Four cases:
+      1. No det_cfg, no class_mapping  → return None (evaluate as-is, current behaviour)
+      2. No det_cfg, class_mapping set → LOGGER.error; return None
+      3. det_cfg set, no class_mapping → positional auto-mapping with WARNING
+      4. det_cfg set, class_mapping set → full semantic mapping
+
+    Returns:
+        ``(remap_dict, new_class_ids, new_class_names)`` or ``None``.
+    """
+    eval_classes_cfg = bench_cfg.get("eval_classes")  # {1: person, 2: bus_small, ...}
+    class_mapping = bench_cfg.get("class_mapping")    # {bus_small: Bus, ...} or None
+
+    if det_cfg is None:
+        if class_mapping:
+            LOGGER.error(
+                "class_mapping is defined in the benchmark config but no detector config was "
+                f"found for model '{model_stem}'. "
+                "Create boxmot/configs/detectors/{model_stem}.yaml with a 'classes' dict, "
+                "or remove class_mapping to use default evaluation."
+            )
+        # Cases 1 & 2: no remapping
+        return None
+
+    det_classes = det_cfg.get("classes", {})  # {0: Moto, 1: Car, ...}
+    if not det_classes:
+        LOGGER.warning(f"Detector config for '{model_stem}' has no 'classes' field. Skipping remap.")
+        return None
+
+    det_name_to_id: dict = {str(v): int(k) for k, v in det_classes.items()}
+
+    if not class_mapping:
+        # Case 3: positional auto-mapping
+
+        # If there is only one class, don't log info
+        remap_logging = len(eval_classes_cfg) > 1
+        
+        if remap_logging:
+            LOGGER.warning(
+                f"No class_mapping found for benchmark '{benchmark_name}'. "
+                "Using positional auto-mapping: first N benchmark classes → first N detector classes."
+            )
+        bench_ordered = sorted((int(k), str(v)) for k, v in eval_classes_cfg.items())
+        det_ordered   = sorted((int(k), str(v)) for k, v in det_classes.items())
+        n = min(len(bench_ordered), len(det_ordered))
+
+        remap: dict = {}
+        seen_det_ids: list = []
+        seen_det_names: list = []
+        rows = []
+        for i in range(n):
+            bench_id, bench_name_i = bench_ordered[i]
+            det_id,   det_name_i   = det_ordered[i]
+            new_gt_id = det_id + 1
+            remap[bench_id] = new_gt_id
+            rows.append((bench_name_i, det_name_i))
+            if new_gt_id not in seen_det_ids:
+                seen_det_ids.append(new_gt_id)
+                seen_det_names.append(det_name_i)
+
+        if remap_logging:
+            LOGGER.opt(colors=True).info("<yellow>Auto class mapping (positional):</yellow>")
+            for bench_name_i, det_name_i in rows:
+                LOGGER.opt(colors=True).info(f"  <yellow>{bench_name_i:<22}</yellow> → <cyan>{det_name_i}</cyan>")
+            LOGGER.opt(colors=True).info(
+                f"  <yellow>GT class IDs remapped:</yellow> "
+                + ", ".join(f"{b}→{remap[b]}" for b in sorted(remap))
+            )
+            LOGGER.opt(colors=True).info(
+                "  <yellow>Evaluating detector classes:</yellow> "
+                + ", ".join(f"{n} ({i})" for n, i in zip(seen_det_names, seen_det_ids))
+            )
+        return remap, seen_det_ids, seen_det_names
+
+    # Case 4: full semantic mapping
+    if not eval_classes_cfg:
+        LOGGER.warning("class_mapping is set but eval_classes is missing in benchmark config. Skipping remap.")
+        return None
+
+    bench_name_to_id: dict = {str(v): int(k) for k, v in eval_classes_cfg.items()}
+
+    remap = {}
+    det_classes_used: dict = {}  # det_name → (det_id + 1)
+    skipped = []
+    for bname, dname in class_mapping.items():
+        bname, dname = str(bname), str(dname)
+        if bname not in bench_name_to_id:
+            skipped.append(f"benchmark class '{bname}' not in eval_classes")
+            continue
+        if dname not in det_name_to_id:
+            skipped.append(f"detector class '{dname}' not in detector config")
+            continue
+        bench_id = bench_name_to_id[bname]
+        det_id   = det_name_to_id[dname]
+        remap[bench_id] = det_id + 1
+        det_classes_used[dname] = det_id + 1
+
+    if skipped:
+        for msg in skipped:
+            LOGGER.warning(f"class_mapping: skipping — {msg}")
+
+    if not remap:
+        LOGGER.warning("class_mapping produced no valid entries. Skipping remap.")
+        return None
+
+    # Sort by detector class ID
+    new_entries = sorted(det_classes_used.items(), key=lambda x: x[1])
+    new_class_ids   = [nid  for _, nid  in new_entries]
+    new_class_names = [name for name, _ in new_entries]
+
+    model_label = f" → {model_stem}" if model_stem else ""
+    LOGGER.opt(colors=True).info(
+        f"<cyan>Class mapping ({benchmark_name}{model_label}):</cyan>"
+    )
+    for bname, dname in class_mapping.items():
+        bname, dname = str(bname), str(dname)
+        if bname in bench_name_to_id and dname in det_name_to_id:
+            LOGGER.opt(colors=True).info(
+                f"  <blue>{bname:<22}</blue> → <cyan>{dname}</cyan>"
+            )
+    LOGGER.opt(colors=True).info(
+        "  <cyan>GT class IDs remapped:</cyan> "
+        + ", ".join(f"{b}→{remap[b]}" for b in sorted(remap))
+    )
+    LOGGER.opt(colors=True).info(
+        "  <cyan>Evaluating detector classes:</cyan> "
+        + ", ".join(f"{n} ({i})" for n, i in zip(new_class_names, new_class_ids))
+    )
+    return remap, new_class_ids, new_class_names
+
+
+def apply_gt_class_remap(
+    source: Path,
+    remap: dict,
+    distractor_ids: Optional[List[int]] = None,
+) -> None:
+    """Rewrite every gt_temp.txt under *source* using *remap*.
+
+    Column 7 (0-indexed) of the MOTChallenge gt format holds the class ID.
+    Rows whose class ID is in *remap* are remapped; rows in *distractor_ids*
+    are left untouched; all other rows are removed.
+
+    Args:
+        source: Root sequence directory (each seq has a ``gt/gt_temp.txt``).
+        remap: ``{old_class_id: new_class_id}`` mapping.
+        distractor_ids: Class IDs that should be kept but not remapped (e.g. ignore regions).
+    """
+    distractor_set = set(distractor_ids or [])
+    keep_ids = set(remap.keys()) | distractor_set
+
+    gt_files = list(source.glob("*/gt/gt_temp.txt"))
+    if not gt_files:
+        LOGGER.warning(f"apply_gt_class_remap: no gt_temp.txt files found under {source}")
+        return
+
+    for gt_file in gt_files:
+        try:
+            data = np.loadtxt(gt_file, delimiter=',')
+        except Exception as e:
+            LOGGER.warning(f"apply_gt_class_remap: could not read {gt_file}: {e}")
+            continue
+
+        if data.size == 0:
+            continue
+
+        if data.ndim == 1:
+            data = data.reshape(1, -1)
+
+        class_col = data[:, 7].astype(int)
+        mask = np.isin(class_col, list(keep_ids))
+        data = data[mask]
+
+        if data.size == 0:
+            np.savetxt(gt_file, data, delimiter=',')
+            continue
+
+        # Remap eval-class rows; leave distractor rows as-is
+        class_col = data[:, 7].astype(int)
+        for old_id, new_id in remap.items():
+            data[class_col == old_id, 7] = new_id
+
+        np.savetxt(gt_file, data, delimiter=',', fmt="%g")
 
 
 def eval_init(args,
@@ -106,10 +311,18 @@ def eval_init(args,
     args.project.mkdir(parents=True, exist_ok=True)
 
 
-def parse_mot_results(results: str) -> dict:
+def parse_mot_results(results: str, seq_names=None) -> dict:
     """
     Extracts COMBINED HOTA, MOTA, IDF1, AssA, AssRe, IDSW, and IDs from MOTChallenge evaluation output.
     Returns a dictionary keyed by class name.
+
+    Args:
+        results: Raw stdout string from TrackEval subprocess.
+        seq_names: Optional collection of known sequence names.  When provided,
+            longest-prefix matching is used to correctly split sequence-name from
+            metric values even when the name exceeds TrackEval's 35-char column
+            (which causes the name to run directly into the first value with no
+            whitespace separator).
     """
     metric_specs = {
         'HOTA':   ('HOTA:',      {'HOTA': 0, 'AssA': 2, 'AssRe': 5}),
@@ -120,23 +333,26 @@ def parse_mot_results(results: str) -> dict:
 
     int_fields = {'IDSW', 'IDs'}
     parsed_results = {}
-    
+
+    # Pre-sort known names longest-first so the first match is the correct one
+    sorted_names = sorted(seq_names, key=len, reverse=True) if seq_names else None
+
     lines = results.splitlines()
     current_class = None
     current_metric_type = None
-    
+
     for line in lines:
         line = line.strip()
         if not line:
             continue
-            
+
         # Check for header lines
         is_header = False
         for metric_name, (prefix, _) in metric_specs.items():
             if line.startswith(prefix):
                 is_header = True
                 current_metric_type = metric_name
-                
+
                 # Format: "HOTA: tracker-classHOTA ..."
                 content = line[len(prefix):].strip()
                 first_word = content.split()[0]
@@ -146,36 +362,58 @@ def parse_mot_results(results: str) -> dict:
                         current_class = tracker_class.split('-')[-1]
                     else:
                         current_class = 'default'
-                    
+
                     if current_class not in parsed_results:
                         parsed_results[current_class] = {'per_sequence': {}}
                 break
-        
+
         if is_header:
             continue
-        
+
         # Check for data rows (COMBINED or sequence names)
         if current_class and current_metric_type:
-            fields = line.split()
-            if len(fields) > 1:
-                row_name = fields[0]  # Either 'COMBINED' or sequence name like 'MOT17-02-FRCNN'
+            _, field_map = metric_specs[current_metric_type]
+
+            # Resolve row name and the remaining value tokens.
+            # TrackEval formats the name column as %-35s; names longer than 35
+            # chars overflow directly into the first value with no whitespace.
+            # When we know the valid names we use longest-prefix matching to
+            # correctly split the line regardless of name length.
+            if line.startswith('COMBINED'):
+                fields = line.split()
+                row_name = 'COMBINED'
                 values = fields[1:]
-                _, field_map = metric_specs[current_metric_type]
-                
-                if row_name == 'COMBINED':
-                    # Store COMBINED metrics at class level (backward compatible)
-                    for key, idx in field_map.items():
-                        if idx < len(values):
-                            val = values[idx]
-                            parsed_results[current_class][key] = max(0, int(val) if key in int_fields else float(val))
-                else:
-                    # Store per-sequence metrics
-                    if row_name not in parsed_results[current_class]['per_sequence']:
-                        parsed_results[current_class]['per_sequence'][row_name] = {}
-                    for key, idx in field_map.items():
-                        if idx < len(values):
-                            val = values[idx]
-                            parsed_results[current_class]['per_sequence'][row_name][key] = max(0, int(val) if key in int_fields else float(val))
+            elif sorted_names is not None:
+                row_name = None
+                for name in sorted_names:
+                    if line.startswith(name):
+                        row_name = name
+                        values = line[len(name):].split()
+                        break
+                if row_name is None:
+                    continue  # unrecognised row, skip
+            else:
+                fields = line.split()
+                if len(fields) < 2:
+                    continue
+                row_name = fields[0]
+                values = fields[1:]
+
+            if not values:
+                continue
+
+            if row_name == 'COMBINED':
+                for key, idx in field_map.items():
+                    if idx < len(values):
+                        val = values[idx]
+                        parsed_results[current_class][key] = max(0, int(val) if key in int_fields else float(val))
+            else:
+                if row_name not in parsed_results[current_class]['per_sequence']:
+                    parsed_results[current_class]['per_sequence'][row_name] = {}
+                for key, idx in field_map.items():
+                    if idx < len(values):
+                        val = values[idx]
+                        parsed_results[current_class]['per_sequence'][row_name][key] = max(0, int(val) if key in int_fields else float(val))
 
     return parsed_results
 
@@ -216,48 +454,6 @@ def _collect_seq_info(source: Path) -> tuple[list[Path], dict[str, int]]:
     return seq_paths, seq_info
 
 
-def _autotune_batch_size(yolo, device: str, imgsz, requested: int) -> int:
-    dev_lower = str(device).lower()
-    use_accel = dev_lower.startswith(("cuda", "0", "1", "2", "3", "4", "5", "6", "7", "mps", "metal"))
-    if not use_accel:
-        return max(1, requested)
-
-    def _empty_cache():
-        if dev_lower.startswith("cuda") and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        elif dev_lower.startswith(("mps", "metal")) and hasattr(torch, "mps"):
-            try:
-                torch.mps.empty_cache()
-            except Exception:
-                pass
-
-    if isinstance(imgsz, (list, tuple)):
-        h, w = int(imgsz[0]), int(imgsz[1])
-    else:
-        h = w = int(imgsz)
-
-    dummy = np.zeros((h, w, 3), dtype=np.uint8)
-
-    bs = max(1, int(requested))
-    while bs >= 1:
-        try:
-            yolo.predict(source=[dummy] * bs, device=device, verbose=False, imgsz=imgsz)
-            if bs < requested:
-                LOGGER.warning(f"Auto-tuned batch size from {requested} -> {bs} to fit device memory.")
-            return bs
-        except RuntimeError as e:
-            if "out of memory" not in str(e).lower():
-                raise
-            _empty_cache()
-            next_bs = max(1, bs // 2)
-            LOGGER.warning(f"Batch size {bs} OOM; retrying with {next_bs}.")
-            if next_bs == bs:
-                break
-            bs = next_bs
-
-    raise RuntimeError("Unable to run even batch size 1; reduce image size or move to CPU.")
-
-
 def _clear_device_cache(device: str) -> None:
     dev_lower = str(device).lower()
     if dev_lower.startswith("cuda") and torch.cuda.is_available():
@@ -277,6 +473,15 @@ def _count_data_lines(path: Path, skip_header: bool = False) -> int:
                 return sum(1 for line in fh if not line.startswith("#"))
             return sum(1 for _ in fh)
     except FileNotFoundError:
+        return 0
+
+
+def _count_binary_rows(bin_path: Path, ndims_path: Path) -> int:
+    """Count rows in a raw float32 binary embedding file via its ndims sidecar."""
+    try:
+        ndims = int(ndims_path.read_text())
+        return bin_path.stat().st_size // (ndims * 4) if ndims > 0 else 0
+    except (FileNotFoundError, ValueError, OSError):
         return 0
 
 
@@ -329,8 +534,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
 
     # Use unified DetectorReIDPipeline with timing for both detection and ReID
     pipeline = DetectorReIDPipeline(
-        yolo_model_path=y,
-        reid_model_paths=args.reid_model,
+        detector_path=y,
+        reid_paths=args.reid_model,
         device=args.device,
         imgsz=args.imgsz,
         half=args.half,
@@ -374,7 +579,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         emb_paths = {}
         any_emb_cached = False
         for r in args.reid_model:
-            ep = embs_root / r.stem / f"{seq_name}.txt"
+            ep = embs_root / r.stem / f"{seq_name}.bin"
             emb_paths[r.stem] = ep
             if ep.exists():
                 any_emb_cached = True
@@ -388,7 +593,10 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         if resume:
             det_rows = _count_data_lines(dets_path, skip_header=True)
             det_max_frame = _max_frame_id(dets_path)
-            emb_rows = {stem: _count_data_lines(ep) for stem, ep in emb_paths.items()}
+            emb_rows = {
+                stem: _count_binary_rows(ep, embs_root / stem / "ndims.txt")
+                for stem, ep in emb_paths.items()
+            }
             expected_files = dets_path.exists() and all(ep.exists() for ep in emb_paths.values())
             rows_match = len(set([det_rows, *emb_rows.values()])) == 1 if expected_files else False
             if expected_files and rows_match and det_rows > 0:
@@ -442,15 +650,15 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         LOGGER.info("No sequences to process (all cached or no images).")
         return
 
-    seq_names = list(seq_states.keys())
-    rr = 0
-
     use_cuda = str(args.device).startswith("cuda")
     amp_ctx = (
         torch.autocast(device_type="cuda", dtype=torch.float16)
         if (use_cuda and getattr(args, "half", False))
         else nullcontext()
     )
+
+    seq_names = list(seq_states.keys())
+    rr = 0
 
     pbar = tqdm(total=total_frames, desc=f"Batched YOLO+ReID ({y.name}, bs={batch_size})", unit="frame")
     reid_pbar = tqdm(total=0, desc="ReID embeddings", unit="det", dynamic_ncols=True)
@@ -488,14 +696,12 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 yolo_results = None
                 while True:
                     try:
-                        # Use unified batch inference from pipeline
                         yolo_results = pipeline.predict_batch(
                             images=imgs[:batch_size],
-                            conf=args.conf,
+                            conf=0.01,  # Always collect all detections; conf filtering happens at tracking stage
                             iou=args.iou,
                             agnostic_nms=args.agnostic_nms,
                             classes=args.classes,
-                            verbose=False,
                         )
                         break
                     except RuntimeError as e:
@@ -519,7 +725,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 if yolo_results is None:
                     continue
 
-                det_counts = [int(r.boxes.shape[0]) if r.boxes is not None else 0 for r in yolo_results]
+                det_counts = [len(r.dets) for r in yolo_results]
                 emb_dims: dict[str, int] = {}
                 LOGGER.info(
                     f"YOLO batch frames={len(batch_items)} | dets/frame={det_counts} | total_dets={sum(det_counts)}"
@@ -527,10 +733,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 touched: set[str] = set()
 
                 for (seq_name, frame_id, _), r, img in zip(batch_items, yolo_results, imgs):
-                    # Use unified detection extraction and filtering
-                    dets = extract_detections(r)
-                    dets = filter_detections(dets, min_area=10.0, remove_degenerate=True)
-                    
+                    dets = prepare_detections(r, img)
+
                     if len(dets) == 0:
                         if timing_stats:
                             timing_stats.frames += 1
@@ -538,19 +742,15 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                         continue
 
                     boxes = dets[:, :4]
-                    confs = dets[:, 4:5]  # Keep as 2D for concatenation
-                    clss = dets[:, 5:6]   # Keep as 2D for concatenation
+                    confs = dets[:, 4:5]
+                    clss = dets[:, 5:6]
 
-                    # Build detection array with frame_id column: [frame_id, x1, y1, x2, y2, conf, cls]
                     frame_col = np.full((boxes.shape[0], 1), float(frame_id), dtype=np.float32)
                     dets_np = np.concatenate([frame_col, boxes, confs, clss], axis=1)
-                    dets_np[:, 1:5] = np.rint(dets_np[:, 1:5])  # round xyxy only
-
                     np.savetxt(det_fhs[seq_name], dets_np, fmt="%f")
 
                     det_boxes_np = dets_np[:, 1:5]
-                    
-                    # Use pipeline's ReID models (with timing instrumentation)
+
                     all_embs = pipeline.get_all_reid_features(det_boxes_np, img)
                     for reid_name, embs in all_embs.items():
                         if embs.shape[0] != det_boxes_np.shape[0]:
@@ -559,14 +759,14 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                             )
                         if embs.ndim >= 2 and reid_name not in emb_dims:
                             emb_dims[reid_name] = embs.shape[1]
-                        np.savetxt(emb_fhs[reid_name][seq_name], embs, fmt="%f")
+                            (embs_root / reid_name / "ndims.txt").write_text(str(embs.shape[1]))
+                        emb_fhs[reid_name][seq_name].write(embs.astype(np.float32).tobytes())
 
                     reid_pbar.update(det_boxes_np.shape[0])
 
-                    # Update frame count for timing
                     if timing_stats:
                         timing_stats.frames += 1
-                    
+
                     pbar.update(1)
                     touched.add(seq_name)
 
@@ -652,6 +852,28 @@ def build_dataset_eval_settings(
     eval_classes_cfg = bench_cfg.get("eval_classes") if isinstance(bench_cfg, dict) else None
     distractor_cfg = bench_cfg.get("distractor_classes") if isinstance(bench_cfg, dict) else None
 
+    # GT path format (VisDrone uses flat txt under annotations)
+    gt_loc_format = "{gt_folder}/{seq}/gt/gt_temp.txt"
+    is_visdrone = "visdrone" in getattr(args, "benchmark", "").lower() or "visdrone" in str(gt_folder).lower()
+    if is_visdrone:
+        gt_loc_format = "{gt_folder}/{seq}.txt"
+
+    benchmark_name = getattr(args, "benchmark", "")
+
+    # If GT files were already remapped to detector class IDs, use those directly.
+    if getattr(args, "remapped_class_ids", None):
+        distractor_ids: list[int] = []
+        if isinstance(distractor_cfg, dict) and len(distractor_cfg) > 0:
+            distractor_ids = [int(k) for k in distractor_cfg.keys()]
+        return {
+            "classes_to_eval": args.remapped_class_names,
+            "class_ids": args.remapped_class_ids,
+            "distractor_ids": distractor_ids,
+            "gt_loc_format": gt_loc_format,
+            "benchmark_name": benchmark_name,
+            "seq_info": seq_info,
+        }
+
     classes_to_eval = []
     class_ids = []
 
@@ -692,14 +914,6 @@ def build_dataset_eval_settings(
         pairs.append((name, cid))
     classes_to_eval = [name for name, _ in pairs]
     class_ids = [cid for _, cid in pairs]
-
-    # GT path format (VisDrone uses flat txt under annotations)
-    gt_loc_format = "{gt_folder}/{seq}/gt/gt_temp.txt"
-    is_visdrone = "visdrone" in getattr(args, "benchmark", "").lower() or "visdrone" in str(gt_folder).lower()
-    if is_visdrone:
-        gt_loc_format = "{gt_folder}/{seq}.txt"
-
-    benchmark_name = getattr(args, "benchmark", "")
 
     return {
         "classes_to_eval": classes_to_eval,
@@ -793,6 +1007,7 @@ def process_sequence(seq_name: str,
                      device: str,
                      cfg_dict: Optional[Dict] = None,
                      dataset_name: Optional[str] = None,
+                     conf_threshold: float = 0.0,
                      ):
     """
     Process a single sequence: run tracker on pre-computed detections/embeddings.
@@ -803,12 +1018,14 @@ def process_sequence(seq_name: str,
     """
     import time
 
-    device = select_device(device)
+    # Embeddings are pre-computed: tracker association (Kalman + Hungarian) is CPU-only.
+    # Loading tracker's internal ReID model on GPU would waste VRAM across NUM_THREADS workers.
+    tracker_device = select_device("cpu")
     tracker = create_tracker(
         tracker_type=tracking_method,
         tracker_config=TRACKER_CONFIGS / (tracking_method + ".yaml"),
-        reid_weights=WEIGHTS / f"{reid_name}.pt",
-        device=device,
+        reid_weights=Path(reid_name + '.pt'),
+        device=tracker_device,
         half=False,
         per_class=False,
         evolve_param_dict=cfg_dict,
@@ -841,6 +1058,15 @@ def process_sequence(seq_name: str,
 
         kept_frame_ids.append(fid)
         num_frames += 1
+
+        if dets.size and embs.size:
+            # Filter by confidence threshold before passing to tracker.
+            # Detections are saved with conf=0.01 (all detections); conf_threshold
+            # comes from the detector config or CLI and is applied here.
+            if conf_threshold > 0:
+                mask = dets[:, 4] >= conf_threshold
+                dets = dets[mask]
+                embs = embs[mask]
 
         if dets.size and embs.size:
             if dets.shape[0] != embs.shape[0]:
@@ -905,6 +1131,11 @@ def run_generate_mot_results(args: argparse.Namespace, evolve_config: dict = Non
 
     # Build task arguments (include dataset_name for det_emb_root path)
     dataset_name = getattr(args, "benchmark", None)
+    # conf_threshold comes from the detector config YAML (resolved in main() or by the caller).
+    # Falls back to default_conf() if somehow not set — never silently disables filtering.
+    conf_threshold = getattr(args, "conf", None)
+    if conf_threshold is None:
+        conf_threshold = default_conf(args.yolo_model[0])
     task_args = [
         (
             seq,
@@ -918,6 +1149,7 @@ def run_generate_mot_results(args: argparse.Namespace, evolve_config: dict = Non
             args.device,
             evolve_config,
             dataset_name,
+            conf_threshold,
         )
         for seq in sequence_names
     ]
@@ -1009,7 +1241,7 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
         save_dir = Path(args.project) / args.name
 
     trackeval_results = trackeval(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
-    parsed_results = parse_mot_results(trackeval_results)
+    parsed_results = parse_mot_results(trackeval_results, seq_names=set(seq_info.keys()))
 
     # Load config to filter classes
     # Try to load config from benchmark name first, then fallback to source parent name
@@ -1033,8 +1265,15 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     # Filter parsed_results based on user provided classes (args.classes)
     single_class_mode = False
 
+    # Priority 0: GT was already remapped to detector classes — use those names directly.
+    # TrackEval lowercases class names, so compare case-insensitively.
+    if getattr(args, "remapped_class_names", None):
+        remapped_lower = {n.lower() for n in args.remapped_class_names}
+        parsed_results = {k: v for k, v in parsed_results.items() if k.lower() in remapped_lower}
+        if len(args.remapped_class_names) == 1:
+            single_class_mode = True
     # Priority 1: Benchmark config classes (overrides user classes)
-    if "benchmark" in cfg:
+    elif "benchmark" in cfg:
         bench_cfg = cfg["benchmark"]
         bench_classes = None
 
@@ -1064,21 +1303,41 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     # Print results summary
     if verbose:
         LOGGER.info("")
-        LOGGER.opt(colors=True).info("<blue>" + "="*105 + "</blue>")
-        LOGGER.opt(colors=True).info(f"<bold><cyan>{'📊 RESULTS SUMMARY':^105}</cyan></bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*105 + "</blue>")
-        
+
+        multi_class = len(parsed_results) > 1
+
+        # Compute the name column width dynamically to avoid overflow
+        all_names = [
+            seq_name
+            for class_metrics in parsed_results.values()
+            for seq_name in class_metrics.get('per_sequence', {}).keys()
+        ] + [f"COMBINED ({cls})" for cls in parsed_results]
+        nw = max(25, max((len(n) for n in all_names), default=25) + 2)
+        # Total line width: name col + 1 space + 7 metric cols (10 wide) + 6 separating spaces
+        total_w = nw + 1 + 76
+
+        LOGGER.opt(colors=True).info("<blue>" + "="*total_w + "</blue>")
+        LOGGER.opt(colors=True).info(f"<bold><cyan>{'📊 RESULTS SUMMARY':^{total_w}}</cyan></bold>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*total_w + "</blue>")
+
         headers = ["Sequence", "HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs"]
-        header_str = "{:<25} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}".format(*headers)
-        LOGGER.opt(colors=True).info(f"<bold>{header_str}</bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "-"*105 + "</blue>")
-        
+        header_str = f"{{:<{nw}}} {{:>10}} {{:>10}} {{:>10}} {{:>10}} {{:>10}} {{:>10}} {{:>10}}".format(*headers)
+
         for cls, class_metrics in parsed_results.items():
+            # Class section header (only shown when evaluating multiple classes)
+            if multi_class:
+                cls_header = f"  CLASS: {cls.upper()}  "
+                LOGGER.opt(colors=True).info("<blue>" + "="*total_w + "</blue>")
+                LOGGER.opt(colors=True).info(f"<bold><cyan>{cls_header:^{total_w}}</cyan></bold>")
+                LOGGER.opt(colors=True).info("<blue>" + "="*total_w + "</blue>")
+
+            LOGGER.opt(colors=True).info(f"<bold>{header_str}</bold>")
+            LOGGER.opt(colors=True).info("<blue>" + "-"*total_w + "</blue>")
             # Print per-sequence metrics first
             per_sequence = class_metrics.get('per_sequence', {})
             for seq_name in sorted(per_sequence.keys()):
                 seq_metrics = per_sequence[seq_name]
-                name_col = f"{seq_name:<25}"
+                name_col = f"{seq_name:<{nw}}"
                 vals = [
                     f"{seq_metrics.get('HOTA', 0):>10.2f}",
                     f"{seq_metrics.get('MOTA', 0):>10.2f}",
@@ -1090,10 +1349,10 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
                 ]
                 vals_str = " ".join([f"<blue>{v}</blue>" for v in vals])
                 LOGGER.opt(colors=True).info(f"{name_col} {vals_str}")
-            
+
             # Print COMBINED row (bold, highlighted)
-            LOGGER.opt(colors=True).info("<blue>" + "-"*105 + "</blue>")
-            name_col = f"{'COMBINED (' + cls + ')':<25}"
+            LOGGER.opt(colors=True).info("<blue>" + "-"*total_w + "</blue>")
+            name_col = f"{'COMBINED (' + cls + ')':<{nw}}"
             vals = [
                 f"{class_metrics.get('HOTA', 0):>10.2f}",
                 f"{class_metrics.get('MOTA', 0):>10.2f}",
@@ -1105,8 +1364,8 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
             ]
             vals_str = " ".join([f"<cyan>{v}</cyan>" for v in vals])
             LOGGER.opt(colors=True).info(f"<bold>{name_col} {vals_str}</bold>")
-            
-        LOGGER.opt(colors=True).info("<blue>" + "="*105 + "</blue>")
+
+        LOGGER.opt(colors=True).info("<blue>" + "="*total_w + "</blue>")
 
     if args.ci:
         with open(args.tracking_method + "_output.json", "w") as outfile:
@@ -1115,7 +1374,41 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     return final_results
 
 
+def apply_class_remap(args, det_cfg: dict) -> None:
+    """Remap GT class IDs to match detector output (step 3.5).
+
+    Loads benchmark config, builds the class mapping, rewrites gt_temp.txt files,
+    and mutates args with remapped_class_ids / remapped_class_names when needed.
+    """
+    bench_cfg: dict = {}
+    if hasattr(args, "benchmark"):
+        try:
+            bench_cfg = (load_dataset_cfg(args.benchmark) or {}).get("benchmark", {})
+        except Exception:
+            pass
+
+    remap_result = build_gt_class_remap(
+        bench_cfg, det_cfg,
+        benchmark_name=getattr(args, "benchmark", ""),
+        model_stem=args.yolo_model[0].stem,
+    )
+    if remap_result is not None:
+        remap_dict, new_class_ids, new_class_names = remap_result
+        distractor_ids = [int(k) for k in bench_cfg.get("distractor_classes", {}).keys()]
+        apply_gt_class_remap(args.source, remap_dict, distractor_ids)
+        args.remapped_class_ids = new_class_ids
+        args.remapped_class_names = [n.lower() for n in new_class_names]
+
+
 def main(args):
+    # Load detector config once — used for imgsz/conf resolution and GT class remapping.
+    _det_cfg = load_detector_cfg(args.yolo_model[0].stem)
+
+    if args.imgsz is None:
+        args.imgsz = default_imgsz(args.yolo_model[0])
+    if args.conf is None:
+        args.conf = default_conf(args.yolo_model[0])
+
     # Print evaluation pipeline header (blue palette)
     LOGGER.info("")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
@@ -1138,11 +1431,15 @@ def main(args):
     # Step 2: Generate detections and embeddings (with timing)
     LOGGER.opt(colors=True).info("<cyan>[2/4]</cyan> Generating detections and embeddings...")
     run_generate_dets_embs(args, timing_stats=timing_stats)
-    
+
     # Step 3: Generate MOT results (with tracking timing)
     LOGGER.opt(colors=True).info("<cyan>[3/4]</cyan> Running tracker...")
     run_generate_mot_results(args, timing_stats=timing_stats)
-    
+
+    # Step 3.5: Remap GT class IDs to match detector output.
+    # Must run after gt_temp.txt is created (step 3) and before TrackEval (step 4).
+    apply_class_remap(args, _det_cfg)
+
     # Step 4: Evaluate with TrackEval
     LOGGER.opt(colors=True).info("<cyan>[4/4]</cyan> Evaluating results...")
     results = run_trackeval(args)

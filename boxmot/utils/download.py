@@ -188,7 +188,10 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False) -> No
         dest: Local directory to save the dataset into.
         overwrite: If True, re-download even if *dest* already exists.
     """
-    if dest.exists() and not overwrite:
+
+    dest_exists = dest.exists() or dest.with_suffix('').exists()
+
+    if dest_exists and not overwrite:
         LOGGER.debug(f"HF dataset already present at {dest}")
         return
 

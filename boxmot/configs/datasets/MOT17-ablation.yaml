@@ -1,6 +1,6 @@
 # https://motchallenge.net/data/MOT17/
 download:
-  runs_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/runs.zip"
+  runs_url: null
   dataset_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip"
 
 benchmark:

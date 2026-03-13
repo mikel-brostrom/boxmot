@@ -1,43 +1,20 @@
 from pathlib import Path
 
 import numpy as np
+import torch
 
+from boxmot.detectors.detector import Detections
+import boxmot.detectors.ultralytics as ultralytics_detector_module
+from boxmot.detectors.ultralytics import UltralyticsDetector
 from boxmot.engine.cli import ensure_model_extension
-from boxmot.engine.inference import extract_detections, filter_detections, resolve_yolo_model_path
+from boxmot.engine.inference import prepare_detections
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
 from boxmot.utils.iou import iou_obb_pair
 from boxmot.utils import WEIGHTS
 
-
-class _TensorWrapper:
-    def __init__(self, array: np.ndarray):
-        self._array = np.asarray(array, dtype=np.float32)
-
-    def cpu(self):
-        return self
-
-    def numpy(self):
-        return self._array
-
-    @property
-    def shape(self):
-        return self._array.shape
-
-
-class _PredictionWrapper:
-    def __init__(self, array: np.ndarray):
-        self.data = _TensorWrapper(array)
-
-    def __len__(self):
-        return len(self.data.numpy())
-
-
-class _Result:
-    def __init__(self, boxes=None, obb=None):
-        self.boxes = boxes
-        self.obb = obb
+_DUMMY_IMG = np.zeros((64, 64, 3), dtype=np.uint8)
 
 
 class _DummyTracker(BaseTracker):
@@ -55,50 +32,99 @@ class _DummyOBBTracker(_DummyTracker):
     supports_obb = True
 
 
-def test_extract_detections_reads_aabb_results():
-    boxes = _PredictionWrapper([[1, 2, 3, 4, 0.9, 0]])
-    result = _Result(boxes=boxes)
+def test_prepare_detections_reads_aabb_result():
+    dets = np.array([[10, 20, 30, 40, 0.9, 0]], dtype=np.float32)
+    result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    dets = extract_detections(result)
+    out = prepare_detections(result, _DUMMY_IMG)
 
-    assert dets.shape == (1, 6)
-    np.testing.assert_array_equal(dets[0], np.array([1, 2, 3, 4, 0.9, 0], dtype=np.float32))
-
-
-def test_extract_detections_reads_obb_results():
-    obb = _PredictionWrapper([[10, 20, 30, 40, 0.5, 0.8, 1]])
-    result = _Result(obb=obb)
-
-    dets = extract_detections(result)
-
-    assert dets.shape == (1, 7)
-    np.testing.assert_array_equal(
-        dets[0],
-        np.array([10, 20, 30, 40, 0.5, 0.8, 1], dtype=np.float32),
-    )
+    assert out.shape == (1, 6)
+    np.testing.assert_array_equal(out[0], np.array([10, 20, 30, 40, 0.9, 0], dtype=np.float32))
 
 
-def test_extract_detections_preserves_empty_obb_width():
-    result = _Result(obb=_PredictionWrapper(np.empty((0, 7), dtype=np.float32)))
+def test_prepare_detections_reads_obb_result():
+    dets = np.array([[10, 20, 30, 40, 0.5, 0.8, 1]], dtype=np.float32)
+    result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    dets = extract_detections(result)
+    out = prepare_detections(result, _DUMMY_IMG)
 
-    assert dets.shape == (0, 7)
+    assert out.shape == (1, 7)
+    np.testing.assert_array_equal(out[0], dets[0])
 
 
-def test_filter_detections_keeps_valid_obb_boxes():
+def test_prepare_detections_preserves_empty_obb_width():
+    dets = np.empty((0, 7), dtype=np.float32)
+    result = Detections(dets=dets, orig_img=_DUMMY_IMG)
+
+    out = prepare_detections(result, _DUMMY_IMG)
+
+    assert out.shape == (0, 7)
+
+
+def test_prepare_detections_filters_invalid_obb_boxes():
     dets = np.array(
         [
-            [100, 100, 20, 10, 0.2, 0.9, 0],
-            [100, 100, 0, 10, 0.2, 0.9, 0],
+            [100, 100, 20, 10, 0.2, 0.9, 0],  # valid: area = 200
+            [100, 100, 0, 10, 0.2, 0.9, 0],   # invalid: w = 0
         ],
         dtype=np.float32,
     )
+    result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    filtered = filter_detections(dets, min_area=50.0)
+    out = prepare_detections(result, _DUMMY_IMG)
 
-    assert filtered.shape == (1, 7)
-    np.testing.assert_array_equal(filtered[0], dets[0])
+    assert out.shape == (1, 7)
+    np.testing.assert_array_equal(out[0], dets[0])
+
+
+def test_ultralytics_detector_preserves_obb_results(monkeypatch):
+    class _FakeOBB:
+        def __init__(self, values):
+            tensor = torch.tensor(values, dtype=torch.float32)
+            self.xywhr = tensor[:, :5]
+            self.conf = tensor[:, 5]
+            self.cls = tensor[:, 6]
+
+        def __len__(self):
+            return len(self.conf)
+
+    class _FakeResult:
+        def __init__(self, values):
+            self.obb = _FakeOBB(values)
+            self.boxes = None
+            self.orig_img = _DUMMY_IMG
+            self.path = "frame.jpg"
+            self.names = {0: "plane"}
+
+    class _FakeYOLO:
+        def __init__(self, model):
+            self.model = model
+            self.names = {0: "plane"}
+
+        def predict(self, **kwargs):
+            return [
+                _FakeResult(
+                    [[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]]
+                )
+            ]
+
+    monkeypatch.setattr(ultralytics_detector_module, "YOLO", _FakeYOLO)
+
+    detector = UltralyticsDetector(model="fake-obb.pt", device="cpu", imgsz=[64, 64])
+    results = detector(
+        [_DUMMY_IMG],
+        conf=0.25,
+        iou=0.7,
+        classes=None,
+        agnostic_nms=False,
+    )
+
+    assert len(results) == 1
+    assert results[0].is_obb is True
+    np.testing.assert_array_equal(
+        results[0].dets,
+        np.array([[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]], dtype=np.float32),
+    )
 
 
 def test_tracker_infers_obb_mode_on_empty_followup_frame():
@@ -161,19 +187,6 @@ def test_iou_obb_pair_accepts_column_like_inputs_and_radians():
     iou = iou_obb_pair(0, 0, dets, trks)
 
     assert iou > 0.99
-
-
-def test_resolve_yolo_model_path_routes_non_rtdetr_to_weights_dir():
-    resolved = resolve_yolo_model_path("yolov8n.pt")
-
-    assert resolved == WEIGHTS / "yolov8n.pt"
-
-
-def test_resolve_yolo_model_path_keeps_rtdetr_name_without_path_prefix():
-    resolved = resolve_yolo_model_path("/tmp/models/rtdetr_v2_r18vd.pt")
-
-    assert resolved.name == "rtdetr_v2_r18vd.pt"
-    assert str(resolved.parent) == "."
 
 
 def test_ensure_model_extension_preserves_explicit_export_paths():

@@ -59,7 +59,12 @@ def test_tracker_output_size(tracker_type):
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[144, 212, 400, 480, 0.82, 0], [425, 281, 576, 472, 0.72, 65]])
 
-    output = tracker.update(det, rgb)
+    output = np.empty((0,))
+    for _ in range(10):
+        output = tracker.update(det, rgb)
+        if output.shape == (2, 8):
+            break
+
     assert output.shape == (2, 8)
 
 
@@ -459,18 +464,24 @@ def test_track_id_stable_over_frames(tracker_type):
     det = np.array([[50, 50, 100, 100, 0.95, 3]])
     rgb = np.zeros((640, 640, 3), dtype=np.uint8)
 
-    # choose embedding only if needed
-    if tracker_type in MOTION_N_APPEARANCE_TRACKING_NAMES:
-        embs = np.random.rand(1, 512)
-        out1 = tracker.update(det, rgb, embs)
-        out2 = tracker.update(det, rgb, embs)
-    else:
-        out1 = tracker.update(det, rgb)
-        out2 = tracker.update(det, rgb)
+    def update(tracker):
+        if tracker_type in MOTION_N_APPEARANCE_TRACKING_NAMES:
+            return tracker.update(det, rgb, np.random.rand(1, 512))
+        return tracker.update(det, rgb)
 
-    assert out1.shape == out2.shape == (1, 8), "Unexpected output shape"
-    # track ID is at column 1
-    assert out1[0, 4] == out2[0, 4], "Track ID should remain the same across frames"
+    # Warm up until the track is confirmed (handles trackers with n_init > 1)
+    out = np.empty((0,))
+    for _ in range(10):
+        out = update(tracker)
+        if out.shape == (1, 8):
+            break
+
+    assert out.shape == (1, 8), "Track was not confirmed after warm-up"
+    track_id = out[0, 4]
+
+    out2 = update(tracker)
+    assert out2.shape == (1, 8), "Unexpected output shape on second frame"
+    assert out2[0, 4] == track_id, "Track ID should remain the same across frames"
 
 
 def test_create_tracker_invalid_tracker_name():
