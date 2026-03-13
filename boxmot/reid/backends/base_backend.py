@@ -68,8 +68,13 @@ class BaseModelBackend:
 
         for i, box in enumerate(xyxys):
             x1, y1, x2, y2 = box.round().astype("int")
-            x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w, x2), min(h, y2)
-            crop = img[y1:y2, x1:x2]
+            cx1, cy1 = max(0, x1), max(0, y1)
+            cx2, cy2 = min(w, x2), min(h, y2)
+            if cx2 > cx1 and cy2 > cy1:
+                crop = img[cy1:cy2, cx1:cx2]
+            else:
+                # Box is entirely outside the image — use a blank crop
+                crop = np.zeros((self.input_shape[0], self.input_shape[1], 3), dtype=np.uint8)
 
             # Resize and convert color in one step
             crop = cv2.resize(

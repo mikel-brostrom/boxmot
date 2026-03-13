@@ -51,12 +51,12 @@ def core_options(func):
     options = [
         click.option('--source', type=str, default='0',
                      help='file/dir/URL/glob, 0 for webcam'),
-        click.option('--imgsz', callback=parse_imgsz, default=640, type=str,
-                     help='desired image size for the model input. Can be an integer for square images or a tuple (height, width) for specific dimensions.'),
+        click.option('--imgsz', callback=parse_imgsz, default=None, type=str,
+                     help='Image size for model input as H,W (e.g. 800,1440) or single int for square. Default: read from detector config YAML, fallback [640, 640].'),
         click.option('--fps', type=int, default=30,
                      help='video frame-rate'),
-        click.option('--conf', type=float, default=0.01,
-                     help='min confidence threshold'),
+        click.option('--conf', type=float, default=None,
+                     help='Min confidence threshold. Default: read from detector config YAML, fallback 0.25.'),
         click.option('--iou', type=float, default=0.7,
                      help='IoU threshold for NMS'),
         click.option('--device', default='',
@@ -100,10 +100,6 @@ def core_options(func):
                      help='overlay past trajectories'),
         click.option('--show-lost', is_flag=True,
                      help='show lost tracks'),
-        click.option('--save-txt', is_flag=True,
-                     help='save results to a .txt file'),
-        click.option('--save-crop', is_flag=True,
-                     help='save cropped detections'),
         click.option('--save', is_flag=True,
                      help='save annotated video'),
         click.option('--line-width', type=int,
@@ -432,8 +428,7 @@ def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
               'classes': parse_classes(classes),
               'source': src,
               'benchmark': bench,
-              'split': split,
-              'imgsz': [1088, 1920]}
+              'split': split}
     args = SimpleNamespace(**params)
     from boxmot.engine.evaluator import main as run_eval
     run_eval(args)

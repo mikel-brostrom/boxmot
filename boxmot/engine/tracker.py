@@ -8,8 +8,8 @@ import numpy as np
 import torch
 
 from boxmot import TRACKERS
-from boxmot.detectors import default_imgsz
-from boxmot.engine.inference import DetectorReIDPipeline, extract_detections
+from boxmot.detectors import default_imgsz, default_conf
+from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.trackers.tracker_zoo import create_tracker
 import yaml as _yaml
 from boxmot.utils import TRACKER_CONFIGS, DETECTOR_CONFIGS
@@ -105,7 +105,7 @@ def on_predict_start(predictor, args, timing_stats=None):
             LOGGER.warning(f"Could not load detector config {_det_cfg_path}: {_e}")
 
 
-def plot_trajectories(predictor, timing_stats=None, video_writer=None):
+def plot_trajectories(predictor, timing_stats: TimingStats = None, video_writer=None):
     """
     Callback to run tracking update and plot trajectories on each frame.
     
@@ -127,9 +127,8 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
             
         tracker = predictor.trackers[i]
         
-        # Get detections from result using unified extraction
-        dets = extract_detections(result)
         img = result.orig_img
+        dets = prepare_detections(result, img)
         
         # Reset per-frame ReID accumulator
         if timing_stats:
@@ -167,7 +166,8 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
         result.orig_img = tracker.plot_results(
             img,
             predictor.custom_args.show_trajectories,
-            show_lost=predictor.custom_args.show_lost
+            thickness=predictor.custom_args.line_width or 2,
+            show_lost=predictor.custom_args.show_lost,
         )
         
         if timing_stats:
@@ -209,9 +209,11 @@ def main(args):
     LOGGER.opt(colors=True).info(f"<bold>Source:</bold>    <cyan>{args.source}</cyan>")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
     
-    # Set default image size based on model type
+    # Resolve imgsz and conf from detector config YAML when not explicitly provided.
     if args.imgsz is None:
         args.imgsz = default_imgsz(args.yolo_model)
+    if args.conf is None:
+        args.conf = default_conf(args.yolo_model)
     
     # Initialize timing stats
     timing_stats = TimingStats()
@@ -244,8 +246,8 @@ def main(args):
     
     # Initialize unified detector + ReID pipeline with timing support
     pipeline = DetectorReIDPipeline(
-        yolo_model_path=args.yolo_model,
-        reid_model_paths=None,  # ReID handled by tracker for real-time tracking
+        detector_path=args.yolo_model,
+        reid_paths=None,  # ReID handled by tracker for real-time tracking
         device=args.device,
         imgsz=args.imgsz,
         half=args.half,
@@ -257,26 +259,13 @@ def main(args):
     pipeline.add_callback("on_predict_start", partial(on_predict_start, args=args, timing_stats=timing_stats))
     pipeline.add_callback("on_predict_postprocess_end", partial(plot_trajectories, timing_stats=timing_stats, video_writer=video_writer))
 
-    # Use predict() instead of track() to avoid Ultralytics' default tracking callbacks
     results = pipeline.predict(
         source=args.source,
         conf=args.conf,
         iou=args.iou,
         agnostic_nms=args.agnostic_nms,
-        show=False,
-        stream=True,
-        show_conf=args.show_conf,
-        save_txt=args.save_txt,
-        show_labels=args.show_labels,
-        save=False,  # We handle video saving ourselves with tracking overlays
-        verbose=args.verbose,
-        exist_ok=args.exist_ok,
-        project=args.project,
-        name=args.name,
         classes=args.classes,
         vid_stride=args.vid_stride,
-        line_width=args.line_width,
-        save_crop=args.save_crop,
     )
 
     # Initialize quit flag
