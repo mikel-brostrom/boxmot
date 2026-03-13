@@ -29,8 +29,8 @@ from typing import Optional, List, Dict, Generator, Union
 from boxmot.utils.dataloaders.dataset import MOTDataset
 from boxmot.postprocessing.gsi import gsi
 
-from boxmot.engine.inference import DetectorReIDPipeline, extract_detections, filter_detections
-from boxmot.detectors import default_imgsz
+from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
+from boxmot.detectors import default_imgsz, default_conf
 from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
 from boxmot.utils.download import download_eval_data, download_trackeval
 
@@ -454,48 +454,6 @@ def _collect_seq_info(source: Path) -> tuple[list[Path], dict[str, int]]:
     return seq_paths, seq_info
 
 
-def _autotune_batch_size(yolo, device: str, imgsz, requested: int) -> int:
-    dev_lower = str(device).lower()
-    use_accel = dev_lower.startswith(("cuda", "0", "1", "2", "3", "4", "5", "6", "7", "mps", "metal"))
-    if not use_accel:
-        return max(1, requested)
-
-    def _empty_cache():
-        if dev_lower.startswith("cuda") and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        elif dev_lower.startswith(("mps", "metal")) and hasattr(torch, "mps"):
-            try:
-                torch.mps.empty_cache()
-            except Exception:
-                pass
-
-    if isinstance(imgsz, (list, tuple)):
-        h, w = int(imgsz[0]), int(imgsz[1])
-    else:
-        h = w = int(imgsz)
-
-    dummy = np.zeros((h, w, 3), dtype=np.uint8)
-
-    bs = max(1, int(requested))
-    while bs >= 1:
-        try:
-            yolo.predict(source=[dummy] * bs, device=device, verbose=False, imgsz=imgsz)
-            if bs < requested:
-                LOGGER.warning(f"Auto-tuned batch size from {requested} -> {bs} to fit device memory.")
-            return bs
-        except RuntimeError as e:
-            if "out of memory" not in str(e).lower():
-                raise
-            _empty_cache()
-            next_bs = max(1, bs // 2)
-            LOGGER.warning(f"Batch size {bs} OOM; retrying with {next_bs}.")
-            if next_bs == bs:
-                break
-            bs = next_bs
-
-    raise RuntimeError("Unable to run even batch size 1; reduce image size or move to CPU.")
-
-
 def _clear_device_cache(device: str) -> None:
     dev_lower = str(device).lower()
     if dev_lower.startswith("cuda") and torch.cuda.is_available():
@@ -576,8 +534,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
 
     # Use unified DetectorReIDPipeline with timing for both detection and ReID
     pipeline = DetectorReIDPipeline(
-        yolo_model_path=y,
-        reid_model_paths=args.reid_model,
+        detector_path=y,
+        reid_paths=args.reid_model,
         device=args.device,
         imgsz=args.imgsz,
         half=args.half,
@@ -740,11 +698,10 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                     try:
                         yolo_results = pipeline.predict_batch(
                             images=imgs[:batch_size],
-                            conf=args.conf,
+                            conf=0.01,  # Always collect all detections; conf filtering happens at tracking stage
                             iou=args.iou,
                             agnostic_nms=args.agnostic_nms,
                             classes=args.classes,
-                            verbose=False,
                         )
                         break
                     except RuntimeError as e:
@@ -768,7 +725,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 if yolo_results is None:
                     continue
 
-                det_counts = [int(r.boxes.shape[0]) if r.boxes is not None else 0 for r in yolo_results]
+                det_counts = [len(r.dets) for r in yolo_results]
                 emb_dims: dict[str, int] = {}
                 LOGGER.info(
                     f"YOLO batch frames={len(batch_items)} | dets/frame={det_counts} | total_dets={sum(det_counts)}"
@@ -776,8 +733,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 touched: set[str] = set()
 
                 for (seq_name, frame_id, _), r, img in zip(batch_items, yolo_results, imgs):
-                    dets = extract_detections(r)
-                    dets = filter_detections(dets, min_area=10.0, remove_degenerate=True)
+                    dets = prepare_detections(r, img)
 
                     if len(dets) == 0:
                         if timing_stats:
@@ -791,8 +747,6 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
 
                     frame_col = np.full((boxes.shape[0], 1), float(frame_id), dtype=np.float32)
                     dets_np = np.concatenate([frame_col, boxes, confs, clss], axis=1)
-                    dets_np[:, 1:5] = np.rint(dets_np[:, 1:5])
-
                     np.savetxt(det_fhs[seq_name], dets_np, fmt="%f")
 
                     det_boxes_np = dets_np[:, 1:5]
@@ -1053,6 +1007,7 @@ def process_sequence(seq_name: str,
                      device: str,
                      cfg_dict: Optional[Dict] = None,
                      dataset_name: Optional[str] = None,
+                     conf_threshold: float = 0.0,
                      ):
     """
     Process a single sequence: run tracker on pre-computed detections/embeddings.
@@ -1063,12 +1018,14 @@ def process_sequence(seq_name: str,
     """
     import time
 
-    device = select_device(device)
+    # Embeddings are pre-computed: tracker association (Kalman + Hungarian) is CPU-only.
+    # Loading tracker's internal ReID model on GPU would waste VRAM across NUM_THREADS workers.
+    tracker_device = select_device("cpu")
     tracker = create_tracker(
         tracker_type=tracking_method,
         tracker_config=TRACKER_CONFIGS / (tracking_method + ".yaml"),
         reid_weights=Path(reid_name + '.pt'),
-        device=device,
+        device=tracker_device,
         half=False,
         per_class=False,
         evolve_param_dict=cfg_dict,
@@ -1101,6 +1058,15 @@ def process_sequence(seq_name: str,
 
         kept_frame_ids.append(fid)
         num_frames += 1
+
+        if dets.size and embs.size:
+            # Filter by confidence threshold before passing to tracker.
+            # Detections are saved with conf=0.01 (all detections); conf_threshold
+            # comes from the detector config or CLI and is applied here.
+            if conf_threshold > 0:
+                mask = dets[:, 4] >= conf_threshold
+                dets = dets[mask]
+                embs = embs[mask]
 
         if dets.size and embs.size:
             if dets.shape[0] != embs.shape[0]:
@@ -1165,6 +1131,11 @@ def run_generate_mot_results(args: argparse.Namespace, evolve_config: dict = Non
 
     # Build task arguments (include dataset_name for det_emb_root path)
     dataset_name = getattr(args, "benchmark", None)
+    # conf_threshold comes from the detector config YAML (resolved in main() or by the caller).
+    # Falls back to default_conf() if somehow not set — never silently disables filtering.
+    conf_threshold = getattr(args, "conf", None)
+    if conf_threshold is None:
+        conf_threshold = default_conf(args.yolo_model[0])
     task_args = [
         (
             seq,
@@ -1178,6 +1149,7 @@ def run_generate_mot_results(args: argparse.Namespace, evolve_config: dict = Non
             args.device,
             evolve_config,
             dataset_name,
+            conf_threshold,
         )
         for seq in sequence_names
     ]
@@ -1402,7 +1374,41 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     return final_results
 
 
+def apply_class_remap(args, det_cfg: dict) -> None:
+    """Remap GT class IDs to match detector output (step 3.5).
+
+    Loads benchmark config, builds the class mapping, rewrites gt_temp.txt files,
+    and mutates args with remapped_class_ids / remapped_class_names when needed.
+    """
+    bench_cfg: dict = {}
+    if hasattr(args, "benchmark"):
+        try:
+            bench_cfg = (load_dataset_cfg(args.benchmark) or {}).get("benchmark", {})
+        except Exception:
+            pass
+
+    remap_result = build_gt_class_remap(
+        bench_cfg, det_cfg,
+        benchmark_name=getattr(args, "benchmark", ""),
+        model_stem=args.yolo_model[0].stem,
+    )
+    if remap_result is not None:
+        remap_dict, new_class_ids, new_class_names = remap_result
+        distractor_ids = [int(k) for k in bench_cfg.get("distractor_classes", {}).keys()]
+        apply_gt_class_remap(args.source, remap_dict, distractor_ids)
+        args.remapped_class_ids = new_class_ids
+        args.remapped_class_names = [n.lower() for n in new_class_names]
+
+
 def main(args):
+    # Load detector config once — used for imgsz/conf resolution and GT class remapping.
+    _det_cfg = load_detector_cfg(args.yolo_model[0].stem)
+
+    if args.imgsz is None:
+        args.imgsz = default_imgsz(args.yolo_model[0])
+    if args.conf is None:
+        args.conf = default_conf(args.yolo_model[0])
+
     # Print evaluation pipeline header (blue palette)
     LOGGER.info("")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
@@ -1425,34 +1431,14 @@ def main(args):
     # Step 2: Generate detections and embeddings (with timing)
     LOGGER.opt(colors=True).info("<cyan>[2/4]</cyan> Generating detections and embeddings...")
     run_generate_dets_embs(args, timing_stats=timing_stats)
-    
+
     # Step 3: Generate MOT results (with tracking timing)
     LOGGER.opt(colors=True).info("<cyan>[3/4]</cyan> Running tracker...")
     run_generate_mot_results(args, timing_stats=timing_stats)
 
-    # Step 3.5: Remap GT class IDs so they match the detector's output class IDs.
-    # This must happen after gt_temp.txt files are created (step 3) and before
-    # TrackEval reads them (step 4).
-    _bench_cfg: dict = {}
-    if hasattr(args, "benchmark"):
-        try:
-            _bench_cfg = (load_dataset_cfg(args.benchmark) or {}).get("benchmark", {})
-        except Exception:
-            pass
-    _det_cfg = load_detector_cfg(args.yolo_model[0].stem)
-    _remap_result = build_gt_class_remap(
-        _bench_cfg, _det_cfg,
-        benchmark_name=getattr(args, "benchmark", ""),
-        model_stem=args.yolo_model[0].stem,
-    )
-    if _remap_result is not None:
-        _remap_dict, _new_class_ids, _new_class_names = _remap_result
-        _distractor_ids = [int(k) for k in _bench_cfg.get("distractor_classes", {}).keys()]
-        apply_gt_class_remap(args.source, _remap_dict, _distractor_ids)
-        args.remapped_class_ids   = _new_class_ids
-        # TrackEval lowercases all class names internally, so we normalize here too
-        # to ensure filtering in run_trackeval works correctly.
-        args.remapped_class_names = [n.lower() for n in _new_class_names]
+    # Step 3.5: Remap GT class IDs to match detector output.
+    # Must run after gt_temp.txt is created (step 3) and before TrackEval (step 4).
+    apply_class_remap(args, _det_cfg)
 
     # Step 4: Evaluate with TrackEval
     LOGGER.opt(colors=True).info("<cyan>[4/4]</cyan> Evaluating results...")

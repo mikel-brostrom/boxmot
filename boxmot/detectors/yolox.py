@@ -5,12 +5,11 @@ import fnmatch
 import cv2
 import numpy as np
 import torch
-from ultralytics.engine.results import Results
-from ultralytics.models.yolo.detect import DetectionPredictor
 from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
+from boxmot.detectors.detector import Detections, Detector
 from boxmot.utils import logger as LOGGER
 
 # default model weigths for these model names
@@ -38,7 +37,6 @@ def _coerce_torch_dtype(dtype, fallback: torch.Tensor) -> torch.dtype:
             return torch.bfloat16
         if "float16" in lowered or "half" in lowered:
             return torch.float16
-    # Default to the fallback tensor's dtype or float32.
     return fallback.dtype if isinstance(fallback, torch.Tensor) else torch.float32
 
 
@@ -83,116 +81,47 @@ def _patch_yolox_head_decode_outputs_for_mps() -> None:
 _patch_yolox_head_decode_outputs_for_mps()
 
 
-class YoloXStrategy:
-    """YOLOX strategy for use with Ultralytics predictor workflow."""
-    
+class YoloXDetector(Detector):
+    """YOLOX detector with standalone preprocess/process/postprocess pipeline."""
+
     pt = False
     stride = 32
     fp16 = False
     triton = False
     names = {
-        0: "person",
-        1: "bicycle",
-        2: "car",
-        3: "motorcycle",
-        4: "airplane",
-        5: "bus",
-        6: "train",
-        7: "truck",
-        8: "boat",
-        9: "traffic light",
-        10: "fire hydrant",
-        11: "stop sign",
-        12: "parking meter",
-        13: "bench",
-        14: "bird",
-        15: "cat",
-        16: "dog",
-        17: "horse",
-        18: "sheep",
-        19: "cow",
-        20: "elephant",
-        21: "bear",
-        22: "zebra",
-        23: "giraffe",
-        24: "backpack",
-        25: "umbrella",
-        26: "handbag",
-        27: "tie",
-        28: "suitcase",
-        29: "frisbee",
-        30: "skis",
-        31: "snowboard",
-        32: "sports ball",
-        33: "kite",
-        34: "baseball bat",
-        35: "baseball glove",
-        36: "skateboard",
-        37: "surfboard",
-        38: "tennis racket",
-        39: "bottle",
-        40: "wine glass",
-        41: "cup",
-        42: "fork",
-        43: "knife",
-        44: "spoon",
-        45: "bowl",
-        46: "banana",
-        47: "apple",
-        48: "sandwich",
-        49: "orange",
-        50: "broccoli",
-        51: "carrot",
-        52: "hot dog",
-        53: "pizza",
-        54: "donut",
-        55: "cake",
-        56: "chair",
-        57: "couch",
-        58: "potted plant",
-        59: "bed",
-        60: "dining table",
-        61: "toilet",
-        62: "tv",
-        63: "laptop",
-        64: "mouse",
-        65: "remote",
-        66: "keyboard",
-        67: "cell phone",
-        68: "microwave",
-        69: "oven",
-        70: "toaster",
-        71: "sink",
-        72: "refrigerator",
-        73: "book",
-        74: "clock",
-        75: "vase",
-        76: "scissors",
-        77: "teddy bear",
-        78: "hair drier",
+        0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 4: "airplane",
+        5: "bus", 6: "train", 7: "truck", 8: "boat", 9: "traffic light",
+        10: "fire hydrant", 11: "stop sign", 12: "parking meter", 13: "bench",
+        14: "bird", 15: "cat", 16: "dog", 17: "horse", 18: "sheep", 19: "cow",
+        20: "elephant", 21: "bear", 22: "zebra", 23: "giraffe", 24: "backpack",
+        25: "umbrella", 26: "handbag", 27: "tie", 28: "suitcase", 29: "frisbee",
+        30: "skis", 31: "snowboard", 32: "sports ball", 33: "kite",
+        34: "baseball bat", 35: "baseball glove", 36: "skateboard", 37: "surfboard",
+        38: "tennis racket", 39: "bottle", 40: "wine glass", 41: "cup",
+        42: "fork", 43: "knife", 44: "spoon", 45: "bowl", 46: "banana",
+        47: "apple", 48: "sandwich", 49: "orange", 50: "broccoli", 51: "carrot",
+        52: "hot dog", 53: "pizza", 54: "donut", 55: "cake", 56: "chair",
+        57: "couch", 58: "potted plant", 59: "bed", 60: "dining table",
+        61: "toilet", 62: "tv", 63: "laptop", 64: "mouse", 65: "remote",
+        66: "keyboard", 67: "cell phone", 68: "microwave", 69: "oven",
+        70: "toaster", 71: "sink", 72: "refrigerator", 73: "book", 74: "clock",
+        75: "vase", 76: "scissors", 77: "teddy bear", 78: "hair drier",
         79: "toothbrush",
     }
 
-    def __init__(self, model, device, args):
-
-        self.ch = 3
-        self.args = args
-        raw = getattr(args, 'imgsz', None) or 640
+    def __init__(self, model, device, args=None, imgsz=None):
+        # args: accepted for backward compatibility but not stored
+        # imgsz: explicit image size override; falls back to args.imgsz or 640
+        raw = imgsz or (getattr(args, 'imgsz', None) if args is not None else None) or 640
         vals = raw if isinstance(raw, (list, tuple)) else (raw,)
         w, h = (vals * 2)[:2]
         self.imgsz = [w, h]
-        self.pt = False
-        self.stride = 32  # max stride in YOLOX
 
-        # model_type one of: 'yolox_n', 'yolox_s', 'yolox_m', 'yolox_l', 'yolox_x'
-        model_type = self.get_model_from_weigths(YOLOX_ZOO.keys(), model)
+        model_type = self._get_model_type(YOLOX_ZOO.keys(), model)
 
-        # Map model type to YOLOX experiment name
-        # Custom trained models (e.g., yolox_x_MOT17_ablation) use the base architecture
         if model_type == "yolox_n":
             exp_name = "yolox_nano"
         elif "_MOT" in model_type or "_dancetrack" in model_type or "_visdrone" in model_type:
-            # Extract base model: yolox_x_MOT17_ablation / yolox_x_visdrone -> yolox_x
             exp_name = (
                 model_type.split("_MOT")[0]
                 .split("_dancetrack")[0]
@@ -204,17 +133,12 @@ class YoloXStrategy:
 
         LOGGER.info(f"Loading {model_type} with {str(model)}")
 
-        # download crowdhuman bytetrack models
         if not model.exists() and (
             model.stem == model_type or fnmatch.fnmatch(model.stem, "yolox_x_*_ablation")
         ):
             LOGGER.info("Downloading pretrained weights...")
             from boxmot.utils.download import download_file
-            download_file(
-                url=YOLOX_ZOO[model.stem + ".pt"], dest=model, overwrite=False
-            )
-            # needed for bytetrack yolox people models
-            # update with your custom model needs
+            download_file(url=YOLOX_ZOO[model.stem + ".pt"], dest=model, overwrite=False)
             exp.num_classes = 1
         elif model.stem.startswith(model_type):
             exp.num_classes = 1
@@ -224,142 +148,85 @@ class YoloXStrategy:
         self.device = device
         self.model = exp.get_model()
         self.model.eval()
-        
-        # folow official yolox loading procedure
-        # https://github.com/Megvii-BaseDetection/YOLOX/blob/d872c71b/tools/eval.py#L148-L176
         self.model.to(self.device)
-        self.model.eval()
         self.model.load_state_dict(ckpt["model"])
         self.model = fuse_model(self.model)
-        self.im_paths = []
         self._preproc_data = []
+        self._im0s = []
 
-    def get_model_from_weigths(self, model_names, weight_path):
+    def _get_model_type(self, model_names, weight_path):
         for name in model_names:
             if name in str(weight_path):
                 return name.split('.')[0]
-        return "yolox_s"  # default
+        return "yolox_s"
 
-    @torch.no_grad()
-    def __call__(self, im, augment, visualize, embed):
-        if isinstance(im, list):
-            if len(im[0].shape) == 3:
-                im = torch.stack(im)
-            else:
-                im = torch.vstack(im)
-
-        if len(im.shape) == 3:
-            im = im.unsqueeze(0)
-
-        assert len(im.shape) == 4, f"Expected 4D tensor as input, got {im.shape}"
-
-        preds = self.model(im)
-        return preds
-
-    def warmup(self, imgsz):
-        pass
-
-    def update_im_paths(self, predictor: DetectionPredictor):
-        """
-        This function saves image paths for the current batch,
-        being passed as callback on_predict_batch_start
-        """
-        assert isinstance(
-            predictor, DetectionPredictor
-        ), "Only ultralytics predictors are supported"
-        self.im_paths = predictor.batch[0]
-
-    # This preprocess differs from the current version of YOLOX preprocess, but ByteTrack uses it
-    # https://github.com/ifzhang/ByteTrack/blob/d1bf0191adff59bc8fcfeaa0b33d3d1642552a99/yolox/data/data_augment.py\#L189
-    def yolox_preprocess(
+    # This preprocess matches ByteTrack's implementation:
+    # https://github.com/ifzhang/ByteTrack/blob/d1bf0191adff59bc8fcfeaa0b33d3d1642552a99/yolox/data/data_augment.py#L189
+    def _letterbox(
         self,
         image,
         input_size,
         mean=(0.485, 0.456, 0.406),
         std=(0.229, 0.224, 0.225),
-        swap=(2, 0, 1),
     ):
         if len(image.shape) == 3:
-            padded_img = np.ones((input_size[0], input_size[1], 3)) * 114.0
+            padded = np.ones((input_size[0], input_size[1], 3)) * 114.0
         else:
-            padded_img = np.ones(input_size) * 114.0
+            padded = np.ones(input_size) * 114.0
         img = np.array(image)
         r = min(input_size[0] / img.shape[0], input_size[1] / img.shape[1])
-        resized_img = cv2.resize(
+        resized = cv2.resize(
             img,
             (int(img.shape[1] * r), int(img.shape[0] * r)),
             interpolation=cv2.INTER_LINEAR,
         ).astype(np.float32)
-        padded_img[: int(img.shape[0] * r), : int(img.shape[1] * r)] = resized_img
+        padded[: int(img.shape[0] * r), : int(img.shape[1] * r)] = resized
+        padded = padded[:, :, ::-1] / 255.0
+        padded = (padded - mean) / std
+        padded = np.ascontiguousarray(padded.transpose(2, 0, 1), dtype=np.float32)
+        return padded, r
 
-        padded_img = padded_img[:, :, ::-1]
-        padded_img /= 255.0
-        if mean is not None:
-            padded_img -= mean
-        if std is not None:
-            padded_img /= std
-        padded_img = padded_img.transpose(swap)
-        padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
-        return padded_img, r
-
-    def preprocess(self, im) -> torch.Tensor:
-        assert isinstance(im, list)
-        im_preprocessed = []
+    def preprocess(self, images: list) -> torch.Tensor:
+        assert isinstance(images, list)
+        self._im0s = images
         self._preproc_data = []
-        for i, img in enumerate(im):
-            img_pre, ratio = self.yolox_preprocess(img, input_size=self.imgsz)
-            img_pre = torch.Tensor(img_pre).unsqueeze(0).to(self.device)
-
-            im_preprocessed.append(img_pre)
+        tensors = []
+        for img in images:
+            t, ratio = self._letterbox(img, input_size=self.imgsz)
+            tensors.append(torch.from_numpy(t).unsqueeze(0).to(self.device))
             self._preproc_data.append(ratio)
+        return torch.vstack(tensors)
 
-        im_preprocessed = torch.vstack(im_preprocessed)
+    @torch.no_grad()
+    def process(self, preprocessed: torch.Tensor) -> torch.Tensor:
+        if preprocessed.ndim == 3:
+            preprocessed = preprocessed.unsqueeze(0)
+        return self.model(preprocessed)
 
-        return im_preprocessed
-
-    def postprocess(self, preds, im, im0s):
-
+    def postprocess(self, detections, conf, iou, classes, agnostic_nms, **kwargs) -> list:
         results = []
-        for i, pred in enumerate(preds):
-            im_path = self.im_paths[i] if len(self.im_paths) else ""
+        for i, det in enumerate(detections):
+            orig_img = self._im0s[i] if i < len(self._im0s) else None
 
-            pred = postprocess(
-                pred.unsqueeze(0),  # YOLOX postprocessor expects 3D arary
-                1,
-                conf_thre=self.args.conf,
-                nms_thre=self.args.iou,
-                class_agnostic=self.args.agnostic_nms,
+            filtered = postprocess(
+                det.unsqueeze(0), 1,
+                conf_thre=conf, nms_thre=iou, class_agnostic=agnostic_nms,
             )[0]
 
-            if pred is None:
-                pred = torch.empty((0, 6))
-                r = Results(
-                    path=im_path, boxes=pred, orig_img=im0s[i], names=self.names
-                )
-                results.append(r)
+            if filtered is None:
+                boxes = np.empty((0, 6))
             else:
                 ratio = self._preproc_data[i]
-                pred[:, 0] = pred[:, 0] / ratio
-                pred[:, 1] = pred[:, 1] / ratio
-                pred[:, 2] = pred[:, 2] / ratio
-                pred[:, 3] = pred[:, 3] / ratio
-                pred[:, 4] *= pred[:, 5]
-                pred = pred[:, [0, 1, 2, 3, 4, 6]]
+                filtered[:, :4] /= ratio
+                filtered[:, 4] *= filtered[:, 5]   # obj_conf * class_conf → final conf
+                filtered = filtered[:, [0, 1, 2, 3, 4, 6]]  # drop class_conf column
 
-                # filter boxes by classes
-                if self.args.classes:
-                    pred = pred[
-                        torch.isin(pred[:, 5].cpu(), torch.as_tensor(self.args.classes))
-                    ]
+                if classes:
+                    mask = np.isin(filtered[:, 5].cpu().numpy().astype(int), classes)
+                    filtered = filtered[torch.from_numpy(mask)]
 
-                r = Results(
-                    path=im_path, boxes=pred, orig_img=im0s[i], names=self.names
-                )
+                boxes = filtered.cpu().numpy()
 
-            results.append(r)
+            results.append(Detections(dets=boxes, orig_img=orig_img, names=self.names))
 
         return results
-
-
-# Alias for backward compatibility
-YOLOX = YoloXStrategy

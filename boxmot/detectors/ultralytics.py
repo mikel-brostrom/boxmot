@@ -1,57 +1,61 @@
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import numpy as np
 from ultralytics import YOLO
 
-from boxmot.detectors.detector import Detector
+from boxmot.detectors.detector import Detections, Detector
 
 
-class Ultralytics(Detector):
-    def __init__(self, path: str, device='cpu', conf=0.25, iou=0.45, imgsz=640):
+class UltralyticsDetector(Detector):
+    """
+    Detector wrapper for Ultralytics YOLO models (YOLOv8, YOLO11, etc.).
+
+    All Ultralytics internals are contained here. The public interface
+    follows the same Detector contract as YoloXDetector and RTDetrDetector.
+    """
+
+    def __init__(self, model, device, imgsz=None):
         self.device = device
-        self.conf = conf
-        self.iou = iou
-        self.imgsz = imgsz
-        
-        # Load Ultralytics model
-        # path could be 'yolov8n.pt' or local path
-        super().__init__(path)
-        
-    def _load_model(self, path: str):
-        # We rely on ultralytics own loading mechanism
-        return YOLO(path)
-        
-    def preprocess(self, image: np.ndarray, **kwargs):
-        # Ultralytics handles preprocessing internally in __call__ usually,
-        # but to adhere to strict pipeline if needed:
-        # Here we just pass the image through, as model() call handles it.
-        return image
+        self.imgsz = imgsz  # passed through to YOLO.predict
+        self._yolo = YOLO(str(model))
+        self.names = self._yolo.names or {}
+        self.pt = True
+        self.stride = 32
 
-    def process(self, frame, **kwargs):
-        # frame is just the image here
-        # Return results object
-        results = self.model(
-            frame, 
-            conf=self.conf, 
-            iou=self.iou, 
-            imgsz=self.imgsz,
+    def preprocess(self, images):
+        raise NotImplementedError("Use __call__ directly for UltralyticsDetector")
+
+    def process(self, preprocessed):
+        raise NotImplementedError("Use __call__ directly for UltralyticsDetector")
+
+    def postprocess(self, detections):
+        raise NotImplementedError("Use __call__ directly for UltralyticsDetector")
+
+    def __call__(self, images: list, conf, iou, classes, agnostic_nms) -> list:
+        yolo_results = self._yolo.predict(
+            source=images,
+            conf=conf,
+            iou=iou,
+            classes=classes,
+            agnostic_nms=agnostic_nms,
             device=self.device,
+            imgsz=self.imgsz,
             verbose=False,
-            classes=kwargs.get('classes')
+            stream=False,
         )
-        return results
-
-    def postprocess(self, results, **kwargs):
-        # results is a list of [Results] object (batch size 1 usually)
-        result = results[0]
-        
-        # Extract boxes: x1, y1, x2, y2, conf, cls
-        if result.boxes is None or len(result.boxes) == 0:
-             return np.empty((0, 6))
-             
-        # boxes.data is often (N, 6) tensor: x1, y1, x2, y2, conf, cls
-        dets = result.boxes.data.cpu().numpy()
-        return dets
-        
-    def __call__(self, image, **kwargs):
-        # Let ultralytics handle loading if passed to predict  
-        return super().__call__(image, **kwargs)
+        detections = []
+        for r in yolo_results:
+            if r.boxes is not None and len(r.boxes) > 0:
+                xyxy = r.boxes.xyxy.cpu().numpy()
+                conf = r.boxes.conf.cpu().numpy().reshape(-1, 1)
+                cls  = r.boxes.cls.cpu().numpy().reshape(-1, 1)
+                dets = np.concatenate([xyxy, conf, cls], axis=1)
+            else:
+                dets = np.empty((0, 6))
+            detections.append(Detections(
+                dets=dets,
+                orig_img=r.orig_img,
+                path=r.path or "",
+                names=r.names or self.names,
+            ))
+        return detections

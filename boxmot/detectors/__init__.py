@@ -1,6 +1,12 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-from boxmot.utils import logger as LOGGER
+from pathlib import Path
+
+from boxmot.detectors.detector import Detections
+
+import yaml
+
+from boxmot.utils import DETECTOR_CONFIGS, logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 
 checker = RequirementsChecker()
@@ -27,47 +33,88 @@ def is_rtdetr_model(yolo_name):
     return _check_model(yolo_name, RTDETR_MODELS)
 
 
+def _load_detector_cfg(yolo_name) -> dict:
+    """Load ``boxmot/configs/detectors/<stem>.yaml`` and return its contents (or empty dict)."""
+    stem = Path(str(yolo_name)).stem
+    cfg_path = DETECTOR_CONFIGS / f"{stem}.yaml"
+    if cfg_path.exists():
+        try:
+            with open(cfg_path) as f:
+                cfg = yaml.safe_load(f)
+            return cfg or {}
+        except Exception as e:
+            LOGGER.warning(f"Could not read detector config {cfg_path}: {e}")
+    return {}
+
+
 def default_imgsz(yolo_name):
-    if is_ultralytics_model(yolo_name):
-        return [640, 640]
-    elif is_yolox_model(yolo_name):
-        return [1080, 1920]
-    else:
-        return [640, 640]
+    """Return the default image size from detector config YAML.
 
-
-def get_yolo_inferer(yolo_model):
+    Reads ``imgsz`` from ``boxmot/configs/detectors/<stem>.yaml``.
+    Falls back to ``[640, 640]`` with a warning when the field or the file is absent.
     """
-    Determines and returns the appropriate inference strategy class based on the model name.
+    cfg = _load_detector_cfg(yolo_name)
+    if "imgsz" in cfg:
+        return list(cfg["imgsz"])
+    stem = Path(str(yolo_name)).stem
+    LOGGER.warning(
+        f"No 'imgsz' found in detector config for '{stem}'. "
+        f"Using [640, 640]. Consider adding imgsz to "
+        f"boxmot/configs/detectors/{stem}.yaml"
+    )
+    return [640, 640]
+
+
+def default_conf(yolo_name):
+    """Return the default confidence threshold from detector config YAML.
+
+    Reads ``conf`` from ``boxmot/configs/detectors/<stem>.yaml``.
+    Falls back to ``0.25`` with a warning when the field or the file is absent.
+    """
+    cfg = _load_detector_cfg(yolo_name)
+    if "conf" in cfg:
+        return float(cfg["conf"])
+    stem = Path(str(yolo_name)).stem
+    LOGGER.warning(
+        f"No 'conf' found in detector config for '{stem}'. "
+        f"Using 0.25. Consider adding conf to "
+        f"boxmot/configs/detectors/{stem}.yaml"
+    )
+    return 0.25
+
+
+def get_detector_class(yolo_model):
+    """
+    Determines and returns the appropriate detector class based on the model name.
     Handles dependency checks and imports dynamically.
     """
     model_name = str(yolo_model)
 
-    strategies = [
+    detectors = [
         (
             is_yolox_model,
             ("yolox", "tabulate", "thop"),
             {"yolox": ["--no-deps"]},
             "boxmot.detectors.yolox",
-            "YoloXStrategy",
+            "YoloXDetector",
         ),
         (
             is_ultralytics_model,
             (),
             {},
             "boxmot.detectors.ultralytics",
-            "UltralyticsStrategy",
+            "UltralyticsDetector",
         ),
         (
             is_rtdetr_model,
             ("transformers[torch]", "timm"),
             {},
             "boxmot.detectors.rtdetr",
-            "RTDetrStrategy",
+            "RTDetrDetector",
         ),
     ]
 
-    for check_func, packages, extra_args, module_path, class_name in strategies:
+    for check_func, packages, extra_args, module_path, class_name in detectors:
         if check_func(model_name):
             for package in packages:
                 try:

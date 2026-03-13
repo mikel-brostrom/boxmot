@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Union
 
@@ -6,54 +7,71 @@ import numpy as np
 import torch
 
 
+@dataclass
+class Detections:
+    """
+    Unified detection result returned by all BoxMOT detectors.
+
+    Fields:
+        dets:     (N, 6) numpy array [x1, y1, x2, y2, conf, cls].
+                  Empty (0, 6) when no detections.
+        orig_img: Original BGR image as numpy array.
+        path:     Source image/video path (empty string when unavailable).
+        names:    Class name mapping {class_id: name}.
+
+    Properties:
+        boxes:    dets[:, :4]  — xyxy coordinates
+        conf:     dets[:, 4]   — confidence scores
+        classes:  dets[:, 5]   — class IDs (int)
+    """
+    dets: np.ndarray
+    orig_img: np.ndarray
+    path: str = ""
+    names: dict = field(default_factory=dict)
+
+    @property
+    def boxes(self) -> np.ndarray:
+        return self.dets[:, :4]
+
+    @property
+    def conf(self) -> np.ndarray:
+        return self.dets[:, 4]
+
+    @property
+    def classes(self) -> np.ndarray:
+        return self.dets[:, 5].astype(int)
+
+
 def resolve_image(image: Union[np.ndarray, str]) -> np.ndarray:
-    """
-    Resolves an image input to a numpy array (cv2 BGR format).
-    """
-    if isinstance(image, str) or isinstance(image, Path):
-        image_path = str(image)
-        img = cv2.imread(image_path)
+    """Resolves an image input to a numpy array (cv2 BGR format)."""
+    if isinstance(image, (str, Path)):
+        img = cv2.imread(str(image))
         if img is None:
-            raise FileNotFoundError(f"Could not load image from {image_path}")
+            raise FileNotFoundError(f"Could not load image from {image}")
         return img
-    elif isinstance(image, np.ndarray):
+    if isinstance(image, np.ndarray):
         return image
-    else:
-        raise ValueError(f"Unsupported image type: {type(image)}")
+    raise ValueError(f"Unsupported image type: {type(image)}")
+
 
 def load_weights(path: str) -> Any:
-    """
-    Generic weight loader. By default uses torch.load
-    """
+    """Generic weight loader using torch.load."""
     if isinstance(path, str) and not Path(path).exists():
-         raise FileNotFoundError(f"Weights file not found: {path}")
-         
-    # This is a placeholder. Real models often need architecture init before loading weights.
-    # But strictly following the user snippet:
-    return torch.load(path, map_location='cpu') 
+        raise FileNotFoundError(f"Weights file not found: {path}")
+    return torch.load(path, map_location='cpu')
+
 
 class Detector:
-    def __init__(self, path: str):
-        self.path = path
-        self.model = self._load_model(path)
-
-    def _load_model(self, path: str):
-        return load_weights(path)
-
-    def preprocess(self, frame: np.ndarray, **kwargs):
+    def preprocess(self, images, **kwargs):
         raise NotImplementedError()
 
-    def process(self, frame, **kwargs):
+    def process(self, preprocessed, **kwargs):
         raise NotImplementedError()
 
-    def postprocess(self, boxes, **kwargs):
+    def postprocess(self, detections, **kwargs):
         raise NotImplementedError()
-        
-    def __call__(self, image: Union[np.ndarray, str], **kwargs):
-        image = resolve_image(image)
-        
-        frame = self.preprocess(image, **kwargs)
-        boxes = self.process(frame, **kwargs)
-        boxes = self.postprocess(boxes, **kwargs)
-        
-        return boxes
+
+    def __call__(self, images, **kwargs) -> Detections:
+        preprocessed = self.preprocess(images)
+        detections = self.process(preprocessed)
+        return self.postprocess(detections, **kwargs)
