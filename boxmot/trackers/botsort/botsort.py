@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
+from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
@@ -19,6 +19,8 @@ from boxmot.utils.matching import (embedding_distance, fuse_score,
 
 
 class BotSort(BaseTracker):
+    supports_obb = True
+
     """
     Initialize the BotSort tracker with various parameters.
 
@@ -93,7 +95,7 @@ class BotSort(BaseTracker):
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilterXYWH()
+        self.kalman_filter = KalmanFilterXYWH(ndim=5 if self.is_obb else 4)
 
         # ReID module
         self.proximity_thresh = proximity_thresh
@@ -104,8 +106,14 @@ class BotSort(BaseTracker):
                 weights=reid_weights, device=device, half=half
             ).model
 
-        self.cmc = get_cmc_method(cmc_method)()
+        self.cmc = get_cmc_method(cmc_method)() if not self.is_obb else None
         self.fuse_first_associate = fuse_first_associate
+
+    def _kalman_ndim(self) -> int:
+        return self.detection_layout.box_cols
+
+    def _detection_boxes(self, dets: np.ndarray) -> np.ndarray:
+        return self.detection_layout.boxes(dets)
         
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
@@ -113,6 +121,9 @@ class BotSort(BaseTracker):
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
     ) -> np.ndarray:
         self.check_inputs(dets, img, embs)
+        self.kalman_filter = KalmanFilterXYWH(ndim=self._kalman_ndim())
+        if self.is_obb and self.cmc is not None:
+            self.cmc = None
         self.frame_count += 1
 
         activated_stracks, refind_stracks, lost_stracks, removed_stracks = [], [], [], []
@@ -122,7 +133,7 @@ class BotSort(BaseTracker):
 
         # Extract appearance features
         if self.with_reid and embs is None:
-            features_high = self.model.get_features(dets_first[:, 0:4], img)
+            features_high = self.model.get_features(self._detection_boxes(dets_first), img)
         else:
             features_high = embs_first if embs_first is not None else []
 
@@ -182,8 +193,8 @@ class BotSort(BaseTracker):
         )
 
     def _split_detections(self, dets, embs):
-        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
-        confs = dets[:, 4]
+        dets = self.detection_layout.with_detection_indices(dets)
+        confs = self.detection_layout.confidences(dets)
         second_mask = np.logical_and(
             confs > self.track_low_thresh, confs < self.track_high_thresh
         )
@@ -197,11 +208,11 @@ class BotSort(BaseTracker):
         if len(dets_first) > 0:
             if self.with_reid:
                 detections = [
-                    STrack(det, f, max_obs=self.max_obs)
+                    STrack(det, f, max_obs=self.max_obs, is_obb=self.is_obb)
                     for (det, f) in zip(dets_first, features_high)
                 ]
             else:
-                detections = [STrack(det, max_obs=self.max_obs) for det in dets_first]
+                detections = [STrack(det, max_obs=self.max_obs, is_obb=self.is_obb) for det in dets_first]
         else:
             detections = []
         return detections
@@ -231,12 +242,13 @@ class BotSort(BaseTracker):
         STrack.multi_predict(strack_pool)
 
         # Fix camera motion
-        warp = self.cmc.apply(img, dets)
-        STrack.multi_gmc(strack_pool, warp)
-        STrack.multi_gmc(unconfirmed, warp)
+        if self.cmc is not None:
+            warp = self.cmc.apply(img, dets)
+            STrack.multi_gmc(strack_pool, warp)
+            STrack.multi_gmc(unconfirmed, warp)
 
         # Associate with high confidence detection boxes
-        ious_dists = iou_distance(strack_pool, detections)
+        ious_dists = iou_distance(strack_pool, detections, is_obb=self.is_obb)
         ious_dists_mask = ious_dists > self.proximity_thresh
         if self.fuse_first_associate:
             ious_dists = fuse_score(ious_dists, detections)
@@ -276,7 +288,7 @@ class BotSort(BaseTracker):
     ):
         if len(dets_second) > 0:
             detections_second = [
-                STrack(det, max_obs=self.max_obs) for det in dets_second
+                STrack(det, max_obs=self.max_obs, is_obb=self.is_obb) for det in dets_second
             ]
         else:
             detections_second = []
@@ -287,7 +299,7 @@ class BotSort(BaseTracker):
             if strack_pool[i].state == TrackState.Tracked
         ]
 
-        dists = iou_distance(r_tracked_stracks, detections_second)
+        dists = iou_distance(r_tracked_stracks, detections_second, is_obb=self.is_obb)
         matches, u_track, u_detection = linear_assignment(dists, thresh=0.5)
 
         for itracked, idet in matches:
@@ -324,7 +336,7 @@ class BotSort(BaseTracker):
         detections = [detections[i] for i in u_detection]
 
         # Calculate IoU distance between unconfirmed tracks and detections
-        ious_dists = iou_distance(unconfirmed, detections)
+        ious_dists = iou_distance(unconfirmed, detections, is_obb=self.is_obb)
 
         # Apply IoU mask to filter out distances that exceed proximity threshold
         ious_dists_mask = ious_dists > self.proximity_thresh
@@ -419,9 +431,9 @@ class BotSort(BaseTracker):
         )
 
         outputs = [
-            [*t.xyxy, t.id, t.conf, t.cls, t.det_ind]
+            [*(t.xywha if self.is_obb else t.xyxy), t.id, t.conf, t.cls, t.det_ind]
             for t in self.active_tracks
             if t.is_activated
         ]
 
-        return np.asarray(outputs)
+        return np.asarray(outputs, dtype=np.float32) if outputs else self.empty_output(dtype=np.float32)

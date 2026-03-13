@@ -29,6 +29,16 @@ from boxmot.utils.torch_utils import select_device
 # ReID timing wrapper
 # ---------------------------------------------------------------------------
 
+def resolve_yolo_model_path(yolo_model_path: Union[str, Path]) -> Path:
+    """Resolve detector weights while preserving RT-DETR model names."""
+    model_path = Path(yolo_model_path)
+
+    if is_rtdetr_model(yolo_model_path):
+        return Path(model_path.name)
+
+    return WEIGHTS / model_path.name
+
+
 class TimedReIDModel:
     """Wraps a ReID model to instrument get_features() timing."""
 

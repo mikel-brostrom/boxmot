@@ -4,12 +4,12 @@ from typing import List, Optional
 import numpy as np
 
 from boxmot.motion.cmc import get_cmc_method
+from boxmot.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.boosttrack.assoc import (MhDist_similarity, associate,
                                               iou_batch, shape_similarity,
                                               soft_biou_batch)
-from boxmot.trackers.boosttrack.kalmanfilter import KalmanFilter
 
 
 def convert_bbox_to_z(bbox):
@@ -50,7 +50,7 @@ class KalmanBoxTracker:
 
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
-        self.kf = KalmanFilter(convert_bbox_to_z(det[:4]))
+        self.kf = KalmanFilterXYHR(convert_bbox_to_z(det[:4]))
         self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]

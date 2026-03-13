@@ -49,6 +49,15 @@ class BaseVisualization(ABC):
             img = cv.line(img, (x2, i), (x2, min(i + dash, y2)), color, thickness)
         return img
 
+    @staticmethod
+    def _obb_to_polygon(box: tuple) -> np.ndarray:
+        arr = np.asarray(box, dtype=np.float32).reshape(-1)
+        if arr.size >= 8:
+            return arr[:8].reshape(4, 2)
+        angle = arr[4] * 180.0 / np.pi
+        box_poly = ((arr[0], arr[1]), (arr[2], arr[3]), angle)
+        return cv.boxPoints(box_poly).astype(np.float32)
+
     def plot_box_on_img(
         self,
         img: np.ndarray,
@@ -66,10 +75,12 @@ class BaseVisualization(ABC):
         """
         color = self.id_to_color(id, state=state)
         if self.is_obb:
-            angle = box[4] * 180.0 / np.pi  # Convert radians to degrees
-            box_poly = ((box[0], box[1]), (box[2], box[3]), angle)
-            rotrec = cv.boxPoints(box_poly)
-            box_poly = np.int_(rotrec)  # Convert to integer
+            box_arr = np.asarray(box, dtype=np.float32).reshape(-1)
+            box_poly = np.int_(self._obb_to_polygon(box))
+            center = np.mean(box_poly, axis=0).astype(int)
+            label = f"id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}"
+            if box_arr.size >= 5 and box_arr.size < 8:
+                label += f", a: {box_arr[4]:.2f}"
 
             # Draw the rectangle on the image
             img = cv.polylines(
@@ -125,9 +136,11 @@ class BaseVisualization(ABC):
         for i, box in enumerate(observations):
             trajectory_thickness = int(np.sqrt(float(i + 1)) * 1.2)
             if self.is_obb:
+                poly = self._obb_to_polygon(box)
+                center = np.mean(poly, axis=0)
                 img = cv.circle(
                     img,
-                    (int(box[0]), int(box[1])),
+                    (int(center[0]), int(center[1])),
                     2,
                     color=self.id_to_color(int(id), state=state),
                     thickness=trajectory_thickness,
@@ -198,7 +211,11 @@ class BaseVisualization(ABC):
         # If the track is lost (predicted), use the current Kalman Filter prediction
         # instead of the last history observation (which is the last seen detection)
         if state == "predicted":
-            if hasattr(a, "xyxy"):
+            if self.is_obb and hasattr(a, "_state_obb_for_plot"):
+                box = a._state_obb_for_plot()
+            elif self.is_obb and hasattr(a, "xywha"):
+                box = a.xywha
+            elif hasattr(a, "xyxy"):
                 box = a.xyxy
             elif hasattr(a, "get_state"):
                 box = a.get_state()
