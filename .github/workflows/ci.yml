@@ -174,7 +174,7 @@ jobs:
           source .venv/bin/activate
           echo "Format,OBB" > obb.csv
           for tracker in $TRACKERS; do
-            if boxmot track --yolo-model yolo11s-obb.pt --reid-model lmbn_n_duke.pt --tracking-method $tracker --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok --save-txt; then
+            if boxmot track --yolo-model yolo11s-obb.pt --reid-model lmbn_n_duke.pt --tracking-method $tracker --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok; then
               OBB_STATUS="✅"
             else
               OBB_STATUS="❌"

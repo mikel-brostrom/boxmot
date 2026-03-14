@@ -192,7 +192,7 @@ boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show
 boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save
 
 # Image directory
-boxmot track yolov8n osnet_x0_25_msmt17 bytetrack --source path/to/images --save-txt
+boxmot track yolov8n osnet_x0_25_msmt17 bytetrack --source path/to/images --save
 
 # Stream or URL
 boxmot track yolov8n osnet_x0_25_msmt17 ocsort --source 'rtsp://example.com/media.mp4'
@@ -259,7 +259,7 @@ boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --show-trajec
 boxmot track yolov8s --source 0 --classes 16,17
 
 # Track each class independently
-boxmot track yolov8n --source video.mp4 --per-class --save-txt
+boxmot track yolov8n --source video.mp4 --per-class --save
 
 # Highlight one target ID
 boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source video.mp4 --target-id 7 --show

@@ -63,7 +63,7 @@ jobs:
         run: |
           source .venv/bin/activate
 
-          if boxmot track --yolo-model yolo11n-obb.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --source "$SMOKE_SOURCE" --project runs/benchmark_ci --name ${{ matrix.tracker }} --exist-ok --save-txt; then
+          if boxmot track --yolo-model yolo11n-obb.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --source "$SMOKE_SOURCE" --project runs/benchmark_ci --name ${{ matrix.tracker }} --exist-ok; then
             echo "obb_status=✅" >> $GITHUB_OUTPUT
           else
             echo "obb_status=❌" >> $GITHUB_OUTPUT

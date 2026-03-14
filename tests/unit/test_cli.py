@@ -91,3 +91,10 @@ def test_track_keeps_source_literal(monkeypatch):
     assert result.exit_code == 0, result.output
     assert captured["args"].source == "MOT17-ablation"
     assert captured["args"].benchmark == ""
+
+
+def test_track_help_lists_current_save_option():
+    result = CliRunner().invoke(boxmot, ["track", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--save" in result.output
+    assert "--save-txt" not in result.output
