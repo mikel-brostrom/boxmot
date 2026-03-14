@@ -17,6 +17,7 @@ import click
 from click.core import ParameterSource
 
 from boxmot.utils import ROOT, WEIGHTS
+from boxmot.utils.benchmark_config import resolve_benchmark_cfg_path
 from boxmot.utils.misc import parse_imgsz, resolve_model_path
 
 
@@ -169,6 +170,29 @@ def _require_eval_input(data: Optional[str], source: Optional[str], command_name
         raise click.UsageError(
             f"{command_name} requires --data <benchmark.yaml> for benchmark runs or --source <dataset-path> for direct datasets."
         )
+
+
+def _normalize_eval_input(data: Optional[str], source: Optional[str], command_name: str) -> Tuple[Optional[str], Optional[str]]:
+    """Auto-promote legacy benchmark names passed through ``--source`` to ``--data``."""
+    _require_eval_input(data, source, command_name)
+
+    if data or source is None:
+        return data, source
+
+    if Path(source).exists():
+        return data, source
+
+    try:
+        resolve_benchmark_cfg_path(source)
+    except FileNotFoundError:
+        return data, source
+
+    click.echo(
+        f"{command_name}: resolving benchmark config '{source}' from boxmot/configs/benchmarks; "
+        f"use '--data {source}' instead of '--source {source}'.",
+        err=True,
+    )
+    return source, None
 
 
 def singular_model_options(func):
@@ -389,7 +413,7 @@ def generate(ctx, detector, reid, data, yolo_model, reid_model, classes, **kwarg
     if reid:
         reid_model = [ensure_model_extension(reid)]
     src = kwargs.pop('source')
-    _require_eval_input(data, src, "generate")
+    data, src = _normalize_eval_input(data, src, "generate")
     src, bench, split = _resolve_source_context(src)
     
     # Auto-append .pt extension if missing
@@ -430,7 +454,7 @@ def eval(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **
     if tracker:
         kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
-    _require_eval_input(data, src, "eval")
+    data, src = _normalize_eval_input(data, src, "eval")
     src, bench, split = _resolve_source_context(src)
     
     # Auto-append .pt extension if missing
@@ -472,7 +496,7 @@ def tune(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **
     if tracker:
         kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
-    _require_eval_input(data, src, "tune")
+    data, src = _normalize_eval_input(data, src, "tune")
     src, bench, split = _resolve_source_context(src)
     
     # Auto-append .pt extension if missing
