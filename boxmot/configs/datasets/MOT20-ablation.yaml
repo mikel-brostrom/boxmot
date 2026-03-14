@@ -15,3 +15,9 @@ benchmark:
     8: distractor
     12: reflection
 
+detector:
+  model: "models/yolox_x_MOT20_ablation.pt"
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: person

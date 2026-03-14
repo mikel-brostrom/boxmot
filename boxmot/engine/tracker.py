@@ -14,6 +14,7 @@ from boxmot.trackers.tracker_zoo import create_tracker
 import yaml as _yaml
 from boxmot.utils import TRACKER_CONFIGS, DETECTOR_CONFIGS
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.dataset_config import merge_detector_cfg, resolve_required_yolo_model, should_use_dataset_detector
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 
 
@@ -45,6 +46,20 @@ class VideoWriter:
         if self.writer is not None:
             self.writer.release()
             LOGGER.opt(colors=True).info(f"<bold>Video saved:</bold> <cyan>{self.output_path}</cyan>")
+
+
+def _load_runtime_detector_cfg(args) -> dict:
+    """Load detector settings from model config, overlaid with benchmark-specific overrides."""
+    detector_cfg = {}
+    model_stem = Path(str(getattr(args, "yolo_model", "") or "")).stem
+    det_cfg_path = DETECTOR_CONFIGS / f"{model_stem}.yaml"
+    if det_cfg_path.exists():
+        try:
+            with open(det_cfg_path, "r") as f:
+                detector_cfg = _yaml.safe_load(f) or {}
+        except Exception as e:
+            LOGGER.warning(f"Could not load detector config {det_cfg_path}: {e}")
+    return merge_detector_cfg(detector_cfg, getattr(args, "dataset_detector_cfg", None))
 
 
 def on_predict_start(predictor, args, timing_stats=None):
@@ -87,22 +102,15 @@ def on_predict_start(predictor, args, timing_stats=None):
 
     # Attach detector class names to each tracker for visualization.
     # Looks for boxmot/configs/detectors/<model_stem>.yaml with a 'classes' dict.
-    _model_stem = Path(getattr(args, 'yolo_model', '') or '').stem
-    _det_cfg_path = DETECTOR_CONFIGS / f"{_model_stem}.yaml"
-    if _det_cfg_path.exists():
-        try:
-            with open(_det_cfg_path, 'r') as _f:
-                _det_cfg = _yaml.safe_load(_f)
-            if isinstance(_det_cfg, dict) and 'classes' in _det_cfg:
-                _names = {int(k): str(v) for k, v in _det_cfg['classes'].items()}
-                for _t in trackers:
-                    _t.names = _names
-                LOGGER.opt(colors=True).info(
-                    f"<cyan>Detector classes loaded from {_det_cfg_path.name}:</cyan> "
-                    + ", ".join(f"{k}:{v}" for k, v in sorted(_names.items()))
-                )
-        except Exception as _e:
-            LOGGER.warning(f"Could not load detector config {_det_cfg_path}: {_e}")
+    _det_cfg = _load_runtime_detector_cfg(args)
+    if isinstance(_det_cfg, dict) and "classes" in _det_cfg:
+        _names = {int(k): str(v) for k, v in _det_cfg["classes"].items()}
+        for _t in trackers:
+            _t.names = _names
+        LOGGER.opt(colors=True).info(
+            "<cyan>Detector classes loaded from runtime config:</cyan> "
+            + ", ".join(f"{k}:{v}" for k, v in sorted(_names.items()))
+        )
 
 
 def plot_trajectories(predictor, timing_stats: TimingStats = None, video_writer=None):
@@ -198,6 +206,26 @@ def main(args):
     Args:
         args: Arguments from CLI (SimpleNamespace from cli.py)
     """
+    benchmark_detector_cfg = getattr(args, "dataset_detector_cfg", None)
+    benchmark_cfg = {
+        "detector": benchmark_detector_cfg or {},
+        "benchmark": {},
+    }
+    required_yolo_model = getattr(args, "required_yolo_model", None)
+    if required_yolo_model:
+        benchmark_cfg["benchmark"]["required_yolo_model"] = str(required_yolo_model)
+
+    if should_use_dataset_detector(args, benchmark_cfg):
+        required_yolo_model = resolve_required_yolo_model(benchmark_cfg)
+        required_model = Path(required_yolo_model)
+        if Path(args.yolo_model) != required_model:
+            LOGGER.info(f"Using benchmark-default detector: {required_model}")
+        args.yolo_model = required_model
+    else:
+        args.dataset_detector_cfg = None
+
+    runtime_detector_cfg = _load_runtime_detector_cfg(args)
+
     # Print tracking pipeline header (blue palette)
     LOGGER.info("")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
@@ -211,9 +239,15 @@ def main(args):
     
     # Resolve imgsz and conf from detector config YAML when not explicitly provided.
     if args.imgsz is None:
-        args.imgsz = default_imgsz(args.yolo_model)
+        if "imgsz" in runtime_detector_cfg:
+            args.imgsz = list(runtime_detector_cfg["imgsz"])
+        else:
+            args.imgsz = default_imgsz(args.yolo_model)
     if args.conf is None:
-        args.conf = default_conf(args.yolo_model)
+        if "conf" in runtime_detector_cfg:
+            args.conf = float(runtime_detector_cfg["conf"])
+        else:
+            args.conf = default_conf(args.yolo_model)
     
     # Initialize timing stats
     timing_stats = TimingStats()

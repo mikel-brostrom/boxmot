@@ -1,6 +1,6 @@
 # https://motchallenge.net/data/MOT17/
 download:
-  runs_url: null
+  runs_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/runs.zip"
   dataset_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip"
 
 benchmark:
@@ -14,3 +14,9 @@ benchmark:
     8: distractor
     12: reflection
 
+detector:
+  model: "models/yolox_x_MOT17_ablation.pt"
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: person

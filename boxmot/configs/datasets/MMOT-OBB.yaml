@@ -1,13 +1,11 @@
 download:
   runs_url: ""
-  dataset_url: ""
-  dataset_dest: "assets/MMOT-OBB"
+  dataset_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/MMOT-OBB.zip"
 
 benchmark:
-  source: "assets/MMOT-OBB"
+  source: "boxmot/engine/trackeval/data/MMOT-OBB"
   split: "train"
   box_type: obb
-  required_yolo_model: "models/yolo11l-3ch.pt"
   eval_classes:
     1: car
     2: bike
@@ -17,3 +15,17 @@ benchmark:
     6: bus
     7: tricycle
     8: awning-bike
+
+detector:
+  model: "models/yolo11l-3ch.pt"
+  imgsz: [1024, 1024]
+  conf: 0.01
+  classes:
+    0: car
+    1: bike
+    2: pedestrian
+    3: van
+    4: truck
+    5: bus
+    6: tricycle
+    7: awning-bike

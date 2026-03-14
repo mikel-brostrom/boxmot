@@ -9,20 +9,13 @@ mp.set_start_method("spawn", force=True)
 
 from pathlib import Path
 from types import SimpleNamespace
-import yaml
 
 import click
+from click.core import ParameterSource
 
-from boxmot.utils import ROOT, WEIGHTS, DATASET_CONFIGS, TRACKEVAL
-from boxmot.utils.download import download_eval_data
+from boxmot.utils import ROOT, WEIGHTS, DATASET_CONFIGS
+from boxmot.utils.dataset_config import apply_dataset_benchmark_config
 from boxmot.utils.misc import parse_imgsz, resolve_model_path
-
-
-def load_dataset_cfg(name: str) -> dict:
-    """Load the dict from boxmot/configs/datasets/{name}.yaml."""
-    path = DATASET_CONFIGS / f"{name}.yaml"
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
 
 
 def ensure_model_extension(model_path):
@@ -135,6 +128,11 @@ def parse_classes(classes_input):
         return [int(x) for x in classes_input.split()]
     
     return [int(classes_input)]
+
+
+def _is_option_explicit(ctx: click.Context, option_name: str) -> bool:
+    """Return True when a Click option came from the command line instead of defaults."""
+    return ctx.get_parameter_source(option_name) != ParameterSource.DEFAULT
 
 
 def singular_model_options(func):
@@ -325,9 +323,11 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
     # Auto-append .pt extension if missing
     yolo_model = ensure_model_extension(yolo_model)
     reid_model = ensure_model_extension(reid_model)
+    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
     
     params = {**kwargs,
               'yolo_model': yolo_model,
+              'yolo_model_explicit': yolo_model_explicit,
               'reid_model': reid_model,
               'classes': parse_classes(classes),
               'source': src,
@@ -337,30 +337,7 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
     
     # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
     if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
-        cfg = load_dataset_cfg(str(args.source))
-        
-        # Determine dataset destination (under trackeval/data so benchmarks don't mix with TrackEval code)
-        bench_name = Path(cfg["benchmark"]["source"]).name
-        if cfg["download"]["dataset_url"]:
-            dataset_dest = TRACKEVAL / "data" / f"{bench_name}.zip"
-        else:
-            # For custom datasets without URL, use the path from config if available, or default to assets
-            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{bench_name}"))
-
-        download_eval_data(
-            runs_url=cfg["download"]["runs_url"],
-            dataset_url=cfg["download"]["dataset_url"],
-            dataset_dest=dataset_dest,
-            overwrite=False
-        )
-        args.benchmark = bench_name
-        args.split = cfg["benchmark"]["split"]
-        if cfg["download"]["dataset_url"]:
-            args.source = TRACKEVAL / "data" / f"{args.benchmark}/{args.split}"
-        elif "source" in cfg["benchmark"]:
-            args.source = Path(cfg["benchmark"]["source"]) / args.split
-        else:
-            args.source = dataset_dest / args.split
+        apply_dataset_benchmark_config(args, overwrite=False)
 
     from boxmot.engine.tracker import main as run_track
     run_track(args)
@@ -385,9 +362,11 @@ def generate(ctx, detector, reid, yolo_model, reid_model, classes, **kwargs):
     # Auto-append .pt extension if missing
     yolo_model = [ensure_model_extension(m) for m in yolo_model]
     reid_model = [ensure_model_extension(m) for m in reid_model]
+    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
     
     params = {**kwargs,
               'yolo_model': list(yolo_model),
+              'yolo_model_explicit': yolo_model_explicit,
               'reid_model': list(reid_model),
               'classes': parse_classes(classes),
               'source': src,
@@ -421,9 +400,11 @@ def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
     # Auto-append .pt extension if missing
     yolo_model = [ensure_model_extension(m) for m in yolo_model]
     reid_model = [ensure_model_extension(m) for m in reid_model]
+    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
     
     params = {**kwargs,
               'yolo_model': list(yolo_model),
+              'yolo_model_explicit': yolo_model_explicit,
               'reid_model': list(reid_model),
               'classes': parse_classes(classes),
               'source': src,
@@ -458,9 +439,11 @@ def tune(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
     # Auto-append .pt extension if missing
     yolo_model = [ensure_model_extension(m) for m in yolo_model]
     reid_model = [ensure_model_extension(m) for m in reid_model]
+    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
     
     params = {**kwargs,
               'yolo_model': list(yolo_model),
+              'yolo_model_explicit': yolo_model_explicit,
               'reid_model': list(reid_model),
               'classes': parse_classes(classes),
               'source': src,

@@ -200,9 +200,8 @@ class MOTDataset:
 
             det_path = self.dets_dir / f'{name}.txt' if self.dets_dir else None
             if self.embs_dir:
-                _bin = self.embs_dir / f'{name}.bin'
                 _txt = self.embs_dir / f'{name}.txt'
-                emb_path = _bin if _bin.exists() else (_txt if _txt.exists() else None)
+                emb_path = _txt if _txt.exists() else None
             else:
                 emb_path = None
 
@@ -278,17 +277,7 @@ class MOTSequence:
         # 1) Load dets & embs
         if self.meta['det_path'] and self.meta['emb_path']:
             self.dets = _load_text_matrix(self.meta['det_path'], comments="#")
-            _ep = self.meta['emb_path']
-            if _ep.suffix == '.bin':
-                _n_rows = self.dets.shape[0]
-                if _n_rows == 0:
-                    self.embs = np.empty((0, 0), dtype=np.float32)
-                else:
-                    _flat = np.fromfile(_ep, dtype=np.float32)
-                    _ndims = _flat.size // _n_rows
-                    self.embs = _flat.reshape(_n_rows, _ndims)
-            else:
-                self.embs = _load_text_matrix(_ep, comments="#")
+            self.embs = _load_text_matrix(self.meta['emb_path'], comments="#")
             if self.dets.shape[0] != self.embs.shape[0]:
                 raise ValueError(f"Row mismatch in {self.name}")
 

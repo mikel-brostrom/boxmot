@@ -32,7 +32,14 @@ from boxmot.postprocessing.gsi import gsi
 
 from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.detectors import default_imgsz, default_conf
-from boxmot.utils.dataset_config import apply_dataset_benchmark_config, load_dataset_cfg as load_benchmark_cfg
+from boxmot.utils.dataset_config import (
+    apply_dataset_benchmark_config,
+    get_dataset_detector_cfg,
+    load_dataset_cfg as load_benchmark_cfg,
+    merge_detector_cfg,
+    resolve_required_yolo_model,
+    should_use_dataset_detector,
+)
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results, xywha_to_corners
 from boxmot.utils.download import download_trackeval
 
@@ -755,13 +762,9 @@ def _count_data_lines(path: Path, skip_header: bool = False) -> int:
         return 0
 
 
-def _count_binary_rows(bin_path: Path, ndims_path: Path) -> int:
-    """Count rows in a raw float32 binary embedding file via its ndims sidecar."""
-    try:
-        ndims = int(ndims_path.read_text())
-        return bin_path.stat().st_size // (ndims * 4) if ndims > 0 else 0
-    except (FileNotFoundError, ValueError, OSError):
-        return 0
+def _count_embedding_rows(path: Path) -> int:
+    """Count rows in a text embedding cache."""
+    return _count_data_lines(path, skip_header=True)
 
 
 def _max_frame_id(path: Path) -> int:
@@ -847,38 +850,20 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
     if args.imgsz is None:
         args.imgsz = default_imgsz(y)
 
-    # Use unified DetectorReIDPipeline with timing for both detection and ReID
-    pipeline = DetectorReIDPipeline(
-        detector_path=y,
-        reid_paths=args.reid_model,
-        device=args.device,
-        imgsz=args.imgsz,
-        half=args.half,
-        timing_stats=timing_stats,
-    )
+    expected_det_cols = 8 if str(getattr(args, "eval_box_type", "")).lower() == "obb" else 7
 
-    # Warmup the model
-    pipeline.warmup()
-    detector_task = getattr(getattr(pipeline.detector, "_yolo", None), "task", "")
-    expected_det_cols = 8 if str(detector_task).lower() == "obb" else 7
-
-    if auto_batch:
-        batch_size = pipeline.autotune_batch_size(batch_size)
-        args.batch_size = batch_size
-
-    mot_folder_paths = sorted([p for p in Path(source_root).iterdir() if p.is_dir()])
-
-    seq_states = {}
-    det_fhs = {}
-    emb_fhs = {r.stem: {} for r in args.reid_model}
-
-    # runs/dets_n_embs/<dataset_name>/y.stem/... when benchmark is set
     benchmark = getattr(args, "benchmark", None)
     dets_base = Path(args.project) / "dets_n_embs"
     if benchmark:
         dets_base = dets_base / benchmark
     dets_folder = dets_base / y.stem / "dets"
     embs_root = dets_base / y.stem / "embs"
+
+    mot_folder_paths = sorted([p for p in Path(source_root).iterdir() if p.is_dir()])
+
+    seq_states = {}
+    det_fhs = {}
+    emb_fhs = {r.stem: {} for r in args.reid_model}
     total_frames = 0
     initial_done = 0
 
@@ -896,9 +881,9 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         emb_paths = {}
         any_emb_cached = False
         for r in args.reid_model:
-            ep = embs_root / r.stem / f"{seq_name}.bin"
-            emb_paths[r.stem] = ep
-            if ep.exists():
+            ep_txt = embs_root / r.stem / f"{seq_name}.txt"
+            emb_paths[r.stem] = ep_txt
+            if ep_txt.exists():
                 any_emb_cached = True
 
         expected_files = False
@@ -912,7 +897,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
             det_max_frame = _max_frame_id(dets_path)
             det_col_count = _saved_detection_column_count(dets_path)
             emb_rows = {
-                stem: _count_binary_rows(ep, embs_root / stem / "ndims.txt")
+                stem: _count_embedding_rows(ep)
                 for stem, ep in emb_paths.items()
             }
             expected_files = dets_path.exists() and all(ep.exists() for ep in emb_paths.values())
@@ -971,7 +956,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         for r in args.reid_model:
             ep = emb_paths[r.stem]
             ep.parent.mkdir(parents=True, exist_ok=True)
-            emb_mode = 'ab' if (resume and ep.exists()) else 'wb'
+            emb_mode = 'a' if (resume and ep.exists()) else 'w'
             emb_fhs[r.stem][seq_name] = open(ep, emb_mode, buffering=1024 * 1024)
 
         seq_states[seq_name] = {"frames": frames, "i": processed, "img_dir": img_dir}
@@ -981,6 +966,23 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
     if not seq_states:
         LOGGER.info("No sequences to process (all cached or no images).")
         return
+
+    # Use unified DetectorReIDPipeline with timing for both detection and ReID
+    pipeline = DetectorReIDPipeline(
+        detector_path=y,
+        reid_paths=args.reid_model,
+        device=args.device,
+        imgsz=args.imgsz,
+        half=args.half,
+        timing_stats=timing_stats,
+    )
+
+    # Warmup the model
+    pipeline.warmup()
+
+    if auto_batch:
+        batch_size = pipeline.autotune_batch_size(batch_size)
+        args.batch_size = batch_size
 
     use_cuda = str(args.device).startswith("cuda")
     amp_ctx = (
@@ -1084,8 +1086,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                             )
                         if embs.ndim >= 2 and reid_name not in emb_dims:
                             emb_dims[reid_name] = embs.shape[1]
-                            (embs_root / reid_name / "ndims.txt").write_text(str(embs.shape[1]))
-                        emb_fhs[reid_name][seq_name].write(embs.astype(np.float32).tobytes())
+                        np.savetxt(emb_fhs[reid_name][seq_name], embs.astype(np.float32), fmt="%f")
 
                     reid_pbar.update(det_boxes_np.shape[0])
 
@@ -1916,24 +1917,39 @@ def main(args):
     LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
     eval_init(args)
 
-    benchmark_cfg = _load_benchmark_cfg(args).get("benchmark", {})
-    required_yolo_model = benchmark_cfg.get("required_yolo_model")
-    if required_yolo_model:
+    benchmark_bundle = _load_benchmark_cfg(args)
+    benchmark_cfg = benchmark_bundle.get("benchmark", {})
+    dataset_detector_cfg = {}
+    if should_use_dataset_detector(args, benchmark_bundle):
+        dataset_detector_cfg = get_dataset_detector_cfg(benchmark_bundle)
+        if dataset_detector_cfg:
+            args.dataset_detector_cfg = dataset_detector_cfg
+    else:
+        args.dataset_detector_cfg = None
+
+    required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
+    if required_yolo_model and should_use_dataset_detector(args, benchmark_bundle):
         required_model = resolve_model_path(required_yolo_model)
         if args.yolo_model[0] != required_model:
-            LOGGER.info(f"Using benchmark-required detector: {required_model}")
+            LOGGER.info(f"Using benchmark-default detector: {required_model}")
         args.yolo_model = [required_model]
 
     if benchmark_cfg.get("box_type") and not getattr(args, "eval_box_type", None):
         args.eval_box_type = str(benchmark_cfg["box_type"]).lower()
 
     # Load detector config once — used for imgsz/conf resolution and GT class remapping.
-    _det_cfg = load_detector_cfg(args.yolo_model[0].stem)
+    _det_cfg = merge_detector_cfg(load_detector_cfg(args.yolo_model[0].stem), dataset_detector_cfg)
 
     if args.imgsz is None:
-        args.imgsz = default_imgsz(args.yolo_model[0])
+        if "imgsz" in _det_cfg:
+            args.imgsz = list(_det_cfg["imgsz"])
+        else:
+            args.imgsz = default_imgsz(args.yolo_model[0])
     if args.conf is None:
-        args.conf = default_conf(args.yolo_model[0])
+        if "conf" in _det_cfg:
+            args.conf = float(_det_cfg["conf"])
+        else:
+            args.conf = default_conf(args.yolo_model[0])
 
     # Print evaluation pipeline header (blue palette)
     LOGGER.info("")

@@ -8,3 +8,10 @@ benchmark:
   split: "val"
   eval_classes:
     1: pedestrian
+
+detector:
+  model: "models/yolox_x_dancetrack_ablation.pt"
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: person
