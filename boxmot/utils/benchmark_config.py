@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import yaml
 
@@ -123,11 +125,28 @@ def get_benchmark_detector_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
     return dict(detector_cfg) if isinstance(detector_cfg, dict) else {}
 
 
+def _normalize_google_drive_url(url: str) -> str:
+    """Normalize common Google Drive share URLs to the canonical ``uc?id=...`` form."""
+    parsed = urlparse(url)
+    if "drive.google.com" not in parsed.netloc:
+        return url
+
+    query = parse_qs(parsed.query)
+    if "id" in query and query["id"]:
+        return f"https://drive.google.com/uc?id={query['id'][0]}"
+
+    match = re.search(r"/file/d/([^/]+)", parsed.path)
+    if match:
+        return f"https://drive.google.com/uc?id={match.group(1)}"
+
+    return url
+
+
 def get_benchmark_detector_url(cfg: dict[str, Any]) -> str | None:
     """Return the benchmark detector download URL, if configured."""
     detector_cfg = get_benchmark_detector_cfg(cfg)
     model_url = detector_cfg.get("model_url") or detector_cfg.get("url")
-    return str(model_url) if model_url else None
+    return _normalize_google_drive_url(str(model_url)) if model_url else None
 
 
 def resolve_required_yolo_model(cfg: dict[str, Any]) -> Path | None:
