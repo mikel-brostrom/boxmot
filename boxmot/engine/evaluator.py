@@ -33,6 +33,7 @@ from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.detectors import default_imgsz, default_conf
 from boxmot.utils.benchmark_config import (
     apply_benchmark_config,
+    ensure_benchmark_detector_model,
     get_benchmark_detector_cfg,
     load_benchmark_cfg,
     resolve_required_yolo_model,
@@ -1900,7 +1901,7 @@ def main(args):
 
     required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
     if required_yolo_model and should_use_benchmark_detector(args, benchmark_bundle):
-        required_model = resolve_model_path(required_yolo_model)
+        required_model = ensure_benchmark_detector_model(benchmark_bundle) or resolve_model_path(required_yolo_model)
         if args.yolo_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")
         args.yolo_model = [required_model]

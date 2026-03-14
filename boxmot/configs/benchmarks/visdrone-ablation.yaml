@@ -35,6 +35,7 @@ evaluation:
 
 detector:
   default_model: "models/yolox_x_visdrone.pt"
+  model_url: "https://drive.google.com/uc?id=1ajehBs9enBHhuBqGIoQPGqkkzasE9d3o"
   imgsz: [800, 1440]
   conf: 0.01
   classes:

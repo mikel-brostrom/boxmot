@@ -13,7 +13,7 @@ from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.trackers.tracker_zoo import create_tracker
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.benchmark_config import resolve_required_yolo_model, should_use_benchmark_detector
+from boxmot.utils.benchmark_config import ensure_benchmark_detector_model, resolve_required_yolo_model, should_use_benchmark_detector
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 
 
@@ -208,7 +208,7 @@ def main(args):
 
     if should_use_benchmark_detector(args, benchmark_cfg):
         required_yolo_model = resolve_required_yolo_model(benchmark_cfg)
-        required_model = Path(required_yolo_model)
+        required_model = ensure_benchmark_detector_model(benchmark_cfg) or Path(required_yolo_model)
         if Path(args.yolo_model) != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")
         args.yolo_model = required_model

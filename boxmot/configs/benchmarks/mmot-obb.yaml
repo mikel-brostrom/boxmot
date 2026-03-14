@@ -27,6 +27,7 @@ evaluation:
 
 detector:
   default_model: "models/yolo11l-3ch.pt"
+  model_url: "https://drive.google.com/file/d/15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR/view"
   imgsz: [1024, 1024]
   conf: 0.2
   classes:

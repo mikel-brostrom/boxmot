@@ -5,6 +5,8 @@ import boxmot.utils.benchmark_config as benchmark_config
 
 from boxmot.utils.benchmark_config import (
     apply_benchmark_config,
+    ensure_benchmark_detector_model,
+    get_benchmark_detector_url,
     load_benchmark_cfg,
     resolve_required_yolo_model,
     should_use_benchmark_detector,
@@ -52,6 +54,16 @@ def test_dataset_detector_is_used_when_same_model_is_explicit():
     assert should_use_benchmark_detector(args, cfg) is True
 
 
+def test_mmot_obb_detector_exposes_download_url():
+    cfg = load_benchmark_cfg("MMOT-OBB")
+    assert get_benchmark_detector_url(cfg) == "https://drive.google.com/file/d/15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR/view"
+
+
+def test_mot17_detector_exposes_download_url():
+    cfg = load_benchmark_cfg("MOT17-ablation")
+    assert get_benchmark_detector_url(cfg) == "https://drive.google.com/uc?id=1iqhM-6V_r1FpOlOzrdP_Ejshgk0DxOob"
+
+
 def test_dataset_detector_is_not_used_for_other_explicit_models():
     cfg = load_benchmark_cfg("visdrone-ablation")
     args = SimpleNamespace(yolo_model=[Path("models/yolov8x.pt")], yolo_model_explicit=True)
@@ -78,3 +90,24 @@ def test_apply_benchmark_config_preserves_case_matched_storage_name(monkeypatch)
     assert args.dataset_id == "mot17-ablation"
     assert args.benchmark == "MOT17-ablation"
     assert args.source == Path("boxmot/engine/trackeval/data/MOT17-ablation/train")
+
+
+def test_ensure_benchmark_detector_model_downloads_missing_weight(monkeypatch, tmp_path):
+    cfg = load_benchmark_cfg("MMOT-OBB")
+    target = tmp_path / "yolo11l-3ch.pt"
+    calls = {}
+
+    monkeypatch.setattr(benchmark_config, "resolve_model_path", lambda *_args, **_kwargs: target)
+    monkeypatch.setattr(
+        benchmark_config,
+        "download_file",
+        lambda url, dest, overwrite=False, **_kwargs: calls.update({"url": url, "dest": dest, "overwrite": overwrite}) or dest,
+    )
+
+    resolved = ensure_benchmark_detector_model(cfg)
+    assert resolved == target
+    assert calls == {
+        "url": "https://drive.google.com/file/d/15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR/view",
+        "dest": target,
+        "overwrite": False,
+    }

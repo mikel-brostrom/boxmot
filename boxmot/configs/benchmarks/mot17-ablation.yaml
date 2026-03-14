@@ -25,6 +25,7 @@ evaluation:
 
 detector:
   default_model: "models/yolox_x_MOT17_ablation.pt"
+  model_url: "https://drive.google.com/uc?id=1iqhM-6V_r1FpOlOzrdP_Ejshgk0DxOob"
   imgsz: [800, 1440]
   conf: 0.01
   classes:

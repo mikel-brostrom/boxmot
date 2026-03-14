@@ -1,30 +1,47 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-import fnmatch
+from pathlib import Path
 
 import cv2
 import numpy as np
 import torch
+import yaml
 from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
 from boxmot.detectors.detector import Detections, Detector
-from boxmot.utils import logger as LOGGER
+from boxmot.utils import BENCHMARK_CONFIGS, logger as LOGGER
 
-# default model weigths for these model names
+# default model weights for generic YOLOX model names
 YOLOX_ZOO = {
     "yolox_n.pt": "https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX",
     "yolox_s.pt": "https://drive.google.com/uc?id=1uSmhXzyV1Zvb4TJJCzpsZOIcw7CCJLxj",
     "yolox_m.pt": "https://drive.google.com/uc?id=11Zb0NN_Uu7JwUd9e6Nk8o2_EUfxWqsun",
     "yolox_l.pt": "https://drive.google.com/uc?id=1XwfUuCBF4IgWBWK2H7oOhQgEj9Mrb3rz",
     "yolox_x.pt": "https://drive.google.com/uc?id=1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5",
-    # the source for the models below is SparseTrack: https://github.com/hustvl/SparseTrack#model-zoo
-    "yolox_x_MOT17_ablation.pt": "https://drive.google.com/uc?id=1iqhM-6V_r1FpOlOzrdP_Ejshgk0DxOob",
-    "yolox_x_MOT20_ablation.pt": "https://drive.google.com/uc?id=1H1BxOfinONCSdQKnjGq0XlRxVUo_4M8o",
-    "yolox_x_dancetrack_ablation.pt": "https://drive.google.com/uc?id=1ZKpYmFYCsRdXuOL60NRuc7VXAFYRskXB",
-    "yolox_x_visdrone.pt": "https://drive.google.com/uc?id=1ajehBs9enBHhuBqGIoQPGqkkzasE9d3o"
 }
+YOLOX_BASE_MODELS = tuple(Path(name).stem for name in YOLOX_ZOO)
+
+
+def _find_benchmark_model_url(model: Path) -> str | None:
+    """Look up a detector download URL from benchmark configs by filename."""
+    lowered_name = model.name.lower()
+    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
+        try:
+            with open(cfg_path, "r") as f:
+                cfg = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+
+        detector_cfg = cfg.get("detector") or {}
+        default_model = detector_cfg.get("default_model") or detector_cfg.get("model")
+        model_url = detector_cfg.get("model_url") or detector_cfg.get("url")
+        if not default_model or not model_url:
+            continue
+        if Path(default_model).name.lower() == lowered_name:
+            return str(model_url)
+    return None
 
 
 def _coerce_torch_dtype(dtype, fallback: torch.Tensor) -> torch.dtype:
@@ -117,7 +134,7 @@ class YoloXDetector(Detector):
         w, h = (vals * 2)[:2]
         self.imgsz = [w, h]
 
-        model_type = self._get_model_type(YOLOX_ZOO.keys(), model)
+        model_type = self._get_model_type(YOLOX_BASE_MODELS, model)
 
         if model_type == "yolox_n":
             exp_name = "yolox_nano"
@@ -133,12 +150,16 @@ class YoloXDetector(Detector):
 
         LOGGER.info(f"Loading {model_type} with {str(model)}")
 
-        if not model.exists() and (
-            model.stem == model_type or fnmatch.fnmatch(model.stem, "yolox_x_*_ablation")
-        ):
+        benchmark_model_url = _find_benchmark_model_url(model)
+        if not model.exists() and model.stem == model_type:
             LOGGER.info("Downloading pretrained weights...")
             from boxmot.utils.download import download_file
             download_file(url=YOLOX_ZOO[model.stem + ".pt"], dest=model, overwrite=False)
+            exp.num_classes = 1
+        elif not model.exists() and benchmark_model_url:
+            LOGGER.info("Downloading benchmark detector weights...")
+            from boxmot.utils.download import download_file
+            download_file(url=benchmark_model_url, dest=model, overwrite=False)
             exp.num_classes = 1
         elif model.stem.startswith(model_type):
             exp.num_classes = 1

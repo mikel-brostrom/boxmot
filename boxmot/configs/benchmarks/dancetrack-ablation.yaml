@@ -21,6 +21,7 @@ evaluation:
 
 detector:
   default_model: "models/yolox_x_dancetrack_ablation.pt"
+  model_url: "https://drive.google.com/uc?id=1ZKpYmFYCsRdXuOL60NRuc7VXAFYRskXB"
   imgsz: [800, 1440]
   conf: 0.01
   classes:

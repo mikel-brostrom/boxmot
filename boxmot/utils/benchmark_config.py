@@ -6,7 +6,7 @@ from typing import Any
 import yaml
 
 from boxmot.utils import BENCHMARK_CONFIGS, TRACKEVAL, WEIGHTS
-from boxmot.utils.download import download_eval_data
+from boxmot.utils.download import download_eval_data, download_file
 from boxmot.utils.misc import resolve_model_path
 
 
@@ -123,6 +123,13 @@ def get_benchmark_detector_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
     return dict(detector_cfg) if isinstance(detector_cfg, dict) else {}
 
 
+def get_benchmark_detector_url(cfg: dict[str, Any]) -> str | None:
+    """Return the benchmark detector download URL, if configured."""
+    detector_cfg = get_benchmark_detector_cfg(cfg)
+    model_url = detector_cfg.get("model_url") or detector_cfg.get("url")
+    return str(model_url) if model_url else None
+
+
 def resolve_required_yolo_model(cfg: dict[str, Any]) -> Path | None:
     """Return the benchmark-required detector model path, if configured."""
     detector_cfg = get_benchmark_detector_cfg(cfg)
@@ -135,6 +142,25 @@ def resolve_required_yolo_model(cfg: dict[str, Any]) -> Path | None:
     if required_yolo_model:
         return Path(required_yolo_model)
     return None
+
+
+def ensure_benchmark_detector_model(cfg: dict[str, Any], overwrite: bool = False) -> Path | None:
+    """Ensure the benchmark-default detector model exists locally and return its path."""
+    model_path = resolve_required_yolo_model(cfg)
+    if model_path is None:
+        return None
+
+    resolved_path = resolve_model_path(model_path)
+    if resolved_path.exists() or overwrite:
+        if overwrite and get_benchmark_detector_url(cfg):
+            download_file(get_benchmark_detector_url(cfg), resolved_path, overwrite=True)
+        return resolved_path
+
+    model_url = get_benchmark_detector_url(cfg)
+    if model_url:
+        download_file(model_url, resolved_path, overwrite=False)
+        return resolved_path
+    return resolved_path
 
 
 def should_use_benchmark_detector(args: Any, cfg: dict[str, Any]) -> bool:
@@ -251,7 +277,9 @@ apply_dataset_benchmark_config = apply_benchmark_config
 __all__ = [
     "apply_benchmark_config",
     "apply_dataset_benchmark_config",
+    "ensure_benchmark_detector_model",
     "get_benchmark_detector_cfg",
+    "get_benchmark_detector_url",
     "get_dataset_detector_cfg",
     "load_benchmark_cfg",
     "load_dataset_cfg",
