@@ -131,11 +131,12 @@ def patch_deprecated_types(root: Path, deprecated: dict = DEPRECATED_TYPES) -> N
 def _sync_trackeval_dataset_overlays(dest: Path) -> None:
     """Overlay the vendored TrackEval OBB dataset adapters with the tracked copies."""
     source_dir = Path(__file__).resolve().parent
-    overlays = {
-        source_dir / "custom_mot_challenge_obb.py": dest / "trackeval" / "datasets" / "mmot_rgb.py",
-        source_dir / "custom_mot_challenge_obb.py": dest / "trackeval" / "datasets" / "mmot_8ch.py",
-    }
-    for src, dst in overlays.items():
+    overlays = [
+        (source_dir / "custom_mot_challenge_obb.py", dest / "trackeval" / "datasets" / "mmot_rgb.py"),
+        (source_dir / "custom_mot_challenge_obb.py", dest / "trackeval" / "datasets" / "mmot_8ch.py"),
+        (source_dir / "trackeval_datasets_init.py", dest / "trackeval" / "datasets" / "__init__.py"),
+    ]
+    for src, dst in overlays:
         if not src.exists():
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
