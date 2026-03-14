@@ -77,8 +77,8 @@ jobs:
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
-          # reuse first set of generated det and prod
-          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci --classes 0
+          # MOT17-mini has a benchmark config, so CI uses --data for eval-like commands.
+          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --data mot17-mini --ci --classes 0
   metrics:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -110,7 +110,7 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+          boxmot generate --data mot17-mini --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
 
       - name: Evaluate MOT17-mini metrics
         shell: bash
@@ -118,7 +118,7 @@ jobs:
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > metrics.csv
           for tracker in $TRACKERS; do
-            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci --classes 0; then
+            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --data mot17-mini --ci --classes 0; then
               STATUS="✅"
             else
               STATUS="❌"

@@ -38,6 +38,15 @@ def test_mot17_dataset_uses_new_schema():
     }
 
 
+def test_mot17_mini_uses_its_own_benchmark_id():
+    cfg = load_benchmark_cfg("mot17-mini")
+    assert cfg["id"] == "mot17-mini"
+    assert cfg["storage"] == {
+        "root": "assets/MOT17-mini",
+        "split": "train",
+    }
+
+
 def test_mot17_dataset_exposes_default_detector():
     cfg = load_benchmark_cfg("MOT17-ablation")
     assert resolve_required_yolo_model(cfg) == Path("models/yolox_x_MOT17_ablation.pt")

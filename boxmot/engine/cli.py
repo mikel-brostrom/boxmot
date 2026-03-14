@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 CLI for BoxMOT: multi-step multiple object tracking pipeline.
 Provides commands to track, generate detections and embeddings, evaluate performance, tune models, or run all steps.
@@ -9,6 +11,7 @@ mp.set_start_method("spawn", force=True)
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional, Tuple
 
 import click
 from click.core import ParameterSource
@@ -147,7 +150,7 @@ def _is_option_explicit(ctx: click.Context, option_name: str) -> bool:
     return ctx.get_parameter_source(option_name) != ParameterSource.DEFAULT
 
 
-def _resolve_source_context(source: str | None) -> tuple[str | None, str, str]:
+def _resolve_source_context(source: Optional[str]) -> Tuple[Optional[str], str, str]:
     """Return ``(source, benchmark, split)`` metadata for a concrete source path."""
     if source is None:
         return None, "", ""
@@ -156,7 +159,7 @@ def _resolve_source_context(source: str | None) -> tuple[str | None, str, str]:
     return source, source_path.parent.name, source_path.name
 
 
-def _require_eval_input(data: str | None, source: str | None, command_name: str) -> None:
+def _require_eval_input(data: Optional[str], source: Optional[str], command_name: str) -> None:
     """Validate benchmark-vs-source selection for eval-like commands."""
     if data and source:
         raise click.UsageError(
