@@ -1,21 +1,30 @@
+id: mot17-ablation
+
 # https://motchallenge.net/data/MOT17/
 download:
   runs_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/runs.zip"
   dataset_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip"
 
-benchmark:
-  source: "boxmot/engine/trackeval/data/MOT17-ablation"
+storage:
+  root: "boxmot/engine/trackeval/data/MOT17-ablation"
   split: "train"
-  eval_classes:
-    1: pedestrian
-  distractor_classes:
-    2: person_on_vehicle
-    7: static_person
-    8: distractor
-    12: reflection
+
+evaluation:
+  box_type: aabb
+  layout: mot
+  tracker_eval: mot_challenge
+  classes:
+    eval:
+      1: pedestrian
+    distractor:
+      2: person_on_vehicle
+      7: static_person
+      8: distractor
+      12: reflection
+    mapping: {}
 
 detector:
-  model: "models/yolox_x_MOT17_ablation.pt"
+  default_model: "models/yolox_x_MOT17_ablation.pt"
   imgsz: [800, 1440]
   conf: 0.01
   classes:

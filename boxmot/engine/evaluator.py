@@ -97,7 +97,7 @@ def load_detector_cfg(model_stem: str) -> Optional[dict]:
 
 
 def _load_benchmark_cfg(args: argparse.Namespace) -> dict:
-    benchmark = getattr(args, "benchmark", None)
+    benchmark = getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
     if not benchmark:
         return {}
     try:
@@ -1166,8 +1166,9 @@ def build_dataset_eval_settings(
 
     cfg = {}
     try:
-        if hasattr(args, "benchmark"):
-            cfg = load_dataset_cfg(args.benchmark)
+        dataset_name = getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
+        if dataset_name:
+            cfg = load_dataset_cfg(dataset_name)
     except FileNotFoundError:
         cfg = {}
     except Exception as e:  # noqa: BLE001
@@ -1887,9 +1888,10 @@ def apply_class_remap(args, det_cfg: dict) -> None:
     and mutates args with remapped_class_ids / remapped_class_names when needed.
     """
     bench_cfg: dict = {}
-    if hasattr(args, "benchmark"):
+    dataset_name = getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
+    if dataset_name:
         try:
-            bench_cfg = (load_dataset_cfg(args.benchmark) or {}).get("benchmark", {})
+            bench_cfg = (load_dataset_cfg(dataset_name) or {}).get("benchmark", {})
         except Exception:
             pass
 

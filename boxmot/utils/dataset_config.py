@@ -33,10 +33,88 @@ def resolve_dataset_cfg_path(name: str | Path) -> Path:
     return _resolve_yaml_path(DATASET_CONFIGS, name)
 
 
+def _normalize_dataset_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str, Any]:
+    """Normalize dataset configs to the new schema while preserving legacy accessors."""
+    cfg = dict(raw_cfg or {})
+    cfg.setdefault("id", cfg_path.stem.lower())
+
+    legacy_benchmark = dict(cfg.get("benchmark") or {})
+    storage_cfg = dict(cfg.get("storage") or {})
+    evaluation_cfg = dict(cfg.get("evaluation") or {})
+    class_cfg = dict(evaluation_cfg.get("classes") or {})
+
+    if not storage_cfg and legacy_benchmark:
+        storage_cfg = {
+            "root": legacy_benchmark.get("source", ""),
+            "split": legacy_benchmark.get("split", "train"),
+        }
+
+    if not evaluation_cfg and legacy_benchmark:
+        evaluation_cfg = {
+            "box_type": legacy_benchmark.get("box_type", "aabb"),
+            "layout": legacy_benchmark.get("layout", "mot"),
+            "tracker_eval": legacy_benchmark.get("tracker_eval", "mot_challenge"),
+            "classes": {
+                "eval": legacy_benchmark.get("eval_classes", {}),
+                "distractor": legacy_benchmark.get("distractor_classes", {}),
+                "mapping": legacy_benchmark.get("class_mapping", {}),
+            },
+        }
+        class_cfg = dict(evaluation_cfg.get("classes") or {})
+
+    if storage_cfg:
+        storage_cfg.setdefault("root", legacy_benchmark.get("source", ""))
+        storage_cfg.setdefault("split", legacy_benchmark.get("split", "train"))
+
+    if evaluation_cfg:
+        evaluation_cfg.setdefault("box_type", legacy_benchmark.get("box_type", "aabb"))
+        evaluation_cfg.setdefault("layout", legacy_benchmark.get("layout", "mot"))
+        evaluation_cfg.setdefault("tracker_eval", legacy_benchmark.get("tracker_eval", "mot_challenge"))
+        class_cfg = dict(evaluation_cfg.get("classes") or {})
+        class_cfg.setdefault("eval", legacy_benchmark.get("eval_classes", {}))
+        class_cfg.setdefault("distractor", legacy_benchmark.get("distractor_classes", {}))
+        class_cfg.setdefault("mapping", legacy_benchmark.get("class_mapping", {}))
+        evaluation_cfg["classes"] = class_cfg
+
+    if storage_cfg:
+        cfg["storage"] = storage_cfg
+    if evaluation_cfg:
+        cfg["evaluation"] = evaluation_cfg
+
+    detector_cfg = dict(cfg.get("detector") or {})
+    if "default_model" not in detector_cfg and "model" in detector_cfg:
+        detector_cfg["default_model"] = detector_cfg["model"]
+    if "model" not in detector_cfg and "default_model" in detector_cfg:
+        detector_cfg["model"] = detector_cfg["default_model"]
+    if not detector_cfg and legacy_benchmark.get("required_yolo_model"):
+        detector_cfg = {
+            "default_model": legacy_benchmark["required_yolo_model"],
+            "model": legacy_benchmark["required_yolo_model"],
+        }
+    if detector_cfg:
+        cfg["detector"] = detector_cfg
+
+    if storage_cfg or evaluation_cfg:
+        cfg["benchmark"] = {
+            "source": storage_cfg.get("root", legacy_benchmark.get("source", "")),
+            "split": storage_cfg.get("split", legacy_benchmark.get("split", "train")),
+            "box_type": evaluation_cfg.get("box_type", legacy_benchmark.get("box_type", "aabb")),
+            "layout": evaluation_cfg.get("layout", legacy_benchmark.get("layout", "mot")),
+            "tracker_eval": evaluation_cfg.get("tracker_eval", legacy_benchmark.get("tracker_eval", "mot_challenge")),
+            "eval_classes": class_cfg.get("eval", legacy_benchmark.get("eval_classes", {})),
+            "distractor_classes": class_cfg.get("distractor", legacy_benchmark.get("distractor_classes", {})),
+            "class_mapping": class_cfg.get("mapping", legacy_benchmark.get("class_mapping", {})),
+        }
+
+    return cfg
+
+
 def load_dataset_cfg(name: str | Path) -> dict[str, Any]:
     """Load a dataset benchmark config YAML."""
-    with open(resolve_dataset_cfg_path(name), "r") as f:
-        return yaml.safe_load(f) or {}
+    cfg_path = resolve_dataset_cfg_path(name)
+    with open(cfg_path, "r") as f:
+        raw_cfg = yaml.safe_load(f) or {}
+    return _normalize_dataset_cfg(raw_cfg, cfg_path)
 
 
 def get_dataset_detector_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -60,7 +138,7 @@ def merge_detector_cfg(base_cfg: dict[str, Any] | None, override_cfg: dict[str, 
 def resolve_required_yolo_model(cfg: dict[str, Any]) -> Path | None:
     """Return the benchmark-required detector model path, if configured."""
     detector_cfg = get_dataset_detector_cfg(cfg)
-    model = detector_cfg.get("model")
+    model = detector_cfg.get("default_model") or detector_cfg.get("model")
     if model:
         return Path(model)
 
@@ -121,17 +199,28 @@ def _resolve_dataset_dest(cfg: dict[str, Any], benchmark_name: str, source_root:
     return Path(f"assets/{benchmark_name}")
 
 
+def _resolve_runtime_benchmark_name(cfg: dict[str, Any], source_root: Path, cfg_path: Path) -> str:
+    """Resolve a stable runtime benchmark name for cache and results paths."""
+    dataset_id = str(cfg.get("id") or cfg_path.stem)
+    root_name = source_root.name
+    if root_name and root_name.lower() == dataset_id.lower():
+        return root_name
+    return dataset_id
+
+
 def apply_dataset_benchmark_config(args: Any, overwrite: bool = False) -> dict[str, Any] | None:
     """Apply a benchmark YAML referenced via ``args.source`` to the current args namespace."""
     try:
-        cfg = load_dataset_cfg(args.source)
+        cfg_path = resolve_dataset_cfg_path(args.source)
+        cfg = load_dataset_cfg(cfg_path)
     except FileNotFoundError:
         return None
 
-    bench_cfg = cfg.get("benchmark", {})
+    storage_cfg = cfg.get("storage", {})
+    eval_cfg = cfg.get("evaluation", {})
     download_cfg = cfg.get("download", {})
-    source_root = Path(bench_cfg.get("source", ""))
-    benchmark_name = source_root.name or Path(resolve_dataset_cfg_path(args.source)).stem
+    source_root = Path(storage_cfg.get("root", ""))
+    benchmark_name = _resolve_runtime_benchmark_name(cfg, source_root, cfg_path)
     dataset_dest = _resolve_dataset_dest(cfg, benchmark_name, source_root)
 
     download_eval_data(
@@ -141,11 +230,12 @@ def apply_dataset_benchmark_config(args: Any, overwrite: bool = False) -> dict[s
         overwrite=overwrite,
     )
 
+    args.dataset_id = cfg.get("id", benchmark_name)
     args.benchmark = benchmark_name
-    args.split = bench_cfg.get("split", "train")
+    args.split = storage_cfg.get("split", "train")
     args.source = source_root / args.split if source_root else dataset_dest / args.split
 
-    box_type = bench_cfg.get("box_type")
+    box_type = eval_cfg.get("box_type")
     if box_type:
         args.eval_box_type = str(box_type).lower()
 
