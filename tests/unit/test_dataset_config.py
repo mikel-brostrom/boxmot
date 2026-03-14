@@ -56,7 +56,7 @@ def test_dataset_detector_is_used_when_same_model_is_explicit():
 
 def test_mmot_obb_detector_exposes_download_url():
     cfg = load_benchmark_cfg("MMOT-OBB")
-    assert get_benchmark_detector_url(cfg) == "https://drive.google.com/file/d/15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR/view"
+    assert get_benchmark_detector_url(cfg) == "https://drive.google.com/uc?id=15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR"
 
 
 def test_mot17_detector_exposes_download_url():
@@ -107,7 +107,7 @@ def test_ensure_benchmark_detector_model_downloads_missing_weight(monkeypatch, t
     resolved = ensure_benchmark_detector_model(cfg)
     assert resolved == target
     assert calls == {
-        "url": "https://drive.google.com/file/d/15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR/view",
+        "url": "https://drive.google.com/uc?id=15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR",
         "dest": target,
         "overwrite": False,
     }
