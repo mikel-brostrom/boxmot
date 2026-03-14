@@ -5,6 +5,7 @@ Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
 import argparse
+import shutil
 from pathlib import Path
 from typing import Optional
 from zipfile import BadZipFile, ZipFile
@@ -127,7 +128,21 @@ def patch_deprecated_types(root: Path, deprecated: dict = DEPRECATED_TYPES) -> N
             file.write_text(updated, encoding="utf-8")
 
 
-def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = False) -> None:
+def _sync_mmot_trackeval_files(dest: Path) -> None:
+    """Overlay the vendored MMOT dataset adapters with the tracked self-contained copies."""
+    source_dir = Path(__file__).resolve().parent
+    overlays = {
+        source_dir / "custom_mmot_rgb.py": dest / "trackeval" / "datasets" / "mmot_rgb.py",
+        source_dir / "custom_mmot_8ch.py": dest / "trackeval" / "datasets" / "mmot_8ch.py",
+    }
+    for src, dst in overlays.items():
+        if not src.exists():
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
+
+
+def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False) -> None:
     """
     Download and set up the TrackEval repository into the given destination folder.
 
@@ -138,13 +153,14 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     """
     # If already exists and we're not overwriting, skip
     if dest.exists() and not overwrite:
+        _sync_mmot_trackeval_files(dest)
         LOGGER.debug("TrackEval already present")
         return
 
     LOGGER.info("Downloading TrackEval...")
-    repo_url = "https://github.com/JonathonLuiten/TrackEval"
+    repo_url = "https://github.com/Annzstbl/MMOT"
     zip_url = f"{repo_url}/archive/refs/heads/{branch}.zip"
-    zip_file = dest.parent / f"{dest.name}-{branch}.zip"
+    zip_file = dest.parent / f"MMOT-{branch}.zip"
 
     # Download the archive
     zip_path = download_file(zip_url, zip_file, overwrite=overwrite)
@@ -152,18 +168,25 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     # Extract into the parent folder
     extract_zip(zip_path, dest.parent, overwrite=overwrite)
 
-    # GitHub will unpack to "TrackEval-master" (with original casing); 
-    # rename it case-insensitively to our lowercase 'trackeval' folder
+    # GitHub unpacks to "MMOT-<branch>"; TrackEval lives inside that repo.
     extracted = None
     for d in dest.parent.iterdir():
-        if d.is_dir() and d.name.lower().startswith("trackeval") and d.name.lower().endswith(f"-{branch}"):
+        if d.is_dir() and d.name.lower().startswith("mmot") and d.name.lower().endswith(f"-{branch}"):
             extracted = d
             break
 
     if extracted is None:
-        LOGGER.warning("Couldn't locate extracted TrackEval folder")
+        LOGGER.warning("Couldn't locate extracted MMOT folder")
     else:
-        extracted.rename(dest)
+        trackeval_src = extracted / "TrackEval"
+        if not trackeval_src.exists():
+            LOGGER.warning("Couldn't locate TrackEval inside extracted MMOT archive")
+        else:
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.move(str(trackeval_src), str(dest))
+        if extracted.exists():
+            shutil.rmtree(extracted)
 
     # Clean up the downloaded zip
     try:
@@ -173,6 +196,7 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
 
     # Apply any necessary patches for deprecated types
     patch_deprecated_types(dest)
+    _sync_mmot_trackeval_files(dest)
 
     LOGGER.debug("TrackEval setup complete")
 

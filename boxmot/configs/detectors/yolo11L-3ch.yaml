@@ -1,0 +1,11 @@
+imgsz: [1024, 1024]
+conf: 0.01
+classes:
+  0: car
+  1: bike
+  2: pedestrian
+  3: van
+  4: truck
+  5: bus
+  6: tricycle
+  7: awning-bike

@@ -1,0 +1,19 @@
+download:
+  runs_url: ""
+  dataset_url: ""
+  dataset_dest: "assets/MMOT-OBB"
+
+benchmark:
+  source: "assets/MMOT-OBB"
+  split: "train"
+  box_type: obb
+  required_yolo_model: "models/yolo11l-3ch.pt"
+  eval_classes:
+    1: car
+    2: bike
+    3: pedestrian
+    4: van
+    5: truck
+    6: bus
+    7: tricycle
+    8: awning-bike

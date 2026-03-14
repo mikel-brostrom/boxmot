@@ -112,6 +112,34 @@ def compute_fps_mask(frames: np.ndarray, orig_fps: int, target_fps: int) -> np.n
     return np.isin(frames.astype(int), list(wanted))
 
 
+def _load_text_matrix(path: Path, *, delimiter: str | None = None, comments: str | None = "#") -> np.ndarray:
+    """Load a numeric text file into a 2D array."""
+    data = np.loadtxt(path, delimiter=delimiter, comments=comments)
+    if data.size == 0:
+        return np.empty((0, 0), dtype=np.float32)
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    return np.asarray(data, dtype=np.float32)
+
+
+def _filter_gt_file(src: Path, dst: Path, keep_ids: set[int]) -> bool:
+    """Filter a GT-like text file by frame IDs and write it to ``dst``."""
+    if not src.exists():
+        return False
+
+    data = _load_text_matrix(src, delimiter=",", comments=None)
+    if data.size == 0:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text("")
+        return True
+
+    mask = np.isin(data[:, 0].astype(int), list(keep_ids))
+    filtered = data[mask]
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    np.savetxt(dst, filtered, delimiter=",", fmt="%g")
+    return True
+
+
 class MOTDataset:
     """Dataset class for MOT-format sequences with optional detection and embedding data.
 
@@ -240,15 +268,16 @@ class MOTSequence:
     def _prepare(self) -> None:
         """Load detections / embeddings and optionally downsample to *target_fps*.
 
-        Always ensures gt_temp.txt exists for evaluation: either filtered by FPS
-        when downsampling, or a copy of gt.txt when nothing changed.
+        For AABB datasets this ensures ``gt_temp.txt`` exists for evaluation.
+        For OBB datasets it writes filtered ``gt_obb*_temp.txt`` files when
+        FPS downsampling is enabled.
         """
         updated_gt = False
         gt_dir = self.meta['seq_dir'] / 'gt'
 
         # 1) Load dets & embs
         if self.meta['det_path'] and self.meta['emb_path']:
-            self.dets = np.loadtxt(self.meta['det_path'], comments="#")
+            self.dets = _load_text_matrix(self.meta['det_path'], comments="#")
             _ep = self.meta['emb_path']
             if _ep.suffix == '.bin':
                 _n_rows = self.dets.shape[0]
@@ -259,12 +288,12 @@ class MOTSequence:
                     _ndims = _flat.size // _n_rows
                     self.embs = _flat.reshape(_n_rows, _ndims)
             else:
-                self.embs = np.loadtxt(_ep, comments="#")
+                self.embs = _load_text_matrix(_ep, comments="#")
             if self.dets.shape[0] != self.embs.shape[0]:
                 raise ValueError(f"Row mismatch in {self.name}")
 
             # 2) If target_fps is set, build a frame mask using seqinfo.ini
-            if self.target_fps:
+            if self.target_fps and self.dets.shape[0] > 0:
                 seq_info_file = self.meta['seq_dir'] / 'seqinfo.ini'
                 if not seq_info_file.exists():
                     LOGGER.warning(f"Missing seqinfo.ini in {self.meta['seq_dir']}, skipping FPS downsample")
@@ -280,17 +309,12 @@ class MOTSequence:
                     self.frame_ids = self.frame_ids[idxs_to_keep]
                     self.frame_paths = [self.frame_paths[i] for i in idxs_to_keep]
 
-                    # b) Filter GT and write gt_temp.txt for evaluation
-                    orig_gt = np.loadtxt(gt_dir / 'gt.txt', delimiter=',')
-                    gt_mask = np.isin(orig_gt[:, 0].astype(int), list(keep_ids))
-                    filtered_gt = orig_gt[gt_mask]
-                    np.savetxt(
-                        gt_dir / 'gt_temp.txt',
-                        filtered_gt,
-                        delimiter=',',
-                        fmt="%d" if filtered_gt.dtype.kind in 'iu' else "%f",
-                    )
-                    updated_gt = True
+                    # b) Filter GT and write temp annotations for evaluation.
+                    filtered_any = False
+                    filtered_any |= _filter_gt_file(gt_dir / 'gt.txt', gt_dir / 'gt_temp.txt', keep_ids)
+                    filtered_any |= _filter_gt_file(gt_dir / 'gt_obb.txt', gt_dir / 'gt_obb_temp.txt', keep_ids)
+                    filtered_any |= _filter_gt_file(gt_dir / 'gt_obb_raw.txt', gt_dir / 'gt_obb_raw_temp.txt', keep_ids)
+                    updated_gt = filtered_any
 
         # 3) Ensure gt_temp.txt always exists for the evaluator (copy gt.txt if unchanged)
         if (gt_dir / 'gt.txt').exists() and not updated_gt:

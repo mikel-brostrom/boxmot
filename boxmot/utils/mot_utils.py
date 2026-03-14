@@ -13,6 +13,28 @@ from ultralytics.utils import ops
 from boxmot.utils import logger as LOGGER
 
 
+def xywha_to_corners(boxes: np.ndarray) -> np.ndarray:
+    """Convert one or more ``[cx, cy, w, h, angle]`` boxes to 4 corner points."""
+    arr = np.asarray(boxes, dtype=np.float32)
+    single = arr.ndim == 1
+    if single:
+        arr = arr.reshape(1, 5)
+
+    corners = np.empty((arr.shape[0], 4, 2), dtype=np.float32)
+    for i, (cx, cy, w, h, angle) in enumerate(arr):
+        c = float(np.cos(angle))
+        s = float(np.sin(angle))
+        rot = np.array([[c, -s], [s, c]], dtype=np.float32)
+        rect = np.array(
+            [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]],
+            dtype=np.float32,
+        )
+        corners[i] = rect @ rot.T + np.array([cx, cy], dtype=np.float32)
+
+    flattened = corners.reshape(arr.shape[0], 8)
+    return flattened[0] if single else flattened
+
+
 def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path, str]:
     """
     Copies the dataset to a new location and removes a specified percentage of images and annotations,
@@ -140,6 +162,26 @@ def convert_to_mot_format(
             return mot_results.numpy()
 
 
+def convert_to_mmot_obb_format(results: np.ndarray, frame_idx: int) -> np.ndarray:
+    """Convert OBB tracker output ``[cx, cy, w, h, angle, id, conf, cls, det_ind]`` to MMOT TrackEval format."""
+    if results.size == 0:
+        return np.empty((0, 13), dtype=np.float32)
+
+    if results.ndim == 1:
+        results = results.reshape(1, -1)
+
+    if results.shape[1] < 8:
+        raise ValueError(f"Expected OBB tracking results with at least 8 columns, got {results.shape[1]}")
+
+    frame_col = np.full((results.shape[0], 1), frame_idx, dtype=np.float32)
+    track_ids = results[:, 5:6].astype(np.float32)
+    corners = xywha_to_corners(results[:, :5]).astype(np.float32)
+    conf = results[:, 6:7].astype(np.float32)
+    cls = results[:, 7:8].astype(np.float32)
+    det_ind = results[:, 8:9].astype(np.float32) if results.shape[1] > 8 else np.zeros((results.shape[0], 1), dtype=np.float32)
+    return np.concatenate((frame_col, track_ids, corners, conf, cls, det_ind), axis=1)
+
+
 def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
     """
     Writes the MOT challenge formatted results to a text file.
@@ -159,9 +201,14 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
         txt_path.touch(exist_ok=True)
 
         if mot_results.size != 0:
+            if mot_results.ndim == 1:
+                mot_results = mot_results.reshape(1, -1)
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), "a") as file:
-                np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%d,%d,%.6f")
+                if mot_results.shape[1] == 9:
+                    np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%d,%d,%.6f")
+                else:
+                    np.savetxt(file, mot_results, fmt="%g", delimiter=",")
 
 
 # new_folder, name = split_dataset(Path("./boxmot/engine/trackeval/data/MOT20/train"), percent_to_delete=0.5)

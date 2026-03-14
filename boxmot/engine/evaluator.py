@@ -12,6 +12,7 @@ import json
 import yaml
 import cv2
 import os
+import shutil
 import torch
 import sys
 import concurrent.futures
@@ -22,7 +23,7 @@ from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CO
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
-from boxmot.utils.misc import increment_path, prompt_overwrite
+from boxmot.utils.misc import increment_path, prompt_overwrite, resolve_model_path
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 from typing import Optional, List, Dict, Generator, Union
 
@@ -31,8 +32,9 @@ from boxmot.postprocessing.gsi import gsi
 
 from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.detectors import default_imgsz, default_conf
-from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
-from boxmot.utils.download import download_eval_data, download_trackeval
+from boxmot.utils.dataset_config import apply_dataset_benchmark_config, load_dataset_cfg as load_benchmark_cfg
+from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results, xywha_to_corners
+from boxmot.utils.download import download_trackeval
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
@@ -49,21 +51,164 @@ COCO_CLASSES = [
     'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
 ]
 
+SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
+SUMMARY_INT_COLUMNS = {"IDSW", "IDs"}
+SUMMARY_AGGREGATE_LABELS = {
+    "cls_comb_det_av": "Class Avg (Det)",
+    "cls_comb_cls_av": "Class Avg (Cls)",
+    "HUMAN": "Human (Super)",
+    "VEHICLE": "Vehicle (Super)",
+    "BIKE": "Bike (Super)",
+    "all": "All Classes",
+}
+
 
 def load_dataset_cfg(name: str) -> dict:
-    """Load the dict from boxmot/configs/datasets/{name}.yaml."""
-    path = DATASET_CONFIGS / f"{name}.yaml"
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
+    """Load the dict from ``boxmot/configs/datasets/<name>.yaml``."""
+    return load_benchmark_cfg(name)
+
+
+def _resolve_yaml_config_path(config_dir: Path, stem: str) -> Optional[Path]:
+    exact = config_dir / f"{stem}.yaml"
+    if exact.exists():
+        return exact
+
+    lowered = stem.lower()
+    for path in sorted(config_dir.glob("*.yaml")):
+        if path.stem.lower() == lowered:
+            return path
+    return None
 
 
 def load_detector_cfg(model_stem: str) -> Optional[dict]:
     """Load detector config from boxmot/configs/detectors/{model_stem}.yaml, or None if absent."""
-    path = DETECTOR_CONFIGS / f"{model_stem}.yaml"
-    if not path.exists():
+    path = _resolve_yaml_config_path(DETECTOR_CONFIGS, model_stem)
+    if path is None:
         return None
     with open(path, 'r') as f:
         return yaml.safe_load(f)
+
+
+def _load_benchmark_cfg(args: argparse.Namespace) -> dict:
+    benchmark = getattr(args, "benchmark", None)
+    if not benchmark:
+        return {}
+    try:
+        return load_dataset_cfg(benchmark) or {}
+    except FileNotFoundError:
+        return {}
+
+
+def _resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] = None) -> str:
+    eval_box_type = getattr(args, "eval_box_type", None)
+    if eval_box_type:
+        return str(eval_box_type).lower()
+
+    benchmark_cfg = (bench_cfg or {}).get("benchmark", {})
+    box_type = benchmark_cfg.get("box_type")
+    return str(box_type).lower() if box_type else "aabb"
+
+
+def build_detection_class_remap(
+    bench_cfg: dict,
+    det_cfg: Optional[dict],
+    benchmark_name: str = "",
+    model_stem: str = "",
+) -> dict[int, int]:
+    """Build a detector-class remap for OBB benchmarks whose GT classes are zero-based."""
+    eval_classes_cfg = bench_cfg.get("eval_classes") or {}
+    det_classes = (det_cfg or {}).get("classes", {})
+    class_mapping = bench_cfg.get("class_mapping") or {}
+
+    if not eval_classes_cfg or not det_classes:
+        return {}
+
+    det_name_to_id = {str(v).lower(): int(k) for k, v in det_classes.items()}
+    remap: dict[int, int] = {}
+
+    if class_mapping:
+        bench_name_to_zero_based_id = {str(v).lower(): int(k) - 1 for k, v in eval_classes_cfg.items()}
+        for bench_name_i, det_name_i in class_mapping.items():
+            bench_key = str(bench_name_i).lower()
+            det_key = str(det_name_i).lower()
+            if bench_key not in bench_name_to_zero_based_id or det_key not in det_name_to_id:
+                continue
+            remap[det_name_to_id[det_key]] = bench_name_to_zero_based_id[bench_key]
+        return remap
+
+    if len(eval_classes_cfg) > 1:
+        LOGGER.warning(
+            f"No class_mapping found for OBB benchmark '{benchmark_name}'"
+            f" ({model_stem}). Using positional detector-class remap."
+        )
+
+    bench_ordered = sorted((int(k) - 1, str(v).lower()) for k, v in eval_classes_cfg.items())
+    det_ordered = sorted((int(k), str(v).lower()) for k, v in det_classes.items())
+    for (bench_id, _), (det_id, _) in zip(bench_ordered, det_ordered):
+        remap[det_id] = bench_id
+    return remap
+
+
+def translate_detection_classes(
+    dets: np.ndarray,
+    embs: np.ndarray,
+    remap: dict[int, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Translate detector class IDs in-place-compatible arrays and drop unmapped rows."""
+    if dets.size == 0 or not remap:
+        return dets, embs
+
+    class_col = 6 if dets.shape[1] >= 7 else 5
+    class_ids = dets[:, class_col].astype(int)
+    keep_mask = np.isin(class_ids, list(remap.keys()))
+
+    translated_dets = dets[keep_mask].copy()
+    translated_embs = embs[keep_mask].copy() if embs.size else embs
+    translated_classes = translated_dets[:, class_col].astype(int)
+    translated_dets[:, class_col] = np.asarray([remap[cid] for cid in translated_classes], dtype=np.float32)
+    return translated_dets, translated_embs
+
+
+def resolve_obb_eval_class_pairs(args: argparse.Namespace, bench_cfg: dict) -> list[tuple[str, int]]:
+    """Resolve OBB class names and their actual zero-based MMOT class IDs."""
+    eval_classes_cfg = bench_cfg.get("eval_classes") or {}
+    ordered_pairs = [
+        (str(name).lower(), int(class_id) - 1)
+        for class_id, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))
+    ]
+
+    if not ordered_pairs and getattr(args, "remapped_class_ids", None) and getattr(args, "remapped_class_names", None):
+        return [
+            (str(name).lower(), int(class_id))
+            for name, class_id in zip(args.remapped_class_names, args.remapped_class_ids)
+        ]
+
+    translated_names = getattr(args, "translated_benchmark_class_names", None)
+    if translated_names:
+        wanted = {str(name).lower() for name in translated_names}
+        return [(name, class_id) for name, class_id in ordered_pairs if name in wanted]
+
+    remapped_names = getattr(args, "remapped_class_names", None)
+    if remapped_names:
+        wanted = {str(name).lower() for name in remapped_names}
+        return [(name, class_id) for name, class_id in ordered_pairs if name in wanted]
+
+    class_indices = getattr(args, "classes", None)
+    if class_indices is not None:
+        wanted = {int(idx) for idx in class_indices}
+        return [(name, class_id) for idx, (name, class_id) in enumerate(ordered_pairs) if idx in wanted]
+
+    return ordered_pairs
+
+
+def resolve_obb_classes_to_eval(args: argparse.Namespace, bench_cfg: dict) -> list[str]:
+    """Resolve class names for the MMOT RGB evaluator."""
+    return [name for name, _ in resolve_obb_eval_class_pairs(args, bench_cfg)]
+
+
+def resolve_obb_class_ids_to_eval(args: argparse.Namespace, bench_cfg: dict) -> list[int]:
+    """Resolve zero-based class IDs for the MMOT RGB evaluator."""
+    return [class_id for _, class_id in resolve_obb_eval_class_pairs(args, bench_cfg)]
 
 
 def build_gt_class_remap(
@@ -264,7 +409,7 @@ def apply_gt_class_remap(
 
 def eval_init(args,
               trackeval_dest: Path = TRACKEVAL,
-              branch: str = "master",
+              branch: str = "main",
               overwrite: bool = False
     ) -> None:
     """
@@ -275,35 +420,8 @@ def eval_init(args,
     # 1) download the TrackEval code
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
 
-    # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
-        cfg = load_dataset_cfg(str(args.source))
-        
-        # Determine dataset destination (under trackeval/data so benchmarks don't mix with TrackEval code)
-        bench_name = Path(cfg["benchmark"]["source"]).name
-        dataset_url = cfg["download"]["dataset_url"]
-        if dataset_url and dataset_url.startswith("hf://"):
-            dataset_dest = TRACKEVAL / "data" / bench_name
-        elif dataset_url:
-            dataset_dest = TRACKEVAL / "data" / f"{bench_name}.zip"
-        else:
-            # For custom datasets without URL, use the path from config if available, or default to assets
-            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{bench_name}"))
-
-        download_eval_data(
-            runs_url=cfg["download"]["runs_url"],
-            dataset_url=cfg["download"]["dataset_url"],
-            dataset_dest=dataset_dest,
-            overwrite=overwrite
-        )
-        args.benchmark = bench_name
-        args.split = cfg["benchmark"]["split"]
-        if cfg["download"]["dataset_url"]:
-            args.source = TRACKEVAL / "data" / f"{args.benchmark}/{args.split}"
-        elif "source" in cfg["benchmark"]:
-            args.source = Path(cfg["benchmark"]["source"]) / args.split
-        else:
-            args.source = dataset_dest / args.split
+    # 2) if a dataset benchmark YAML was provided, download and rewire args.source/split
+    apply_dataset_benchmark_config(args, overwrite=overwrite)
 
     # 3) finally, make source an absolute Path everywhere
     args.source = Path(args.source).resolve()
@@ -311,7 +429,24 @@ def eval_init(args,
     args.project.mkdir(parents=True, exist_ok=True)
 
 
-def parse_mot_results(results: str, seq_names=None) -> dict:
+def _match_header_class_name(raw_name: str, known_classes: Optional[list[str]] = None) -> str:
+    """Resolve a TrackEval header suffix to a class name, preserving hyphenated names."""
+    if known_classes:
+        exact_matches = [name for name in known_classes if raw_name.endswith(name)]
+        if exact_matches:
+            return max(exact_matches, key=len)
+
+        normalized = raw_name.lower()
+        folded_matches = [name for name in known_classes if normalized.endswith(name.lower())]
+        if folded_matches:
+            return max(folded_matches, key=len)
+
+    if "-" in raw_name:
+        return raw_name.split("-")[-1]
+    return raw_name or "default"
+
+
+def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list[str]] = None) -> dict:
     """
     Extracts COMBINED HOTA, MOTA, IDF1, AssA, AssRe, IDSW, and IDs from MOTChallenge evaluation output.
     Returns a dictionary keyed by class name.
@@ -323,6 +458,9 @@ def parse_mot_results(results: str, seq_names=None) -> dict:
             metric values even when the name exceeds TrackEval's 35-char column
             (which causes the name to run directly into the first value with no
             whitespace separator).
+        known_classes: Optional list of expected class/group names. When provided,
+            longest-suffix matching is used to preserve hyphenated class names
+            such as ``awning-bike``.
     """
     metric_specs = {
         'HOTA':   ('HOTA:',      {'HOTA': 0, 'AssA': 2, 'AssRe': 5}),
@@ -352,19 +490,26 @@ def parse_mot_results(results: str, seq_names=None) -> dict:
             if line.startswith(prefix):
                 is_header = True
                 current_metric_type = metric_name
+                header_token = "Dets" if metric_name == "IDs" else metric_name
 
-                # Format: "HOTA: tracker-classHOTA ..."
+                # Formats seen in practice:
+                #   "HOTA: tracker-classHOTA ..."
+                #   "HOTA: tracker-class HOTA ..."
                 content = line[len(prefix):].strip()
-                first_word = content.split()[0]
-                if first_word.endswith(metric_name):
-                    tracker_class = first_word[:-len(metric_name)]
-                    if '-' in tracker_class:
-                        current_class = tracker_class.split('-')[-1]
+                tokens = content.split()
+                if tokens:
+                    first_word = tokens[0]
+                    if len(tokens) > 1 and tokens[1] == header_token:
+                        tracker_class = first_word
+                    elif first_word.endswith(header_token):
+                        tracker_class = first_word[:-len(header_token)]
                     else:
-                        current_class = 'default'
+                        tracker_class = first_word
+
+                    current_class = _match_header_class_name(tracker_class, known_classes)
 
                     if current_class not in parsed_results:
-                        parsed_results[current_class] = {'per_sequence': {}}
+                        parsed_results[current_class] = {"per_sequence": {}}
                 break
 
         if is_header:
@@ -416,6 +561,140 @@ def parse_mot_results(results: str, seq_names=None) -> dict:
                         parsed_results[current_class]['per_sequence'][row_name][key] = max(0, int(val) if key in int_fields else float(val))
 
     return parsed_results
+
+
+def _filter_obb_trackeval_results(
+    parsed_results: dict,
+    args: argparse.Namespace,
+    bench_cfg: dict,
+) -> tuple[dict, bool]:
+    """Keep selected OBB classes and append aggregate MMOT rows when relevant."""
+    if not parsed_results:
+        return parsed_results, False
+
+    selected_classes = resolve_obb_classes_to_eval(args, bench_cfg)
+    ordered: dict = {}
+
+    for cls_name in selected_classes:
+        actual_key = cls_name if cls_name in parsed_results else next(
+            (key for key in parsed_results if key.lower() == cls_name.lower()),
+            None,
+        )
+        if actual_key is not None:
+            ordered[actual_key] = parsed_results[actual_key]
+
+    if len(ordered) > 1:
+        for name in ["cls_comb_det_av", "cls_comb_cls_av", "HUMAN", "VEHICLE", "BIKE", "all"]:
+            if name in parsed_results and name not in ordered:
+                ordered[name] = parsed_results[name]
+
+    if ordered:
+        return ordered, len(selected_classes) == 1 and len(ordered) == 1
+
+    preferred_order = ["cls_comb_det_av", "cls_comb_cls_av", "HUMAN", "VEHICLE", "BIKE", "all"]
+    fallback = {name: parsed_results[name] for name in preferred_order if name in parsed_results}
+    if fallback:
+        return fallback, "cls_comb_det_av" in fallback and len(fallback) == 1
+
+    return parsed_results, len(parsed_results) == 1
+
+
+def _display_summary_name(name: str) -> str:
+    """Return a human-readable label for a parsed summary key."""
+    return SUMMARY_AGGREGATE_LABELS.get(name, name)
+
+
+def _format_summary_values(metrics: dict) -> list[str]:
+    """Format the subset of TrackEval metrics shown in the console summary."""
+    values: list[str] = []
+    for key in SUMMARY_COLUMNS:
+        value = metrics.get(key, 0)
+        if key in SUMMARY_INT_COLUMNS:
+            values.append(f"{int(value):>10}")
+        else:
+            values.append(f"{float(value):>10.2f}")
+    return values
+
+
+def _summary_sort_keys(parsed_results: dict, args: argparse.Namespace, cfg: dict) -> tuple[list[str], list[str]]:
+    """Split parsed results into primary class rows and aggregate rows."""
+    if not parsed_results:
+        return [], []
+
+    eval_box_type = _resolve_eval_box_type(args, cfg)
+    if eval_box_type != "obb":
+        return list(parsed_results.keys()), []
+
+    bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
+    primary_keys: list[str] = []
+    seen: set[str] = set()
+    for cls_name in resolve_obb_classes_to_eval(args, bench_cfg):
+        actual_key = cls_name if cls_name in parsed_results else next(
+            (key for key in parsed_results if key.lower() == cls_name.lower()),
+            None,
+        )
+        if actual_key is not None and actual_key not in seen:
+            primary_keys.append(actual_key)
+            seen.add(actual_key)
+
+    aggregate_keys = [key for key in parsed_results if key not in seen]
+    if not primary_keys:
+        return aggregate_keys, []
+    return primary_keys, aggregate_keys
+
+
+def _known_trackeval_class_names(args: argparse.Namespace, cfg: dict) -> list[str]:
+    """Return expected class/group names for TrackEval header parsing."""
+    known: list[str] = []
+
+    if getattr(args, "remapped_class_names", None):
+        known.extend([str(name) for name in args.remapped_class_names])
+
+    bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
+    eval_classes_cfg = bench_cfg.get("eval_classes") if isinstance(bench_cfg, dict) else None
+    if isinstance(eval_classes_cfg, dict):
+        known.extend([str(name) for _, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))])
+
+    known.extend(["cls_comb_cls_av", "cls_comb_det_av", "HUMAN", "VEHICLE", "BIKE", "all"])
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for name in known:
+        if name in seen:
+            continue
+        seen.add(name)
+        deduped.append(name)
+    return deduped
+
+
+def _print_summary_table(
+    title: str,
+    name_header: str,
+    rows: list[tuple[str, dict, bool]],
+    total_w: int,
+    name_w: int,
+) -> None:
+    """Render a compact metric table to the logger."""
+    if not rows:
+        return
+
+    header_values = [name_header, *SUMMARY_COLUMNS]
+    header_fmt = f"{{:<{name_w}}} " + " ".join(["{:>10}"] * len(SUMMARY_COLUMNS))
+    LOGGER.opt(colors=True).info("<blue>" + "=" * total_w + "</blue>")
+    LOGGER.opt(colors=True).info(f"<bold><cyan>{title:^{total_w}}</cyan></bold>")
+    LOGGER.opt(colors=True).info("<blue>" + "=" * total_w + "</blue>")
+    LOGGER.opt(colors=True).info(f"<bold>{header_fmt.format(*header_values)}</bold>")
+    LOGGER.opt(colors=True).info("<blue>" + "-" * total_w + "</blue>")
+
+    for row_name, metrics, highlight in rows:
+        name_col = f"{row_name:<{name_w}}"
+        vals_str = " ".join(_format_summary_values(metrics))
+        if highlight:
+            LOGGER.opt(colors=True).info(f"<bold>{name_col} <cyan>{vals_str}</cyan></bold>")
+        else:
+            LOGGER.opt(colors=True).info(f"{name_col} <blue>{vals_str}</blue>")
+
+    LOGGER.opt(colors=True).info("<blue>" + "=" * total_w + "</blue>")
 
 
 # ---------------------------
@@ -508,6 +787,42 @@ def _max_frame_id(path: Path) -> int:
     return max_f
 
 
+def _saved_detection_column_count(path: Path) -> int:
+    """Return the number of columns in the first non-header detections row."""
+    try:
+        with open(path, "r") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                return len(line.replace(",", " ").split())
+    except FileNotFoundError:
+        return 0
+    return 0
+
+
+def _serialize_eval_detections(dets: np.ndarray, frame_id: int) -> tuple[np.ndarray, np.ndarray]:
+    """Serialize detector output for cache files and return the boxes used for ReID crops."""
+    if dets.size == 0:
+        return np.empty((0, 0), dtype=np.float32), np.empty((0, 0), dtype=np.float32)
+
+    if dets.shape[1] == 7:
+        frame_col = np.full((dets.shape[0], 1), float(frame_id), dtype=np.float32)
+        exported = np.concatenate([frame_col, dets], axis=1).astype(np.float32)
+        reid_boxes = dets[:, :5].astype(np.float32)
+        return exported, reid_boxes
+
+    if dets.shape[1] == 6:
+        frame_col = np.full((dets.shape[0], 1), float(frame_id), dtype=np.float32)
+        boxes = dets[:, :4].astype(np.float32)
+        confs = dets[:, 4:5].astype(np.float32)
+        clss = dets[:, 5:6].astype(np.float32)
+        exported = np.concatenate([frame_col, boxes, confs, clss], axis=1).astype(np.float32)
+        return exported, boxes
+
+    raise ValueError(f"Unsupported detection shape for serialization: {dets.shape}")
+
+
 @torch.inference_mode()
 def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: Path, timing_stats: Optional[TimingStats] = None) -> None:
     """
@@ -544,6 +859,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
 
     # Warmup the model
     pipeline.warmup()
+    detector_task = getattr(getattr(pipeline.detector, "_yolo", None), "task", "")
+    expected_det_cols = 8 if str(detector_task).lower() == "obb" else 7
 
     if auto_batch:
         batch_size = pipeline.autotune_batch_size(batch_size)
@@ -593,13 +910,28 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         if resume:
             det_rows = _count_data_lines(dets_path, skip_header=True)
             det_max_frame = _max_frame_id(dets_path)
+            det_col_count = _saved_detection_column_count(dets_path)
             emb_rows = {
                 stem: _count_binary_rows(ep, embs_root / stem / "ndims.txt")
                 for stem, ep in emb_paths.items()
             }
             expected_files = dets_path.exists() and all(ep.exists() for ep in emb_paths.values())
             rows_match = len(set([det_rows, *emb_rows.values()])) == 1 if expected_files else False
-            if expected_files and rows_match and det_rows > 0:
+            schema_match = det_col_count in (0, expected_det_cols)
+            if expected_files and not schema_match:
+                LOGGER.warning(
+                    f"Cached detection schema mismatch for {seq_name}: "
+                    f"found {det_col_count} columns, expected {expected_det_cols}. Resetting cached data."
+                )
+                for p in [dets_path, *emb_paths.values()]:
+                    try:
+                        p.unlink()
+                    except FileNotFoundError:
+                        pass
+                processed = 0
+                expected_files = False
+                rows_match = False
+            elif expected_files and rows_match and det_rows > 0:
                 processed = min(det_max_frame, len(frames))
             elif expected_files and not rows_match:
                 LOGGER.warning(
@@ -741,15 +1073,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                         pbar.update(1)
                         continue
 
-                    boxes = dets[:, :4]
-                    confs = dets[:, 4:5]
-                    clss = dets[:, 5:6]
-
-                    frame_col = np.full((boxes.shape[0], 1), float(frame_id), dtype=np.float32)
-                    dets_np = np.concatenate([frame_col, boxes, confs, clss], axis=1)
+                    dets_np, det_boxes_np = _serialize_eval_detections(dets, frame_id)
                     np.savetxt(det_fhs[seq_name], dets_np, fmt="%f")
-
-                    det_boxes_np = dets_np[:, 1:5]
 
                     all_embs = pipeline.get_all_reid_features(det_boxes_np, img)
                     for reid_name, embs in all_embs.items():
@@ -995,6 +1320,165 @@ def trackeval(
     return stdout
 
 
+def trackeval_aabb(
+    args: argparse.Namespace,
+    seq_paths: list,
+    save_dir: Path,
+    gt_folder: Path,
+    metrics: list = ["HOTA", "CLEAR", "Identity"],
+    seq_info: Optional[dict] = None,
+) -> str:
+    """Compatibility wrapper for the existing AABB TrackEval path."""
+    return trackeval(args, seq_paths, save_dir, gt_folder, metrics=metrics, seq_info=seq_info)
+
+
+def _load_obb_gt_matrix(source: Path) -> np.ndarray:
+    """Load OBB GT and normalize it into the MMOT TrackEval 13-column corner format."""
+    data = np.loadtxt(source, delimiter=",")
+    if data.size == 0:
+        return np.empty((0, 13), dtype=np.float32)
+
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+
+    if data.shape[1] == 13:
+        return data.astype(np.float32)
+    elif data.shape[1] == 10:
+        corners = xywha_to_corners(data[:, 2:7]).astype(np.float32)
+        return np.concatenate([data[:, 0:2], corners, data[:, 7:10]], axis=1)
+
+    raise ValueError(f"Unsupported OBB GT format in {source}: expected 10 or 13 columns, got {data.shape[1]}")
+
+
+def _write_raw_obb_gt(source: Path, out_file: Path) -> None:
+    """Normalize OBB GT into the MMOT TrackEval 13-column corner format."""
+    normalized = _load_obb_gt_matrix(source)
+    if normalized.size == 0:
+        out_file.write_text("")
+        return
+
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    np.savetxt(out_file, normalized, delimiter=",", fmt="%g")
+
+
+def _prepare_obb_eval_bridge(
+    args: argparse.Namespace,
+    gt_folder: Path,
+    seq_info: dict[str, int],
+) -> tuple[Path, Path]:
+    """Create the flat GT/image layout expected by MMOT RGB TrackEval."""
+    bridge_root = args.exp_dir / "trackeval_mmot_rgb"
+    gt_bridge = bridge_root / "gt"
+    img_bridge = bridge_root / "img"
+    gt_bridge.mkdir(parents=True, exist_ok=True)
+    img_bridge.mkdir(parents=True, exist_ok=True)
+
+    for seq_name in seq_info:
+        seq_dir = Path(args.source) / seq_name
+        src_img_dir = (seq_dir / "img1" if (seq_dir / "img1").exists() else seq_dir).resolve()
+        bridge_img_dir = img_bridge / seq_name
+        if os.path.lexists(bridge_img_dir):
+            if bridge_img_dir.is_symlink():
+                bridge_img_dir.unlink()
+        if not bridge_img_dir.exists():
+            try:
+                os.symlink(src_img_dir, bridge_img_dir, target_is_directory=True)
+            except OSError:
+                shutil.copytree(src_img_dir, bridge_img_dir, dirs_exist_ok=True)
+
+        raw_candidates = [
+            seq_dir / "gt" / "gt_temp.txt",
+            gt_folder / seq_name / "gt" / "gt_temp.txt",
+            seq_dir / "gt" / "gt.txt",
+            gt_folder / seq_name / "gt" / "gt.txt",
+            seq_dir / "gt" / "gt_obb_raw_temp.txt",
+            gt_folder / seq_name / "gt" / "gt_obb_raw_temp.txt",
+            seq_dir / "gt" / "gt_obb_temp.txt",
+            gt_folder / seq_name / "gt" / "gt_obb_temp.txt",
+            seq_dir / "gt" / "gt_obb_raw.txt",
+            gt_folder / seq_name / "gt" / "gt_obb_raw.txt",
+            seq_dir / "gt" / "gt_obb.txt",
+            gt_folder / seq_name / "gt" / "gt_obb.txt",
+        ]
+        source_gt = None
+        normalized_gt = None
+        for candidate in raw_candidates:
+            if not candidate.exists():
+                continue
+            try:
+                normalized_gt = _load_obb_gt_matrix(candidate)
+                source_gt = candidate
+                break
+            except ValueError:
+                continue
+        if source_gt is None:
+            raise FileNotFoundError(
+                f"No OBB GT file found for sequence {seq_name}. "
+                "Expected gt.txt/gt_temp.txt in corner format or legacy gt_obb*.txt."
+            )
+        gt_out = gt_bridge / f"{seq_name}.txt"
+        gt_out.parent.mkdir(parents=True, exist_ok=True)
+        if normalized_gt is None or normalized_gt.size == 0:
+            gt_out.write_text("")
+        else:
+            np.savetxt(gt_out, normalized_gt, delimiter=",", fmt="%g")
+
+    return gt_bridge, img_bridge
+
+
+def trackeval_obb(
+    args: argparse.Namespace,
+    seq_paths: list,
+    save_dir: Path,
+    gt_folder: Path,
+    metrics: list = ["HOTA", "CLEAR", "Identity"],
+    seq_info: Optional[dict] = None,
+) -> str:
+    """Evaluate MMOT OBB tracking results via BoxMOT's MMOT RGB TrackEval runner."""
+    del save_dir, seq_paths
+    if not seq_info:
+        raise ValueError("seq_info is required for OBB TrackEval")
+
+    bench_cfg = _load_benchmark_cfg(args).get("benchmark", {})
+    classes_to_eval = resolve_obb_classes_to_eval(args, bench_cfg)
+    class_ids = resolve_obb_class_ids_to_eval(args, bench_cfg)
+    gt_bridge, img_bridge = _prepare_obb_eval_bridge(args, gt_folder, seq_info)
+
+    cmd_args = [
+        sys.executable,
+        "-m",
+        "boxmot.utils.run_mmot_rgb",
+        "--GT_FOLDER", str(gt_bridge),
+        "--IMG_FOLDER", str(img_bridge),
+        "--TRACKERS_FOLDER", str(args.exp_dir.parent),
+        "--TRACKERS_TO_EVAL", args.exp_dir.name,
+        "--TRACKER_SUB_FOLDER", "",
+        "--OUTPUT_SUB_FOLDER", "",
+        "--SPLIT_TO_EVAL", str(getattr(args, "split", "train")),
+        "--METRICS", *metrics,
+        "--PRINT_CONFIG", "False",
+        "--PRINT_ONLY_COMBINED", "False",
+        "--USE_PARALLEL", "False",
+    ]
+    if classes_to_eval:
+        cmd_args.extend(["--CLASSES_TO_EVAL", *classes_to_eval])
+    if class_ids:
+        cmd_args.extend(["--CLASS_IDS", *[str(class_id) for class_id in class_ids]])
+
+    p = subprocess.Popen(
+        args=cmd_args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=os.environ.copy(),
+    )
+
+    stdout, stderr = p.communicate()
+    if stderr:
+        print("Standard Error:\n", stderr)
+    return stdout
+
+
 
 def process_sequence(seq_name: str,
                      mot_root: str,
@@ -1064,7 +1548,8 @@ def process_sequence(seq_name: str,
             # Detections are saved with conf=0.01 (all detections); conf_threshold
             # comes from the detector config or CLI and is applied here.
             if conf_threshold > 0:
-                mask = dets[:, 4] >= conf_threshold
+                conf_col = 5 if dets.shape[1] == 7 else 4
+                mask = dets[:, conf_col] >= conf_threshold
                 dets = dets[mask]
                 embs = embs[mask]
 
@@ -1083,7 +1568,12 @@ def process_sequence(seq_name: str,
             total_track_time_ms += (time.perf_counter() - t0) * 1000
             
             if tracks.size:
-                all_tracks.append(convert_to_mot_format(tracks, fid))
+                if tracks.ndim == 1:
+                    tracks = tracks.reshape(1, -1)
+                if tracks.shape[1] >= 9:
+                    all_tracks.append(convert_to_mmot_obb_format(tracks, fid))
+                else:
+                    all_tracks.append(convert_to_mot_format(tracks, fid))
 
     out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
     write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
@@ -1240,34 +1730,46 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     else:
         save_dir = Path(args.project) / args.name
 
-    trackeval_results = trackeval(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
-    parsed_results = parse_mot_results(trackeval_results, seq_names=set(seq_info.keys()))
+    cfg = _load_benchmark_cfg(args)
+    if not cfg:
+        # Try to load config from benchmark name first, then fallback to source parent name
+        cfg_name = getattr(args, 'benchmark', str(args.source.parent.name))
+        try:
+            cfg = load_dataset_cfg(cfg_name)
+        except FileNotFoundError:
+            # If config not found, try to find it by checking if source path ends with a known config name.
+            # This handles cases where source is a custom path.
+            found = False
+            for config_file in DATASET_CONFIGS.glob("*.yaml"):
+                if config_file.stem in str(args.source):
+                    cfg = load_dataset_cfg(config_file.stem)
+                    found = True
+                    break
+            
+            if not found:
+                LOGGER.warning(f"Could not find dataset config for {cfg_name}. Class filtering might be incorrect.")
+                cfg = {}
 
-    # Load config to filter classes
-    # Try to load config from benchmark name first, then fallback to source parent name
-    cfg_name = getattr(args, 'benchmark', str(args.source.parent.name))
-    try:
-        cfg = load_dataset_cfg(cfg_name)
-    except FileNotFoundError:
-        # If config not found, try to find it by checking if source path ends with a known config name
-        # This handles cases where source is a custom path
-        found = False
-        for config_file in DATASET_CONFIGS.glob("*.yaml"):
-            if config_file.stem in str(args.source):
-                cfg = load_dataset_cfg(config_file.stem)
-                found = True
-                break
-        
-        if not found:
-            LOGGER.warning(f"Could not find dataset config for {cfg_name}. Class filtering might be incorrect.")
-            cfg = {}
+    if _resolve_eval_box_type(args, cfg) == "obb":
+        trackeval_results = trackeval_obb(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
+    else:
+        trackeval_results = trackeval_aabb(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
+
+    parsed_results = parse_mot_results(
+        trackeval_results,
+        seq_names=set(seq_info.keys()),
+        known_classes=_known_trackeval_class_names(args, cfg),
+    )
+    eval_box_type = _resolve_eval_box_type(args, cfg)
 
     # Filter parsed_results based on user provided classes (args.classes)
     single_class_mode = False
 
+    if eval_box_type == "obb":
+        parsed_results, single_class_mode = _filter_obb_trackeval_results(parsed_results, args, cfg.get("benchmark", {}))
     # Priority 0: GT was already remapped to detector classes — use those names directly.
     # TrackEval lowercases class names, so compare case-insensitively.
-    if getattr(args, "remapped_class_names", None):
+    elif getattr(args, "remapped_class_names", None):
         remapped_lower = {n.lower() for n in args.remapped_class_names}
         parsed_results = {k: v for k, v in parsed_results.items() if k.lower() in remapped_lower}
         if len(args.remapped_class_names) == 1:
@@ -1303,71 +1805,74 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     # Print results summary
     if verbose:
         LOGGER.info("")
+        primary_keys, aggregate_keys = _summary_sort_keys(parsed_results, args, cfg)
+        single_sequence = len(seq_info) == 1
 
-        multi_class = len(parsed_results) > 1
-
-        # Compute the name column width dynamically to avoid overflow
         all_names = [
-            seq_name
-            for class_metrics in parsed_results.values()
-            for seq_name in class_metrics.get('per_sequence', {}).keys()
-        ] + [f"COMBINED ({cls})" for cls in parsed_results]
-        nw = max(25, max((len(n) for n in all_names), default=25) + 2)
-        # Total line width: name col + 1 space + 7 metric cols (10 wide) + 6 separating spaces
+            _display_summary_name(name)
+            for name in [*primary_keys, *aggregate_keys]
+        ]
+        for class_metrics in parsed_results.values():
+            all_names.extend(class_metrics.get("per_sequence", {}).keys())
+        all_names.extend([f"COMBINED ({_display_summary_name(name)})" for name in primary_keys])
+
+        nw = max(18, max((len(name) for name in all_names), default=18) + 2)
         total_w = nw + 1 + 76
 
-        LOGGER.opt(colors=True).info("<blue>" + "="*total_w + "</blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "=" * total_w + "</blue>")
         LOGGER.opt(colors=True).info(f"<bold><cyan>{'📊 RESULTS SUMMARY':^{total_w}}</cyan></bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*total_w + "</blue>")
+        LOGGER.opt(colors=True).info("<blue>" + "=" * total_w + "</blue>")
 
-        headers = ["Sequence", "HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs"]
-        header_str = f"{{:<{nw}}} {{:>10}} {{:>10}} {{:>10}} {{:>10}} {{:>10}} {{:>10}} {{:>10}}".format(*headers)
-
-        for cls, class_metrics in parsed_results.items():
-            # Class section header (only shown when evaluating multiple classes)
-            if multi_class:
-                cls_header = f"  CLASS: {cls.upper()}  "
-                LOGGER.opt(colors=True).info("<blue>" + "="*total_w + "</blue>")
-                LOGGER.opt(colors=True).info(f"<bold><cyan>{cls_header:^{total_w}}</cyan></bold>")
-                LOGGER.opt(colors=True).info("<blue>" + "="*total_w + "</blue>")
-
-            LOGGER.opt(colors=True).info(f"<bold>{header_str}</bold>")
-            LOGGER.opt(colors=True).info("<blue>" + "-"*total_w + "</blue>")
-            # Print per-sequence metrics first
-            per_sequence = class_metrics.get('per_sequence', {})
-            for seq_name in sorted(per_sequence.keys()):
-                seq_metrics = per_sequence[seq_name]
-                name_col = f"{seq_name:<{nw}}"
-                vals = [
-                    f"{seq_metrics.get('HOTA', 0):>10.2f}",
-                    f"{seq_metrics.get('MOTA', 0):>10.2f}",
-                    f"{seq_metrics.get('IDF1', 0):>10.2f}",
-                    f"{seq_metrics.get('AssA', 0):>10.2f}",
-                    f"{seq_metrics.get('AssRe', 0):>10.2f}",
-                    f"{seq_metrics.get('IDSW', 0):>10}",
-                    f"{seq_metrics.get('IDs', 0):>10}"
-                ]
-                vals_str = " ".join([f"<blue>{v}</blue>" for v in vals])
-                LOGGER.opt(colors=True).info(f"{name_col} {vals_str}")
-
-            # Print COMBINED row (bold, highlighted)
-            LOGGER.opt(colors=True).info("<blue>" + "-"*total_w + "</blue>")
-            name_col = f"{'COMBINED (' + cls + ')':<{nw}}"
-            vals = [
-                f"{class_metrics.get('HOTA', 0):>10.2f}",
-                f"{class_metrics.get('MOTA', 0):>10.2f}",
-                f"{class_metrics.get('IDF1', 0):>10.2f}",
-                f"{class_metrics.get('AssA', 0):>10.2f}",
-                f"{class_metrics.get('AssRe', 0):>10.2f}",
-                f"{class_metrics.get('IDSW', 0):>10}",
-                f"{class_metrics.get('IDs', 0):>10}"
+        if len(primary_keys) > 1:
+            class_rows = [
+                (_display_summary_name(name), parsed_results[name], False)
+                for name in primary_keys
             ]
-            vals_str = " ".join([f"<cyan>{v}</cyan>" for v in vals])
-            LOGGER.opt(colors=True).info(f"<bold>{name_col} {vals_str}</bold>")
+            _print_summary_table("Per-Class Combined Metrics", "Class", class_rows, total_w, nw)
 
-        LOGGER.opt(colors=True).info("<blue>" + "="*total_w + "</blue>")
+            if aggregate_keys:
+                aggregate_rows = [
+                    (_display_summary_name(name), parsed_results[name], False)
+                    for name in aggregate_keys
+                ]
+                _print_summary_table("Aggregate Groups", "Group", aggregate_rows, total_w, nw)
 
-    if args.ci:
+            if not single_sequence:
+                for cls in primary_keys:
+                    per_sequence_rows = [
+                        (seq_name, seq_metrics, False)
+                        for seq_name, seq_metrics in sorted(parsed_results[cls].get("per_sequence", {}).items())
+                    ]
+                    per_sequence_rows.append(
+                        (f"COMBINED ({_display_summary_name(cls)})", parsed_results[cls], True)
+                    )
+                    _print_summary_table(
+                        f"Per-Sequence Details: {_display_summary_name(cls)}",
+                        "Sequence",
+                        per_sequence_rows,
+                        total_w,
+                        nw,
+                    )
+        else:
+            detail_keys = primary_keys or aggregate_keys or list(parsed_results.keys())
+            for cls in detail_keys:
+                per_sequence_rows = [
+                    (seq_name, seq_metrics, False)
+                    for seq_name, seq_metrics in sorted(parsed_results[cls].get("per_sequence", {}).items())
+                ]
+                if not single_sequence or not per_sequence_rows:
+                    per_sequence_rows.append(
+                        (f"COMBINED ({_display_summary_name(cls)})", parsed_results[cls], True)
+                    )
+                _print_summary_table(
+                    _display_summary_name(cls),
+                    "Sequence",
+                    per_sequence_rows,
+                    total_w,
+                    nw,
+                )
+
+    if getattr(args, "ci", False):
         with open(args.tracking_method + "_output.json", "w") as outfile:
             outfile.write(json.dumps(final_results))
     
@@ -1387,6 +1892,9 @@ def apply_class_remap(args, det_cfg: dict) -> None:
         except Exception:
             pass
 
+    if str(bench_cfg.get("box_type", "")).lower() == "obb":
+        return
+
     remap_result = build_gt_class_remap(
         bench_cfg, det_cfg,
         benchmark_name=getattr(args, "benchmark", ""),
@@ -1401,6 +1909,24 @@ def apply_class_remap(args, det_cfg: dict) -> None:
 
 
 def main(args):
+    args.yolo_model = [resolve_model_path(model) for model in args.yolo_model]
+    args.reid_model = [resolve_model_path(model) for model in args.reid_model]
+
+    # Step 1: Download TrackEval and resolve benchmark config before detector defaults.
+    LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
+    eval_init(args)
+
+    benchmark_cfg = _load_benchmark_cfg(args).get("benchmark", {})
+    required_yolo_model = benchmark_cfg.get("required_yolo_model")
+    if required_yolo_model:
+        required_model = resolve_model_path(required_yolo_model)
+        if args.yolo_model[0] != required_model:
+            LOGGER.info(f"Using benchmark-required detector: {required_model}")
+        args.yolo_model = [required_model]
+
+    if benchmark_cfg.get("box_type") and not getattr(args, "eval_box_type", None):
+        args.eval_box_type = str(benchmark_cfg["box_type"]).lower()
+
     # Load detector config once — used for imgsz/conf resolution and GT class remapping.
     _det_cfg = load_detector_cfg(args.yolo_model[0].stem)
 
@@ -1423,10 +1949,6 @@ def main(args):
     
     # Initialize timing stats for the evaluation pipeline
     timing_stats = TimingStats()
-    
-    # Step 1: Download TrackEval
-    LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
-    eval_init(args)
 
     # Step 2: Generate detections and embeddings (with timing)
     LOGGER.opt(colors=True).info("<cyan>[2/4]</cyan> Generating detections and embeddings...")
