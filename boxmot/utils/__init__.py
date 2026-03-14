@@ -26,6 +26,7 @@ BOXMOT     = ROOT / "boxmot"
 CONFIGS    = BOXMOT / "configs"
 TRACKER_CONFIGS   = CONFIGS / "trackers"
 BENCHMARK_CONFIGS = CONFIGS / "benchmarks"
+# Backward-compatible alias for older imports.
 DATASET_CONFIGS   = BENCHMARK_CONFIGS
 
 ENGINE   = BOXMOT / "engine"

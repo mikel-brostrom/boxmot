@@ -31,12 +31,12 @@ from boxmot.postprocessing.gsi import gsi
 
 from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.detectors import default_imgsz, default_conf
-from boxmot.utils.dataset_config import (
-    apply_dataset_benchmark_config,
-    get_dataset_detector_cfg,
-    load_dataset_cfg as load_benchmark_cfg,
+from boxmot.utils.benchmark_config import (
+    apply_benchmark_config,
+    get_benchmark_detector_cfg,
+    load_benchmark_cfg,
     resolve_required_yolo_model,
-    should_use_dataset_detector,
+    should_use_benchmark_detector,
 )
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results, xywha_to_corners
 from boxmot.utils.download import download_trackeval
@@ -66,19 +66,12 @@ SUMMARY_AGGREGATE_LABELS = {
     "BIKE": "Bike (Super)",
     "all": "All Classes",
 }
-
-
-def load_dataset_cfg(name: str) -> dict:
-    """Load the dict from ``boxmot/configs/benchmarks/<name>.yaml``."""
-    return load_benchmark_cfg(name)
-
-
 def _load_benchmark_cfg(args: argparse.Namespace) -> dict:
-    benchmark = getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
+    benchmark = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
     if not benchmark:
         return {}
     try:
-        return load_dataset_cfg(benchmark) or {}
+        return load_benchmark_cfg(benchmark) or {}
     except FileNotFoundError:
         return {}
 
@@ -186,12 +179,12 @@ def resolve_obb_eval_class_pairs(args: argparse.Namespace, bench_cfg: dict) -> l
 
 
 def resolve_obb_classes_to_eval(args: argparse.Namespace, bench_cfg: dict) -> list[str]:
-    """Resolve class names for the MMOT RGB evaluator."""
+    """Resolve class names for the OBB TrackEval runner."""
     return [name for name, _ in resolve_obb_eval_class_pairs(args, bench_cfg)]
 
 
 def resolve_obb_class_ids_to_eval(args: argparse.Namespace, bench_cfg: dict) -> list[int]:
-    """Resolve zero-based class IDs for the MMOT RGB evaluator."""
+    """Resolve zero-based class IDs for the OBB TrackEval runner."""
     return [class_id for _, class_id in resolve_obb_eval_class_pairs(args, bench_cfg)]
 
 
@@ -404,7 +397,7 @@ def eval_init(args,
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
 
     # 2) if a dataset benchmark YAML was provided, download and rewire args.source/split
-    apply_dataset_benchmark_config(args, overwrite=overwrite)
+    apply_benchmark_config(args, overwrite=overwrite)
 
     # 3) finally, make source an absolute Path everywhere
     args.source = Path(args.source).resolve()
@@ -1135,16 +1128,16 @@ def build_dataset_eval_settings(
     gt_folder: Path,
     seq_info: dict[str, int],
 ) -> dict:
-    """Derive dataset-specific evaluation settings (classes, ids, distractors, gt path format).
+    """Derive benchmark-specific evaluation settings (classes, ids, distractors, gt path format).
 
     This centralizes logic for MOT-style datasets and non-MOT layouts such as VisDrone.
     """
 
     cfg = {}
     try:
-        dataset_name = getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
-        if dataset_name:
-            cfg = load_dataset_cfg(dataset_name)
+        benchmark_id = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
+        if benchmark_id:
+            cfg = load_benchmark_cfg(benchmark_id)
     except FileNotFoundError:
         cfg = {}
     except Exception as e:  # noqa: BLE001
@@ -1344,7 +1337,7 @@ def _prepare_obb_eval_bridge(
     gt_folder: Path,
     seq_info: dict[str, int],
 ) -> tuple[Path, Path]:
-    """Create the flat GT/image layout expected by MMOT RGB TrackEval."""
+    """Create the flat GT/image layout expected by the OBB TrackEval adapter."""
     bridge_root = args.exp_dir / "trackeval_mmot_rgb"
     gt_bridge = bridge_root / "gt"
     img_bridge = bridge_root / "img"
@@ -1412,7 +1405,7 @@ def trackeval_obb(
     metrics: list = ["HOTA", "CLEAR", "Identity"],
     seq_info: Optional[dict] = None,
 ) -> str:
-    """Evaluate MMOT OBB tracking results via BoxMOT's MMOT RGB TrackEval runner."""
+    """Evaluate OBB tracking results via BoxMOT's custom OBB TrackEval runner."""
     del save_dir, seq_paths
     if not seq_info:
         raise ValueError("seq_info is required for OBB TrackEval")
@@ -1711,16 +1704,16 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     cfg = _load_benchmark_cfg(args)
     if not cfg:
         # Try to load config from benchmark name first, then fallback to source parent name
-        cfg_name = getattr(args, "dataset_id", None) or getattr(args, 'benchmark', str(args.source.parent.name))
+        cfg_name = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, 'benchmark', str(args.source.parent.name))
         try:
-            cfg = load_dataset_cfg(cfg_name)
+            cfg = load_benchmark_cfg(cfg_name)
         except FileNotFoundError:
             # If config not found, try to find it by checking if source path ends with a known config name.
             # This handles cases where source is a custom path.
             found = False
             for config_file in BENCHMARK_CONFIGS.glob("*.yaml"):
                 if config_file.stem in str(args.source):
-                    cfg = load_dataset_cfg(config_file.stem)
+                    cfg = load_benchmark_cfg(config_file.stem)
                     found = True
                     break
             
@@ -1864,10 +1857,10 @@ def apply_class_remap(args, det_cfg: dict) -> None:
     and mutates args with remapped_class_ids / remapped_class_names when needed.
     """
     bench_cfg: dict = {}
-    dataset_name = getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
-    if dataset_name:
+    benchmark_id = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
+    if benchmark_id:
         try:
-            bench_cfg = (load_dataset_cfg(dataset_name) or {}).get("benchmark", {})
+            bench_cfg = (load_benchmark_cfg(benchmark_id) or {}).get("benchmark", {})
         except Exception:
             pass
 
@@ -1898,15 +1891,15 @@ def main(args):
     benchmark_bundle = _load_benchmark_cfg(args)
     benchmark_cfg = benchmark_bundle.get("benchmark", {})
     dataset_detector_cfg = {}
-    if should_use_dataset_detector(args, benchmark_bundle):
-        dataset_detector_cfg = get_dataset_detector_cfg(benchmark_bundle)
+    if should_use_benchmark_detector(args, benchmark_bundle):
+        dataset_detector_cfg = get_benchmark_detector_cfg(benchmark_bundle)
         if dataset_detector_cfg:
             args.dataset_detector_cfg = dataset_detector_cfg
     else:
         args.dataset_detector_cfg = None
 
     required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
-    if required_yolo_model and should_use_dataset_detector(args, benchmark_bundle):
+    if required_yolo_model and should_use_benchmark_detector(args, benchmark_bundle):
         required_model = resolve_model_path(required_yolo_model)
         if args.yolo_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")

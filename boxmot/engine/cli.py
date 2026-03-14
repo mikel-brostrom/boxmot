@@ -14,7 +14,7 @@ import click
 from click.core import ParameterSource
 
 from boxmot.utils import ROOT, WEIGHTS
-from boxmot.utils.dataset_config import apply_dataset_benchmark_config, resolve_dataset_cfg_path
+from boxmot.utils.benchmark_config import apply_benchmark_config, resolve_benchmark_cfg_path
 from boxmot.utils.misc import parse_imgsz, resolve_model_path
 
 
@@ -337,8 +337,8 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
     
     # 2) if doing a configured benchmark run, pull down the data and rewire args.source/split
     try:
-        resolve_dataset_cfg_path(args.source)
-        apply_dataset_benchmark_config(args, overwrite=False)
+        resolve_benchmark_cfg_path(args.source)
+        apply_benchmark_config(args, overwrite=False)
     except FileNotFoundError:
         pass
 

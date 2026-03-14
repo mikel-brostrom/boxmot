@@ -9,8 +9,10 @@ from trackeval import utils
 from trackeval.datasets._base_dataset import _BaseDataset
 from trackeval.utils import TrackEvalException
 
+from boxmot.utils.custom_mot_challenge_base import CustomMotChallengeBase
 
-DEFAULT_MMOT_CLASS_NAME_TO_ID = {
+
+DEFAULT_OBB_CLASS_NAME_TO_ID = {
     "car": 0,
     "bike": 1,
     "pedestrian": 2,
@@ -21,16 +23,17 @@ DEFAULT_MMOT_CLASS_NAME_TO_ID = {
     "awning-bike": 7,
 }
 
-DEFAULT_MMOT_SUPER_CATEGORIES = {
+DEFAULT_OBB_SUPER_CATEGORIES = {
     "HUMAN": ["pedestrian"],
     "VEHICLE": ["car", "van", "truck", "bus"],
     "BIKE": ["bike", "tricycle", "awning-bike"],
 }
 
+VALID_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp", ".npy"}
 
-def _count_images(path: str) -> int:
-    valid_exts = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp", ".npy"}
-    return sum(1 for name in os.listdir(path) if os.path.splitext(name)[1].lower() in valid_exts)
+
+def _count_frames(path: str) -> int:
+    return sum(1 for name in os.listdir(path) if os.path.splitext(name)[1].lower() in VALID_IMAGE_EXTENSIONS)
 
 
 def _polygon_to_rotated_rect(polygon: np.ndarray) -> tuple[tuple[float, float], tuple[float, float], float]:
@@ -60,18 +63,18 @@ def _rotated_iou(poly_a: np.ndarray, poly_b: np.ndarray) -> float:
     return max(0.0, min(1.0, inter_area / union))
 
 
-class CustomMMOT8Ch(_BaseDataset):
-    """Self-contained MMOT 8-channel dataset compatible with the MMOT TrackEval fork."""
+class CustomMotChallengeOBB(CustomMotChallengeBase, _BaseDataset):
+    """Self-contained multiclass OBB TrackEval dataset adapter for MOT-style sequence layouts."""
 
     @staticmethod
     def get_default_dataset_config():
         default_config = {
-            "GT_FOLDER": "/data/users/litianhao/data/mmot/test/mot",
-            "IMG_FOLDER": "/data/users/litianhao/data/mmot/test/npy",
-            "TRACKERS_FOLDER": "/data3/litianhao/mmot",
+            "GT_FOLDER": "/data3/PublicDataset/Custom/mmot/test/mot",
+            "IMG_FOLDER": "/data3/PublicDataset/Custom/mmot/test/rgb",
+            "TRACKERS_FOLDER": "/data3/litianhao/workdir/mmot",
             "OUTPUT_FOLDER": None,
             "TRACKERS_TO_EVAL": None,
-            "CLASSES_TO_EVAL": ["car", "bike", "pedestrian", "van", "truck", "bus", "tricycle", "awning-bike"],
+            "CLASSES_TO_EVAL": list(DEFAULT_OBB_CLASS_NAME_TO_ID),
             "CLASS_IDS": None,
             "SPLIT_TO_EVAL": "test",
             "INPUT_AS_ZIP": False,
@@ -86,10 +89,7 @@ class CustomMMOT8Ch(_BaseDataset):
     def __init__(self, config=None):
         super().__init__()
         cfg = {} if config is None else dict(config)
-        real_classes = [cls.lower() for cls in cfg.get("CLASSES_TO_EVAL", list(DEFAULT_MMOT_CLASS_NAME_TO_ID))]
-        class_ids = cfg.get("CLASS_IDS")
-        if class_ids is not None:
-            class_ids = [int(cid) for cid in class_ids]
+        real_classes, class_ids = self._normalize_class_config(cfg, list(DEFAULT_OBB_CLASS_NAME_TO_ID))
 
         self.config = utils.init_config(cfg, self.get_default_dataset_config(), self.get_name())
         self.config["CLASSES_TO_EVAL"] = real_classes
@@ -103,27 +103,18 @@ class CustomMMOT8Ch(_BaseDataset):
         self.tracker_sub_fol = self.config["TRACKER_SUB_FOLDER"]
         self.output_sub_fol = self.config["OUTPUT_SUB_FOLDER"]
 
-        if class_ids is not None:
-            if len(class_ids) != len(real_classes):
-                raise TrackEvalException("CLASS_IDS must have the same length as CLASSES_TO_EVAL.")
-            self.valid_classes = real_classes
-            self.class_list = real_classes
-            self.class_name_to_class_id = {cls: int(cid) for cls, cid in zip(real_classes, class_ids)}
-        else:
-            self.valid_classes = list(DEFAULT_MMOT_CLASS_NAME_TO_ID)
-            self.class_list = [cls if cls in self.valid_classes else None for cls in real_classes]
-            if not all(self.class_list):
-                raise TrackEvalException(
-                    "Attempted to evaluate an invalid class without CLASS_IDS. Only classes "
-                    "[car, bike, pedestrian, van, truck, bus, tricycle, awning-bike] are valid."
-                )
-            self.class_name_to_class_id = DEFAULT_MMOT_CLASS_NAME_TO_ID.copy()
+        self._configure_class_data(
+            real_classes,
+            class_ids,
+            DEFAULT_OBB_CLASS_NAME_TO_ID,
+            validate_against_default=True,
+            invalid_class_message=(
+                "Attempted to evaluate an invalid class without CLASS_IDS. Only classes "
+                "[car, bike, pedestrian, van, truck, bus, tricycle, awning-bike] are valid."
+            ),
+        )
 
-        super_categories = {
-            name: [cls for cls in members if cls in self.class_list]
-            for name, members in DEFAULT_MMOT_SUPER_CATEGORIES.items()
-        }
-        self.super_categories = {name: members for name, members in super_categories.items() if members}
+        self.super_categories = self._filter_super_categories(self.class_list, DEFAULT_OBB_SUPER_CATEGORIES)
         self.use_super_categories = bool(self.super_categories)
 
         self.seq_lengths = {}
@@ -154,16 +145,12 @@ class CustomMMOT8Ch(_BaseDataset):
         return self.tracker_to_disp[tracker]
 
     def _load_raw_file(self, tracker, seq, is_gt):
-        if is_gt:
-            file = os.path.join(self.gt_fol, seq + ".txt")
-        else:
-            file = os.path.join(self.tracker_fol, tracker, self.tracker_sub_fol, seq + ".txt")
-
+        file = os.path.join(self.gt_fol if is_gt else os.path.join(self.tracker_fol, tracker, self.tracker_sub_fol), seq + ".txt")
         data, _ignore_data = self._load_simple_text_file(file, is_zipped=False, zip_file=None)
 
         if is_gt:
             img_path = os.path.join(self.img_fol, seq)
-            self.seq_lengths[seq] = _count_images(img_path)
+            self.seq_lengths[seq] = _count_frames(img_path)
             num_timesteps = self.seq_lengths[seq]
         else:
             num_timesteps = self.seq_lengths[seq]
@@ -220,7 +207,11 @@ class CustomMMOT8Ch(_BaseDataset):
                 else:
                     raw_data["tracker_confidences"][t] = np.empty(0)
 
-        key_map = {"ids": "gt_ids" if is_gt else "tracker_ids", "classes": "gt_classes" if is_gt else "tracker_classes", "dets": "gt_dets" if is_gt else "tracker_dets"}
+        key_map = {
+            "ids": "gt_ids" if is_gt else "tracker_ids",
+            "classes": "gt_classes" if is_gt else "tracker_classes",
+            "dets": "gt_dets" if is_gt else "tracker_dets",
+        }
         for key, value in key_map.items():
             raw_data[value] = raw_data.pop(key)
         raw_data["num_timesteps"] = num_timesteps
@@ -267,26 +258,10 @@ class CustomMMOT8Ch(_BaseDataset):
             num_tracker_dets += len(data["tracker_ids"][t])
             num_gt_dets += len(data["gt_ids"][t])
 
-        if len(unique_gt_ids) > 0:
-            unique_gt_ids = np.unique(unique_gt_ids)
-            gt_id_map = np.nan * np.ones((np.max(unique_gt_ids) + 1))
-            gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
-            for t in range(raw_data["num_timesteps"]):
-                if len(data["gt_ids"][t]) > 0:
-                    data["gt_ids"][t] = gt_id_map[data["gt_ids"][t]].astype(int)
-
-        if len(unique_tracker_ids) > 0:
-            unique_tracker_ids = np.unique(unique_tracker_ids)
-            tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
-            tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
-            for t in range(raw_data["num_timesteps"]):
-                if len(data["tracker_ids"][t]) > 0:
-                    data["tracker_ids"][t] = tracker_id_map[data["tracker_ids"][t]].astype(int)
+        self._relabel_track_ids(data, raw_data["num_timesteps"])
 
         data["num_tracker_dets"] = num_tracker_dets
         data["num_gt_dets"] = num_gt_dets
-        data["num_tracker_ids"] = len(unique_tracker_ids)
-        data["num_gt_ids"] = len(unique_gt_ids)
         data["num_timesteps"] = raw_data["num_timesteps"]
         data["seq"] = raw_data["seq"]
         self._check_unique_ids(data)
@@ -303,4 +278,5 @@ class CustomMMOT8Ch(_BaseDataset):
         return scores
 
 
-mmot_8ch = CustomMMOT8Ch
+mmot_RGB = CustomMotChallengeOBB
+mmot_8ch = CustomMotChallengeOBB

@@ -1,4 +1,4 @@
-"""Run MMOT RGB TrackEval with BoxMOT's multiclass-compatible dataset adapter."""
+"""Run OBB MOT TrackEval with BoxMOT's multiclass-compatible dataset adapter."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ sys.path.insert(0, str(trackeval_dir))
 
 import trackeval  # noqa: E402
 
-from boxmot.utils.custom_mmot_rgb import CustomMMOTRGB
+from boxmot.utils.custom_mot_challenge_obb import CustomMotChallengeOBB
 
 
 if __name__ == "__main__":
@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
     default_eval_config = trackeval.Evaluator.get_default_eval_config()
     default_eval_config["DISPLAY_LESS_PROGRESS"] = False
-    default_dataset_config = CustomMMOTRGB.get_default_dataset_config()
+    default_dataset_config = CustomMotChallengeOBB.get_default_dataset_config()
     default_metrics_config = {"METRICS": ["HOTA", "CLEAR", "Identity"]}
     config = {**default_eval_config, **default_dataset_config, **default_metrics_config}
 
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     metrics_config["METRICS"] = [metric.lower() for metric in metrics_config["METRICS"]]
 
     evaluator = trackeval.Evaluator(eval_config)
-    dataset_list = [CustomMMOTRGB(dataset_config)]
+    dataset_list = [CustomMotChallengeOBB(dataset_config)]
     metrics_list = []
     for metric in [trackeval.metrics.HOTA, trackeval.metrics.CLEAR, trackeval.metrics.Identity]:
         if metric.get_name().lower() in metrics_config["METRICS"]:

@@ -128,12 +128,12 @@ def patch_deprecated_types(root: Path, deprecated: dict = DEPRECATED_TYPES) -> N
             file.write_text(updated, encoding="utf-8")
 
 
-def _sync_mmot_trackeval_files(dest: Path) -> None:
-    """Overlay the vendored MMOT dataset adapters with the tracked self-contained copies."""
+def _sync_trackeval_dataset_overlays(dest: Path) -> None:
+    """Overlay the vendored TrackEval OBB dataset adapters with the tracked copies."""
     source_dir = Path(__file__).resolve().parent
     overlays = {
-        source_dir / "custom_mmot_rgb.py": dest / "trackeval" / "datasets" / "mmot_rgb.py",
-        source_dir / "custom_mmot_8ch.py": dest / "trackeval" / "datasets" / "mmot_8ch.py",
+        source_dir / "custom_mot_challenge_obb.py": dest / "trackeval" / "datasets" / "mmot_rgb.py",
+        source_dir / "custom_mot_challenge_obb.py": dest / "trackeval" / "datasets" / "mmot_8ch.py",
     }
     for src, dst in overlays.items():
         if not src.exists():
@@ -153,7 +153,7 @@ def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False
     """
     # If already exists and we're not overwriting, skip
     if dest.exists() and not overwrite:
-        _sync_mmot_trackeval_files(dest)
+        _sync_trackeval_dataset_overlays(dest)
         LOGGER.debug("TrackEval already present")
         return
 
@@ -196,7 +196,7 @@ def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False
 
     # Apply any necessary patches for deprecated types
     patch_deprecated_types(dest)
-    _sync_mmot_trackeval_files(dest)
+    _sync_trackeval_dataset_overlays(dest)
 
     LOGGER.debug("TrackEval setup complete")
 
