@@ -13,8 +13,8 @@ from types import SimpleNamespace
 import click
 from click.core import ParameterSource
 
-from boxmot.utils import ROOT, WEIGHTS, DATASET_CONFIGS
-from boxmot.utils.dataset_config import apply_dataset_benchmark_config
+from boxmot.utils import ROOT, WEIGHTS
+from boxmot.utils.dataset_config import apply_dataset_benchmark_config, resolve_dataset_cfg_path
 from boxmot.utils.misc import parse_imgsz, resolve_model_path
 
 
@@ -335,9 +335,12 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
               'split': split}
     args = SimpleNamespace(**params)
     
-    # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
+    # 2) if doing a configured benchmark run, pull down the data and rewire args.source/split
+    try:
+        resolve_dataset_cfg_path(args.source)
         apply_dataset_benchmark_config(args, overwrite=False)
+    except FileNotFoundError:
+        pass
 
     from boxmot.engine.tracker import main as run_track
     run_track(args)

@@ -9,7 +9,6 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 import json
-import yaml
 import cv2
 import os
 import shutil
@@ -19,7 +18,7 @@ import concurrent.futures
 from contextlib import nullcontext
 
 from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, DATASET_CONFIGS, DETECTOR_CONFIGS, logger as LOGGER, TRACKEVAL
+from boxmot.utils import BENCHMARK_CONFIGS, NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
@@ -36,7 +35,6 @@ from boxmot.utils.dataset_config import (
     apply_dataset_benchmark_config,
     get_dataset_detector_cfg,
     load_dataset_cfg as load_benchmark_cfg,
-    merge_detector_cfg,
     resolve_required_yolo_model,
     should_use_dataset_detector,
 )
@@ -71,29 +69,8 @@ SUMMARY_AGGREGATE_LABELS = {
 
 
 def load_dataset_cfg(name: str) -> dict:
-    """Load the dict from ``boxmot/configs/datasets/<name>.yaml``."""
+    """Load the dict from ``boxmot/configs/benchmarks/<name>.yaml``."""
     return load_benchmark_cfg(name)
-
-
-def _resolve_yaml_config_path(config_dir: Path, stem: str) -> Optional[Path]:
-    exact = config_dir / f"{stem}.yaml"
-    if exact.exists():
-        return exact
-
-    lowered = stem.lower()
-    for path in sorted(config_dir.glob("*.yaml")):
-        if path.stem.lower() == lowered:
-            return path
-    return None
-
-
-def load_detector_cfg(model_stem: str) -> Optional[dict]:
-    """Load detector config from boxmot/configs/detectors/{model_stem}.yaml, or None if absent."""
-    path = _resolve_yaml_config_path(DETECTOR_CONFIGS, model_stem)
-    if path is None:
-        return None
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
 
 
 def _load_benchmark_cfg(args: argparse.Namespace) -> dict:
@@ -246,10 +223,9 @@ def build_gt_class_remap(
     if det_cfg is None:
         if class_mapping:
             LOGGER.error(
-                "class_mapping is defined in the benchmark config but no detector config was "
+                "class_mapping is defined in the benchmark config but no detector class metadata was "
                 f"found for model '{model_stem}'. "
-                "Create boxmot/configs/detectors/{model_stem}.yaml with a 'classes' dict, "
-                "or remove class_mapping to use default evaluation."
+                "Use the benchmark-default detector or remove class_mapping to use default evaluation."
             )
         # Cases 1 & 2: no remapping
         return None
@@ -1172,7 +1148,7 @@ def build_dataset_eval_settings(
     except FileNotFoundError:
         cfg = {}
     except Exception as e:  # noqa: BLE001
-        LOGGER.warning(f"Error loading dataset config: {e}")
+        LOGGER.warning(f"Error loading benchmark config: {e}")
         cfg = {}
 
     bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
@@ -1735,21 +1711,21 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     cfg = _load_benchmark_cfg(args)
     if not cfg:
         # Try to load config from benchmark name first, then fallback to source parent name
-        cfg_name = getattr(args, 'benchmark', str(args.source.parent.name))
+        cfg_name = getattr(args, "dataset_id", None) or getattr(args, 'benchmark', str(args.source.parent.name))
         try:
             cfg = load_dataset_cfg(cfg_name)
         except FileNotFoundError:
             # If config not found, try to find it by checking if source path ends with a known config name.
             # This handles cases where source is a custom path.
             found = False
-            for config_file in DATASET_CONFIGS.glob("*.yaml"):
+            for config_file in BENCHMARK_CONFIGS.glob("*.yaml"):
                 if config_file.stem in str(args.source):
                     cfg = load_dataset_cfg(config_file.stem)
                     found = True
                     break
             
             if not found:
-                LOGGER.warning(f"Could not find dataset config for {cfg_name}. Class filtering might be incorrect.")
+                LOGGER.warning(f"Could not find benchmark config for {cfg_name}. Class filtering might be incorrect.")
                 cfg = {}
 
     if _resolve_eval_box_type(args, cfg) == "obb":
@@ -1939,8 +1915,8 @@ def main(args):
     if benchmark_cfg.get("box_type") and not getattr(args, "eval_box_type", None):
         args.eval_box_type = str(benchmark_cfg["box_type"]).lower()
 
-    # Load detector config once — used for imgsz/conf resolution and GT class remapping.
-    _det_cfg = merge_detector_cfg(load_detector_cfg(args.yolo_model[0].stem), dataset_detector_cfg)
+    # Benchmark detector settings drive imgsz/conf/class remapping when they are active.
+    _det_cfg = dict(dataset_detector_cfg or {})
 
     if args.imgsz is None:
         if "imgsz" in _det_cfg:

@@ -5,14 +5,14 @@ from typing import Any
 
 import yaml
 
-from boxmot.utils import DATASET_CONFIGS, TRACKEVAL, WEIGHTS
+from boxmot.utils import BENCHMARK_CONFIGS, TRACKEVAL, WEIGHTS
 from boxmot.utils.download import download_eval_data
 from boxmot.utils.misc import resolve_model_path
 
 
 def _resolve_yaml_path(config_dir: Path, name: str | Path) -> Path:
     path = Path(name)
-    if path.is_absolute() and path.exists():
+    if path.suffix.lower() in {".yaml", ".yml"} and path.exists():
         return path.resolve()
 
     file_name = path.name if path.suffix else f"{path.name}.yaml"
@@ -25,16 +25,16 @@ def _resolve_yaml_path(config_dir: Path, name: str | Path) -> Path:
     if matches:
         return matches[0]
 
-    raise FileNotFoundError(f"Dataset config not found for '{name}' in {config_dir}")
+    raise FileNotFoundError(f"Benchmark config not found for '{name}' in {config_dir}")
 
 
 def resolve_dataset_cfg_path(name: str | Path) -> Path:
-    """Resolve a dataset config by stem or YAML filename."""
-    return _resolve_yaml_path(DATASET_CONFIGS, name)
+    """Resolve a benchmark config by stem or YAML filename."""
+    return _resolve_yaml_path(BENCHMARK_CONFIGS, name)
 
 
 def _normalize_dataset_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str, Any]:
-    """Normalize dataset configs to the new schema while preserving legacy accessors."""
+    """Normalize benchmark configs to the new schema while preserving legacy accessors."""
     cfg = dict(raw_cfg or {})
     cfg.setdefault("id", cfg_path.stem.lower())
 
@@ -110,7 +110,7 @@ def _normalize_dataset_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str,
 
 
 def load_dataset_cfg(name: str | Path) -> dict[str, Any]:
-    """Load a dataset benchmark config YAML."""
+    """Load a benchmark config YAML."""
     cfg_path = resolve_dataset_cfg_path(name)
     with open(cfg_path, "r") as f:
         raw_cfg = yaml.safe_load(f) or {}
@@ -118,21 +118,9 @@ def load_dataset_cfg(name: str | Path) -> dict[str, Any]:
 
 
 def get_dataset_detector_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
-    """Return detector settings embedded in a dataset config, if present."""
+    """Return detector settings embedded in a benchmark config, if present."""
     detector_cfg = cfg.get("detector", {})
     return dict(detector_cfg) if isinstance(detector_cfg, dict) else {}
-
-
-def merge_detector_cfg(base_cfg: dict[str, Any] | None, override_cfg: dict[str, Any] | None) -> dict[str, Any]:
-    """Overlay dataset-specific detector settings on top of a detector-model config."""
-    merged = dict(base_cfg or {})
-    if not isinstance(override_cfg, dict):
-        return merged
-    for key, value in override_cfg.items():
-        if key == "model":
-            continue
-        merged[key] = value
-    return merged
 
 
 def resolve_required_yolo_model(cfg: dict[str, Any]) -> Path | None:

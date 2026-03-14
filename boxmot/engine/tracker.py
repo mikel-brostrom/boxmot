@@ -11,10 +11,9 @@ from boxmot import TRACKERS
 from boxmot.detectors import default_imgsz, default_conf
 from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.trackers.tracker_zoo import create_tracker
-import yaml as _yaml
-from boxmot.utils import TRACKER_CONFIGS, DETECTOR_CONFIGS
+from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.dataset_config import merge_detector_cfg, resolve_required_yolo_model, should_use_dataset_detector
+from boxmot.utils.dataset_config import resolve_required_yolo_model, should_use_dataset_detector
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 
 
@@ -49,17 +48,9 @@ class VideoWriter:
 
 
 def _load_runtime_detector_cfg(args) -> dict:
-    """Load detector settings from model config, overlaid with benchmark-specific overrides."""
-    detector_cfg = {}
-    model_stem = Path(str(getattr(args, "yolo_model", "") or "")).stem
-    det_cfg_path = DETECTOR_CONFIGS / f"{model_stem}.yaml"
-    if det_cfg_path.exists():
-        try:
-            with open(det_cfg_path, "r") as f:
-                detector_cfg = _yaml.safe_load(f) or {}
-        except Exception as e:
-            LOGGER.warning(f"Could not load detector config {det_cfg_path}: {e}")
-    return merge_detector_cfg(detector_cfg, getattr(args, "dataset_detector_cfg", None))
+    """Load detector settings from the active benchmark config, if any."""
+    detector_cfg = getattr(args, "dataset_detector_cfg", None)
+    return dict(detector_cfg) if isinstance(detector_cfg, dict) else {}
 
 
 def on_predict_start(predictor, args, timing_stats=None):
@@ -101,7 +92,7 @@ def on_predict_start(predictor, args, timing_stats=None):
     predictor.custom_args = args  # Store for later use
 
     # Attach detector class names to each tracker for visualization.
-    # Looks for boxmot/configs/detectors/<model_stem>.yaml with a 'classes' dict.
+    # Class names come from the active benchmark config when available.
     _det_cfg = _load_runtime_detector_cfg(args)
     if isinstance(_det_cfg, dict) and "classes" in _det_cfg:
         _names = {int(k): str(v) for k, v in _det_cfg["classes"].items()}
