@@ -66,7 +66,6 @@ a ``target_fps`` is provided.
 """
 
 import configparser
-import shutil
 from pathlib import Path
 from typing import Dict, Generator, List, Optional, Union
 
@@ -122,24 +121,6 @@ def _load_text_matrix(path: Path, *, delimiter: str | None = None, comments: str
     if data.ndim == 1:
         data = data.reshape(1, -1)
     return np.asarray(data, dtype=np.float32)
-
-
-def _filter_gt_file(src: Path, dst: Path, keep_ids: set[int]) -> bool:
-    """Filter a GT-like text file by frame IDs and write it to ``dst``."""
-    if not src.exists():
-        return False
-
-    data = _load_text_matrix(src, delimiter=",", comments=None)
-    if data.size == 0:
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text("")
-        return True
-
-    mask = np.isin(data[:, 0].astype(int), list(keep_ids))
-    filtered = data[mask]
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    np.savetxt(dst, filtered, delimiter=",", fmt="%g")
-    return True
 
 
 class MOTDataset:
@@ -245,10 +226,9 @@ class MOTSequence:
     * ``embs`` – ``(N, E)`` ReID embedding array aligned with *dets*.
 
     When *target_fps* is set and a ``seqinfo.ini`` with ``frameRate`` is
-    present, frames (together with detections, embeddings and ground truth)
-    are subsampled accordingly.  A temporary ``gt_temp.txt`` is written
-    next to the original ``gt.txt`` so that evaluation tools can use the
-    filtered annotations.
+    present, frames (together with detections and embeddings) are subsampled
+    accordingly.  Evaluation-specific GT filtering is handled by the evaluator,
+    not by mutating the source dataset in place.
 
     Args:
         name: Sequence name.
@@ -269,13 +249,9 @@ class MOTSequence:
     def _prepare(self) -> None:
         """Load detections / embeddings and optionally downsample to *target_fps*.
 
-        For AABB datasets this ensures ``gt_temp.txt`` exists for evaluation.
-        For OBB datasets it writes filtered ``gt_obb*_temp.txt`` files when
-        FPS downsampling is enabled.
+        Ground-truth filtering for evaluation is handled separately by the
+        evaluator so dataset iteration stays side-effect free.
         """
-        updated_gt = False
-        gt_dir = self.meta['seq_dir'] / 'gt'
-
         # 1) Load dets & embs
         if self.meta['det_path'] and self.meta['emb_path']:
             self.dets = _load_text_matrix(self.meta['det_path'], comments="#")
@@ -299,17 +275,6 @@ class MOTSequence:
                     idxs_to_keep = [i for i, fid in enumerate(self.frame_ids) if fid in keep_ids]
                     self.frame_ids = self.frame_ids[idxs_to_keep]
                     self.frame_paths = [self.frame_paths[i] for i in idxs_to_keep]
-
-                    # b) Filter GT and write temp annotations for evaluation.
-                    filtered_any = False
-                    filtered_any |= _filter_gt_file(gt_dir / 'gt.txt', gt_dir / 'gt_temp.txt', keep_ids)
-                    filtered_any |= _filter_gt_file(gt_dir / 'gt_obb.txt', gt_dir / 'gt_obb_temp.txt', keep_ids)
-                    filtered_any |= _filter_gt_file(gt_dir / 'gt_obb_raw.txt', gt_dir / 'gt_obb_raw_temp.txt', keep_ids)
-                    updated_gt = filtered_any
-
-        # 3) Ensure gt_temp.txt always exists for the evaluator (copy gt.txt if unchanged)
-        if (gt_dir / 'gt.txt').exists() and not updated_gt:
-            shutil.copy2(gt_dir / 'gt.txt', gt_dir / 'gt_temp.txt')
 
     def __iter__(self) -> Generator[Dict[str, Union[int, np.ndarray]], None, None]:
         """Yield frame dictionaries one by one.
@@ -341,22 +306,6 @@ class MOTSequence:
                 'dets': dets_f,
                 'embs': embs_f
             }
-
-
-def process_sequences_lazily(dataset: MOTDataset) -> None:
-    """Example usage of lazy-loading and processing sequences from the dataset.
-
-    Args:
-        dataset: A :class:`MOTDataset` instance.
-    """
-    for seq_name in dataset.sequence_names():
-        LOGGER.info(f"Processing sequence: {seq_name}")
-        for frame_data in dataset.get_sequence(seq_name):
-            print(
-                f"Seq: {seq_name}, "
-                f"Frame: {frame_data['frame_id']}, "
-                f"Dets: {frame_data['dets'].shape[0]}"
-            )
 
 
 if __name__ == "__main__":

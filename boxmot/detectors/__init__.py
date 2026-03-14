@@ -30,13 +30,16 @@ def is_rtdetr_model(yolo_name):
 
 
 def default_imgsz(yolo_name):
-    """Return the generic detector fallback image size."""
+    """Return the detector fallback image size when no benchmark config is active."""
+    if is_yolox_model(yolo_name):
+        return [1080, 1920]
     return [640, 640]
 
 
 def default_conf(yolo_name):
-    """Return the generic detector fallback confidence threshold."""
-    return 0.25
+    """Return the detector fallback confidence threshold when no benchmark config is active."""
+    del yolo_name
+    return 0.01
 
 
 def get_detector_class(yolo_model):

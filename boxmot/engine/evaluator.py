@@ -423,6 +423,65 @@ def apply_gt_class_remap(
         np.savetxt(gt_file, data, delimiter=',', fmt="%g")
 
 
+def _write_filtered_eval_gt(src: Path, dst: Path, keep_ids: Optional[set[int]] = None) -> None:
+    """Copy a GT-like CSV file to *dst*, optionally filtering by frame IDs."""
+    try:
+        data = np.loadtxt(src, delimiter=",")
+    except ValueError:
+        data = np.empty((0, 0), dtype=np.float32)
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if data.size == 0:
+        dst.write_text("")
+        return
+
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+
+    if keep_ids:
+        data = data[np.isin(data[:, 0].astype(int), list(keep_ids))]
+
+    if data.size == 0:
+        dst.write_text("")
+        return
+
+    np.savetxt(dst, data, delimiter=",", fmt="%g")
+
+
+def _prepare_aabb_eval_gt(
+    args: argparse.Namespace,
+    gt_folder: Path,
+    seq_info: dict[str, int],
+) -> Path:
+    """Create a run-local AABB GT tree so evaluation does not mutate source datasets."""
+    bridge_root = args.exp_dir / "trackeval_gt"
+    kept_by_seq = getattr(args, "seq_frame_nums", {}) or {}
+    uses_flat_annotations = all((gt_folder / f"{seq}.txt").exists() for seq in seq_info)
+
+    for seq_name in seq_info:
+        keep_ids = set(kept_by_seq.get(seq_name, [])) or None
+        if uses_flat_annotations:
+            src_gt = gt_folder / f"{seq_name}.txt"
+            dst_gt = bridge_root / f"{seq_name}.txt"
+        else:
+            seq_gt_dir = gt_folder / seq_name / "gt"
+            src_gt = seq_gt_dir / "gt.txt"
+            if not src_gt.exists():
+                src_gt = seq_gt_dir / "gt_temp.txt"
+            if not src_gt.exists():
+                raise FileNotFoundError(f"Missing GT file for sequence {seq_name} under {seq_gt_dir}")
+            dst_gt = bridge_root / seq_name / "gt" / "gt_temp.txt"
+
+        _write_filtered_eval_gt(src_gt, dst_gt, keep_ids)
+
+    remap = getattr(args, "gt_class_remap", None)
+    if remap and not uses_flat_annotations:
+        distractor_ids = getattr(args, "gt_class_distractor_ids", None)
+        apply_gt_class_remap(bridge_root, remap, distractor_ids)
+
+    return bridge_root
+
+
 def eval_init(args,
               trackeval_dest: Path = TRACKEVAL,
               branch: str = "main",
@@ -1331,7 +1390,7 @@ def trackeval(
     stdout, stderr = p.communicate()
 
     if stderr:
-        print("Standard Error:\n", stderr)
+        LOGGER.warning(f"TrackEval stderr:\n{stderr}")
     return stdout
 
 
@@ -1363,17 +1422,6 @@ def _load_obb_gt_matrix(source: Path) -> np.ndarray:
         return np.concatenate([data[:, 0:2], corners, data[:, 7:10]], axis=1)
 
     raise ValueError(f"Unsupported OBB GT format in {source}: expected 10 or 13 columns, got {data.shape[1]}")
-
-
-def _write_raw_obb_gt(source: Path, out_file: Path) -> None:
-    """Normalize OBB GT into the MMOT TrackEval 13-column corner format."""
-    normalized = _load_obb_gt_matrix(source)
-    if normalized.size == 0:
-        out_file.write_text("")
-        return
-
-    out_file.parent.mkdir(parents=True, exist_ok=True)
-    np.savetxt(out_file, normalized, delimiter=",", fmt="%g")
 
 
 def _prepare_obb_eval_bridge(
@@ -1490,7 +1538,7 @@ def trackeval_obb(
 
     stdout, stderr = p.communicate()
     if stderr:
-        print("Standard Error:\n", stderr)
+        LOGGER.warning(f"OBB TrackEval stderr:\n{stderr}")
     return stdout
 
 
@@ -1678,6 +1726,8 @@ def run_generate_mot_results(args: argparse.Namespace, evolve_config: dict = Non
                 total_track_frames += timing_dict.get('num_frames', 0)
             except Exception:
                 LOGGER.exception(f"Error processing {seq}")
+
+    args.seq_frame_nums = seq_frame_nums
     
     # Record aggregated tracking time in timing_stats
     if timing_stats is not None:
@@ -1768,6 +1818,7 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     if _resolve_eval_box_type(args, cfg) == "obb":
         trackeval_results = trackeval_obb(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
     else:
+        gt_folder = _prepare_aabb_eval_gt(args, gt_folder, seq_info)
         trackeval_results = trackeval_aabb(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
 
     parsed_results = parse_mot_results(
@@ -1897,8 +1948,8 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
 def apply_class_remap(args, det_cfg: dict) -> None:
     """Remap GT class IDs to match detector output (step 3.5).
 
-    Loads benchmark config, builds the class mapping, rewrites gt_temp.txt files,
-    and mutates args with remapped_class_ids / remapped_class_names when needed.
+    Loads benchmark config, builds the class mapping, and stores remap metadata
+    so TrackEval can work on a run-local GT copy.
     """
     bench_cfg: dict = {}
     benchmark_id = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
@@ -1919,7 +1970,8 @@ def apply_class_remap(args, det_cfg: dict) -> None:
     if remap_result is not None:
         remap_dict, new_class_ids, new_class_names = remap_result
         distractor_ids = [int(k) for k in bench_cfg.get("distractor_classes", {}).keys()]
-        apply_gt_class_remap(args.source, remap_dict, distractor_ids)
+        args.gt_class_remap = remap_dict
+        args.gt_class_distractor_ids = distractor_ids
         args.remapped_class_ids = new_class_ids
         args.remapped_class_names = [n.lower() for n in new_class_names]
 
@@ -1960,8 +2012,7 @@ def main(args):
     LOGGER.opt(colors=True).info("<cyan>[3/4]</cyan> Running tracker...")
     run_generate_mot_results(args, timing_stats=timing_stats)
 
-    # Step 3.5: Remap GT class IDs to match detector output.
-    # Must run after gt_temp.txt is created (step 3) and before TrackEval (step 4).
+    # Step 3.5: Prepare GT class remapping metadata for TrackEval.
     apply_class_remap(args, _det_cfg)
 
     # Step 4: Evaluate with TrackEval

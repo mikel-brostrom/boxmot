@@ -11,6 +11,7 @@ inside the individual detector classes.
 
 import time
 import types
+from glob import glob
 from pathlib import Path
 from typing import Callable, Generator, List, Optional, Union
 
@@ -100,6 +101,67 @@ def _iter_source(source, vid_stride: int = 1):
                     yield str(item), img
         return
 
+    if isinstance(source, (str, Path)):
+        source_str = str(source)
+
+        # Preserve raw URL/stream sources; ``Path("rtsp://...")`` would corrupt the scheme.
+        if "://" in source_str:
+            cap = cv2.VideoCapture(source_str)
+            if not cap.isOpened():
+                cap.release()
+                LOGGER.error(f"Could not open source: {source_str}")
+                return
+
+            frame_idx = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frame_idx += 1
+                if (frame_idx - 1) % vid_stride == 0:
+                    yield source_str, frame
+            cap.release()
+            return
+
+        # Expand file globs before trying webcam parsing.
+        if any(ch in source_str for ch in "*?[]"):
+            for match in sorted(glob(source_str)):
+                img = cv2.imread(match)
+                if img is not None:
+                    yield match, img
+            return
+
+        p = Path(source_str)
+        if p.exists():
+            # Directory of images
+            if p.is_dir():
+                paths = sorted(f for f in p.iterdir() if f.suffix.lower() in IMG_EXTS)
+                for fp in paths:
+                    img = cv2.imread(str(fp))
+                    if img is not None:
+                        yield str(fp), img
+                return
+
+            # Single image file
+            img = cv2.imread(str(p))
+            if img is not None:
+                yield str(p), img
+                return
+
+            # Video file
+            cap = cv2.VideoCapture(str(p))
+            if cap.isOpened():
+                frame_idx = 0
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    frame_idx += 1
+                    if (frame_idx - 1) % vid_stride == 0:
+                        yield str(p), frame
+                cap.release()
+                return
+
     # Integer → webcam
     try:
         cam_id = int(source)
@@ -117,37 +179,7 @@ def _iter_source(source, vid_stride: int = 1):
     except (TypeError, ValueError):
         pass
 
-    p = Path(str(source))
-
-    # Directory of images
-    if p.is_dir():
-        paths = sorted(f for f in p.iterdir() if f.suffix.lower() in IMG_EXTS)
-        for fp in paths:
-            img = cv2.imread(str(fp))
-            if img is not None:
-                yield str(fp), img
-        return
-
-    # Single image file
-    img = cv2.imread(str(p))
-    if img is not None:
-        yield str(p), img
-        return
-
-    # Video file
-    cap = cv2.VideoCapture(str(p))
-    if cap.isOpened():
-        frame_idx = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame_idx += 1
-            if (frame_idx - 1) % vid_stride == 0:
-                yield str(p), frame
-        cap.release()
-    else:
-        LOGGER.error(f"Could not open source: {source}")
+    LOGGER.error(f"Could not open source: {source}")
 
 
 # ---------------------------------------------------------------------------
@@ -249,13 +281,20 @@ class DetectorReIDPipeline:
         proxy = _PredictorProxy(device=self.device, bs=1)
         self._fire("on_predict_start", proxy)
 
-        for path, frame in _iter_source(source, vid_stride=vid_stride):
+        for frame_idx, (path, frame) in enumerate(_iter_source(source, vid_stride=vid_stride), start=1):
             self.timing_stats.start_frame()
+            t0 = time.perf_counter()
             results = self.detector(
                 [frame], conf=conf, iou=iou,
                 classes=classes, agnostic_nms=agnostic_nms,
             )
+            self.timing_stats.totals["inference"] += (time.perf_counter() - t0) * 1000
+            for result in results:
+                if not result.path:
+                    result.path = path
             proxy.results = results
+            proxy.frame_idx = frame_idx
+            proxy.source_path = path
             self._fire("on_predict_postprocess_end", proxy)
 
             if getattr(getattr(proxy, "custom_args", None), "_user_quit", False):
@@ -272,10 +311,13 @@ class DetectorReIDPipeline:
         classes: Optional[List[int]],
     ) -> list:
         """Run batch detection and return a list of Detection objects."""
-        return self.detector(
+        t0 = time.perf_counter()
+        results = self.detector(
             images, conf=conf, iou=iou,
             classes=classes, agnostic_nms=agnostic_nms,
         )
+        self.timing_stats.totals["inference"] += (time.perf_counter() - t0) * 1000
+        return results
 
     # ------------------------------------------------------------------
     # Warmup & batch size tuning

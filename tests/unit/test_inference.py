@@ -3,11 +3,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from boxmot.detectors import default_conf, default_imgsz
 from boxmot.detectors.detector import Detections
 import boxmot.detectors.ultralytics as ultralytics_detector_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
 from boxmot.engine.cli import ensure_model_extension
-from boxmot.engine.inference import prepare_detections
+from boxmot.engine.inference import _iter_source, prepare_detections
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
@@ -125,6 +126,49 @@ def test_ultralytics_detector_preserves_obb_results(monkeypatch):
         results[0].dets,
         np.array([[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]], dtype=np.float32),
     )
+
+
+def test_default_detector_fallbacks_preserve_legacy_runtime_behavior():
+    assert default_imgsz("yolox_s.pt") == [1080, 1920]
+    assert default_imgsz("yolov8n.pt") == [640, 640]
+    assert default_conf("yolox_s.pt") == 0.01
+
+
+def test_iter_source_expands_globs(tmp_path):
+    img = np.zeros((8, 8, 3), dtype=np.uint8)
+    img_path = tmp_path / "000001.jpg"
+    import cv2
+    cv2.imwrite(str(img_path), img)
+
+    frames = list(_iter_source(str(tmp_path / "*.jpg")))
+
+    assert len(frames) == 1
+    assert frames[0][0] == str(img_path)
+    assert frames[0][1].shape == img.shape
+
+
+def test_iter_source_preserves_stream_urls(monkeypatch):
+    seen = {}
+
+    class _FakeCapture:
+        def __init__(self, value):
+            seen["source"] = value
+
+        def isOpened(self):
+            return False
+
+        def release(self):
+            seen["released"] = True
+
+    import boxmot.engine.inference as inference_module
+
+    monkeypatch.setattr(inference_module.cv2, "VideoCapture", _FakeCapture)
+
+    frames = list(_iter_source("rtsp://camera/stream"))
+
+    assert frames == []
+    assert seen["source"] == "rtsp://camera/stream"
+    assert seen["released"] is True
 
 
 def test_tracker_infers_obb_mode_on_empty_followup_frame():

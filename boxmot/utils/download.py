@@ -4,7 +4,6 @@
 Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
-import argparse
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -310,24 +309,3 @@ def download_eval_data(
     extract_zip(benchmark_zip, dataset_dest.parent, overwrite=overwrite)
 
     LOGGER.debug(f"Benchmark data ready at: {dataset_dest.parent}")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download BoxMOT datasets and MOT evaluation tools.")
-    parser.add_argument("--branch", default="master", help="Branch of TrackEval to download.")
-    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing downloads and extractions.")
-    parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
-    args = parser.parse_args()
-
-    download_trackeval(
-        dest=Path("TrackEval"),
-        branch=args.branch,
-        overwrite=args.overwrite
-    )
-
-    download_eval_data(
-        runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/runs.zip",
-        dataset_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
-        dataset_dest=Path("boxmot/engine/TrackEval/MOT17-ablation.zip"),
-        overwrite=args.overwrite
-    )
