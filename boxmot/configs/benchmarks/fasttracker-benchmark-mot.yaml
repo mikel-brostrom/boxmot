@@ -9,7 +9,7 @@ download:
   dataset_url: "hf://Fleyderer/FastTracker-Benchmark-MOT/FastTracker-Benchmark-MOT"
 
 storage:
-  root: "boxmot/engine/trackeval/data/FastTracker-Benchmark-MOT-s"
+  root: "boxmot/engine/trackeval/data/FastTracker-Benchmark-MOT"
   split: "train"
 
 evaluation:
