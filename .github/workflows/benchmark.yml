@@ -48,15 +48,15 @@ jobs:
         id: cache-restore
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/TrackEval/MOT17-ablation.zip
-          key: mot17-ablation-dataset-cache-v3
+          path: boxmot/engine/trackeval/data/MOT17-ablation.zip
+          key: mot17-ablation-dataset-cache-v4
 
       - name: Cache MOT17.zip if not already cached
         if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/TrackEval/MOT17-ablation.zip
-          key: mot17-ablation-dataset-cache-v3
+          path: boxmot/engine/trackeval/data/MOT17-ablation.zip
+          key: mot17-ablation-dataset-cache-v4
 
       - name: DOTA8-MOT OBB smoke tracking
         id: obb_smoke
@@ -75,7 +75,7 @@ jobs:
 
           OBB_STATUS="${{ steps.obb_smoke.outputs.obb_status }}"
 
-          if boxmot eval --classes 0 --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --source MOT17-ablation; then
+          if boxmot eval --classes 0 --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --data mot17-ablation; then
             STATUS="✅"
           else
             STATUS="❌"

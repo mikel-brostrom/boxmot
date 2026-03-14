@@ -241,10 +241,13 @@ def _resolve_runtime_benchmark_name(cfg: dict[str, Any], source_root: Path, cfg_
     return benchmark_id
 
 
-def apply_benchmark_config(args: Any, overwrite: bool = False) -> dict[str, Any] | None:
-    """Apply a benchmark YAML referenced via ``args.source`` to the current args namespace."""
+def _apply_benchmark_config_ref(args: Any, benchmark_ref: str | Path | None, overwrite: bool = False) -> dict[str, Any] | None:
+    """Apply a benchmark YAML referenced by ``benchmark_ref`` to the current args namespace."""
+    if not benchmark_ref:
+        return None
+
     try:
-        cfg_path = resolve_benchmark_cfg_path(args.source)
+        cfg_path = resolve_benchmark_cfg_path(benchmark_ref)
         cfg = load_benchmark_cfg(cfg_path)
     except FileNotFoundError:
         return None
@@ -285,12 +288,20 @@ def apply_benchmark_config(args: Any, overwrite: bool = False) -> dict[str, Any]
     return cfg
 
 
+def apply_benchmark_config(args: Any, overwrite: bool = False) -> dict[str, Any] | None:
+    """Apply a benchmark YAML referenced via ``args.data`` to the current args namespace."""
+    return _apply_benchmark_config_ref(args, getattr(args, "data", None), overwrite=overwrite)
+
+
 # Backward-compatible aliases for external imports.
 resolve_dataset_cfg_path = resolve_benchmark_cfg_path
 load_dataset_cfg = load_benchmark_cfg
 get_dataset_detector_cfg = get_benchmark_detector_cfg
 should_use_dataset_detector = should_use_benchmark_detector
-apply_dataset_benchmark_config = apply_benchmark_config
+def apply_dataset_benchmark_config(args: Any, overwrite: bool = False) -> dict[str, Any] | None:
+    """Backward-compatible benchmark resolver using ``args.data`` or legacy ``args.source``."""
+    benchmark_ref = getattr(args, "data", None) or getattr(args, "source", None)
+    return _apply_benchmark_config_ref(args, benchmark_ref, overwrite=overwrite)
 
 
 __all__ = [

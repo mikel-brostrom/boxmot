@@ -5,6 +5,7 @@ import boxmot.utils.benchmark_config as benchmark_config
 
 from boxmot.utils.benchmark_config import (
     apply_benchmark_config,
+    apply_dataset_benchmark_config,
     ensure_benchmark_detector_model,
     get_benchmark_detector_url,
     load_benchmark_cfg,
@@ -72,7 +73,7 @@ def test_dataset_detector_is_not_used_for_other_explicit_models():
 
 def test_apply_benchmark_config_preserves_runtime_benchmark_name(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
-    args = SimpleNamespace(source="dancetrack-ablation")
+    args = SimpleNamespace(data="dancetrack-ablation", source=None)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "dancetrack-ablation"
     assert args.benchmark_id == "dancetrack-ablation"
@@ -83,11 +84,26 @@ def test_apply_benchmark_config_preserves_runtime_benchmark_name(monkeypatch):
 
 def test_apply_benchmark_config_preserves_case_matched_storage_name(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
-    args = SimpleNamespace(source="MOT17-ablation")
+    args = SimpleNamespace(data="MOT17-ablation", source=None)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "mot17-ablation"
     assert args.benchmark_id == "mot17-ablation"
     assert args.dataset_id == "mot17-ablation"
+    assert args.benchmark == "MOT17-ablation"
+    assert args.source == Path("boxmot/engine/trackeval/data/MOT17-ablation/train")
+
+
+def test_apply_benchmark_config_ignores_source_without_data(monkeypatch):
+    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
+    args = SimpleNamespace(source="MOT17-ablation")
+    assert apply_benchmark_config(args) is None
+
+
+def test_apply_dataset_benchmark_config_accepts_legacy_source_fallback(monkeypatch):
+    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
+    args = SimpleNamespace(source="MOT17-ablation")
+    cfg = apply_dataset_benchmark_config(args)
+    assert cfg["id"] == "mot17-ablation"
     assert args.benchmark == "MOT17-ablation"
     assert args.source == Path("boxmot/engine/trackeval/data/MOT17-ablation/train")
 

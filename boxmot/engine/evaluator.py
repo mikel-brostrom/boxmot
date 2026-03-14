@@ -87,6 +87,45 @@ def _resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] =
     return str(box_type).lower() if box_type else "aabb"
 
 
+def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, dict]:
+    """Apply benchmark-driven detector defaults to the current args namespace."""
+    benchmark_bundle = _load_benchmark_cfg(args)
+    benchmark_cfg = benchmark_bundle.get("benchmark", {})
+
+    use_benchmark_detector = should_use_benchmark_detector(args, benchmark_bundle)
+    dataset_detector_cfg: dict = {}
+    if use_benchmark_detector:
+        dataset_detector_cfg = get_benchmark_detector_cfg(benchmark_bundle)
+        if dataset_detector_cfg:
+            args.dataset_detector_cfg = dataset_detector_cfg
+    else:
+        args.dataset_detector_cfg = None
+
+    required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
+    if required_yolo_model and use_benchmark_detector:
+        required_model = ensure_benchmark_detector_model(benchmark_bundle) or resolve_model_path(required_yolo_model)
+        if args.yolo_model[0] != required_model:
+            LOGGER.info(f"Using benchmark-default detector: {required_model}")
+        args.yolo_model = [required_model]
+
+    if benchmark_cfg.get("box_type") and not getattr(args, "eval_box_type", None):
+        args.eval_box_type = str(benchmark_cfg["box_type"]).lower()
+
+    if args.imgsz is None:
+        if "imgsz" in dataset_detector_cfg:
+            args.imgsz = list(dataset_detector_cfg["imgsz"])
+        else:
+            args.imgsz = default_imgsz(args.yolo_model[0])
+
+    if args.conf is None:
+        if "conf" in dataset_detector_cfg:
+            args.conf = float(dataset_detector_cfg["conf"])
+        else:
+            args.conf = default_conf(args.yolo_model[0])
+
+    return benchmark_bundle, benchmark_cfg, dataset_detector_cfg
+
+
 def build_detection_class_remap(
     bench_cfg: dict,
     det_cfg: Optional[dict],
@@ -391,13 +430,13 @@ def eval_init(args,
     ) -> None:
     """
     Common initialization: download TrackEval and (if needed) the MOT-challenge
-    data for ablation runs, then canonicalize args.source.
+    data for benchmark runs, then canonicalize args.source.
     Modifies args in place.
     """
     # 1) download the TrackEval code
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
 
-    # 2) if a dataset benchmark YAML was provided, download and rewire args.source/split
+    # 2) if a benchmark YAML was provided via args.data, download and rewire args.source/split
     apply_benchmark_config(args, overwrite=overwrite)
 
     # 3) finally, make source an absolute Path everywhere
@@ -1110,6 +1149,10 @@ def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[Timi
         args: CLI arguments.
         timing_stats: Optional TimingStats for timing instrumentation.
     """
+    if getattr(args, "data", None) and getattr(args, "source", None) is None:
+        apply_benchmark_config(args, overwrite=False)
+
+    _configure_benchmark_runtime(args)
     source_root = Path(args.source)
 
     args.batch_size = int(getattr(args, "batch_size", 16))
@@ -1889,39 +1932,10 @@ def main(args):
     LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
     eval_init(args)
 
-    benchmark_bundle = _load_benchmark_cfg(args)
-    benchmark_cfg = benchmark_bundle.get("benchmark", {})
-    dataset_detector_cfg = {}
-    if should_use_benchmark_detector(args, benchmark_bundle):
-        dataset_detector_cfg = get_benchmark_detector_cfg(benchmark_bundle)
-        if dataset_detector_cfg:
-            args.dataset_detector_cfg = dataset_detector_cfg
-    else:
-        args.dataset_detector_cfg = None
-
-    required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
-    if required_yolo_model and should_use_benchmark_detector(args, benchmark_bundle):
-        required_model = ensure_benchmark_detector_model(benchmark_bundle) or resolve_model_path(required_yolo_model)
-        if args.yolo_model[0] != required_model:
-            LOGGER.info(f"Using benchmark-default detector: {required_model}")
-        args.yolo_model = [required_model]
-
-    if benchmark_cfg.get("box_type") and not getattr(args, "eval_box_type", None):
-        args.eval_box_type = str(benchmark_cfg["box_type"]).lower()
+    _, benchmark_cfg, dataset_detector_cfg = _configure_benchmark_runtime(args)
 
     # Benchmark detector settings drive imgsz/conf/class remapping when they are active.
     _det_cfg = dict(dataset_detector_cfg or {})
-
-    if args.imgsz is None:
-        if "imgsz" in _det_cfg:
-            args.imgsz = list(_det_cfg["imgsz"])
-        else:
-            args.imgsz = default_imgsz(args.yolo_model[0])
-    if args.conf is None:
-        if "conf" in _det_cfg:
-            args.conf = float(_det_cfg["conf"])
-        else:
-            args.conf = default_conf(args.yolo_model[0])
 
     # Print evaluation pipeline header (blue palette)
     LOGGER.info("")
