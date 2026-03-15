@@ -1,18 +1,21 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import torch
 
-from boxmot.detectors import default_conf, default_imgsz
+from boxmot.detectors import default_conf, default_imgsz, get_runtime_detector_cfg, load_detector_cfg
 from boxmot.detectors.detector import Detections
 import boxmot.detectors.ultralytics as ultralytics_detector_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
 from boxmot.engine.cli import ensure_model_extension
+import boxmot.engine.evaluator as evaluator_module
 from boxmot.engine.inference import _iter_source, prepare_detections
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
 from boxmot.utils.iou import iou_obb_pair
+from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
 from boxmot.utils import WEIGHTS
 
 _DUMMY_IMG = np.zeros((64, 64, 3), dtype=np.uint8)
@@ -134,6 +137,68 @@ def test_default_detector_fallbacks_preserve_legacy_runtime_behavior():
     assert default_conf("yolox_s.pt") == 0.01
 
 
+def test_detector_yaml_overrides_runtime_defaults_by_model_name():
+    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+
+    assert detector_cfg["classes"][0] == "plane"
+    assert default_imgsz("yolo11s-obb.pt") == detector_cfg["imgsz"]
+    assert default_conf("yolo11s-obb.pt") == detector_cfg["conf"]
+
+
+def test_runtime_detector_cfg_uses_model_yaml_to_override_benchmark_values():
+    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    benchmark_cfg = {
+        "default_model": "models/yolo11s-obb.pt",
+        "imgsz": [1024, 1024],
+        "conf": 0.2,
+        "classes": {0: "person"},
+    }
+
+    resolved = get_runtime_detector_cfg("yolo11s-obb.pt", benchmark_cfg)
+
+    assert resolved["default_model"] == "models/yolo11s-obb.pt"
+    assert resolved["imgsz"] == detector_cfg["imgsz"]
+    assert resolved["conf"] == detector_cfg["conf"]
+    assert resolved["classes"][0] == detector_cfg["classes"][0]
+
+
+def test_configure_benchmark_runtime_lets_model_yaml_override_benchmark_detector(monkeypatch):
+    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    benchmark_bundle = {
+        "benchmark": {"box_type": "obb"},
+        "detector": {
+            "default_model": "models/yolo11s-obb.pt",
+            "imgsz": [1024, 1024],
+            "conf": 0.2,
+            "classes": {0: "person"},
+        },
+    }
+    args = SimpleNamespace(
+        yolo_model=[Path("models/yolov8n.pt")],
+        imgsz=None,
+        conf=None,
+        eval_box_type=None,
+        dataset_detector_cfg=None,
+    )
+
+    monkeypatch.setattr(evaluator_module, "_load_benchmark_cfg", lambda _args: benchmark_bundle)
+    monkeypatch.setattr(evaluator_module, "should_use_benchmark_detector", lambda _args, _cfg: True)
+    monkeypatch.setattr(
+        evaluator_module,
+        "ensure_benchmark_detector_model",
+        lambda _cfg: Path("models/yolo11s-obb.pt"),
+    )
+
+    _, _, runtime_cfg = evaluator_module._configure_benchmark_runtime(args)
+
+    assert args.yolo_model == [Path("models/yolo11s-obb.pt")]
+    assert args.imgsz == detector_cfg["imgsz"]
+    assert args.conf == detector_cfg["conf"]
+    assert args.eval_box_type == "obb"
+    assert runtime_cfg["classes"][0] == detector_cfg["classes"][0]
+    assert args.dataset_detector_cfg["classes"][0] == detector_cfg["classes"][0]
+
+
 def test_iter_source_expands_globs(tmp_path):
     img = np.zeros((8, 8, 3), dtype=np.uint8)
     img_path = tmp_path / "000001.jpg"
@@ -169,6 +234,22 @@ def test_iter_source_preserves_stream_urls(monkeypatch):
     assert frames == []
     assert seen["source"] == "rtsp://camera/stream"
     assert seen["released"] is True
+
+
+def test_aabb_text_output_uses_conf_class_det_ind_columns(tmp_path):
+    tracks = np.array([[10, 20, 30, 45, 7, 0.85, 3, 11]], dtype=np.float32)
+
+    mot_rows = convert_to_mot_format(tracks, frame_idx=5)
+    write_mot_results(tmp_path / "tracks.txt", mot_rows)
+
+    np.testing.assert_array_equal(
+        mot_rows[0, :6],
+        np.array([5, 7, 10, 20, 20, 25], dtype=np.float32),
+    )
+    assert np.isclose(mot_rows[0, 6], 0.85)
+    assert mot_rows[0, 7] == 4
+    assert mot_rows[0, 8] == 11
+    assert (tmp_path / "tracks.txt").read_text().strip() == "5,7,10,20,20,25,0.850000,4,11"
 
 
 def test_tracker_infers_obb_mode_on_empty_followup_frame():

@@ -30,7 +30,7 @@ from boxmot.utils.dataloaders.dataset import MOTDataset
 from boxmot.postprocessing.gsi import gsi
 
 from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
-from boxmot.detectors import default_imgsz, default_conf
+from boxmot.detectors import default_imgsz, default_conf, get_runtime_detector_cfg
 from boxmot.utils.benchmark_config import (
     apply_benchmark_config,
     ensure_benchmark_detector_model,
@@ -93,13 +93,11 @@ def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, 
     benchmark_cfg = benchmark_bundle.get("benchmark", {})
 
     use_benchmark_detector = should_use_benchmark_detector(args, benchmark_bundle)
-    dataset_detector_cfg: dict = {}
+    benchmark_detector_cfg: dict = {}
     if use_benchmark_detector:
-        dataset_detector_cfg = get_benchmark_detector_cfg(benchmark_bundle)
-        if dataset_detector_cfg:
-            args.dataset_detector_cfg = dataset_detector_cfg
+        benchmark_detector_cfg = get_benchmark_detector_cfg(benchmark_bundle)
     else:
-        args.dataset_detector_cfg = None
+        benchmark_detector_cfg = {}
 
     required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
     if required_yolo_model and use_benchmark_detector:
@@ -107,6 +105,9 @@ def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, 
         if args.yolo_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")
         args.yolo_model = [required_model]
+
+    dataset_detector_cfg = get_runtime_detector_cfg(args.yolo_model[0], benchmark_detector_cfg)
+    args.dataset_detector_cfg = dataset_detector_cfg or None
 
     if benchmark_cfg.get("box_type") and not getattr(args, "eval_box_type", None):
         args.eval_box_type = str(benchmark_cfg["box_type"]).lower()
@@ -1986,8 +1987,8 @@ def main(args):
 
     _, benchmark_cfg, dataset_detector_cfg = _configure_benchmark_runtime(args)
 
-    # Benchmark detector settings drive imgsz/conf/class remapping when they are active.
-    _det_cfg = dict(dataset_detector_cfg or {})
+    # Benchmark detector settings take precedence; otherwise use a model-matched detector YAML.
+    _det_cfg = get_runtime_detector_cfg(args.yolo_model[0], dataset_detector_cfg)
 
     # Print evaluation pipeline header (blue palette)
     LOGGER.info("")

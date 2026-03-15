@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from boxmot import TRACKERS
-from boxmot.detectors import default_imgsz, default_conf
+from boxmot.detectors import default_imgsz, default_conf, get_runtime_detector_cfg
 from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.trackers.tracker_zoo import create_tracker
 from boxmot.utils import TRACKER_CONFIGS
@@ -71,9 +71,11 @@ class TextResultsWriter:
 
 
 def _load_runtime_detector_cfg(args) -> dict:
-    """Load detector settings from the active benchmark config, if any."""
-    detector_cfg = getattr(args, "dataset_detector_cfg", None)
-    return dict(detector_cfg) if isinstance(detector_cfg, dict) else {}
+    """Load runtime detector settings from the benchmark config or a model-matched YAML."""
+    return get_runtime_detector_cfg(
+        getattr(args, "yolo_model", None),
+        getattr(args, "dataset_detector_cfg", None),
+    )
 
 
 def on_predict_start(predictor, args, timing_stats=None):

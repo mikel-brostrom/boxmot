@@ -119,7 +119,8 @@ def convert_to_mot_format(
 
     This function supports inputs as either a custom object with a 'boxes' attribute or a numpy array.
     For custom object inputs, 'boxes' should contain 'id', 'xyxy', 'conf', and 'cls' sub-attributes.
-    For numpy array inputs, the expected format per row is: (xmin, ymin, xmax, ymax, id, conf, cls).
+    For numpy array inputs, the expected format per row is:
+    ``(xmin, ymin, xmax, ymax, id, conf, cls[, det_ind])``.
 
     Parameters:
     - results (Union[Results, np.ndarray]): Tracking results for the current frame.
@@ -135,28 +136,33 @@ def convert_to_mot_format(
             # Convert numpy array results to MOT format
             tlwh = ops.xyxy2ltwh(results[:, 0:4])
             frame_idx_column = np.full((results.shape[0], 1), frame_idx, dtype=np.int32)
+            det_ind = (
+                results[:, 7:8].astype(np.int32)
+                if results.shape[1] > 7
+                else -np.ones((results.shape[0], 1), dtype=np.int32)
+            )
             mot_results = np.column_stack((
-                frame_idx_column, # frame index
+                frame_idx_column,  # frame index
                 results[:, 4].astype(np.int32),  # track id
                 tlwh.round().astype(np.int32),  # top,left,width,height
-                np.ones((results.shape[0], 1), dtype=np.int32),  # "not ignored"
-                results[:, 6].astype(np.int32) + 1,  # class
                 results[:, 5],  # confidence (float)
+                results[:, 6].astype(np.int32) + 1,  # class
+                det_ind,  # detection index
             ))
             return mot_results
         else:
             # Convert ultralytics results to MOT format
             num_detections = len(results.boxes)
             frame_indices = torch.full((num_detections, 1), frame_idx + 1, dtype=torch.int32)
-            not_ignored = torch.ones((num_detections, 1), dtype=torch.int32)
+            det_inds = torch.full((num_detections, 1), -1, dtype=torch.int32)
 
             mot_results = torch.cat([
-                frame_indices, # frame index
-                results.boxes.id.unsqueeze(1).astype(np.int32), # track id
-                ops.xyxy2ltwh(results.boxes.xyxy).astype(np.int32),  ## top,left,width,height
-                not_ignored, # "not ignored"
-                results.boxes.cls.unsqueeze(1).astype(np.int32) + 1, # class
-                results.boxes.conf.unsqueeze(1).astype(np.float32), # confidence (float)
+                frame_indices,  # frame index
+                results.boxes.id.unsqueeze(1).astype(np.int32),  # track id
+                ops.xyxy2ltwh(results.boxes.xyxy).astype(np.int32),  # top,left,width,height
+                results.boxes.conf.unsqueeze(1).astype(np.float32),  # confidence (float)
+                results.boxes.cls.unsqueeze(1).astype(np.int32) + 1,  # class
+                det_inds,  # detection index
             ], dim=1)
 
             return mot_results.numpy()
@@ -206,7 +212,7 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), "a") as file:
                 if mot_results.shape[1] == 9:
-                    np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%d,%d,%.6f")
+                    np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%.6f,%d,%d")
                 else:
                     np.savetxt(file, mot_results, fmt="%g", delimiter=",")
 
