@@ -36,18 +36,14 @@ class CustomMotChallenge2DBox(CustomMotChallengeBase, MotChallenge2DBox):
         real_classes, class_ids = self._normalize_class_config(cfg, ["person"])
         distractor_ids = cfg.get('DISTRACTOR_CLASS_IDS') or []
 
-        # Create a temp config with 'pedestrian' to pass super().__init__ validation
         temp_config = cfg.copy()
         temp_config['CLASSES_TO_EVAL'] = ['pedestrian']
-        
-        # Initialize parent with temp config
         super().__init__(temp_config)
-        
-        # Restore real classes and ids in self.config
+
         self.config['CLASSES_TO_EVAL'] = real_classes
         self.config['CLASS_IDS'] = class_ids
         self.config['DISTRACTOR_CLASS_IDS'] = distractor_ids
-        
+
         self._configure_class_data(
             real_classes,
             class_ids,
@@ -61,11 +57,7 @@ class CustomMotChallenge2DBox(CustomMotChallengeBase, MotChallenge2DBox):
     def get_preprocessed_seq_data(self, raw_data, cls):
         self._check_unique_ids(raw_data)
         cls_id = self.class_name_to_class_id[cls]
-        # MOT distractor set; prefer config override, otherwise fall back to legacy defaults
-        #if self.distractor_class_ids is not None:
         distractor_classes = self.distractor_class_ids
-        # else:
-        #     distractor_classes = [12, 8, 6, 7, 2] if self.benchmark == 'MOT20' else [12, 8, 7, 2]
 
         data_keys = ['gt_ids', 'tracker_ids', 'gt_dets', 'tracker_dets',
                     'tracker_confidences', 'similarity_scores']

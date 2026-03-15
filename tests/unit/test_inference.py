@@ -360,6 +360,30 @@ def test_ordered_benchmark_eval_class_names_preserve_multiword_legacy_classes():
     assert class_names == ["storage tank", "ground track field"]
 
 
+def test_select_plot_metrics_data_prefers_explicit_aggregate_rows():
+    results = {
+        "plane": {"HOTA": 11.0},
+        "all": {"HOTA": 22.0},
+    }
+
+    plot_class, metrics = evaluator_module._select_plot_metrics_data(results)
+
+    assert plot_class == "all"
+    assert metrics == {"HOTA": 22.0}
+
+
+def test_select_plot_metrics_data_skips_ambiguous_multiclass_rows():
+    results = {
+        "plane": {"HOTA": 11.0},
+        "ship": {"HOTA": 22.0},
+    }
+
+    plot_class, metrics = evaluator_module._select_plot_metrics_data(results)
+
+    assert plot_class == ""
+    assert metrics == {}
+
+
 def test_dota8_obb_gt_uses_zero_based_eval_class_ids():
     expected = {0, 4, 10, 14}
     found = set()

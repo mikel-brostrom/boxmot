@@ -127,67 +127,6 @@ def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, 
 
     return benchmark_bundle, benchmark_cfg, dataset_detector_cfg
 
-
-def build_detection_class_remap(
-    bench_cfg: dict,
-    det_cfg: Optional[dict],
-    benchmark_name: str = "",
-    model_stem: str = "",
-) -> dict[int, int]:
-    """Build a detector-class remap for OBB benchmarks whose GT classes are zero-based."""
-    eval_classes_cfg = bench_cfg.get("eval_classes") or {}
-    det_classes = (det_cfg or {}).get("classes", {})
-    class_mapping = bench_cfg.get("class_mapping") or {}
-
-    if not eval_classes_cfg or not det_classes:
-        return {}
-
-    det_name_to_id = {str(v).lower(): int(k) for k, v in det_classes.items()}
-    remap: dict[int, int] = {}
-
-    if class_mapping:
-        bench_name_to_zero_based_id = {str(v).lower(): int(k) - 1 for k, v in eval_classes_cfg.items()}
-        for bench_name_i, det_name_i in class_mapping.items():
-            bench_key = str(bench_name_i).lower()
-            det_key = str(det_name_i).lower()
-            if bench_key not in bench_name_to_zero_based_id or det_key not in det_name_to_id:
-                continue
-            remap[det_name_to_id[det_key]] = bench_name_to_zero_based_id[bench_key]
-        return remap
-
-    if len(eval_classes_cfg) > 1:
-        LOGGER.warning(
-            f"No class_mapping found for OBB benchmark '{benchmark_name}'"
-            f" ({model_stem}). Using positional detector-class remap."
-        )
-
-    bench_ordered = sorted((int(k) - 1, str(v).lower()) for k, v in eval_classes_cfg.items())
-    det_ordered = sorted((int(k), str(v).lower()) for k, v in det_classes.items())
-    for (bench_id, _), (det_id, _) in zip(bench_ordered, det_ordered):
-        remap[det_id] = bench_id
-    return remap
-
-
-def translate_detection_classes(
-    dets: np.ndarray,
-    embs: np.ndarray,
-    remap: dict[int, int],
-) -> tuple[np.ndarray, np.ndarray]:
-    """Translate detector class IDs in-place-compatible arrays and drop unmapped rows."""
-    if dets.size == 0 or not remap:
-        return dets, embs
-
-    class_col = 6 if dets.shape[1] >= 7 else 5
-    class_ids = dets[:, class_col].astype(int)
-    keep_mask = np.isin(class_ids, list(remap.keys()))
-
-    translated_dets = dets[keep_mask].copy()
-    translated_embs = embs[keep_mask].copy() if embs.size else embs
-    translated_classes = translated_dets[:, class_col].astype(int)
-    translated_dets[:, class_col] = np.asarray([remap[cid] for cid in translated_classes], dtype=np.float32)
-    return translated_dets, translated_embs
-
-
 def resolve_obb_eval_class_pairs(args: argparse.Namespace, bench_cfg: dict) -> list[tuple[str, int]]:
     """Resolve OBB class names and their actual zero-based MMOT class IDs."""
     eval_classes_cfg = bench_cfg.get("eval_classes") or {}
@@ -727,6 +666,28 @@ def _filter_obb_trackeval_results(
 def _display_summary_name(name: str) -> str:
     """Return a human-readable label for a parsed summary key."""
     return SUMMARY_AGGREGATE_LABELS.get(name, name)
+
+
+def _select_plot_metrics_data(results: dict) -> tuple[str, dict]:
+    """Return the metric row to visualize, preferring explicit aggregate rows."""
+    if not results:
+        return "", {}
+
+    first_value = next(iter(results.values()))
+    if isinstance(first_value, (int, float)):
+        return "single_class", results
+
+    for name in ("cls_comb_det_av", "cls_comb_cls_av", "all"):
+        metrics = results.get(name)
+        if isinstance(metrics, dict):
+            return name, metrics
+
+    if len(results) == 1:
+        name, metrics = next(iter(results.items()))
+        if isinstance(metrics, dict):
+            return name, metrics
+
+    return "", {}
 
 
 def _format_summary_values(metrics: dict) -> list[str]:
@@ -2064,31 +2025,12 @@ def main(args):
     # Print timing summary if we collected timing data
     if timing_stats.frames > 0:
         timing_stats.print_summary()
-    
-    # Only plot if we have results for a single class or handle multi-class plotting differently
-    # For now, let's just skip the radar chart if we have multiple classes or complex structure
-    # Or pick the first class found?
-    # The original code expected a flat dict of metrics. Now we have {class: {metric: val}}
-    
-    # Let's try to plot for each class or just skip for now to avoid breaking
-    # If 'pedestrian' is in results, use that, otherwise use the first key
-    
-    # Check if results is flat (single class backward compatibility) or nested
-    is_flat = False
-    if results and isinstance(list(results.values())[0], (int, float)):
-        is_flat = True
-        metrics_data = results
-        plot_class = 'single_class'
-    else:
-        plot_class = 'pedestrian'
-        if plot_class not in results and len(results) > 0:
-            plot_class = list(results.keys())[0]
-        metrics_data = results.get(plot_class, {})
+
+    plot_class, metrics_data = _select_plot_metrics_data(results)
 
     if metrics_data:
         plotter = MetricsPlotter(args.exp_dir)
-        
-        # Filter only the metrics we want to plot
+
         plot_metrics = ['HOTA', 'MOTA', 'IDF1']
         plot_values = [metrics_data.get(m, 0) for m in plot_metrics]
 

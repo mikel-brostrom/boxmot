@@ -1,4 +1,6 @@
 import os
+import warnings
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -69,18 +71,18 @@ class CustomMotChallengeOBB(CustomMotChallengeBase, _BaseDataset):
     @staticmethod
     def get_default_dataset_config():
         default_config = {
-            "GT_FOLDER": "/data3/PublicDataset/Custom/mmot/test/mot",
-            "IMG_FOLDER": "/data3/PublicDataset/Custom/mmot/test/rgb",
-            "TRACKERS_FOLDER": "/data3/litianhao/workdir/mmot",
+            "GT_FOLDER": "",
+            "IMG_FOLDER": "",
+            "TRACKERS_FOLDER": "",
             "OUTPUT_FOLDER": None,
             "TRACKERS_TO_EVAL": None,
             "CLASSES_TO_EVAL": list(DEFAULT_OBB_CLASS_NAME_TO_ID),
             "CLASS_IDS": None,
-            "SPLIT_TO_EVAL": "test",
+            "SPLIT_TO_EVAL": "train",
             "INPUT_AS_ZIP": False,
             "PRINT_CONFIG": True,
-            "TRACKER_SUB_FOLDER": "preds",
-            "OUTPUT_SUB_FOLDER": "eval",
+            "TRACKER_SUB_FOLDER": "",
+            "OUTPUT_SUB_FOLDER": "",
             "TRACKER_DISPLAY_NAMES": None,
         }
         assert default_config["INPUT_AS_ZIP"] is False
@@ -118,7 +120,7 @@ class CustomMotChallengeOBB(CustomMotChallengeBase, _BaseDataset):
         self.use_super_categories = bool(self.super_categories)
 
         self.seq_lengths = {}
-        self.seq_list = [seq_file.replace(".txt", "") for seq_file in os.listdir(self.gt_fol)]
+        self.seq_list = sorted(Path(seq_file).stem for seq_file in os.listdir(self.gt_fol) if seq_file.endswith(".txt"))
 
         if self.config["TRACKERS_TO_EVAL"] is None:
             self.tracker_list = os.listdir(self.tracker_fol)
@@ -136,7 +138,6 @@ class CustomMotChallengeOBB(CustomMotChallengeBase, _BaseDataset):
             for seq in self.seq_list:
                 curr_file = os.path.join(self.tracker_fol, tracker, self.tracker_sub_fol, seq + ".txt")
                 if not os.path.isfile(curr_file):
-                    print("Tracker file not found: " + curr_file)
                     raise TrackEvalException(
                         "Tracker file not found: " + tracker + "/" + self.tracker_sub_fol + "/" + os.path.basename(curr_file)
                     )
@@ -148,12 +149,10 @@ class CustomMotChallengeOBB(CustomMotChallengeBase, _BaseDataset):
         file = os.path.join(self.gt_fol if is_gt else os.path.join(self.tracker_fol, tracker, self.tracker_sub_fol), seq + ".txt")
         data, _ignore_data = self._load_simple_text_file(file, is_zipped=False, zip_file=None)
 
-        if is_gt:
+        if seq not in self.seq_lengths:
             img_path = os.path.join(self.img_fol, seq)
             self.seq_lengths[seq] = _count_frames(img_path)
-            num_timesteps = self.seq_lengths[seq]
-        else:
-            num_timesteps = self.seq_lengths[seq]
+        num_timesteps = self.seq_lengths[seq]
 
         current_time_keys = [str(t + 1) for t in range(self.seq_lengths[seq])]
         extra_time_keys = [x for x in data.keys() if x not in current_time_keys]
@@ -167,11 +166,9 @@ class CustomMotChallengeOBB(CustomMotChallengeBase, _BaseDataset):
             )
         if lack_time_keys:
             text = "Ground-truth" if is_gt else "Tracking"
-            print(
-                "Warning!!!!!"
-                + text
-                + " data leaks the following invalid timesteps in seq %s: " % seq
-                + ", ".join([str(x) for x in lack_time_keys])
+            warnings.warn(
+                text + " data is missing the following timesteps in seq %s: " % seq + ", ".join([str(x) for x in lack_time_keys]),
+                stacklevel=2,
             )
 
         data_keys = ["ids", "classes", "dets"]
