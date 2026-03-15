@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 MOT Dataset Loader
 ==================
@@ -64,7 +66,6 @@ a ``target_fps`` is provided.
 """
 
 import configparser
-import shutil
 from pathlib import Path
 from typing import Dict, Generator, List, Optional, Union
 
@@ -110,6 +111,16 @@ def compute_fps_mask(frames: np.ndarray, orig_fps: int, target_fps: int) -> np.n
     step = orig_fps / tgt
     wanted = set(np.arange(1, int(frames.max()) + 1, step).astype(int))
     return np.isin(frames.astype(int), list(wanted))
+
+
+def _load_text_matrix(path: Path, *, delimiter: str | None = None, comments: str | None = "#") -> np.ndarray:
+    """Load a numeric text file into a 2D array."""
+    data = np.loadtxt(path, delimiter=delimiter, comments=comments)
+    if data.size == 0:
+        return np.empty((0, 0), dtype=np.float32)
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    return np.asarray(data, dtype=np.float32)
 
 
 class MOTDataset:
@@ -171,7 +182,11 @@ class MOTDataset:
             frame_ids = [int(p.stem) for p in imgs]
 
             det_path = self.dets_dir / f'{name}.txt' if self.dets_dir else None
-            emb_path = self.embs_dir / f'{name}.txt' if self.embs_dir else None
+            if self.embs_dir:
+                _txt = self.embs_dir / f'{name}.txt'
+                emb_path = _txt if _txt.exists() else None
+            else:
+                emb_path = None
 
             self.seqs[name] = {
                 'seq_dir': seq_dir,
@@ -211,10 +226,9 @@ class MOTSequence:
     * ``embs`` – ``(N, E)`` ReID embedding array aligned with *dets*.
 
     When *target_fps* is set and a ``seqinfo.ini`` with ``frameRate`` is
-    present, frames (together with detections, embeddings and ground truth)
-    are subsampled accordingly.  A temporary ``gt_temp.txt`` is written
-    next to the original ``gt.txt`` so that evaluation tools can use the
-    filtered annotations.
+    present, frames (together with detections and embeddings) are subsampled
+    accordingly.  Evaluation-specific GT filtering is handled by the evaluator,
+    not by mutating the source dataset in place.
 
     Args:
         name: Sequence name.
@@ -235,21 +249,18 @@ class MOTSequence:
     def _prepare(self) -> None:
         """Load detections / embeddings and optionally downsample to *target_fps*.
 
-        Always ensures gt_temp.txt exists for evaluation: either filtered by FPS
-        when downsampling, or a copy of gt.txt when nothing changed.
+        Ground-truth filtering for evaluation is handled separately by the
+        evaluator so dataset iteration stays side-effect free.
         """
-        updated_gt = False
-        gt_dir = self.meta['seq_dir'] / 'gt'
-
         # 1) Load dets & embs
         if self.meta['det_path'] and self.meta['emb_path']:
-            self.dets = np.loadtxt(self.meta['det_path'], comments="#")
-            self.embs = np.loadtxt(self.meta['emb_path'], comments="#")
+            self.dets = _load_text_matrix(self.meta['det_path'], comments="#")
+            self.embs = _load_text_matrix(self.meta['emb_path'], comments="#")
             if self.dets.shape[0] != self.embs.shape[0]:
                 raise ValueError(f"Row mismatch in {self.name}")
 
             # 2) If target_fps is set, build a frame mask using seqinfo.ini
-            if self.target_fps:
+            if self.target_fps and self.dets.shape[0] > 0:
                 seq_info_file = self.meta['seq_dir'] / 'seqinfo.ini'
                 if not seq_info_file.exists():
                     LOGGER.warning(f"Missing seqinfo.ini in {self.meta['seq_dir']}, skipping FPS downsample")
@@ -264,22 +275,6 @@ class MOTSequence:
                     idxs_to_keep = [i for i, fid in enumerate(self.frame_ids) if fid in keep_ids]
                     self.frame_ids = self.frame_ids[idxs_to_keep]
                     self.frame_paths = [self.frame_paths[i] for i in idxs_to_keep]
-
-                    # b) Filter GT and write gt_temp.txt for evaluation
-                    orig_gt = np.loadtxt(gt_dir / 'gt.txt', delimiter=',')
-                    gt_mask = np.isin(orig_gt[:, 0].astype(int), list(keep_ids))
-                    filtered_gt = orig_gt[gt_mask]
-                    np.savetxt(
-                        gt_dir / 'gt_temp.txt',
-                        filtered_gt,
-                        delimiter=',',
-                        fmt="%d" if filtered_gt.dtype.kind in 'iu' else "%f",
-                    )
-                    updated_gt = True
-
-        # 3) Ensure gt_temp.txt always exists for the evaluator (copy gt.txt if unchanged)
-        if (gt_dir / 'gt.txt').exists() and not updated_gt:
-            shutil.copy2(gt_dir / 'gt.txt', gt_dir / 'gt_temp.txt')
 
     def __iter__(self) -> Generator[Dict[str, Union[int, np.ndarray]], None, None]:
         """Yield frame dictionaries one by one.
@@ -311,22 +306,6 @@ class MOTSequence:
                 'dets': dets_f,
                 'embs': embs_f
             }
-
-
-def process_sequences_lazily(dataset: MOTDataset) -> None:
-    """Example usage of lazy-loading and processing sequences from the dataset.
-
-    Args:
-        dataset: A :class:`MOTDataset` instance.
-    """
-    for seq_name in dataset.sequence_names():
-        LOGGER.info(f"Processing sequence: {seq_name}")
-        for frame_data in dataset.get_sequence(seq_name):
-            print(
-                f"Seq: {seq_name}, "
-                f"Frame: {frame_data['frame_id']}, "
-                f"Dets: {frame_data['dets'].shape[0]}"
-            )
 
 
 if __name__ == "__main__":

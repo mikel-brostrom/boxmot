@@ -31,6 +31,9 @@ exclude = [".tox", "*.egg", "build", "temp"]
 select = ["E", "W", "F", "I"]
 ignore = ["E731", "F405", "E402", "W504", "W605", "E741"]
 
+[tool.pytest.ini_options]
+norecursedirs = ["boxmot/engine/trackeval/tests"]
+
 ##############
 # Build System #
 ##############

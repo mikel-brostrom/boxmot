@@ -145,7 +145,7 @@ def test_mismatched_dets_embs_raise(tmp_path, simple_sequence):
         ).get_sequence(simple_sequence["seq_name"])
 
 
-def test_fps_downsampling_and_gt_temp(tmp_path):
+def test_fps_downsampling_keeps_dataset_side_effect_free(tmp_path):
     # manually create minimal sequence as before
     seq_dir = tmp_path / "S"
     img_dir = seq_dir / "img1"
@@ -179,7 +179,7 @@ def test_fps_downsampling_and_gt_temp(tmp_path):
     np.savetxt(det_dir / "S.txt", dets, fmt="%f")
     np.savetxt(emb_dir / "S.txt", embs, fmt="%f")
 
-    # instantiate and trigger downsampling & gt_temp write
+    # instantiate and trigger downsampling
     ds = MOTDataset(
         mot_root=str(tmp_path),
         det_emb_root=str(det_emb_root),
@@ -187,17 +187,8 @@ def test_fps_downsampling_and_gt_temp(tmp_path):
         reid_name="R",
         target_fps=1,
     )
-    _ = ds.get_sequence("S")  # triggers prep
+    seq = ds.get_sequence("S")
 
-    # load gt_temp.txt (numpy.loadtxt returns 1d for single row)
-    gt_temp = np.loadtxt(seq_dir / "gt" / "gt_temp.txt", delimiter=",")
-
-    # ensure only frame 1 remains
-    # handle single-row vs 2d output
-    if gt_temp.ndim == 1:
-        # single row array
-        assert gt_temp[0] == 1 and gt_temp[1] == 9
-    else:
-        assert gt_temp.shape == (1, 2)
-        assert gt_temp[0, 0] == 1 and gt_temp[0, 1] == 9
-
+    assert seq.frame_ids.tolist() == [1]
+    assert len(list(seq)) == 1
+    assert not (seq_dir / "gt" / "gt_temp.txt").exists()

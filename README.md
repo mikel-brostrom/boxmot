@@ -97,10 +97,10 @@ boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show
 boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --show-trajectories --save
 
 # Evaluate on the MOT17 ablation split with GBRC postprocessing
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --source MOT17-ablation --postprocessing gbrc --verbose
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation --postprocessing gbrc --verbose
 
-# Generate reusable detections and embeddings
-boxmot generate yolov8n osnet_x0_25_msmt17 --source ./assets/MOT17-mini/train
+# Generate reusable detections and embeddings for a benchmark
+boxmot generate yolox_x_MOT17_ablation lmbn_n_duke --data mot17-ablation
 
 # Tune tracker hyperparameters on a MOT-style dataset
 boxmot tune yolov8n osnet_x0_25_msmt17 ocsort --source ./assets/MOT17-mini/train --n-trials 10
@@ -110,6 +110,8 @@ boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --
 ```
 
 Common `--source` values include `0`, `img.jpg`, `video.mp4`, `path/`, `path/*.jpg`, YouTube URLs, and RTSP / RTMP / HTTP streams.
+
+For benchmark-based `eval` and `tune` runs, use `--data <benchmark>` instead of `--source`.
 
 If you want to track only selected classes, pass a comma-separated list:
 
@@ -142,7 +144,8 @@ while True:
         break
 
     # Replace this with your detector output for the current frame.
-    # Expected AABB shape: (N, 6) = (x1, y1, x2, y2, conf, cls)
+    # AABB input: (N, 6) = (x1, y1, x2, y2, conf, cls)
+    # OBB input: (N, 7) = (cx, cy, w, h, angle, conf, cls)
     detections = np.empty((0, 6), dtype=np.float32)
     # detections = your_detector(frame)
 
@@ -151,6 +154,8 @@ while True:
 
     print(tracks)
     # AABB output: (N, 8) = (x1, y1, x2, y2, id, conf, cls, det_ind)
+    # OBB output: (N, 9) = (cx, cy, w, h, angle, id, conf, cls, det_ind)
+    # Use det_ind to map a track back to the detector output
 
     cv2.imshow("BoxMOT", frame)
     if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -190,7 +195,7 @@ boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show
 boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save
 
 # Image directory
-boxmot track yolov8n osnet_x0_25_msmt17 bytetrack --source path/to/images --save-txt
+boxmot track yolov8n osnet_x0_25_msmt17 bytetrack --source path/to/images --save
 
 # Stream or URL
 boxmot track yolov8n osnet_x0_25_msmt17 ocsort --source 'rtsp://example.com/media.mp4'
@@ -257,7 +262,7 @@ boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --show-trajec
 boxmot track yolov8s --source 0 --classes 16,17
 
 # Track each class independently
-boxmot track yolov8n --source video.mp4 --per-class --save-txt
+boxmot track yolov8n --source video.mp4 --per-class --save
 
 # Highlight one target ID
 boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source video.mp4 --target-id 7 --show
@@ -272,23 +277,29 @@ Benchmark on built-in MOT-style dataset shortcuts or your own data:
 
 ```bash
 # Reproduce README-style MOT17 results
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --source MOT17-ablation --verbose
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation --verbose
 
 # MOT20 ablation split
-boxmot eval yolox_x_MOT20_ablation lmbn_n_duke boosttrack --source MOT20-ablation --verbose
+boxmot eval yolox_x_MOT20_ablation lmbn_n_duke boosttrack --data mot20-ablation --verbose
 
 # DanceTrack ablation split
-boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke boosttrack --source dancetrack-ablation --verbose
+boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke boosttrack --data dancetrack-ablation --verbose
 
 # VisDrone ablation split
-boxmot eval yolox_x_visdrone lmbn_n_duke botsort --source visdrone-ablation --verbose
+boxmot eval yolox_x_visdrone lmbn_n_duke botsort --data visdrone-ablation --verbose
 
 # Apply postprocessing
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --source MOT17-ablation --postprocessing gsi
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --source MOT17-ablation --postprocessing gbrc
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation --postprocessing gsi
+boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation --postprocessing gbrc
 
-# Generate detections and embeddings once
+# Generate detections and embeddings once for a benchmark
+boxmot generate yolox_x_MOT17_ablation lmbn_n_duke --data mot17-ablation
+
+# Generate detections and embeddings for a direct dataset path
 boxmot generate yolov8n osnet_x0_25_msmt17 --source ./assets/MOT17-mini/train
+
+# Tune on a built-in benchmark config
+boxmot tune yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation --n-trials 9
 
 # Tune a tracker on a custom MOT-style dataset
 boxmot tune yolov8n osnet_x0_25_msmt17 botsort --source ./assets/MOT17-mini/train --n-trials 9

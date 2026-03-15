@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 CLI for BoxMOT: multi-step multiple object tracking pipeline.
 Provides commands to track, generate detections and embeddings, evaluate performance, tune models, or run all steps.
@@ -9,20 +11,14 @@ mp.set_start_method("spawn", force=True)
 
 from pathlib import Path
 from types import SimpleNamespace
-import yaml
+from typing import Optional, Tuple
 
 import click
+from click.core import ParameterSource
 
-from boxmot.utils import ROOT, WEIGHTS, DATASET_CONFIGS, TRACKEVAL
-from boxmot.utils.download import download_eval_data
+from boxmot.utils import ROOT, WEIGHTS
+from boxmot.utils.benchmark_config import resolve_benchmark_cfg_path
 from boxmot.utils.misc import parse_imgsz, resolve_model_path
-
-
-def load_dataset_cfg(name: str) -> dict:
-    """Load the dict from boxmot/configs/datasets/{name}.yaml."""
-    path = DATASET_CONFIGS / f"{name}.yaml"
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
 
 
 def ensure_model_extension(model_path):
@@ -46,17 +42,15 @@ def ensure_model_extension(model_path):
     return resolve_model_path(model_path)
 
 
-# Core options (excluding model & classes)
+# Shared command options (excluding model, classes, and input selection)
 def core_options(func):
     options = [
-        click.option('--source', type=str, default='0',
-                     help='file/dir/URL/glob, 0 for webcam'),
-        click.option('--imgsz', callback=parse_imgsz, default=640, type=str,
-                     help='desired image size for the model input. Can be an integer for square images or a tuple (height, width) for specific dimensions.'),
+        click.option('--imgsz', callback=parse_imgsz, default=None, type=str,
+                     help='Image size for model input as H,W (e.g. 800,1440) or single int for square. Default: read from detector config YAML, otherwise use detector-specific defaults.'),
         click.option('--fps', type=int, default=30,
                      help='video frame-rate'),
-        click.option('--conf', type=float, default=0.01,
-                     help='min confidence threshold'),
+        click.option('--conf', type=float, default=None,
+                     help='Min confidence threshold. Default: read from detector config YAML, fallback 0.01.'),
         click.option('--iou', type=float, default=0.7,
                      help='IoU threshold for NMS'),
         click.option('--device', default='',
@@ -118,6 +112,21 @@ def core_options(func):
     return func
 
 
+def source_option(default='0', help_text='file/dir/URL/glob, 0 for webcam'):
+    """Attach a ``--source`` option with command-specific defaults/help."""
+    return click.option('--source', type=str, default=default, help=help_text)
+
+
+def data_option(func):
+    """Attach a ``--data`` benchmark-config option."""
+    return click.option(
+        '--data',
+        type=str,
+        default=None,
+        help='benchmark config name or YAML file, e.g. mot17-ablation or boxmot/configs/benchmarks/mot17-ablation.yaml',
+    )(func)
+
+
 def parse_classes(classes_input):
     """
     Parse classes input which can be a tuple of ints (from multiple=True),
@@ -139,6 +148,55 @@ def parse_classes(classes_input):
         return [int(x) for x in classes_input.split()]
     
     return [int(classes_input)]
+
+
+def _is_option_explicit(ctx: click.Context, option_name: str) -> bool:
+    """Return True when a Click option came from the command line instead of defaults."""
+    return ctx.get_parameter_source(option_name) != ParameterSource.DEFAULT
+
+
+def _resolve_source_context(source: Optional[str]) -> Tuple[Optional[str], str, str]:
+    """Return ``(source, benchmark, split)`` metadata for a concrete source path."""
+    if source is None:
+        return None, "", ""
+
+    source_path = Path(source)
+    return source, source_path.parent.name, source_path.name
+
+
+def _require_eval_input(data: Optional[str], source: Optional[str], command_name: str) -> None:
+    """Validate benchmark-vs-source selection for eval-like commands."""
+    if data and source:
+        raise click.UsageError(
+            f"{command_name} accepts either --data <benchmark.yaml> or --source <dataset-path>, not both."
+        )
+    if not data and not source:
+        raise click.UsageError(
+            f"{command_name} requires --data <benchmark.yaml> for benchmark runs or --source <dataset-path> for direct datasets."
+        )
+
+
+def _normalize_eval_input(data: Optional[str], source: Optional[str], command_name: str) -> Tuple[Optional[str], Optional[str]]:
+    """Auto-promote legacy benchmark names passed through ``--source`` to ``--data``."""
+    _require_eval_input(data, source, command_name)
+
+    if data or source is None:
+        return data, source
+
+    if Path(source).exists():
+        return data, source
+
+    try:
+        resolve_benchmark_cfg_path(source)
+    except FileNotFoundError:
+        return data, source
+
+    click.echo(
+        f"{command_name}: resolving benchmark config '{source}' from boxmot/configs/benchmarks; "
+        f"use '--data {source}' instead of '--source {source}'.",
+        err=True,
+    )
+    return source, None
 
 
 def singular_model_options(func):
@@ -251,7 +309,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("       DETECTOR (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
             formatter.write_text("       REID (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
             formatter.write_text("       TRACKER (optional) is one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]")
-            formatter.write_text("       OPTIONS (optional) flags like '--source 0' '--imgsz 640' that override defaults.")
+            formatter.write_text("       OPTIONS (optional) flags like '--source 0' for tracking inputs or '--data mot17-ablation' for benchmark eval/tune runs.")
             formatter.write_text("          See all options at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
         formatter.write_paragraph()
         
@@ -270,12 +328,12 @@ class CommandFirstGroup(click.Group):
             
             formatter.write_text("3. Evaluate on MOT dataset:")
             with formatter.indentation():
-                formatter.write_text("boxmot eval yolov8n osnet_x0_25_msmt17 deepocsort --source MOT17-mini/train")
+                formatter.write_text("boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation")
             formatter.write_paragraph()
             
             formatter.write_text("4. Tune tracker hyperparameters:")
             with formatter.indentation():
-                formatter.write_text("boxmot tune --source MOT17-mini/train --tracking-method deepocsort --n-trials 10")
+                formatter.write_text("boxmot tune --data mot17-ablation --tracking-method deepocsort --n-trials 10")
             formatter.write_paragraph()
             
             formatter.write_text("5. Export ReID model:")
@@ -311,6 +369,7 @@ def boxmot(ctx):
 @click.argument('detector', required=False)
 @click.argument('reid', required=False)
 @click.argument('tracker', required=False)
+@source_option(default='0', help_text='file/dir/URL/glob, 0 for webcam')
 @core_options
 @singular_model_options
 @click.pass_context
@@ -322,49 +381,22 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
         reid_model = ensure_model_extension(reid)
     if tracker:
         kwargs['tracking_method'] = tracker
-    src = kwargs.pop('source')
-    source_path = Path(src)
-    bench, split = source_path.parent.name, source_path.name
+    src, bench, split = _resolve_source_context(kwargs.pop('source'))
     
     # Auto-append .pt extension if missing
     yolo_model = ensure_model_extension(yolo_model)
     reid_model = ensure_model_extension(reid_model)
+    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
     
     params = {**kwargs,
               'yolo_model': yolo_model,
+              'yolo_model_explicit': yolo_model_explicit,
               'reid_model': reid_model,
               'classes': parse_classes(classes),
               'source': src,
               'benchmark': bench,
               'split': split}
     args = SimpleNamespace(**params)
-    
-    # 2) if doing MOT17/20-ablation, pull down the dataset and rewire args.source/split
-    if (DATASET_CONFIGS / f"{args.source}.yaml").exists():
-        cfg = load_dataset_cfg(str(args.source))
-        
-        # Determine dataset destination (under trackeval/data so benchmarks don't mix with TrackEval code)
-        bench_name = Path(cfg["benchmark"]["source"]).name
-        if cfg["download"]["dataset_url"]:
-            dataset_dest = TRACKEVAL / "data" / f"{bench_name}.zip"
-        else:
-            # For custom datasets without URL, use the path from config if available, or default to assets
-            dataset_dest = Path(cfg["download"].get("dataset_dest", f"assets/{bench_name}"))
-
-        download_eval_data(
-            runs_url=cfg["download"]["runs_url"],
-            dataset_url=cfg["download"]["dataset_url"],
-            dataset_dest=dataset_dest,
-            overwrite=False
-        )
-        args.benchmark = bench_name
-        args.split = cfg["benchmark"]["split"]
-        if cfg["download"]["dataset_url"]:
-            args.source = TRACKEVAL / "data" / f"{args.benchmark}/{args.split}"
-        elif "source" in cfg["benchmark"]:
-            args.source = Path(cfg["benchmark"]["source"]) / args.split
-        else:
-            args.source = dataset_dest / args.split
 
     from boxmot.engine.tracker import main as run_track
     run_track(args)
@@ -372,10 +404,12 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
 @boxmot.command(help='Generate detections and embeddings')
 @click.argument('detector', required=False)
 @click.argument('reid', required=False)
+@data_option
+@source_option(default=None, help_text='direct dataset root to generate dets/embs for without a benchmark config')
 @core_options
 @plural_model_options
 @click.pass_context
-def generate(ctx, detector, reid, yolo_model, reid_model, classes, **kwargs):
+def generate(ctx, detector, reid, data, yolo_model, reid_model, classes, **kwargs):
     # Override options with positional args if provided
     # Note: Plural options are tuples, so handle single arg input as list
     if detector:
@@ -383,17 +417,20 @@ def generate(ctx, detector, reid, yolo_model, reid_model, classes, **kwargs):
     if reid:
         reid_model = [ensure_model_extension(reid)]
     src = kwargs.pop('source')
-    source_path = Path(src)
-    bench, split = source_path.parent.name, source_path.name
+    data, src = _normalize_eval_input(data, src, "generate")
+    src, bench, split = _resolve_source_context(src)
     
     # Auto-append .pt extension if missing
     yolo_model = [ensure_model_extension(m) for m in yolo_model]
     reid_model = [ensure_model_extension(m) for m in reid_model]
+    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
     
     params = {**kwargs,
               'yolo_model': list(yolo_model),
+              'yolo_model_explicit': yolo_model_explicit,
               'reid_model': list(reid_model),
               'classes': parse_classes(classes),
+              'data': data,
               'source': src,
               'benchmark': bench,
               'split': split}
@@ -406,10 +443,12 @@ def generate(ctx, detector, reid, yolo_model, reid_model, classes, **kwargs):
 @click.argument('detector', required=False)
 @click.argument('reid', required=False)
 @click.argument('tracker', required=False)
+@data_option
+@source_option(default=None, help_text='direct dataset root to evaluate without a benchmark config')
 @core_options
 @plural_model_options
 @click.pass_context
-def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
+def eval(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **kwargs):
     # Override options with positional args if provided
     # Note: Plural options are tuples, so handle single arg input as list
     if detector:
@@ -419,21 +458,23 @@ def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
     if tracker:
         kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
-    source_path = Path(src)
-    bench, split = source_path.parent.name, source_path.name
+    data, src = _normalize_eval_input(data, src, "eval")
+    src, bench, split = _resolve_source_context(src)
     
     # Auto-append .pt extension if missing
     yolo_model = [ensure_model_extension(m) for m in yolo_model]
     reid_model = [ensure_model_extension(m) for m in reid_model]
+    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
     
     params = {**kwargs,
               'yolo_model': list(yolo_model),
+              'yolo_model_explicit': yolo_model_explicit,
               'reid_model': list(reid_model),
               'classes': parse_classes(classes),
+              'data': data,
               'source': src,
               'benchmark': bench,
-              'split': split,
-              'imgsz': [1088, 1920]}
+              'split': split}
     args = SimpleNamespace(**params)
     from boxmot.engine.evaluator import main as run_eval
     run_eval(args)
@@ -443,11 +484,13 @@ def eval(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
 @click.argument('detector', required=False)
 @click.argument('reid', required=False)
 @click.argument('tracker', required=False)
+@data_option
+@source_option(default=None, help_text='direct dataset root to tune against without a benchmark config')
 @core_options
 @tune_options
 @plural_model_options
 @click.pass_context
-def tune(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
+def tune(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **kwargs):
     # Override options with positional args if provided
     # Note: Plural options are tuples, so handle single arg input as list
     if detector:
@@ -457,17 +500,20 @@ def tune(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs
     if tracker:
         kwargs['tracking_method'] = tracker
     src = kwargs.pop('source')
-    source_path = Path(src)
-    bench, split = source_path.parent.name, source_path.name
+    data, src = _normalize_eval_input(data, src, "tune")
+    src, bench, split = _resolve_source_context(src)
     
     # Auto-append .pt extension if missing
     yolo_model = [ensure_model_extension(m) for m in yolo_model]
     reid_model = [ensure_model_extension(m) for m in reid_model]
+    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
     
     params = {**kwargs,
               'yolo_model': list(yolo_model),
+              'yolo_model_explicit': yolo_model_explicit,
               'reid_model': list(reid_model),
               'classes': parse_classes(classes),
+              'data': data,
               'source': src,
               'benchmark': bench,
               'split': split}

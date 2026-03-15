@@ -1,9 +1,11 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
-from trackeval.datasets.mot_challenge_2d_box import MotChallenge2DBox
 import trackeval._timing as _timing
+from trackeval.datasets.mot_challenge_2d_box import MotChallenge2DBox
 
-# Default COCO80 mapping; used when dataset configs do not supply explicit ids.
+from boxmot.utils.custom_mot_challenge_base import CustomMotChallengeBase
+
+# Default COCO80 mapping; used when benchmark configs do not supply explicit ids.
 DEFAULT_CLASS_NAME_TO_ID = {
     'person': 1, 'bicycle': 2, 'car': 3, 'motorcycle': 4, 'airplane': 5, 'bus': 6, 'train': 7, 'truck': 8, 'boat': 9, 'traffic light': 10,
     'fire hydrant': 11, 'stop sign': 12, 'parking meter': 13, 'bench': 14, 'bird': 15, 'cat': 16, 'dog': 17, 'horse': 18, 'sheep': 19, 'cow': 20,
@@ -15,7 +17,7 @@ DEFAULT_CLASS_NAME_TO_ID = {
     'toaster': 71, 'sink': 72, 'refrigerator': 73, 'book': 74, 'clock': 75, 'vase': 76, 'scissors': 77, 'teddy bear': 78, 'hair drier': 79, 'toothbrush': 80
 }
 
-class CustomMotChallenge2DBox(MotChallenge2DBox):
+class CustomMotChallenge2DBox(CustomMotChallengeBase, MotChallenge2DBox):
     """Custom Dataset class for MOT Challenge 2D bounding box tracking with multi-class support"""
 
     @staticmethod
@@ -31,9 +33,7 @@ class CustomMotChallenge2DBox(MotChallenge2DBox):
         """Initialise dataset, checking that all required files are present"""
         cfg = {} if config is None else dict(config)
 
-        # Persist the actual evaluation classes in lowercase to keep consistency with TrackEval internals.
-        real_classes = [cls.lower() for cls in cfg.get('CLASSES_TO_EVAL', ['person'])]
-        class_ids = cfg.get('CLASS_IDS')
+        real_classes, class_ids = self._normalize_class_config(cfg, ["person"])
         distractor_ids = cfg.get('DISTRACTOR_CLASS_IDS') or []
 
         # Create a temp config with 'pedestrian' to pass super().__init__ validation
@@ -48,18 +48,14 @@ class CustomMotChallenge2DBox(MotChallenge2DBox):
         self.config['CLASS_IDS'] = class_ids
         self.config['DISTRACTOR_CLASS_IDS'] = distractor_ids
         
-        # Overwrite class validation and list with real classes
-        self.valid_classes = real_classes
-        self.class_list = real_classes
-
-        # Build the class-id map from config if provided, otherwise fallback to COCO-80.
-        if class_ids is not None and len(class_ids) == len(real_classes):
-            self.class_name_to_class_id = {cls: int(cid) for cls, cid in zip(real_classes, class_ids)}
-        else:
-            self.class_name_to_class_id = DEFAULT_CLASS_NAME_TO_ID
-
+        self._configure_class_data(
+            real_classes,
+            class_ids,
+            DEFAULT_CLASS_NAME_TO_ID,
+            validate_against_default=False,
+            invalid_class_message="",
+        )
         self.distractor_class_ids = [int(i) for i in distractor_ids] if distractor_ids else None
-        self.valid_class_numbers = list(self.class_name_to_class_id.values())
 
     @_timing.time
     def get_preprocessed_seq_data(self, raw_data, cls):
@@ -141,28 +137,11 @@ class CustomMotChallenge2DBox(MotChallenge2DBox):
             num_tracker_dets   += len(kept_tracker_ids)
             num_gt_dets        += len(kept_gt_ids)
 
-        # --- Relabel to contiguous ids (no gaps) ---
-        if len(unique_gt_ids) > 0:
-            unique_gt_ids = np.unique(unique_gt_ids)
-            gt_map = np.nan * np.ones((np.max(unique_gt_ids) + 1))
-            gt_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
-            for t in range(raw_data['num_timesteps']):
-                if len(data['gt_ids'][t]) > 0:
-                    data['gt_ids'][t] = gt_map[data['gt_ids'][t]].astype(int)
-
-        if len(unique_tracker_ids) > 0:
-            unique_tracker_ids = np.unique(unique_tracker_ids)
-            trk_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
-            trk_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
-            for t in range(raw_data['num_timesteps']):
-                if len(data['tracker_ids'][t]) > 0:
-                    data['tracker_ids'][t] = trk_map[data['tracker_ids'][t]].astype(int)
+        self._relabel_track_ids(data, raw_data['num_timesteps'])
 
         # --- Stats & checks ---
         data['num_tracker_dets'] = num_tracker_dets
         data['num_gt_dets']      = num_gt_dets
-        data['num_tracker_ids']  = len(np.unique(unique_tracker_ids)) if len(unique_tracker_ids) > 0 else 0
-        data['num_gt_ids']       = len(np.unique(unique_gt_ids)) if len(unique_gt_ids) > 0 else 0
         data['num_timesteps']    = raw_data['num_timesteps']
         data['seq']              = raw_data['seq']
 

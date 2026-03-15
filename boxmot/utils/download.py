@@ -4,7 +4,7 @@
 Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
-import argparse
+import shutil
 from pathlib import Path
 from typing import Optional
 from zipfile import BadZipFile, ZipFile
@@ -127,7 +127,24 @@ def patch_deprecated_types(root: Path, deprecated: dict = DEPRECATED_TYPES) -> N
             file.write_text(updated, encoding="utf-8")
 
 
-def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = False) -> None:
+def _sync_trackeval_dataset_overlays(dest: Path) -> None:
+    """Overlay the vendored TrackEval OBB dataset adapters with the tracked copies."""
+    source_dir = Path(__file__).resolve().parent
+    overlays = [
+        (source_dir / "custom_mot_challenge_obb.py", dest / "trackeval" / "datasets" / "mmot_rgb.py"),
+        (source_dir / "custom_mot_challenge_obb.py", dest / "trackeval" / "datasets" / "mmot_8ch.py"),
+        (source_dir / "trackeval_datasets_init.py", dest / "trackeval" / "datasets" / "__init__.py"),
+    ]
+    for src, dst in overlays:
+        if not src.exists():
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.exists() and src.resolve() == dst.resolve():
+            continue
+        shutil.copyfile(src, dst)
+
+
+def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False) -> None:
     """
     Download and set up the TrackEval repository into the given destination folder.
 
@@ -138,13 +155,14 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     """
     # If already exists and we're not overwriting, skip
     if dest.exists() and not overwrite:
+        _sync_trackeval_dataset_overlays(dest)
         LOGGER.debug("TrackEval already present")
         return
 
     LOGGER.info("Downloading TrackEval...")
-    repo_url = "https://github.com/JonathonLuiten/TrackEval"
+    repo_url = "https://github.com/Annzstbl/MMOT"
     zip_url = f"{repo_url}/archive/refs/heads/{branch}.zip"
-    zip_file = dest.parent / f"{dest.name}-{branch}.zip"
+    zip_file = dest.parent / f"MMOT-{branch}.zip"
 
     # Download the archive
     zip_path = download_file(zip_url, zip_file, overwrite=overwrite)
@@ -152,18 +170,25 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     # Extract into the parent folder
     extract_zip(zip_path, dest.parent, overwrite=overwrite)
 
-    # GitHub will unpack to "TrackEval-master" (with original casing); 
-    # rename it case-insensitively to our lowercase 'trackeval' folder
+    # GitHub unpacks to "MMOT-<branch>"; TrackEval lives inside that repo.
     extracted = None
     for d in dest.parent.iterdir():
-        if d.is_dir() and d.name.lower().startswith("trackeval") and d.name.lower().endswith(f"-{branch}"):
+        if d.is_dir() and d.name.lower().startswith("mmot") and d.name.lower().endswith(f"-{branch}"):
             extracted = d
             break
 
     if extracted is None:
-        LOGGER.warning("Couldn't locate extracted TrackEval folder")
+        LOGGER.warning("Couldn't locate extracted MMOT folder")
     else:
-        extracted.rename(dest)
+        trackeval_src = extracted / "TrackEval"
+        if not trackeval_src.exists():
+            LOGGER.warning("Couldn't locate TrackEval inside extracted MMOT archive")
+        else:
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.move(str(trackeval_src), str(dest))
+        if extracted.exists():
+            shutil.rmtree(extracted)
 
     # Clean up the downloaded zip
     try:
@@ -173,6 +198,7 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
 
     # Apply any necessary patches for deprecated types
     patch_deprecated_types(dest)
+    _sync_trackeval_dataset_overlays(dest)
 
     LOGGER.debug("TrackEval setup complete")
 
@@ -188,7 +214,10 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False) -> No
         dest: Local directory to save the dataset into.
         overwrite: If True, re-download even if *dest* already exists.
     """
-    if dest.exists() and not overwrite:
+
+    dest_exists = dest.exists() or dest.with_suffix('').exists()
+
+    if dest_exists and not overwrite:
         LOGGER.debug(f"HF dataset already present at {dest}")
         return
 
@@ -280,24 +309,3 @@ def download_eval_data(
     extract_zip(benchmark_zip, dataset_dest.parent, overwrite=overwrite)
 
     LOGGER.debug(f"Benchmark data ready at: {dataset_dest.parent}")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download BoxMOT datasets and MOT evaluation tools.")
-    parser.add_argument("--branch", default="master", help="Branch of TrackEval to download.")
-    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing downloads and extractions.")
-    parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
-    args = parser.parse_args()
-
-    download_trackeval(
-        dest=Path("TrackEval"),
-        branch=args.branch,
-        overwrite=args.overwrite
-    )
-
-    download_eval_data(
-        runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/runs.zip",
-        dataset_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
-        dataset_dest=Path("boxmot/engine/TrackEval/MOT17-ablation.zip"),
-        overwrite=args.overwrite
-    )

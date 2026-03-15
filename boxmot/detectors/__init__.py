@@ -1,6 +1,12 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-from boxmot.utils import logger as LOGGER
+from pathlib import Path
+
+import yaml
+
+from boxmot.detectors.detector import Detections
+
+from boxmot.utils import DETECTOR_CONFIGS, logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 
 checker = RequirementsChecker()
@@ -27,47 +33,97 @@ def is_rtdetr_model(yolo_name):
     return _check_model(yolo_name, RTDETR_MODELS)
 
 
+def resolve_detector_cfg_path(yolo_name):
+    """Return the matching detector YAML path for a model name, if one exists."""
+    stem = Path(str(yolo_name)).name
+    stem = Path(stem).stem.lower()
+    if not stem or not DETECTOR_CONFIGS.exists():
+        return None
+
+    for suffix in (".yaml", ".yml"):
+        exact = DETECTOR_CONFIGS / f"{stem}{suffix}"
+        if exact.exists():
+            return exact
+
+    matches = sorted(
+        p
+        for pattern in ("*.yaml", "*.yml")
+        for p in DETECTOR_CONFIGS.glob(pattern)
+        if p.stem.lower() == stem
+    )
+    return matches[0] if matches else None
+
+
+def load_detector_cfg(yolo_name):
+    """Load a detector config YAML matching the detector model stem, if present."""
+    cfg_path = resolve_detector_cfg_path(yolo_name)
+    if cfg_path is None:
+        return {}
+
+    with open(cfg_path, "r") as handle:
+        cfg = yaml.safe_load(handle) or {}
+    return dict(cfg) if isinstance(cfg, dict) else {}
+
+
+def get_runtime_detector_cfg(yolo_name, detector_cfg=None):
+    """Return runtime detector settings, letting a model-matched YAML override benchmark values."""
+    runtime_cfg = dict(detector_cfg) if isinstance(detector_cfg, dict) else {}
+    model_cfg = load_detector_cfg(yolo_name)
+    if model_cfg:
+        runtime_cfg.update(model_cfg)
+    return runtime_cfg
+
+
 def default_imgsz(yolo_name):
-    if is_ultralytics_model(yolo_name):
-        return [640, 640]
-    elif is_yolox_model(yolo_name):
+    """Return the detector fallback image size when no benchmark config is active."""
+    detector_cfg = load_detector_cfg(yolo_name)
+    if "imgsz" in detector_cfg:
+        return list(detector_cfg["imgsz"])
+    if is_yolox_model(yolo_name):
         return [1080, 1920]
-    else:
-        return [640, 640]
+    return [640, 640]
 
 
-def get_yolo_inferer(yolo_model):
+def default_conf(yolo_name):
+    """Return the detector fallback confidence threshold when no benchmark config is active."""
+    detector_cfg = load_detector_cfg(yolo_name)
+    if "conf" in detector_cfg:
+        return float(detector_cfg["conf"])
+    return 0.01
+
+
+def get_detector_class(yolo_model):
     """
-    Determines and returns the appropriate inference strategy class based on the model name.
+    Determines and returns the appropriate detector class based on the model name.
     Handles dependency checks and imports dynamically.
     """
     model_name = str(yolo_model)
 
-    strategies = [
+    detectors = [
         (
             is_yolox_model,
             ("yolox", "tabulate", "thop"),
             {"yolox": ["--no-deps"]},
             "boxmot.detectors.yolox",
-            "YoloXStrategy",
+            "YoloXDetector",
         ),
         (
             is_ultralytics_model,
             (),
             {},
             "boxmot.detectors.ultralytics",
-            "UltralyticsStrategy",
+            "UltralyticsDetector",
         ),
         (
             is_rtdetr_model,
             ("transformers[torch]", "timm"),
             {},
             "boxmot.detectors.rtdetr",
-            "RTDetrStrategy",
+            "RTDetrDetector",
         ),
     ]
 
-    for check_func, packages, extra_args, module_path, class_name in strategies:
+    for check_func, packages, extra_args, module_path, class_name in detectors:
         if check_func(model_name):
             for package in packages:
                 try:
@@ -91,4 +147,3 @@ def get_yolo_inferer(yolo_model):
         "For custom models, the filename must include one of these substrings to route it to the correct package and architecture."
     )
     exit()
-

@@ -1,0 +1,28 @@
+id: dancetrack-ablation
+
+# https://huggingface.co/datasets/noahcao/dancetrack/tree/main
+download:
+  runs_url: null
+  dataset_url: "https://huggingface.co/datasets/noahcao/dancetrack/resolve/main/test1.zip"
+
+storage:
+  root: "boxmot/engine/trackeval/data/test1"
+  split: "val"
+
+evaluation:
+  box_type: aabb
+  layout: mot
+  tracker_eval: mot_challenge
+  classes:
+    eval:
+      1: pedestrian
+    distractor: {}
+    mapping: {}
+
+detector:
+  default_model: "models/yolox_x_dancetrack_ablation.pt"
+  model_url: "https://drive.google.com/uc?id=1ZKpYmFYCsRdXuOL60NRuc7VXAFYRskXB"
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: person

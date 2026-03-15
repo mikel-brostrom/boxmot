@@ -8,11 +8,13 @@ import numpy as np
 import torch
 
 from boxmot import TRACKERS
-from boxmot.detectors import default_imgsz
-from boxmot.engine.inference import DetectorReIDPipeline, extract_detections
+from boxmot.detectors import default_imgsz, default_conf, get_runtime_detector_cfg
+from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.trackers.tracker_zoo import create_tracker
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.benchmark_config import ensure_benchmark_detector_model, resolve_required_yolo_model, should_use_benchmark_detector
+from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 
 
@@ -44,6 +46,36 @@ class VideoWriter:
         if self.writer is not None:
             self.writer.release()
             LOGGER.opt(colors=True).info(f"<bold>Video saved:</bold> <cyan>{self.output_path}</cyan>")
+
+
+class TextResultsWriter:
+    """Append tracking results to a MOT-style text file."""
+
+    def __init__(self, output_path):
+        self.output_path = Path(output_path)
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.output_path.exists():
+            self.output_path.unlink()
+        LOGGER.opt(colors=True).info(f"<bold>Saving tracks to:</bold> <cyan>{self.output_path}</cyan>")
+
+    def write(self, tracks: np.ndarray, frame_idx: int):
+        if tracks.size == 0:
+            return
+        if tracks.ndim == 1:
+            tracks = tracks.reshape(1, -1)
+        if tracks.shape[1] >= 9:
+            mot_rows = convert_to_mmot_obb_format(tracks, frame_idx)
+        else:
+            mot_rows = convert_to_mot_format(tracks, frame_idx)
+        write_mot_results(self.output_path, mot_rows)
+
+
+def _load_runtime_detector_cfg(args) -> dict:
+    """Load runtime detector settings from the benchmark config or a model-matched YAML."""
+    return get_runtime_detector_cfg(
+        getattr(args, "yolo_model", None),
+        getattr(args, "dataset_detector_cfg", None),
+    )
 
 
 def on_predict_start(predictor, args, timing_stats=None):
@@ -84,8 +116,20 @@ def on_predict_start(predictor, args, timing_stats=None):
     predictor.trackers = trackers
     predictor.custom_args = args  # Store for later use
 
+    # Attach detector class names to each tracker for visualization.
+    # Class names come from the active benchmark config when available.
+    _det_cfg = _load_runtime_detector_cfg(args)
+    if isinstance(_det_cfg, dict) and "classes" in _det_cfg:
+        _names = {int(k): str(v) for k, v in _det_cfg["classes"].items()}
+        for _t in trackers:
+            _t.names = _names
+        LOGGER.opt(colors=True).info(
+            "<cyan>Detector classes loaded from runtime config:</cyan> "
+            + ", ".join(f"{k}:{v}" for k, v in sorted(_names.items()))
+        )
 
-def plot_trajectories(predictor, timing_stats=None, video_writer=None):
+
+def plot_trajectories(predictor, timing_stats: TimingStats = None, video_writer=None, text_writer=None):
     """
     Callback to run tracking update and plot trajectories on each frame.
     
@@ -107,9 +151,8 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
             
         tracker = predictor.trackers[i]
         
-        # Get detections from result using unified extraction
-        dets = extract_detections(result)
         img = result.orig_img
+        dets = prepare_detections(result, img)
         
         # Reset per-frame ReID accumulator
         if timing_stats:
@@ -120,6 +163,9 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
             timing_stats.start_tracking()
         
         tracks = tracker.update(dets, img)
+        frame_idx = getattr(predictor, "frame_idx", 0)
+        if text_writer is not None and frame_idx:
+            text_writer.write(tracks, frame_idx)
         
         track_time = reid_time = assoc_time = 0
         if timing_stats:
@@ -147,7 +193,8 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
         result.orig_img = tracker.plot_results(
             img,
             predictor.custom_args.show_trajectories,
-            show_lost=predictor.custom_args.show_lost
+            thickness=predictor.custom_args.line_width or 2,
+            show_lost=predictor.custom_args.show_lost,
         )
         
         if timing_stats:
@@ -178,6 +225,26 @@ def main(args):
     Args:
         args: Arguments from CLI (SimpleNamespace from cli.py)
     """
+    benchmark_detector_cfg = getattr(args, "dataset_detector_cfg", None)
+    benchmark_cfg = {
+        "detector": benchmark_detector_cfg or {},
+        "benchmark": {},
+    }
+    required_yolo_model = getattr(args, "required_yolo_model", None)
+    if required_yolo_model:
+        benchmark_cfg["benchmark"]["required_yolo_model"] = str(required_yolo_model)
+
+    if should_use_benchmark_detector(args, benchmark_cfg):
+        required_yolo_model = resolve_required_yolo_model(benchmark_cfg)
+        required_model = ensure_benchmark_detector_model(benchmark_cfg) or Path(required_yolo_model)
+        if Path(args.yolo_model) != required_model:
+            LOGGER.info(f"Using benchmark-default detector: {required_model}")
+        args.yolo_model = required_model
+    else:
+        args.dataset_detector_cfg = None
+
+    runtime_detector_cfg = _load_runtime_detector_cfg(args)
+
     # Print tracking pipeline header (blue palette)
     LOGGER.info("")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
@@ -189,43 +256,57 @@ def main(args):
     LOGGER.opt(colors=True).info(f"<bold>Source:</bold>    <cyan>{args.source}</cyan>")
     LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
     
-    # Set default image size based on model type
+    # Resolve imgsz and conf from detector config YAML when not explicitly provided.
     if args.imgsz is None:
-        args.imgsz = default_imgsz(args.yolo_model)
+        if "imgsz" in runtime_detector_cfg:
+            args.imgsz = list(runtime_detector_cfg["imgsz"])
+        else:
+            args.imgsz = default_imgsz(args.yolo_model)
+    if args.conf is None:
+        if "conf" in runtime_detector_cfg:
+            args.conf = float(runtime_detector_cfg["conf"])
+        else:
+            args.conf = default_conf(args.yolo_model)
     
     # Initialize timing stats
     timing_stats = TimingStats()
+
+    if args.save_crop:
+        LOGGER.warning("--save-crop is not supported by the current tracking pipeline and will be ignored.")
     
-    # Initialize video writer if saving is enabled
-    video_writer = None
-    if args.save:
-        # Determine output path
+    save_dir = None
+    if args.save or args.save_txt:
         project = Path(args.project) if args.project else Path("runs/track")
         name = args.name if args.name else "exp"
         save_dir = project / name
-        
-        # Handle exist_ok
+
         if not args.exist_ok:
             i = 1
             while save_dir.exists():
                 save_dir = project / f"{name}{i}"
                 i += 1
-        
-        # Determine video filename from source
-        source_path = Path(args.source)
-        if source_path.is_file():
-            video_name = source_path.stem + "_tracked.mp4"
-        elif source_path.is_dir():
-            video_name = source_path.name + "_tracked.mp4"
-        else:
-            video_name = "tracking_output.mp4"
-        
-        video_writer = VideoWriter(save_dir / video_name, fps=30)
+
+    source_path = Path(args.source)
+    if source_path.is_file():
+        output_stem = source_path.stem
+    elif source_path.is_dir():
+        output_stem = source_path.name
+    else:
+        output_stem = "tracking_output"
+
+    # Initialize video writer if saving is enabled
+    video_writer = None
+    if args.save and save_dir is not None:
+        video_writer = VideoWriter(save_dir / f"{output_stem}_tracked.mp4", fps=30)
+
+    text_writer = None
+    if args.save_txt and save_dir is not None:
+        text_writer = TextResultsWriter(save_dir / f"{output_stem}.txt")
     
     # Initialize unified detector + ReID pipeline with timing support
     pipeline = DetectorReIDPipeline(
-        yolo_model_path=args.yolo_model,
-        reid_model_paths=None,  # ReID handled by tracker for real-time tracking
+        detector_path=args.yolo_model,
+        reid_paths=None,  # ReID handled by tracker for real-time tracking
         device=args.device,
         imgsz=args.imgsz,
         half=args.half,
@@ -235,28 +316,18 @@ def main(args):
     # Add callbacks for tracker initialization and trajectory plotting
     # Pass args, timing_stats and video_writer through partial to make them available in callbacks
     pipeline.add_callback("on_predict_start", partial(on_predict_start, args=args, timing_stats=timing_stats))
-    pipeline.add_callback("on_predict_postprocess_end", partial(plot_trajectories, timing_stats=timing_stats, video_writer=video_writer))
+    pipeline.add_callback(
+        "on_predict_postprocess_end",
+        partial(plot_trajectories, timing_stats=timing_stats, video_writer=video_writer, text_writer=text_writer),
+    )
 
-    # Use predict() instead of track() to avoid Ultralytics' default tracking callbacks
     results = pipeline.predict(
         source=args.source,
         conf=args.conf,
         iou=args.iou,
         agnostic_nms=args.agnostic_nms,
-        show=False,
-        stream=True,
-        show_conf=args.show_conf,
-        save_txt=args.save_txt,
-        show_labels=args.show_labels,
-        save=False,  # We handle video saving ourselves with tracking overlays
-        verbose=args.verbose,
-        exist_ok=args.exist_ok,
-        project=args.project,
-        name=args.name,
         classes=args.classes,
         vid_stride=args.vid_stride,
-        line_width=args.line_width,
-        save_crop=args.save_crop,
     )
 
     # Initialize quit flag

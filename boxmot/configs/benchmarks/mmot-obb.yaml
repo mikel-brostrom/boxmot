@@ -1,0 +1,41 @@
+id: mmot-obb
+
+download:
+  runs_url: ""
+  dataset_url: "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/MMOT-OBB.zip"
+
+storage:
+  root: "boxmot/engine/trackeval/data/MMOT-OBB"
+  split: "train"
+
+evaluation:
+  box_type: obb
+  layout: mmot_rgb
+  tracker_eval: mmot_rgb
+  classes:
+    eval:
+      1: car
+      2: bike
+      3: pedestrian
+      4: van
+      5: truck
+      6: bus
+      7: tricycle
+      8: awning-bike
+    distractor: {}
+    mapping: {}
+
+detector:
+  default_model: "models/yolo11l-3ch.pt"
+  model_url: "https://drive.google.com/uc?id=15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR"
+  imgsz: [1024, 1024]
+  conf: 0.2
+  classes:
+    0: car
+    1: bike
+    2: pedestrian
+    3: van
+    4: truck
+    5: bus
+    6: tricycle
+    7: awning-bike

@@ -1,0 +1,24 @@
+id: mot17-mini
+
+# https://motchallenge.net/data/MOT17/
+download:
+  runs_url: ""
+  dataset_url: ""
+
+storage:
+  root: "assets/MOT17-mini"
+  split: "train"
+
+evaluation:
+  box_type: aabb
+  layout: mot
+  tracker_eval: mot_challenge
+  classes:
+    eval:
+      1: pedestrian
+    distractor:
+      2: person_on_vehicle
+      7: static_person
+      8: distractor
+      12: reflection
+    mapping: {}

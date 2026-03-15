@@ -1,0 +1,51 @@
+id: visdrone-ablation
+
+# https://github.com/VisDrone/VisDrone-Dataset
+# object_category ids: 0 ignored regions*, 1 pedestrian, 2 people, 3 bicycle, 4 car, 5 van, 6 truck,
+# 7 tricycle, 8 awning-tricycle, 9 bus, 10 motor, 11 others*; *0 and 11 are ignored/distractors.
+# Many YOLO/Ultralytics conversions drop 0 & 11 and reindex 1-10 to 0-9.
+download:
+  runs_url: ""
+  dataset_url: "https://drive.google.com/uc?export=download&id=14z8Acxopj1d86-qhsF1NwS4Bv3KYa4Wu"
+
+storage:
+  root: "boxmot/engine/trackeval/data/VisDrone2019-MOT-test-dev"
+  split: "sequences"
+
+evaluation:
+  box_type: aabb
+  layout: visdrone
+  tracker_eval: mot_challenge
+  classes:
+    eval:
+      1: pedestrian
+      2: people
+      3: bicycle
+      4: car
+      5: van
+      6: truck
+      7: tricycle
+      8: awning-tricycle
+      9: bus
+      10: motor
+    distractor:
+      0: ignored regions
+      11: others
+    mapping: {}
+
+detector:
+  default_model: "models/yolox_x_visdrone.pt"
+  model_url: "https://drive.google.com/uc?id=1ajehBs9enBHhuBqGIoQPGqkkzasE9d3o"
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: pedestrian
+    1: people
+    2: bicycle
+    3: car
+    4: van
+    5: truck
+    6: tricycle
+    7: awning-tricycle
+    8: bus
+    9: motor

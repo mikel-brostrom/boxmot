@@ -13,6 +13,28 @@ from ultralytics.utils import ops
 from boxmot.utils import logger as LOGGER
 
 
+def xywha_to_corners(boxes: np.ndarray) -> np.ndarray:
+    """Convert one or more ``[cx, cy, w, h, angle]`` boxes to 4 corner points."""
+    arr = np.asarray(boxes, dtype=np.float32)
+    single = arr.ndim == 1
+    if single:
+        arr = arr.reshape(1, 5)
+
+    corners = np.empty((arr.shape[0], 4, 2), dtype=np.float32)
+    for i, (cx, cy, w, h, angle) in enumerate(arr):
+        c = float(np.cos(angle))
+        s = float(np.sin(angle))
+        rot = np.array([[c, -s], [s, c]], dtype=np.float32)
+        rect = np.array(
+            [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]],
+            dtype=np.float32,
+        )
+        corners[i] = rect @ rot.T + np.array([cx, cy], dtype=np.float32)
+
+    flattened = corners.reshape(arr.shape[0], 8)
+    return flattened[0] if single else flattened
+
+
 def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path, str]:
     """
     Copies the dataset to a new location and removes a specified percentage of images and annotations,
@@ -97,7 +119,8 @@ def convert_to_mot_format(
 
     This function supports inputs as either a custom object with a 'boxes' attribute or a numpy array.
     For custom object inputs, 'boxes' should contain 'id', 'xyxy', 'conf', and 'cls' sub-attributes.
-    For numpy array inputs, the expected format per row is: (xmin, ymin, xmax, ymax, id, conf, cls).
+    For numpy array inputs, the expected format per row is:
+    ``(xmin, ymin, xmax, ymax, id, conf, cls[, det_ind])``.
 
     Parameters:
     - results (Union[Results, np.ndarray]): Tracking results for the current frame.
@@ -113,31 +136,56 @@ def convert_to_mot_format(
             # Convert numpy array results to MOT format
             tlwh = ops.xyxy2ltwh(results[:, 0:4])
             frame_idx_column = np.full((results.shape[0], 1), frame_idx, dtype=np.int32)
+            det_ind = (
+                results[:, 7:8].astype(np.int32)
+                if results.shape[1] > 7
+                else -np.ones((results.shape[0], 1), dtype=np.int32)
+            )
             mot_results = np.column_stack((
-                frame_idx_column, # frame index
+                frame_idx_column,  # frame index
                 results[:, 4].astype(np.int32),  # track id
                 tlwh.round().astype(np.int32),  # top,left,width,height
-                np.ones((results.shape[0], 1), dtype=np.int32),  # "not ignored"
-                results[:, 6].astype(np.int32) + 1,  # class
                 results[:, 5],  # confidence (float)
+                results[:, 6].astype(np.int32) + 1,  # class
+                det_ind,  # detection index
             ))
             return mot_results
         else:
             # Convert ultralytics results to MOT format
             num_detections = len(results.boxes)
             frame_indices = torch.full((num_detections, 1), frame_idx + 1, dtype=torch.int32)
-            not_ignored = torch.ones((num_detections, 1), dtype=torch.int32)
+            det_inds = torch.full((num_detections, 1), -1, dtype=torch.int32)
 
             mot_results = torch.cat([
-                frame_indices, # frame index
-                results.boxes.id.unsqueeze(1).astype(np.int32), # track id
-                ops.xyxy2ltwh(results.boxes.xyxy).astype(np.int32),  ## top,left,width,height
-                not_ignored, # "not ignored"
-                results.boxes.cls.unsqueeze(1).astype(np.int32) + 1, # class
-                results.boxes.conf.unsqueeze(1).astype(np.float32), # confidence (float)
+                frame_indices,  # frame index
+                results.boxes.id.unsqueeze(1).astype(np.int32),  # track id
+                ops.xyxy2ltwh(results.boxes.xyxy).astype(np.int32),  # top,left,width,height
+                results.boxes.conf.unsqueeze(1).astype(np.float32),  # confidence (float)
+                results.boxes.cls.unsqueeze(1).astype(np.int32) + 1,  # class
+                det_inds,  # detection index
             ], dim=1)
 
             return mot_results.numpy()
+
+
+def convert_to_mmot_obb_format(results: np.ndarray, frame_idx: int) -> np.ndarray:
+    """Convert OBB tracker output ``[cx, cy, w, h, angle, id, conf, cls, det_ind]`` to MMOT TrackEval format."""
+    if results.size == 0:
+        return np.empty((0, 13), dtype=np.float32)
+
+    if results.ndim == 1:
+        results = results.reshape(1, -1)
+
+    if results.shape[1] < 8:
+        raise ValueError(f"Expected OBB tracking results with at least 8 columns, got {results.shape[1]}")
+
+    frame_col = np.full((results.shape[0], 1), frame_idx, dtype=np.float32)
+    track_ids = results[:, 5:6].astype(np.float32)
+    corners = xywha_to_corners(results[:, :5]).astype(np.float32)
+    conf = results[:, 6:7].astype(np.float32)
+    cls = results[:, 7:8].astype(np.float32)
+    det_ind = results[:, 8:9].astype(np.float32) if results.shape[1] > 8 else np.zeros((results.shape[0], 1), dtype=np.float32)
+    return np.concatenate((frame_col, track_ids, corners, conf, cls, det_ind), axis=1)
 
 
 def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
@@ -159,9 +207,14 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
         txt_path.touch(exist_ok=True)
 
         if mot_results.size != 0:
+            if mot_results.ndim == 1:
+                mot_results = mot_results.reshape(1, -1)
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), "a") as file:
-                np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%d,%d,%.6f")
+                if mot_results.shape[1] == 9:
+                    np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%.6f,%d,%d")
+                else:
+                    np.savetxt(file, mot_results, fmt="%g", delimiter=",")
 
 
 # new_folder, name = split_dataset(Path("./boxmot/engine/trackeval/data/MOT20/train"), percent_to_delete=0.5)
