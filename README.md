@@ -144,7 +144,8 @@ while True:
         break
 
     # Replace this with your detector output for the current frame.
-    # Expected AABB shape: (N, 6) = (x1, y1, x2, y2, conf, cls)
+    # AABB input: (N, 6) = (x1, y1, x2, y2, conf, cls)
+    # OBB input: (N, 7) = (cx, cy, w, h, angle, conf, cls)
     detections = np.empty((0, 6), dtype=np.float32)
     # detections = your_detector(frame)
 
@@ -153,6 +154,7 @@ while True:
 
     print(tracks)
     # AABB output: (N, 8) = (x1, y1, x2, y2, id, conf, cls, det_ind)
+    # OBB output: (N, 9) = (cx, cy, w, h, angle, id, conf, cls, det_ind)
 
     cv2.imshow("BoxMOT", frame)
     if cv2.waitKey(1) & 0xFF == ord("q"):
