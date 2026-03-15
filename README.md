@@ -155,6 +155,7 @@ while True:
     print(tracks)
     # AABB output: (N, 8) = (x1, y1, x2, y2, id, conf, cls, det_ind)
     # OBB output: (N, 9) = (cx, cy, w, h, angle, id, conf, cls, det_ind)
+    # Use det_ind to map a track back to the detector output
 
     cv2.imshow("BoxMOT", frame)
     if cv2.waitKey(1) & 0xFF == ord("q"):
