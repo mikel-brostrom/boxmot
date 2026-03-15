@@ -9,6 +9,7 @@ from boxmot import (
     create_tracker,
     get_tracker_config,
 )
+from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.deepocsort.deepocsort import (
     KalmanBoxTracker as DeepOCSortKalmanBoxTracker,
 )
@@ -17,8 +18,8 @@ from boxmot.trackers.botsort.botsort_track import STrack as BotSortTrack
 from boxmot.trackers.bytetrack.bytetrack import ByteTrack, STrack as ByteTrackTrack
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.sfsort.sfsort import SFSORT
-from boxmot.utils.matching import iou_distance
 from boxmot.utils import WEIGHTS
+from boxmot.utils.matching import iou_distance
 from tests.test_config import (
     ALL_TRACKERS,
     MOTION_N_APPEARANCE_TRACKING_METHODS,
@@ -28,6 +29,21 @@ from tests.test_config import (
 )
 
 # --- existing tests ---
+
+
+class DummyCMC:
+    def __init__(self, warp: np.ndarray | None = None):
+        self.warp = (
+            np.eye(2, 3, dtype=np.float32)
+            if warp is None
+            else np.asarray(warp, dtype=np.float32)
+        )
+        self.calls: list[np.ndarray | None] = []
+
+    def apply(self, img: np.ndarray, dets: np.ndarray | None = None) -> np.ndarray:
+        call = None if dets is None else np.asarray(dets, dtype=np.float32).copy()
+        self.calls.append(call)
+        return self.warp.copy()
 
 
 @pytest.mark.parametrize("Tracker", MOTION_N_APPEARANCE_TRACKING_METHODS)
@@ -203,6 +219,45 @@ def test_botsort_obb_matching_uses_oriented_geometry():
 
     assert cost.shape == (1, 1)
     assert cost[0, 0] < 1e-3
+
+
+def test_botsort_obb_cmc_uses_enclosing_aabb_boxes():
+    tracker = BotSort(
+        reid_weights=WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt",
+        device="cpu",
+        half=False,
+        with_reid=False,
+    )
+    tracker.cmc = DummyCMC()
+
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    det = np.array([[320, 240, 80, 40, 0.35, 0.95, 0]], dtype=np.float32)
+
+    tracker.update(det, rgb)
+
+    assert len(tracker.cmc.calls) == 1
+    assert tracker.cmc.calls[0] is not None
+    np.testing.assert_allclose(
+        tracker.cmc.calls[0][0],
+        BotSortTrack.obb_to_xyxy(det[0, :5]),
+        atol=1e-4,
+    )
+
+
+def test_botsort_obb_cmc_warps_track_state():
+    det = np.array([320, 240, 80, 40, 0.15, 0.95, 0, 0], dtype=np.float32)
+    track = BotSortTrack(det, max_obs=10, is_obb=True)
+    track.activate(KalmanFilterXYWH(ndim=5), frame_id=1)
+
+    BotSortTrack.multi_gmc_obb(
+        [track],
+        np.array([[1.0, 0.0, 12.0], [0.0, 1.0, -6.0]], dtype=np.float32),
+    )
+
+    np.testing.assert_allclose(
+        track.xywha[:2], np.array([332.0, 234.0], dtype=np.float32), atol=1e-4
+    )
+    np.testing.assert_allclose(track.xywha[2:], det[2:5], atol=1e-4)
 
 
 def test_botsort_obb_state_history_follows_rotation_without_flips():

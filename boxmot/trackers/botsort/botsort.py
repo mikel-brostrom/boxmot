@@ -106,7 +106,8 @@ class BotSort(BaseTracker):
                 weights=reid_weights, device=device, half=half
             ).model
 
-        self.cmc = get_cmc_method(cmc_method)() if not self.is_obb else None
+        cmc_cls = get_cmc_method(cmc_method)
+        self.cmc = cmc_cls() if cmc_cls is not None else None
         self.fuse_first_associate = fuse_first_associate
 
     def _kalman_ndim(self) -> int:
@@ -114,7 +115,58 @@ class BotSort(BaseTracker):
 
     def _detection_boxes(self, dets: np.ndarray) -> np.ndarray:
         return self.detection_layout.boxes(dets)
-        
+
+    def _obb_detections_to_cmc_boxes(self, dets: np.ndarray) -> np.ndarray:
+        """Convert OBB detections to enclosing AABBs for CMC feature masking."""
+        if len(dets) == 0:
+            return np.empty((0, 4), dtype=np.float32)
+        return np.asarray(
+            [STrack.obb_to_xyxy(det[:5]) for det in dets], dtype=np.float32
+        )
+
+    def _apply_aabb_camera_motion_compensation(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray,
+        strack_pool: list[STrack],
+        unconfirmed: list[STrack],
+    ) -> None:
+        """Apply the legacy BoTSORT CMC path for axis-aligned tracks."""
+        warp = self.cmc.apply(img, dets)
+        STrack.multi_gmc(strack_pool, warp)
+        STrack.multi_gmc(unconfirmed, warp)
+
+    def _apply_obb_camera_motion_compensation(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray,
+        strack_pool: list[STrack],
+        unconfirmed: list[STrack],
+    ) -> None:
+        """Apply OBB-specific CMC using enclosing AABBs for estimation."""
+        warp = self.cmc.apply(img, self._obb_detections_to_cmc_boxes(dets))
+        STrack.multi_gmc_obb(strack_pool, warp)
+        STrack.multi_gmc_obb(unconfirmed, warp)
+
+    def _apply_camera_motion_compensation(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray,
+        strack_pool: list[STrack],
+        unconfirmed: list[STrack],
+    ) -> None:
+        """Dispatch camera motion compensation without mixing AABB and OBB logic."""
+        if self.cmc is None:
+            return
+        if self.is_obb:
+            self._apply_obb_camera_motion_compensation(
+                dets, img, strack_pool, unconfirmed
+            )
+            return
+        self._apply_aabb_camera_motion_compensation(
+            dets, img, strack_pool, unconfirmed
+        )
+
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(
@@ -122,8 +174,6 @@ class BotSort(BaseTracker):
     ) -> np.ndarray:
         self.check_inputs(dets, img, embs)
         self.kalman_filter = KalmanFilterXYWH(ndim=self._kalman_ndim())
-        if self.is_obb and self.cmc is not None:
-            self.cmc = None
         self.frame_count += 1
 
         activated_stracks, refind_stracks, lost_stracks, removed_stracks = [], [], [], []
@@ -242,10 +292,9 @@ class BotSort(BaseTracker):
         STrack.multi_predict(strack_pool)
 
         # Fix camera motion
-        if self.cmc is not None:
-            warp = self.cmc.apply(img, dets)
-            STrack.multi_gmc(strack_pool, warp)
-            STrack.multi_gmc(unconfirmed, warp)
+        self._apply_camera_motion_compensation(
+            dets, img, strack_pool, unconfirmed
+        )
 
         # Associate with high confidence detection boxes
         ious_dists = iou_distance(strack_pool, detections, is_obb=self.is_obb)
