@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -24,7 +25,7 @@ YOLOX_ZOO = {
 YOLOX_BASE_MODELS = tuple(Path(name).stem for name in YOLOX_ZOO)
 
 
-def _find_benchmark_model_url(model: Path) -> str | None:
+def _find_benchmark_model_url(model: Path) -> Optional[str]:
     """Look up a detector download URL from benchmark configs by filename."""
     lowered_name = model.name.lower()
     for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):

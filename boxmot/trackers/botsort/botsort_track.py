@@ -1,4 +1,5 @@
 from collections import deque
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -176,7 +177,7 @@ class STrack(BaseTrack):
 
     @classmethod
     def _corners_to_xywha(
-        cls, corners: np.ndarray, reference: np.ndarray | None = None
+        cls, corners: np.ndarray, reference: Optional[np.ndarray] = None
     ) -> np.ndarray:
         """Fit an OBB to warped corners and align it to the previous state."""
         rect = cv2.minAreaRect(np.asarray(corners, dtype=np.float32))
