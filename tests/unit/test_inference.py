@@ -326,3 +326,46 @@ def test_ensure_model_extension_keeps_bare_reid_names_in_weights_dir():
     resolved = ensure_model_extension("osnet_x0_25_msmt17")
 
     assert resolved == WEIGHTS / "osnet_x0_25_msmt17.pt"
+
+
+def test_parse_mot_results_preserves_multiword_class_names():
+    results = """
+HOTA: tracker-storage tank HOTA DetA AssA DetRe DetPr AssRe AssPr LocA OWTA HOTA(0) LocA(0) HOTALocA(0)
+COMBINED 51.0 0 61.0 0 0 71.0 0 0 0 0 0
+CLEAR: tracker-storage tank MOTA MOTP MODA CLR_Re CLR_Pr MTR PTR MLR CLR_TP CLR_FN CLR_FP IDSW MT PT ML Frag sMOTA
+COMBINED 41.0 0 0 0 0 0 0 0 0 0 0 0 3 0 0 0 0 0
+Identity: tracker-storage tank IDF1 IDR IDP IDTP IDFN IDFP
+COMBINED 31.0 0 0 0 0 0
+Count: tracker-storage tank Dets GT_Dets IDs GT_IDs
+COMBINED 0 0 7 0
+"""
+
+    parsed = evaluator_module.parse_mot_results(results, known_classes=["storage tank"])
+
+    assert list(parsed) == ["storage tank"]
+    assert parsed["storage tank"]["HOTA"] == 51.0
+    assert parsed["storage tank"]["AssA"] == 61.0
+    assert parsed["storage tank"]["AssRe"] == 71.0
+    assert parsed["storage tank"]["MOTA"] == 41.0
+    assert parsed["storage tank"]["IDSW"] == 3
+    assert parsed["storage tank"]["IDF1"] == 31.0
+    assert parsed["storage tank"]["IDs"] == 7
+
+
+def test_ordered_benchmark_eval_class_names_preserve_multiword_legacy_classes():
+    bench_cfg = {"classes": ["storage tank", "ground track field"]}
+
+    class_names = evaluator_module._ordered_benchmark_eval_class_names(bench_cfg)
+
+    assert class_names == ["storage tank", "ground track field"]
+
+
+def test_dota8_obb_gt_uses_zero_based_eval_class_ids():
+    expected = {0, 4, 10, 14}
+    found = set()
+
+    for path in sorted(Path("assets/DOTA8-MOT/train").glob("*/gt/gt_obb.txt")):
+        matrix = evaluator_module._load_obb_gt_matrix(path)
+        found.update(matrix[:, 11].astype(int).tolist())
+
+    assert found == expected

@@ -4,6 +4,7 @@ import multiprocessing as mp
 mp.set_start_method("spawn", force=True)
 
 import argparse
+import re
 import subprocess
 from pathlib import Path
 import numpy as np
@@ -522,6 +523,62 @@ def _match_header_class_name(raw_name: str, known_classes: Optional[list[str]] =
     return raw_name or "default"
 
 
+def _extract_metric_header_tracker_class(content: str, header_token: str) -> str:
+    """Return the TrackEval ``tracker-class`` prefix without splitting multi-word class names."""
+    content = content.strip()
+    if not content:
+        return ""
+
+    match = re.search(rf"{re.escape(header_token)}(?=\s|$)", content)
+    if match:
+        tracker_class = content[:match.start()].rstrip()
+        if tracker_class:
+            return tracker_class
+
+    tokens = content.split()
+    if not tokens:
+        return ""
+
+    first_word = tokens[0]
+    if len(tokens) > 1 and tokens[1] == header_token:
+        return first_word
+    if first_word.endswith(header_token):
+        return first_word[:-len(header_token)]
+    return first_word
+
+
+def _ordered_benchmark_eval_class_names(bench_cfg: dict) -> list[str]:
+    """Return benchmark eval class names in config order without splitting embedded whitespace."""
+    if not isinstance(bench_cfg, dict):
+        return []
+
+    eval_classes_cfg = bench_cfg.get("eval_classes")
+    if isinstance(eval_classes_cfg, dict) and eval_classes_cfg:
+        return [str(name) for _, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))]
+    if isinstance(eval_classes_cfg, (list, tuple)):
+        return [str(name) for name in eval_classes_cfg]
+
+    legacy_classes = bench_cfg.get("classes")
+    if isinstance(legacy_classes, dict) and legacy_classes:
+        def _sort_key(item: tuple) -> tuple[int, object]:
+            key = item[0]
+            try:
+                return 0, int(key)
+            except (TypeError, ValueError):
+                return 1, str(key)
+
+        return [str(name) for _, name in sorted(legacy_classes.items(), key=_sort_key)]
+    if isinstance(legacy_classes, (list, tuple)):
+        return [str(name) for name in legacy_classes]
+    if isinstance(legacy_classes, str):
+        if "," in legacy_classes:
+            return [part.strip() for part in legacy_classes.split(",") if part.strip()]
+        stripped = legacy_classes.strip()
+        return [stripped] if stripped else []
+
+    return []
+
+
 def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list[str]] = None) -> dict:
     """
     Extracts COMBINED HOTA, MOTA, IDF1, AssA, AssRe, IDSW, and IDs from MOTChallenge evaluation output.
@@ -572,16 +629,8 @@ def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list
                 #   "HOTA: tracker-classHOTA ..."
                 #   "HOTA: tracker-class HOTA ..."
                 content = line[len(prefix):].strip()
-                tokens = content.split()
-                if tokens:
-                    first_word = tokens[0]
-                    if len(tokens) > 1 and tokens[1] == header_token:
-                        tracker_class = first_word
-                    elif first_word.endswith(header_token):
-                        tracker_class = first_word[:-len(header_token)]
-                    else:
-                        tracker_class = first_word
-
+                tracker_class = _extract_metric_header_tracker_class(content, header_token)
+                if tracker_class:
                     current_class = _match_header_class_name(tracker_class, known_classes)
 
                     if current_class not in parsed_results:
@@ -727,9 +776,7 @@ def _known_trackeval_class_names(args: argparse.Namespace, cfg: dict) -> list[st
         known.extend([str(name) for name in args.remapped_class_names])
 
     bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
-    eval_classes_cfg = bench_cfg.get("eval_classes") if isinstance(bench_cfg, dict) else None
-    if isinstance(eval_classes_cfg, dict):
-        known.extend([str(name) for _, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))])
+    known.extend(_ordered_benchmark_eval_class_names(bench_cfg))
 
     known.extend(["cls_comb_cls_av", "cls_comb_det_av", "HUMAN", "VEHICLE", "BIKE", "all"])
 
@@ -1844,13 +1891,7 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     # Priority 1: Benchmark config classes (overrides user classes)
     elif "benchmark" in cfg:
         bench_cfg = cfg["benchmark"]
-        bench_classes = None
-
-        if isinstance(bench_cfg, dict):
-            if "eval_classes" in bench_cfg:
-                bench_classes = [v for _, v in sorted(bench_cfg["eval_classes"].items(), key=lambda kv: int(kv[0]))]
-            elif "classes" in bench_cfg:
-                bench_classes = bench_cfg["classes"].split()
+        bench_classes = _ordered_benchmark_eval_class_names(bench_cfg)
 
         if bench_classes:
             parsed_results = {k: v for k, v in parsed_results.items() if k in bench_classes}
