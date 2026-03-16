@@ -19,7 +19,7 @@ import concurrent.futures
 from contextlib import nullcontext
 
 from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import BENCHMARK_CONFIGS, NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
+from boxmot.utils import DATASET_CONFIGS, NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
@@ -35,10 +35,13 @@ from boxmot.detectors import default_imgsz, default_conf, get_runtime_detector_c
 from boxmot.utils.benchmark_config import (
     apply_benchmark_config,
     ensure_benchmark_detector_model,
+    ensure_benchmark_reid_model,
     get_benchmark_detector_cfg,
     load_benchmark_cfg,
+    resolve_required_reid_model,
     resolve_required_yolo_model,
     should_use_benchmark_detector,
+    should_use_benchmark_reid,
 )
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results, xywha_to_corners
 from boxmot.utils.download import download_trackeval
@@ -73,7 +76,7 @@ def _load_benchmark_cfg(args: argparse.Namespace) -> dict:
     if not benchmark:
         return {}
     try:
-        return load_benchmark_cfg(benchmark) or {}
+        return load_benchmark_cfg(benchmark, getattr(args, "models", None)) or {}
     except FileNotFoundError:
         return {}
 
@@ -94,6 +97,7 @@ def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, 
     benchmark_cfg = benchmark_bundle.get("benchmark", {})
 
     use_benchmark_detector = should_use_benchmark_detector(args, benchmark_bundle)
+    use_benchmark_reid = should_use_benchmark_reid(args, benchmark_bundle)
     benchmark_detector_cfg: dict = {}
     if use_benchmark_detector:
         benchmark_detector_cfg = get_benchmark_detector_cfg(benchmark_bundle)
@@ -106,6 +110,13 @@ def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, 
         if args.yolo_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")
         args.yolo_model = [required_model]
+
+    required_reid_model = resolve_required_reid_model(benchmark_bundle)
+    if required_reid_model and use_benchmark_reid:
+        required_model = ensure_benchmark_reid_model(benchmark_bundle) or resolve_model_path(required_reid_model)
+        if args.reid_model[0] != required_model:
+            LOGGER.info(f"Using benchmark-default ReID: {required_model}")
+        args.reid_model = [required_model]
 
     dataset_detector_cfg = get_runtime_detector_cfg(args.yolo_model[0], benchmark_detector_cfg)
     args.dataset_detector_cfg = dataset_detector_cfg or None
@@ -1249,7 +1260,7 @@ def build_dataset_eval_settings(
     try:
         benchmark_id = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
         if benchmark_id:
-            cfg = load_benchmark_cfg(benchmark_id)
+            cfg = load_benchmark_cfg(benchmark_id, getattr(args, "models", None))
     except FileNotFoundError:
         cfg = {}
     except Exception as e:  # noqa: BLE001
@@ -1693,7 +1704,7 @@ def run_generate_mot_results(args: argparse.Namespace, evolve_config: dict = Non
 
     # Build task arguments (include dataset_name for det_emb_root path)
     dataset_name = getattr(args, "benchmark", None)
-    # conf_threshold comes from the detector config YAML (resolved in main() or by the caller).
+    # conf_threshold comes from model-config detector defaults (resolved in main() or by the caller).
     # Falls back to default_conf() if somehow not set — never silently disables filtering.
     conf_threshold = getattr(args, "conf", None)
     if conf_threshold is None:
@@ -1809,14 +1820,14 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
         # Try to load config from benchmark name first, then fallback to source parent name
         cfg_name = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, 'benchmark', str(args.source.parent.name))
         try:
-            cfg = load_benchmark_cfg(cfg_name)
+            cfg = load_benchmark_cfg(cfg_name, getattr(args, "models", None))
         except FileNotFoundError:
             # If config not found, try to find it by checking if source path ends with a known config name.
             # This handles cases where source is a custom path.
             found = False
-            for config_file in BENCHMARK_CONFIGS.glob("*.yaml"):
+            for config_file in DATASET_CONFIGS.glob("*.yaml"):
                 if config_file.stem in str(args.source):
-                    cfg = load_benchmark_cfg(config_file.stem)
+                    cfg = load_benchmark_cfg(config_file.stem, getattr(args, "models", None))
                     found = True
                     break
             
@@ -1958,7 +1969,7 @@ def apply_class_remap(args, det_cfg: dict) -> None:
     benchmark_id = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
     if benchmark_id:
         try:
-            bench_cfg = (load_benchmark_cfg(benchmark_id) or {}).get("benchmark", {})
+            bench_cfg = (load_benchmark_cfg(benchmark_id, getattr(args, "models", None)) or {}).get("benchmark", {})
         except Exception:
             pass
 
@@ -1989,7 +2000,7 @@ def main(args):
 
     _, benchmark_cfg, dataset_detector_cfg = _configure_benchmark_runtime(args)
 
-    # Benchmark detector settings take precedence; otherwise use a model-matched detector YAML.
+    # Dataset detector settings take precedence; otherwise use model-config detector defaults.
     _det_cfg = get_runtime_detector_cfg(args.yolo_model[0], dataset_detector_cfg)
 
     # Print evaluation pipeline header (blue palette)

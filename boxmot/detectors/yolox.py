@@ -12,7 +12,7 @@ from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
 from boxmot.detectors.detector import Detections, Detector
-from boxmot.utils import BENCHMARK_CONFIGS, logger as LOGGER
+from boxmot.utils import MODEL_CONFIGS, logger as LOGGER
 
 # default model weights for generic YOLOX model names
 YOLOX_ZOO = {
@@ -26,9 +26,9 @@ YOLOX_BASE_MODELS = tuple(Path(name).stem for name in YOLOX_ZOO)
 
 
 def _find_benchmark_model_url(model: Path) -> Optional[str]:
-    """Look up a detector download URL from benchmark configs by filename."""
+    """Look up a detector download URL from model configs by filename."""
     lowered_name = model.name.lower()
-    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
+    for cfg_path in sorted(MODEL_CONFIGS.glob("*.yaml")):
         try:
             with open(cfg_path, "r") as f:
                 cfg = yaml.safe_load(f) or {}

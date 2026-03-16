@@ -1,0 +1,23 @@
+id: sportsmot
+
+path: "boxmot/engine/trackeval/data/SportsMOT"
+split: "val"
+train:
+val: "val"
+test:
+
+layout: mot
+box_type: aabb
+trackeval: mot_challenge
+
+names:
+  1: player
+
+distractors: {}
+class_map: {}
+
+models: mot17-ablation-models
+
+download:
+  runs: ""
+  dataset: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/SportsMOT.zip"

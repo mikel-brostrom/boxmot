@@ -137,7 +137,7 @@ def test_default_detector_fallbacks_preserve_legacy_runtime_behavior():
     assert default_conf("yolox_s.pt") == 0.01
 
 
-def test_detector_yaml_overrides_runtime_defaults_by_model_name():
+def test_model_config_detector_defaults_override_runtime_defaults_by_model_name():
     detector_cfg = load_detector_cfg("yolo11s-obb.pt")
 
     assert detector_cfg["classes"][0] == "plane"
@@ -145,7 +145,7 @@ def test_detector_yaml_overrides_runtime_defaults_by_model_name():
     assert default_conf("yolo11s-obb.pt") == detector_cfg["conf"]
 
 
-def test_runtime_detector_cfg_uses_model_yaml_to_override_benchmark_values():
+def test_runtime_detector_cfg_uses_model_config_to_override_dataset_values():
     detector_cfg = load_detector_cfg("yolo11s-obb.pt")
     benchmark_cfg = {
         "default_model": "models/yolo11s-obb.pt",
@@ -162,7 +162,7 @@ def test_runtime_detector_cfg_uses_model_yaml_to_override_benchmark_values():
     assert resolved["classes"][0] == detector_cfg["classes"][0]
 
 
-def test_configure_benchmark_runtime_lets_model_yaml_override_benchmark_detector(monkeypatch):
+def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector(monkeypatch):
     detector_cfg = load_detector_cfg("yolo11s-obb.pt")
     benchmark_bundle = {
         "benchmark": {"box_type": "obb"},
@@ -172,9 +172,15 @@ def test_configure_benchmark_runtime_lets_model_yaml_override_benchmark_detector
             "conf": 0.2,
             "classes": {0: "person"},
         },
+        "reid": {
+            "default_model": "models/lmbn_n_duke.pt",
+        },
     }
     args = SimpleNamespace(
         yolo_model=[Path("models/yolov8n.pt")],
+        reid_model=[Path("models/osnet_x0_25_msmt17.pt")],
+        yolo_model_explicit=False,
+        reid_model_explicit=False,
         imgsz=None,
         conf=None,
         eval_box_type=None,
@@ -183,15 +189,22 @@ def test_configure_benchmark_runtime_lets_model_yaml_override_benchmark_detector
 
     monkeypatch.setattr(evaluator_module, "_load_benchmark_cfg", lambda _args: benchmark_bundle)
     monkeypatch.setattr(evaluator_module, "should_use_benchmark_detector", lambda _args, _cfg: True)
+    monkeypatch.setattr(evaluator_module, "should_use_benchmark_reid", lambda _args, _cfg: True)
     monkeypatch.setattr(
         evaluator_module,
         "ensure_benchmark_detector_model",
         lambda _cfg: Path("models/yolo11s-obb.pt"),
     )
+    monkeypatch.setattr(
+        evaluator_module,
+        "ensure_benchmark_reid_model",
+        lambda _cfg: Path("models/lmbn_n_duke.pt"),
+    )
 
     _, _, runtime_cfg = evaluator_module._configure_benchmark_runtime(args)
 
     assert args.yolo_model == [Path("models/yolo11s-obb.pt")]
+    assert args.reid_model == [Path("models/lmbn_n_duke.pt")]
     assert args.imgsz == detector_cfg["imgsz"]
     assert args.conf == detector_cfg["conf"]
     assert args.eval_box_type == "obb"

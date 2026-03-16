@@ -1,0 +1,35 @@
+id: visdrone-ablation
+
+path: "boxmot/engine/trackeval/data/VisDrone2019-MOT-test-dev"
+split: "val"
+train:
+val: "sequences"
+test:
+
+layout: visdrone
+box_type: aabb
+trackeval: mot_challenge
+
+names:
+  1: pedestrian
+  2: people
+  3: bicycle
+  4: car
+  5: van
+  6: truck
+  7: tricycle
+  8: awning-tricycle
+  9: bus
+  10: motor
+
+distractors:
+  0: ignored regions
+  11: others
+
+class_map: {}
+
+models: visdrone-ablation-models
+
+download:
+  runs: ""
+  dataset: "https://drive.google.com/uc?export=download&id=14z8Acxopj1d86-qhsF1NwS4Bv3KYa4Wu"

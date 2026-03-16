@@ -1,0 +1,28 @@
+id: mot17-mini
+
+path: "assets/MOT17-mini"
+split: "train"
+train: "train"
+val:
+test:
+
+layout: mot
+box_type: aabb
+trackeval: mot_challenge
+
+names:
+  1: pedestrian
+
+distractors:
+  2: person_on_vehicle
+  7: static_person
+  8: distractor
+  12: reflection
+
+class_map: {}
+
+models: mot17-ablation-models
+
+download:
+  runs: ""
+  dataset: ""

@@ -8,15 +8,23 @@ from boxmot.utils.benchmark_config import (
     apply_dataset_benchmark_config,
     ensure_benchmark_detector_model,
     get_benchmark_detector_url,
+    get_benchmark_reid_cfg,
     load_benchmark_cfg,
+    load_model_cfg,
+    resolve_required_reid_model,
     resolve_required_yolo_model,
     should_use_benchmark_detector,
+    should_use_benchmark_reid,
 )
 
 
 def test_mot17_dataset_uses_new_schema():
     cfg = load_benchmark_cfg("MOT17-ablation")
     assert cfg["id"] == "mot17-ablation"
+    assert cfg["path"] == "boxmot/engine/trackeval/data/MOT17-ablation"
+    assert cfg["split"] == "train"
+    assert cfg["train"] == "train"
+    assert cfg["models"] == "mot17-ablation-models"
     assert cfg["storage"] == {
         "root": "boxmot/engine/trackeval/data/MOT17-ablation",
         "split": "train",
@@ -41,15 +49,32 @@ def test_mot17_dataset_uses_new_schema():
 def test_mot17_mini_uses_its_own_benchmark_id():
     cfg = load_benchmark_cfg("mot17-mini")
     assert cfg["id"] == "mot17-mini"
+    assert cfg["models"] == "mot17-ablation-models"
     assert cfg["storage"] == {
         "root": "assets/MOT17-mini",
         "split": "train",
     }
 
 
+def test_model_config_is_loaded_separately():
+    cfg = load_model_cfg("mot17-ablation-models")
+    assert cfg["id"] == "mot17-ablation-models"
+    assert cfg["detector"]["model"] == "models/yolox_x_MOT17_ablation.pt"
+    assert cfg["reid"]["model"] == "models/lmbn_n_duke.pt"
+
+
 def test_mot17_dataset_exposes_default_detector():
     cfg = load_benchmark_cfg("MOT17-ablation")
     assert resolve_required_yolo_model(cfg) == Path("models/yolox_x_MOT17_ablation.pt")
+
+
+def test_mot17_dataset_exposes_default_reid():
+    cfg = load_benchmark_cfg("MOT17-ablation")
+    assert get_benchmark_reid_cfg(cfg) == {
+        "default_model": "models/lmbn_n_duke.pt",
+        "model": "models/lmbn_n_duke.pt",
+    }
+    assert resolve_required_reid_model(cfg) == Path("models/lmbn_n_duke.pt")
 
 
 def test_dataset_detector_is_used_for_default_model_selection():
@@ -58,10 +83,22 @@ def test_dataset_detector_is_used_for_default_model_selection():
     assert should_use_benchmark_detector(args, cfg) is True
 
 
+def test_dataset_reid_is_used_for_default_model_selection():
+    cfg = load_benchmark_cfg("MOT17-ablation")
+    args = SimpleNamespace(reid_model=[Path("models/osnet_x0_25_msmt17.pt")], reid_model_explicit=False)
+    assert should_use_benchmark_reid(args, cfg) is True
+
+
 def test_dataset_detector_is_used_when_same_model_is_explicit():
     cfg = load_benchmark_cfg("MMOT-OBB")
     args = SimpleNamespace(yolo_model=[Path("models/yolo11l-3ch.pt")], yolo_model_explicit=True)
     assert should_use_benchmark_detector(args, cfg) is True
+
+
+def test_dataset_reid_is_not_used_for_other_explicit_models():
+    cfg = load_benchmark_cfg("MOT17-ablation")
+    args = SimpleNamespace(reid_model=[Path("models/mobilenetv2_x1_4_dukemtmcreid.pt")], reid_model_explicit=True)
+    assert should_use_benchmark_reid(args, cfg) is False
 
 
 def test_mmot_obb_detector_exposes_download_url():
@@ -85,6 +122,7 @@ def test_apply_benchmark_config_preserves_runtime_benchmark_name(monkeypatch):
     args = SimpleNamespace(data="dancetrack-ablation", source=None)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "dancetrack-ablation"
+    assert args.models == "dancetrack-ablation-models"
     assert args.benchmark_id == "dancetrack-ablation"
     assert args.dataset_id == "dancetrack-ablation"
     assert args.benchmark == "dancetrack-ablation"
@@ -96,6 +134,7 @@ def test_apply_benchmark_config_preserves_case_matched_storage_name(monkeypatch)
     args = SimpleNamespace(data="MOT17-ablation", source=None)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "mot17-ablation"
+    assert args.models == "mot17-ablation-models"
     assert args.benchmark_id == "mot17-ablation"
     assert args.dataset_id == "mot17-ablation"
     assert args.benchmark == "MOT17-ablation"

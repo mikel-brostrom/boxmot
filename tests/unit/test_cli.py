@@ -9,7 +9,7 @@ from boxmot.engine.cli import boxmot
 def test_eval_requires_data_or_source():
     result = CliRunner().invoke(boxmot, ["eval"])
     assert result.exit_code != 0
-    assert "requires --data <benchmark.yaml> for benchmark runs or --source <dataset-path>" in result.output
+    assert "requires --data <dataset.yaml> for config-driven runs or --source <dataset-path>" in result.output
 
 
 def test_eval_rejects_data_and_source_together():
@@ -18,7 +18,7 @@ def test_eval_rejects_data_and_source_together():
         ["eval", "--data", "mot17-ablation", "--source", "boxmot/engine/trackeval/data/MOT17-ablation/train"],
     )
     assert result.exit_code != 0
-    assert "accepts either --data <benchmark.yaml> or --source <dataset-path>, not both" in result.output
+    assert "accepts either --data <dataset.yaml> or --source <dataset-path>, not both" in result.output
 
 
 def test_eval_passes_benchmark_config_via_data(monkeypatch):
@@ -33,6 +33,49 @@ def test_eval_passes_benchmark_config_via_data(monkeypatch):
     assert result.exit_code == 0, result.output
     assert captured["args"].data == "mot17-ablation"
     assert captured["args"].source is None
+    assert captured["args"].tracking_method == "bytetrack"
+
+
+def test_eval_accepts_tracker_option(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["eval", "--data", "mot17-ablation", "--tracker", "boosttrack"])
+    assert result.exit_code == 0, result.output
+    assert captured["args"].tracking_method == "boosttrack"
+
+
+def test_eval_accepts_legacy_tracking_method_option(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["eval", "--data", "mot17-ablation", "--tracking-method", "boosttrack"])
+    assert result.exit_code == 0, result.output
+    assert captured["args"].tracking_method == "boosttrack"
+
+
+def test_eval_accepts_tracker_only_for_benchmark_runs(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["eval", "boosttrack", "--data", "mot17-ablation"])
+    assert result.exit_code == 0, result.output
+    assert captured["args"].tracking_method == "boosttrack"
+    assert captured["args"].data == "mot17-ablation"
+    assert captured["args"].yolo_model_explicit is False
+    assert captured["args"].reid_model_explicit is False
 
 
 def test_eval_resolves_benchmark_source_name_automatically(monkeypatch):
@@ -53,7 +96,7 @@ def test_eval_resolves_benchmark_source_name_automatically(monkeypatch):
 def test_generate_requires_data_or_source():
     result = CliRunner().invoke(boxmot, ["generate"])
     assert result.exit_code != 0
-    assert "requires --data <benchmark.yaml> for benchmark runs or --source <dataset-path>" in result.output
+    assert "requires --data <dataset.yaml> for config-driven runs or --source <dataset-path>" in result.output
 
 
 def test_generate_rejects_data_and_source_together():
@@ -62,7 +105,7 @@ def test_generate_rejects_data_and_source_together():
         ["generate", "--data", "mot17-ablation", "--source", "boxmot/engine/trackeval/data/MOT17-ablation/train"],
     )
     assert result.exit_code != 0
-    assert "accepts either --data <benchmark.yaml> or --source <dataset-path>, not both" in result.output
+    assert "accepts either --data <dataset.yaml> or --source <dataset-path>, not both" in result.output
 
 
 def test_generate_passes_benchmark_config_via_data(monkeypatch):
@@ -77,6 +120,22 @@ def test_generate_passes_benchmark_config_via_data(monkeypatch):
     assert result.exit_code == 0, result.output
     assert captured["args"].data == "mot17-ablation"
     assert captured["args"].source is None
+
+
+def test_tune_accepts_tracker_only_for_benchmark_runs(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tuner", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["tune", "boosttrack", "--data", "mot17-ablation"])
+    assert result.exit_code == 0, result.output
+    assert captured["args"].tracking_method == "boosttrack"
+    assert captured["args"].data == "mot17-ablation"
+    assert captured["args"].yolo_model_explicit is False
+    assert captured["args"].reid_model_explicit is False
 
 
 def test_track_keeps_source_literal(monkeypatch):
@@ -96,6 +155,9 @@ def test_track_keeps_source_literal(monkeypatch):
 def test_track_help_lists_legacy_save_options():
     result = CliRunner().invoke(boxmot, ["track", "--help"])
     assert result.exit_code == 0, result.output
+    assert "--tracker" in result.output
+    assert "--tracking-method" not in result.output
+    assert "[default: bytetrack]" in result.output
     assert "--save" in result.output
     assert "--save-txt" in result.output
     assert "--save-crop" in result.output
