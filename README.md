@@ -97,13 +97,16 @@ boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show
 boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --show-trajectories --save
 
 # Evaluate on the MOT17 ablation split with GBRC postprocessing
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation --postprocessing gbrc --verbose
+boxmot eval --data mot17-ablation --tracker boosttrack --postprocessing gbrc --verbose
+
+# Evaluate with explicit dataset, model, and tracker configs
+boxmot eval --data mot17-ablation --models mot17-ablation-models --tracker boosttrack --verbose
 
 # Generate reusable detections and embeddings for a benchmark
-boxmot generate yolox_x_MOT17_ablation lmbn_n_duke --data mot17-ablation
+boxmot generate --data mot17-ablation
 
 # Tune tracker hyperparameters on a MOT-style dataset
-boxmot tune yolov8n osnet_x0_25_msmt17 ocsort --source ./assets/MOT17-mini/train --n-trials 10
+boxmot tune yolov8n osnet_x0_25_msmt17 --tracker ocsort --source ./assets/MOT17-mini/train --n-trials 10
 
 # Export a ReID model to ONNX and TensorRT with dynamic input
 boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic
@@ -111,7 +114,19 @@ boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --
 
 Common `--source` values include `0`, `img.jpg`, `video.mp4`, `path/`, `path/*.jpg`, YouTube URLs, and RTSP / RTMP / HTTP streams.
 
-For benchmark-based `eval` and `tune` runs, use `--data <benchmark>` instead of `--source`.
+For config-driven `generate`, `eval`, and `tune` runs:
+
+- `--data <dataset>` selects a dataset config from `boxmot/configs/datasets/`
+- `--models <model-config>` optionally overrides detector+ReID defaults from `boxmot/configs/models/`
+- `--tracker <name>` selects the tracker and loads `boxmot/configs/trackers/<name>.yaml`
+
+Example:
+
+```bash
+boxmot eval --data mot17-ablation --models mot17-ablation-models --tracker boosttrack
+```
+
+If `--models` is omitted, the dataset config's `models:` entry is used.
 
 If you want to track only selected classes, pass a comma-separated list:
 
@@ -277,32 +292,35 @@ Benchmark on built-in MOT-style dataset shortcuts or your own data:
 
 ```bash
 # Reproduce README-style MOT17 results
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation --verbose
+boxmot eval --data mot17-ablation --tracker boosttrack --verbose
 
 # MOT20 ablation split
-boxmot eval yolox_x_MOT20_ablation lmbn_n_duke boosttrack --data mot20-ablation --verbose
+boxmot eval --data mot20-ablation --tracker boosttrack --verbose
 
 # DanceTrack ablation split
-boxmot eval yolox_x_dancetrack_ablation lmbn_n_duke boosttrack --data dancetrack-ablation --verbose
+boxmot eval --data dancetrack-ablation --tracker boosttrack --verbose
 
 # VisDrone ablation split
-boxmot eval yolox_x_visdrone lmbn_n_duke botsort --data visdrone-ablation --verbose
+boxmot eval --data visdrone-ablation --tracker botsort --verbose
+
+# Override the dataset's default detector+ReID config
+boxmot eval --data mot17-ablation --models mot17-ablation-models --tracker boosttrack --verbose
 
 # Apply postprocessing
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation --postprocessing gsi
-boxmot eval yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation --postprocessing gbrc
+boxmot eval --data mot17-ablation --tracker boosttrack --postprocessing gsi
+boxmot eval --data mot17-ablation --tracker boosttrack --postprocessing gbrc
 
 # Generate detections and embeddings once for a benchmark
-boxmot generate yolox_x_MOT17_ablation lmbn_n_duke --data mot17-ablation
+boxmot generate --data mot17-ablation
 
 # Generate detections and embeddings for a direct dataset path
 boxmot generate yolov8n osnet_x0_25_msmt17 --source ./assets/MOT17-mini/train
 
-# Tune on a built-in benchmark config
-boxmot tune yolox_x_MOT17_ablation lmbn_n_duke boosttrack --data mot17-ablation --n-trials 9
+# Tune on a built-in dataset config
+boxmot tune --data mot17-ablation --tracker boosttrack --n-trials 9
 
 # Tune a tracker on a custom MOT-style dataset
-boxmot tune yolov8n osnet_x0_25_msmt17 botsort --source ./assets/MOT17-mini/train --n-trials 9
+boxmot tune yolov8n osnet_x0_25_msmt17 --tracker botsort --source ./assets/MOT17-mini/train --n-trials 9
 ```
 
 </details>
