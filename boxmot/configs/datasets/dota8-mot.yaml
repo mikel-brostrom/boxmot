@@ -6,9 +6,8 @@ train: "train"
 val:
 test:
 
-layout: mmot_rgb
+layout: mot
 box_type: obb
-trackeval: mmot_rgb
 
 names:
   1: plane
@@ -18,9 +17,3 @@ names:
 
 distractors: {}
 class_map: {}
-
-models: dota8-mot-models
-
-download:
-  runs: ""
-  dataset: ""

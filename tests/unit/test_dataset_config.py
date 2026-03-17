@@ -5,12 +5,20 @@ import boxmot.utils.benchmark_config as benchmark_config
 
 from boxmot.utils.benchmark_config import (
     apply_benchmark_config,
+    apply_reid_runtime_defaults,
     apply_dataset_benchmark_config,
     ensure_benchmark_detector_model,
     get_benchmark_detector_url,
     get_benchmark_reid_cfg,
+    load_benchmark_only_cfg,
+    load_detector_component_cfg,
     load_benchmark_cfg,
-    load_model_cfg,
+    load_dataset_cfg,
+    load_reid_component_cfg,
+    resolve_benchmark_cfg_path,
+    resolve_dataset_cfg_path,
+    resolve_required_reid_device,
+    resolve_required_reid_half,
     resolve_required_reid_model,
     resolve_required_yolo_model,
     should_use_benchmark_detector,
@@ -18,13 +26,15 @@ from boxmot.utils.benchmark_config import (
 )
 
 
-def test_mot17_dataset_uses_new_schema():
-    cfg = load_benchmark_cfg("MOT17-ablation")
+def test_mot17_benchmark_uses_split_schema():
+    cfg = load_benchmark_only_cfg("MOT17-ablation")
     assert cfg["id"] == "mot17-ablation"
+    assert cfg["dataset_config"] == "mot17-ablation"
     assert cfg["path"] == "boxmot/engine/trackeval/data/MOT17-ablation"
     assert cfg["split"] == "train"
     assert cfg["train"] == "train"
-    assert cfg["models"] == "mot17-ablation-models"
+    assert cfg["detector_config"] == "yolox_x_mot17_ablation"
+    assert cfg["reid_config"] == "lmbn_n_duke"
     assert cfg["storage"] == {
         "root": "boxmot/engine/trackeval/data/MOT17-ablation",
         "split": "train",
@@ -47,20 +57,60 @@ def test_mot17_dataset_uses_new_schema():
 
 
 def test_mot17_mini_uses_its_own_benchmark_id():
-    cfg = load_benchmark_cfg("mot17-mini")
+    cfg = load_benchmark_only_cfg("mot17-mini")
     assert cfg["id"] == "mot17-mini"
-    assert cfg["models"] == "mot17-ablation-models"
+    assert cfg["dataset_config"] == "mot17-mini"
+    assert cfg["detector_config"] == "yolox_x_mot17_ablation"
+    assert cfg["reid_config"] == "lmbn_n_duke"
     assert cfg["storage"] == {
         "root": "assets/MOT17-mini",
         "split": "train",
     }
 
 
-def test_model_config_is_loaded_separately():
-    cfg = load_model_cfg("mot17-ablation-models")
-    assert cfg["id"] == "mot17-ablation-models"
-    assert cfg["detector"]["model"] == "models/yolox_x_MOT17_ablation.pt"
-    assert cfg["reid"]["model"] == "models/lmbn_n_duke.pt"
+def test_dataset_path_stays_dataset_yaml():
+    cfg_path = resolve_dataset_cfg_path("boxmot/configs/datasets/mot17-ablation.yaml")
+    assert cfg_path.name == "mot17-ablation.yaml"
+    assert cfg_path.parent.name == "datasets"
+
+
+def test_legacy_dataset_path_resolves_to_benchmark_yaml():
+    cfg_path = resolve_benchmark_cfg_path("boxmot/configs/datasets/mot17-ablation.yaml")
+    assert cfg_path.name == "mot17-ablation.yaml"
+    assert cfg_path.parent.name == "benchmarks"
+
+
+def test_dataset_config_loads_without_model_bindings():
+    cfg = load_dataset_cfg("MOT17-ablation")
+    assert cfg["id"] == "mot17-ablation"
+    assert cfg["path"] == "boxmot/engine/trackeval/data/MOT17-ablation"
+    assert cfg["detector_config"] is None
+    assert cfg["reid_config"] is None
+    assert cfg["download"] == {
+        "dataset": "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip",
+        "runs": "",
+    }
+
+
+def test_obb_dataset_derives_trackeval_from_box_type():
+    cfg = load_dataset_cfg("MMOT-OBB")
+    assert cfg["layout"] == "mot"
+    assert cfg["box_type"] == "obb"
+    assert cfg["trackeval"] == "mmot_rgb"
+    assert cfg["evaluation"]["tracker_eval"] == "mmot_rgb"
+
+
+def test_detector_and_reid_component_configs_load_separately():
+    detector_cfg = load_detector_component_cfg("yolox_x_mot17_ablation")
+    reid_cfg = load_reid_component_cfg("lmbn_n_duke")
+
+    assert detector_cfg["id"] == "yolox_x_mot17_ablation"
+    assert detector_cfg["model"] == "models/yolox_x_MOT17_ablation.pt"
+    assert reid_cfg["id"] == "lmbn_n_duke"
+    assert reid_cfg["model"] == "models/lmbn_n_duke.pt"
+    assert reid_cfg["url"] == "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"
+    assert reid_cfg["device"] == ""
+    assert reid_cfg["half"] is True
 
 
 def test_mot17_dataset_exposes_default_detector():
@@ -71,10 +121,17 @@ def test_mot17_dataset_exposes_default_detector():
 def test_mot17_dataset_exposes_default_reid():
     cfg = load_benchmark_cfg("MOT17-ablation")
     assert get_benchmark_reid_cfg(cfg) == {
+        "id": "lmbn_n_duke",
         "default_model": "models/lmbn_n_duke.pt",
         "model": "models/lmbn_n_duke.pt",
+        "model_url": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth",
+        "url": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth",
+        "device": "",
+        "half": True,
     }
     assert resolve_required_reid_model(cfg) == Path("models/lmbn_n_duke.pt")
+    assert resolve_required_reid_device(cfg) is None
+    assert resolve_required_reid_half(cfg) is True
 
 
 def test_dataset_detector_is_used_for_default_model_selection():
@@ -101,6 +158,32 @@ def test_dataset_reid_is_not_used_for_other_explicit_models():
     assert should_use_benchmark_reid(args, cfg) is False
 
 
+def test_reid_runtime_defaults_follow_model_config_when_cli_not_explicit():
+    cfg = load_benchmark_cfg("MOT17-ablation")
+    args = SimpleNamespace(device="", half=False, device_explicit=False, half_explicit=False)
+
+    apply_reid_runtime_defaults(args, cfg, use_config=True)
+
+    assert args.reid_device == ""
+    assert args.reid_half is True
+
+
+def test_reid_runtime_defaults_respect_explicit_cli_flags():
+    cfg = {
+        "reid": {
+            "model": "models/lmbn_n_duke.pt",
+            "device": "cpu",
+            "half": True,
+        }
+    }
+    args = SimpleNamespace(device="cuda:0", half=False, device_explicit=True, half_explicit=True)
+
+    apply_reid_runtime_defaults(args, cfg, use_config=True)
+
+    assert args.reid_device == "cuda:0"
+    assert args.reid_half is False
+
+
 def test_mmot_obb_detector_exposes_download_url():
     cfg = load_benchmark_cfg("MMOT-OBB")
     assert get_benchmark_detector_url(cfg) == "https://drive.google.com/uc?id=15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR"
@@ -122,7 +205,8 @@ def test_apply_benchmark_config_preserves_runtime_benchmark_name(monkeypatch):
     args = SimpleNamespace(data="dancetrack-ablation", source=None)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "dancetrack-ablation"
-    assert args.models == "dancetrack-ablation-models"
+    assert cfg["detector_config_id"] == "yolox_x_dancetrack_ablation"
+    assert cfg["reid_config_id"] == "lmbn_n_duke"
     assert args.benchmark_id == "dancetrack-ablation"
     assert args.dataset_id == "dancetrack-ablation"
     assert args.benchmark == "dancetrack-ablation"
@@ -134,7 +218,8 @@ def test_apply_benchmark_config_preserves_case_matched_storage_name(monkeypatch)
     args = SimpleNamespace(data="MOT17-ablation", source=None)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "mot17-ablation"
-    assert args.models == "mot17-ablation-models"
+    assert cfg["detector_config_id"] == "yolox_x_mot17_ablation"
+    assert cfg["reid_config_id"] == "lmbn_n_duke"
     assert args.benchmark_id == "mot17-ablation"
     assert args.dataset_id == "mot17-ablation"
     assert args.benchmark == "MOT17-ablation"

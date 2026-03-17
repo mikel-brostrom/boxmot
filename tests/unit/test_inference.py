@@ -174,6 +174,8 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
         },
         "reid": {
             "default_model": "models/lmbn_n_duke.pt",
+            "device": "cpu",
+            "half": True,
         },
     }
     args = SimpleNamespace(
@@ -181,6 +183,8 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
         reid_model=[Path("models/osnet_x0_25_msmt17.pt")],
         yolo_model_explicit=False,
         reid_model_explicit=False,
+        device="cuda:0",
+        half=False,
         imgsz=None,
         conf=None,
         eval_box_type=None,
@@ -205,6 +209,8 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
 
     assert args.yolo_model == [Path("models/yolo11s-obb.pt")]
     assert args.reid_model == [Path("models/lmbn_n_duke.pt")]
+    assert args.reid_device == "cpu"
+    assert args.reid_half is True
     assert args.imgsz == detector_cfg["imgsz"]
     assert args.conf == detector_cfg["conf"]
     assert args.eval_box_type == "obb"
@@ -406,3 +412,15 @@ def test_dota8_obb_gt_uses_zero_based_eval_class_ids():
         found.update(matrix[:, 11].astype(int).tolist())
 
     assert found == expected
+
+
+def test_load_obb_gt_matrix_rejects_legacy_xywha_format(tmp_path):
+    gt_path = tmp_path / "gt_obb.txt"
+    gt_path.write_text("1,2,10,20,30,40,0.5,1,3,0\n")
+
+    try:
+        evaluator_module._load_obb_gt_matrix(gt_path)
+    except ValueError as exc:
+        assert "expected 13 columns in corner format" in str(exc)
+    else:
+        raise AssertionError("Expected legacy xywha OBB GT to be rejected")

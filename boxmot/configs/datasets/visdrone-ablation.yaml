@@ -8,7 +8,6 @@ test:
 
 layout: visdrone
 box_type: aabb
-trackeval: mot_challenge
 
 names:
   1: pedestrian
@@ -28,8 +27,5 @@ distractors:
 
 class_map: {}
 
-models: visdrone-ablation-models
-
 download:
-  runs: ""
   dataset: "https://drive.google.com/uc?export=download&id=14z8Acxopj1d86-qhsF1NwS4Bv3KYa4Wu"

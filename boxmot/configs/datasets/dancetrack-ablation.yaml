@@ -8,7 +8,6 @@ test:
 
 layout: mot
 box_type: aabb
-trackeval: mot_challenge
 
 names:
   1: pedestrian
@@ -16,8 +15,5 @@ names:
 distractors: {}
 class_map: {}
 
-models: dancetrack-ablation-models
-
 download:
-  runs: null
   dataset: "https://huggingface.co/datasets/noahcao/dancetrack/resolve/main/test1.zip"

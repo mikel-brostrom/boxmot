@@ -8,7 +8,6 @@ test:
 
 layout: mot
 box_type: aabb
-trackeval: mot_challenge
 
 names:
   1: pedestrian
@@ -20,9 +19,3 @@ distractors:
   12: reflection
 
 class_map: {}
-
-models: mot17-ablation-models
-
-download:
-  runs: ""
-  dataset: ""

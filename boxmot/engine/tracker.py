@@ -14,13 +14,7 @@ from boxmot.trackers.tracker_zoo import create_tracker
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.benchmark_config import (
-    ensure_benchmark_detector_model,
-    ensure_benchmark_reid_model,
-    load_model_cfg,
-    resolve_required_reid_model,
-    resolve_required_yolo_model,
-    should_use_benchmark_detector,
-    should_use_benchmark_reid,
+    apply_reid_runtime_defaults,
 )
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
@@ -107,8 +101,8 @@ def on_predict_start(predictor, args, timing_stats=None):
             args.tracking_method,
             tracking_config,
             args.reid_model,
-            predictor.device,
-            args.half,
+            getattr(args, "reid_device", predictor.device),
+            getattr(args, "reid_half", args.half),
             args.per_class,
         )
         # set target_id if user passed it
@@ -233,23 +227,7 @@ def main(args):
     Args:
         args: Arguments from CLI (SimpleNamespace from cli.py)
     """
-    model_cfg = load_model_cfg(args.models) if getattr(args, "models", None) else {}
-    benchmark_detector_cfg = model_cfg.get("detector") or getattr(args, "dataset_detector_cfg", None)
-
-    if should_use_benchmark_detector(args, model_cfg):
-        required_yolo_model = resolve_required_yolo_model(model_cfg)
-        required_model = ensure_benchmark_detector_model(model_cfg) or Path(required_yolo_model)
-        if Path(args.yolo_model) != required_model:
-            LOGGER.info(f"Using model-config detector: {required_model}")
-        args.yolo_model = required_model
-    if should_use_benchmark_reid(args, model_cfg):
-        required_reid_model = resolve_required_reid_model(model_cfg)
-        required_model = ensure_benchmark_reid_model(model_cfg) or Path(required_reid_model)
-        if Path(args.reid_model) != required_model:
-            LOGGER.info(f"Using model-config ReID: {required_model}")
-        args.reid_model = required_model
-
-    args.dataset_detector_cfg = benchmark_detector_cfg or None
+    apply_reid_runtime_defaults(args, {}, use_config=False)
 
     runtime_detector_cfg = _load_runtime_detector_cfg(args)
 

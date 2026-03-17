@@ -9,7 +9,7 @@ from boxmot.engine.cli import boxmot
 def test_eval_requires_data_or_source():
     result = CliRunner().invoke(boxmot, ["eval"])
     assert result.exit_code != 0
-    assert "requires --data <dataset.yaml> for config-driven runs or --source <dataset-path>" in result.output
+    assert "requires --data <benchmark.yaml> for config-driven runs or --source <dataset-path>" in result.output
 
 
 def test_eval_rejects_data_and_source_together():
@@ -18,7 +18,7 @@ def test_eval_rejects_data_and_source_together():
         ["eval", "--data", "mot17-ablation", "--source", "boxmot/engine/trackeval/data/MOT17-ablation/train"],
     )
     assert result.exit_code != 0
-    assert "accepts either --data <dataset.yaml> or --source <dataset-path>, not both" in result.output
+    assert "accepts either --data <benchmark.yaml> or --source <dataset-path>, not both" in result.output
 
 
 def test_eval_passes_benchmark_config_via_data(monkeypatch):
@@ -96,7 +96,7 @@ def test_eval_resolves_benchmark_source_name_automatically(monkeypatch):
 def test_generate_requires_data_or_source():
     result = CliRunner().invoke(boxmot, ["generate"])
     assert result.exit_code != 0
-    assert "requires --data <dataset.yaml> for config-driven runs or --source <dataset-path>" in result.output
+    assert "requires --data <benchmark.yaml> for config-driven runs or --source <dataset-path>" in result.output
 
 
 def test_generate_rejects_data_and_source_together():
@@ -105,7 +105,7 @@ def test_generate_rejects_data_and_source_together():
         ["generate", "--data", "mot17-ablation", "--source", "boxmot/engine/trackeval/data/MOT17-ablation/train"],
     )
     assert result.exit_code != 0
-    assert "accepts either --data <dataset.yaml> or --source <dataset-path>, not both" in result.output
+    assert "accepts either --data <benchmark.yaml> or --source <dataset-path>, not both" in result.output
 
 
 def test_generate_passes_benchmark_config_via_data(monkeypatch):

@@ -24,7 +24,6 @@ from .person_path_22 import PersonPath22
 
 try:
     from .mmot_rgb import mmot_RGB
-    from .mmot_8ch import mmot_8ch
 except ImportError as err:
     missing_err = err
     warnings.warn(
@@ -42,4 +41,3 @@ except ImportError as err:
             ) from self._missing_err
 
     mmot_RGB = _MissingMMOTDependency
-    mmot_8ch = _MissingMMOTDependency

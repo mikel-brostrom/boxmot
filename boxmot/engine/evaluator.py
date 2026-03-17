@@ -19,7 +19,7 @@ import concurrent.futures
 from contextlib import nullcontext
 
 from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import DATASET_CONFIGS, NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
+from boxmot.utils import BENCHMARK_CONFIGS, NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
@@ -33,6 +33,7 @@ from boxmot.postprocessing.gsi import gsi
 from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.detectors import default_imgsz, default_conf, get_runtime_detector_cfg
 from boxmot.utils.benchmark_config import (
+    apply_reid_runtime_defaults,
     apply_benchmark_config,
     ensure_benchmark_detector_model,
     ensure_benchmark_reid_model,
@@ -43,7 +44,7 @@ from boxmot.utils.benchmark_config import (
     should_use_benchmark_detector,
     should_use_benchmark_reid,
 )
-from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results, xywha_to_corners
+from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
 from boxmot.utils.download import download_trackeval
 
 checker = RequirementsChecker()
@@ -76,7 +77,7 @@ def _load_benchmark_cfg(args: argparse.Namespace) -> dict:
     if not benchmark:
         return {}
     try:
-        return load_benchmark_cfg(benchmark, getattr(args, "models", None)) or {}
+        return load_benchmark_cfg(benchmark) or {}
     except FileNotFoundError:
         return {}
 
@@ -117,6 +118,8 @@ def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, 
         if args.reid_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default ReID: {required_model}")
         args.reid_model = [required_model]
+
+    apply_reid_runtime_defaults(args, benchmark_bundle, use_config=use_benchmark_reid)
 
     dataset_detector_cfg = get_runtime_detector_cfg(args.yolo_model[0], benchmark_detector_cfg)
     args.dataset_detector_cfg = dataset_detector_cfg or None
@@ -1060,8 +1063,10 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         detector_path=y,
         reid_paths=args.reid_model,
         device=args.device,
+        reid_device=getattr(args, "reid_device", args.device),
         imgsz=args.imgsz,
         half=args.half,
+        reid_half=getattr(args, "reid_half", args.half),
         timing_stats=timing_stats,
     )
 
@@ -1260,7 +1265,7 @@ def build_dataset_eval_settings(
     try:
         benchmark_id = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
         if benchmark_id:
-            cfg = load_benchmark_cfg(benchmark_id, getattr(args, "models", None))
+            cfg = load_benchmark_cfg(benchmark_id)
     except FileNotFoundError:
         cfg = {}
     except Exception as e:  # noqa: BLE001
@@ -1271,9 +1276,15 @@ def build_dataset_eval_settings(
     eval_classes_cfg = bench_cfg.get("eval_classes") if isinstance(bench_cfg, dict) else None
     distractor_cfg = bench_cfg.get("distractor_classes") if isinstance(bench_cfg, dict) else None
 
+    layout_name = str(cfg.get("layout") or bench_cfg.get("layout") or "").lower() if isinstance(cfg, dict) else ""
+
     # GT path format (VisDrone uses flat txt under annotations)
     gt_loc_format = "{gt_folder}/{seq}/gt/gt_temp.txt"
-    is_visdrone = "visdrone" in getattr(args, "benchmark", "").lower() or "visdrone" in str(gt_folder).lower()
+    is_visdrone = (
+        layout_name == "visdrone"
+        or "visdrone" in getattr(args, "benchmark", "").lower()
+        or "visdrone" in str(gt_folder).lower()
+    )
     if is_visdrone:
         gt_loc_format = "{gt_folder}/{seq}.txt"
 
@@ -1427,7 +1438,7 @@ def trackeval_aabb(
 
 
 def _load_obb_gt_matrix(source: Path) -> np.ndarray:
-    """Load OBB GT and normalize it into the MMOT TrackEval 13-column corner format."""
+    """Load OBB GT in the MMOT TrackEval 13-column corner format."""
     data = np.loadtxt(source, delimiter=",")
     if data.size == 0:
         return np.empty((0, 13), dtype=np.float32)
@@ -1437,11 +1448,10 @@ def _load_obb_gt_matrix(source: Path) -> np.ndarray:
 
     if data.shape[1] == 13:
         return data.astype(np.float32)
-    elif data.shape[1] == 10:
-        corners = xywha_to_corners(data[:, 2:7]).astype(np.float32)
-        return np.concatenate([data[:, 0:2], corners, data[:, 7:10]], axis=1)
 
-    raise ValueError(f"Unsupported OBB GT format in {source}: expected 10 or 13 columns, got {data.shape[1]}")
+    raise ValueError(
+        f"Unsupported OBB GT format in {source}: expected 13 columns in corner format, got {data.shape[1]}"
+    )
 
 
 def _prepare_obb_eval_bridge(
@@ -1497,7 +1507,7 @@ def _prepare_obb_eval_bridge(
         if source_gt is None:
             raise FileNotFoundError(
                 f"No OBB GT file found for sequence {seq_name}. "
-                "Expected gt.txt/gt_temp.txt in corner format or legacy gt_obb*.txt."
+                "Expected gt.txt/gt_temp.txt or gt_obb*.txt in 13-column corner format."
             )
         gt_out = gt_bridge / f"{seq_name}.txt"
         gt_out.parent.mkdir(parents=True, exist_ok=True)
@@ -1820,14 +1830,14 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
         # Try to load config from benchmark name first, then fallback to source parent name
         cfg_name = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, 'benchmark', str(args.source.parent.name))
         try:
-            cfg = load_benchmark_cfg(cfg_name, getattr(args, "models", None))
+            cfg = load_benchmark_cfg(cfg_name)
         except FileNotFoundError:
             # If config not found, try to find it by checking if source path ends with a known config name.
             # This handles cases where source is a custom path.
             found = False
-            for config_file in DATASET_CONFIGS.glob("*.yaml"):
+            for config_file in BENCHMARK_CONFIGS.glob("*.yaml"):
                 if config_file.stem in str(args.source):
-                    cfg = load_benchmark_cfg(config_file.stem, getattr(args, "models", None))
+                    cfg = load_benchmark_cfg(config_file.stem)
                     found = True
                     break
             
@@ -1969,7 +1979,7 @@ def apply_class_remap(args, det_cfg: dict) -> None:
     benchmark_id = getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
     if benchmark_id:
         try:
-            bench_cfg = (load_benchmark_cfg(benchmark_id, getattr(args, "models", None)) or {}).get("benchmark", {})
+            bench_cfg = (load_benchmark_cfg(benchmark_id) or {}).get("benchmark", {})
         except Exception:
             pass
 

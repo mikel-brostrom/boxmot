@@ -132,7 +132,6 @@ def _sync_trackeval_dataset_overlays(dest: Path) -> None:
     source_dir = Path(__file__).resolve().parent
     overlays = [
         (source_dir / "custom_mot_challenge_obb.py", dest / "trackeval" / "datasets" / "mmot_rgb.py"),
-        (source_dir / "custom_mot_challenge_obb.py", dest / "trackeval" / "datasets" / "mmot_8ch.py"),
         (source_dir / "trackeval_datasets_init.py", dest / "trackeval" / "datasets" / "__init__.py"),
     ]
     for src, dst in overlays:

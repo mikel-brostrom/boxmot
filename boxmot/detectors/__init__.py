@@ -6,7 +6,7 @@ import yaml
 
 from boxmot.detectors.detector import Detections
 
-from boxmot.utils import MODEL_CONFIGS, logger as LOGGER
+from boxmot.utils import DETECTOR_CONFIGS, logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 
 checker = RequirementsChecker()
@@ -34,40 +34,38 @@ def is_rtdetr_model(yolo_name):
 
 
 def resolve_detector_cfg_path(yolo_name):
-    """Return the model-config YAML path whose detector model matches ``yolo_name``."""
+    """Return the detector-config YAML path whose detector model matches ``yolo_name``."""
     stem = Path(str(yolo_name)).stem.lower()
-    if not stem or not MODEL_CONFIGS.exists():
+    if not stem or not DETECTOR_CONFIGS.exists():
         return None
 
     for pattern in ("*.yaml", "*.yml"):
-        for cfg_path in sorted(MODEL_CONFIGS.glob(pattern)):
+        for cfg_path in sorted(DETECTOR_CONFIGS.glob(pattern)):
             try:
                 with open(cfg_path, "r") as handle:
                     cfg = yaml.safe_load(handle) or {}
             except Exception:
                 continue
 
-            detector_cfg = cfg.get("detector") or {}
-            detector_model = detector_cfg.get("model") or detector_cfg.get("default_model")
+            detector_model = cfg.get("model") or cfg.get("default_model")
             if detector_model and Path(detector_model).stem.lower() == stem:
                 return cfg_path
     return None
 
 
 def load_detector_cfg(yolo_name):
-    """Load the detector block from a model config matching the detector model stem."""
+    """Load a detector config matching the detector model stem."""
     cfg_path = resolve_detector_cfg_path(yolo_name)
     if cfg_path is None:
         return {}
 
     with open(cfg_path, "r") as handle:
         cfg = yaml.safe_load(handle) or {}
-    detector_cfg = cfg.get("detector") if isinstance(cfg, dict) else {}
-    return dict(detector_cfg) if isinstance(detector_cfg, dict) else {}
+    return dict(cfg) if isinstance(cfg, dict) else {}
 
 
 def get_runtime_detector_cfg(yolo_name, detector_cfg=None):
-    """Return runtime detector settings, letting model-derived detector blocks override dataset values."""
+    """Return runtime detector settings, letting detector-config defaults override benchmark values."""
     runtime_cfg = dict(detector_cfg) if isinstance(detector_cfg, dict) else {}
     model_cfg = load_detector_cfg(yolo_name)
     if model_cfg:

@@ -7,7 +7,14 @@ from urllib.parse import parse_qs, urlparse
 
 import yaml
 
-from boxmot.utils import DATASET_CONFIGS, MODEL_CONFIGS, TRACKEVAL, WEIGHTS
+from boxmot.utils import (
+    BENCHMARK_CONFIGS,
+    DATASET_CONFIGS,
+    DETECTOR_CONFIGS,
+    REID_CONFIGS,
+    TRACKEVAL,
+    WEIGHTS,
+)
 from boxmot.utils.download import download_eval_data, download_file
 from boxmot.utils.misc import resolve_model_path
 
@@ -30,19 +37,44 @@ def _resolve_yaml_path(config_dir: Path, name: str | Path) -> Path:
     raise FileNotFoundError(f"Config not found for '{name}' in {config_dir}")
 
 
+def _resolve_explicit_path_alias(path: Path, source_dir: Path, target_dir: Path) -> Path:
+    resolved = path.resolve()
+    if resolved.parent == source_dir.resolve():
+        candidate = (target_dir / resolved.name).resolve()
+        if candidate.exists():
+            return candidate
+    return resolved
+
+
+def _load_yaml_cfg(cfg_path: Path) -> dict[str, Any]:
+    with open(cfg_path, "r") as f:
+        return yaml.safe_load(f) or {}
+
+
 def resolve_dataset_cfg_path(name: str | Path) -> Path:
     """Resolve a dataset config by stem or YAML filename."""
+    path = Path(name)
+    if path.suffix.lower() in {".yaml", ".yml"} and path.exists():
+        return _resolve_explicit_path_alias(path, BENCHMARK_CONFIGS, DATASET_CONFIGS)
     return _resolve_yaml_path(DATASET_CONFIGS, name)
 
 
-def resolve_model_cfg_path(name: str | Path) -> Path:
-    """Resolve a detector+ReID model config by stem or YAML filename."""
-    return _resolve_yaml_path(MODEL_CONFIGS, name)
-
-
 def resolve_benchmark_cfg_path(name: str | Path) -> Path:
-    """Backward-compatible alias for dataset configs."""
-    return resolve_dataset_cfg_path(name)
+    """Resolve a benchmark config by stem or YAML filename."""
+    path = Path(name)
+    if path.suffix.lower() in {".yaml", ".yml"} and path.exists():
+        return _resolve_explicit_path_alias(path, DATASET_CONFIGS, BENCHMARK_CONFIGS)
+    return _resolve_yaml_path(BENCHMARK_CONFIGS, name)
+
+
+def resolve_detector_cfg_path(name: str | Path) -> Path:
+    """Resolve a detector config by stem or YAML filename."""
+    return _resolve_yaml_path(DETECTOR_CONFIGS, name)
+
+
+def resolve_reid_cfg_path(name: str | Path) -> Path:
+    """Resolve a ReID config by stem or YAML filename."""
+    return _resolve_yaml_path(REID_CONFIGS, name)
 
 
 def _normalize_dataset_download(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -58,8 +90,14 @@ def _normalize_dataset_download(cfg: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _normalize_dataset_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str, Any]:
-    """Normalize dataset configs while preserving accessors used by the current runtime."""
+def _trackeval_adapter_for_box_type(box_type: str) -> str:
+    """Map the configured box type to the TrackEval adapter used at runtime."""
+    normalized = str(box_type or "aabb").lower()
+    return "mmot_rgb" if normalized == "obb" else "mot_challenge"
+
+
+def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str, Any]:
+    """Normalize dataset-like configs while preserving accessors used by the current runtime."""
     cfg = dict(raw_cfg or {})
     cfg.setdefault("id", cfg_path.stem.lower())
 
@@ -99,14 +137,9 @@ def _normalize_dataset_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str,
         legacy_split_path = storage_cfg.get("split") or legacy_benchmark.get("split")
         split_paths[split_name] = legacy_split_path or split_name
 
-    layout = cfg.get("layout") or evaluation_cfg.get("layout") or legacy_benchmark.get("layout") or "mot"
     box_type = cfg.get("box_type") or evaluation_cfg.get("box_type") or legacy_benchmark.get("box_type") or "aabb"
-    trackeval_name = (
-        cfg.get("trackeval")
-        or evaluation_cfg.get("tracker_eval")
-        or legacy_benchmark.get("tracker_eval")
-        or "mot_challenge"
-    )
+    layout = cfg.get("layout") or evaluation_cfg.get("layout") or legacy_benchmark.get("layout") or "mot"
+    trackeval_name = _trackeval_adapter_for_box_type(str(box_type).lower())
 
     names = dict(cfg.get("names") or class_cfg.get("eval") or legacy_benchmark.get("eval_classes") or {})
     distractors = dict(
@@ -115,7 +148,8 @@ def _normalize_dataset_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str,
     class_map = dict(cfg.get("class_map") or class_cfg.get("mapping") or legacy_benchmark.get("class_mapping") or {})
 
     download_cfg = _normalize_dataset_download(cfg)
-    models_ref = cfg.get("models") or cfg.get("model_config")
+    detector_ref = cfg.get("detector") or cfg.get("detector_config")
+    reid_ref = cfg.get("reid") or cfg.get("reid_config")
 
     normalized = {
         "id": cfg["id"],
@@ -131,7 +165,8 @@ def _normalize_dataset_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str,
         "distractors": distractors,
         "class_map": class_map,
         "download": download_cfg,
-        "models": str(models_ref) if models_ref else None,
+        "detector_config": str(detector_ref) if detector_ref else None,
+        "reid_config": str(reid_ref) if reid_ref else None,
     }
 
     normalized["storage"] = {
@@ -161,74 +196,122 @@ def _normalize_dataset_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str,
     return normalized
 
 
-def _normalize_model_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str, Any]:
-    """Normalize detector+ReID model configs."""
+def _merge_download_cfg(base_download: dict[str, Any], overlay_download: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base_download or {})
+    if overlay_download.get("dataset"):
+        merged["dataset"] = overlay_download["dataset"]
+    if overlay_download.get("runs"):
+        merged["runs"] = overlay_download["runs"]
+    if overlay_download.get("dataset_dest"):
+        merged["dataset_dest"] = overlay_download["dataset_dest"]
+    return merged
+
+
+def _merge_benchmark_bundle_cfg(
+    raw_cfg: dict[str, Any],
+    dataset_cfg: dict[str, Any],
+    cfg_path: Path,
+) -> dict[str, Any]:
+    """Merge a thin benchmark bundle onto its referenced dataset config."""
+    cfg = dict(raw_cfg or {})
+    payload = dict(dataset_cfg)
+
+    payload["id"] = str(cfg.get("id") or cfg_path.stem.lower())
+    dataset_ref = cfg.get("dataset") or cfg.get("dataset_config") or dataset_cfg.get("id")
+    if dataset_ref:
+        payload["dataset_config"] = str(dataset_ref)
+
+    detector_ref = cfg.get("detector") or cfg.get("detector_config") or dataset_cfg.get("detector_config")
+    reid_ref = cfg.get("reid") or cfg.get("reid_config") or dataset_cfg.get("reid_config")
+    if detector_ref:
+        payload["detector"] = str(detector_ref)
+    if reid_ref:
+        payload["reid"] = str(reid_ref)
+
+    payload["download"] = _merge_download_cfg(
+        dict(dataset_cfg.get("download") or {}),
+        _normalize_dataset_download(cfg),
+    )
+
+    normalized = _normalize_benchmark_cfg(payload, cfg_path)
+    normalized["dataset_config"] = str(dataset_ref) if dataset_ref else None
+    return normalized
+
+
+def _normalize_component_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str, Any]:
+    """Normalize standalone detector/ReID component configs."""
     cfg = dict(raw_cfg or {})
     cfg.setdefault("id", cfg_path.stem.lower())
-
-    detector_cfg = dict(cfg.get("detector") or {})
-    if "default_model" not in detector_cfg and "model" in detector_cfg:
-        detector_cfg["default_model"] = detector_cfg["model"]
-    if "model" not in detector_cfg and "default_model" in detector_cfg:
-        detector_cfg["model"] = detector_cfg["default_model"]
-    if "model_url" not in detector_cfg and "url" in detector_cfg:
-        detector_cfg["model_url"] = detector_cfg["url"]
-    if "url" not in detector_cfg and "model_url" in detector_cfg:
-        detector_cfg["url"] = detector_cfg["model_url"]
-
-    reid_cfg = dict(cfg.get("reid") or {})
-    if "default_model" not in reid_cfg and "model" in reid_cfg:
-        reid_cfg["default_model"] = reid_cfg["model"]
-    if "model" not in reid_cfg and "default_model" in reid_cfg:
-        reid_cfg["model"] = reid_cfg["default_model"]
-    if "model_url" not in reid_cfg and "url" in reid_cfg:
-        reid_cfg["model_url"] = reid_cfg["url"]
-    if "url" not in reid_cfg and "model_url" in reid_cfg:
-        reid_cfg["url"] = reid_cfg["model_url"]
-
-    return {
-        "id": cfg["id"],
-        "detector": detector_cfg,
-        "reid": reid_cfg,
-    }
+    if "default_model" not in cfg and "model" in cfg:
+        cfg["default_model"] = cfg["model"]
+    if "model" not in cfg and "default_model" in cfg:
+        cfg["model"] = cfg["default_model"]
+    if "model_url" not in cfg and "url" in cfg:
+        cfg["model_url"] = cfg["url"]
+    if "url" not in cfg and "model_url" in cfg:
+        cfg["url"] = cfg["model_url"]
+    return cfg
 
 
 def load_dataset_cfg(name: str | Path) -> dict[str, Any]:
     """Load a dataset config YAML."""
     cfg_path = resolve_dataset_cfg_path(name)
-    with open(cfg_path, "r") as f:
-        raw_cfg = yaml.safe_load(f) or {}
-    return _normalize_dataset_cfg(raw_cfg, cfg_path)
+    raw_cfg = _load_yaml_cfg(cfg_path)
+    return _normalize_benchmark_cfg(raw_cfg, cfg_path)
 
 
-def load_model_cfg(name: str | Path) -> dict[str, Any]:
-    """Load a detector+ReID config YAML."""
-    cfg_path = resolve_model_cfg_path(name)
-    with open(cfg_path, "r") as f:
-        raw_cfg = yaml.safe_load(f) or {}
-    return _normalize_model_cfg(raw_cfg, cfg_path)
+def load_benchmark_only_cfg(name: str | Path) -> dict[str, Any]:
+    """Load a benchmark bundle and merge in its referenced dataset config."""
+    cfg_path = resolve_benchmark_cfg_path(name)
+    raw_cfg = _load_yaml_cfg(cfg_path)
+    dataset_ref = raw_cfg.get("dataset") or raw_cfg.get("dataset_config")
+    if not dataset_ref:
+        return _normalize_benchmark_cfg(raw_cfg, cfg_path)
+    dataset_cfg = load_dataset_cfg(dataset_ref)
+    return _merge_benchmark_bundle_cfg(raw_cfg, dataset_cfg, cfg_path)
 
 
-def _combine_dataset_and_model_cfg(
-    dataset_cfg: dict[str, Any],
-    model_cfg: dict[str, Any] | None = None,
+def load_detector_component_cfg(name: str | Path) -> dict[str, Any]:
+    """Load a detector component config YAML."""
+    cfg_path = resolve_detector_cfg_path(name)
+    raw_cfg = _load_yaml_cfg(cfg_path)
+    return _normalize_component_cfg(raw_cfg, cfg_path)
+
+
+def load_reid_component_cfg(name: str | Path) -> dict[str, Any]:
+    """Load a ReID component config YAML."""
+    cfg_path = resolve_reid_cfg_path(name)
+    raw_cfg = _load_yaml_cfg(cfg_path)
+    return _normalize_component_cfg(raw_cfg, cfg_path)
+
+
+def _combine_benchmark_and_component_cfg(
+    benchmark_cfg: dict[str, Any],
+    detector_cfg: dict[str, Any] | None = None,
+    reid_cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    cfg = dict(dataset_cfg)
-    cfg["detector"] = dict((model_cfg or {}).get("detector") or {})
-    cfg["reid"] = dict((model_cfg or {}).get("reid") or {})
-    if model_cfg and model_cfg.get("id"):
-        cfg["model_config_id"] = model_cfg["id"]
+    cfg = dict(benchmark_cfg)
+    cfg["detector"] = dict(detector_cfg or {})
+    cfg["reid"] = dict(reid_cfg or {})
+    if detector_cfg and detector_cfg.get("id"):
+        cfg["detector_config_id"] = detector_cfg["id"]
+    if reid_cfg and reid_cfg.get("id"):
+        cfg["reid_config_id"] = reid_cfg["id"]
     return cfg
 
 
-def load_benchmark_cfg(name: str | Path, models: str | Path | None = None) -> dict[str, Any]:
-    """Load a dataset config and merge in its default or overridden model config."""
-    dataset_cfg = load_dataset_cfg(name)
-    model_ref = models or dataset_cfg.get("models")
-    if not model_ref:
-        return _combine_dataset_and_model_cfg(dataset_cfg, {})
-    model_cfg = load_model_cfg(model_ref)
-    return _combine_dataset_and_model_cfg(dataset_cfg, model_cfg)
+def load_benchmark_cfg(name: str | Path) -> dict[str, Any]:
+    """Load a benchmark config and merge in its detector/ReID defaults."""
+    benchmark_cfg = load_benchmark_only_cfg(name)
+
+    detector_ref = benchmark_cfg.get("detector_config")
+    reid_ref = benchmark_cfg.get("reid_config")
+    if detector_ref or reid_ref:
+        detector_cfg = load_detector_component_cfg(detector_ref) if detector_ref else {}
+        reid_cfg = load_reid_component_cfg(reid_ref) if reid_ref else {}
+        return _combine_benchmark_and_component_cfg(benchmark_cfg, detector_cfg=detector_cfg, reid_cfg=reid_cfg)
+
+    return _combine_benchmark_and_component_cfg(benchmark_cfg, {}, {})
 
 
 def get_benchmark_detector_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -288,6 +371,45 @@ def resolve_required_reid_model(cfg: dict[str, Any]) -> Path | None:
     reid_cfg = get_benchmark_reid_cfg(cfg)
     model = reid_cfg.get("default_model") or reid_cfg.get("model")
     return Path(model) if model else None
+
+
+def resolve_required_reid_device(cfg: dict[str, Any]) -> str | None:
+    """Return the ReID device configured for the active dataset/model bundle."""
+    reid_cfg = get_benchmark_reid_cfg(cfg)
+    device = reid_cfg.get("device")
+    if device is None:
+        return None
+    device = str(device).strip()
+    return device or None
+
+
+def resolve_required_reid_half(cfg: dict[str, Any]) -> bool | None:
+    """Return the ReID half-precision preference configured for the active dataset/model bundle."""
+    reid_cfg = get_benchmark_reid_cfg(cfg)
+    if "half" not in reid_cfg:
+        return None
+    return bool(reid_cfg["half"])
+
+
+def apply_reid_runtime_defaults(args: Any, cfg: dict[str, Any], use_config: bool = True) -> None:
+    """Populate ``args.reid_device`` and ``args.reid_half`` from config when CLI did not override them."""
+    fallback_device = getattr(args, "device", "")
+    fallback_half = bool(getattr(args, "half", False))
+
+    reid_device = fallback_device
+    if use_config and not getattr(args, "device_explicit", False):
+        configured_device = resolve_required_reid_device(cfg)
+        if configured_device is not None:
+            reid_device = configured_device
+
+    reid_half = fallback_half
+    if use_config and not getattr(args, "half_explicit", False):
+        configured_half = resolve_required_reid_half(cfg)
+        if configured_half is not None:
+            reid_half = configured_half
+
+    args.reid_device = reid_device
+    args.reid_half = reid_half
 
 
 def ensure_benchmark_detector_model(cfg: dict[str, Any], overwrite: bool = False) -> Path | None:
@@ -430,15 +552,12 @@ def _apply_benchmark_config_ref(args: Any, benchmark_ref: str | Path | None, ove
         return None
 
     try:
-        cfg_path = resolve_dataset_cfg_path(benchmark_ref)
-        dataset_cfg = load_dataset_cfg(cfg_path)
+        cfg_path = resolve_benchmark_cfg_path(benchmark_ref)
+        dataset_cfg = load_benchmark_only_cfg(cfg_path)
     except FileNotFoundError:
         return None
 
-    if not getattr(args, "models", None) and dataset_cfg.get("models"):
-        args.models = dataset_cfg["models"]
-
-    cfg = load_benchmark_cfg(cfg_path, getattr(args, "models", None))
+    cfg = load_benchmark_cfg(cfg_path)
 
     download_cfg = dict(cfg.get("download") or {})
     path_str = str(cfg.get("path") or "")
@@ -476,9 +595,6 @@ def _apply_benchmark_config_ref(args: Any, benchmark_ref: str | Path | None, ove
     if required_reid_model:
         args.required_reid_model = required_reid_model
 
-    if getattr(args, "models", None):
-        args.model_config_id = getattr(args, "models")
-
     return cfg
 
 
@@ -503,17 +619,23 @@ __all__ = [
     "apply_dataset_benchmark_config",
     "ensure_benchmark_detector_model",
     "ensure_benchmark_reid_model",
+    "apply_reid_runtime_defaults",
     "get_benchmark_detector_cfg",
     "get_benchmark_detector_url",
     "get_benchmark_reid_cfg",
     "get_benchmark_reid_url",
     "get_dataset_detector_cfg",
+    "load_benchmark_only_cfg",
     "load_benchmark_cfg",
+    "load_detector_component_cfg",
     "load_dataset_cfg",
-    "load_model_cfg",
+    "load_reid_component_cfg",
     "resolve_benchmark_cfg_path",
+    "resolve_detector_cfg_path",
     "resolve_dataset_cfg_path",
-    "resolve_model_cfg_path",
+    "resolve_reid_cfg_path",
+    "resolve_required_reid_device",
+    "resolve_required_reid_half",
     "resolve_required_reid_model",
     "resolve_required_yolo_model",
     "should_use_benchmark_detector",

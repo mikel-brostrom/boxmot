@@ -1,0 +1,5 @@
+id: dota8-mot
+
+dataset: dota8-mot
+detector: yolo11s_obb
+reid: lmbn_n_duke

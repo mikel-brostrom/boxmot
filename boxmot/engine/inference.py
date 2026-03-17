@@ -199,13 +199,17 @@ class DetectorReIDPipeline:
         detector_path: Union[str, Path],
         reid_paths: Optional[Union[str, Path, List[Union[str, Path]]]] = None,
         device: str = "",
+        reid_device: Optional[Union[str, torch.device]] = None,
         imgsz: Optional[Union[int, List[int]]] = None,
         half: bool = False,
+        reid_half: Optional[bool] = None,
         timing_stats: Optional[TimingStats] = None,
     ):
         self.detector_path = Path(detector_path)
         self.device = select_device(device)
+        self.reid_device = self.device if reid_device in (None, "") else select_device(reid_device)
         self.half = half
+        self.reid_half = half if reid_half is None else bool(reid_half)
         self.timing_stats = timing_stats if timing_stats is not None else TimingStats()
 
         if imgsz is None:
@@ -245,7 +249,7 @@ class DetectorReIDPipeline:
         for reid_path in reid_model_paths:
             reid_path = Path(reid_path)
             backend = ReidAutoBackend(
-                weights=reid_path, device=self.device, half=self.half
+                weights=reid_path, device=self.reid_device, half=self.reid_half
             )
             self.reid_models.append(TimedReIDModel(backend.model, self.timing_stats))
             self.reid_model_names.append(reid_path.stem)

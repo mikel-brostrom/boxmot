@@ -1,0 +1,5 @@
+id: dancetrack-ablation
+
+dataset: dancetrack-ablation
+detector: yolox_x_dancetrack_ablation
+reid: lmbn_n_duke

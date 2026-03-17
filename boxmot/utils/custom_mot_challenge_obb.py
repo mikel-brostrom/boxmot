@@ -31,7 +31,7 @@ DEFAULT_OBB_SUPER_CATEGORIES = {
     "BIKE": ["bike", "tricycle", "awning-bike"],
 }
 
-VALID_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp", ".npy"}
+VALID_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 
 
 def _count_frames(path: str) -> int:
@@ -276,4 +276,3 @@ class CustomMotChallengeOBB(CustomMotChallengeBase, _BaseDataset):
 
 
 mmot_RGB = CustomMotChallengeOBB
-mmot_8ch = CustomMotChallengeOBB

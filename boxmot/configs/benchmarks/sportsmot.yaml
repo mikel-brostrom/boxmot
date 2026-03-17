@@ -1,0 +1,5 @@
+id: sportsmot
+
+dataset: sportsmot
+detector: yolox_x_mot17_ablation
+reid: lmbn_n_duke
