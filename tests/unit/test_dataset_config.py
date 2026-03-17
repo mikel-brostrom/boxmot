@@ -15,6 +15,7 @@ from boxmot.utils.benchmark_config import (
     load_benchmark_cfg,
     load_dataset_cfg,
     load_reid_component_cfg,
+    load_runtime_reid_component_cfg,
     resolve_benchmark_cfg_path,
     resolve_dataset_cfg_path,
     resolve_required_reid_device,
@@ -110,6 +111,13 @@ def test_detector_and_reid_component_configs_load_separately():
     assert reid_cfg["model"] == "models/lmbn_n_duke.pt"
     assert reid_cfg["url"] == "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"
     assert reid_cfg["device"] == ""
+    assert reid_cfg["half"] is True
+
+
+def test_runtime_reid_component_cfg_matches_model_stem():
+    reid_cfg = load_runtime_reid_component_cfg("models/lmbn_n_duke.pt")
+
+    assert reid_cfg["id"] == "lmbn_n_duke"
     assert reid_cfg["half"] is True
 
 

@@ -218,6 +218,36 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
     assert args.dataset_detector_cfg["classes"][0] == detector_cfg["classes"][0]
 
 
+def test_configure_benchmark_runtime_uses_explicit_component_configs_without_benchmark(monkeypatch):
+    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    args = SimpleNamespace(
+        yolo_model=[Path("models/yolo11s-obb.pt")],
+        reid_model=[Path("models/lmbn_n_duke.pt")],
+        yolo_model_explicit=True,
+        reid_model_explicit=True,
+        device="cuda:0",
+        half=False,
+        device_explicit=False,
+        half_explicit=False,
+        imgsz=None,
+        conf=None,
+        eval_box_type=None,
+        dataset_detector_cfg=None,
+    )
+
+    monkeypatch.setattr(evaluator_module, "_load_benchmark_cfg", lambda _args: {})
+
+    _, benchmark_cfg, runtime_cfg = evaluator_module._configure_benchmark_runtime(args)
+
+    assert benchmark_cfg == {}
+    assert args.reid_device == "cuda:0"
+    assert args.reid_half is True
+    assert args.imgsz == detector_cfg["imgsz"]
+    assert args.conf == detector_cfg["conf"]
+    assert args.eval_box_type == "obb"
+    assert runtime_cfg["box_type"] == "obb"
+
+
 def test_iter_source_expands_globs(tmp_path):
     img = np.zeros((8, 8, 3), dtype=np.uint8)
     img_path = tmp_path / "000001.jpg"

@@ -285,6 +285,16 @@ def load_reid_component_cfg(name: str | Path) -> dict[str, Any]:
     return _normalize_component_cfg(raw_cfg, cfg_path)
 
 
+def load_runtime_reid_component_cfg(name: str | Path | None) -> dict[str, Any]:
+    """Load a ReID component config by model/config reference, returning ``{}`` when unmatched."""
+    if name in (None, ""):
+        return {}
+    try:
+        return load_reid_component_cfg(name)
+    except FileNotFoundError:
+        return {}
+
+
 def _combine_benchmark_and_component_cfg(
     benchmark_cfg: dict[str, Any],
     detector_cfg: dict[str, Any] | None = None,
@@ -630,6 +640,7 @@ __all__ = [
     "load_detector_component_cfg",
     "load_dataset_cfg",
     "load_reid_component_cfg",
+    "load_runtime_reid_component_cfg",
     "resolve_benchmark_cfg_path",
     "resolve_detector_cfg_path",
     "resolve_dataset_cfg_path",

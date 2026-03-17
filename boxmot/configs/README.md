@@ -15,12 +15,12 @@ The primary config split is:
 Example:
 
 ```bash
-boxmot eval --data mot17-ablation --tracker boosttrack
+boxmot eval --benchmark mot17-ablation --tracker boosttrack
 ```
 
 In this layout:
 
-- `--data mot17-ablation` resolves `boxmot/configs/benchmarks/mot17-ablation.yaml`
+- `--benchmark mot17-ablation` resolves `boxmot/configs/benchmarks/mot17-ablation.yaml`
 - the benchmark config selects `boxmot/configs/datasets/mot17-ablation.yaml`
 - the benchmark config selects its associated detector and ReID profiles
 - `--tracker boosttrack` loads `boxmot/configs/trackers/boosttrack.yaml`

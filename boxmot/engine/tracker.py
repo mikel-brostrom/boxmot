@@ -15,6 +15,7 @@ from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.benchmark_config import (
     apply_reid_runtime_defaults,
+    load_runtime_reid_component_cfg,
 )
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
@@ -227,7 +228,8 @@ def main(args):
     Args:
         args: Arguments from CLI (SimpleNamespace from cli.py)
     """
-    apply_reid_runtime_defaults(args, {}, use_config=False)
+    runtime_reid_cfg = load_runtime_reid_component_cfg(getattr(args, "reid_model", None))
+    apply_reid_runtime_defaults(args, {"reid": runtime_reid_cfg}, use_config=bool(runtime_reid_cfg))
 
     runtime_detector_cfg = _load_runtime_detector_cfg(args)
 

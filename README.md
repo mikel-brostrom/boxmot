@@ -97,36 +97,41 @@ boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show
 boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --show-trajectories --save
 
 # Evaluate on the MOT17 ablation split with GBRC postprocessing
-boxmot eval --data mot17-ablation --tracker boosttrack --postprocessing gbrc --verbose
-
-# Evaluate with explicit dataset, model, and tracker configs
-boxmot eval --data mot17-ablation --models mot17-ablation-models --tracker boosttrack --verbose
+boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gbrc --verbose
 
 # Generate reusable detections and embeddings for a benchmark
-boxmot generate --data mot17-ablation
+boxmot generate --benchmark mot17-ablation
 
-# Tune tracker hyperparameters on a MOT-style dataset
-boxmot tune yolov8n osnet_x0_25_msmt17 --tracker ocsort --source ./assets/MOT17-mini/train --n-trials 10
+# Tune tracker hyperparameters on a benchmark
+boxmot tune --benchmark mot17-ablation --tracker ocsort --n-trials 10
 
 # Export a ReID model to ONNX and TensorRT with dynamic input
 boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic
 ```
 
-Common `--source` values include `0`, `img.jpg`, `video.mp4`, `path/`, `path/*.jpg`, YouTube URLs, and RTSP / RTMP / HTTP streams.
+Common `--source` values for `track` and direct-source `generate` runs include `0`, `img.jpg`, `video.mp4`, `path/`, `path/*.jpg`, YouTube URLs, and RTSP / RTMP / HTTP streams.
 
 For config-driven `generate`, `eval`, and `tune` runs:
 
-- `--data <dataset>` selects a dataset config from `boxmot/configs/datasets/`
-- `--models <model-config>` optionally overrides detector+ReID defaults from `boxmot/configs/models/`
+- `--benchmark <benchmark>` selects a benchmark config from `boxmot/configs/benchmarks/`
+- the benchmark config selects its associated dataset config from `boxmot/configs/datasets/`
+- the benchmark config selects its associated detector profile from `boxmot/configs/detectors/`
+- the benchmark config selects its associated ReID profile from `boxmot/configs/reid/`
 - `--tracker <name>` selects the tracker and loads `boxmot/configs/trackers/<name>.yaml`
 
 Example:
 
 ```bash
-boxmot eval --data mot17-ablation --models mot17-ablation-models --tracker boosttrack
+boxmot eval --benchmark mot17-ablation --tracker boosttrack
 ```
 
-If `--models` is omitted, the dataset config's `models:` entry is used.
+The benchmark config's associated dataset, detector, and ReID profiles are used automatically.
+
+To override the benchmark's detector and ReID defaults explicitly:
+
+```bash
+boxmot eval yolo11s_obb lmbn_n_duke boosttrack --benchmark mot17-ablation
+```
 
 If you want to track only selected classes, pass a comma-separated list:
 
@@ -288,39 +293,36 @@ boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source video.mp4 --target-i
 <details>
 <summary><strong>Evaluation and tuning</strong></summary>
 
-Benchmark on built-in MOT-style dataset shortcuts or your own data:
+Benchmark on built-in MOT-style dataset shortcuts:
 
 ```bash
 # Reproduce README-style MOT17 results
-boxmot eval --data mot17-ablation --tracker boosttrack --verbose
+boxmot eval --benchmark mot17-ablation --tracker boosttrack --verbose
 
 # MOT20 ablation split
-boxmot eval --data mot20-ablation --tracker boosttrack --verbose
+boxmot eval --benchmark mot20-ablation --tracker boosttrack --verbose
 
 # DanceTrack ablation split
-boxmot eval --data dancetrack-ablation --tracker boosttrack --verbose
+boxmot eval --benchmark dancetrack-ablation --tracker boosttrack --verbose
 
 # VisDrone ablation split
-boxmot eval --data visdrone-ablation --tracker botsort --verbose
-
-# Override the dataset's default detector+ReID config
-boxmot eval --data mot17-ablation --models mot17-ablation-models --tracker boosttrack --verbose
+boxmot eval --benchmark visdrone-ablation --tracker botsort --verbose
 
 # Apply postprocessing
-boxmot eval --data mot17-ablation --tracker boosttrack --postprocessing gsi
-boxmot eval --data mot17-ablation --tracker boosttrack --postprocessing gbrc
+boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gsi
+boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gbrc
 
 # Generate detections and embeddings once for a benchmark
-boxmot generate --data mot17-ablation
+boxmot generate --benchmark mot17-ablation
 
 # Generate detections and embeddings for a direct dataset path
 boxmot generate yolov8n osnet_x0_25_msmt17 --source ./assets/MOT17-mini/train
 
-# Tune on a built-in dataset config
-boxmot tune --data mot17-ablation --tracker boosttrack --n-trials 9
+# Tune on a built-in benchmark config
+boxmot tune --benchmark mot17-ablation --tracker boosttrack --n-trials 9
 
-# Tune a tracker on a custom MOT-style dataset
-boxmot tune yolov8n osnet_x0_25_msmt17 --tracker botsort --source ./assets/MOT17-mini/train --n-trials 9
+# Tune a tracker with explicit detector/ReID overrides
+boxmot tune yolo11s_obb lmbn_n_duke --tracker botsort --benchmark mot17-ablation --n-trials 9
 ```
 
 </details>

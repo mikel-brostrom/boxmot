@@ -38,7 +38,9 @@ from boxmot.utils.benchmark_config import (
     ensure_benchmark_detector_model,
     ensure_benchmark_reid_model,
     get_benchmark_detector_cfg,
+    get_benchmark_reid_cfg,
     load_benchmark_cfg,
+    load_runtime_reid_component_cfg,
     resolve_required_reid_model,
     resolve_required_yolo_model,
     should_use_benchmark_detector,
@@ -119,13 +121,20 @@ def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, 
             LOGGER.info(f"Using benchmark-default ReID: {required_model}")
         args.reid_model = [required_model]
 
-    apply_reid_runtime_defaults(args, benchmark_bundle, use_config=use_benchmark_reid)
+    runtime_reid_cfg: dict = {}
+    if use_benchmark_reid:
+        runtime_reid_cfg = get_benchmark_reid_cfg(benchmark_bundle)
+    else:
+        runtime_reid_cfg = load_runtime_reid_component_cfg(args.reid_model[0])
+    apply_reid_runtime_defaults(args, {"reid": runtime_reid_cfg}, use_config=bool(runtime_reid_cfg))
 
     dataset_detector_cfg = get_runtime_detector_cfg(args.yolo_model[0], benchmark_detector_cfg)
     args.dataset_detector_cfg = dataset_detector_cfg or None
 
-    if benchmark_cfg.get("box_type") and not getattr(args, "eval_box_type", None):
-        args.eval_box_type = str(benchmark_cfg["box_type"]).lower()
+    if not getattr(args, "eval_box_type", None):
+        box_type = benchmark_cfg.get("box_type") or dataset_detector_cfg.get("box_type")
+        if box_type:
+            args.eval_box_type = str(box_type).lower()
 
     if args.imgsz is None:
         if "imgsz" in dataset_detector_cfg:

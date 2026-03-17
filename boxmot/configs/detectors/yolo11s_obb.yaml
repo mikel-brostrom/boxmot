@@ -1,5 +1,6 @@
 id: yolo11s_obb
 model: "models/yolo11s-obb.pt"
+box_type: obb
 imgsz: [1024, 1024]
 conf: 0.2
 classes:
