@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from __future__ import annotations
+
 import multiprocessing as mp
 mp.set_start_method("spawn", force=True)
 
