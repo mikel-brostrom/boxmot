@@ -587,29 +587,41 @@ def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list
             _, field_map = metric_specs[current_metric_type]
 
             # Resolve row name and the remaining value tokens.
-            # TrackEval formats the name column as %-35s; names longer than 35
-            # chars overflow directly into the first value with no whitespace.
-            # When we know the valid names we use longest-prefix matching to
-            # correctly split the line regardless of name length.
+            # TrackEval formats the name column as %-35s and each value as %-10s.
+            # Names longer than 35 chars overflow directly into the first value
+            # with no whitespace.  When values are exactly 10 chars they too have
+            # no trailing space, so simple .split() merges adjacent tokens.
+            # We use fixed-width parsing: name in first 35 cols, then 10-char
+            # chunks for values.  Longest-prefix matching covers names > 35 chars.
+            _COL_NAME = 35
+            _COL_VAL = 10
+
+            def _parse_values(rest: str, name_len: int) -> list:
+                """Strip name padding then split into 10-char value chunks."""
+                pad = max(0, _COL_NAME - name_len)
+                value_part = rest[pad:]
+                chunks = [value_part[i:i + _COL_VAL].strip() for i in range(0, len(value_part), _COL_VAL)]
+                return [c for c in chunks if c]
+
             if line.startswith('COMBINED'):
-                fields = line.split()
                 row_name = 'COMBINED'
-                values = fields[1:]
+                values = _parse_values(line[len('COMBINED'):], len('COMBINED'))
             elif sorted_names is not None:
                 row_name = None
                 for name in sorted_names:
                     if line.startswith(name):
                         row_name = name
-                        values = line[len(name):].split()
+                        values = _parse_values(line[len(name):], len(name))
                         break
                 if row_name is None:
                     continue  # unrecognised row, skip
             else:
-                fields = line.split()
-                if len(fields) < 2:
+                if len(line) <= _COL_NAME:
                     continue
-                row_name = fields[0]
-                values = fields[1:]
+                row_name = line[:_COL_NAME].strip()
+                if not row_name:
+                    continue
+                values = _parse_values(line[_COL_NAME:], _COL_NAME)
 
             if not values:
                 continue
