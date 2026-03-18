@@ -63,7 +63,7 @@ jobs:
         run: |
           source .venv/bin/activate
 
-          if boxmot track --yolo-model yolo11n-obb.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --source "$SMOKE_SOURCE" --project runs/benchmark_ci --name ${{ matrix.tracker }} --exist-ok; then
+          if boxmot track --detector yolo11n-obb.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} --source "$SMOKE_SOURCE" --project runs/benchmark_ci --name ${{ matrix.tracker }} --exist-ok; then
             echo "obb_status=✅" >> $GITHUB_OUTPUT
           else
             echo "obb_status=❌" >> $GITHUB_OUTPUT
@@ -75,7 +75,7 @@ jobs:
 
           OBB_STATUS="${{ steps.obb_smoke.outputs.obb_status }}"
 
-          if boxmot eval --classes 0 --yolo-model yolox_x_MOT17_ablation.pt --reid-model lmbn_n_duke.pt --tracking-method ${{ matrix.tracker }} --ci --verbose --data mot17-ablation; then
+          if boxmot eval --classes 0 --detector yolox_x_MOT17_ablation.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} --ci --verbose --benchmark mot17-ablation; then
             STATUS="✅"
           else
             STATUS="❌"

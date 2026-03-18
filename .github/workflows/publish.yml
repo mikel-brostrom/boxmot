@@ -69,7 +69,7 @@ jobs:
 
       - name: Update citation pkg version and add
         run: |
-          sed -i "s/version: .*/version: ${{ steps.get_version.outputs.new_version }}/" CITATION.cff
+          sed -i "s/^version: .*/version: ${{ steps.get_version.outputs.new_version }}/" CITATION.cff
           git add CITATION.cff
         if: ${{ success() }}
 

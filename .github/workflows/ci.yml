@@ -48,7 +48,7 @@ jobs:
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
-            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker --source $IMG --verbose
+            boxmot track --detector yolov10n.pt --reid osnet_x0_25_msmt17.pt --imgsz 320 --tracker $tracker --source $IMG --verbose
           done
   tune:
     runs-on: ${{ matrix.os }}
@@ -77,8 +77,7 @@ jobs:
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
-          # MOT17-mini has a benchmark config, so CI uses --data for eval-like commands.
-          boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --data mot17-mini --ci --classes 0
+          boxmot tune --detector yolov8n.pt --reid osnet_x0_25_msmt17.pt --n-trials 3 --tracker strongsort --benchmark mot17-mini --ci --classes 0
   metrics:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -110,7 +109,7 @@ jobs:
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate --data mot17-mini --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+          boxmot generate --benchmark mot17-mini --detector yolov10n.pt --reid osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
 
       - name: Evaluate MOT17-mini metrics
         shell: bash
@@ -118,7 +117,7 @@ jobs:
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > metrics.csv
           for tracker in $TRACKERS; do
-            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --data mot17-mini --ci --classes 0; then
+            if boxmot eval --detector yolov8n.pt --reid osnet_x0_25_msmt17.pt --tracker $tracker --verbose --benchmark mot17-mini --ci --classes 0; then
               STATUS="✅"
             else
               STATUS="❌"
@@ -174,7 +173,7 @@ jobs:
           source .venv/bin/activate
           echo "Format,OBB" > obb.csv
           for tracker in $TRACKERS; do
-            if boxmot track --yolo-model yolo11s-obb.pt --reid-model lmbn_n_duke.pt --tracking-method $tracker --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok; then
+            if boxmot track --detector yolo11s-obb.pt --reid lmbn_n_duke.pt --tracker $tracker --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok; then
               OBB_STATUS="✅"
             else
               OBB_STATUS="❌"
@@ -203,7 +202,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run:  |
           source .venv/bin/activate
-          boxmot track --yolo-model yolov8n-pose.pt --imgsz 320 --source $IMG
+          boxmot track --detector yolov8n-pose.pt --imgsz 320 --source $IMG
   yolos:
     runs-on: ubuntu-latest
     outputs:
@@ -225,9 +224,9 @@ jobs:
         run: |
           source .venv/bin/activate
           uv pip list
-          boxmot track --yolo-model yolov10n.pt --imgsz 320 --source $IMG
-          boxmot track --yolo-model yolox_n.pt --imgsz 320 --source $IMG
-          boxmot track --yolo-model rtdetr_v2_r18vd --imgsz 320 --source $IMG
+          boxmot track --detector yolov10n.pt --imgsz 320 --source $IMG
+          boxmot track --detector yolox_n.pt --imgsz 320 --source $IMG
+          boxmot track --detector rtdetr_v2_r18vd --imgsz 320 --source $IMG
 
   seg:
     runs-on: ubuntu-latest
@@ -249,7 +248,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          boxmot track --tracking-method bytetrack --yolo-model yolov8n-seg.pt --source $IMG
+          boxmot track --tracker bytetrack --detector yolov8n-seg.pt --source $IMG
   
   export:
     runs-on: ubuntu-latest
@@ -299,7 +298,7 @@ jobs:
 
             if [ -n "$model_path" ] && [ -e "$model_path" ]; then
               export_status="✅"
-              if boxmot track --reid-model "$model_path" --imgsz 320 --source "$IMG"; then
+              if boxmot track --reid "$model_path" --imgsz 320 --source "$IMG"; then
                 inference_status="✅"
               else
                 failed=1
