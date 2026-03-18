@@ -1,0 +1,40 @@
+id: fasttracker-mot
+
+path: "boxmot/engine/trackeval/data/FastTracker-Benchmark-MOT"
+split: "train"
+train: "train"
+val:
+test:
+
+layout: mot
+box_type: aabb
+
+names:
+  1: person
+  2: bus_small
+  3: bus_big
+  4: truck_small
+  5: truck_big
+  6: car
+  7: bike
+  8: motorbike
+  10: tractor
+  11: trailor
+  12: wheelchair
+  13: heavy_equipment
+  14: pm
+  15: umbrella
+distractors:
+  9: ignore_region
+
+class_map:
+  bus_small: Bus
+  bus_big: Bus
+  truck_small: Cargo
+  truck_big: Cargo
+  car: Car
+  bike: Moto
+  motorbike: Moto
+
+download:
+  dataset: "hf://Fleyderer/FastTracker-Benchmark-MOT/FastTracker-Benchmark-MOT"
