@@ -259,19 +259,24 @@ def download_eval_data(
     runs_url: Optional[str] = None,
     dataset_url: str,
     dataset_dest: Path,
-    overwrite: bool = False
+    overwrite: bool = False,
+    runs_check_path: Optional[Path] = None,
 ) -> None:
     """
     Download & extract TrackEval evaluation data.
     If `runs_url` is truthy, downloads+unzips runs.zip; otherwise skips it.
+    If `runs_check_path` exists, skips the runs download entirely.
     Always downloads+unzips the benchmark data.
     """
     LOGGER.info("Setting up evaluation data...")
 
-    # Optional runs data
+    # Optional runs data — skip if user already has their own dets/embs
     if runs_url:
-        runs_zip = download_file(runs_url, Path("runs.zip"), overwrite=overwrite)
-        extract_zip(runs_zip, Path("."), overwrite=overwrite)
+        if runs_check_path is not None and Path(runs_check_path).exists():
+            LOGGER.debug(f"Skipping runs.zip download: {runs_check_path} already exists.")
+        else:
+            runs_zip = download_file(runs_url, Path("runs.zip"), overwrite=overwrite)
+            extract_zip(runs_zip, Path("."), overwrite=overwrite)
 
     if not dataset_url:
         return

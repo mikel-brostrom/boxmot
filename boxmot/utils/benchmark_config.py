@@ -549,11 +549,13 @@ def _apply_benchmark_config_ref(args: Any, benchmark_ref: str | Path | None, ove
     benchmark_dest = _resolve_benchmark_dest(cfg, benchmark_name, source_root)
     split_path = _resolve_active_split_path(cfg)
 
+    runs_check_path = Path("runs") / "dets_n_embs" / benchmark_name
     download_eval_data(
         runs_url=download_cfg.get("runs", ""),
         dataset_url=download_cfg.get("dataset", ""),
         dataset_dest=benchmark_dest,
         overwrite=overwrite,
+        runs_check_path=runs_check_path,
     )
 
     args.benchmark_id = cfg.get("id", benchmark_name)
