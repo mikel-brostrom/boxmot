@@ -261,6 +261,118 @@ def test_iter_source_expands_globs(tmp_path):
     assert frames[0][1].shape == img.shape
 
 
+def test_existing_embedding_cache_path_falls_back_to_legacy_txt(tmp_path):
+    emb_txt = tmp_path / "SEQ.txt"
+    np.savetxt(emb_txt, np.arange(4, dtype=np.float32)[None, :], fmt="%f")
+
+    resolved = evaluator_module._existing_embedding_cache_path(tmp_path / "SEQ.npy")
+
+    assert resolved == emb_txt
+
+
+def test_load_embedding_cache_array_normalizes_single_row_txt_to_2d(tmp_path):
+    emb_txt = tmp_path / "SEQ.txt"
+    expected = np.arange(8, dtype=np.float32)[None, :]
+    np.savetxt(emb_txt, expected, fmt="%f")
+
+    loaded = evaluator_module._load_embedding_cache_array(emb_txt)
+
+    assert loaded.shape == (1, 8)
+    np.testing.assert_allclose(loaded, expected)
+
+
+def test_migrate_legacy_embedding_cache_writes_npy(tmp_path):
+    emb_txt = tmp_path / "SEQ.txt"
+    target_npy = tmp_path / "SEQ.npy"
+    expected = np.arange(12, dtype=np.float32).reshape(3, 4)
+    np.savetxt(emb_txt, expected, fmt="%f")
+
+    migrated = evaluator_module._migrate_legacy_embedding_cache(emb_txt, target_npy)
+
+    assert migrated is True
+    np.testing.assert_allclose(np.load(target_npy), expected)
+
+
+def test_detection_cache_helpers_support_npy(tmp_path):
+    det_npy = tmp_path / "SEQ.npy"
+    dets = np.array(
+        [
+            [1, 10, 20, 30, 40, 0.9, 0],
+            [3, 11, 21, 31, 41, 0.8, 0],
+        ],
+        dtype=np.float32,
+    )
+    np.save(det_npy, dets)
+
+    assert evaluator_module._existing_cache_path(det_npy) == det_npy
+    assert evaluator_module._saved_detection_column_count(det_npy) == 7
+    assert evaluator_module._max_frame_id(det_npy) == 3
+    np.testing.assert_allclose(
+        evaluator_module._load_numeric_cache_array(det_npy),
+        dets,
+    )
+
+
+def test_appendable_npy_writer_appends_rows_without_buffering_full_array(tmp_path):
+    path = tmp_path / "stream.npy"
+    writer = evaluator_module.AppendableNpyWriter(
+        path,
+        dtype=np.float32,
+        trailing_shape=(3,),
+        empty_trailing_shape=(3,),
+    )
+
+    writer.append(np.array([[1, 2, 3]], dtype=np.float32))
+    writer.append(np.array([[4, 5, 6], [7, 8, 9]], dtype=np.float32))
+    writer.close()
+
+    np.testing.assert_allclose(
+        np.load(path),
+        np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=np.float32),
+    )
+
+
+def test_appendable_npy_writer_can_resume_existing_file(tmp_path):
+    path = tmp_path / "resume.npy"
+    writer = evaluator_module.AppendableNpyWriter(
+        path,
+        dtype=np.float32,
+        trailing_shape=(2,),
+        empty_trailing_shape=(2,),
+    )
+    writer.append(np.array([[1, 2]], dtype=np.float32))
+    writer.close()
+
+    resumed = evaluator_module.AppendableNpyWriter(
+        path,
+        dtype=np.float32,
+        trailing_shape=(2,),
+        empty_trailing_shape=(2,),
+    )
+    resumed.append(np.array([[3, 4], [5, 6]], dtype=np.float32))
+    resumed.close()
+
+    np.testing.assert_allclose(
+        np.load(path),
+        np.array([[1, 2], [3, 4], [5, 6]], dtype=np.float32),
+    )
+
+
+def test_appendable_npy_writer_creates_empty_file_for_lazy_writer(tmp_path):
+    path = tmp_path / "empty.npy"
+    writer = evaluator_module.AppendableNpyWriter(
+        path,
+        dtype=np.float32,
+        trailing_shape=None,
+        empty_trailing_shape=(0,),
+    )
+    writer.close()
+
+    arr = np.load(path)
+    assert arr.shape == (0, 0)
+    assert arr.dtype == np.float32
+
+
 def test_iter_source_preserves_stream_urls(monkeypatch):
     seen = {}
 

@@ -8,6 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 import numpy as np
+from numpy.lib import format as npy_format
 from tqdm import tqdm
 import json
 import cv2
@@ -865,8 +866,194 @@ def _count_embedding_rows(path: Path) -> int:
     return _count_data_lines(path, skip_header=True)
 
 
+def _legacy_cache_txt_path(path: Path) -> Path:
+    """Return the legacy txt cache path corresponding to a preferred npy path."""
+    return path.with_suffix(".txt")
+
+
+def _existing_cache_path(path: Path) -> Optional[Path]:
+    """Resolve the preferred cache path, falling back to a legacy txt cache."""
+    if path.exists():
+        return path
+
+    legacy_path = _legacy_cache_txt_path(path)
+    if legacy_path.exists():
+        return legacy_path
+
+    return None
+
+
+def _load_numeric_cache_array(path: Path, *, comments: str | None = "#") -> np.ndarray:
+    """Load a numeric cache from either npy or legacy txt format."""
+    if path.suffix == ".npy":
+        arr = np.load(path)
+    else:
+        arr = np.loadtxt(path, comments=comments)
+
+    arr = np.asarray(arr, dtype=np.float32)
+    if arr.size == 0:
+        return np.empty((0, 0), dtype=np.float32)
+
+    return np.atleast_2d(arr).astype(np.float32, copy=False)
+
+
+def _migrate_legacy_numeric_cache(
+    source_path: Path,
+    target_path: Path,
+    *,
+    comments: str | None = "#",
+) -> bool:
+    """Materialize a legacy txt cache as npy when needed."""
+    if source_path.suffix != ".txt" or target_path.exists():
+        return False
+
+    arr = _load_numeric_cache_array(source_path, comments=comments)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(target_path, arr)
+    return True
+
+
+def _existing_embedding_cache_path(path: Path) -> Optional[Path]:
+    """Resolve the preferred embedding cache path, falling back to legacy txt caches."""
+    return _existing_cache_path(path)
+
+
+def _load_embedding_cache_array(path: Path) -> np.ndarray:
+    """Load an embedding cache from either npy or legacy txt format."""
+    return _load_numeric_cache_array(path, comments="#")
+
+
+def _migrate_legacy_embedding_cache(source_path: Path, target_path: Path) -> bool:
+    """Materialize a legacy txt embedding cache as npy when needed."""
+    return _migrate_legacy_numeric_cache(source_path, target_path, comments="#")
+
+
+class AppendableNpyWriter:
+    """Append row chunks to a standard `.npy` file without buffering the whole array in RAM."""
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        dtype: np.dtype = np.float32,
+        trailing_shape: Optional[tuple[int, ...]] = None,
+        empty_trailing_shape: Optional[tuple[int, ...]] = None,
+    ):
+        self.path = Path(path)
+        self.dtype = np.dtype(dtype)
+        self.trailing_shape = tuple(trailing_shape) if trailing_shape is not None else None
+        self.empty_trailing_shape = (
+            tuple(empty_trailing_shape) if empty_trailing_shape is not None else self.trailing_shape
+        )
+        self.rows = 0
+        self._fp = None
+        self._data_offset = None
+        self._version = (2, 0)
+
+        if self.path.exists():
+            self._open_existing()
+        elif self.trailing_shape is not None:
+            self._initialize_file(self.trailing_shape)
+
+    def _sync_header(self) -> None:
+        if self._fp is None:
+            return
+
+        self._fp.seek(0)
+        if self._version == (1, 0):
+            npy_format.write_array_header_1_0(self._fp, self._header_dict())
+        else:
+            npy_format.write_array_header_2_0(self._fp, self._header_dict())
+
+        new_offset = self._fp.tell()
+        if self._data_offset is not None and new_offset != self._data_offset:
+            raise RuntimeError(
+                f"NPY header resize changed data offset for {self.path}: "
+                f"{self._data_offset} -> {new_offset}"
+            )
+        self._fp.flush()
+
+    def _header_dict(self) -> dict:
+        if self.trailing_shape is None:
+            raise ValueError("Cannot build NPY header before trailing shape is known")
+        return {
+            "descr": npy_format.dtype_to_descr(self.dtype),
+            "fortran_order": False,
+            "shape": (int(self.rows), *self.trailing_shape),
+        }
+
+    def _initialize_file(self, trailing_shape: tuple[int, ...]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.trailing_shape = tuple(trailing_shape)
+        self._fp = open(self.path, "wb+")
+        npy_format.write_array_header_2_0(self._fp, self._header_dict())
+        self._data_offset = self._fp.tell()
+        self._fp.seek(self._data_offset)
+
+    def _open_existing(self) -> None:
+        self._fp = open(self.path, "rb+")
+        major, minor = npy_format.read_magic(self._fp)
+        self._version = (major, minor)
+        if self._version == (1, 0):
+            shape, fortran_order, dtype = npy_format.read_array_header_1_0(self._fp)
+        elif self._version == (2, 0):
+            shape, fortran_order, dtype = npy_format.read_array_header_2_0(self._fp)
+        else:
+            raise ValueError(f"Unsupported npy version for append: {self._version}")
+        if fortran_order:
+            raise ValueError(f"Fortran-order npy append is not supported: {self.path}")
+
+        self.dtype = np.dtype(dtype)
+        self.rows = int(shape[0]) if len(shape) > 0 else 0
+        self.trailing_shape = tuple(shape[1:]) if len(shape) > 1 else ()
+        self._data_offset = self._fp.tell()
+        self._fp.seek(0, os.SEEK_END)
+
+    def append(self, arr: np.ndarray) -> None:
+        arr = np.asarray(arr, dtype=self.dtype)
+        if arr.size == 0:
+            return
+        if arr.ndim == 1:
+            arr = arr.reshape(1, -1)
+        if arr.ndim < 2:
+            raise ValueError(f"AppendableNpyWriter expects row-major arrays, got shape {arr.shape}")
+
+        if self.trailing_shape is None:
+            self._initialize_file(tuple(arr.shape[1:]))
+        elif tuple(arr.shape[1:]) != self.trailing_shape:
+            raise ValueError(
+                f"Appended array shape mismatch for {self.path}: "
+                f"expected (*, {self.trailing_shape}), got {arr.shape}"
+            )
+
+        arr = np.ascontiguousarray(arr, dtype=self.dtype)
+        self._fp.seek(0, os.SEEK_END)
+        self._fp.write(arr.tobytes(order="C"))
+        self.rows += int(arr.shape[0])
+        self._sync_header()
+
+    def close(self) -> None:
+        if self._fp is None:
+            if self.empty_trailing_shape is None:
+                return
+            self._initialize_file(self.empty_trailing_shape)
+
+        self._sync_header()
+        self._fp.close()
+        self._fp = None
+
+
 def _max_frame_id(path: Path) -> int:
     """Return the maximum frame id (first column) in a dets txt, skipping headers."""
+    if path.suffix == ".npy":
+        try:
+            arr = np.load(path, mmap_mode="r")
+            if arr.size == 0 or arr.ndim != 2 or arr.shape[1] == 0:
+                return 0
+            return int(np.max(arr[:, 0]))
+        except Exception:
+            return 0
+
     max_f = 0
     try:
         with open(path, "r") as fh:
@@ -890,6 +1077,15 @@ def _max_frame_id(path: Path) -> int:
 
 def _saved_detection_column_count(path: Path) -> int:
     """Return the number of columns in the first non-header detections row."""
+    if path.suffix == ".npy":
+        try:
+            arr = np.load(path, mmap_mode="r")
+            if arr.ndim != 2:
+                return 0
+            return int(arr.shape[1])
+        except Exception:
+            return 0
+
     try:
         with open(path, "r") as fh:
             for line in fh:
@@ -960,8 +1156,8 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
     mot_folder_paths = sorted([p for p in Path(source_root).iterdir() if p.is_dir()])
 
     seq_states = {}
-    det_fhs = {}
-    emb_buffers: dict[str, dict[str, list]] = {r.stem: {} for r in args.reid_model}
+    det_writers: dict[str, AppendableNpyWriter] = {}
+    emb_writers: dict[str, dict[str, AppendableNpyWriter]] = {r.stem: {} for r in args.reid_model}
     total_frames = 0
     initial_done = 0
 
@@ -973,15 +1169,19 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
 
         seq_name = _sequence_name_from_img_dir(img_dir)
 
-        dets_path = dets_folder / f"{seq_name}.txt"
+        dets_path = dets_folder / f"{seq_name}.npy"
+        cached_dets_path = _existing_cache_path(dets_path)
         processed = 0
 
         emb_paths = {}
+        cached_emb_paths = {}
         any_emb_cached = False
         for r in args.reid_model:
             ep_npy = embs_root / r.stem / f"{seq_name}.npy"
             emb_paths[r.stem] = ep_npy
-            if ep_npy.exists():
+            cached_ep = _existing_embedding_cache_path(ep_npy)
+            cached_emb_paths[r.stem] = cached_ep
+            if cached_ep is not None:
                 any_emb_cached = True
 
         expected_files = False
@@ -991,14 +1191,14 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         emb_rows: dict[str, int] = {}
 
         if resume:
-            det_rows = _count_data_lines(dets_path, skip_header=True)
-            det_max_frame = _max_frame_id(dets_path)
-            det_col_count = _saved_detection_column_count(dets_path)
+            det_rows = _count_embedding_rows(cached_dets_path) if cached_dets_path is not None else 0
+            det_max_frame = _max_frame_id(cached_dets_path) if cached_dets_path is not None else 0
+            det_col_count = _saved_detection_column_count(cached_dets_path) if cached_dets_path is not None else 0
             emb_rows = {
-                stem: _count_embedding_rows(ep)
-                for stem, ep in emb_paths.items()
+                stem: _count_embedding_rows(cached_ep if cached_ep is not None else emb_paths[stem])
+                for stem, cached_ep in cached_emb_paths.items()
             }
-            expected_files = dets_path.exists() and all(ep.exists() for ep in emb_paths.values())
+            expected_files = cached_dets_path is not None and all(cached_ep is not None for cached_ep in cached_emb_paths.values())
             rows_match = len(set([det_rows, *emb_rows.values()])) == 1 if expected_files else False
             schema_match = det_col_count in (0, expected_det_cols)
             if expected_files and not schema_match:
@@ -1006,7 +1206,11 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                     f"Cached detection schema mismatch for {seq_name}: "
                     f"found {det_col_count} columns, expected {expected_det_cols}. Resetting cached data."
                 )
-                for p in [dets_path, *emb_paths.values()]:
+                reset_paths = {
+                    dets_path,
+                    *(p for p in [cached_dets_path, *emb_paths.values(), *cached_emb_paths.values()] if p is not None),
+                }
+                for p in reset_paths:
                     try:
                         p.unlink()
                     except FileNotFoundError:
@@ -1020,14 +1224,33 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 LOGGER.warning(
                     f"Cached det/emb rows mismatch for {seq_name}; resetting cached data."
                 )
-                for p in [dets_path, *emb_paths.values()]:
+                reset_paths = {
+                    dets_path,
+                    *(p for p in [cached_dets_path, *emb_paths.values(), *cached_emb_paths.values()] if p is not None),
+                }
+                for p in reset_paths:
                     try:
                         p.unlink()
                     except FileNotFoundError:
                         pass
                 processed = 0
 
-        if resume and processed >= len(frames) and dets_path.exists() and all(ep.exists() for ep in emb_paths.values()):
+        if resume and processed >= len(frames) and cached_dets_path is not None and all(cached_ep is not None for cached_ep in cached_emb_paths.values()):
+            try:
+                if _migrate_legacy_numeric_cache(cached_dets_path, dets_path, comments="#"):
+                    LOGGER.info(f"Migrated legacy detection cache to {dets_path.name}")
+                    cached_dets_path = dets_path
+            except Exception as e:
+                LOGGER.warning(f"Failed to migrate detections for {seq_name}: {e}")
+            for stem, cached_ep in cached_emb_paths.items():
+                if cached_ep is None:
+                    continue
+                try:
+                    if _migrate_legacy_embedding_cache(cached_ep, emb_paths[stem]):
+                        LOGGER.info(f"Migrated legacy embedding cache to {emb_paths[stem].name}")
+                        cached_emb_paths[stem] = emb_paths[stem]
+                except Exception as e:
+                    LOGGER.warning(f"Failed to migrate embeddings for {seq_name}/{stem}: {e}")
             if expected_files and rows_match and det_rows:
                 LOGGER.info(
                     f"Skipping {seq_name} (cached complete; {processed}/{len(frames)} frames)."
@@ -1040,27 +1263,43 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         if resume and 0 < processed < len(frames):
             LOGGER.info(f"Resuming {seq_name}: cached {processed}/{len(frames)} frames.")
 
-        if (not resume) and dets_path.exists() and any_emb_cached:
-            if not prompt_overwrite('Detections and Embeddings', dets_path, args.ci):
+        if (not resume) and cached_dets_path is not None and any_emb_cached:
+            if not prompt_overwrite('Detections and Embeddings', cached_dets_path, args.ci):
                 LOGGER.debug(f"Skipping {seq_name} (cached).")
                 continue
 
         dets_path.parent.mkdir(parents=True, exist_ok=True)
-        mode = 'ab' if (resume and dets_path.exists()) else 'wb'
-        det_fhs[seq_name] = open(dets_path, mode, buffering=1024 * 1024)
-        if mode == 'wb' or dets_path.stat().st_size == 0:
-            np.savetxt(det_fhs[seq_name], [], fmt='%f', header=str(img_dir))
+        if resume and cached_dets_path is not None and cached_dets_path.suffix == ".txt":
+            try:
+                if _migrate_legacy_numeric_cache(cached_dets_path, dets_path, comments="#"):
+                    LOGGER.info(f"Migrated legacy detection cache to {dets_path.name}")
+                    cached_dets_path = dets_path
+            except Exception:
+                pass
+        det_writers[seq_name] = AppendableNpyWriter(
+            dets_path,
+            dtype=np.float32,
+            trailing_shape=(expected_det_cols,),
+            empty_trailing_shape=(expected_det_cols,),
+        )
 
         for r in args.reid_model:
             ep = emb_paths[r.stem]
             ep.parent.mkdir(parents=True, exist_ok=True)
-            if resume and ep.exists():
+            cached_ep = cached_emb_paths[r.stem]
+            if resume and cached_ep is not None and cached_ep.suffix == ".txt":
                 try:
-                    emb_buffers[r.stem][seq_name] = [np.load(ep)]
+                    if _migrate_legacy_embedding_cache(cached_ep, ep):
+                        LOGGER.info(f"Migrated legacy embedding cache to {ep.name}")
+                        cached_ep = ep
                 except Exception:
-                    emb_buffers[r.stem][seq_name] = []
-            else:
-                emb_buffers[r.stem][seq_name] = []
+                    pass
+            emb_writers[r.stem][seq_name] = AppendableNpyWriter(
+                ep,
+                dtype=np.float32,
+                trailing_shape=None,
+                empty_trailing_shape=(0,),
+            )
 
         seq_states[seq_name] = {"frames": frames, "i": processed, "img_dir": img_dir}
         total_frames += len(frames)
@@ -1169,7 +1408,6 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 LOGGER.info(
                     f"YOLO batch frames={len(batch_items)} | dets/frame={det_counts} | total_dets={sum(det_counts)}"
                 )
-                touched: set[str] = set()
 
                 for (seq_name, frame_id, _), r, img in zip(batch_items, yolo_results, imgs):
                     dets = prepare_detections(r, img)
@@ -1181,7 +1419,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                         continue
 
                     dets_np, det_boxes_np = _serialize_eval_detections(dets, frame_id)
-                    np.savetxt(det_fhs[seq_name], dets_np, fmt="%f")
+                    det_writers[seq_name].append(dets_np.astype(np.float32, copy=False))
 
                     all_embs = pipeline.get_all_reid_features(det_boxes_np, img)
                     for reid_name, embs in all_embs.items():
@@ -1191,7 +1429,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                             )
                         if embs.ndim >= 2 and reid_name not in emb_dims:
                             emb_dims[reid_name] = embs.shape[1]
-                        emb_buffers[reid_name][seq_name].append(embs.astype(np.float32))
+                        emb_writers[reid_name][seq_name].append(embs.astype(np.float32, copy=False))
 
                     reid_pbar.update(det_boxes_np.shape[0])
 
@@ -1199,7 +1437,6 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                         timing_stats.frames += 1
 
                     pbar.update(1)
-                    touched.add(seq_name)
 
                 if emb_dims:
                     LOGGER.info(
@@ -1209,31 +1446,23 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 else:
                     LOGGER.info("ReID embedding dims per model: n/a (no detections)")
 
-                for seq_name in touched:
-                    try:
-                        det_fhs[seq_name].flush()
-                    except Exception:
-                        pass
-
                 del yolo_results, imgs
                 _clear_device_cache(args.device)
 
     finally:
         pbar.close()
         reid_pbar.close()
-        for fh in det_fhs.values():
+        for seq_name, writer in det_writers.items():
             try:
-                fh.close()
-            except Exception:
-                pass
-        for reid_name, per_seq in emb_buffers.items():
-            for seq_name, chunks in per_seq.items():
-                if chunks:
-                    try:
-                        arr = np.vstack(chunks)
-                        np.save(embs_root / reid_name / f"{seq_name}.npy", arr)
-                    except Exception as e:
-                        LOGGER.warning(f"Failed to save embeddings for {seq_name}/{reid_name}: {e}")
+                writer.close()
+            except Exception as e:
+                LOGGER.warning(f"Failed to save detections for {seq_name}: {e}")
+        for reid_name, per_seq in emb_writers.items():
+            for seq_name, writer in per_seq.items():
+                try:
+                    writer.close()
+                except Exception as e:
+                    LOGGER.warning(f"Failed to save embeddings for {seq_name}/{reid_name}: {e}")
 
 
 def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[TimingStats] = None) -> None:

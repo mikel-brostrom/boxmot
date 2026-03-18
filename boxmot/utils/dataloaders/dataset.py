@@ -181,7 +181,17 @@ class MOTDataset:
                 continue
             frame_ids = [int(p.stem) for p in imgs]
 
-            det_path = self.dets_dir / f'{name}.txt' if self.dets_dir else None
+            if self.dets_dir:
+                _npy = self.dets_dir / f'{name}.npy'
+                _txt = self.dets_dir / f'{name}.txt'
+                if _npy.exists():
+                    det_path = _npy
+                elif _txt.exists():
+                    det_path = _txt
+                else:
+                    det_path = None
+            else:
+                det_path = None
             if self.embs_dir:
                 _npy = self.embs_dir / f'{name}.npy'
                 _txt = self.embs_dir / f'{name}.txt'
@@ -260,7 +270,11 @@ class MOTSequence:
         """
         # 1) Load dets & embs
         if self.meta['det_path'] and self.meta['emb_path']:
-            self.dets = _load_text_matrix(self.meta['det_path'], comments="#")
+            det_path = Path(self.meta['det_path'])
+            if det_path.suffix == '.npy':
+                self.dets = np.load(det_path, mmap_mode='r')
+            else:
+                self.dets = _load_text_matrix(det_path, comments="#")
             emb_path = Path(self.meta['emb_path'])
             if emb_path.suffix == '.npy':
                 self.embs = np.load(emb_path, mmap_mode='r')

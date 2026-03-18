@@ -15,6 +15,7 @@ A dataset config should describe dataset facts only:
 - `distractors`: classes to ignore during evaluation
 - `class_map`: benchmark class name to detector class name mapping
 - `download.dataset`: optional dataset download URL
+- `download.runs`: optional detections/embeddings cache download URL
 
 TrackEval selection is derived from `box_type`:
 

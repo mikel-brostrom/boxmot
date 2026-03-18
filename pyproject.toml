@@ -98,18 +98,16 @@ dependencies = [
   "loguru<1.0.0,>=0.7.2",
   "numpy",
   "regex<2025.0.0,>=2024.0.0",
-
   "scikit-learn<2.0.0,>=1.3.0",
   "pandas<3.0.0,>=2.0.0",
   "opencv-python<5.0.0,>=4.7.0",
-
   "torch>=2.2.1,<3.0.0",
   "torchvision>=0.17.1,<1.0.0",
   "click>=8.1.8",
-
   # clip reid needs
   "ftfy<7.0.0,>=6.1.3",
   "yacs<1.0.0,>=0.1.8",
+  "huggingface-hub>=1.7.1",
 ]
 
 [project.scripts]
