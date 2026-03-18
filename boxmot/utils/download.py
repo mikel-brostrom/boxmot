@@ -4,6 +4,7 @@
 Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,29 @@ from tqdm import tqdm
 from urllib3.util.retry import Retry
 
 from boxmot.utils import logger as LOGGER
+
+
+def _patch_trackeval_numpy_aliases(dest: Path) -> None:
+    """Patch deprecated NumPy builtin aliases in a downloaded TrackEval tree."""
+    package_root = dest / "trackeval"
+    if not package_root.exists():
+        return
+
+    replacements = (
+        (r"\bnp\.float\b", "float"),
+        (r"\bnp\.int\b", "int"),
+        (r"\bnp\.bool\b", "bool"),
+        (r"\bnp\.object\b", "object"),
+        (r"\bnp\.str\b", "str"),
+    )
+
+    for py_file in package_root.rglob("*.py"):
+        content = py_file.read_text()
+        patched = content
+        for pattern, repl in replacements:
+            patched = re.sub(pattern, repl, patched)
+        if patched != content:
+            py_file.write_text(patched)
 
 
 def get_http_session(retries: int = 3, backoff_factor: float = 0.3) -> requests.Session:
@@ -112,6 +136,8 @@ def extract_zip(zip_path: Path, extract_to: Path, overwrite: bool = False) -> No
         raise
 def _sync_trackeval_dataset_overlays(dest: Path) -> None:
     """Overlay the vendored TrackEval OBB dataset adapters with the tracked copies."""
+    _patch_trackeval_numpy_aliases(dest)
+
     source_dir = Path(__file__).resolve().parent
     overlays = [
         (source_dir / "custom_mot_challenge_obb.py", dest / "trackeval" / "datasets" / "mmot_rgb.py"),
