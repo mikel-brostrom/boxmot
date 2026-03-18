@@ -77,7 +77,6 @@ def core_options(func):
                      help='reuse existing runs in CI (no UI)'),
         click.option('--tracker', 'tracking_method', type=str, default='bytetrack', show_default=True,
                      help='deepocsort, botsort, strongsort, ...'),
-        click.option('--tracking-method', 'tracking_method_legacy', type=str, default=None, hidden=True),
         click.option('--verbose', is_flag=True,
                      help='print detailed logs'),
         click.option('--agnostic-nms', is_flag=True,
@@ -218,13 +217,6 @@ def _is_tracker_name(name: Optional[str]) -> bool:
     return bool(name) and str(name).lower() in TRACKER_MAPPING
 
 
-def _normalize_tracker_option(ctx: click.Context, kwargs: dict) -> None:
-    """Map the deprecated ``--tracking-method`` alias onto ``--tracker``."""
-    legacy_tracker = kwargs.pop("tracking_method_legacy", None)
-    if legacy_tracker and ctx.get_parameter_source("tracking_method") == ParameterSource.DEFAULT:
-        kwargs["tracking_method"] = legacy_tracker
-
-
 def _normalize_eval_positionals(
     detector: Optional[str],
     reid: Optional[str],
@@ -245,10 +237,10 @@ def _normalize_eval_positionals(
 
 def singular_model_options(func):
     options = [
-        click.option('--detector', '--yolo-model', 'yolo_model', type=Path,
+        click.option('--detector', 'yolo_model', type=Path,
                      default=WEIGHTS / 'yolov8n.pt',
                      help='path to YOLO weights for detection'),
-        click.option('--reid', '--reid-model', 'reid_model', type=Path,
+        click.option('--reid', 'reid_model', type=Path,
                      default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                      help='path to ReID model weights'),
         click.option('--classes', type=str, default=None,
@@ -261,10 +253,10 @@ def singular_model_options(func):
 
 def plural_model_options(func):
     options = [
-        click.option('--detector', '--yolo-model', 'yolo_model', type=Path, multiple=True,
+        click.option('--detector', 'yolo_model', type=Path, multiple=True,
                      default=[WEIGHTS / 'yolov8n.pt'],
                      help='one or more YOLO weights for detection'),
-        click.option('--reid', '--reid-model', 'reid_model', type=Path, multiple=True,
+        click.option('--reid', 'reid_model', type=Path, multiple=True,
                      default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'],
                      help='one or more ReID model weights'),
         click.option('--classes', type=str, default=None,
@@ -343,16 +335,16 @@ class CommandFirstGroup(click.Group):
         
         # Command syntax
         with formatter.indentation():
-            formatter.write_text("boxmot MODE [OPTIONS] [DETECTOR] [REID] [TRACKER]")
+            formatter.write_text("boxmot MODE [OPTIONS]")
         formatter.write_paragraph()
         
         # Argument descriptions
         formatter.width = 120  # Increase formatter width to prevent wrapping
         with formatter.indentation():
             formatter.write_text("Where  MODE (required) is one of [track, eval, tune, generate, export]")
-            formatter.write_text("       DETECTOR (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
-            formatter.write_text("       REID (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
-            formatter.write_text("       TRACKER (optional) is one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]")
+            formatter.write_text("       --detector selects a YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
+            formatter.write_text("       --reid selects a ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
+            formatter.write_text("       --tracker selects one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]")
             formatter.write_text("       OPTIONS (optional) flags like '--source 0' for tracking inputs or '--benchmark mot17-ablation' for benchmark-driven eval/tune runs.")
             formatter.write_text("       Benchmark configs select their dataset, detector, and ReID profiles.")
             formatter.write_text("          See all options at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
@@ -363,22 +355,22 @@ class CommandFirstGroup(click.Group):
         with formatter.indentation():
             formatter.write_text("1. Track with webcam using defaults:")
             with formatter.indentation():
-                formatter.write_text("boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show")
+                formatter.write_text("boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort --source 0 --show")
             formatter.write_paragraph()
             
             formatter.write_text("2. Track a video file:")
             with formatter.indentation():
-                formatter.write_text("boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save")
+                formatter.write_text("boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save")
             formatter.write_paragraph()
             
             formatter.write_text("3. Evaluate on MOT dataset:")
             with formatter.indentation():
-                formatter.write_text("boxmot eval boosttrack --benchmark mot17-ablation")
+                formatter.write_text("boxmot eval --benchmark mot17-ablation --tracker boosttrack")
             formatter.write_paragraph()
             
             formatter.write_text("4. Tune tracker hyperparameters:")
             with formatter.indentation():
-                formatter.write_text("boxmot tune deepocsort --benchmark mot17-ablation --n-trials 10")
+                formatter.write_text("boxmot tune --benchmark mot17-ablation --tracker deepocsort --n-trials 10")
             formatter.write_paragraph()
             
             formatter.write_text("5. Export ReID model:")
@@ -419,7 +411,6 @@ def boxmot(ctx):
 @singular_model_options
 @click.pass_context
 def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
-    _normalize_tracker_option(ctx, kwargs)
     # Override options with positional args if provided
     if detector:
         yolo_model = ensure_model_extension(detector)
@@ -460,7 +451,6 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
 @plural_model_options
 @click.pass_context
 def generate(ctx, detector, reid, data, yolo_model, reid_model, classes, **kwargs):
-    _normalize_tracker_option(ctx, kwargs)
     # Override options with positional args if provided
     # Note: Plural options are tuples, so handle single arg input as list
     if detector:
@@ -505,7 +495,6 @@ def generate(ctx, detector, reid, data, yolo_model, reid_model, classes, **kwarg
 def eval(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **kwargs):
     # Allow benchmark/default-model runs to specify only the tracker positionally.
     detector, reid, tracker = _normalize_eval_positionals(detector, reid, tracker)
-    _normalize_tracker_option(ctx, kwargs)
 
     # Override options with positional args if provided
     # Note: Plural options are tuples, so handle single arg input as list
@@ -552,7 +541,6 @@ def eval(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **
 def tune(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **kwargs):
     # Allow benchmark/default-model runs to specify only the tracker positionally.
     detector, reid, tracker = _normalize_eval_positionals(detector, reid, tracker)
-    _normalize_tracker_option(ctx, kwargs)
 
     # Override options with positional args if provided
     # Note: Plural options are tuples, so handle single arg input as list

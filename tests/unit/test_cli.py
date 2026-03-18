@@ -46,19 +46,6 @@ def test_eval_accepts_tracker_option(monkeypatch):
     assert captured["args"].tracking_method == "boosttrack"
 
 
-def test_eval_accepts_legacy_tracking_method_option(monkeypatch):
-    captured = {}
-
-    def fake_main(args):
-        captured["args"] = args
-
-    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", SimpleNamespace(main=fake_main))
-
-    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-ablation", "--tracking-method", "boosttrack"])
-    assert result.exit_code == 0, result.output
-    assert captured["args"].tracking_method == "boosttrack"
-
-
 def test_eval_accepts_tracker_only_for_benchmark_runs(monkeypatch):
     captured = {}
 
@@ -181,12 +168,32 @@ def test_track_keeps_source_literal(monkeypatch):
     assert captured["args"].benchmark == ""
 
 
-def test_track_help_lists_legacy_save_options():
+def test_track_rejects_legacy_detector_alias():
+    result = CliRunner().invoke(boxmot, ["track", "--yolo-model", "yolov8n.pt"])
+    assert result.exit_code != 0
+    assert "No such option: --yolo-model" in result.output
+
+
+def test_track_rejects_legacy_reid_alias():
+    result = CliRunner().invoke(boxmot, ["track", "--reid-model", "osnet_x0_25_msmt17.pt"])
+    assert result.exit_code != 0
+    assert "No such option: --reid-model" in result.output
+
+
+def test_eval_rejects_legacy_tracking_method_alias():
+    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-ablation", "--tracking-method", "boosttrack"])
+    assert result.exit_code != 0
+    assert "No such option: --tracking-method" in result.output
+
+
+def test_track_help_lists_current_component_options():
     result = CliRunner().invoke(boxmot, ["track", "--help"])
     assert result.exit_code == 0, result.output
-    assert "--detector, --yolo-model" in result.output
-    assert "--reid, --reid-model" in result.output
-    assert "--tracker" in result.output
+    assert "--detector PATH" in result.output
+    assert "--reid PATH" in result.output
+    assert "--tracker TEXT" in result.output
+    assert "--yolo-model" not in result.output
+    assert "--reid-model" not in result.output
     assert "--tracking-method" not in result.output
     assert "[default: bytetrack]" in result.output
     assert "--save" in result.output

@@ -87,14 +87,16 @@ export     export ReID models to deployment formats
 
 Use `boxmot MODE --help` for mode-specific flags.
 
+Use `--detector`, `--reid`, and `--tracker` for explicit component selection. Legacy aliases such as `--yolo-model`, `--reid-model`, and `--tracking-method` are not supported.
+
 Quick examples:
 
 ```bash
 # Track a webcam feed
-boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort --source 0 --show
 
 # Track a video, draw trajectories, and save the result
-boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --show-trajectories --save
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --show-trajectories --save
 
 # Evaluate on the MOT17 ablation split with GBRC postprocessing
 boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gbrc --verbose
@@ -130,13 +132,13 @@ The benchmark config's associated dataset, detector, and ReID profiles are used 
 To override the benchmark's detector and ReID defaults explicitly:
 
 ```bash
-boxmot eval yolo11s_obb lmbn_n_duke boosttrack --benchmark mot17-ablation
+boxmot eval --benchmark mot17-ablation --detector yolo11s_obb --reid lmbn_n_duke --tracker boosttrack
 ```
 
 If you want to track only selected classes, pass a comma-separated list:
 
 ```bash
-boxmot track yolov8s --source 0 --classes 16,17
+boxmot track --detector yolov8s --source 0 --classes 16,17
 ```
 
 ## Python API
@@ -209,19 +211,19 @@ Track from common sources:
 
 ```bash
 # Webcam
-boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source 0 --show
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort --source 0 --show
 
 # Video file
-boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --save
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save
 
 # Image directory
-boxmot track yolov8n osnet_x0_25_msmt17 bytetrack --source path/to/images --save
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker bytetrack --source path/to/images --save
 
 # Stream or URL
-boxmot track yolov8n osnet_x0_25_msmt17 ocsort --source 'rtsp://example.com/media.mp4'
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker ocsort --source 'rtsp://example.com/media.mp4'
 
 # YouTube
-boxmot track yolov8n osnet_x0_25_msmt17 boosttrack --source 'https://youtu.be/Zgi9g1ksQHc'
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker boosttrack --source 'https://youtu.be/Zgi9g1ksQHc'
 ```
 
 </details>
@@ -233,18 +235,18 @@ Swap detectors without changing the overall CLI:
 
 ```bash
 # Ultralytics detection
-boxmot track yolov8n
-boxmot track yolo11n
+boxmot track --detector yolov8n
+boxmot track --detector yolo11n
 
 # Segmentation and pose variants
-boxmot track yolov8n-seg
-boxmot track yolov8n-pose
+boxmot track --detector yolov8n-seg
+boxmot track --detector yolov8n-pose
 
 # YOLOX
-boxmot track yolox_s
+boxmot track --detector yolox_s
 
 # RF-DETR
-boxmot track rf-detr-base
+boxmot track --detector rf-detr-base
 ```
 
 </details>
@@ -255,16 +257,16 @@ boxmot track rf-detr-base
 Use the same detector and ReID model while changing only the tracker:
 
 ```bash
-boxmot track yolov8n osnet_x0_25_msmt17 deepocsort
-boxmot track yolov8n osnet_x0_25_msmt17 strongsort
-boxmot track yolov8n osnet_x0_25_msmt17 botsort
-boxmot track yolov8n osnet_x0_25_msmt17 boosttrack
-boxmot track yolov8n osnet_x0_25_msmt17 hybridsort
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker strongsort
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker boosttrack
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker hybridsort
 
 # Motion-only trackers
-boxmot track yolov8n osnet_x0_25_msmt17 bytetrack
-boxmot track yolov8n osnet_x0_25_msmt17 ocsort
-boxmot track yolov8n osnet_x0_25_msmt17 sfsort
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker bytetrack
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker ocsort
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker sfsort
 ```
 
 </details>
@@ -276,16 +278,16 @@ Useful flags for inspection and debugging:
 
 ```bash
 # Draw trajectories and show lost tracks
-boxmot track yolov8n osnet_x0_25_msmt17 botsort --source video.mp4 --show-trajectories --show-lost --save
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --show-trajectories --show-lost --save
 
 # Track only selected classes
-boxmot track yolov8s --source 0 --classes 16,17
+boxmot track --detector yolov8s --source 0 --classes 16,17
 
 # Track each class independently
-boxmot track yolov8n --source video.mp4 --per-class --save
+boxmot track --detector yolov8n --source video.mp4 --per-class --save
 
 # Highlight one target ID
-boxmot track yolov8n osnet_x0_25_msmt17 deepocsort --source video.mp4 --target-id 7 --show
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort --source video.mp4 --target-id 7 --show
 ```
 
 </details>
@@ -316,13 +318,13 @@ boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gbr
 boxmot generate --benchmark mot17-ablation
 
 # Generate detections and embeddings for a direct dataset path
-boxmot generate yolov8n osnet_x0_25_msmt17 --source ./assets/MOT17-mini/train
+boxmot generate --detector yolov8n --reid osnet_x0_25_msmt17 --source ./assets/MOT17-mini/train
 
 # Tune on a built-in benchmark config
 boxmot tune --benchmark mot17-ablation --tracker boosttrack --n-trials 9
 
 # Tune a tracker with explicit detector/ReID overrides
-boxmot tune yolo11s_obb lmbn_n_duke --tracker botsort --benchmark mot17-ablation --n-trials 9
+boxmot tune --benchmark mot17-ablation --detector yolo11s_obb --reid lmbn_n_duke --tracker botsort --n-trials 9
 ```
 
 </details>
@@ -346,7 +348,6 @@ boxmot export --weights osnet_x0_25_msmt17.pt --include engine --device 0 --dyna
 OBB references:
 
 - Notebook: [examples/det/obb.ipynb](examples/det/obb.ipynb)
-- Script: [examples/det/run_obb_kalman.py](examples/det/run_obb_kalman.py)
 - OBB-capable trackers: `bytetrack`, `botsort`, `ocsort`, `sfsort`
 
 </details>

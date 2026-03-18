@@ -22,10 +22,10 @@ git checkout -b feature/short-desc
 # ...
 
 # Run functionality where changes were introduced
-python boxmot/engine/cli.py track     --yolo-model yolov8x.pt --tracking-method bytetrack --source my_video.mp4 --classes 0
-python boxmot/engine/cli.py generate  --yolo-model yolov8x.pt --tracking-method bytetrack --source my_video.mp4 --classes 0
-python boxmot/engine/cli.py eval      --yolo-model yolov8x.pt --tracking-method bytetrack --source my_video.mp4 --classes 0
-python boxmot/engine/cli.py tune      --yolo-model yolov8x.pt --tracking-method bytetrack --source my_video.mp4 --classes 0
+uv run python -m boxmot.engine.cli track --detector yolov8x --reid osnet_x0_25_msmt17 --tracker bytetrack --source my_video.mp4 --classes 0
+uv run python -m boxmot.engine.cli generate --detector yolov8x --reid osnet_x0_25_msmt17 --source path/to/dataset --classes 0
+uv run python -m boxmot.engine.cli eval --benchmark mot17-ablation --tracker bytetrack
+uv run python -m boxmot.engine.cli tune --benchmark mot17-ablation --tracker bytetrack
  
 # Run tests
 uv run pytest
