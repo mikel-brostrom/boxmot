@@ -183,8 +183,14 @@ class MOTDataset:
 
             det_path = self.dets_dir / f'{name}.txt' if self.dets_dir else None
             if self.embs_dir:
+                _npy = self.embs_dir / f'{name}.npy'
                 _txt = self.embs_dir / f'{name}.txt'
-                emb_path = _txt if _txt.exists() else None
+                if _npy.exists():
+                    emb_path = _npy
+                elif _txt.exists():
+                    emb_path = _txt
+                else:
+                    emb_path = None
             else:
                 emb_path = None
 
@@ -255,7 +261,11 @@ class MOTSequence:
         # 1) Load dets & embs
         if self.meta['det_path'] and self.meta['emb_path']:
             self.dets = _load_text_matrix(self.meta['det_path'], comments="#")
-            self.embs = _load_text_matrix(self.meta['emb_path'], comments="#")
+            emb_path = Path(self.meta['emb_path'])
+            if emb_path.suffix == '.npy':
+                self.embs = np.load(emb_path, mmap_mode='r')
+            else:
+                self.embs = _load_text_matrix(emb_path, comments="#")
             if self.dets.shape[0] != self.embs.shape[0]:
                 raise ValueError(f"Row mismatch in {self.name}")
 
@@ -317,4 +327,6 @@ if __name__ == "__main__":
         target_fps=15
     )
 
-    process_sequences_lazily(dataset)
+    for seq in dataset:
+        for frame in seq:
+            print(frame['frame_id'], frame['dets'].shape)

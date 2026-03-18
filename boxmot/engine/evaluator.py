@@ -843,7 +843,13 @@ def _count_data_lines(path: Path, skip_header: bool = False) -> int:
 
 
 def _count_embedding_rows(path: Path) -> int:
-    """Count rows in a text embedding cache."""
+    """Count rows in an embedding cache (.npy or .txt)."""
+    if path.suffix == '.npy':
+        try:
+            arr = np.load(path, mmap_mode='r')
+            return arr.shape[0]
+        except Exception:
+            return 0
     return _count_data_lines(path, skip_header=True)
 
 
@@ -943,7 +949,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
 
     seq_states = {}
     det_fhs = {}
-    emb_fhs = {r.stem: {} for r in args.reid_model}
+    emb_buffers: dict[str, dict[str, list]] = {r.stem: {} for r in args.reid_model}
     total_frames = 0
     initial_done = 0
 
@@ -961,9 +967,9 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         emb_paths = {}
         any_emb_cached = False
         for r in args.reid_model:
-            ep_txt = embs_root / r.stem / f"{seq_name}.txt"
-            emb_paths[r.stem] = ep_txt
-            if ep_txt.exists():
+            ep_npy = embs_root / r.stem / f"{seq_name}.npy"
+            emb_paths[r.stem] = ep_npy
+            if ep_npy.exists():
                 any_emb_cached = True
 
         expected_files = False
@@ -1036,8 +1042,13 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
         for r in args.reid_model:
             ep = emb_paths[r.stem]
             ep.parent.mkdir(parents=True, exist_ok=True)
-            emb_mode = 'a' if (resume and ep.exists()) else 'w'
-            emb_fhs[r.stem][seq_name] = open(ep, emb_mode, buffering=1024 * 1024)
+            if resume and ep.exists():
+                try:
+                    emb_buffers[r.stem][seq_name] = [np.load(ep)]
+                except Exception:
+                    emb_buffers[r.stem][seq_name] = []
+            else:
+                emb_buffers[r.stem][seq_name] = []
 
         seq_states[seq_name] = {"frames": frames, "i": processed, "img_dir": img_dir}
         total_frames += len(frames)
@@ -1168,7 +1179,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                             )
                         if embs.ndim >= 2 and reid_name not in emb_dims:
                             emb_dims[reid_name] = embs.shape[1]
-                        np.savetxt(emb_fhs[reid_name][seq_name], embs.astype(np.float32), fmt="%f")
+                        emb_buffers[reid_name][seq_name].append(embs.astype(np.float32))
 
                     reid_pbar.update(det_boxes_np.shape[0])
 
@@ -1189,9 +1200,6 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 for seq_name in touched:
                     try:
                         det_fhs[seq_name].flush()
-                        for per_reid in emb_fhs.values():
-                            if seq_name in per_reid:
-                                per_reid[seq_name].flush()
                     except Exception:
                         pass
 
@@ -1206,12 +1214,14 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
                 fh.close()
             except Exception:
                 pass
-        for per_reid in emb_fhs.values():
-            for fh in per_reid.values():
-                try:
-                    fh.close()
-                except Exception:
-                    pass
+        for reid_name, per_seq in emb_buffers.items():
+            for seq_name, chunks in per_seq.items():
+                if chunks:
+                    try:
+                        arr = np.vstack(chunks)
+                        np.save(embs_root / reid_name / f"{seq_name}.npy", arr)
+                    except Exception as e:
+                        LOGGER.warning(f"Failed to save embeddings for {seq_name}/{reid_name}: {e}")
 
 
 def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[TimingStats] = None) -> None:
