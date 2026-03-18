@@ -519,11 +519,7 @@ def _resolve_benchmark_dest(cfg: dict[str, Any], benchmark_name: str, source_roo
 
 def _resolve_runtime_benchmark_name(cfg: dict[str, Any], source_root: Path | None, cfg_path: Path) -> str:
     """Resolve a stable runtime benchmark name for cache and results paths."""
-    benchmark_id = str(cfg.get("id") or cfg_path.stem)
-    root_name = source_root.name if source_root is not None else ""
-    if root_name and root_name.lower() == benchmark_id.lower():
-        return root_name
-    return benchmark_id
+    return str(cfg.get("id") or cfg_path.stem)
 
 
 def _resolve_active_split_path(cfg: dict[str, Any]) -> str:
