@@ -119,7 +119,7 @@ def source_option(default='0', help_text='file/dir/URL/glob, 0 for webcam'):
 
 
 def data_option(func):
-    """Attach the preferred ``--benchmark`` benchmark-config option."""
+    """Attach the benchmark-config option."""
     return click.option(
         '--benchmark',
         '--data',
@@ -222,7 +222,7 @@ def _normalize_eval_positionals(
     reid: Optional[str],
     tracker: Optional[str],
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Interpret tracker-only positional benchmark calls without breaking legacy ordering."""
+    """Interpret tracker-only positional benchmark calls while preserving detector/reid ordering."""
     if tracker is not None:
         return detector, reid, tracker
 

@@ -37,15 +37,6 @@ def _resolve_yaml_path(config_dir: Path, name: str | Path) -> Path:
     raise FileNotFoundError(f"Config not found for '{name}' in {config_dir}")
 
 
-def _resolve_explicit_path_alias(path: Path, source_dir: Path, target_dir: Path) -> Path:
-    resolved = path.resolve()
-    if resolved.parent == source_dir.resolve():
-        candidate = (target_dir / resolved.name).resolve()
-        if candidate.exists():
-            return candidate
-    return resolved
-
-
 def _load_yaml_cfg(cfg_path: Path) -> dict[str, Any]:
     with open(cfg_path, "r") as f:
         return yaml.safe_load(f) or {}
@@ -55,7 +46,7 @@ def resolve_dataset_cfg_path(name: str | Path) -> Path:
     """Resolve a dataset config by stem or YAML filename."""
     path = Path(name)
     if path.suffix.lower() in {".yaml", ".yml"} and path.exists():
-        return _resolve_explicit_path_alias(path, BENCHMARK_CONFIGS, DATASET_CONFIGS)
+        return path.resolve()
     return _resolve_yaml_path(DATASET_CONFIGS, name)
 
 
@@ -63,7 +54,7 @@ def resolve_benchmark_cfg_path(name: str | Path) -> Path:
     """Resolve a benchmark config by stem or YAML filename."""
     path = Path(name)
     if path.suffix.lower() in {".yaml", ".yml"} and path.exists():
-        return _resolve_explicit_path_alias(path, DATASET_CONFIGS, BENCHMARK_CONFIGS)
+        return path.resolve()
     return _resolve_yaml_path(BENCHMARK_CONFIGS, name)
 
 
@@ -79,8 +70,8 @@ def resolve_reid_cfg_path(name: str | Path) -> Path:
 
 def _normalize_dataset_download(cfg: dict[str, Any]) -> dict[str, Any]:
     download_cfg = dict(cfg.get("download") or {})
-    dataset_url = download_cfg.get("dataset") or download_cfg.get("dataset_url") or ""
-    runs_url = download_cfg.get("runs") or download_cfg.get("runs_url") or ""
+    dataset_url = download_cfg.get("dataset") or ""
+    runs_url = download_cfg.get("runs") or ""
     normalized = {
         "dataset": str(dataset_url) if dataset_url else "",
         "runs": str(runs_url) if runs_url else "",
@@ -97,22 +88,12 @@ def _trackeval_adapter_for_box_type(box_type: str) -> str:
 
 
 def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str, Any]:
-    """Normalize dataset-like configs while preserving accessors used by the current runtime."""
+    """Normalize dataset-like configs while preserving the current runtime accessors."""
     cfg = dict(raw_cfg or {})
     cfg.setdefault("id", cfg_path.stem.lower())
 
-    legacy_benchmark = dict(cfg.get("benchmark") or {})
-    storage_cfg = dict(cfg.get("storage") or {})
-    evaluation_cfg = dict(cfg.get("evaluation") or {})
-    class_cfg = dict(evaluation_cfg.get("classes") or {})
-
-    path_value = cfg.get("path") or storage_cfg.get("root") or legacy_benchmark.get("source") or ""
-    split_name = str(
-        cfg.get("split")
-        or storage_cfg.get("split")
-        or legacy_benchmark.get("split")
-        or ""
-    )
+    path_value = cfg.get("path") or ""
+    split_name = str(cfg.get("split") or "")
 
     train_value = cfg.get("train")
     val_value = cfg.get("val")
@@ -134,22 +115,19 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "test": test_value,
     }
     if split_paths.get(split_name) is None:
-        legacy_split_path = storage_cfg.get("split") or legacy_benchmark.get("split")
-        split_paths[split_name] = legacy_split_path or split_name
+        split_paths[split_name] = split_name
 
-    box_type = cfg.get("box_type") or evaluation_cfg.get("box_type") or legacy_benchmark.get("box_type") or "aabb"
-    layout = cfg.get("layout") or evaluation_cfg.get("layout") or legacy_benchmark.get("layout") or "mot"
+    box_type = cfg.get("box_type") or "aabb"
+    layout = cfg.get("layout") or "mot"
     trackeval_name = _trackeval_adapter_for_box_type(str(box_type).lower())
 
-    names = dict(cfg.get("names") or class_cfg.get("eval") or legacy_benchmark.get("eval_classes") or {})
-    distractors = dict(
-        cfg.get("distractors") or class_cfg.get("distractor") or legacy_benchmark.get("distractor_classes") or {}
-    )
-    class_map = dict(cfg.get("class_map") or class_cfg.get("mapping") or legacy_benchmark.get("class_mapping") or {})
+    names = dict(cfg.get("names") or {})
+    distractors = dict(cfg.get("distractors") or {})
+    class_map = dict(cfg.get("class_map") or {})
 
     download_cfg = _normalize_dataset_download(cfg)
-    detector_ref = cfg.get("detector") or cfg.get("detector_config")
-    reid_ref = cfg.get("reid") or cfg.get("reid_config")
+    detector_ref = cfg.get("detector")
+    reid_ref = cfg.get("reid")
 
     normalized = {
         "id": cfg["id"],
@@ -217,12 +195,12 @@ def _merge_benchmark_bundle_cfg(
     payload = dict(dataset_cfg)
 
     payload["id"] = str(cfg.get("id") or cfg_path.stem.lower())
-    dataset_ref = cfg.get("dataset") or cfg.get("dataset_config") or dataset_cfg.get("id")
+    dataset_ref = cfg.get("dataset") or dataset_cfg.get("id")
     if dataset_ref:
         payload["dataset_config"] = str(dataset_ref)
 
-    detector_ref = cfg.get("detector") or cfg.get("detector_config") or dataset_cfg.get("detector_config")
-    reid_ref = cfg.get("reid") or cfg.get("reid_config") or dataset_cfg.get("reid_config")
+    detector_ref = cfg.get("detector") or dataset_cfg.get("detector_config")
+    reid_ref = cfg.get("reid") or dataset_cfg.get("reid_config")
     if detector_ref:
         payload["detector"] = str(detector_ref)
     if reid_ref:
@@ -264,7 +242,7 @@ def load_benchmark_only_cfg(name: str | Path) -> dict[str, Any]:
     """Load a benchmark bundle and merge in its referenced dataset config."""
     cfg_path = resolve_benchmark_cfg_path(name)
     raw_cfg = _load_yaml_cfg(cfg_path)
-    dataset_ref = raw_cfg.get("dataset") or raw_cfg.get("dataset_config")
+    dataset_ref = raw_cfg.get("dataset")
     if not dataset_ref:
         return _normalize_benchmark_cfg(raw_cfg, cfg_path)
     dataset_cfg = load_dataset_cfg(dataset_ref)
@@ -524,7 +502,7 @@ def _resolve_benchmark_dest(cfg: dict[str, Any], benchmark_name: str, source_roo
     if dataset_dest:
         return Path(dataset_dest)
 
-    dataset_url = download_cfg.get("dataset") or download_cfg.get("dataset_url") or ""
+    dataset_url = download_cfg.get("dataset") or ""
     if source_root is not None:
         if str(dataset_url).startswith("hf://"):
             return source_root
@@ -557,13 +535,12 @@ def _resolve_active_split_path(cfg: dict[str, Any]) -> str:
 
 
 def _apply_benchmark_config_ref(args: Any, benchmark_ref: str | Path | None, overwrite: bool = False) -> dict[str, Any] | None:
-    """Apply a dataset YAML referenced by ``benchmark_ref`` to the current args namespace."""
+    """Apply a benchmark YAML referenced by ``benchmark_ref`` to the current args namespace."""
     if not benchmark_ref:
         return None
 
     try:
         cfg_path = resolve_benchmark_cfg_path(benchmark_ref)
-        dataset_cfg = load_benchmark_only_cfg(cfg_path)
     except FileNotFoundError:
         return None
 
@@ -577,8 +554,8 @@ def _apply_benchmark_config_ref(args: Any, benchmark_ref: str | Path | None, ove
     split_path = _resolve_active_split_path(cfg)
 
     download_eval_data(
-        runs_url=download_cfg.get("runs", "") or download_cfg.get("runs_url", ""),
-        dataset_url=download_cfg.get("dataset", "") or download_cfg.get("dataset_url", ""),
+        runs_url=download_cfg.get("runs", ""),
+        dataset_url=download_cfg.get("dataset", ""),
         dataset_dest=benchmark_dest,
         overwrite=overwrite,
     )
@@ -609,24 +586,12 @@ def _apply_benchmark_config_ref(args: Any, benchmark_ref: str | Path | None, ove
 
 
 def apply_benchmark_config(args: Any, overwrite: bool = False) -> dict[str, Any] | None:
-    """Apply a dataset YAML referenced via ``args.data`` to the current args namespace."""
+    """Apply a benchmark YAML referenced via ``args.data`` to the current args namespace."""
     return _apply_benchmark_config_ref(args, getattr(args, "data", None), overwrite=overwrite)
-
-
-# Backward-compatible aliases for external imports.
-def apply_dataset_benchmark_config(args: Any, overwrite: bool = False) -> dict[str, Any] | None:
-    """Backward-compatible dataset resolver using ``args.data`` or legacy ``args.source``."""
-    dataset_ref = getattr(args, "data", None) or getattr(args, "source", None)
-    return _apply_benchmark_config_ref(args, dataset_ref, overwrite=overwrite)
-
-
-get_dataset_detector_cfg = get_benchmark_detector_cfg
-should_use_dataset_detector = should_use_benchmark_detector
 
 
 __all__ = [
     "apply_benchmark_config",
-    "apply_dataset_benchmark_config",
     "ensure_benchmark_detector_model",
     "ensure_benchmark_reid_model",
     "apply_reid_runtime_defaults",
@@ -634,7 +599,6 @@ __all__ = [
     "get_benchmark_detector_url",
     "get_benchmark_reid_cfg",
     "get_benchmark_reid_url",
-    "get_dataset_detector_cfg",
     "load_benchmark_only_cfg",
     "load_benchmark_cfg",
     "load_detector_component_cfg",
@@ -651,5 +615,4 @@ __all__ = [
     "resolve_required_yolo_model",
     "should_use_benchmark_detector",
     "should_use_benchmark_reid",
-    "should_use_dataset_detector",
 ]

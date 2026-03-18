@@ -24,12 +24,10 @@ from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
 from boxmot.utils.misc import increment_path, prompt_overwrite, resolve_model_path
-from boxmot.utils.timing import TimingStats, wrap_tracker_reid
-from typing import Optional, List, Dict, Generator, Union
+from boxmot.utils.timing import TimingStats
+from typing import Optional, List, Dict
 
 from boxmot.utils.dataloaders.dataset import MOTDataset
-from boxmot.postprocessing.gsi import gsi
-
 from boxmot.engine.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.detectors import default_imgsz, default_conf, get_runtime_detector_cfg
 from boxmot.utils.benchmark_config import (
@@ -268,7 +266,7 @@ def build_gt_class_remap(
             for bench_name_i, det_name_i in rows:
                 LOGGER.opt(colors=True).info(f"  <yellow>{bench_name_i:<22}</yellow> → <cyan>{det_name_i}</cyan>")
             LOGGER.opt(colors=True).info(
-                f"  <yellow>GT class IDs remapped:</yellow> "
+                "  <yellow>GT class IDs remapped:</yellow> "
                 + ", ".join(f"{b}→{remap[b]}" for b in sorted(remap))
             )
             LOGGER.opt(colors=True).info(
@@ -519,24 +517,6 @@ def _ordered_benchmark_eval_class_names(bench_cfg: dict) -> list[str]:
         return [str(name) for _, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))]
     if isinstance(eval_classes_cfg, (list, tuple)):
         return [str(name) for name in eval_classes_cfg]
-
-    legacy_classes = bench_cfg.get("classes")
-    if isinstance(legacy_classes, dict) and legacy_classes:
-        def _sort_key(item: tuple) -> tuple[int, object]:
-            key = item[0]
-            try:
-                return 0, int(key)
-            except (TypeError, ValueError):
-                return 1, str(key)
-
-        return [str(name) for _, name in sorted(legacy_classes.items(), key=_sort_key)]
-    if isinstance(legacy_classes, (list, tuple)):
-        return [str(name) for name in legacy_classes]
-    if isinstance(legacy_classes, str):
-        if "," in legacy_classes:
-            return [part.strip() for part in legacy_classes.split(",") if part.strip()]
-        stripped = legacy_classes.strip()
-        return [stripped] if stripped else []
 
     return []
 

@@ -6,7 +6,6 @@ import boxmot.utils.benchmark_config as benchmark_config
 from boxmot.utils.benchmark_config import (
     apply_benchmark_config,
     apply_reid_runtime_defaults,
-    apply_dataset_benchmark_config,
     ensure_benchmark_detector_model,
     get_benchmark_detector_url,
     get_benchmark_reid_cfg,
@@ -75,8 +74,8 @@ def test_dataset_path_stays_dataset_yaml():
     assert cfg_path.parent.name == "datasets"
 
 
-def test_legacy_dataset_path_resolves_to_benchmark_yaml():
-    cfg_path = resolve_benchmark_cfg_path("boxmot/configs/datasets/mot17-ablation.yaml")
+def test_benchmark_path_stays_benchmark_yaml():
+    cfg_path = resolve_benchmark_cfg_path("boxmot/configs/benchmarks/mot17-ablation.yaml")
     assert cfg_path.name == "mot17-ablation.yaml"
     assert cfg_path.parent.name == "benchmarks"
 
@@ -238,15 +237,6 @@ def test_apply_benchmark_config_ignores_source_without_data(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
     args = SimpleNamespace(source="MOT17-ablation")
     assert apply_benchmark_config(args) is None
-
-
-def test_apply_dataset_benchmark_config_accepts_legacy_source_fallback(monkeypatch):
-    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
-    args = SimpleNamespace(source="MOT17-ablation")
-    cfg = apply_dataset_benchmark_config(args)
-    assert cfg["id"] == "mot17-ablation"
-    assert args.benchmark == "MOT17-ablation"
-    assert args.source == Path("boxmot/engine/trackeval/data/MOT17-ablation/train")
 
 
 def test_ensure_benchmark_detector_model_downloads_missing_weight(monkeypatch, tmp_path):

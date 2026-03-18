@@ -401,8 +401,8 @@ COMBINED 0 0 7 0
     assert parsed["storage tank"]["IDs"] == 7
 
 
-def test_ordered_benchmark_eval_class_names_preserve_multiword_legacy_classes():
-    bench_cfg = {"classes": ["storage tank", "ground track field"]}
+def test_ordered_benchmark_eval_class_names_preserve_multiword_names():
+    bench_cfg = {"eval_classes": {"1": "storage tank", "2": "ground track field"}}
 
     class_names = evaluator_module._ordered_benchmark_eval_class_names(bench_cfg)
 

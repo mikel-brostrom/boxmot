@@ -5,6 +5,8 @@ Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 from zipfile import BadZipFile, ZipFile
@@ -16,9 +18,6 @@ from tqdm import tqdm
 from urllib3.util.retry import Retry
 
 from boxmot.utils import logger as LOGGER
-
-# Mapping for deprecated numpy types
-DEPRECATED_TYPES = {"np.float": "float", "np.int": "int", "np.bool": "bool"}
 
 
 def get_http_session(retries: int = 3, backoff_factor: float = 0.3) -> requests.Session:
@@ -111,22 +110,6 @@ def extract_zip(zip_path: Path, extract_to: Path, overwrite: bool = False) -> No
         except FileNotFoundError:
             pass
         raise
-
-
-def patch_deprecated_types(root: Path, deprecated: dict = DEPRECATED_TYPES) -> None:
-    """Patch deprecated numpy types in Python files."""
-    LOGGER.debug(f"Patching numpy types in: {root.name}")
-    for file in root.rglob("*"):
-        if file.suffix not in {".py", ".txt"}:
-            continue
-        text = file.read_text(encoding="utf-8")
-        updated = text
-        for old, new in deprecated.items():
-            updated = updated.replace(old, new)
-        if updated != text:
-            file.write_text(updated, encoding="utf-8")
-
-
 def _sync_trackeval_dataset_overlays(dest: Path) -> None:
     """Overlay the vendored TrackEval OBB dataset adapters with the tracked copies."""
     source_dir = Path(__file__).resolve().parent
@@ -195,8 +178,6 @@ def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False
     except FileNotFoundError:
         pass
 
-    # Apply any necessary patches for deprecated types
-    patch_deprecated_types(dest)
     _sync_trackeval_dataset_overlays(dest)
 
     LOGGER.debug("TrackEval setup complete")
@@ -223,7 +204,6 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False) -> No
     try:
         from huggingface_hub import HfApi, snapshot_download
     except ImportError:
-        import subprocess, sys
         LOGGER.info("Installing huggingface_hub ...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub"])
         from huggingface_hub import HfApi, snapshot_download
