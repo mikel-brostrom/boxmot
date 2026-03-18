@@ -220,7 +220,7 @@ def test_apply_benchmark_config_preserves_runtime_benchmark_name(monkeypatch):
     assert args.source == Path("boxmot/engine/trackeval/data/test1/val")
 
 
-def test_apply_benchmark_config_preserves_case_matched_storage_name(monkeypatch):
+def test_apply_benchmark_config_normalizes_benchmark_name_to_lowercase(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
     args = SimpleNamespace(data="MOT17-ablation", source=None)
     cfg = apply_benchmark_config(args)
@@ -229,7 +229,7 @@ def test_apply_benchmark_config_preserves_case_matched_storage_name(monkeypatch)
     assert cfg["reid_config_id"] == "lmbn_n_duke"
     assert args.benchmark_id == "mot17-ablation"
     assert args.dataset_id == "mot17-ablation"
-    assert args.benchmark == "MOT17-ablation"
+    assert args.benchmark == "mot17-ablation"
     assert args.source == Path("boxmot/engine/trackeval/data/MOT17-ablation/train")
 
 

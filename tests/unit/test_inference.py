@@ -378,16 +378,17 @@ def test_ensure_model_extension_keeps_bare_reid_names_in_weights_dir():
 
 
 def test_parse_mot_results_preserves_multiword_class_names():
-    results = """
-HOTA: tracker-storage tank HOTA DetA AssA DetRe DetPr AssRe AssPr LocA OWTA HOTA(0) LocA(0) HOTALocA(0)
-COMBINED 51.0 0 61.0 0 0 71.0 0 0 0 0 0
-CLEAR: tracker-storage tank MOTA MOTP MODA CLR_Re CLR_Pr MTR PTR MLR CLR_TP CLR_FN CLR_FP IDSW MT PT ML Frag sMOTA
-COMBINED 41.0 0 0 0 0 0 0 0 0 0 0 0 3 0 0 0 0 0
-Identity: tracker-storage tank IDF1 IDR IDP IDTP IDFN IDFP
-COMBINED 31.0 0 0 0 0 0
-Count: tracker-storage tank Dets GT_Dets IDs GT_IDs
-COMBINED 0 0 7 0
-"""
+    # TrackEval fixed-width format: name column %-35s, each value %-10s
+    results = (
+        "\nHOTA: tracker-storage tank HOTA      DetA      AssA      DetRe     DetPr     AssRe     AssPr     LocA      OWTA      HOTA(0)   LocA(0)   HOTALocA(0)\n"
+        "COMBINED                           51.0      0         61.0      0         0         71.0      0         0         0         0         0         \n"
+        "CLEAR: tracker-storage tank MOTA      MOTP      MODA      CLR_Re    CLR_Pr    MTR       PTR       MLR       CLR_TP    CLR_FN    CLR_FP    IDSW      MT        PT        ML        Frag      sMOTA     \n"
+        "COMBINED                           41.0      0         0         0         0         0         0         0         0         0         0         0         3         0         0         0         0         0         \n"
+        "Identity: tracker-storage tank IDF1      IDR       IDP       IDTP      IDFN      IDFP      \n"
+        "COMBINED                           31.0      0         0         0         0         0         \n"
+        "Count: tracker-storage tank Dets      GT_Dets   IDs       GT_IDs    \n"
+        "COMBINED                           0         0         7         0         \n"
+    )
 
     parsed = evaluator_module.parse_mot_results(results, known_classes=["storage tank"])
 
