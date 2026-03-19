@@ -88,7 +88,7 @@ def test_dataset_config_loads_without_model_bindings():
     assert cfg["reid_config"] is None
     assert cfg["download"] == {
         "dataset": "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip",
-        "runs": "",
+        "runs": "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.10/runs.zip",
     }
 
 

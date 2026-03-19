@@ -76,8 +76,9 @@ def _normalize_dataset_download(cfg: dict[str, Any]) -> dict[str, Any]:
         "dataset": str(dataset_url) if dataset_url else "",
         "runs": str(runs_url) if runs_url else "",
     }
-    if download_cfg.get("dataset_dest"):
-        normalized["dataset_dest"] = download_cfg["dataset_dest"]
+    dataset_dest = download_cfg.get("dataset_dest")
+    if dataset_dest:
+        normalized["dataset_dest"] = dataset_dest
     return normalized
 
 
