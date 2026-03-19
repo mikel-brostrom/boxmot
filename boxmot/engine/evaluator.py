@@ -19,7 +19,7 @@ import concurrent.futures
 from contextlib import nullcontext
 
 from boxmot.trackers.tracker_zoo import create_tracker
-from boxmot.utils import BENCHMARK_CONFIGS, NUM_THREADS, ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
+from boxmot.utils import BENCHMARK_CONFIGS, ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, TRACKEVAL
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.plots import MetricsPlotter
@@ -938,10 +938,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
     WEIGHTS.mkdir(parents=True, exist_ok=True)
 
     batch_size = int(getattr(args, "batch_size", 16))
-    read_threads_val = getattr(args, "read_threads", None)
-    if read_threads_val is None:
-        read_threads_val = min(8, (os.cpu_count() or 8))
-    read_threads = int(read_threads_val)
+    n_threads = int(args.n_threads)
     auto_batch = bool(getattr(args, "auto_batch", True))
     resume = bool(getattr(args, "resume", True))
 
@@ -1107,7 +1104,7 @@ def generate_dets_embs_batched(args: argparse.Namespace, y: Path, source_root: P
     from concurrent.futures import ThreadPoolExecutor
 
     try:
-        with ThreadPoolExecutor(max_workers=read_threads) as pool, amp_ctx:
+        with ThreadPoolExecutor(max_workers=n_threads) as pool, amp_ctx:
             alive = True
             while alive:
                 batch_items = []
@@ -1251,8 +1248,8 @@ def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[Timi
     source_root = Path(args.source)
 
     args.batch_size = int(getattr(args, "batch_size", 16))
-    if getattr(args, "read_threads", None) is None:
-        args.read_threads = min(8, (os.cpu_count() or 8))
+    if getattr(args, "n_threads", None) is None:
+        args.n_threads = min(8, (os.cpu_count() or 8))
     if not hasattr(args, "auto_batch"):
         args.auto_batch = True
     if not hasattr(args, "resume"):
@@ -1752,7 +1749,7 @@ def run_generate_mot_results(args: argparse.Namespace, evolve_config: dict = Non
     total_track_time_ms = 0.0
     total_track_frames = 0
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_THREADS, initializer=_worker_init) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.n_threads, initializer=_worker_init) as executor:
         futures = {
             executor.submit(process_sequence, *args): args[0] for args in task_args
         }

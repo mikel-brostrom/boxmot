@@ -17,7 +17,7 @@ import click
 from click.core import ParameterSource
 
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING
-from boxmot.utils import ROOT, WEIGHTS
+from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS
 from boxmot.utils.benchmark_config import resolve_benchmark_cfg_path
 from boxmot.utils.misc import parse_imgsz, resolve_model_path
 
@@ -62,7 +62,7 @@ def core_options(func):
                  help='probe GPU memory with a dummy pass to pick a safe batch size'),
         click.option('--resume/--no-resume', default=True, show_default=True,
              help='resume detection/embedding generation from progress checkpoints'),
-        click.option('--read-threads', type=int, default=None,
+        click.option('--n-threads', type=int, default=NUM_THREADS,
                  help='CPU threads for image decoding; defaults to min(8, cpu_count)'),
         click.option('--project', type=Path, default=ROOT / 'runs',
                      help='save results to project/name'),

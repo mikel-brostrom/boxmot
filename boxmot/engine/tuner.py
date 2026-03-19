@@ -14,7 +14,7 @@ import yaml
 from boxmot.engine.evaluator import (eval_setup,
                                      run_generate_dets_embs,
                                      run_generate_mot_results, run_trackeval)
-from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
+from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 
 
@@ -128,7 +128,8 @@ def main(args):
     restore_path = results_dir / tune_name
 
     # Define trainable
-    trainable = tune.with_resources(tune_wrapper, {"cpu": NUM_THREADS, "gpu": 0})
+    n_threads = int(args.n_threads)
+    trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
 
     # Ensure evaluation tools are available
     LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up evaluation environment...")
