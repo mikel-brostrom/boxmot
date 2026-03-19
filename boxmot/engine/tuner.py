@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from boxmot.engine.evaluator import (_configure_benchmark_runtime, eval_init,
+from boxmot.engine.evaluator import (eval_setup,
                                      run_generate_dets_embs,
                                      run_generate_mot_results, run_trackeval)
 from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
@@ -132,8 +132,7 @@ def main(args):
 
     # Ensure evaluation tools are available
     LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up evaluation environment...")
-    eval_init(args)
-    _configure_benchmark_runtime(args)
+    eval_setup(args)
 
     # Print tuning pipeline header (blue palette) after benchmark defaults are resolved.
     LOGGER.info("")

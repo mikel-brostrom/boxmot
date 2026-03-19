@@ -1980,6 +1980,19 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     return final_results
 
 
+def eval_setup(args) -> None:
+    """Common setup for eval and tune pipelines.
+
+    Runs TrackEval init, resolves benchmark/detector config, and applies GT class
+    remapping metadata to *args* in-place so that :func:`run_trackeval` sees the
+    correct class IDs regardless of whether it's called from eval or a tuner trial.
+    """
+    eval_init(args)
+    _, _, dataset_detector_cfg = _configure_benchmark_runtime(args)
+    _det_cfg = get_runtime_detector_cfg(args.yolo_model[0], dataset_detector_cfg)
+    apply_class_remap(args, _det_cfg)
+
+
 def apply_class_remap(args, det_cfg: dict) -> None:
     """Remap GT class IDs to match detector output (step 3.5).
 
@@ -2015,14 +2028,9 @@ def main(args):
     args.yolo_model = [resolve_model_path(model) for model in args.yolo_model]
     args.reid_model = [resolve_model_path(model) for model in args.reid_model]
 
-    # Step 1: Download TrackEval and resolve benchmark config before detector defaults.
+    # Step 1: Download TrackEval, resolve benchmark/detector config, apply class remap.
     LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
-    eval_init(args)
-
-    _, benchmark_cfg, dataset_detector_cfg = _configure_benchmark_runtime(args)
-
-    # Dataset detector settings take precedence; otherwise use model-config detector defaults.
-    _det_cfg = get_runtime_detector_cfg(args.yolo_model[0], dataset_detector_cfg)
+    eval_setup(args)
 
     # Print evaluation pipeline header (blue palette)
     LOGGER.info("")
@@ -2046,9 +2054,6 @@ def main(args):
     # Step 3: Generate MOT results (with tracking timing)
     LOGGER.opt(colors=True).info("<cyan>[3/4]</cyan> Running tracker...")
     run_generate_mot_results(args, timing_stats=timing_stats)
-
-    # Step 3.5: Prepare GT class remapping metadata for TrackEval.
-    apply_class_remap(args, _det_cfg)
 
     # Step 4: Evaluate with TrackEval
     LOGGER.opt(colors=True).info("<cyan>[4/4]</cyan> Evaluating results...")
