@@ -53,25 +53,7 @@ class RequirementsChecker:
         if extra_args is None and cmds is not None:
             extra_args = list(cmds)
 
-        specs = [Requirement(r) for r in requirements]
-        missing: list[str] = []
-
-        for req in specs:
-            name = req.name
-            try:
-                inst_ver = version(name)
-            except PackageNotFoundError:
-                LOGGER.error(f"Package {name!r} is not installed.")
-                missing.append(str(req))
-            else:
-                if req.specifier and not req.specifier.contains(
-                    inst_ver, prereleases=True
-                ):
-                    LOGGER.error(
-                        f"{name!r} has version {inst_ver} which does not satisfy {req.specifier}."
-                    )
-                    missing.append(str(req))
-
+        missing = self._missing_packages(requirements)
         if missing:
             self._install_packages(missing, extra_args)
 
@@ -87,14 +69,33 @@ class RequirementsChecker:
         """
         if not extra:
             raise ValueError("Extra name must be provided (e.g. 'openvino', 'export').")
+
+        # Skip install if all packages in the extra are already satisfied.
+        root_pyproject = ROOT / "pyproject.toml"
+        if root_pyproject.is_file():
+            try:
+                try:
+                    import tomllib
+                except ImportError:
+                    import tomli as tomllib  # type: ignore[no-redef]
+                with open(root_pyproject, "rb") as f:
+                    pyproject = tomllib.load(f)
+                extra_pkgs = (
+                    pyproject.get("project", {})
+                    .get("optional-dependencies", {})
+                    .get(extra, [])
+                )
+                if extra_pkgs and not self._missing_packages(extra_pkgs):
+                    return
+            except Exception:
+                pass  # can't parse pyproject — fall through to install
+
         LOGGER.warning(f"Installing extra '{extra}'...")
 
-        # Check if we are running from a source install (editable)
-        # ROOT is the package root. If pyproject.toml exists there, it's an editable install.
-        root_pyproject = ROOT / "pyproject.toml"
-        
         cmd: list[str]
 
+        # From source checkout (editable install): uv pip install -e ".[extra]"
+        # From PyPI install: uv pip install "boxmot[extra]"
         if root_pyproject.is_file():
             # Editable install detected or running from source root
             # We use ROOT to point to the source directory
@@ -115,6 +116,18 @@ class RequirementsChecker:
             raise RuntimeError(f"Failed to install extra '{extra}': {e}")
 
     # ---------- internals ----------
+
+    def _missing_packages(self, requirements: Iterable[str]) -> list[str]:
+        """Return requirement specifiers from *requirements* that are not satisfied."""
+        missing: list[str] = []
+        for req in [Requirement(r) for r in requirements]:
+            try:
+                inst_ver = version(req.name)
+                if req.specifier and not req.specifier.contains(inst_ver, prereleases=True):
+                    missing.append(str(req))
+            except PackageNotFoundError:
+                missing.append(str(req))
+        return missing
 
     def _install_packages(
         self, packages: Sequence[str], extra_args: Optional[Sequence[str]] = None
