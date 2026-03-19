@@ -40,16 +40,16 @@ from pathlib import Path
 
 # Setup paths
 current_dir = Path(__file__).resolve().parent
-boxmot_dir = current_dir.parent
+repo_root = current_dir.parents[2]
+boxmot_dir = current_dir.parents[1]
 trackeval_dir = boxmot_dir / "engine" / "trackeval"
 
+sys.path.insert(0, str(repo_root))
 # Add trackeval to sys.path
 sys.path.insert(0, str(trackeval_dir))
-# Add current dir to sys.path to find custom_mot_challenge_2d_box.py
-sys.path.insert(0, str(current_dir))
 
 import trackeval  # noqa: E402
-from custom_mot_challenge_2d_box import CustomMotChallenge2DBox
+from boxmot.utils.evaluation.custom_mot_challenge_2d_box import CustomMotChallenge2DBox
 
 if __name__ == '__main__':
     freeze_support()

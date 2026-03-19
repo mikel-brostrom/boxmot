@@ -3,7 +3,7 @@ from scipy.optimize import linear_sum_assignment
 import trackeval._timing as _timing
 from trackeval.datasets.mot_challenge_2d_box import MotChallenge2DBox
 
-from boxmot.utils.custom_mot_challenge_base import CustomMotChallengeBase
+from boxmot.utils.evaluation.custom_mot_challenge_base import CustomMotChallengeBase
 
 # Default COCO80 mapping; used when benchmark configs do not supply explicit ids.
 DEFAULT_CLASS_NAME_TO_ID = {

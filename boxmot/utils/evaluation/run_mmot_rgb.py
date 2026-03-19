@@ -9,14 +9,16 @@ from pathlib import Path
 
 
 current_dir = Path(__file__).resolve().parent
-boxmot_dir = current_dir.parent
+repo_root = current_dir.parents[2]
+boxmot_dir = current_dir.parents[1]
 trackeval_dir = boxmot_dir / "engine" / "trackeval"
 
+sys.path.insert(0, str(repo_root))
 sys.path.insert(0, str(trackeval_dir))
 
 import trackeval  # noqa: E402
 
-from boxmot.utils.custom_mot_challenge_obb import CustomMotChallengeOBB
+from boxmot.utils.evaluation.custom_mot_challenge_obb import CustomMotChallengeOBB
 
 
 if __name__ == "__main__":

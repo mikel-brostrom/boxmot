@@ -11,7 +11,7 @@ from trackeval import utils
 from trackeval.datasets._base_dataset import _BaseDataset
 from trackeval.utils import TrackEvalException
 
-from boxmot.utils.custom_mot_challenge_base import CustomMotChallengeBase
+from boxmot.utils.evaluation.custom_mot_challenge_base import CustomMotChallengeBase
 
 
 DEFAULT_OBB_CLASS_NAME_TO_ID = {
