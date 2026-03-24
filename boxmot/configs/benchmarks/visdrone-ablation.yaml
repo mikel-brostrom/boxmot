@@ -1,0 +1,5 @@
+id: visdrone-ablation
+
+dataset: visdrone-ablation
+detector: yolox_x_visdrone
+reid: lmbn_n_duke

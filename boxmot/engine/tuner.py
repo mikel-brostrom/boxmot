@@ -11,9 +11,10 @@ from pathlib import Path
 
 import yaml
 
-from boxmot.engine.evaluator import (eval_init, run_generate_dets_embs,
+from boxmot.engine.evaluator import (eval_setup,
+                                     run_generate_dets_embs,
                                      run_generate_mot_results, run_trackeval)
-from boxmot.utils import NUM_THREADS, TRACKER_CONFIGS
+from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 
 
@@ -105,18 +106,6 @@ def main(args):
     from ray.tune import RunConfig
     from ray.tune.search.optuna import OptunaSearch
 
-    # Print tuning pipeline header (blue palette)
-    LOGGER.info("")
-    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-    LOGGER.opt(colors=True).info("<bold><cyan>🔧 BoxMOT Hyperparameter Tuning</cyan></bold>")
-    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>   <cyan>{args.tracking_method}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>  <cyan>{args.yolo_model}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>      <cyan>{args.reid_model}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Trials:</bold>    <cyan>{args.n_trials}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Objectives:</bold> <cyan>{', '.join(args.objectives)}</cyan>")
-    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-    
     # --- initial setup ---
     args.yolo_model = [Path(y).resolve() for y in args.yolo_model]
     args.reid_model = [Path(r).resolve() for r in args.reid_model]
@@ -139,11 +128,24 @@ def main(args):
     restore_path = results_dir / tune_name
 
     # Define trainable
-    trainable = tune.with_resources(tune_wrapper, {"cpu": NUM_THREADS, "gpu": 0})
+    n_threads = int(args.n_threads)
+    trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
 
     # Ensure evaluation tools are available
     LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up evaluation environment...")
-    eval_init(args)
+    eval_setup(args)
+
+    # Print tuning pipeline header (blue palette) after benchmark defaults are resolved.
+    LOGGER.info("")
+    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    LOGGER.opt(colors=True).info("<bold><cyan>🔧 BoxMOT Hyperparameter Tuning</cyan></bold>")
+    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>   <cyan>{args.tracking_method}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>  <cyan>{args.yolo_model[0]}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>      <cyan>{args.reid_model[0]}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Trials:</bold>    <cyan>{args.n_trials}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Objectives:</bold> <cyan>{', '.join(args.objectives)}</cyan>")
+    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
     
     LOGGER.opt(colors=True).info("<cyan>[2/3]</cyan> Generating detections and embeddings...")
     run_generate_dets_embs(args)

@@ -91,10 +91,12 @@ class BaseVisualization(ABC):
                 thickness=thickness,
             )
 
+            _names = getattr(self, 'names', None)
+            _cls_label = _names.get(int(cls), str(int(cls))) if _names else str(int(cls))
             img = cv.putText(
                 img,
-                label,
-                (int(center[0]), int(center[1]) - 10),
+                f"id: {int(id)}, conf: {conf:.2f}, c: {_cls_label}, a: {box[4]:.2f}",
+                (int(box[0]), int(box[1]) - 10),
                 cv.FONT_HERSHEY_SIMPLEX,
                 fontscale,
                 color,
@@ -112,9 +114,11 @@ class BaseVisualization(ABC):
                     color,
                     thickness,
                 )
+            _names = getattr(self, 'names', None)
+            _cls_label = _names.get(int(cls), str(int(cls))) if _names else str(int(cls))
             img = cv.putText(
                 img,
-                f"id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}",
+                f"id: {int(id)}, conf: {conf:.2f}, c: {_cls_label}",
                 (x1, max(0, y1 - 10)),
                 cv.FONT_HERSHEY_SIMPLEX,
                 fontscale,

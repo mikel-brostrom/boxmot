@@ -1,13 +1,15 @@
-cff-version: 16.0.11
+cff-version: 1.2.0
 
 message: >-
   If you use this software, please cite it using the
   metadata from this file.
 
 authors:
-  - given-names: Mikel
+  - given-names: Mikel (Author)
     family-names: Broström
     orcid: "https://orcid.org/0009-0009-0540-9829"
+  - given-names: Mikhail (Maintainer)
+    family-names: Kozak 
 
 abstract: >-
   BoxMOT is a pluggable collection of state-of-the-art multi-object tracking modules

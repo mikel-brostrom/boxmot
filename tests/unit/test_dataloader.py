@@ -43,8 +43,8 @@ def simple_sequence(tmp_path):
         img1/000001.jpg, 000002.jpg
         seqinfo.ini (fps 2)
         gt/gt.txt
-      det_emb_root/model/dets/SEQ.txt
-      det_emb_root/model/embs/reid/SEQ.txt
+      det_emb_root/model/dets/SEQ.npy
+      det_emb_root/model/embs/reid/SEQ.npy
     """
     # seq dir & images
     seq_dir = tmp_path / "SEQ"
@@ -77,11 +77,11 @@ def simple_sequence(tmp_path):
 
     # two det rows (frame_id, x,y,w,h,score)
     dets = np.array([[1, 0, 0, 1, 1, 0.9], [2, 0, 0, 1, 1, 0.8]])
-    np.savetxt(det_dir / "SEQ.txt", dets, fmt="%f")
+    np.save(det_dir / "SEQ.npy", dets.astype(np.float32))
 
     # two 128-d embeddings
     embs = np.vstack([np.arange(128), np.arange(128)])
-    np.savetxt(emb_dir / "SEQ.txt", embs, fmt="%f")
+    np.save(emb_dir / "SEQ.npy", embs.astype(np.float32))
 
     return {
         "mot_root": tmp_path,
@@ -130,10 +130,10 @@ def test_mismatched_dets_embs_raise(tmp_path, simple_sequence):
         / "model"
         / "embs"
         / "reid"
-        / "SEQ.txt"
+        / "SEQ.npy"
     )
     one_emb = np.arange(128)
-    np.savetxt(emb_file, one_emb[None, :], fmt="%f")
+    np.save(emb_file, one_emb[None, :].astype(np.float32))
 
     with pytest.raises(ValueError):
         MOTDataset(
@@ -145,7 +145,7 @@ def test_mismatched_dets_embs_raise(tmp_path, simple_sequence):
         ).get_sequence(simple_sequence["seq_name"])
 
 
-def test_fps_downsampling_and_gt_temp(tmp_path):
+def test_fps_downsampling_keeps_dataset_side_effect_free(tmp_path):
     # manually create minimal sequence as before
     seq_dir = tmp_path / "S"
     img_dir = seq_dir / "img1"
@@ -176,10 +176,10 @@ def test_fps_downsampling_and_gt_temp(tmp_path):
     emb_dir.mkdir(parents=True)
     dets = np.array([[1, 0, 0, 1, 1, 0.5], [2, 0, 0, 1, 1, 0.4]])
     embs = np.vstack([np.arange(128), np.arange(128)])
-    np.savetxt(det_dir / "S.txt", dets, fmt="%f")
-    np.savetxt(emb_dir / "S.txt", embs, fmt="%f")
+    np.save(det_dir / "S.npy", dets.astype(np.float32))
+    np.save(emb_dir / "S.npy", embs.astype(np.float32))
 
-    # instantiate and trigger downsampling & gt_temp write
+    # instantiate and trigger downsampling
     ds = MOTDataset(
         mot_root=str(tmp_path),
         det_emb_root=str(det_emb_root),
@@ -187,17 +187,44 @@ def test_fps_downsampling_and_gt_temp(tmp_path):
         reid_name="R",
         target_fps=1,
     )
-    _ = ds.get_sequence("S")  # triggers prep
+    seq = ds.get_sequence("S")
 
-    # load gt_temp.txt (numpy.loadtxt returns 1d for single row)
-    gt_temp = np.loadtxt(seq_dir / "gt" / "gt_temp.txt", delimiter=",")
+    assert seq.frame_ids.tolist() == [1]
+    assert len(list(seq)) == 1
+    assert not (seq_dir / "gt" / "gt_temp.txt").exists()
 
-    # ensure only frame 1 remains
-    # handle single-row vs 2d output
-    if gt_temp.ndim == 1:
-        # single row array
-        assert gt_temp[0] == 1 and gt_temp[1] == 9
-    else:
-        assert gt_temp.shape == (1, 2)
-        assert gt_temp[0, 0] == 1 and gt_temp[0, 1] == 9
 
+def test_dataset_falls_back_to_legacy_txt_caches(simple_sequence):
+    det_file = (
+        simple_sequence["det_emb_root"]
+        / simple_sequence["model_name"]
+        / "dets"
+        / "SEQ.npy"
+    )
+    emb_file = (
+        simple_sequence["det_emb_root"]
+        / simple_sequence["model_name"]
+        / "embs"
+        / simple_sequence["reid_name"]
+        / "SEQ.npy"
+    )
+    dets = np.load(det_file)
+    embs = np.load(emb_file)
+    det_file.unlink()
+    emb_file.unlink()
+    np.savetxt(det_file.with_suffix(".txt"), dets, fmt="%f")
+    np.savetxt(emb_file.with_suffix(".txt"), embs, fmt="%f")
+
+    ds = MOTDataset(
+        mot_root=str(simple_sequence["mot_root"]),
+        det_emb_root=str(simple_sequence["det_emb_root"]),
+        model_name=simple_sequence["model_name"],
+        reid_name=simple_sequence["reid_name"],
+        target_fps=None,
+    )
+
+    seq = ds.get_sequence(simple_sequence["seq_name"])
+    out = list(seq)
+    assert len(out) == 2
+    assert out[0]["dets"].shape[0] == 1
+    assert out[0]["embs"].shape == (1, 128)

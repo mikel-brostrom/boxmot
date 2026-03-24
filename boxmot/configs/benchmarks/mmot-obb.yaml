@@ -1,0 +1,5 @@
+id: mmot-obb
+
+dataset: mmot-obb
+detector: yolo11l_3ch
+reid: lmbn_n_duke

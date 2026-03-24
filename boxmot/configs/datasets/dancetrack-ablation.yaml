@@ -1,10 +1,19 @@
-# https://huggingface.co/datasets/noahcao/dancetrack/tree/main
-download:
-  runs_url: null
-  dataset_url: "https://huggingface.co/datasets/noahcao/dancetrack/resolve/main/test1.zip"
+id: dancetrack-ablation
 
-benchmark:
-  source: "boxmot/engine/trackeval/data/test1"
-  split: "val"
-  eval_classes:
-    1: pedestrian
+path: "boxmot/engine/trackeval/data/test1"
+split: "val"
+train:
+val: "val"
+test:
+
+layout: mot
+box_type: aabb
+
+names:
+  1: pedestrian
+
+distractors: {}
+class_map: {}
+
+download:
+  dataset: "https://huggingface.co/datasets/noahcao/dancetrack/resolve/main/test1.zip"

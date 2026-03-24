@@ -1,0 +1,19 @@
+id: sportsmot
+
+path: "boxmot/engine/trackeval/data/SportsMOT"
+split: "val"
+train:
+val: "val"
+test:
+
+layout: mot
+box_type: aabb
+
+names:
+  1: player
+
+distractors: {}
+class_map: {}
+
+download:
+  dataset:

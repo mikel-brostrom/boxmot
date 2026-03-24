@@ -33,10 +33,9 @@ class ReIDModelRegistry:
         Loads pretrained weights into a model.
         Chooses the proper map_location based on CUDA availability.
         """
-        device = "cpu" if not torch.cuda.is_available() else None
         checkpoint = torch.load(
-            weight_path, 
-            map_location=torch.device("cpu") if device == "cpu" else None,
+            weight_path,
+            map_location="cpu",
             weights_only=False,
             encoding='latin1',
         )

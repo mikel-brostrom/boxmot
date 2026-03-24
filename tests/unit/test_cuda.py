@@ -29,7 +29,7 @@ def test_reidbackend_half(reid_model):
 
     half = True if torch.cuda.is_available() else False
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    rab = ReidAutoBackend(weights=reid_model, device=device, half=False)
+    rab = ReidAutoBackend(weights=reid_model, device=device, half=half)
     r = rab.get_backend()
 
     if device == "cpu":

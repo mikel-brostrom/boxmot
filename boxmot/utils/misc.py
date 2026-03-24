@@ -48,9 +48,24 @@ def resolve_model_path(model_path, default_dir: Path = WEIGHTS) -> Path:
     - ``/abs/path/model.onnx`` -> ``/abs/path/model.onnx``
     """
     path = Path(model_path)
-    if path.is_absolute() or path.exists() or path.parent != Path("."):
-        return path
-    return default_dir / path.name
+    candidates = [path]
+    if not path.is_absolute() and path.parent == Path("."):
+        candidates.append(default_dir / path.name)
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    for candidate in candidates:
+        parent = candidate.parent
+        if not parent.exists():
+            continue
+        lowered_name = candidate.name.lower()
+        for sibling in parent.iterdir():
+            if sibling.name.lower() == lowered_name:
+                return sibling
+
+    return candidates[-1]
 
 
 

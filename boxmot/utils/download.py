@@ -4,7 +4,10 @@
 Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
-import argparse
+import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 from zipfile import BadZipFile, ZipFile
@@ -17,8 +20,28 @@ from urllib3.util.retry import Retry
 
 from boxmot.utils import logger as LOGGER
 
-# Mapping for deprecated numpy types
-DEPRECATED_TYPES = {"np.float": "float", "np.int": "int", "np.bool": "bool"}
+
+def _patch_trackeval_numpy_aliases(dest: Path) -> None:
+    """Patch deprecated NumPy builtin aliases in a downloaded TrackEval tree."""
+    package_root = dest / "trackeval"
+    if not package_root.exists():
+        return
+
+    replacements = (
+        (r"\bnp\.float\b", "float"),
+        (r"\bnp\.int\b", "int"),
+        (r"\bnp\.bool\b", "bool"),
+        (r"\bnp\.object\b", "object"),
+        (r"\bnp\.str\b", "str"),
+    )
+
+    for py_file in package_root.rglob("*.py"):
+        content = py_file.read_text()
+        patched = content
+        for pattern, repl in replacements:
+            patched = re.sub(pattern, repl, patched)
+        if patched != content:
+            py_file.write_text(patched)
 
 
 def get_http_session(retries: int = 3, backoff_factor: float = 0.3) -> requests.Session:
@@ -111,23 +134,25 @@ def extract_zip(zip_path: Path, extract_to: Path, overwrite: bool = False) -> No
         except FileNotFoundError:
             pass
         raise
+def _sync_trackeval_dataset_overlays(dest: Path) -> None:
+    """Overlay the vendored TrackEval OBB dataset adapters with the tracked copies."""
+    _patch_trackeval_numpy_aliases(dest)
 
-
-def patch_deprecated_types(root: Path, deprecated: dict = DEPRECATED_TYPES) -> None:
-    """Patch deprecated numpy types in Python files."""
-    LOGGER.debug(f"Patching numpy types in: {root.name}")
-    for file in root.rglob("*"):
-        if file.suffix not in {".py", ".txt"}:
+    source_dir = Path(__file__).resolve().parent / "evaluation"
+    overlays = [
+        (source_dir / "custom_mot_challenge_obb.py", dest / "trackeval" / "datasets" / "mmot_rgb.py"),
+        (source_dir / "trackeval_datasets_init.py", dest / "trackeval" / "datasets" / "__init__.py"),
+    ]
+    for src, dst in overlays:
+        if not src.exists():
             continue
-        text = file.read_text(encoding="utf-8")
-        updated = text
-        for old, new in deprecated.items():
-            updated = updated.replace(old, new)
-        if updated != text:
-            file.write_text(updated, encoding="utf-8")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.exists() and src.resolve() == dst.resolve():
+            continue
+        shutil.copyfile(src, dst)
 
 
-def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = False) -> None:
+def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False) -> None:
     """
     Download and set up the TrackEval repository into the given destination folder.
 
@@ -138,13 +163,14 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     """
     # If already exists and we're not overwriting, skip
     if dest.exists() and not overwrite:
+        _sync_trackeval_dataset_overlays(dest)
         LOGGER.debug("TrackEval already present")
         return
 
     LOGGER.info("Downloading TrackEval...")
-    repo_url = "https://github.com/JonathonLuiten/TrackEval"
+    repo_url = "https://github.com/Annzstbl/MMOT"
     zip_url = f"{repo_url}/archive/refs/heads/{branch}.zip"
-    zip_file = dest.parent / f"{dest.name}-{branch}.zip"
+    zip_file = dest.parent / f"MMOT-{branch}.zip"
 
     # Download the archive
     zip_path = download_file(zip_url, zip_file, overwrite=overwrite)
@@ -152,18 +178,25 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     # Extract into the parent folder
     extract_zip(zip_path, dest.parent, overwrite=overwrite)
 
-    # GitHub will unpack to "TrackEval-master" (with original casing); 
-    # rename it case-insensitively to our lowercase 'trackeval' folder
+    # GitHub unpacks to "MMOT-<branch>"; TrackEval lives inside that repo.
     extracted = None
     for d in dest.parent.iterdir():
-        if d.is_dir() and d.name.lower().startswith("trackeval") and d.name.lower().endswith(f"-{branch}"):
+        if d.is_dir() and d.name.lower().startswith("mmot") and d.name.lower().endswith(f"-{branch}"):
             extracted = d
             break
 
     if extracted is None:
-        LOGGER.warning("Couldn't locate extracted TrackEval folder")
+        LOGGER.warning("Couldn't locate extracted MMOT folder")
     else:
-        extracted.rename(dest)
+        trackeval_src = extracted / "TrackEval"
+        if not trackeval_src.exists():
+            LOGGER.warning("Couldn't locate TrackEval inside extracted MMOT archive")
+        else:
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.move(str(trackeval_src), str(dest))
+        if extracted.exists():
+            shutil.rmtree(extracted)
 
     # Clean up the downloaded zip
     try:
@@ -171,8 +204,7 @@ def download_trackeval(dest: Path, branch: str = "master", overwrite: bool = Fal
     except FileNotFoundError:
         pass
 
-    # Apply any necessary patches for deprecated types
-    patch_deprecated_types(dest)
+    _sync_trackeval_dataset_overlays(dest)
 
     LOGGER.debug("TrackEval setup complete")
 
@@ -188,14 +220,16 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False) -> No
         dest: Local directory to save the dataset into.
         overwrite: If True, re-download even if *dest* already exists.
     """
-    if dest.exists() and not overwrite:
+
+    dest_exists = dest.exists() or dest.with_suffix('').exists()
+
+    if dest_exists and not overwrite:
         LOGGER.debug(f"HF dataset already present at {dest}")
         return
 
     try:
         from huggingface_hub import HfApi, snapshot_download
     except ImportError:
-        import subprocess, sys
         LOGGER.info("Installing huggingface_hub ...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub"])
         from huggingface_hub import HfApi, snapshot_download
@@ -251,19 +285,24 @@ def download_eval_data(
     runs_url: Optional[str] = None,
     dataset_url: str,
     dataset_dest: Path,
-    overwrite: bool = False
+    overwrite: bool = False,
+    runs_check_path: Optional[Path] = None,
 ) -> None:
     """
     Download & extract TrackEval evaluation data.
     If `runs_url` is truthy, downloads+unzips runs.zip; otherwise skips it.
+    If `runs_check_path` exists, skips the runs download entirely.
     Always downloads+unzips the benchmark data.
     """
     LOGGER.info("Setting up evaluation data...")
 
-    # Optional runs data
+    # Optional runs data — skip if user already has their own dets/embs
     if runs_url:
-        runs_zip = download_file(runs_url, Path("runs.zip"), overwrite=overwrite)
-        extract_zip(runs_zip, Path("."), overwrite=overwrite)
+        if runs_check_path is not None and Path(runs_check_path).exists():
+            LOGGER.debug(f"Skipping runs.zip download: {runs_check_path} already exists.")
+        else:
+            runs_zip = download_file(runs_url, Path("runs.zip"), overwrite=overwrite)
+            extract_zip(runs_zip, Path("."), overwrite=overwrite)
 
     if not dataset_url:
         return
@@ -280,24 +319,3 @@ def download_eval_data(
     extract_zip(benchmark_zip, dataset_dest.parent, overwrite=overwrite)
 
     LOGGER.debug(f"Benchmark data ready at: {dataset_dest.parent}")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download BoxMOT datasets and MOT evaluation tools.")
-    parser.add_argument("--branch", default="master", help="Branch of TrackEval to download.")
-    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing downloads and extractions.")
-    parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
-    args = parser.parse_args()
-
-    download_trackeval(
-        dest=Path("TrackEval"),
-        branch=args.branch,
-        overwrite=args.overwrite
-    )
-
-    download_eval_data(
-        runs_url="https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/runs.zip",
-        dataset_url="https://github.com/mikel-brostrom/boxmot/releases/download/v10.0.83/MOT17-50.zip",
-        dataset_dest=Path("boxmot/engine/TrackEval/MOT17-ablation.zip"),
-        overwrite=args.overwrite
-    )
