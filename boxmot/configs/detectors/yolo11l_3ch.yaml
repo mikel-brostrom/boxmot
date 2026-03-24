@@ -3,7 +3,7 @@ model: "models/yolo11l-3ch.pt"
 url: "https://drive.google.com/uc?id=15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR"
 box_type: obb
 imgsz: [1024, 1024]
-conf: 0.05
+conf: 0.2
 classes:
   0: car
   1: bike

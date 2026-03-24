@@ -39,7 +39,7 @@ class VideoWriter:
             self.frame_size = (w, h)
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             self.writer = cv2.VideoWriter(
-                str(self.output_path), fourcc, 10, self.frame_size
+                str(self.output_path), fourcc, self.fps, self.frame_size
             )
             LOGGER.opt(colors=True).info(f"<bold>Saving video to:</bold> <cyan>{self.output_path}</cyan>")
         
