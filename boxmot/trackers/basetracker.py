@@ -376,7 +376,7 @@ class BaseTracker(VisualizationMixin):
     def get_track_box_for_display(self, track, state: str):
         """Return the geometry that should be drawn for a given track state."""
         history = self.get_track_history_for_display(track)
-        if state != "predicted":
+        if state not in ("predicted", "removed"):
             return history[-1] if history else None
 
         if self.is_obb:
@@ -402,70 +402,84 @@ class BaseTracker(VisualizationMixin):
         track_id = self.get_track_id_for_display(track)
         return (track_id, start_frame) if start_frame >= 0 else track_id
 
+    def _get_removed_tracks_for_display(self, now: int, ttl: int) -> list:
+        """Return removed tracks that should remain visible for the current plot frame."""
+        if ttl <= 0:
+            return []
+
+        visible_tracks = []
+        for track in self.get_removed_tracks_for_display():
+            if not self.get_track_history_for_display(track):
+                continue
+
+            key = self._removed_track_display_key(track)
+            if key in self._removed_expired:
+                continue
+
+            first_seen = self._removed_first_seen.setdefault(key, now)
+            if (now - first_seen) < ttl:
+                visible_tracks.append(track)
+            else:
+                self._removed_expired.add(key)
+
+        return visible_tracks
+
+    def _prune_removed_display_tombstones(self, now: int, ttl: int) -> None:
+        """Trim old removed-track tombstones so lifecycle bookkeeping stays bounded."""
+        if len(self._removed_expired) <= 10000:
+            return
+
+        horizon = getattr(self, "removed_tombstone_horizon", 10000)
+        cutoff = now - max(ttl, 1) - horizon
+        stale_keys = [
+            key
+            for key, first_seen in self._removed_first_seen.items()
+            if first_seen < cutoff
+        ]
+        for key in stale_keys:
+            self._removed_first_seen.pop(key, None)
+            self._removed_expired.discard(key)
+
+    def _display_groups_with_explicit_lifecycle(self, active_tracks: list):
+        """Yield display groups for trackers with explicit active/lost/removed lists."""
+        now = self._plot_frame_idx
+        ttl = int(max(0, self.removed_display_frames))
+
+        yield (active_tracks, "confirmed", "solid")
+
+        lost_tracks = self.get_lost_tracks_for_display()
+        if lost_tracks:
+            yield (lost_tracks, "predicted", "dashed")
+
+        removed_tracks = self._get_removed_tracks_for_display(now=now, ttl=ttl)
+        if removed_tracks:
+            yield (removed_tracks, "removed", "solid")
+
+        self._prune_removed_display_tombstones(now=now, ttl=ttl)
+
     def _display_groups(self):
         """Yield track groups for visualization as (tracks, forced_state, style)."""
         self._plot_frame_idx += 1
 
         active_tracks = self.get_active_tracks_for_display()
         if self.has_explicit_display_lifecycle():
-            now = self._plot_frame_idx
-            ttl = int(max(0, self.removed_display_frames))
-
-            yield (active_tracks, "confirmed", "solid")
-
-            lost_tracks = self.get_lost_tracks_for_display()
-            if lost_tracks:
-                yield (lost_tracks, "predicted", "dashed")
-
-            removed_tracks = self.get_removed_tracks_for_display()
-            if removed_tracks and ttl > 0:
-                filtered_removed = []
-                for track in removed_tracks:
-                    if not self.get_track_history_for_display(track):
-                        continue
-
-                    key = self._removed_track_display_key(track)
-                    if key in self._removed_expired:
-                        continue
-
-                    if key not in self._removed_first_seen:
-                        self._removed_first_seen[key] = now
-
-                    if (now - self._removed_first_seen[key]) < ttl:
-                        filtered_removed.append(track)
-                    else:
-                        self._removed_expired.add(key)
-
-                if filtered_removed:
-                    yield (filtered_removed, "removed", "solid")
-
-            if len(self._removed_expired) > 10000:
-                horizon = getattr(self, "removed_tombstone_horizon", 10000)
-                cutoff = now - max(ttl, 1) - horizon
-                to_drop = [
-                    key
-                    for key, first_seen in self._removed_first_seen.items()
-                    if first_seen < cutoff
-                ]
-                for key in to_drop:
-                    self._removed_first_seen.pop(key, None)
-                    self._removed_expired.discard(key)
+            yield from self._display_groups_with_explicit_lifecycle(active_tracks)
             return
 
         if active_tracks:
             yield (active_tracks, None, "dashed")
 
-    def iter_tracks_for_display(self, show_lost: bool = False):
+    def iter_tracks_for_display(self, show_kf_preds: bool = False):
         """Yield individual tracks as (track, state, style) for rendering."""
         for tracks, forced_state, style in self._display_groups():
-            if not show_lost and forced_state in ("predicted", "removed"):
+            if not show_kf_preds and forced_state in ("predicted", "removed"):
                 continue
 
             for track in tracks:
                 state = forced_state or self.get_track_state_for_display(track)
                 if state is None:
                     continue
-                if not show_lost and state != "confirmed":
+                if not show_kf_preds and state != "confirmed":
                     continue
                 yield track, state, style
 

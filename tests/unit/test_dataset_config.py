@@ -157,7 +157,7 @@ def test_dataset_reid_is_used_for_default_model_selection():
 
 def test_dataset_detector_is_used_when_same_model_is_explicit():
     cfg = load_benchmark_cfg("MMOT-OBB")
-    args = SimpleNamespace(yolo_model=[Path("models/yolo11l_3ch.pt")], yolo_model_explicit=True)
+    args = SimpleNamespace(yolo_model=[Path("models/yolo11l-3ch.pt")], yolo_model_explicit=True)
     assert should_use_benchmark_detector(args, cfg) is True
 
 

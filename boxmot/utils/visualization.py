@@ -23,6 +23,9 @@ class BaseVisualization(ABC):
         """
         Returns green for target_id, otherwise generates a consistent unique BGR color using ID hashing.
         """
+        if state == "removed":
+            return (0, 0, 255)
+
         target_id = getattr(self, "target_id", None)
         if target_id is not None:
             return (0, 255, 0) if id == target_id else (0, 0, 0)
@@ -205,12 +208,14 @@ class BaseVisualization(ABC):
         show_trajectories: bool,
         thickness: int = 2,
         fontscale: float = 0.5,
-        show_lost: bool = False,
+        show_kf_preds: bool = False,
     ) -> np.ndarray:
         """
         Visualizes the trajectories of all active tracks on the image.
         """
-        for track, state, style in self.iter_tracks_for_display(show_lost=show_lost):
+        for track, state, style in self.iter_tracks_for_display(
+            show_kf_preds=show_kf_preds
+        ):
             img = self._draw_track(
                 img,
                 track,

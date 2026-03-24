@@ -198,7 +198,7 @@ def plot_trajectories(predictor, timing_stats: TimingStats = None, video_writer=
             img,
             predictor.custom_args.show_trajectories,
             thickness=predictor.custom_args.line_width or 2,
-            show_lost=predictor.custom_args.show_lost,
+            show_kf_preds=predictor.custom_args.show_kf_preds,
         )
         
         if timing_stats:

@@ -46,11 +46,11 @@ class TestVisualization(unittest.TestCase):
         track = MockTrack(1, [[10, 10, 50, 50]])
         self.tracker.active_tracks = [track]
         
-        # Plot without show_lost
+        # Plot without show_kf_preds
         res = self.tracker.plot_results(
             self.img.copy(),
             show_trajectories=True,
-            show_lost=False
+            show_kf_preds=False
         )
         
         # Verify something was drawn (image not all zeros)
@@ -58,7 +58,7 @@ class TestVisualization(unittest.TestCase):
         # Note: exact pixel values depend on color hashing, but shouldn't be 0
         self.assertTrue(np.any(res[10:50, 10:50] != 0), "Should draw active track")
 
-    def test_plot_results_show_lost(self):
+    def test_plot_results_show_kf_preds(self):
         # Setup lost track
         lost_track = MockTrack(2, [[20, 20, 60, 60]], state="lost")
         # Mock state inference for lost track
@@ -66,32 +66,55 @@ class TestVisualization(unittest.TestCase):
         
         self.tracker.lost_stracks = [lost_track]
         
-        # Plot with show_lost=True
+        # Plot with show_kf_preds=True
         res = self.tracker.plot_results(
             self.img.copy(),
             show_trajectories=True,
-            show_lost=True
+            show_kf_preds=True
         )
         
         # Verify lost track is drawn
-        self.assertTrue(np.any(res[20:60, 20:60] != 0), "Should draw lost track when show_lost=True")
+        self.assertTrue(np.any(res[20:60, 20:60] != 0), "Should draw lost track when show_kf_preds=True")
+
+    def test_removed_track_is_red_when_shown(self):
+        removed_track = MockTrack(
+            4,
+            [[20, 20, 40, 40]],
+            xyxy=[50, 50, 80, 80],
+        )
+        self.tracker.removed_stracks = [removed_track]
+
+        res = self.tracker.plot_results(
+            self.img.copy(),
+            show_trajectories=False,
+            show_kf_preds=True,
+        )
+
+        self.assertTrue(
+            np.array_equal(res[50, 50], np.array([0, 0, 255], dtype=np.uint8)),
+            "Removed tracks should render the last predicted box in red during the temporary lost-display window",
+        )
+        self.assertTrue(
+            np.all(res[20:40, 20:40] == 0),
+            "Removed tracks should not fall back to the last associated detection when a predicted box is available",
+        )
         
-    def test_plot_results_hide_lost(self):
+    def test_plot_results_hide_kf_preds(self):
         # Setup lost track
         lost_track = MockTrack(2, [[20, 20, 60, 60]], state="lost")
         lost_track.time_since_update = 5
         
         self.tracker.lost_stracks = [lost_track]
         
-        # Plot with show_lost=False
+        # Plot with show_kf_preds=False
         res = self.tracker.plot_results(
             self.img.copy(),
             show_trajectories=True,
-            show_lost=False
+            show_kf_preds=False
         )
         
         # Verify lost track is NOT drawn (image should remain all zeros)
-        self.assertTrue(np.all(res == 0), "Should not draw lost track when show_lost=False")
+        self.assertTrue(np.all(res == 0), "Should not draw lost track when show_kf_preds=False")
 
     def test_inferred_predicted_track_uses_tracker_display_box(self):
         predicted_track = MockTrack(
@@ -106,7 +129,7 @@ class TestVisualization(unittest.TestCase):
         res = self.inferred_tracker.plot_results(
             self.img.copy(),
             show_trajectories=False,
-            show_lost=True,
+            show_kf_preds=True,
         )
 
         self.assertTrue(

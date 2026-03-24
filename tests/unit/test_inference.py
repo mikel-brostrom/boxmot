@@ -148,7 +148,7 @@ def test_model_config_detector_defaults_override_runtime_defaults_by_model_name(
 def test_model_config_detector_defaults_match_separator_variants():
     detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
 
-    assert detector_cfg["id"] == "yolo11l_3ch"
+    assert detector_cfg["id"] == "yolo11l-3ch"
     assert default_imgsz("yolo11l_3ch.pt") == detector_cfg["imgsz"]
     assert get_detector_url("yolo11l_3ch.pt") == detector_cfg["url"]
 
@@ -188,7 +188,7 @@ def test_ultralytics_detector_downloads_missing_configured_weights(monkeypatch, 
         raising=False,
     )
 
-    missing_model = tmp_path / "yolo11l_3ch.pt"
+    missing_model = tmp_path / "yolo11l-3ch.pt"
     detector = UltralyticsDetector(model=missing_model, device="cpu", imgsz=[64, 64])
 
     assert detector.names == {0: "car"}
