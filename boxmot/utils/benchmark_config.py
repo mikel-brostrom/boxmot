@@ -460,6 +460,11 @@ def should_use_benchmark_detector(args: Any, cfg: dict[str, Any]) -> bool:
         return True
     if Path(current_model).name.lower() == Path(benchmark_model).name.lower():
         return True
+    if (
+        Path(current_model).stem.lower().replace("-", "").replace("_", "")
+        == Path(benchmark_model).stem.lower().replace("-", "").replace("_", "")
+    ):
+        return True
 
     if getattr(args, "yolo_model_explicit", None) is True:
         return False
