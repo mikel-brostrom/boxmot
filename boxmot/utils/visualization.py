@@ -77,9 +77,9 @@ class BaseVisualization(ABC):
         )
 
     def _format_box_label(self, id: int, conf: float, cls: int, box_arr: np.ndarray | None = None) -> str:
-        label = f"id: {int(id)}, conf: {conf:.2f}, c: {self._class_label(cls)}"
-        if self.is_obb and box_arr is not None and box_arr.size >= 5:
-            label += f", a: {box_arr[4]:.2f}"
+        label = f"id: {int(id)}"
+        # if self.is_obb and box_arr is not None and box_arr.size >= 5:
+        #     label += f", a: {box_arr[4]:.2f}"
         return label
 
     def plot_box_on_img(

@@ -15,6 +15,7 @@ from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.benchmark_config import (
     apply_reid_runtime_defaults,
+    ensure_dataset_source_available,
     load_runtime_reid_component_cfg,
 )
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
@@ -38,7 +39,7 @@ class VideoWriter:
             self.frame_size = (w, h)
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             self.writer = cv2.VideoWriter(
-                str(self.output_path), fourcc, self.fps, self.frame_size
+                str(self.output_path), fourcc, 10, self.frame_size
             )
             LOGGER.opt(colors=True).info(f"<bold>Saving video to:</bold> <cyan>{self.output_path}</cyan>")
         
@@ -230,6 +231,7 @@ def main(args):
     """
     runtime_reid_cfg = load_runtime_reid_component_cfg(getattr(args, "reid_model", None))
     apply_reid_runtime_defaults(args, {"reid": runtime_reid_cfg}, use_config=bool(runtime_reid_cfg))
+    ensure_dataset_source_available(args, overwrite=False)
 
     runtime_detector_cfg = _load_runtime_detector_cfg(args)
 

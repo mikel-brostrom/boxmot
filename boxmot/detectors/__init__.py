@@ -21,6 +21,11 @@ def _check_model(name, markers):
     return any(m in str(name) for m in markers)
 
 
+def _detector_name_key(name) -> str:
+    """Normalize detector names so config lookup tolerates separator variants."""
+    return Path(str(name)).stem.lower().replace("-", "").replace("_", "")
+
+
 def is_ultralytics_model(yolo_name):
     return _check_model(yolo_name, ULTRALYTICS_MODELS)
 
@@ -35,8 +40,8 @@ def is_rtdetr_model(yolo_name):
 
 def resolve_detector_cfg_path(yolo_name):
     """Return the detector-config YAML path whose detector model matches ``yolo_name``."""
-    stem = Path(str(yolo_name)).stem.lower()
-    if not stem or not DETECTOR_CONFIGS.exists():
+    model_key = _detector_name_key(yolo_name)
+    if not model_key or not DETECTOR_CONFIGS.exists():
         return None
 
     for pattern in ("*.yaml", "*.yml"):
@@ -48,7 +53,7 @@ def resolve_detector_cfg_path(yolo_name):
                 continue
 
             detector_model = cfg.get("model") or cfg.get("default_model")
-            if detector_model and Path(detector_model).stem.lower() == stem:
+            if detector_model and _detector_name_key(detector_model) == model_key:
                 return cfg_path
     return None
 
@@ -62,6 +67,13 @@ def load_detector_cfg(yolo_name):
     with open(cfg_path, "r") as handle:
         cfg = yaml.safe_load(handle) or {}
     return dict(cfg) if isinstance(cfg, dict) else {}
+
+
+def get_detector_url(yolo_name):
+    """Return the configured detector download URL for a detector model, if any."""
+    detector_cfg = load_detector_cfg(yolo_name)
+    model_url = detector_cfg.get("model_url") or detector_cfg.get("url")
+    return str(model_url) if model_url else None
 
 
 def get_runtime_detector_cfg(yolo_name, detector_cfg=None):

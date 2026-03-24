@@ -6,7 +6,9 @@ import boxmot.utils.benchmark_config as benchmark_config
 from boxmot.utils.benchmark_config import (
     apply_benchmark_config,
     apply_reid_runtime_defaults,
+    ensure_dataset_source_available,
     ensure_benchmark_detector_model,
+    find_dataset_cfg_for_source,
     get_benchmark_detector_url,
     get_benchmark_reid_cfg,
     load_benchmark_only_cfg,
@@ -237,6 +239,39 @@ def test_apply_benchmark_config_ignores_source_without_data(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
     args = SimpleNamespace(source="MOT17-ablation")
     assert apply_benchmark_config(args) is None
+
+
+def test_find_dataset_cfg_for_nested_source_path():
+    cfg = find_dataset_cfg_for_source("boxmot/engine/trackeval/data/MMOT-OBB/train/data44-3/img1")
+
+    assert cfg is not None
+    assert cfg["id"] == "mmot-obb"
+    assert cfg["path"] == "boxmot/engine/trackeval/data/MMOT-OBB"
+
+
+def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
+    calls = {}
+    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: calls.update(kwargs))
+
+    args = SimpleNamespace(
+        source="boxmot/engine/trackeval/data/MMOT-OBB/train/data44-3/img1",
+        eval_box_type=None,
+    )
+
+    cfg = ensure_dataset_source_available(args)
+
+    assert cfg is not None
+    assert cfg["id"] == "mmot-obb"
+    assert args.source == "boxmot/engine/trackeval/data/MMOT-OBB/train/data44-3/img1"
+    assert args.dataset_id == "mmot-obb"
+    assert args.eval_box_type == "obb"
+    assert calls == {
+        "runs_url": "",
+        "dataset_url": "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/MMOT-OBB.zip",
+        "dataset_dest": Path("boxmot/engine/trackeval/data/MMOT-OBB.zip"),
+        "overwrite": False,
+        "runs_check_path": None,
+    }
 
 
 def test_ensure_benchmark_detector_model_downloads_missing_weight(monkeypatch, tmp_path):
