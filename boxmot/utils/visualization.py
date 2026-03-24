@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import colorsys
 import hashlib
 from abc import ABC
