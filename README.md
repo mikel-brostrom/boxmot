@@ -277,8 +277,8 @@ boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker sfsort
 Useful flags for inspection and debugging:
 
 ```bash
-# Draw trajectories and show lost tracks
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --show-trajectories --show-lost --save
+# Draw trajectories and show kalman filter predictions when track is lost
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --show-trajectories --show-kf-preds --save
 
 # Track only selected classes
 boxmot track --detector yolov8s --source 0 --classes 16,17

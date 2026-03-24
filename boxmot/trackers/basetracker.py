@@ -302,5 +302,186 @@ class BaseTracker(VisualizationMixin):
 
         self.detection_layout.validate_dets(dets)
 
+    def get_active_tracks_for_display(self) -> list:
+        """Return the currently active tracks, flattened across classes if needed."""
+        if self.per_class_active_tracks is None:
+            return list(self.active_tracks or [])
+
+        tracks = []
+        for class_tracks in self.per_class_active_tracks.values():
+            tracks.extend(class_tracks)
+        return tracks
+
+    def get_lost_tracks_for_display(self) -> list:
+        """Return lost tracks when the tracker maintains an explicit lost list."""
+        return list(getattr(self, "lost_stracks", []) or [])
+
+    def get_removed_tracks_for_display(self) -> list:
+        """Return removed tracks when the tracker maintains an explicit removed list."""
+        return list(getattr(self, "removed_stracks", []) or [])
+
+    def get_track_history_for_display(self, track) -> list:
+        """Return the stored observation history used to draw trajectories."""
+        return list(getattr(track, "history_observations", []) or [])
+
+    def get_track_state_for_display(self, track):
+        """Infer a generic lifecycle state for trackers without explicit state lists."""
+        if hasattr(track, "hits") and track.hits < self.min_hits:
+            return None
+        if hasattr(track, "is_activated") and not track.is_activated:
+            return None
+
+        if hasattr(track, "time_since_update"):
+            if track.time_since_update == 0:
+                return "confirmed"
+            if track.time_since_update <= self.max_age:
+                return "predicted"
+            return "lost"
+
+        if hasattr(track, "state"):
+            try:
+                from boxmot.trackers.bytetrack.basetrack import TrackState
+
+                if track.state == TrackState.Tracked:
+                    return "confirmed"
+                if track.state == TrackState.Lost:
+                    return "predicted"
+                return "lost"
+            except Exception:
+                return "confirmed" if getattr(track, "is_activated", True) else "lost"
+
+        return "confirmed"
+
+    def get_track_id_for_display(self, track) -> int:
+        return int(getattr(track, "id"))
+
+    def get_track_conf_for_display(self, track) -> float:
+        return float(getattr(track, "conf", 1.0))
+
+    def get_track_cls_for_display(self, track) -> int:
+        return int(getattr(track, "cls", -1))
+
+    @staticmethod
+    def _resolve_track_box_attr(track, attr_name):
+        if not hasattr(track, attr_name):
+            return None
+
+        value = getattr(track, attr_name)
+        if callable(value):
+            value = value()
+        if isinstance(value, np.ndarray) and value.ndim == 2 and value.shape[0] == 1:
+            return value[0]
+        return value
+
+    def get_track_box_for_display(self, track, state: str):
+        """Return the geometry that should be drawn for a given track state."""
+        history = self.get_track_history_for_display(track)
+        if state not in ("predicted", "removed"):
+            return history[-1] if history else None
+
+        if self.is_obb:
+            for attr_name in ("_state_obb_for_plot", "xywha", "get_state", "xyxy"):
+                box = self._resolve_track_box_attr(track, attr_name)
+                if box is not None:
+                    return box
+        else:
+            for attr_name in ("xyxy", "get_state"):
+                box = self._resolve_track_box_attr(track, attr_name)
+                if box is not None:
+                    return box
+
+        return history[-1] if history else None
+
+    def has_explicit_display_lifecycle(self) -> bool:
+        return (getattr(self, "lost_stracks", None) is not None) or (
+            getattr(self, "removed_stracks", None) is not None
+        )
+
+    def _removed_track_display_key(self, track):
+        start_frame = int(getattr(track, "start_frame", getattr(track, "birth_frame", -1)))
+        track_id = self.get_track_id_for_display(track)
+        return (track_id, start_frame) if start_frame >= 0 else track_id
+
+    def _get_removed_tracks_for_display(self, now: int, ttl: int) -> list:
+        """Return removed tracks that should remain visible for the current plot frame."""
+        if ttl <= 0:
+            return []
+
+        visible_tracks = []
+        for track in self.get_removed_tracks_for_display():
+            if not self.get_track_history_for_display(track):
+                continue
+
+            key = self._removed_track_display_key(track)
+            if key in self._removed_expired:
+                continue
+
+            first_seen = self._removed_first_seen.setdefault(key, now)
+            if (now - first_seen) < ttl:
+                visible_tracks.append(track)
+            else:
+                self._removed_expired.add(key)
+
+        return visible_tracks
+
+    def _prune_removed_display_tombstones(self, now: int, ttl: int) -> None:
+        """Trim old removed-track tombstones so lifecycle bookkeeping stays bounded."""
+        if len(self._removed_expired) <= 10000:
+            return
+
+        horizon = getattr(self, "removed_tombstone_horizon", 10000)
+        cutoff = now - max(ttl, 1) - horizon
+        stale_keys = [
+            key
+            for key, first_seen in self._removed_first_seen.items()
+            if first_seen < cutoff
+        ]
+        for key in stale_keys:
+            self._removed_first_seen.pop(key, None)
+            self._removed_expired.discard(key)
+
+    def _display_groups_with_explicit_lifecycle(self, active_tracks: list):
+        """Yield display groups for trackers with explicit active/lost/removed lists."""
+        now = self._plot_frame_idx
+        ttl = int(max(0, self.removed_display_frames))
+
+        yield (active_tracks, "confirmed", "solid")
+
+        lost_tracks = self.get_lost_tracks_for_display()
+        if lost_tracks:
+            yield (lost_tracks, "predicted", "dashed")
+
+        removed_tracks = self._get_removed_tracks_for_display(now=now, ttl=ttl)
+        if removed_tracks:
+            yield (removed_tracks, "removed", "solid")
+
+        self._prune_removed_display_tombstones(now=now, ttl=ttl)
+
+    def _display_groups(self):
+        """Yield track groups for visualization as (tracks, forced_state, style)."""
+        self._plot_frame_idx += 1
+
+        active_tracks = self.get_active_tracks_for_display()
+        if self.has_explicit_display_lifecycle():
+            yield from self._display_groups_with_explicit_lifecycle(active_tracks)
+            return
+
+        if active_tracks:
+            yield (active_tracks, None, "dashed")
+
+    def iter_tracks_for_display(self, show_kf_preds: bool = False):
+        """Yield individual tracks as (track, state, style) for rendering."""
+        for tracks, forced_state, style in self._display_groups():
+            if not show_kf_preds and forced_state in ("predicted", "removed"):
+                continue
+
+            for track in tracks:
+                state = forced_state or self.get_track_state_for_display(track)
+                if state is None:
+                    continue
+                if not show_kf_preds and state != "confirmed":
+                    continue
+                yield track, state, style
+
     def reset(self):
         pass

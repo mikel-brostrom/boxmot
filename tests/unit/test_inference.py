@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from boxmot.detectors import default_conf, default_imgsz, get_runtime_detector_cfg, load_detector_cfg
+from boxmot.detectors import default_conf, default_imgsz, get_detector_url, get_runtime_detector_cfg, load_detector_cfg
 from boxmot.detectors.detector import Detections
 import boxmot.detectors.ultralytics as ultralytics_detector_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
@@ -145,6 +145,14 @@ def test_model_config_detector_defaults_override_runtime_defaults_by_model_name(
     assert default_conf("yolo11s-obb.pt") == detector_cfg["conf"]
 
 
+def test_model_config_detector_defaults_match_separator_variants():
+    detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
+
+    assert detector_cfg["id"] == "yolo11l_3ch"
+    assert default_imgsz("yolo11l_3ch.pt") == detector_cfg["imgsz"]
+    assert get_detector_url("yolo11l_3ch.pt") == detector_cfg["url"]
+
+
 def test_runtime_detector_cfg_uses_model_config_to_override_dataset_values():
     detector_cfg = load_detector_cfg("yolo11s-obb.pt")
     benchmark_cfg = {
@@ -160,6 +168,36 @@ def test_runtime_detector_cfg_uses_model_config_to_override_dataset_values():
     assert resolved["imgsz"] == detector_cfg["imgsz"]
     assert resolved["conf"] == detector_cfg["conf"]
     assert resolved["classes"][0] == detector_cfg["classes"][0]
+
+
+def test_ultralytics_detector_downloads_missing_configured_weights(monkeypatch, tmp_path):
+    calls = {}
+
+    class _FakeYOLO:
+        def __init__(self, model):
+            calls["model"] = model
+            self.names = {0: "car"}
+
+    monkeypatch.setattr(ultralytics_detector_module, "YOLO", _FakeYOLO)
+    monkeypatch.setattr(
+        ultralytics_detector_module,
+        "download_file",
+        lambda url, dest, overwrite=False, **_kwargs: calls.update(
+            {"url": url, "dest": dest, "overwrite": overwrite}
+        ) or dest,
+        raising=False,
+    )
+
+    missing_model = tmp_path / "yolo11l-3ch.pt"
+    detector = UltralyticsDetector(model=missing_model, device="cpu", imgsz=[64, 64])
+
+    assert detector.names == {0: "car"}
+    assert calls == {
+        "url": "https://drive.google.com/uc?id=15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR",
+        "dest": missing_model,
+        "overwrite": False,
+        "model": str(missing_model),
+    }
 
 
 def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector(monkeypatch):

@@ -1,9 +1,14 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from pathlib import Path
+
 import numpy as np
 from ultralytics import YOLO
 
+from boxmot.detectors import get_detector_url
 from boxmot.detectors.detector import Detections, Detector
+from boxmot.utils import logger as LOGGER
+from boxmot.utils.download import download_file
 
 
 class UltralyticsDetector(Detector):
@@ -15,9 +20,15 @@ class UltralyticsDetector(Detector):
     """
 
     def __init__(self, model, device, imgsz=None):
+        model_path = Path(model)
+        detector_url = get_detector_url(model_path)
+        if detector_url and not model_path.exists():
+            LOGGER.info("Downloading detector weights...")
+            download_file(url=detector_url, dest=model_path, overwrite=False)
+
         self.device = device
         self.imgsz = imgsz  # passed through to YOLO.predict
-        self._yolo = YOLO(str(model))
+        self._yolo = YOLO(str(model_path))
         self.names = self._yolo.names or {}
         self.pt = True
         self.stride = 32

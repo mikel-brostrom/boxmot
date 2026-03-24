@@ -460,6 +460,11 @@ def should_use_benchmark_detector(args: Any, cfg: dict[str, Any]) -> bool:
         return True
     if Path(current_model).name.lower() == Path(benchmark_model).name.lower():
         return True
+    if (
+        Path(current_model).stem.lower().replace("-", "").replace("_", "")
+        == Path(benchmark_model).stem.lower().replace("-", "").replace("_", "")
+    ):
+        return True
 
     if getattr(args, "yolo_model_explicit", None) is True:
         return False
@@ -523,6 +528,10 @@ def _resolve_runtime_benchmark_name(cfg: dict[str, Any], source_root: Path | Non
     return str(cfg.get("id") or cfg_path.stem)
 
 
+def _normalize_path_match_key(path_like: str | Path) -> str:
+    return Path(str(path_like)).as_posix().lower().rstrip("/")
+
+
 def _resolve_active_split_path(cfg: dict[str, Any]) -> str:
     split = str(cfg.get("split") or "train")
     split_path = cfg.get(split)
@@ -584,6 +593,69 @@ def _apply_benchmark_config_ref(args: Any, benchmark_ref: str | Path | None, ove
     return cfg
 
 
+def find_dataset_cfg_for_source(source: str | Path | None) -> dict[str, Any] | None:
+    """Return the dataset config whose configured root best matches ``source``."""
+    if not source:
+        return None
+
+    source_key = _normalize_path_match_key(source)
+    best_match = None
+    best_len = -1
+
+    for cfg_path in sorted(DATASET_CONFIGS.glob("*.yaml")):
+        try:
+            cfg = load_dataset_cfg(cfg_path)
+        except Exception:
+            continue
+
+        root = cfg.get("path") or ""
+        if not root:
+            continue
+
+        root_key = _normalize_path_match_key(root)
+        if source_key == root_key or source_key.startswith(root_key + "/"):
+            if len(root_key) > best_len:
+                best_match = cfg
+                best_len = len(root_key)
+
+    return best_match
+
+
+def ensure_dataset_source_available(args: Any, overwrite: bool = False) -> dict[str, Any] | None:
+    """Download a configured dataset when ``args.source`` targets a missing dataset path."""
+    source = getattr(args, "source", None)
+    if not source:
+        return None
+
+    source_path = Path(source)
+    if source_path.exists():
+        return None
+
+    cfg = find_dataset_cfg_for_source(source)
+    if cfg is None:
+        return None
+
+    download_cfg = dict(cfg.get("download") or {})
+    source_root = Path(str(cfg.get("path") or "")) if cfg.get("path") else None
+    dataset_name = str(cfg.get("id") or (source_root.name if source_root is not None else "dataset"))
+    dataset_dest = _resolve_benchmark_dest(cfg, dataset_name, source_root)
+
+    download_eval_data(
+        runs_url=download_cfg.get("runs", ""),
+        dataset_url=download_cfg.get("dataset", ""),
+        dataset_dest=dataset_dest,
+        overwrite=overwrite,
+        runs_check_path=None,
+    )
+
+    args.dataset_id = cfg.get("id", dataset_name)
+    box_type = cfg.get("box_type")
+    if box_type:
+        args.eval_box_type = str(box_type).lower()
+
+    return cfg
+
+
 def apply_benchmark_config(args: Any, overwrite: bool = False) -> dict[str, Any] | None:
     """Apply a benchmark YAML referenced via ``args.data`` to the current args namespace."""
     return _apply_benchmark_config_ref(args, getattr(args, "data", None), overwrite=overwrite)
@@ -591,8 +663,10 @@ def apply_benchmark_config(args: Any, overwrite: bool = False) -> dict[str, Any]
 
 __all__ = [
     "apply_benchmark_config",
+    "ensure_dataset_source_available",
     "ensure_benchmark_detector_model",
     "ensure_benchmark_reid_model",
+    "find_dataset_cfg_for_source",
     "apply_reid_runtime_defaults",
     "get_benchmark_detector_cfg",
     "get_benchmark_detector_url",
