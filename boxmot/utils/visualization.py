@@ -1,6 +1,6 @@
 import colorsys
 import hashlib
-from abc import ABC, abstractmethod
+from abc import ABC
 
 import cv2 as cv
 import numpy as np
@@ -58,6 +58,28 @@ class BaseVisualization(ABC):
         box_poly = ((arr[0], arr[1]), (arr[2], arr[3]), angle)
         return cv.boxPoints(box_poly).astype(np.float32)
 
+    def _class_label(self, cls: int) -> str:
+        names = getattr(self, "names", None)
+        return names.get(int(cls), str(int(cls))) if names else str(int(cls))
+
+    @staticmethod
+    def _draw_label(img, label: str, anchor: tuple[int, int], fontscale: float, color, thickness: int):
+        return cv.putText(
+            img,
+            label,
+            anchor,
+            cv.FONT_HERSHEY_SIMPLEX,
+            fontscale,
+            color,
+            thickness,
+        )
+
+    def _format_box_label(self, id: int, conf: float, cls: int, box_arr: np.ndarray | None = None) -> str:
+        label = f"id: {int(id)}, conf: {conf:.2f}, c: {self._class_label(cls)}"
+        if self.is_obb and box_arr is not None and box_arr.size >= 5:
+            label += f", a: {box_arr[4]:.2f}"
+        return label
+
     def plot_box_on_img(
         self,
         img: np.ndarray,
@@ -77,12 +99,8 @@ class BaseVisualization(ABC):
         if self.is_obb:
             box_arr = np.asarray(box, dtype=np.float32).reshape(-1)
             box_poly = np.int_(self._obb_to_polygon(box))
-            center = np.mean(box_poly, axis=0).astype(int)
-            label = f"id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}"
-            if box_arr.size >= 5 and box_arr.size < 8:
-                label += f", a: {box_arr[4]:.2f}"
+            label = self._format_box_label(id=id, conf=conf, cls=cls, box_arr=box_arr)
 
-            # Draw the rectangle on the image
             img = cv.polylines(
                 img,
                 [box_poly],
@@ -91,16 +109,13 @@ class BaseVisualization(ABC):
                 thickness=thickness,
             )
 
-            _names = getattr(self, 'names', None)
-            _cls_label = _names.get(int(cls), str(int(cls))) if _names else str(int(cls))
-            img = cv.putText(
-                img,
-                f"id: {int(id)}, conf: {conf:.2f}, c: {_cls_label}, a: {box[4]:.2f}",
-                (int(box[0]), int(box[1]) - 10),
-                cv.FONT_HERSHEY_SIMPLEX,
-                fontscale,
-                color,
-                thickness,
+            img = self._draw_label(
+                img=img,
+                label=label,
+                anchor=(int(box_arr[0]), int(box_arr[1]) - 10),
+                fontscale=fontscale,
+                color=color,
+                thickness=thickness,
             )
         else:
             x1, y1, x2, y2 = map(int, (box[0], box[1], box[2], box[3]))
@@ -114,16 +129,14 @@ class BaseVisualization(ABC):
                     color,
                     thickness,
                 )
-            _names = getattr(self, 'names', None)
-            _cls_label = _names.get(int(cls), str(int(cls))) if _names else str(int(cls))
-            img = cv.putText(
-                img,
-                f"id: {int(id)}, conf: {conf:.2f}, c: {_cls_label}",
-                (x1, max(0, y1 - 10)),
-                cv.FONT_HERSHEY_SIMPLEX,
-                fontscale,
-                color,
-                thickness,
+
+            img = self._draw_label(
+                img=img,
+                label=self._format_box_label(id=id, conf=conf, cls=cls),
+                anchor=(x1, max(0, y1 - 10)),
+                fontscale=fontscale,
+                color=color,
+                thickness=thickness,
             )
         return img
 
@@ -155,87 +168,25 @@ class BaseVisualization(ABC):
                 )
         return img
 
-    # ---------- Helpers for a DRY plot_results ----------
-    def _all_active_tracks(self):
-        """Flatten active tracks across classes (if per-class)."""
-        if getattr(self, "per_class_active_tracks", None) is None:
-            return list(getattr(self, "active_tracks", []) or [])
-        tracks = []
-        for k in self.per_class_active_tracks.keys():
-            tracks += self.per_class_active_tracks[k]
-        return tracks
-
-    def _infer_state(self, a):
-        """Infer a generic state string for a track when lost/removed lists are not present."""
-        if hasattr(a, "hits"):  # DeepOCSort / OCSort
-            if a.hits < getattr(self, "min_hits", 0):
-                return None  # not yet confirmed -> skip
-        elif hasattr(a, "is_activated"):  # ByteTrack
-            if not a.is_activated:
-                return None
-
-        if hasattr(a, "time_since_update"):
-            if a.time_since_update == 0:
-                return "confirmed"
-            elif a.time_since_update <= getattr(self, "max_age", 1_000_000):
-                return "predicted"
-            else:
-                return "lost"
-
-        if hasattr(a, "state"):
-            try:
-                from boxmot.trackers.bytetrack.basetrack import TrackState
-                if a.state == TrackState.Tracked:
-                    return "confirmed"
-                elif a.state == TrackState.Lost:
-                    return "predicted"
-                else:
-                    return "lost"
-            except Exception:
-                return "confirmed" if getattr(a, "is_activated", True) else "lost"
-
-        return "confirmed"
-
-    @abstractmethod
-    def _display_groups(self):
-        pass
-
-    def _draw_track(self, img, a, forced_state, style, thickness, fontscale, show_trajectories):
-        if not getattr(a, "history_observations", None):
+    def _draw_track(self, img, track, state, style, thickness, fontscale, show_trajectories):
+        history = self.get_track_history_for_display(track)
+        if not history:
             return img
 
-        state = forced_state or self._infer_state(a)
-        if state is None:
-            return img  # e.g., below min_hits
+        box = self.get_track_box_for_display(track, state)
+        if box is None:
+            return img
 
-        # If the track is lost (predicted), use the current Kalman Filter prediction
-        # instead of the last history observation (which is the last seen detection)
-        if state == "predicted":
-            if self.is_obb and hasattr(a, "_state_obb_for_plot"):
-                box = a._state_obb_for_plot()
-            elif self.is_obb and hasattr(a, "xywha"):
-                box = a.xywha
-            elif hasattr(a, "xyxy"):
-                box = a.xyxy
-            elif hasattr(a, "get_state"):
-                box = a.get_state()
-                # Handle OCSORT's get_state returning (1, 4) array
-                if isinstance(box, np.ndarray) and box.ndim == 2 and box.shape[0] == 1:
-                    box = box[0]
-            else:
-                box = a.history_observations[-1]
-        else:
-            box = a.history_observations[-1]
-
-        conf = getattr(a, "conf", 1.0)
-        cls = getattr(a, "cls", -1)
+        track_id = self.get_track_id_for_display(track)
+        conf = self.get_track_conf_for_display(track)
+        cls = self.get_track_cls_for_display(track)
 
         img = self.plot_box_on_img(
             img=img,
             box=box,
             conf=conf,
             cls=cls,
-            id=int(getattr(a, "id")),
+            id=track_id,
             thickness=thickness,
             fontscale=fontscale,
             state=state,
@@ -243,7 +194,7 @@ class BaseVisualization(ABC):
         )
 
         if show_trajectories:
-            img = self.plot_trackers_trajectories(img, a.history_observations, int(getattr(a, "id")), state=state)
+            img = self.plot_trackers_trajectories(img, history, track_id, state=state)
         return img
 
     def plot_results(
@@ -257,109 +208,20 @@ class BaseVisualization(ABC):
         """
         Visualizes the trajectories of all active tracks on the image.
         """
-        for tracks, forced_state, style in self._display_groups():
-            if not show_lost and forced_state in ("predicted", "removed"):
-                continue
-
-            for a in tracks:
-                if not show_lost and forced_state is None:
-                    state = self._infer_state(a)
-                    if state != "confirmed":
-                        continue
-
-                img = self._draw_track(
-                    img,
-                    a,
-                    forced_state=forced_state,
-                    style=style,
-                    thickness=thickness,
-                    fontscale=fontscale,
-                    show_trajectories=show_trajectories,
-                )
+        for track, state, style in self.iter_tracks_for_display(show_lost=show_lost):
+            img = self._draw_track(
+                img,
+                track,
+                state=state,
+                style=style,
+                thickness=thickness,
+                fontscale=fontscale,
+                show_trajectories=show_trajectories,
+            )
         return img
-
-
-class ExplicitStateVisualization(BaseVisualization):
-    """
-    Visualization for trackers that maintain explicit lists for lost and removed tracks.
-    """
-
-    def _display_groups(self):
-        lost_list = getattr(self, "lost_stracks", None)
-        removed_list = getattr(self, "removed_stracks", None)
-
-        # Maintain internal frame index for TTL accounting
-        self._plot_frame_idx += 1
-        now = self._plot_frame_idx
-
-        ttl = int(max(0, getattr(self, "removed_display_frames", self.removed_display_frames)))
-
-        # Active
-        yield (self._all_active_tracks(), "confirmed", "solid")
-
-        # Lost (dashed, orange)
-        if lost_list:
-            yield (list(lost_list), "predicted", "dashed")
-
-        # Removed (gray, solid), with TTL + tombstone
-        if removed_list and ttl > 0:
-            filtered_removed = []
-            for a in removed_list:
-                if not getattr(a, "history_observations", None):
-                    continue
-                sf = int(getattr(a, "start_frame", getattr(a, "birth_frame", -1)))
-                rid = int(getattr(a, "id"))
-                key = (rid, sf) if sf >= 0 else rid
-
-                if key in self._removed_expired:
-                    continue
-
-                if key not in self._removed_first_seen:
-                    self._removed_first_seen[key] = now
-
-                if (now - self._removed_first_seen[key]) < ttl:
-                    filtered_removed.append(a)
-                else:
-                    self._removed_expired.add(key)
-
-            if filtered_removed:
-                yield (filtered_removed, "removed", "solid")
-
-        # Optional: simple memory cap
-        if len(self._removed_expired) > 10000:
-            horizon = getattr(self, "removed_tombstone_horizon", 10000)
-            cutoff = now - max(ttl, 1) - horizon
-            to_drop = [k for k, t0 in self._removed_first_seen.items() if t0 < cutoff]
-            for k in to_drop:
-                self._removed_first_seen.pop(k, None)
-                self._removed_expired.discard(k)
-
-
-class InferredStateVisualization(BaseVisualization):
-    """
-    Visualization for trackers that only expose active tracks and state is inferred.
-    """
-
-    def _display_groups(self):
-        # Maintain internal frame index for TTL accounting
-        self._plot_frame_idx += 1
-        
-        # Generic fallback: only active tracks; state per track
-        active_tracks = self._all_active_tracks()
-        if active_tracks:
-            yield (active_tracks, None, "dashed")
 
 
 class VisualizationMixin(BaseVisualization):
     """
     Mixin class for visualization methods in BaseTracker.
     """
-    
-    def _display_groups(self):
-        lost_list = getattr(self, "lost_stracks", None)
-        removed_list = getattr(self, "removed_stracks", None)
-        
-        if (lost_list is not None) or (removed_list is not None):
-            return ExplicitStateVisualization._display_groups(self)
-        else:
-            return InferredStateVisualization._display_groups(self)

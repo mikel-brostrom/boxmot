@@ -1,24 +1,27 @@
 import unittest
-import numpy as np
-import cv2
-from unittest.mock import MagicMock, patch
-from boxmot.utils.visualization import VisualizationMixin
 
-class MockTracker(VisualizationMixin):
+import numpy as np
+from boxmot.trackers.basetracker import BaseTracker
+
+class MockTracker(BaseTracker):
     def __init__(self):
-        self.is_obb = False
-        self.target_id = None
-        self.removed_display_frames = 10
-        self._plot_frame_idx = 0
-        self._removed_first_seen = {}
-        self._removed_expired = set()
-        self.removed_tombstone_horizon = 100
-        self.active_tracks = []
+        super().__init__()
         self.lost_stracks = []
         self.removed_stracks = []
 
+    def update(self, dets, img, embs=None):
+        return self.empty_output()
+
+
+class InferredMockTracker(BaseTracker):
+    def __init__(self):
+        super().__init__()
+
+    def update(self, dets, img, embs=None):
+        return self.empty_output()
+
 class MockTrack:
-    def __init__(self, id, history, state="confirmed", conf=0.9, cls=0):
+    def __init__(self, id, history, state="confirmed", conf=0.9, cls=0, xyxy=None):
         self.id = id
         self.history_observations = history
         self.state = state
@@ -27,7 +30,7 @@ class MockTrack:
         self.time_since_update = 0
         self.is_activated = True
         self.hits = 10
-        self.xyxy = history[-1] if history else [0, 0, 10, 10]
+        self.xyxy = xyxy if xyxy is not None else (history[-1] if history else [0, 0, 10, 10])
         
     def get_state(self):
         return np.array(self.xyxy)
@@ -35,6 +38,7 @@ class MockTrack:
 class TestVisualization(unittest.TestCase):
     def setUp(self):
         self.tracker = MockTracker()
+        self.inferred_tracker = InferredMockTracker()
         self.img = np.zeros((100, 100, 3), dtype=np.uint8)
         
     def test_plot_results_regular(self):
@@ -88,6 +92,31 @@ class TestVisualization(unittest.TestCase):
         
         # Verify lost track is NOT drawn (image should remain all zeros)
         self.assertTrue(np.all(res == 0), "Should not draw lost track when show_lost=False")
+
+    def test_inferred_predicted_track_uses_tracker_display_box(self):
+        predicted_track = MockTrack(
+            3,
+            [[10, 10, 30, 30]],
+            xyxy=[40, 40, 70, 70],
+        )
+        predicted_track.time_since_update = 1
+
+        self.inferred_tracker.active_tracks = [predicted_track]
+
+        res = self.inferred_tracker.plot_results(
+            self.img.copy(),
+            show_trajectories=False,
+            show_lost=True,
+        )
+
+        self.assertTrue(
+            np.any(res[40:70, 40:70] != 0),
+            "Predicted inferred tracks should draw the tracker-provided box",
+        )
+        self.assertTrue(
+            np.all(res[10:30, 10:30] == 0),
+            "Predicted inferred tracks should not fall back to stale history geometry",
+        )
 
     def test_dashed_rect(self):
         # Test internal dashed rect drawing
