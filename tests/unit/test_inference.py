@@ -148,7 +148,7 @@ def test_model_config_detector_defaults_override_runtime_defaults_by_model_name(
 def test_model_config_detector_defaults_match_separator_variants():
     detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
 
-    assert detector_cfg["id"] == "yolo11l-3ch"
+    assert detector_cfg["id"] == "yolo11l_3ch"
     assert default_imgsz("yolo11l_3ch.pt") == detector_cfg["imgsz"]
     assert get_detector_url("yolo11l_3ch.pt") == detector_cfg["url"]
 
