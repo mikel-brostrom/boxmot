@@ -521,7 +521,7 @@ def main(args):
             tune_config=tune.TuneConfig(
                 num_samples=args.n_trials,
                 search_alg=optuna_search,
-                trial_dirname_creator=lambda trial: f"tune_{trial.trial_id}",
+                trial_dirname_creator=lambda trial: f"trial_{trial.trial_id}",
             ),
             run_config=RunConfig(
                 storage_path=results_dir,
