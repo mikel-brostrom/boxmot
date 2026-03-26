@@ -216,18 +216,23 @@ class MOTDataset:
         """Return the list of all available sequence names."""
         return list(self.seqs.keys())
 
-    def get_sequence(self, name: str) -> "MOTSequence":
+    def get_sequence(self, name: str, show_progress: bool = True,
+                     progress_queue=None) -> "MOTSequence":
         """Return a :class:`MOTSequence` iterator for the given sequence.
 
         Args:
             name: Name of the sequence (must match a sub-directory name).
+            show_progress: Show per-frame tqdm bar.
+            progress_queue: Optional multiprocessing queue for progress updates.
 
         Raises:
             KeyError: If *name* is not found among indexed sequences.
         """
         if name not in self.seqs:
             raise KeyError(f"Unknown sequence {name}")
-        return MOTSequence(name, self.seqs[name], self.target_fps)
+        return MOTSequence(name, self.seqs[name], self.target_fps,
+                           show_progress=show_progress,
+                           progress_queue=progress_queue)
 
 
 class MOTSequence:
@@ -252,10 +257,13 @@ class MOTSequence:
         target_fps: Desired FPS for downsampling.
     """
 
-    def __init__(self, name: str, meta: Dict, target_fps: Optional[int]):
+    def __init__(self, name: str, meta: Dict, target_fps: Optional[int],
+                 show_progress: bool = True, progress_queue=None):
         self.name = name
         self.meta = meta
         self.target_fps = target_fps
+        self.show_progress = show_progress
+        self.progress_queue = progress_queue
         self.dets: Optional[np.ndarray] = None
         self.embs: Optional[np.ndarray] = None
         self.frame_ids: np.ndarray = meta['frame_ids']
@@ -300,17 +308,31 @@ class MOTSequence:
                     self.frame_ids = self.frame_ids[idxs_to_keep]
                     self.frame_paths = [self.frame_paths[i] for i in idxs_to_keep]
 
+    def __len__(self) -> int:
+        return len(self.frame_ids)
+
     def __iter__(self) -> Generator[Dict[str, Union[int, np.ndarray]], None, None]:
         """Yield frame dictionaries one by one.
 
         Yields:
             A dict with keys ``frame_id``, ``img``, ``dets``, ``embs``.
         """
-        for fid, img_p in tqdm(
-            zip(self.frame_ids, self.frame_paths),
-            total=len(self.frame_ids),
-            desc=f"Frames {self.name}",
+        total = len(self.frame_ids)
+        q = self.progress_queue
+        for i, (fid, img_p) in enumerate(
+            tqdm(
+                zip(self.frame_ids, self.frame_paths),
+                total=total,
+                desc=f"Frames {self.name}",
+                disable=not self.show_progress,
+            )
         ):
+            if q is not None:
+                try:
+                    q.put_nowait((self.name, i + 1, total))
+                except Exception:
+                    pass
+
             img = cv2.imread(str(img_p))
             if img is None:
                 LOGGER.warning(f"Failed to load {img_p}")
