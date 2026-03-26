@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import yaml
@@ -38,13 +40,40 @@ def is_rtdetr_model(yolo_name):
     return _check_model(yolo_name, RTDETR_MODELS)
 
 
+_DEFAULT_DETECTOR_MAP = {
+    "ultralytics": "ultralytics/default.yaml",
+    "yolox": None,  # yolox models always have custom configs
+}
+
+
+def _model_family(name: str) -> str | None:
+    """Return the detector family key for default config lookup."""
+    stem = Path(str(name)).stem.lower()
+    if any(m in stem for m in ULTRALYTICS_MODELS):
+        return "ultralytics"
+    if any(m in stem for m in YOLOX_MODELS):
+        return "yolox"
+    if any(m in stem for m in RTDETR_MODELS):
+        return "rtdetr"
+    return None
+
+
 def resolve_detector_cfg_path(yolo_name):
-    """Return the detector-config YAML path whose detector model matches ``yolo_name``."""
+    """Return the detector-config YAML path whose detector model matches ``yolo_name``.
+
+    Resolution order:
+      1. Search all YAML files (recursively) for a ``model`` / ``default_model``
+         field that matches *yolo_name*.  If two files match, raise an error.
+      2. If no exact match, fall back to the family default (e.g.
+         ``ultralytics/default.yaml`` for any Ultralytics model).
+    """
     model_key = _detector_name_key(yolo_name)
     if not model_key or not DETECTOR_CONFIGS.exists():
         return None
 
-    for pattern in ("*.yaml", "*.yml"):
+    # 1. Recursive search by model field
+    matches: list[Path] = []
+    for pattern in ("**/*.yaml", "**/*.yml"):
         for cfg_path in sorted(DETECTOR_CONFIGS.glob(pattern)):
             try:
                 with open(cfg_path, "r") as handle:
@@ -54,7 +83,25 @@ def resolve_detector_cfg_path(yolo_name):
 
             detector_model = cfg.get("model") or cfg.get("default_model")
             if detector_model and _detector_name_key(detector_model) == model_key:
-                return cfg_path
+                matches.append(cfg_path)
+
+    if len(matches) > 1:
+        raise RuntimeError(
+            f"Multiple detector configs match '{yolo_name}': "
+            + ", ".join(str(p) for p in matches)
+        )
+    if matches:
+        return matches[0]
+
+    # 2. Family default
+    family = _model_family(yolo_name)
+    if family:
+        default_rel = _DEFAULT_DETECTOR_MAP.get(family)
+        if default_rel:
+            default_path = DETECTOR_CONFIGS / default_rel
+            if default_path.exists():
+                return default_path
+
     return None
 
 

@@ -209,6 +209,14 @@ class AppendableNpyWriter:
         self.dtype = np.dtype(dtype)
         self.rows = int(shape[0]) if len(shape) > 0 else 0
         self.trailing_shape = tuple(shape[1:]) if len(shape) > 1 else ()
+        # Empty file with shape (0, 0) has unknown trailing shape — treat as
+        # uninitialised so the first append() determines the real shape.
+        if self.rows == 0 and self.trailing_shape == (0,):
+            self._fp.close()
+            self._fp = None
+            self.trailing_shape = None
+            self.path.unlink(missing_ok=True)
+            return
         self._data_offset = self._fp.tell()
         self._fp.seek(0, os.SEEK_END)
 

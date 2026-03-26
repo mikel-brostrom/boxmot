@@ -312,7 +312,12 @@ def tune_options(func):
                      help='number of trials for evolutionary tuning'),
         click.option('--objectives', type=str, multiple=True,
                      default=["HOTA", "MOTA", "IDF1"],
-                     help='objectives for tuning: HOTA, MOTA, IDF1'),
+                     help='metrics to track and return from each trial'),
+        click.option('--maximize', type=str, multiple=True, default=[],
+                     help='metrics to maximize; defaults to first --objectives value (e.g. HOTA)'),
+        click.option('--minimize', type=str, multiple=True, default=[],
+                     help='metrics to minimize for Pareto search (e.g. IDSW_rate); '
+                          'triggers multi-objective mode when set'),
     ]
     for opt in reversed(options):
         func = opt(func)
