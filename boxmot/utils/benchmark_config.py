@@ -25,12 +25,14 @@ def _resolve_yaml_path(config_dir: Path, name: str | Path) -> Path:
         return path.resolve()
 
     file_name = path.name if path.suffix else f"{path.name}.yaml"
+    # Exact path (including subdirectory, e.g. "ultralytics/default.yaml")
     exact = (config_dir / file_name).resolve()
     if exact.exists():
         return exact
 
+    # Recursive search by stem
     stem = Path(file_name).stem.lower()
-    matches = sorted(p.resolve() for p in config_dir.glob("*.yaml") if p.stem.lower() == stem)
+    matches = sorted(p.resolve() for p in config_dir.glob("**/*.yaml") if p.stem.lower() == stem)
     if matches:
         return matches[0]
 
