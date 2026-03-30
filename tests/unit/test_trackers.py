@@ -230,6 +230,37 @@ def test_strongsort_per_class_outputs_unique_ids():
     assert len(set(output[:, 4].astype(int))) == 2
 
 
+def test_strongsort_per_class_extracts_embeddings_per_class():
+    tracker = StrongSort(
+        reid_weights=Path(WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt"),
+        device="cpu",
+        half=False,
+        per_class=True,
+    )
+    tracker.cmc = DummyCMC()
+
+    class DummyReID:
+        @staticmethod
+        def get_features(boxes, img):
+            return np.ones((len(boxes), 4), dtype=np.float32)
+
+    tracker.model = DummyReID()
+
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    det = np.array([
+        [100, 100, 300, 250, 0.95, 0],
+        [400, 300, 550, 450, 0.90, 65],
+    ])
+
+    output = np.empty((0,), dtype=np.float32)
+    for _ in range(10):
+        output = tracker.update(det, rgb)
+        if output.shape == (2, 8):
+            break
+
+    assert output.shape == (2, 8)
+
+
 def test_strongsort_track_init_is_not_special_cased_in_ci(monkeypatch):
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_JOB", "unit-tests")
