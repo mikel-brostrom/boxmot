@@ -1,6 +1,6 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-from __future__ import absolute_import
+from __future__ import absolute_import, annotations
 
 from collections.abc import Callable
 
