@@ -48,7 +48,9 @@ class DetectionLayout:
     def with_detection_indices(self, dets: np.ndarray) -> np.ndarray:
         if dets.size == 0:
             return np.empty((0, self.det_cols + 1), dtype=dets.dtype if hasattr(dets, "dtype") else np.float32)
-        det_inds = np.arange(len(dets), dtype=np.int32).reshape(-1, 1)
+        det_dtype = dets.dtype if np.issubdtype(dets.dtype, np.floating) else np.float32
+        dets = dets.astype(det_dtype, copy=False)
+        det_inds = np.arange(len(dets), dtype=det_dtype).reshape(-1, 1)
         return np.hstack([dets, det_inds])
 
     def validate_dets(self, dets: np.ndarray) -> None:

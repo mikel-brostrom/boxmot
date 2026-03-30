@@ -1,10 +1,21 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-import os
+from collections import deque
 
 import numpy as np
 
 from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
+
+
+def _normalize_feature(feature: np.ndarray | None) -> np.ndarray | None:
+    if feature is None:
+        return None
+
+    normalized = np.asarray(feature, dtype=np.float32)
+    norm = np.linalg.norm(normalized)
+    if norm > 0:
+        normalized = normalized / norm
+    return normalized
 
 
 class TrackState:
@@ -76,6 +87,7 @@ class Track:
         n_init,
         max_age,
         ema_alpha,
+        max_obs,
     ):
         self.id = id
         self.bbox = detection.to_xyah()
@@ -87,25 +99,19 @@ class Track:
         self.time_since_update = 0
         self.ema_alpha = ema_alpha
 
-        # start with confirmed in Ci as test expect equal amount of outputs as inputs
-        self.state = (
-            TrackState.Confirmed
-            if (
-                os.getenv("GITHUB_ACTIONS") == "true"
-                and os.getenv("GITHUB_JOB") != "mot-metrics-benchmark"
-            )
-            else TrackState.Tentative
-        )
+        self.state = TrackState.Tentative
         self.features = []
-        if detection.feat is not None:
-            detection.feat /= np.linalg.norm(detection.feat)
-            self.features.append(detection.feat)
+        feature = _normalize_feature(detection.feat)
+        if feature is not None:
+            self.features.append(feature)
 
         self._n_init = n_init
         self._max_age = max_age
+        self.history_observations = deque(maxlen=max_obs)
 
         self.kf = KalmanFilterXYAH()
         self.mean, self.covariance = self.kf.initiate(self.bbox)
+        self.history_observations.append(self.to_tlbr())
 
     def to_tlwh(self):
         """Get current position in bounding box format `(top left x, top left y,
@@ -137,15 +143,15 @@ class Track:
         return ret
 
     def camera_update(self, warp_matrix):
-        [a, b] = warp_matrix
-        warp_matrix = np.array([a, b, [0, 0, 1]])
-        warp_matrix = warp_matrix.tolist()
+        warp_matrix = np.asarray(warp_matrix, dtype=np.float32)
+        if warp_matrix.shape == (2, 3):
+            warp_matrix = np.vstack((warp_matrix, np.array([0.0, 0.0, 1.0], dtype=np.float32)))
         x1, y1, x2, y2 = self.to_tlbr()
         x1_, y1_, _ = warp_matrix @ np.array([x1, y1, 1]).T
         x2_, y2_, _ = warp_matrix @ np.array([x2, y2, 1]).T
         w, h = x2_ - x1_, y2_ - y1_
         cx, cy = x1_ + w / 2, y1_ + h / 2
-        self.mean[:4] = [cx, cy, w / h, h]
+        self.mean[:4] = [cx, cy, w / max(h, 1e-6), h]
 
     def increment_age(self):
         self.age += 1
@@ -175,18 +181,26 @@ class Track:
             self.mean, self.covariance, self.bbox, self.conf
         )
 
-        feature = detection.feat / np.linalg.norm(detection.feat)
-
-        smooth_feat = (
-            self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
-        )
-        smooth_feat /= np.linalg.norm(smooth_feat)
-        self.features = [smooth_feat]
+        feature = _normalize_feature(detection.feat)
+        if feature is not None:
+            if self.features:
+                smooth_feat = (
+                    self.ema_alpha * self.features[-1] + (1 - self.ema_alpha) * feature
+                )
+                smooth_feat = _normalize_feature(smooth_feat)
+                self.features = [smooth_feat if smooth_feat is not None else feature]
+            else:
+                self.features = [feature]
 
         self.hits += 1
         self.time_since_update = 0
+        self.history_observations.append(self.to_tlbr())
         if self.state == TrackState.Tentative and self.hits >= self._n_init:
             self.state = TrackState.Confirmed
+
+    @property
+    def xyxy(self):
+        return self.to_tlbr()
 
     def mark_missed(self):
         """Mark this track as missed (no association at the current time step)."""

@@ -79,10 +79,6 @@ def create_tracker(
             "half": half,
         })
 
-    # Tracker-specific adjustments
-    if tracker_type == "strongsort":
-        tracker_args.pop("per_class", None)
-
     # Dynamically import and instantiate the correct tracker class
     module_path, class_name = TRACKER_MAPPING[tracker_type].rsplit(".", 1)
     module = importlib.import_module(module_path)

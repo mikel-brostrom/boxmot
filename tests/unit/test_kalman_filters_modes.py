@@ -41,7 +41,6 @@ def test_xywh_xyah_support_aabb_mode(kf_cls, init_measurement, update_measuremen
     assert distance.shape == (1,)
     assert np.isfinite(distance[0])
 
-
 @pytest.mark.parametrize(
     ("kf_cls", "init_measurement", "update_measurement"),
     [

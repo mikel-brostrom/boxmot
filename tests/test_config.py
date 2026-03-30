@@ -32,6 +32,7 @@ ALL_TRACKERS = [
     "hybridsort",
 ]
 PER_CLASS_TRACKERS = [
+    "strongsort",
     "botsort",
     "deepocsort",
     "ocsort",

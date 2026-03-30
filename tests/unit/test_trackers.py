@@ -6,6 +6,7 @@ import pytest
 from boxmot import (
     DeepOcSort,
     OcSort,
+    StrongSort,
     create_tracker,
     get_tracker_config,
 )
@@ -18,7 +19,14 @@ from boxmot.trackers.botsort.botsort_track import STrack as BotSortTrack
 from boxmot.trackers.bytetrack.bytetrack import ByteTrack, STrack as ByteTrackTrack
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.sfsort.sfsort import SFSORT
+from boxmot.trackers.strongsort.sort import iou_matching as strongsort_iou_matching
+from boxmot.trackers.strongsort.sort.detection import Detection as StrongSortDetection
+from boxmot.trackers.strongsort.sort.track import (
+    Track as StrongSortTrack,
+    TrackState as StrongSortTrackState,
+)
 from boxmot.utils import WEIGHTS
+from boxmot.utils.iou import AssociationFunction
 from boxmot.utils.matching import iou_distance
 from tests.test_config import (
     ALL_TRACKERS,
@@ -143,6 +151,7 @@ def test_Q_matrix_scaling(Tracker, init_args):
     assert kalman_box_tracker.kf.Q[5, 5] == Q_xy_scaling, "Q_xy scaling incorrect for y' velocity"
     assert kalman_box_tracker.kf.Q[6, 6] == Q_s_scaling, "Q_s scaling incorrect for s' (scale) velocity"
 
+
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
 def test_per_class_tracker_output_size(tracker_type):
     tracker_conf = get_tracker_config(tracker_type)
@@ -162,8 +171,11 @@ def test_per_class_tracker_output_size(tracker_type):
     ])
     embs = np.random.random(size=(2, 512))
 
-    _ = tracker.update(det, rgb, embs)
-    output = tracker.update(det, rgb, embs)
+    output = np.empty((0,))
+    for _ in range(10):
+        output = tracker.update(det, rgb, embs)
+        if output.shape == (2, 8):
+            break
     assert output.shape == (2, 8)
 
 
@@ -189,6 +201,124 @@ def test_per_class_tracker_active_tracks(tracker_type):
     tracker.update(det, rgb, embs)
     assert tracker.per_class_active_tracks[0], "No active tracks for class 0"
     assert tracker.per_class_active_tracks[65], "No active tracks for class 65"
+
+
+def test_strongsort_per_class_outputs_unique_ids():
+    tracker = StrongSort(
+        reid_weights=Path(WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt"),
+        device="cpu",
+        half=False,
+        per_class=True,
+    )
+
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    det = np.array([
+        [100, 100, 300, 250, 0.95, 0],
+        [400, 300, 550, 450, 0.90, 65],
+    ])
+    embs = np.random.random(size=(2, 512)).astype(np.float32)
+
+    output = np.empty((0,))
+    for _ in range(10):
+        output = tracker.update(det, rgb, embs)
+        if output.shape == (2, 8):
+            break
+
+    assert output.shape == (2, 8)
+    assert len(set(output[:, 4].astype(int))) == 2
+
+
+def test_strongsort_track_init_is_not_special_cased_in_ci(monkeypatch):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_JOB", "unit-tests")
+
+    detection = StrongSortDetection(
+        tlwh=np.array([10, 10, 20, 20], dtype=np.float32),
+        conf=0.95,
+        cls=0,
+        det_ind=0,
+        feat=np.ones(4, dtype=np.float32),
+    )
+    track = StrongSortTrack(
+        detection=detection,
+        id=1,
+        n_init=3,
+        max_age=30,
+        ema_alpha=0.9,
+        max_obs=50,
+    )
+
+    assert track.state == StrongSortTrackState.Tentative
+
+
+def test_strongsort_iou_cost_uses_shared_iou_batch(monkeypatch):
+    calls = {"count": 0}
+    original_iou_batch = AssociationFunction.iou_batch
+
+    def wrapped_iou_batch(bboxes1, bboxes2):
+        calls["count"] += 1
+        return original_iou_batch(bboxes1, bboxes2)
+
+    monkeypatch.setattr(
+        AssociationFunction,
+        "iou_batch",
+        staticmethod(wrapped_iou_batch),
+    )
+
+    detection = StrongSortDetection(
+        tlwh=np.array([10, 10, 20, 20], dtype=np.float32),
+        conf=0.95,
+        cls=0,
+        det_ind=0,
+        feat=np.ones(4, dtype=np.float32),
+    )
+    track = StrongSortTrack(
+        detection=detection,
+        id=1,
+        n_init=3,
+        max_age=30,
+        ema_alpha=0.9,
+        max_obs=50,
+    )
+
+    cost = strongsort_iou_matching.iou_cost([track], [detection])
+
+    expected_iou = original_iou_batch(
+        np.asarray([track.xyxy], dtype=np.float32),
+        np.asarray([[10, 10, 30, 30]], dtype=np.float32),
+    )
+    assert calls["count"] == 1
+    np.testing.assert_allclose(cost, 1.0 - expected_iou)
+
+
+def test_strongsort_reset_clears_per_class_state():
+    tracker = StrongSort(
+        reid_weights=Path(WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt"),
+        device="cpu",
+        half=False,
+        per_class=True,
+    )
+
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    det = np.array([
+        [100, 100, 300, 250, 0.95, 0],
+        [400, 300, 550, 450, 0.90, 65],
+    ])
+    embs = np.random.random(size=(2, 512)).astype(np.float32)
+
+    for _ in range(3):
+        tracker.update(det, rgb, embs)
+
+    assert tracker.per_class_active_tracks[0]
+    assert tracker.per_class_active_tracks[65]
+
+    tracker.reset()
+
+    assert tracker.frame_count == 0
+    assert tracker.active_tracks == []
+    assert tracker.tracker.tracks == []
+    assert tracker._next_track_id_value == 1
+    assert all(not tracks for tracks in tracker.per_class_active_tracks.values())
 
 
 def test_botsort_supports_obb_without_reid():
@@ -455,9 +585,13 @@ def test_per_class_isolation(tracker_type):
     )
     rgb = np.zeros((640, 640, 3), dtype=np.uint8)
     embs = np.random.rand(2, 512)
-    out = tracker.update(det, rgb, embs)
-    ids = set(out[:, 1].tolist())
-    assert len(ids) == 2, "Each class should get a separate track even if overlapping"
+    out = np.empty((0,))
+    for _ in range(10):
+        out = tracker.update(det, rgb, embs)
+        if out.shape == (2, 8):
+            break
+    assert out.shape == (2, 8)
+    assert set(out[:, 6].astype(int).tolist()) == {1, 2}
 
 
 @pytest.mark.parametrize("tracker_type", MOTION_N_APPEARANCE_TRACKING_NAMES)
