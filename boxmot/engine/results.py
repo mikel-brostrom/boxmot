@@ -1,6 +1,6 @@
 import time
 from pathlib import Path
-from typing import Any, Callable, Iterator, Union
+from typing import Any, Callable, Iterator, Optional, Union
 
 import cv2
 import numpy as np
@@ -75,7 +75,7 @@ class Tracks:
         return np.concatenate((mins, maxs), axis=1)
 
     @property
-    def xywha(self) -> np.ndarray | None:
+    def xywha(self) -> Optional[np.ndarray]:
         """Return OBB geometry when available."""
         if not self.is_obb:
             return None

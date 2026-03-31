@@ -187,7 +187,9 @@ cap.release()
 cv2.destroyAllWindows()
 ```
 
-For end-to-end detector integrations, see the notebooks in [examples](examples).
+For end-to-end detector integrations, see the notebooks in [examples](https://github.com/mikel-brostrom/boxmot/tree/master/examples).
+
+For lower-level Python loops, the top-level `track(...)` helper yields one structured per-frame result at a time with fields such as `.xyxy`, `.xywha`, `.conf`, `.cls`, `.id`, and `.det_ind`, and it can still write MOT text with `results.save("tracks.txt")`.
 
 ## Detection Layouts
 
@@ -347,14 +349,14 @@ boxmot export --weights osnet_x0_25_msmt17.pt --include engine --device 0 --dyna
 
 OBB references:
 
-- Notebook: [examples/det/obb.ipynb](examples/det/obb.ipynb)
+- Notebook: [examples/det/obb.ipynb](https://github.com/mikel-brostrom/boxmot/blob/master/examples/det/obb.ipynb)
 - OBB-capable trackers: `bytetrack`, `botsort`, `ocsort`, `sfsort`
 
 </details>
 
 ## Contributing
 
-If you want to contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md).
+If you want to contribute, start with [CONTRIBUTING.md](https://github.com/mikel-brostrom/boxmot/blob/master/CONTRIBUTING.md).
 
 ## Contributors
 
@@ -366,5 +368,5 @@ If you want to contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Bugs and feature requests: [GitHub Issues](https://github.com/mikel-brostrom/boxmot/issues)
 - Questions and discussion: [GitHub Discussions](https://github.com/mikel-brostrom/boxmot/discussions) or [Discord](https://discord.gg/tUmFEcYU4q)
-- Citation metadata: [CITATION.cff](CITATION.cff)
+- Citation metadata: [CITATION.cff](https://github.com/mikel-brostrom/boxmot/blob/master/CITATION.cff)
 - Commercial support: `box-mot@outlook.com`
