@@ -186,6 +186,12 @@ def _save_results_csv(csv_path: Path, trial_data: list):
             writer.writerow(row)
 
 
+def _benchmark_name(args) -> str:
+    """Return the configured benchmark name regardless of CLI/internal arg shape."""
+    benchmark = getattr(args, "data", None) or getattr(args, "benchmark", None)
+    return str(benchmark or "")
+
+
 def _convergence_label(search_range, top10_vals):
     """Determine whether a parameter converged based on top-10 values vs search range."""
     if not isinstance(search_range, list) or len(search_range) < 2:
@@ -243,7 +249,7 @@ def _generate_summary(
     lines.append(f"# Tuning Summary: {tracking_method}\n")
     lines.append(f"- **Tracker:** {tracking_method}")
     lines.append(f"- **Detector:** {Path(args.yolo_model[0]).stem}")
-    lines.append(f"- **Benchmark:** {getattr(args, 'benchmark', getattr(args, 'data', ''))}")
+    lines.append(f"- **Benchmark:** {_benchmark_name(args)}")
     lines.append(f"- **Completed trials:** {len(trial_data)}")
     if is_pareto:
         lines.append(f"- **Optimize:** maximize {', '.join(maximize)} | minimize {', '.join(minimize)}")
@@ -365,7 +371,22 @@ def _save_all_results(
     trial_data = _collect_trial_data(results)
     if not trial_data:
         LOGGER.warning("No successful trials found.")
-        return
+        return {
+            "tracking_method": tracking_method,
+            "benchmark": _benchmark_name(args),
+            "objectives": list(getattr(args, "objectives", [])),
+            "maximize": list(maximize),
+            "minimize": list(minimize),
+            "tune_dir": tune_dir,
+            "results_csv": tune_dir / "results.csv",
+            "summary_path": tune_dir / "summary.md",
+            "best_yaml": tune_dir / f"best_{tracking_method}.yaml",
+            "best_trial_id": "",
+            "best_config": {},
+            "best_metrics": {},
+            "best_trial": {},
+            "trials": [],
+        }
 
     # 1. Per-trial YAML configs
     for td in trial_data:
@@ -390,6 +411,41 @@ def _save_all_results(
 
     # 4. summary.md
     _generate_summary(tune_dir, trial_data, yaml_cfg, tracking_method, maximize, minimize, args)
+
+    serialized_trials = [
+        {
+            "trial_id": td["trial_id"],
+            "trial_dir": td["trial_dir"],
+            "config": dict(td["config"]),
+            "metrics": dict(td["metrics"]),
+        }
+        for td in trial_data
+    ]
+    best_trial = next(
+        (trial for trial in serialized_trials if trial["trial_id"] == best["trial_id"]),
+        {
+            "trial_id": best["trial_id"],
+            "trial_dir": best["trial_dir"],
+            "config": dict(best["config"]),
+            "metrics": dict(best["metrics"]),
+        },
+    )
+    return {
+        "tracking_method": tracking_method,
+        "benchmark": _benchmark_name(args),
+        "objectives": list(getattr(args, "objectives", [])),
+        "maximize": list(maximize),
+        "minimize": list(minimize),
+        "tune_dir": tune_dir,
+        "results_csv": csv_path,
+        "summary_path": tune_dir / "summary.md",
+        "best_yaml": best_yaml_path,
+        "best_trial_id": best["trial_id"],
+        "best_config": dict(best["config"]),
+        "best_metrics": dict(best["metrics"]),
+        "best_trial": best_trial,
+        "trials": serialized_trials,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -530,12 +586,19 @@ def main(args):
             ),
         )
 
-    tuner.fit()
+    result_grid = tuner.fit()
 
     # Post-processing: per-trial configs, CSV, best config, summary
     tune_dir = results_dir / tune_name
-    _save_all_results(tune_dir, tuner.get_results(), yaml_cfg,
-                      args.tracking_method, maximize, minimize, args)
+    return _save_all_results(
+        tune_dir,
+        result_grid,
+        yaml_cfg,
+        args.tracking_method,
+        maximize,
+        minimize,
+        args,
+    )
 
 
 if __name__ == "__main__":

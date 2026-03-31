@@ -4,11 +4,11 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
+from boxmot.configs import ensure_model_extension
 from boxmot.detectors import default_conf, default_imgsz, get_detector_url, get_runtime_detector_cfg, load_detector_cfg
 from boxmot.detectors.detector import Detections
 import boxmot.detectors.ultralytics as ultralytics_detector_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
-from boxmot.engine.cli import ensure_model_extension
 import boxmot.engine.evaluator as evaluator_module
 from boxmot.engine.inference import _iter_source, prepare_detections
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
@@ -198,6 +198,63 @@ def test_ultralytics_detector_downloads_missing_configured_weights(monkeypatch, 
         "overwrite": False,
         "model": str(missing_model),
     }
+
+
+def test_ultralytics_detector_downloads_missing_official_weights_into_models_dir(monkeypatch):
+    calls = {}
+
+    class _FakeYOLO:
+        def __init__(self, model):
+            calls["model"] = model
+            self.names = {0: "car"}
+
+    monkeypatch.setattr(ultralytics_detector_module, "YOLO", _FakeYOLO)
+    monkeypatch.setattr(
+        ultralytics_detector_module,
+        "attempt_download_asset",
+        lambda file, release="latest", **_kwargs: calls.update(
+            {"file": Path(file), "release": release}
+        ) or str(file),
+        raising=False,
+    )
+
+    detector = UltralyticsDetector(model="yolo11_codex_missing.pt", device="cpu", imgsz=[64, 64])
+
+    assert detector.names == {0: "car"}
+    assert calls["file"] == WEIGHTS / "yolo11_codex_missing.pt"
+    assert calls["release"] == "latest"
+    assert calls["model"] == str(WEIGHTS / "yolo11_codex_missing.pt")
+
+
+def test_ultralytics_detector_redownloads_corrupt_official_weights(monkeypatch, tmp_path):
+    calls = {"models": []}
+
+    class _FakeYOLO:
+        def __init__(self, model):
+            calls["models"].append(model)
+            if len(calls["models"]) == 1:
+                raise RuntimeError("PytorchStreamReader failed reading zip archive: failed finding central directory")
+            self.names = {0: "car"}
+
+    monkeypatch.setattr(ultralytics_detector_module, "YOLO", _FakeYOLO)
+    monkeypatch.setattr(
+        ultralytics_detector_module,
+        "attempt_download_asset",
+        lambda file, release="latest", **_kwargs: calls.update(
+            {"file": Path(file), "release": release}
+        ) or str(file),
+        raising=False,
+    )
+
+    corrupt_model = tmp_path / "yolo11_corrupt.pt"
+    corrupt_model.write_bytes(b"broken")
+
+    detector = UltralyticsDetector(model=corrupt_model, device="cpu", imgsz=[64, 64])
+
+    assert detector.names == {0: "car"}
+    assert calls["models"] == [str(corrupt_model), str(corrupt_model)]
+    assert calls["file"] == corrupt_model
+    assert calls["release"] == "latest"
 
 
 def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector(monkeypatch):
@@ -605,3 +662,62 @@ def test_load_obb_gt_matrix_rejects_legacy_xywha_format(tmp_path):
         assert "expected 13 columns in corner format" in str(exc)
     else:
         raise AssertionError("Expected legacy xywha OBB GT to be rejected")
+
+
+def test_run_generate_mot_results_thread_backend_skips_process_pool(tmp_path, monkeypatch):
+    source = tmp_path / "train"
+    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
+        img_dir = source / seq_name / "img1"
+        img_dir.mkdir(parents=True)
+        (img_dir / "000001.jpg").write_bytes(b"")
+
+    args = SimpleNamespace(
+        project=tmp_path,
+        benchmark="mot17-mini",
+        source=source,
+        yolo_model=[Path("det.pt")],
+        reid_model=[Path("reid.pt")],
+        tracking_method="boosttrack",
+        fps=None,
+        device="cpu",
+        n_threads=2,
+        tracking_backend="thread",
+        postprocessing="none",
+        conf=0.25,
+    )
+    seen_queues = []
+    log_config_calls = []
+
+    def fake_process_sequence(*task_arg):
+        seq_name = task_arg[0]
+        progress_queue = task_arg[-1]
+        seen_queues.append(progress_queue.__class__.__name__)
+        progress_queue.put_nowait((seq_name, 1, 1))
+        return seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}
+
+    def fail_manager():
+        raise AssertionError("Thread backend should not construct a multiprocessing manager")
+
+    def fail_process_pool(*_args, **_kwargs):
+        raise AssertionError("Thread backend should not construct a process pool")
+
+    monkeypatch.setattr(evaluator_module, "process_sequence", fake_process_sequence)
+    monkeypatch.setattr(evaluator_module.mp, "Manager", fail_manager)
+    monkeypatch.setattr(evaluator_module.concurrent.futures, "ProcessPoolExecutor", fail_process_pool)
+    monkeypatch.setattr(
+        evaluator_module,
+        "_configure_logging",
+        lambda **kwargs: log_config_calls.append(kwargs),
+    )
+
+    evaluator_module.run_generate_mot_results(args, quiet=True)
+
+    assert args.seq_frame_nums == {
+        "MOT17-02-FRCNN": [1],
+        "MOT17-04-FRCNN": [1],
+    }
+    assert seen_queues == ["Queue", "Queue"]
+    assert log_config_calls == [
+        {"main_thread_only": True},
+        {},
+    ]

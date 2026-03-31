@@ -10,102 +10,86 @@ mp.set_start_method("spawn", force=True)
 
 
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Optional, Tuple
 
 import click
 from click.core import ParameterSource
 
+from boxmot.configs import (
+    DEFAULT_DETECTOR,
+    DEFAULT_REID,
+    build_mode_namespace,
+    get_mode_default,
+)
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING
-from boxmot.utils import NUM_THREADS, ROOT, WEIGHTS
+from boxmot.utils import WEIGHTS
 from boxmot.utils.benchmark_config import resolve_benchmark_cfg_path
-from boxmot.utils.misc import parse_imgsz, resolve_model_path
-
-
-def ensure_model_extension(model_path):
-    """
-    Ensure model path has the default `.pt` suffix when omitted and preserve explicit paths.
-    
-    Args:
-        model_path: Path to model file (str or Path)
-        
-    Returns:
-        Resolved model path.
-    """
-    if model_path is None:
-        return None
-    
-    model_path = Path(model_path)
-    # If no extension, add .pt
-    if not model_path.suffix and "openvino" not in model_path.name:
-        model_path = model_path.with_suffix('.pt')
-
-    return resolve_model_path(model_path)
+from boxmot.utils.misc import parse_imgsz
 
 
 # Shared command options (excluding model, classes, and input selection)
 def core_options(func):
     options = [
-        click.option('--imgsz', callback=parse_imgsz, default=None, type=str,
+        click.option('--imgsz', callback=parse_imgsz, default=get_mode_default("eval", "imgsz"), type=str,
                      help='Image size for model input as H,W (e.g. 800,1440) or single int for square. Default: read from the selected detector config, otherwise use detector-specific defaults.'),
-        click.option('--fps', type=int, default=30,
+        click.option('--fps', type=int, default=get_mode_default("eval", "fps"),
                      help='video frame-rate'),
-        click.option('--conf', type=float, default=None,
+        click.option('--conf', type=float, default=get_mode_default("eval", "conf"),
                      help='Min confidence threshold. Default: read from the selected detector config, fallback 0.01.'),
-        click.option('--iou', type=float, default=0.7,
+        click.option('--iou', type=float, default=get_mode_default("eval", "iou"),
                      help='IoU threshold for NMS'),
-        click.option('--device', default='',
+        click.option('--device', default=get_mode_default("eval", "device"),
                      help='cuda device(s), e.g. 0 or 0,1,2,3 or cpu'),
-        click.option('--batch-size', type=int, default=16, show_default=True,
+        click.option('--batch-size', type=int, default=get_mode_default("eval", "batch_size"), show_default=True,
                  help='micro-batch size for batched detection/embedding'),
-        click.option('--auto-batch/--no-auto-batch', default=True, show_default=True,
+        click.option('--auto-batch/--no-auto-batch', default=get_mode_default("eval", "auto_batch"), show_default=True,
                  help='probe GPU memory with a dummy pass to pick a safe batch size'),
-        click.option('--resume/--no-resume', default=True, show_default=True,
+        click.option('--resume/--no-resume', default=get_mode_default("eval", "resume"), show_default=True,
              help='resume detection/embedding generation from progress checkpoints'),
-        click.option('--n-threads', type=int, default=NUM_THREADS,
+        click.option('--n-threads', type=int, default=get_mode_default("eval", "n_threads"),
                  help='CPU threads for image decoding; defaults to min(8, cpu_count)'),
-        click.option('--project', type=Path, default=ROOT / 'runs',
+        click.option('--project', type=Path, default=get_mode_default("eval", "project"),
                      help='save results to project/name'),
-        click.option('--name', default='', help='save results to project/name'),
-        click.option('--exist-ok', is_flag=True, default=True,
+        click.option('--name', default=get_mode_default("eval", "name"), help='save results to project/name'),
+        click.option('--exist-ok', is_flag=True, default=get_mode_default("eval", "exist_ok"),
                      help='existing project/name ok, do not increment'),
-        click.option('--half', is_flag=True,
+        click.option('--half', is_flag=True, default=get_mode_default("eval", "half"),
                      help='use FP16 half-precision inference'),
-        click.option('--vid-stride', type=int, default=1,
+        click.option('--vid-stride', type=int, default=get_mode_default("eval", "vid_stride"),
                      help='video frame-rate stride'),
-        click.option('--ci', is_flag=True,
+        click.option('--ci', is_flag=True, default=get_mode_default("eval", "ci"),
                      help='reuse existing runs in CI (no UI)'),
-        click.option('--tracker', 'tracking_method', type=str, default='bytetrack', show_default=True,
+        click.option('--tracker', 'tracking_method', type=str, default=get_mode_default("eval", "tracker"), show_default=True,
                      help='deepocsort, botsort, strongsort, ...'),
-        click.option('--verbose', is_flag=True,
+        click.option('--verbose', is_flag=True, default=get_mode_default("eval", "verbose"),
                      help='print detailed logs'),
-        click.option('--agnostic-nms', is_flag=True,
+        click.option('--agnostic-nms', is_flag=True, default=get_mode_default("eval", "agnostic_nms"),
                      help='class-agnostic NMS'),
         click.option(
-            "--postprocessing", type=click.Choice(["none", "gsi", "gbrc"], case_sensitive=False), default="none",
+            "--postprocessing", type=click.Choice(["none", "gsi", "gbrc"], case_sensitive=False), default=get_mode_default("eval", "postprocessing"),
             help="Postprocess tracker output: none | gsi (Gaussian smoothed interpolation) | gbrc (gradient boosting smooth).",
         ),
-        click.option('--show', is_flag=True,
+        click.option('--show', is_flag=True, default=get_mode_default("eval", "show"),
                      help='display tracking in a window'),
-        click.option('--show-labels/--hide-labels', default=True,
+        click.option('--show-labels/--hide-labels', default=get_mode_default("eval", "show_labels"),
                      help='show or hide detection labels'),
-        click.option('--show-conf/--hide-conf', default=True,
+        click.option('--show-conf/--hide-conf', default=get_mode_default("eval", "show_conf"),
                      help='show or hide detection confidences'),
-        click.option('--show-trajectories', is_flag=True,
+        click.option('--show-trajectories', is_flag=True, default=get_mode_default("eval", "show_trajectories"),
                      help='overlay past trajectories'),
-           click.option('--show-kf-preds', 'show_kf_preds', is_flag=True,
+           click.option('--show-kf-preds', 'show_kf_preds', is_flag=True, default=get_mode_default("eval", "show_kf_preds"),
                help='show Kalman-filter predictions'),
-        click.option('--save-txt', is_flag=True,
+        click.option('--save-txt', is_flag=True, default=get_mode_default("eval", "save_txt"),
                      help='save results to a .txt file'),
-        click.option('--save-crop', is_flag=True,
+        click.option('--save-crop', is_flag=True, default=get_mode_default("eval", "save_crop"),
                      help='save cropped detections'),
-        click.option('--save', is_flag=True,
+        click.option('--save', is_flag=True, default=get_mode_default("eval", "save"),
                      help='save annotated video'),
-        click.option('--line-width', type=int,
+        click.option('--line-width', type=int, default=get_mode_default("eval", "line_width"),
                      help='bounding box line width'),
-        click.option('--per-class', is_flag=True,
+        click.option('--per-class', is_flag=True, default=get_mode_default("eval", "per_class"),
                      help='track each class separately'),
-        click.option('--target-id', type=int, default=None,
+        click.option('--target-id', type=int, default=get_mode_default("eval", "target_id"),
                      help='ID to highlight in green')
     ]
     for opt in reversed(options):
@@ -129,33 +113,18 @@ def data_option(func):
         help='benchmark config name or YAML file, e.g. mot17-ablation or boxmot/configs/benchmarks/mot17-ablation.yaml',
     )(func)
 
-
-def parse_classes(classes_input):
-    """
-    Parse classes input which can be a tuple of ints (from multiple=True),
-    a string (comma/space separated), or None.
-    Returns a list of integers or None.
-    """
-    if classes_input is None:
-        return None
-    
-    if isinstance(classes_input, (list, tuple)):
-        # If it's already a list/tuple of ints (from multiple=True)
-        if not classes_input:
-            return None
-        return list(classes_input)
-    
-    if isinstance(classes_input, str):
-        # Handle string input: "0,1" or "0 1"
-        classes_input = classes_input.replace(',', ' ')
-        return [int(x) for x in classes_input.split()]
-    
-    return [int(classes_input)]
-
-
 def _is_option_explicit(ctx: click.Context, option_name: str) -> bool:
     """Return True when a Click option came from the command line instead of defaults."""
     return ctx.get_parameter_source(option_name) != ParameterSource.DEFAULT
+
+
+def _explicit_cli_keys(ctx: click.Context) -> set[str]:
+    """Return the Click option names explicitly provided on the command line."""
+    return {
+        param.name
+        for param in ctx.command.params
+        if isinstance(param, click.Option) and _is_option_explicit(ctx, param.name)
+    }
 
 
 def _resolve_source_context(source: Optional[str]) -> Tuple[Optional[str], str, str]:
@@ -238,10 +207,10 @@ def _normalize_eval_positionals(
 def singular_model_options(func):
     options = [
         click.option('--detector', 'yolo_model', type=Path,
-                     default=WEIGHTS / 'yolov8n.pt',
+                     default=DEFAULT_DETECTOR,
                      help='path to YOLO weights for detection'),
         click.option('--reid', 'reid_model', type=Path,
-                     default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+                     default=DEFAULT_REID,
                      help='path to ReID model weights'),
         click.option('--classes', type=str, default=None,
                      help='filter by class indices, e.g. 0 or "0,1"')
@@ -254,10 +223,10 @@ def singular_model_options(func):
 def plural_model_options(func):
     options = [
         click.option('--detector', 'yolo_model', type=Path, multiple=True,
-                     default=[WEIGHTS / 'yolov8n.pt'],
+                     default=[DEFAULT_DETECTOR],
                      help='one or more YOLO weights for detection'),
         click.option('--reid', 'reid_model', type=Path, multiple=True,
-                     default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'],
+                     default=[DEFAULT_REID],
                      help='one or more ReID model weights'),
         click.option('--classes', type=str, default=None,
                      help='filter by class indices, e.g. 0 or "0,1"')
@@ -272,30 +241,30 @@ def export_options(func):
     Decorator adding ReID export options (ported from argparse export script).
     """
     options = [
-        click.option('--batch-size', type=int, default=1,
+        click.option('--batch-size', type=int, default=get_mode_default("export", "batch_size"),
                      help='Batch size for export'),
         click.option('--imgsz', '--img', '--img-size', callback=parse_imgsz, type=str,
-                     default=640, help='Image size as H,W (e.g. 256,128)'),
-        click.option('--device', default='cpu',
+                     default=get_mode_default("export", "imgsz"), help='Image size as H,W (e.g. 256,128)'),
+        click.option('--device', default=get_mode_default("export", "device"),
                      help="CUDA device (e.g., '0', '0,1,2,3', or 'cpu')"),
-        click.option('--optimize', is_flag=True,
+        click.option('--optimize', is_flag=True, default=get_mode_default("export", "optimize"),
                      help='Optimize TorchScript for mobile (CPU export only)'),
-        click.option('--dynamic', is_flag=True,
+        click.option('--dynamic', is_flag=True, default=get_mode_default("export", "dynamic"),
                      help='Enable dynamic axes for ONNX/TF/TensorRT export'),
-        click.option('--simplify', is_flag=True,
+        click.option('--simplify', is_flag=True, default=get_mode_default("export", "simplify"),
                      help='Simplify ONNX model'),
-        click.option('--opset', type=int, default=18,
+        click.option('--opset', type=int, default=get_mode_default("export", "opset"),
                      help='ONNX opset version'),
-        click.option('--workspace', type=int, default=4,
+        click.option('--workspace', type=int, default=get_mode_default("export", "workspace"),
                      help='TensorRT workspace size (GB)'),
         click.option('--verbose', is_flag=True,
                      help='Enable verbose logging for TensorRT'),
         click.option('--weights', type=Path,
-                     default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+                     default=get_mode_default("export", "weights") or WEIGHTS / 'osnet_x0_25_msmt17.pt',
                      help='Path to the model weights (.pt file)'),
         click.option('--half', is_flag=True,
                      help='Enable FP16 half-precision export (GPU only)'),
-        click.option('--include', multiple=True, default=('torchscript',),
+        click.option('--include', multiple=True, default=tuple(get_mode_default("export", "include")),
                      help='Export formats to include. Options: torchscript, onnx, openvino, engine, tflite'),
     ]
     for opt in reversed(options):
@@ -308,14 +277,14 @@ def tune_options(func):
     Decorator adding ReID export options (ported from argparse export script).
     """
     options = [
-        click.option('--n-trials', type=int, default=4,
+        click.option('--n-trials', type=int, default=get_mode_default("tune", "n_trials"),
                      help='number of trials for evolutionary tuning'),
         click.option('--objectives', type=str, multiple=True,
-                     default=["HOTA", "MOTA", "IDF1"],
+                     default=tuple(get_mode_default("tune", "objectives")),
                      help='metrics to track and return from each trial'),
-        click.option('--maximize', type=str, multiple=True, default=[],
+        click.option('--maximize', type=str, multiple=True, default=tuple(get_mode_default("tune", "maximize")),
                      help='metrics to maximize; defaults to first --objectives value (e.g. HOTA)'),
-        click.option('--minimize', type=str, multiple=True, default=[],
+        click.option('--minimize', type=str, multiple=True, default=tuple(get_mode_default("tune", "minimize")),
                      help='metrics to minimize for Pareto search (e.g. IDSW_rate); '
                           'triggers multi-objective mode when set'),
     ]
@@ -416,33 +385,31 @@ def boxmot(ctx):
 @singular_model_options
 @click.pass_context
 def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
-    # Override options with positional args if provided
-    if detector:
-        yolo_model = ensure_model_extension(detector)
-    if reid:
-        reid_model = ensure_model_extension(reid)
     if tracker:
-        kwargs['tracking_method'] = tracker
+        kwargs.pop("tracking_method", None)
     src, bench, split = _resolve_source_context(kwargs.pop('source'))
-    
-    # Auto-append .pt extension if missing
-    yolo_model = ensure_model_extension(yolo_model)
-    reid_model = ensure_model_extension(reid_model)
-    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
-    reid_model_explicit = bool(reid) or _is_option_explicit(ctx, "reid_model")
-    
-    params = {**kwargs,
-              'yolo_model': yolo_model,
-              'yolo_model_explicit': yolo_model_explicit,
-              'device_explicit': _is_option_explicit(ctx, "device"),
-              'half_explicit': _is_option_explicit(ctx, "half"),
-              'reid_model_explicit': reid_model_explicit,
-              'reid_model': reid_model,
-              'classes': parse_classes(classes),
-              'source': src,
-              'benchmark': bench,
-              'split': split}
-    args = SimpleNamespace(**params)
+    explicit_keys = _explicit_cli_keys(ctx)
+    if detector:
+        explicit_keys.add("detector")
+    if reid:
+        explicit_keys.add("reid")
+    if tracker:
+        explicit_keys.add("tracker")
+
+    args = build_mode_namespace(
+        "track",
+        {
+            **kwargs,
+            "yolo_model": detector or yolo_model,
+            "reid_model": reid or reid_model,
+            "classes": classes,
+            "source": src,
+            "benchmark": bench,
+            "split": split,
+            **({"tracker": tracker} if tracker is not None else {}),
+        },
+        explicit_keys=explicit_keys,
+    )
 
     from boxmot.engine.tracker import main as run_track
     run_track(args)
@@ -456,35 +423,29 @@ def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwarg
 @plural_model_options
 @click.pass_context
 def generate(ctx, detector, reid, data, yolo_model, reid_model, classes, **kwargs):
-    # Override options with positional args if provided
-    # Note: Plural options are tuples, so handle single arg input as list
-    if detector:
-        yolo_model = [ensure_model_extension(detector)]
-    if reid:
-        reid_model = [ensure_model_extension(reid)]
     src = kwargs.pop('source')
     data, src = _normalize_generate_input(data, src, "generate")
     src, bench, split = _resolve_source_context(src)
-    
-    # Auto-append .pt extension if missing
-    yolo_model = [ensure_model_extension(m) for m in yolo_model]
-    reid_model = [ensure_model_extension(m) for m in reid_model]
-    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
-    reid_model_explicit = bool(reid) or _is_option_explicit(ctx, "reid_model")
-    
-    params = {**kwargs,
-              'yolo_model': list(yolo_model),
-              'yolo_model_explicit': yolo_model_explicit,
-              'device_explicit': _is_option_explicit(ctx, "device"),
-              'half_explicit': _is_option_explicit(ctx, "half"),
-              'reid_model_explicit': reid_model_explicit,
-              'reid_model': list(reid_model),
-              'classes': parse_classes(classes),
-              'data': data,
-              'source': src,
-              'benchmark': bench,
-              'split': split}
-    args = SimpleNamespace(**params)
+    explicit_keys = _explicit_cli_keys(ctx)
+    if detector:
+        explicit_keys.add("detector")
+    if reid:
+        explicit_keys.add("reid")
+
+    args = build_mode_namespace(
+        "generate",
+        {
+            **kwargs,
+            "yolo_model": detector or list(yolo_model),
+            "reid_model": reid or list(reid_model),
+            "classes": classes,
+            "data": data,
+            "source": src,
+            "benchmark": bench,
+            "split": split,
+        },
+        explicit_keys=explicit_keys,
+    )
     from boxmot.engine.evaluator import run_generate_dets_embs
     run_generate_dets_embs(args)
 
@@ -500,36 +461,33 @@ def generate(ctx, detector, reid, data, yolo_model, reid_model, classes, **kwarg
 def eval(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **kwargs):
     # Allow benchmark/default-model runs to specify only the tracker positionally.
     detector, reid, tracker = _normalize_eval_positionals(detector, reid, tracker)
-
-    # Override options with positional args if provided
-    # Note: Plural options are tuples, so handle single arg input as list
-    if detector:
-        yolo_model = [ensure_model_extension(detector)]
-    if reid:
-        reid_model = [ensure_model_extension(reid)]
     if tracker:
-        kwargs['tracking_method'] = tracker
+        kwargs.pop("tracking_method", None)
+
     data = _require_benchmark_input(data, "eval")
-    
-    # Auto-append .pt extension if missing
-    yolo_model = [ensure_model_extension(m) for m in yolo_model]
-    reid_model = [ensure_model_extension(m) for m in reid_model]
-    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
-    reid_model_explicit = bool(reid) or _is_option_explicit(ctx, "reid_model")
-    
-    params = {**kwargs,
-              'yolo_model': list(yolo_model),
-              'yolo_model_explicit': yolo_model_explicit,
-              'device_explicit': _is_option_explicit(ctx, "device"),
-              'half_explicit': _is_option_explicit(ctx, "half"),
-              'reid_model_explicit': reid_model_explicit,
-              'reid_model': list(reid_model),
-              'classes': parse_classes(classes),
-              'data': data,
-              'source': None,
-              'benchmark': "",
-              'split': ""}
-    args = SimpleNamespace(**params)
+    explicit_keys = _explicit_cli_keys(ctx)
+    if detector:
+        explicit_keys.add("detector")
+    if reid:
+        explicit_keys.add("reid")
+    if tracker:
+        explicit_keys.add("tracker")
+
+    args = build_mode_namespace(
+        "eval",
+        {
+            **kwargs,
+            "yolo_model": detector or list(yolo_model),
+            "reid_model": reid or list(reid_model),
+            "classes": classes,
+            "data": data,
+            "source": None,
+            "benchmark": "",
+            "split": "",
+            **({"tracker": tracker} if tracker is not None else {}),
+        },
+        explicit_keys=explicit_keys,
+    )
     from boxmot.engine.evaluator import main as run_eval
     run_eval(args)
 
@@ -546,36 +504,33 @@ def eval(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **
 def tune(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **kwargs):
     # Allow benchmark/default-model runs to specify only the tracker positionally.
     detector, reid, tracker = _normalize_eval_positionals(detector, reid, tracker)
-
-    # Override options with positional args if provided
-    # Note: Plural options are tuples, so handle single arg input as list
-    if detector:
-        yolo_model = [ensure_model_extension(detector)]
-    if reid:
-        reid_model = [ensure_model_extension(reid)]
     if tracker:
-        kwargs['tracking_method'] = tracker
+        kwargs.pop("tracking_method", None)
+
     data = _require_benchmark_input(data, "tune")
-    
-    # Auto-append .pt extension if missing
-    yolo_model = [ensure_model_extension(m) for m in yolo_model]
-    reid_model = [ensure_model_extension(m) for m in reid_model]
-    yolo_model_explicit = bool(detector) or _is_option_explicit(ctx, "yolo_model")
-    reid_model_explicit = bool(reid) or _is_option_explicit(ctx, "reid_model")
-    
-    params = {**kwargs,
-              'yolo_model': list(yolo_model),
-              'yolo_model_explicit': yolo_model_explicit,
-              'device_explicit': _is_option_explicit(ctx, "device"),
-              'half_explicit': _is_option_explicit(ctx, "half"),
-              'reid_model_explicit': reid_model_explicit,
-              'reid_model': list(reid_model),
-              'classes': parse_classes(classes),
-              'data': data,
-              'source': None,
-              'benchmark': "",
-              'split': ""}
-    args = SimpleNamespace(**params)
+    explicit_keys = _explicit_cli_keys(ctx)
+    if detector:
+        explicit_keys.add("detector")
+    if reid:
+        explicit_keys.add("reid")
+    if tracker:
+        explicit_keys.add("tracker")
+
+    args = build_mode_namespace(
+        "tune",
+        {
+            **kwargs,
+            "yolo_model": detector or list(yolo_model),
+            "reid_model": reid or list(reid_model),
+            "classes": classes,
+            "data": data,
+            "source": None,
+            "benchmark": "",
+            "split": "",
+            **({"tracker": tracker} if tracker is not None else {}),
+        },
+        explicit_keys=explicit_keys,
+    )
     from boxmot.engine.tuner import main as run_tuning
     run_tuning(args)
 
@@ -588,8 +543,7 @@ def export(ctx, **kwargs):
     Command 'export': export ReID model weights and configurations for deployment.
     Mirrors the standalone argparse-based export script.
     """
-    # kwargs already contains all export args; convert imgsz tuple -> list
-    args = SimpleNamespace(**kwargs)
+    args = build_mode_namespace("export", kwargs, explicit_keys=_explicit_cli_keys(ctx))
     from boxmot.engine.export import main as run_export
     run_export(args)
 

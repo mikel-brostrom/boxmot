@@ -199,3 +199,21 @@ def test_track_help_lists_current_component_options():
     assert "--save" in result.output
     assert "--save-txt" in result.output
     assert "--save-crop" in result.output
+
+
+def test_export_builds_shared_namespace(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.export", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        ["export", "--weights", "osnet_x0_25_msmt17.pt", "--include", "onnx"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["args"].weights.name == "osnet_x0_25_msmt17.pt"
+    assert captured["args"].include == ("onnx",)
+    assert captured["args"].device == "cpu"

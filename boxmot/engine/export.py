@@ -162,9 +162,9 @@ def main(args):
     LOGGER.opt(colors=True).info("<cyan>[2/3]</cyan> Exporting to formats...")
     export_tasks = create_export_tasks(args, model, dummy_input)
     exported_files = perform_exports(export_tasks)
+    elapsed_time = time.time() - start_time
 
     if exported_files:
-        elapsed_time = time.time() - start_time
         LOGGER.opt(colors=True).info("<cyan>[3/3]</cyan> Export complete!")
         LOGGER.info("")
         LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
@@ -176,6 +176,16 @@ def main(args):
             LOGGER.opt(colors=True).info(f"<bold>  • {fmt}:</bold> <cyan>{fpath}</cyan>")
         LOGGER.opt(colors=True).info("<bold>Visualize:</bold>  <cyan>https://netron.app</cyan>")
         LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+
+    return {
+        "weights": args.weights,
+        "include": list(args.include),
+        "output_dir": args.weights.parent.resolve(),
+        "elapsed_time": elapsed_time,
+        "input_shape": tuple(dummy_input.shape),
+        "output_shape": output_shape,
+        "files": {fmt: fpath for fmt, fpath in exported_files.items()},
+    }
 
 
 if __name__ == "__main__":

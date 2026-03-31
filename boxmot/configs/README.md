@@ -5,6 +5,8 @@ This directory contains the YAML configs used by BoxMOT's config-driven
 
 The primary config split is:
 
+- `runtime/`: shared CLI/Python runtime defaults for modes such as `track`,
+  `generate`, `eval`, and `tune`
 - `datasets/`: dataset and evaluation metadata
 - `benchmarks/`: thin benchmark bundles that select a dataset plus the
   detector and ReID profiles associated with that benchmark

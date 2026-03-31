@@ -7,6 +7,7 @@ import concurrent.futures
 import json
 import multiprocessing as mp
 import os
+import queue
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Dict, Optional
@@ -71,6 +72,7 @@ from boxmot.utils.evaluation import (
 from boxmot.utils.misc import increment_path, prompt_overwrite, resolve_model_path
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
 from boxmot.utils.plots import MetricsPlotter
+from boxmot.utils.progress import TrackingProgressPrinter, suppress_worker_thread_logs
 from boxmot.utils.timing import TimingStats
 from boxmot.utils.torch_utils import select_device
 
@@ -587,33 +589,14 @@ def _worker_init():
     _configure_logging()
 
 
-def _format_seq_progress(seq_progress: dict, n_display: int = 5) -> str:
-    """Format top-N in-progress sequences as mini progress bars."""
-    active = {k: v for k, v in seq_progress.items() if v[0] < v[1]}
-    if not active:
-        return ""
-    sorted_seqs = sorted(active.items(), key=lambda x: x[1][0] / max(x[1][1], 1), reverse=True)
-    display = sorted_seqs[:n_display]
-    name_width = max(len(name) for name, _ in display)
-    lines = []
-    bar_width = 20
-    for name, (current, total) in display:
-        pct = current / max(total, 1)
-        filled = int(bar_width * pct)
-        bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
-        lines.append(f"  {name:<{name_width}s} {bar} {pct:>5.0%}  ({current}/{total})")
-    return "\n".join(lines)
-
-
-def _drain_progress_queue(q, seq_progress: dict):
-    """Read all available messages from the progress queue."""
-    import queue
-    while True:
-        try:
-            name, current, total = q.get_nowait()
-            seq_progress[name] = (current, total)
-        except (queue.Empty, OSError):
-            break
+def _resolve_tracking_backend(args: argparse.Namespace) -> str:
+    """Return the executor backend for per-sequence tracker runs."""
+    backend = str(getattr(args, "tracking_backend", "process") or "process").lower()
+    if backend in {"thread", "threads", "threading"}:
+        return "thread"
+    if backend in {"serial", "sync", "inline"}:
+        return "serial"
+    return "process"
 
 
 def run_generate_mot_results(
@@ -647,8 +630,12 @@ def run_generate_mot_results(
     if conf_threshold is None:
         conf_threshold = default_conf(args.yolo_model[0])
 
-    manager = mp.Manager()
-    progress_queue = manager.Queue()
+    max_workers = max(1, int(getattr(args, "n_threads", 1) or 1))
+    backend = _resolve_tracking_backend(args)
+    if max_workers <= 1:
+        backend = "serial"
+
+    progress_queue = None
 
     task_args = [
         (
@@ -664,7 +651,7 @@ def run_generate_mot_results(
             evolve_config,
             dataset_name,
             conf_threshold,
-            progress_queue,
+            None,
         )
         for seq_name in sequence_names
     ]
@@ -675,33 +662,16 @@ def run_generate_mot_results(
     n_seqs = len(sequence_names)
     done_count = 0
     seq_progress: dict = {}
-    prev_display_lines = 0
+    progress_printer = None if quiet else TrackingProgressPrinter(LOGGER)
 
-    def _log_progress():
-        nonlocal prev_display_lines
-        _drain_progress_queue(progress_queue, seq_progress)
-        header = f"Tracking: {done_count}/{n_seqs} sequences done"
-        seq_display = _format_seq_progress(seq_progress)
-        lines = [header] + ([seq_display] if seq_display else [])
-        msg = "\n".join(lines)
-        # Erase previously printed progress block, then log fresh
-        import sys
-        if prev_display_lines > 0:
-            sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
-            sys.stderr.flush()
-        LOGGER.opt(colors=True).info(f"<cyan>{msg}</cyan>")
-        prev_display_lines = msg.count("\n") + 1
+    def _consume_futures(futures: dict[concurrent.futures.Future, str]) -> None:
+        nonlocal done_count, total_track_time_ms, total_track_frames
 
-    with concurrent.futures.ProcessPoolExecutor(
-        max_workers=args.n_threads,
-        initializer=_worker_init,
-    ) as executor:
-        futures = {executor.submit(process_sequence, *task_arg): task_arg[0] for task_arg in task_args}
         pending = set(futures.keys())
-
         while pending:
             done, pending = concurrent.futures.wait(
-                pending, timeout=0.3,
+                pending,
+                timeout=0.3,
                 return_when=concurrent.futures.FIRST_COMPLETED,
             )
 
@@ -712,21 +682,64 @@ def run_generate_mot_results(
                     seq_frame_nums[sequence_name] = kept_ids
                     total_track_time_ms += timing_dict.get("track_time_ms", 0)
                     total_track_frames += timing_dict.get("num_frames", 0)
-                    done_count += 1
                 except Exception:
-                    done_count += 1
                     LOGGER.exception(f"Error processing {seq_name}")
+                finally:
+                    done_count += 1
 
-            if not quiet:
-                _log_progress()
+            if progress_printer is not None:
+                progress_printer.render(
+                    progress_queue=progress_queue,
+                    seq_progress=seq_progress,
+                    done_count=done_count,
+                    total_count=n_seqs,
+                )
 
-    if not quiet and prev_display_lines > 0:
-        import sys
-        sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
-        sys.stderr.flush()
-        LOGGER.opt(colors=True).info(
-            f"<cyan>Tracking: {n_seqs}/{n_seqs} sequences done</cyan>"
-        )
+    if backend == "serial":
+        progress_queue = queue.Queue()
+        for task_arg in task_args:
+            seq_name = task_arg[0]
+            try:
+                sequence_name, kept_ids, timing_dict = process_sequence(*task_arg[:-1], progress_queue)
+                seq_frame_nums[sequence_name] = kept_ids
+                total_track_time_ms += timing_dict.get("track_time_ms", 0)
+                total_track_frames += timing_dict.get("num_frames", 0)
+            except Exception:
+                LOGGER.exception(f"Error processing {seq_name}")
+            finally:
+                done_count += 1
+
+            if progress_printer is not None:
+                progress_printer.render(
+                    progress_queue=progress_queue,
+                    seq_progress=seq_progress,
+                    done_count=done_count,
+                    total_count=n_seqs,
+                )
+    elif backend == "thread":
+        progress_queue = queue.Queue()
+        for idx, task_arg in enumerate(task_args):
+            task_args[idx] = (*task_arg[:-1], progress_queue)
+
+        with suppress_worker_thread_logs(_configure_logging, enabled=True):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(process_sequence, *task_arg): task_arg[0] for task_arg in task_args}
+                _consume_futures(futures)
+    else:
+        with mp.Manager() as manager:
+            progress_queue = manager.Queue()
+            for idx, task_arg in enumerate(task_args):
+                task_args[idx] = (*task_arg[:-1], progress_queue)
+
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=max_workers,
+                initializer=_worker_init,
+            ) as executor:
+                futures = {executor.submit(process_sequence, *task_arg): task_arg[0] for task_arg in task_args}
+                _consume_futures(futures)
+
+    if progress_printer is not None:
+        progress_printer.finish(done_count=done_count, total_count=n_seqs)
 
     args.seq_frame_nums = seq_frame_nums
 

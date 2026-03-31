@@ -341,6 +341,22 @@ def main(args):
         # Clean up windows
         cv2.destroyAllWindows()
 
+    return {
+        "source": str(args.source),
+        "tracking_method": args.tracking_method,
+        "detector": args.yolo_model,
+        "reid": args.reid_model,
+        "save_dir": save_dir.resolve() if save_dir is not None else None,
+        "video_path": video_writer.output_path.resolve() if video_writer is not None else None,
+        "text_path": text_writer.output_path.resolve() if text_writer is not None else None,
+        "frames": timing_stats.frames,
+        "user_quit": bool(getattr(args, "_user_quit", False)),
+        "timings": {
+            "frames": timing_stats.frames,
+            **dict(timing_stats.totals),
+        },
+    }
+
 
 if __name__ == "__main__":
     raise SystemExit("Run via CLI: boxmot track [options]")

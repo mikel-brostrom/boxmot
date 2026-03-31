@@ -3,6 +3,15 @@
 __version__ = '17.0.0'
 
 from boxmot.engine.results import track
+from boxmot.model import (
+    BoxMOT,
+    ExportResults,
+    TrackEvalMetrics,
+    TrackResults,
+    TuneResults,
+    TuneTrialResult,
+    boxmot,
+)
 from boxmot.reid.core import ReID
 from boxmot.trackers.boosttrack.boosttrack import BoostTrack
 from boxmot.trackers.botsort.botsort import BotSort
@@ -27,6 +36,13 @@ TRACKERS = [
 
 __all__ = (
     "__version__",
+    "boxmot",
+    "BoxMOT",
+    "TrackResults",
+    "ExportResults",
+    "TrackEvalMetrics",
+    "TuneResults",
+    "TuneTrialResult",
     "StrongSort",
     "OcSort",
     "ByteTrack",
@@ -35,6 +51,8 @@ __all__ = (
     "HybridSort",
     "BoostTrack",
     "SFSORT",
+    "ReID",
+    "track",
     "create_tracker",
     "get_tracker_config",
     "gsi",
