@@ -2,9 +2,11 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
-from boxmot import BoxMOT, boxmot
+from boxmot import BoxMOT, boxmot, track as stream_track
+from boxmot.engine.results import Results
 from boxmot.model import ExportResults, TrackEvalMetrics, TrackResults, TuneResults
 from boxmot.utils import WEIGHTS
 
@@ -430,3 +432,97 @@ def test_tune_results_exposes_best_trial_metrics():
     assert results.best.metrics["MOTA"] == pytest.approx(76.2)
     assert results.best.metrics.idsw_rate == pytest.approx(0.02)
     assert results.trials[0].config["max_age"] == 30
+
+
+def test_stream_track_yields_structured_aabb_frame_results(monkeypatch):
+    frames = [np.zeros((8, 8, 3), dtype=np.uint8)]
+
+    def fake_get_frames(self):
+        yield from frames
+
+    monkeypatch.setattr(Results, "_get_frames", fake_get_frames)
+
+    class DummyTracker:
+        def update(self, dets, frame, features=None):
+            return np.array([[1, 2, 5, 6, 7, 0.9, 0, 0]], dtype=np.float32)
+
+    def detector(frame):
+        return np.array([[1, 2, 5, 6, 0.9, 0]], dtype=np.float32)
+
+    results = stream_track("video.mp4", detector, None, DummyTracker(), verbose=False)
+    chunk = next(iter(results))
+
+    assert chunk.frame_id == 1
+    assert chunk.is_obb is False
+    assert chunk.tracks.shape == (1, 8)
+    np.testing.assert_allclose(chunk.xyxy, np.array([[1, 2, 5, 6]], dtype=np.float32))
+    assert chunk.xywha is None
+    np.testing.assert_array_equal(chunk.id, np.array([7], dtype=np.int32))
+    np.testing.assert_allclose(chunk.conf, np.array([0.9], dtype=np.float32))
+    np.testing.assert_array_equal(chunk.cls, np.array([0], dtype=np.int32))
+    np.testing.assert_array_equal(chunk.det_ind, np.array([0], dtype=np.int32))
+
+
+def test_stream_track_yields_structured_obb_frame_results(monkeypatch):
+    frames = [np.zeros((8, 8, 3), dtype=np.uint8)]
+
+    def fake_get_frames(self):
+        yield from frames
+
+    monkeypatch.setattr(Results, "_get_frames", fake_get_frames)
+
+    class DummyTracker:
+        def update(self, dets, frame, features=None):
+            return np.array([[10, 20, 4, 8, 0.0, 3, 0.8, 1, 5]], dtype=np.float32)
+
+    def detector(frame):
+        return np.array([[10, 20, 4, 8, 0.0, 0.8, 1]], dtype=np.float32)
+
+    results = stream_track("video.mp4", detector, None, DummyTracker(), verbose=False)
+    chunk = next(iter(results))
+
+    assert chunk.frame_id == 1
+    assert chunk.is_obb is True
+    np.testing.assert_allclose(
+        chunk.xywha,
+        np.array([[10, 20, 4, 8, 0.0]], dtype=np.float32),
+    )
+    np.testing.assert_allclose(
+        chunk.xyxy,
+        np.array([[8, 16, 12, 24]], dtype=np.float32),
+    )
+    np.testing.assert_array_equal(chunk.id, np.array([3], dtype=np.int32))
+    np.testing.assert_allclose(chunk.conf, np.array([0.8], dtype=np.float32))
+    np.testing.assert_array_equal(chunk.cls, np.array([1], dtype=np.int32))
+    np.testing.assert_array_equal(chunk.det_ind, np.array([5], dtype=np.int32))
+
+
+def test_stream_track_save_writes_cached_and_remaining_chunks(monkeypatch, tmp_path):
+    frames = [np.zeros((8, 8, 3), dtype=np.uint8), np.zeros((8, 8, 3), dtype=np.uint8)]
+
+    def fake_get_frames(self):
+        yield from frames
+
+    monkeypatch.setattr(Results, "_get_frames", fake_get_frames)
+
+    class DummyTracker:
+        def __init__(self):
+            self.calls = 0
+
+        def update(self, dets, frame, features=None):
+            self.calls += 1
+            if self.calls == 1:
+                return np.array([[1, 2, 5, 6, 7, 0.9, 0, 0]], dtype=np.float32)
+            return np.empty((0, 8), dtype=np.float32)
+
+    def detector(frame):
+        return np.array([[1, 2, 5, 6, 0.9, 0]], dtype=np.float32)
+
+    results = stream_track("video.mp4", detector, None, DummyTracker(), verbose=False)
+    first = next(iter(results))
+    np.testing.assert_array_equal(first.id, np.array([7], dtype=np.int32))
+
+    output_path = results.save(tmp_path / "tracks.txt")
+
+    assert output_path == tmp_path / "tracks.txt"
+    assert output_path.read_text() == "1,7,1,2,4,4,0.900000,1,0\n"
