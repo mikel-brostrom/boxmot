@@ -5,17 +5,123 @@ from typing import Any, Callable, Iterator, Union
 import cv2
 import numpy as np
 
+from boxmot.utils.mot_utils import (
+    convert_to_mmot_obb_format,
+    convert_to_mot_format,
+    format_mot_results,
+    xywha_to_corners,
+)
 
 try:
     from ultralytics.utils.plotting import Annotator, colors
 except ImportError:
     Annotator = None
 
+
+def _ensure_2d_tracks(tracks: np.ndarray) -> np.ndarray:
+    """Normalize tracking output to a 2D array."""
+    arr = np.asarray(tracks)
+    if arr.size == 0:
+        if arr.ndim == 2:
+            return arr
+        return np.empty((0, 0), dtype=np.float32)
+    if arr.ndim == 1:
+        return arr.reshape(1, -1)
+    return arr
+
+
+def _serialize_tracks(tracks: np.ndarray, frame_id: int) -> str:
+    """Serialize one frame of tracker output to MOT-style text."""
+    tracks = _ensure_2d_tracks(tracks)
+    if tracks.size == 0:
+        return ""
+    if tracks.shape[1] >= 9:
+        mot_rows = convert_to_mmot_obb_format(tracks, frame_id)
+    else:
+        mot_rows = convert_to_mot_format(tracks, frame_id)
+    return format_mot_results(mot_rows)
+
+
 class Tracks:
-    def __init__(self, frame: np.ndarray, tracks: np.ndarray, get_drawer: Callable[[], Callable]):
+    """Structured per-frame tracking result."""
+
+    def __init__(
+        self,
+        frame_id: int,
+        frame: np.ndarray,
+        tracks: np.ndarray,
+        get_drawer: Callable[[], Callable],
+    ) -> None:
+        self.frame_id = frame_id
         self.frame = frame
-        self.tracks = tracks
+        self.tracks = _ensure_2d_tracks(tracks)
         self._get_drawer = get_drawer
+
+    @property
+    def is_obb(self) -> bool:
+        return bool(self.tracks.ndim == 2 and self.tracks.shape[1] >= 9)
+
+    @property
+    def xyxy(self) -> np.ndarray:
+        """Return AABB geometry or an enclosing AABB for OBB results."""
+        if self.tracks.size == 0:
+            return np.empty((0, 4), dtype=np.float32)
+        if not self.is_obb:
+            return self.tracks[:, :4]
+
+        corners = xywha_to_corners(self.tracks[:, :5]).reshape(-1, 4, 2)
+        mins = corners.min(axis=1)
+        maxs = corners.max(axis=1)
+        return np.concatenate((mins, maxs), axis=1)
+
+    @property
+    def xywha(self) -> np.ndarray | None:
+        """Return OBB geometry when available."""
+        if not self.is_obb:
+            return None
+        return self.tracks[:, :5]
+
+    @property
+    def id(self) -> np.ndarray:
+        if self.tracks.size == 0:
+            return np.empty((0,), dtype=np.int32)
+        return self.tracks[:, 5 if self.is_obb else 4].astype(np.int32)
+
+    @property
+    def ids(self) -> np.ndarray:
+        return self.id
+
+    @property
+    def conf(self) -> np.ndarray:
+        if self.tracks.size == 0:
+            return np.empty((0,), dtype=np.float32)
+        return self.tracks[:, 6 if self.is_obb else 5]
+
+    @property
+    def cls(self) -> np.ndarray:
+        if self.tracks.size == 0:
+            return np.empty((0,), dtype=np.int32)
+        return self.tracks[:, 7 if self.is_obb else 6].astype(np.int32)
+
+    @property
+    def det_ind(self) -> np.ndarray:
+        if self.tracks.size == 0:
+            return np.empty((0,), dtype=np.int32)
+        index = 8 if self.is_obb else 7
+        if self.tracks.shape[1] <= index:
+            return -np.ones((len(self.tracks),), dtype=np.int32)
+        return self.tracks[:, index].astype(np.int32)
+
+    def to_mot(self) -> str:
+        """Serialize this frame to MOT-style text."""
+        return _serialize_tracks(self.tracks, self.frame_id)
+
+    def __len__(self) -> int:
+        return len(self.tracks)
+
+    def __repr__(self) -> str:
+        geometry = "xywha" if self.is_obb else "xyxy"
+        return f"Tracks(frame_id={self.frame_id}, tracks={len(self)}, geometry={geometry!r})"
         
     def show(self) -> bool:
         drawer = self._get_drawer()
@@ -36,16 +142,13 @@ class Tracks:
             return frame
         
         annotator = Annotator(frame, line_width=2, example=str(" "))
-        for t in tracks:
-            bbox = t[:4]
-            id = int(t[4])
-            conf = t[5]
+        for bbox, track_id, conf in zip(self.xyxy, self.id, self.conf):
             # cls maps to coco classes, but let's check length
             # Some trackers might output differently. 
             # Standard BoxMOT output is: [x1, y1, x2, y2, id, conf, cls, det_ind]
             
-            label = f"{id} {conf:.2f}"
-            annotator.box_label(bbox, label, color=colors(id, True))
+            label = f"{track_id} {conf:.2f}"
+            annotator.box_label(bbox, label, color=colors(int(track_id), True))
         return annotator.result()
 
 
@@ -193,7 +296,7 @@ class Results:
                 if self.verbose:
                     self._log_frame_timings(frame_num, det_time, reid_time, track_time)
                 
-                yield Tracks(frame, tracks, get_drawer=lambda: self.drawer)
+                yield Tracks(frame_num, frame, tracks, get_drawer=lambda: self.drawer)
                 
         finally:
             if self.verbose:
@@ -204,6 +307,19 @@ class Results:
             if not track_result.show():
                 break
         cv2.destroyAllWindows()
+
+    def save(self, output_path: Union[str, Path]) -> Path:
+        """Save cached and remaining streamed tracking output to a text file."""
+        destination = Path(output_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(destination, "w") as handle:
+            for track_result in self._cache:
+                handle.write(track_result.to_mot())
+            for track_result in self:
+                handle.write(track_result.to_mot())
+
+        return destination
 
 
 def track(source, detector, reid, tracker, verbose: bool = True) -> Results:

@@ -371,13 +371,17 @@ class OcSort(BaseTracker):
     def update(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
     ) -> np.ndarray:
-        """
-        Params:
-          dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
-        Requires: this method must be called once for each frame even with empty detections
-        (use np.empty((0, 5)) for frames without detections).
-        Returns the a similar array, where the last column is the object ID.
-        NOTE: The number of objects returned may differ from the number of detections provided.
+        """Update the tracker for one frame.
+
+        Args:
+            dets: Detection array for the current frame. Call this method for
+                every frame, including empty ones.
+            img: Current video frame.
+            embs: Optional embeddings placeholder kept for API compatibility.
+
+        Returns:
+            Track array for the current frame. The number of returned tracks may
+            differ from the number of detections.
         """
 
         self.check_inputs(dets, img)

@@ -1,5 +1,6 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+import io
 import re
 from pathlib import Path
 from typing import Tuple, Union
@@ -199,19 +200,31 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
     Note: The text file will be created if it does not exist, and the directory
     path to the file will be created as well if necessary.
     """
-    if mot_results is not None:
-        # Ensure the parent directory of the txt_path exists
-        txt_path.parent.mkdir(parents=True, exist_ok=True)
+    if mot_results is None:
+        return
 
-        # Ensure the file exists before opening
-        txt_path.touch(exist_ok=True)
+    txt_path.parent.mkdir(parents=True, exist_ok=True)
+    txt_path.touch(exist_ok=True)
 
-        if mot_results.size != 0:
-            if mot_results.ndim == 1:
-                mot_results = mot_results.reshape(1, -1)
-            # Open the file in append mode and save the MOT results
-            with open(str(txt_path), "a") as file:
-                if mot_results.shape[1] == 9:
-                    np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%.6f,%d,%d")
-                else:
-                    np.savetxt(file, mot_results, fmt="%g", delimiter=",")
+    serialized = format_mot_results(mot_results)
+    if not serialized:
+        return
+
+    with open(str(txt_path), "a") as file:
+        file.write(serialized)
+
+
+def format_mot_results(mot_results: np.ndarray) -> str:
+    """Serialize MOT or MMOT-OBB rows to the same CSV text written by ``write_mot_results``."""
+    if mot_results is None or mot_results.size == 0:
+        return ""
+
+    if mot_results.ndim == 1:
+        mot_results = mot_results.reshape(1, -1)
+
+    buffer = io.StringIO()
+    if mot_results.shape[1] == 9:
+        np.savetxt(buffer, mot_results, fmt="%d,%d,%d,%d,%d,%d,%.6f,%d,%d")
+    else:
+        np.savetxt(buffer, mot_results, fmt="%g", delimiter=",")
+    return buffer.getvalue()
