@@ -99,7 +99,7 @@ jobs:
       - name: Install requirements
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo,evolve,onnx]"
+          bash .github/scripts/uv_ci_install.sh ".[yolo,evolve,onnx]" --group test
 
       - name: Smoke test example script entrypoint
         shell: bash
@@ -111,7 +111,7 @@ jobs:
         shell: bash
         run: |
           source .venv/bin/activate
-          pytest tests/unit/test_python_api.py tests/unit/test_python_api_example.py
+          uv run python -m pytest tests/unit/test_python_api.py tests/unit/test_python_api_example.py
   metrics:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -472,4 +472,3 @@ jobs:
             summary="All jobs succeeded."
           fi
           echo "Summary: $summary"
-
