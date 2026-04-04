@@ -78,6 +78,40 @@ jobs:
         run: |
           source .venv/bin/activate
           boxmot tune --detector yolov8n.pt --reid osnet_x0_25_msmt17.pt --n-trials 3 --tracker strongsort --benchmark mot17-mini --ci --classes 0
+  python-api:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.12']
+    outputs:
+      status: ${{ job.status }}
+
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install requirements
+        shell: bash
+        run: |
+          bash .github/scripts/uv_ci_install.sh ".[yolo,evolve,onnx]"
+
+      - name: Smoke test example script entrypoint
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          python examples/python_api_all.py --help
+
+      - name: Run Python API tests
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          pytest tests/unit/test_python_api.py tests/unit/test_python_api_example.py
   metrics:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -400,6 +434,7 @@ jobs:
       - metrics
       - obb
       - tune
+      - python-api
       - export
       - tests
       - pose
@@ -414,6 +449,7 @@ jobs:
           echo "metrics_STATUS=${{ needs.metrics.result }}" >> $GITHUB_ENV
           echo "obb_STATUS=${{ needs.obb.result }}" >> $GITHUB_ENV
           echo "tune_STATUS=${{ needs.tune.result }}" >> $GITHUB_ENV
+          echo "python_api_STATUS=${{ needs.python-api.result }}" >> $GITHUB_ENV
           echo "export_STATUS=${{ needs.export.result }}" >> $GITHUB_ENV
           echo "tests_STATUS=${{ needs.tests.result }}" >> $GITHUB_ENV
           echo "pose_STATUS=${{ needs.pose.result }}" >> $GITHUB_ENV
@@ -436,3 +472,4 @@ jobs:
             summary="All jobs succeeded."
           fi
           echo "Summary: $summary"
+
