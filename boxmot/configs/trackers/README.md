@@ -34,6 +34,11 @@ track_thresh:
   default: 0.6
   range: [0.4, 0.7]
 
+new_track_thresh:
+  type: uniform
+  default: 0.7
+  range: [0.5, 0.8]
+
 track_buffer:
   type: qrandint
   default: 30
