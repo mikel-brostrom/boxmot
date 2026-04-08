@@ -20,13 +20,14 @@ def _yield_image(path: Path) -> Iterator[tuple[str, np.ndarray]]:
         yield str(path), image
 
 
-def _yield_video(source: str, vid_stride: int) -> Iterator[tuple[str, np.ndarray]]:
+def _yield_video(source: Any, vid_stride: int, *, label: str | None = None) -> Iterator[tuple[str, np.ndarray]]:
     capture = cv2.VideoCapture(source)
     if not capture.isOpened():
         capture.release()
         LOGGER.error(f"Could not open source: {source}")
         return
 
+    source_label = str(source) if label is None else label
     frame_idx = 0
     try:
         while True:
@@ -35,7 +36,7 @@ def _yield_video(source: str, vid_stride: int) -> Iterator[tuple[str, np.ndarray
                 break
             frame_idx += 1
             if (frame_idx - 1) % vid_stride == 0:
-                yield source, frame
+                yield source_label, frame
     finally:
         capture.release()
 
@@ -113,7 +114,7 @@ def iter_source(source: Any, vid_stride: int = 1) -> Iterator[tuple[str, np.ndar
             LOGGER.error(f"Could not open source: {source}")
             return
 
-        yield from _yield_video(str(cam_id), vid_stride=vid_stride)
+        yield from _yield_video(cam_id, vid_stride=vid_stride, label=str(cam_id))
         return
 
     try:
@@ -122,7 +123,7 @@ def iter_source(source: Any, vid_stride: int = 1) -> Iterator[tuple[str, np.ndar
         LOGGER.error(f"Could not open source: {source}")
         return
 
-    yield from _yield_video(str(cam_id), vid_stride=vid_stride)
+    yield from _yield_video(cam_id, vid_stride=vid_stride, label=str(cam_id))
 
 
 __all__ = ("IMAGE_EXTS", "MANIFEST_EXTS", "VIDEO_EXTS", "iter_source")

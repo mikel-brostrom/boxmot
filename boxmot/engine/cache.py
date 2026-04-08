@@ -83,6 +83,8 @@ def generate_dets_embs_batched(
 ) -> None:
     """Generate detections and embeddings in batches for evaluation caches."""
     WEIGHTS.mkdir(parents=True, exist_ok=True)
+    verbose = bool(getattr(args, "verbose", False))
+    show_progress = bool(getattr(args, "show_progress", True))
 
     batch_size = int(getattr(args, "batch_size", 16))
     n_threads = int(args.n_threads)
@@ -193,7 +195,8 @@ def generate_dets_embs_batched(
         ):
             try:
                 if _migrate_legacy_numeric_cache(cached_dets_path, dets_path, comments="#"):
-                    LOGGER.info(f"Migrated legacy detection cache to {dets_path.name}")
+                    if verbose:
+                        LOGGER.info(f"Migrated legacy detection cache to {dets_path.name}")
                     cached_dets_path = dets_path
             except Exception as exc:  # noqa: BLE001
                 LOGGER.warning(f"Failed to migrate detections for {seq_name}: {exc}")
@@ -202,19 +205,23 @@ def generate_dets_embs_batched(
                     continue
                 try:
                     if _migrate_legacy_embedding_cache(cached_emb_path, emb_paths[stem]):
-                        LOGGER.info(f"Migrated legacy embedding cache to {emb_paths[stem].name}")
+                        if verbose:
+                            LOGGER.info(f"Migrated legacy embedding cache to {emb_paths[stem].name}")
                         cached_emb_paths[stem] = emb_paths[stem]
                 except Exception as exc:  # noqa: BLE001
                     LOGGER.warning(f"Failed to migrate embeddings for {seq_name}/{stem}: {exc}")
             if expected_files and rows_match and det_rows:
-                LOGGER.info(f"Skipping {seq_name} (cached complete; {processed}/{len(frames)} frames).")
+                if verbose:
+                    LOGGER.info(f"Skipping {seq_name} (cached complete; {processed}/{len(frames)} frames).")
             else:
-                LOGGER.info(f"Skipping {seq_name} (resume: already complete).")
+                if verbose:
+                    LOGGER.info(f"Skipping {seq_name} (resume: already complete).")
             initial_done += len(frames)
             continue
 
         if resume and 0 < processed < len(frames):
-            LOGGER.info(f"Resuming {seq_name}: cached {processed}/{len(frames)} frames.")
+            if verbose:
+                LOGGER.info(f"Resuming {seq_name}: cached {processed}/{len(frames)} frames.")
 
         if (not resume) and cached_dets_path is not None and any_emb_cached:
             if not prompt_overwrite("Detections and Embeddings", cached_dets_path, args.ci):
@@ -225,7 +232,8 @@ def generate_dets_embs_batched(
         if resume and cached_dets_path is not None and cached_dets_path.suffix == ".txt":
             try:
                 if _migrate_legacy_numeric_cache(cached_dets_path, dets_path, comments="#"):
-                    LOGGER.info(f"Migrated legacy detection cache to {dets_path.name}")
+                    if verbose:
+                        LOGGER.info(f"Migrated legacy detection cache to {dets_path.name}")
                     cached_dets_path = dets_path
             except Exception:
                 pass
@@ -243,7 +251,8 @@ def generate_dets_embs_batched(
             if resume and cached_emb_path is not None and cached_emb_path.suffix == ".txt":
                 try:
                     if _migrate_legacy_embedding_cache(cached_emb_path, emb_path):
-                        LOGGER.info(f"Migrated legacy embedding cache to {emb_path.name}")
+                        if verbose:
+                            LOGGER.info(f"Migrated legacy embedding cache to {emb_path.name}")
                         cached_emb_path = emb_path
                 except Exception:
                     pass
@@ -259,7 +268,8 @@ def generate_dets_embs_batched(
         initial_done += processed
 
     if not seq_states:
-        LOGGER.info("No sequences to process (all cached or no images).")
+        if verbose:
+            LOGGER.info("No sequences to process (all cached or no images).")
         return
 
     pipeline = DetectorReIDPipeline(
@@ -288,8 +298,13 @@ def generate_dets_embs_batched(
     seq_names = list(seq_states.keys())
     rr = 0
 
-    pbar = tqdm(total=total_frames, desc=f"Batched YOLO+ReID ({y.name}, bs={batch_size})", unit="frame")
-    reid_pbar = tqdm(total=0, desc="ReID embeddings", unit="det", dynamic_ncols=True)
+    pbar = tqdm(
+        total=total_frames,
+        desc=f"Batched YOLO+ReID ({y.name}, bs={batch_size})",
+        unit="frame",
+        disable=not show_progress,
+    )
+    reid_pbar = tqdm(total=0, desc="ReID embeddings", unit="det", dynamic_ncols=True, disable=not show_progress)
     if initial_done:
         pbar.update(initial_done)
 
@@ -355,9 +370,10 @@ def generate_dets_embs_batched(
 
                 det_counts = [len(result.dets) for result in yolo_results]
                 emb_dims: dict[str, int] = {}
-                LOGGER.info(
-                    f"YOLO batch frames={len(batch_items)} | dets/frame={det_counts} | total_dets={sum(det_counts)}"
-                )
+                if verbose:
+                    LOGGER.info(
+                        f"YOLO batch frames={len(batch_items)} | dets/frame={det_counts} | total_dets={sum(det_counts)}"
+                    )
 
                 for (seq_name, frame_id, _), result, img in zip(batch_items, yolo_results, imgs):
                     dets = prepare_detections(result, img)
@@ -388,13 +404,14 @@ def generate_dets_embs_batched(
 
                     pbar.update(1)
 
-                if emb_dims:
-                    LOGGER.info(
-                        "ReID embedding dims per model: "
-                        + ", ".join([f"{name}={dim}" for name, dim in emb_dims.items()])
-                    )
-                else:
-                    LOGGER.info("ReID embedding dims per model: n/a (no detections)")
+                if verbose:
+                    if emb_dims:
+                        LOGGER.info(
+                            "ReID embedding dims per model: "
+                            + ", ".join([f"{name}={dim}" for name, dim in emb_dims.items()])
+                        )
+                    else:
+                        LOGGER.info("ReID embedding dims per model: n/a (no detections)")
 
                 del yolo_results, imgs
                 _clear_device_cache(args.device)
@@ -418,6 +435,7 @@ def generate_dets_embs_batched(
 def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[TimingStats] = None) -> None:
     """Generate detections and embeddings for all sequences."""
     _normalize_generate_args(args)
+    verbose = bool(getattr(args, "verbose", False))
 
     if getattr(args, "data", None) and getattr(args, "source", None) is None:
         from boxmot.utils.benchmark_config import apply_benchmark_config
@@ -436,7 +454,8 @@ def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[Timi
         args.resume = True
 
     for yolo_model in args.yolo_model:
-        LOGGER.info(f"Generating dets+embs (batched single-process): {yolo_model.name}")
+        if verbose:
+            LOGGER.info(f"Generating dets+embs (batched single-process): {yolo_model.name}")
         generate_dets_embs_batched(args, yolo_model, source_root, timing_stats=timing_stats)
 
 

@@ -1,19 +1,40 @@
+import importlib
+import queue
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 
+from boxmot.configs import ensure_model_extension
 from boxmot.detectors import default_conf, default_imgsz, get_detector_url, get_runtime_detector_cfg, load_detector_cfg
-from boxmot.detectors.detector import Detections
+from boxmot.detectors.base import Detections
+import boxmot.detectors.executor as detector_executor_module
 import boxmot.detectors.ultralytics as ultralytics_detector_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
-from boxmot.engine.cli import ensure_model_extension
-import boxmot.engine.evaluator as evaluator_module
-from boxmot.engine.inference import _iter_source, prepare_detections
+import boxmot.engine.predictor as tracker_module
+import boxmot.engine.replay as cached_tracking_module
+import boxmot.engine.runtime.pipeline as pipeline_module
+import boxmot.engine.runtime.tracker as tracker_runtime_module
+import boxmot.engine.validator as evaluator_module
+import boxmot.reid.runtime as reid_runtime_module
+import boxmot.utils.dataloaders.loaders as loaders_module
+from boxmot.engine.runtime.pipeline import _iter_source, prepare_detections
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
+from boxmot.utils.evaluation import (
+    AppendableNpyWriter,
+    _existing_cache_path,
+    _existing_embedding_cache_path,
+    _load_embedding_cache_array,
+    _load_numeric_cache_array,
+    _max_frame_id,
+    _migrate_legacy_embedding_cache,
+    _saved_detection_column_count,
+)
 from boxmot.utils.iou import iou_obb_pair
 from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
 from boxmot.utils import WEIGHTS
@@ -40,7 +61,7 @@ def test_prepare_detections_reads_aabb_result():
     dets = np.array([[10, 20, 30, 40, 0.9, 0]], dtype=np.float32)
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result, _DUMMY_IMG)
+    out = prepare_detections(result)
 
     assert out.shape == (1, 6)
     np.testing.assert_array_equal(out[0], np.array([10, 20, 30, 40, 0.9, 0], dtype=np.float32))
@@ -50,7 +71,7 @@ def test_prepare_detections_reads_obb_result():
     dets = np.array([[10, 20, 30, 40, 0.5, 0.8, 1]], dtype=np.float32)
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result, _DUMMY_IMG)
+    out = prepare_detections(result)
 
     assert out.shape == (1, 7)
     np.testing.assert_array_equal(out[0], dets[0])
@@ -60,7 +81,7 @@ def test_prepare_detections_preserves_empty_obb_width():
     dets = np.empty((0, 7), dtype=np.float32)
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result, _DUMMY_IMG)
+    out = prepare_detections(result)
 
     assert out.shape == (0, 7)
 
@@ -75,7 +96,7 @@ def test_prepare_detections_filters_invalid_obb_boxes():
     )
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result, _DUMMY_IMG)
+    out = prepare_detections(result)
 
     assert out.shape == (1, 7)
     np.testing.assert_array_equal(out[0], dets[0])
@@ -200,6 +221,63 @@ def test_ultralytics_detector_downloads_missing_configured_weights(monkeypatch, 
     }
 
 
+def test_ultralytics_detector_downloads_missing_official_weights_into_models_dir(monkeypatch):
+    calls = {}
+
+    class _FakeYOLO:
+        def __init__(self, model):
+            calls["model"] = model
+            self.names = {0: "car"}
+
+    monkeypatch.setattr(ultralytics_detector_module, "YOLO", _FakeYOLO)
+    monkeypatch.setattr(
+        ultralytics_detector_module,
+        "attempt_download_asset",
+        lambda file, release="latest", **_kwargs: calls.update(
+            {"file": Path(file), "release": release}
+        ) or str(file),
+        raising=False,
+    )
+
+    detector = UltralyticsDetector(model="yolo11_codex_missing.pt", device="cpu", imgsz=[64, 64])
+
+    assert detector.names == {0: "car"}
+    assert calls["file"] == WEIGHTS / "yolo11_codex_missing.pt"
+    assert calls["release"] == "latest"
+    assert calls["model"] == str(WEIGHTS / "yolo11_codex_missing.pt")
+
+
+def test_ultralytics_detector_redownloads_corrupt_official_weights(monkeypatch, tmp_path):
+    calls = {"models": []}
+
+    class _FakeYOLO:
+        def __init__(self, model):
+            calls["models"].append(model)
+            if len(calls["models"]) == 1:
+                raise RuntimeError("PytorchStreamReader failed reading zip archive: failed finding central directory")
+            self.names = {0: "car"}
+
+    monkeypatch.setattr(ultralytics_detector_module, "YOLO", _FakeYOLO)
+    monkeypatch.setattr(
+        ultralytics_detector_module,
+        "attempt_download_asset",
+        lambda file, release="latest", **_kwargs: calls.update(
+            {"file": Path(file), "release": release}
+        ) or str(file),
+        raising=False,
+    )
+
+    corrupt_model = tmp_path / "yolo11_corrupt.pt"
+    corrupt_model.write_bytes(b"broken")
+
+    detector = UltralyticsDetector(model=corrupt_model, device="cpu", imgsz=[64, 64])
+
+    assert detector.names == {0: "car"}
+    assert calls["models"] == [str(corrupt_model), str(corrupt_model)]
+    assert calls["file"] == corrupt_model
+    assert calls["release"] == "latest"
+
+
 def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector(monkeypatch):
     detector_cfg = load_detector_cfg("yolo11s-obb.pt")
     benchmark_bundle = {
@@ -303,7 +381,7 @@ def test_existing_embedding_cache_path_falls_back_to_legacy_txt(tmp_path):
     emb_txt = tmp_path / "SEQ.txt"
     np.savetxt(emb_txt, np.arange(4, dtype=np.float32)[None, :], fmt="%f")
 
-    resolved = evaluator_module._existing_embedding_cache_path(tmp_path / "SEQ.npy")
+    resolved = _existing_embedding_cache_path(tmp_path / "SEQ.npy")
 
     assert resolved == emb_txt
 
@@ -313,7 +391,7 @@ def test_load_embedding_cache_array_normalizes_single_row_txt_to_2d(tmp_path):
     expected = np.arange(8, dtype=np.float32)[None, :]
     np.savetxt(emb_txt, expected, fmt="%f")
 
-    loaded = evaluator_module._load_embedding_cache_array(emb_txt)
+    loaded = _load_embedding_cache_array(emb_txt)
 
     assert loaded.shape == (1, 8)
     np.testing.assert_allclose(loaded, expected)
@@ -325,7 +403,7 @@ def test_migrate_legacy_embedding_cache_writes_npy(tmp_path):
     expected = np.arange(12, dtype=np.float32).reshape(3, 4)
     np.savetxt(emb_txt, expected, fmt="%f")
 
-    migrated = evaluator_module._migrate_legacy_embedding_cache(emb_txt, target_npy)
+    migrated = _migrate_legacy_embedding_cache(emb_txt, target_npy)
 
     assert migrated is True
     np.testing.assert_allclose(np.load(target_npy), expected)
@@ -342,18 +420,18 @@ def test_detection_cache_helpers_support_npy(tmp_path):
     )
     np.save(det_npy, dets)
 
-    assert evaluator_module._existing_cache_path(det_npy) == det_npy
-    assert evaluator_module._saved_detection_column_count(det_npy) == 7
-    assert evaluator_module._max_frame_id(det_npy) == 3
+    assert _existing_cache_path(det_npy) == det_npy
+    assert _saved_detection_column_count(det_npy) == 7
+    assert _max_frame_id(det_npy) == 3
     np.testing.assert_allclose(
-        evaluator_module._load_numeric_cache_array(det_npy),
+        _load_numeric_cache_array(det_npy),
         dets,
     )
 
 
 def test_appendable_npy_writer_appends_rows_without_buffering_full_array(tmp_path):
     path = tmp_path / "stream.npy"
-    writer = evaluator_module.AppendableNpyWriter(
+    writer = AppendableNpyWriter(
         path,
         dtype=np.float32,
         trailing_shape=(3,),
@@ -372,7 +450,7 @@ def test_appendable_npy_writer_appends_rows_without_buffering_full_array(tmp_pat
 
 def test_appendable_npy_writer_can_resume_existing_file(tmp_path):
     path = tmp_path / "resume.npy"
-    writer = evaluator_module.AppendableNpyWriter(
+    writer = AppendableNpyWriter(
         path,
         dtype=np.float32,
         trailing_shape=(2,),
@@ -381,7 +459,7 @@ def test_appendable_npy_writer_can_resume_existing_file(tmp_path):
     writer.append(np.array([[1, 2]], dtype=np.float32))
     writer.close()
 
-    resumed = evaluator_module.AppendableNpyWriter(
+    resumed = AppendableNpyWriter(
         path,
         dtype=np.float32,
         trailing_shape=(2,),
@@ -398,7 +476,7 @@ def test_appendable_npy_writer_can_resume_existing_file(tmp_path):
 
 def test_appendable_npy_writer_creates_empty_file_for_lazy_writer(tmp_path):
     path = tmp_path / "empty.npy"
-    writer = evaluator_module.AppendableNpyWriter(
+    writer = AppendableNpyWriter(
         path,
         dtype=np.float32,
         trailing_shape=None,
@@ -424,15 +502,149 @@ def test_iter_source_preserves_stream_urls(monkeypatch):
         def release(self):
             seen["released"] = True
 
-    import boxmot.engine.inference as inference_module
-
-    monkeypatch.setattr(inference_module.cv2, "VideoCapture", _FakeCapture)
+    monkeypatch.setattr(loaders_module.cv2, "VideoCapture", _FakeCapture)
 
     frames = list(_iter_source("rtsp://camera/stream"))
 
     assert frames == []
     assert seen["source"] == "rtsp://camera/stream"
     assert seen["released"] is True
+
+
+def test_iter_source_reads_line_based_source_lists(tmp_path):
+    import cv2
+
+    img = np.zeros((8, 8, 3), dtype=np.uint8)
+    img_path = tmp_path / "000001.jpg"
+    cv2.imwrite(str(img_path), img)
+
+    manifest = tmp_path / "list.txt"
+    manifest.write_text("000001.jpg\n", encoding="utf-8")
+
+    frames = list(_iter_source(manifest))
+
+    assert len(frames) == 1
+    assert frames[0][0] == str(img_path.resolve())
+    assert frames[0][1].shape == img.shape
+
+
+def test_detector_executor_predict_batch_uses_detector_backend(monkeypatch):
+    captured = {}
+
+    class _FakeDetector:
+        def __init__(self, model, device, imgsz):
+            captured["init"] = {"model": model, "device": str(device), "imgsz": imgsz}
+
+        def __call__(self, images, conf, iou, classes, agnostic_nms):
+            captured["call"] = {
+                "n_images": len(images),
+                "conf": conf,
+                "iou": iou,
+                "classes": classes,
+                "agnostic_nms": agnostic_nms,
+            }
+            return ["ok"]
+
+    monkeypatch.setattr(detector_executor_module, "get_detector_class", lambda _path: _FakeDetector)
+
+    executor = detector_executor_module.DetectorBackendExecutor("det.pt", device=torch.device("cpu"), imgsz=[64, 64])
+    results = executor.predict_batch([_DUMMY_IMG], conf=0.25, iou=0.7, agnostic_nms=False, classes=[0])
+
+    assert results == ["ok"]
+    assert captured["init"]["model"] == Path("det.pt")
+    assert captured["call"] == {
+        "n_images": 1,
+        "conf": 0.25,
+        "iou": 0.7,
+        "classes": [0],
+        "agnostic_nms": False,
+    }
+
+
+def test_reid_runtime_returns_named_feature_sets(monkeypatch):
+    class _FakeReIDModel:
+        def get_features(self, xyxys, img):
+            return np.full((len(xyxys), 4), float(img.shape[0]), dtype=np.float32)
+
+    class _FakeBackend:
+        def __init__(self, weights, device, half):
+            self.model = _FakeReIDModel()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "boxmot.reid.core.auto_backend",
+        SimpleNamespace(ReIDAutoBackend=_FakeBackend),
+    )
+
+    runtime = reid_runtime_module.ReIDRuntime([Path("alpha.pt"), Path("beta.pt")], device="cpu", half=False)
+    features = runtime.get_all_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG)
+
+    assert set(features) == {"alpha", "beta"}
+    np.testing.assert_array_equal(features["alpha"], np.full((1, 4), 64.0, dtype=np.float32))
+
+
+def test_pipeline_delegates_to_detector_executor_and_reid_runtimes(monkeypatch):
+    detector_calls = []
+    reid_calls = []
+
+    class _FakeDetectorBackendExecutor:
+        def __init__(self, **kwargs):
+            self.device = torch.device("cpu")
+            self.detector_path = Path("det.pt")
+            self.imgsz = [64, 64]
+            self.half = False
+            self.detector = object()
+            self.timing_stats = kwargs["timing_stats"]
+
+        def predict_batch(self, images, conf, iou, agnostic_nms, classes):
+            detector_calls.append((len(images), conf, iou, agnostic_nms, classes))
+            return ["det"]
+
+        def warmup(self):
+            detector_calls.append("warmup")
+
+        def autotune_batch_size(self, requested_batch_size):
+            detector_calls.append(("batch", requested_batch_size))
+            return 2
+
+        def iter_predictions(self, **kwargs):
+            detector_calls.append(("stream", kwargs["source"]))
+            yield 1, "frame.jpg", [SimpleNamespace(path="", dets=np.empty((0, 6)), is_obb=False)]
+
+    class _FakeReIDRuntime:
+        def __init__(self, **kwargs):
+            self.device = torch.device("cpu")
+            self.half = False
+            self.models = ["model"]
+            self.model_names = ["alpha"]
+
+        def get_features(self, xyxys, img, reid_index=0):
+            reid_calls.append(("one", reid_index, len(xyxys)))
+            return np.ones((len(xyxys), 2), dtype=np.float32)
+
+        def get_all_features(self, xyxys, img):
+            reid_calls.append(("all", len(xyxys)))
+            return {"alpha": np.ones((len(xyxys), 2), dtype=np.float32)}
+
+    monkeypatch.setattr(pipeline_module, "DetectorBackendExecutor", _FakeDetectorBackendExecutor)
+    monkeypatch.setattr(pipeline_module, "ReIDRuntime", _FakeReIDRuntime)
+
+    pipeline = pipeline_module.DetectorReIDPipeline("det.pt", reid_paths=["alpha.pt"], device="cpu")
+    assert pipeline.predict_batch([_DUMMY_IMG], conf=0.25, iou=0.7, agnostic_nms=False, classes=None) == ["det"]
+    pipeline.warmup()
+    assert pipeline.autotune_batch_size(8) == 2
+    assert list(pipeline.predict("video.mp4", conf=0.25, iou=0.7, agnostic_nms=False, classes=None))
+    np.testing.assert_array_equal(
+        pipeline.get_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG),
+        np.ones((1, 2), dtype=np.float32),
+    )
+    assert set(pipeline.get_all_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG)) == {"alpha"}
+    assert detector_calls[:3] == [
+        (1, 0.25, 0.7, False, None),
+        "warmup",
+        ("batch", 8),
+    ]
+    assert reid_calls == [("one", 0, 1), ("all", 1)]
 
 
 def test_aabb_text_output_uses_conf_class_det_ind_columns(tmp_path):
@@ -605,3 +817,219 @@ def test_load_obb_gt_matrix_rejects_legacy_xywha_format(tmp_path):
         assert "expected 13 columns in corner format" in str(exc)
     else:
         raise AssertionError("Expected legacy xywha OBB GT to be rejected")
+
+
+def test_run_generate_mot_results_thread_backend_skips_process_pool(tmp_path, monkeypatch):
+    source = tmp_path / "train"
+    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
+        img_dir = source / seq_name / "img1"
+        img_dir.mkdir(parents=True)
+        (img_dir / "000001.jpg").write_bytes(b"")
+
+    args = SimpleNamespace(
+        project=tmp_path,
+        benchmark="mot17-mini",
+        source=source,
+        yolo_model=[Path("det.pt")],
+        reid_model=[Path("reid.pt")],
+        tracking_method="boosttrack",
+        fps=None,
+        device="cpu",
+        n_threads=2,
+        tracking_backend="thread",
+        postprocessing="none",
+        conf=0.25,
+    )
+    seen_queues = []
+    log_config_calls = []
+
+    def fake_process_sequence(*task_arg):
+        seq_name = task_arg[0]
+        progress_queue = task_arg[-1]
+        seen_queues.append(progress_queue.__class__.__name__)
+        progress_queue.put_nowait((seq_name, 1, 1))
+        return seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}
+
+    def fail_manager():
+        raise AssertionError("Thread backend should not construct a multiprocessing manager")
+
+    def fail_process_pool(*_args, **_kwargs):
+        raise AssertionError("Thread backend should not construct a process pool")
+
+    monkeypatch.setattr(cached_tracking_module, "process_sequence", fake_process_sequence)
+    monkeypatch.setattr(cached_tracking_module.mp, "Manager", fail_manager)
+    monkeypatch.setattr(cached_tracking_module.concurrent.futures, "ProcessPoolExecutor", fail_process_pool)
+    monkeypatch.setattr(
+        cached_tracking_module,
+        "_configure_logging",
+        lambda **kwargs: log_config_calls.append(kwargs),
+    )
+
+    cached_tracking_module.run_generate_mot_results(args, quiet=True)
+
+    assert args.seq_frame_nums == {
+        "MOT17-02-FRCNN": [1],
+        "MOT17-04-FRCNN": [1],
+    }
+    assert seen_queues == ["Queue", "Queue"]
+    assert log_config_calls == [
+        {"main_thread_only": True},
+        {},
+    ]
+
+
+def test_evaluator_dependency_check_is_lazy(monkeypatch):
+    calls = []
+
+    from boxmot.utils import checks as checks_module
+
+    monkeypatch.setattr(
+        checks_module.RequirementsChecker,
+        "check_packages",
+        lambda self, packages: calls.append(tuple(packages)),
+    )
+
+    importlib.reload(evaluator_module)
+
+    assert calls == []
+
+    evaluator_module._ensure_eval_dependencies()
+
+    assert calls == [("ultralytics",)]
+
+
+def test_run_generate_mot_results_process_backend_uses_spawn_context(tmp_path, monkeypatch):
+    source = tmp_path / "train"
+    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
+        img_dir = source / seq_name / "img1"
+        img_dir.mkdir(parents=True)
+        (img_dir / "000001.jpg").write_bytes(b"")
+
+    args = SimpleNamespace(
+        project=tmp_path,
+        benchmark="mot17-mini",
+        source=source,
+        yolo_model=[Path("det.pt")],
+        reid_model=[Path("reid.pt")],
+        tracking_method="boosttrack",
+        fps=None,
+        device="cpu",
+        n_threads=2,
+        tracking_backend="process",
+        postprocessing="none",
+        conf=0.25,
+    )
+
+    queue_types = []
+    executor_kwargs = {}
+
+    class FakeManager:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def Queue(self):
+            progress_queue = queue.Queue()
+            queue_types.append(type(progress_queue).__name__)
+            return progress_queue
+
+    class FakeSpawnContext:
+        def Manager(self):
+            return FakeManager()
+
+    spawn_context = FakeSpawnContext()
+
+    class FakeFuture:
+        def __init__(self, value):
+            self._value = value
+
+        def result(self):
+            return self._value
+
+    class FakeProcessPoolExecutor:
+        def __init__(self, *args, **kwargs):
+            executor_kwargs.update(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, _func, *task_arg):
+            seq_name = task_arg[0]
+            progress_queue = task_arg[-1]
+            progress_queue.put_nowait((seq_name, 1, 1))
+            return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
+
+    monkeypatch.setattr(cached_tracking_module.mp, "get_context", lambda method: spawn_context)
+    monkeypatch.setattr(cached_tracking_module.concurrent.futures, "ProcessPoolExecutor", FakeProcessPoolExecutor)
+    monkeypatch.setattr(
+        cached_tracking_module.concurrent.futures,
+        "wait",
+        lambda pending, timeout, return_when: (set(pending), set()),
+    )
+
+    cached_tracking_module.run_generate_mot_results(args, quiet=True)
+
+    assert args.seq_frame_nums == {
+        "MOT17-02-FRCNN": [1],
+        "MOT17-04-FRCNN": [1],
+    }
+    assert queue_types == ["Queue"]
+    assert executor_kwargs["mp_context"] is spawn_context
+    assert executor_kwargs["max_workers"] == 2
+
+
+def test_tracking_session_output_stem_handles_stream_and_camera_sources():
+    session = tracker_module.TrackingSession(SimpleNamespace(source="rtsp://camera/stream", fps=None))
+
+    assert session._resolve_output_stem() == "rtsp_camera_stream"
+
+    session.args.source = "0"
+    assert session._resolve_output_stem() == "camera_0"
+
+
+def test_tracking_session_resolves_output_fps_from_args():
+    session = tracker_module.TrackingSession(SimpleNamespace(source="video.mp4", fps=12))
+
+    assert session._resolve_output_fps() == 12
+
+    session.args.fps = None
+    assert session._resolve_output_fps() == 30
+
+
+def test_tracker_runtime_update_measures_elapsed_time_and_passes_embeddings():
+    calls = []
+
+    class _FakeTracker:
+        def update(self, dets, img, embs=None):
+            calls.append((dets.shape, img.shape, None if embs is None else embs.shape))
+            return np.array([[1, 2, 5, 6, 7, 0.9, 0, 0]], dtype=np.float32)
+
+        def plot_results(self, img, show_trajectories, *, thickness, show_kf_preds):
+            return img
+
+    timing_stats = tracker_runtime_module.TimingStats()
+    runtime = tracker_runtime_module.TrackerRuntime(_FakeTracker(), timing_stats=timing_stats)
+
+    tracks, elapsed_ms = runtime.update(
+        np.array([[1, 2, 5, 6, 0.9, 0]], dtype=np.float32),
+        _DUMMY_IMG,
+        np.ones((1, 4), dtype=np.float32),
+    )
+
+    assert tracks.shape == (1, 8)
+    assert elapsed_ms >= 0
+    assert timing_stats.get_last_track_time() == elapsed_ms
+    assert calls == [((1, 6), _DUMMY_IMG.shape, (1, 4))]
+
+
+def test_initialize_trackers_rejects_unknown_tracking_method():
+    predictor = SimpleNamespace(dataset=SimpleNamespace(bs=1), device="cpu")
+    args = SimpleNamespace(tracking_method="unknown", reid_model=Path("reid.pt"), half=False, per_class=False, target_id=None)
+
+    with pytest.raises(ValueError, match="not supported"):
+        tracker_module.TrackingSession.initialize_trackers(predictor, args)

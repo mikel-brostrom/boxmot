@@ -125,3 +125,61 @@ def test_onnx_export_static_has_no_dynamic_shapes(monkeypatch, tmp_path, batch_s
     assert export_args[0].shape[0] == batch_size
     assert "dynamic_shapes" not in export_kwargs
     assert "dynamic_axes" not in export_kwargs
+
+
+def test_onnx_export_quiet_mode_uses_legacy_dynamic_axes(monkeypatch, tmp_path):
+    _disable_dep_sync(monkeypatch)
+    _install_fake_onnx(monkeypatch)
+
+    calls = []
+
+    def fake_export(model, args, f, **kwargs):
+        calls.append((args, kwargs))
+        Path(f).touch()
+
+    monkeypatch.setattr(torch.onnx, "export", fake_export)
+
+    model, im = _load_existing_osnet_model_and_input(batch_size=2)
+    out_file = tmp_path / "osnet_x0_25_msmt17.pt"
+
+    exporter = ONNXExporter(model, im, out_file, opset=17, dynamic=True, half=False, simplify=False, verbose=False)
+    exported = exporter.export()
+
+    assert exported == out_file.with_suffix(".onnx")
+    assert len(calls) == 1
+    export_args, export_kwargs = calls[0]
+    assert export_args[0].shape[0] == 2
+    assert "dynamic_axes" in export_kwargs
+    assert "dynamic_shapes" not in export_kwargs
+
+
+def test_onnx_export_static_fallback_uses_legacy_exporter(monkeypatch, tmp_path):
+    _disable_dep_sync(monkeypatch)
+    _install_fake_onnx(monkeypatch)
+
+    calls = []
+
+    def fake_export(model, args, f, **kwargs):
+        calls.append((args, kwargs))
+        if len(calls) == 1:
+            raise RuntimeError("unsupported torch.export op")
+        Path(f).touch()
+
+    monkeypatch.setattr(torch.onnx, "export", fake_export)
+
+    model, im = _load_existing_osnet_model_and_input(batch_size=2)
+    out_file = tmp_path / "osnet_x0_25_msmt17.pt"
+
+    exporter = ONNXExporter(model, im, out_file, opset=17, dynamic=False, half=False, simplify=False)
+    exported = exporter.export()
+
+    assert exported == out_file.with_suffix(".onnx")
+    assert len(calls) == 2
+    first_args, first_kwargs = calls[0]
+    second_args, second_kwargs = calls[1]
+    assert first_args[0].shape[0] == 2
+    assert second_args[0].shape[0] == 2
+    if "dynamo" in second_kwargs:
+        assert second_kwargs["dynamo"] is False
+    assert "dynamic_shapes" not in second_kwargs
+    assert "dynamic_axes" not in second_kwargs

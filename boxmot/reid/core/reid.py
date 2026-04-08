@@ -39,7 +39,7 @@ class ReID:
         primary_weight = model_ref[0] if isinstance(model_ref, (list, tuple)) else model_ref
         self.path = Path(primary_weight)
         self.weights = model_ref
-        self.device = select_device(device)
+        self.device = device if isinstance(device, torch.device) else select_device(device)
         self.half = bool(half)
         (
             self.pt,

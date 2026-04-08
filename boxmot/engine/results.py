@@ -31,6 +31,14 @@ def _track_color(track_id: int) -> tuple[int, int, int]:
     return int(base), int((base * 3) % 255), int((base * 7) % 255)
 
 
+def _is_live_source(source: Any) -> bool:
+    if isinstance(source, int):
+        return True
+    if isinstance(source, str):
+        return source.isdigit() or "://" in source
+    return False
+
+
 class Tracks:
     def __init__(
         self,
@@ -40,6 +48,7 @@ class Tracks:
         detections: np.ndarray | None,
         source_path: str,
         get_drawer: Callable[[], Drawer | None],
+        stop_session: Callable[[str | None], None] | None = None,
     ) -> None:
         self.frame_idx = int(frame_idx)
         self.frame = frame
@@ -47,6 +56,7 @@ class Tracks:
         self.detections = None if detections is None else self._as_2d_array(detections)
         self.source_path = source_path
         self._get_drawer = get_drawer
+        self._stop_session = stop_session
 
     @staticmethod
     def _as_2d_array(values: Any) -> np.ndarray:
@@ -106,7 +116,10 @@ class Tracks:
     def show(self, window_name: str = "Tracking") -> bool:
         cv2.imshow(window_name, self.render())
         key = cv2.waitKey(1) & 0xFF
-        return key not in (ord("q"), 27)
+        should_continue = key not in (ord("q"), 27)
+        if not should_continue and self._stop_session is not None:
+            self._stop_session("Tracking stopped by user.")
+        return should_continue
 
     def to_mot(self) -> np.ndarray:
         if self.tracks.size == 0:
@@ -145,7 +158,10 @@ class Results:
         self.drawer = drawer
         self._generator: Iterator[Tracks] | None = None
         self._cache: list[Tracks] = []
+        self._cache_results = not _is_live_source(source)
         self._exhausted = False
+        self._interrupted = False
+        self._track_ids_seen: set[int] = set()
         self.totals = {
             "det": 0.0,
             "reid": 0.0,
@@ -171,7 +187,8 @@ class Results:
         except StopIteration:
             self._exhausted = True
             raise
-        self._cache.append(result)
+        if self._cache_results:
+            self._cache.append(result)
         return result
 
     @staticmethod
@@ -219,17 +236,7 @@ class Results:
         )
 
     def _log_summary(self) -> None:
-        frames = int(self.totals["frames"])
-        if frames == 0:
-            return
-        LOGGER.info(
-            "Processed %d frame(s) | det=%.1fms | reid=%.1fms | track=%.1fms | total=%.1fms",
-            frames,
-            self.totals["det"] / frames,
-            self.totals["reid"] / frames,
-            self.totals["track"] / frames,
-            self.totals["total"] / frames,
-        )
+        self.print_summary()
 
     def _run_reid(self, frame: np.ndarray, dets: np.ndarray) -> np.ndarray | None:
         if self.reid is None:
@@ -247,6 +254,96 @@ class Results:
         except TypeError:
             tracks = self.tracker.update(dets, frame)
         return self._as_2d_array(tracks, empty_cols=8)
+
+    @staticmethod
+    def _extract_track_ids(tracks: np.ndarray) -> set[int]:
+        arr = np.asarray(tracks, dtype=np.float32)
+        if arr.size == 0 or arr.ndim != 2:
+            return set()
+        if arr.shape[1] >= 9:
+            return {int(track_id) for track_id in arr[:, 5].tolist()}
+        if arr.shape[1] >= 8:
+            return {int(track_id) for track_id in arr[:, 4].tolist()}
+        return set()
+
+    def _summary_snapshot(self) -> dict[str, Any]:
+        frames = int(self.totals["frames"])
+        avg_total = (self.totals["total"] / frames) if frames else 0.0
+        return {
+            "source": str(self.source),
+            "frames": frames,
+            "detections": int(self.totals["detections"]),
+            "tracks": int(self.totals["tracks"]),
+            "unique_tracks": len(self._track_ids_seen),
+            "timings_ms": {
+                "det": float(self.totals["det"]),
+                "reid": float(self.totals["reid"]),
+                "track": float(self.totals["track"]),
+                "total": float(self.totals["total"]),
+                "avg_total": float(avg_total),
+            },
+        }
+
+    def stop(self, reason: str | None = None) -> None:
+        if self._exhausted:
+            return
+
+        self._interrupted = True
+        if reason:
+            LOGGER.info(reason)
+
+        generator = self._generator
+        self._generator = None
+        if generator is not None:
+            generator.close()
+        else:
+            self._exhausted = True
+
+    def format_summary(self) -> str:
+        summary = self.summary()
+        timings = summary["timings_ms"]
+        frames = max(int(summary["frames"]), 1)
+        width = 86
+
+        def _fps(total_ms: float) -> float:
+            avg_ms = float(total_ms) / frames if frames else 0.0
+            return (1000.0 / avg_ms) if avg_ms else 0.0
+
+        lines = [
+            "=" * width,
+            f"{'TRACKING SUMMARY':^{width}}",
+            "=" * width,
+            f"Source:      {summary['source']}",
+            f"Frames:      {summary['frames']}",
+            f"Detections:  {summary['detections']}",
+            f"Track rows:  {summary['tracks']}",
+            f"Unique IDs:  {summary.get('unique_tracks', 0)}",
+            "-" * width,
+            f"{'Component':<14} {'Total (ms)':>12} {'Avg (ms)':>12} {'FPS':>10}",
+            "-" * width,
+            f"{'Detection':<14} {timings['det']:>12.1f} {(timings['det'] / frames if frames else 0.0):>12.2f} {_fps(timings['det']):>10.1f}",
+            f"{'ReID':<14} {timings['reid']:>12.1f} {(timings['reid'] / frames if frames else 0.0):>12.2f} {_fps(timings['reid']):>10.1f}",
+            f"{'Tracking':<14} {timings['track']:>12.1f} {(timings['track'] / frames if frames else 0.0):>12.2f} {_fps(timings['track']):>10.1f}",
+            "-" * width,
+            f"{'Total':<14} {timings['total']:>12.1f} {timings['avg_total']:>12.2f} {_fps(timings['total']):>10.1f}",
+            "=" * width,
+        ]
+        return "\n".join(lines)
+
+    def print_summary(self) -> None:
+        frames = int(self.totals["frames"])
+        if frames == 0:
+            return
+
+        for index, line in enumerate(self.format_summary().splitlines()):
+            if line and set(line) == {"="}:
+                LOGGER.opt(colors=True).info(f"<blue>{line}</blue>")
+            elif line and set(line) == {"-"}:
+                LOGGER.opt(colors=True).info(f"<blue>{line}</blue>")
+            elif index == 1:
+                LOGGER.opt(colors=True).info(f"<bold><cyan>{line}</cyan></bold>")
+            else:
+                LOGGER.info(line)
 
     def _process(self):
         if hasattr(self.tracker, "reset"):
@@ -279,6 +376,7 @@ class Results:
                 self.totals["frames"] += 1
                 self.totals["detections"] += int(dets.shape[0])
                 self.totals["tracks"] += int(tracks.shape[0])
+                self._track_ids_seen.update(self._extract_track_ids(tracks))
 
                 if self.verbose:
                     self._log_frame_timings(frame_idx, det_ms, reid_ms, track_ms)
@@ -290,7 +388,12 @@ class Results:
                     detections=dets,
                     source_path=path,
                     get_drawer=lambda: self.drawer,
+                    stop_session=self.stop,
                 )
+        except KeyboardInterrupt:
+            self._interrupted = True
+            LOGGER.info("Tracking interrupted by user.")
+            return
         finally:
             self._exhausted = True
             if self.verbose:
@@ -314,22 +417,9 @@ class Results:
         return path
 
     def summary(self) -> dict[str, Any]:
-        self.materialize()
-        frames = int(self.totals["frames"])
-        avg_total = (self.totals["total"] / frames) if frames else 0.0
-        return {
-            "source": str(self.source),
-            "frames": frames,
-            "detections": int(self.totals["detections"]),
-            "tracks": int(self.totals["tracks"]),
-            "timings_ms": {
-                "det": float(self.totals["det"]),
-                "reid": float(self.totals["reid"]),
-                "track": float(self.totals["track"]),
-                "total": float(self.totals["total"]),
-                "avg_total": float(avg_total),
-            },
-        }
+        if not self._exhausted and not self._interrupted and not _is_live_source(self.source):
+            self.materialize()
+        return self._summary_snapshot()
 
     def show(self) -> None:
         for track_result in self:

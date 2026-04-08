@@ -211,6 +211,14 @@ def _select_plot_metrics_data(results: dict) -> tuple[str, dict]:
     if not results:
         return "", {}
 
+    flat_summary = {
+        key: results[key]
+        for key in SUMMARY_COLUMNS
+        if isinstance(results.get(key), (int, float))
+    }
+    if flat_summary:
+        return "single_class", flat_summary
+
     first_value = next(iter(results.values()))
     if isinstance(first_value, (int, float)):
         return "single_class", results

@@ -5,6 +5,9 @@ from __future__ import annotations
 import math
 import random
 import re
+import sys
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
@@ -18,16 +21,28 @@ from boxmot.configs import BOXMOT_DEFAULTS, build_mode_namespace
 from boxmot.data import IMAGE_EXTS, VIDEO_EXTS
 from boxmot.engine.results import Results, Tracks
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
+from boxmot.utils import configure_logging as _configure_boxmot_logging, logger as LOGGER
 from boxmot.utils.compat import dataclass_slots_kwargs
 from boxmot.utils.misc import increment_path, resolve_model_path
 from boxmot.utils.timing import TimingStats
 from boxmot.utils.torch_utils import select_device
 
 SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
+CORE_SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1")
+DEFAULT_VALIDATION_REPORT_TITLE = "VAL RESULTS"
+DEFAULT_TUNE_BEST_REPORT_TITLE = "TUNE BEST RESULTS"
 REID_TRACKERS = {"strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack"}
 TRACKER_CLASS_TO_NAME = {
     class_path.rsplit(".", 1)[-1].lower(): tracker_name
     for tracker_name, class_path in TRACKER_MAPPING.items()
+}
+SUMMARY_DISPLAY_NAMES = {
+    "cls_comb_det_av": "Class Avg (Det)",
+    "cls_comb_cls_av": "Class Avg (Cls)",
+    "HUMAN": "Human (Super)",
+    "VEHICLE": "Vehicle (Super)",
+    "BIKE": "Bike (Super)",
+    "all": "All Classes",
 }
 
 
@@ -40,6 +55,13 @@ class ValidationResult:
     exp_dir: Path | None = None
     timings: dict[str, Any] = field(default_factory=dict)
     args: Any = None
+
+    def format_report(self, *, title: str | None = None, include_sequences: bool = True) -> str:
+        report_title = DEFAULT_VALIDATION_REPORT_TITLE if title is None else title
+        return _format_validation_report(self.raw, title=report_title, include_sequences=include_sequences)
+
+    def print_report(self, *, title: str | None = None, include_sequences: bool = True) -> None:
+        print(self.format_report(title=title, include_sequences=include_sequences))
 
 
 @dataclass(**dataclass_slots_kwargs())
@@ -59,6 +81,13 @@ class TuneResult:
     best_config: dict[str, Any]
     best_yaml: Path
 
+    def format_best_report(self, *, title: str | None = None, include_sequences: bool = True) -> str:
+        report_title = DEFAULT_TUNE_BEST_REPORT_TITLE if title is None else title
+        return self.best.metrics.format_report(title=report_title, include_sequences=include_sequences)
+
+    def print_best_report(self, *, title: str | None = None, include_sequences: bool = True) -> None:
+        print(self.format_best_report(title=title, include_sequences=include_sequences))
+
 
 @dataclass(**dataclass_slots_kwargs())
 class ExportResult:
@@ -76,10 +105,30 @@ class TrackRunResult:
     summary: dict[str, Any]
 
     def __iter__(self) -> Iterator[Tracks]:
-        return iter(self.results.materialize())
+        for track_result in self.results:
+            self.refresh()
+            yield track_result
+        self.refresh()
 
     def show(self) -> None:
         self.results.show()
+        self.refresh()
+
+    def stop(self, reason: str | None = None) -> None:
+        self.results.stop(reason)
+        self.refresh()
+
+    def format_summary(self) -> str:
+        self.refresh()
+        return self.results.format_summary()
+
+    def print_summary(self) -> None:
+        self.refresh()
+        self.results.print_summary()
+
+    def refresh(self) -> None:
+        self.summary = _results_summary_snapshot(self.results, self.source)
+        self.timings = _track_timings_from_summary(self.summary)
 
 
 def _normalize_classes(classes: Any) -> list[int] | None:
@@ -200,8 +249,290 @@ def _timing_summary_from_stats(timing_stats: TimingStats) -> dict[str, Any]:
     }
 
 
+def _results_summary_snapshot(results: Results, source: Any) -> dict[str, Any]:
+    frames = int(results.totals["frames"])
+    avg_total = (results.totals["total"] / frames) if frames else 0.0
+    return {
+        "source": str(source),
+        "frames": frames,
+        "detections": int(results.totals["detections"]),
+        "tracks": int(results.totals["tracks"]),
+        "unique_tracks": len(getattr(results, "_track_ids_seen", set())),
+        "timings_ms": {
+            "det": float(results.totals["det"]),
+            "reid": float(results.totals["reid"]),
+            "track": float(results.totals["track"]),
+            "total": float(results.totals["total"]),
+            "avg_total": float(avg_total),
+        },
+    }
+
+
+def _track_timings_from_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    timings = dict(summary.get("timings_ms", {}))
+    avg_total = float(timings.get("avg_total", 0.0) or 0.0)
+    timings["fps"] = (1000.0 / avg_total) if avg_total else 0.0
+    return timings
+
+
+def _is_live_track_source(source: Any) -> bool:
+    if isinstance(source, int):
+        return True
+    if isinstance(source, str):
+        return source.isdigit() or "://" in source
+    return False
+
+
 def _compare_scores(left: tuple[float, ...], right: tuple[float, ...]) -> bool:
     return left > right
+
+
+def _core_summary_metrics(summary: dict[str, Any]) -> dict[str, float]:
+    return {
+        metric: float(summary.get(metric, 0.0) or 0.0)
+        for metric in CORE_SUMMARY_COLUMNS
+    }
+
+
+def _format_core_summary(summary: dict[str, Any]) -> str:
+    metrics = _core_summary_metrics(summary)
+    return " ".join(f"{metric}={value:.3f}" for metric, value in metrics.items())
+
+
+def _is_numeric_metric(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _display_summary_name(name: str) -> str:
+    return SUMMARY_DISPLAY_NAMES.get(name, name)
+
+
+def _combined_summary_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        column: metrics.get(column, 0)
+        for column in SUMMARY_COLUMNS
+        if _is_numeric_metric(metrics.get(column, 0)) or column in metrics
+    }
+
+
+def _format_summary_cell(column: str, value: Any) -> str:
+    if column in {"IDSW", "IDs"}:
+        return f"{int(value or 0):>10}"
+    return f"{float(value or 0):>10.2f}"
+
+
+def _format_summary_table(title: str, rows: list[tuple[str, dict[str, Any], bool]], *, name_header: str = "Sequence") -> str:
+    if not rows:
+        return ""
+
+    name_width = max(len(name_header), *(len(name) for name, _, _ in rows))
+    header = f"{name_header:<{name_width}} " + " ".join(f"{column:>10}" for column in SUMMARY_COLUMNS)
+    total_width = len(header)
+    lines = [
+        "=" * total_width,
+        f"{title:^{total_width}}",
+        "=" * total_width,
+        header,
+        "-" * total_width,
+    ]
+
+    for row_name, metrics, _highlight in rows:
+        values = " ".join(_format_summary_cell(column, metrics.get(column, 0)) for column in SUMMARY_COLUMNS)
+        lines.append(f"{row_name:<{name_width}} {values}")
+
+    lines.append("=" * total_width)
+    return "\n".join(lines)
+
+
+def _iter_validation_sections(raw: dict[str, Any], *, include_sequences: bool = True) -> list[tuple[str, list[tuple[str, dict[str, Any], bool]]]]:
+    if not raw:
+        return []
+
+    flat_summary = _combined_summary_metrics(raw)
+    if flat_summary:
+        rows: list[tuple[str, dict[str, Any], bool]] = []
+        if include_sequences:
+            per_sequence = raw.get("per_sequence", {})
+            if isinstance(per_sequence, dict):
+                rows.extend(
+                    (seq_name, metrics, False)
+                    for seq_name, metrics in sorted(per_sequence.items())
+                    if isinstance(metrics, dict)
+                )
+        rows.append(("COMBINED", flat_summary, True))
+        return [("Combined", rows)]
+
+    sections: list[tuple[str, list[tuple[str, dict[str, Any], bool]]]] = []
+    for section_name, metrics in raw.items():
+        if not isinstance(metrics, dict):
+            continue
+
+        rows = []
+        if include_sequences:
+            per_sequence = metrics.get("per_sequence", {})
+            if isinstance(per_sequence, dict):
+                rows.extend(
+                    (seq_name, seq_metrics, False)
+                    for seq_name, seq_metrics in sorted(per_sequence.items())
+                    if isinstance(seq_metrics, dict)
+                )
+
+        combined = _combined_summary_metrics(metrics)
+        if not rows and not combined:
+            continue
+        rows.append(("COMBINED", combined or metrics, True))
+        sections.append((_display_summary_name(section_name), rows))
+
+    return sections
+
+
+def _format_validation_report(raw: dict[str, Any], *, title: str | None = None, include_sequences: bool = True) -> str:
+    sections = _iter_validation_sections(raw, include_sequences=include_sequences)
+    if not sections:
+        fallback_title = title or "Results"
+        return f"{fallback_title}\n{_format_core_summary(raw if isinstance(raw, dict) else {})}"
+
+    if len(sections) == 1:
+        section_title, rows = sections[0]
+        return _format_summary_table(title or section_title, rows)
+
+    blocks = []
+    for section_title, rows in sections:
+        block_title = section_title if title is None else f"{title} | {section_title}"
+        blocks.append(_format_summary_table(block_title, rows))
+    return "\n\n".join(block for block in blocks if block)
+
+
+def _format_remaining_time(seconds: float | None) -> str:
+    if seconds is None or not math.isfinite(seconds):
+        return "--:--"
+
+    total_seconds = 0 if seconds <= 0 else int(math.ceil(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _estimate_tune_remaining(trial_durations: Sequence[float], remaining_trials: int) -> float | None:
+    if remaining_trials <= 0:
+        return 0.0
+    if not trial_durations:
+        return None
+    avg_trial_seconds = sum(trial_durations) / len(trial_durations)
+    return avg_trial_seconds * remaining_trials
+
+
+def _format_progress_bar(current: int, total: int, *, bar_width: int = 20) -> tuple[str, float]:
+    if total <= 0:
+        pct = 1.0 if current >= total else 0.0
+    else:
+        pct = min(max(current / total, 0.0), 1.0)
+
+    filled = int(bar_width * pct)
+    bar = "█" * filled + "░" * (bar_width - filled)
+    return bar, pct
+
+
+def _format_named_progress(label: str, current: int, total: int, *, detail: str = "") -> str:
+    bar, pct = _format_progress_bar(current, total)
+    message = f"  {label:<8s} {bar} {pct:>5.0%}  ({current}/{total})"
+    if detail:
+        message = f"{message}  {detail}"
+    return message
+
+
+def _format_tune_progress(
+    completed: int,
+    total: int,
+    summary: dict[str, Any] | None = None,
+    *,
+    current_trial: int | None = None,
+    is_new_best: bool = False,
+    remaining_seconds: float | None = None,
+) -> str:
+    remaining = _format_remaining_time(remaining_seconds)
+    if summary is None:
+        running = current_trial if current_trial is not None else (completed + 1)
+        return _format_named_progress(
+            "Tune",
+            completed,
+            total,
+            detail=f"running trial {running}/{total}  remaining {remaining}",
+        )
+
+    summary_prefix = "last " if current_trial is not None and completed < total else ""
+    summary_text = f"{summary_prefix}{_format_core_summary(summary)}"
+    status = "  best" if is_new_best else ""
+    if current_trial is not None and completed < total:
+        return _format_named_progress(
+            "Tune",
+            completed,
+            total,
+            detail=(
+                f"running trial {current_trial}/{total}  "
+                f"{summary_text}{status}  remaining {remaining}"
+            ),
+        )
+
+    return _format_named_progress(
+        "Tune",
+        completed,
+        total,
+        detail=f"{summary_text}{status}  remaining {remaining}",
+    )
+
+
+def _write_progress_line(
+    message: str,
+    previous_width: int,
+    *,
+    stream=None,
+    final: bool = False,
+) -> int:
+    output = sys.stderr if stream is None else stream
+    width = max(previous_width, len(message))
+    is_tty = hasattr(output, "isatty") and output.isatty()
+    rendered = f"\033[36m{message}\033[0m" if is_tty else message
+    prefix = "\r\033[2K" if is_tty else "\r"
+    output.write(prefix + rendered + (" " * (width - len(message))))
+    if final:
+        output.write("\n")
+    output.flush()
+    return width
+
+
+@contextmanager
+def _suppress_boxmot_logs(enabled: bool, *, level: str = "WARNING"):
+    if not enabled:
+        yield
+        return
+
+    LOGGER.remove()
+    LOGGER.add(
+        sys.stderr,
+        level=level,
+        colorize=True,
+        backtrace=True,
+        diagnose=True,
+        enqueue=True,
+        format="<level>{level: <8}</level> | <level>{message}</level>",
+    )
+    try:
+        yield
+    finally:
+        _configure_boxmot_logging(main_only=True)
+
+
+class _TrackerReIDAdapter:
+    def __init__(self, backend: Any) -> None:
+        self.backend = backend
+
+    def __call__(self, inputs, boxes=None, **kwargs):
+        if boxes is None:
+            raise TypeError("boxes are required when reusing a tracker ReID backend")
+        return self.backend.get_features(boxes, inputs)
 
 
 def track(source, detector, reid=None, tracker=None, *, verbose: bool = True, drawer=None) -> Results:
@@ -399,6 +730,25 @@ class Boxmot:
             per_class=False,
         )
 
+    def _build_track_reid(
+        self,
+        tracker: Any,
+        *,
+        device: str = BOXMOT_DEFAULTS.track.device,
+        half: bool = BOXMOT_DEFAULTS.track.half,
+    ):
+        if isinstance(self.tracker, str):
+            tracker_name = self._tracker_name(required=False)
+            if tracker_name in REID_TRACKERS:
+                if hasattr(tracker, "with_reid") and not bool(getattr(tracker, "with_reid")):
+                    return None
+
+                tracker_backend = getattr(tracker, "reid_model", None) or getattr(tracker, "model", None)
+                if tracker_backend is not None:
+                    return _TrackerReIDAdapter(tracker_backend)
+
+        return self._build_reid(device=device, half=half)
+
     def _base_eval_args(
         self,
         benchmark: str | Path,
@@ -410,6 +760,7 @@ class Boxmot:
         half: bool = BOXMOT_DEFAULTS.eval.half,
         project: str | Path | None = None,
         verbose: bool = BOXMOT_DEFAULTS.eval.verbose,
+        show_progress: bool = True,
         postprocessing: str = BOXMOT_DEFAULTS.eval.postprocessing,
     ):
         reid_path = self._reid_path(required=False) or BOXMOT_DEFAULTS.shared.reid
@@ -437,6 +788,7 @@ class Boxmot:
                 "ci": True,
                 "tracking_method": self._tracker_name(required=True),
                 "verbose": bool(verbose),
+                "show_progress": bool(show_progress),
                 "postprocessing": postprocessing,
                 "fps": None,
                 "show": False,
@@ -473,6 +825,7 @@ class Boxmot:
         half: bool = BOXMOT_DEFAULTS.eval.half,
         project: str | Path | None = None,
         verbose: bool = BOXMOT_DEFAULTS.eval.verbose,
+        show_progress: bool = True,
         postprocessing: str = BOXMOT_DEFAULTS.eval.postprocessing,
         evolve_config: dict[str, Any] | None = None,
     ) -> ValidationResult:
@@ -487,6 +840,7 @@ class Boxmot:
             half=half,
             project=project,
             verbose=verbose,
+            show_progress=show_progress,
             postprocessing=postprocessing,
         )
 
@@ -498,7 +852,7 @@ class Boxmot:
             args,
             evolve_config=tracker_config,
             timing_stats=timing_stats,
-            quiet=not verbose,
+            quiet=not show_progress,
         )
         raw_results = evaluator.run_trackeval(args, verbose=verbose)
         summary_label, summary = _extract_summary(raw_results)
@@ -676,11 +1030,11 @@ class Boxmot:
         drawer=None,
         verbose: bool = BOXMOT_DEFAULTS.track.verbose,
     ) -> TrackRunResult:
-        detector = self._build_detector(device=device, imgsz=imgsz, conf=conf, iou=iou)
-        reid = self._build_reid(device=device, half=half)
-        tracker = self._build_tracker(device=device, half=half)
+        with _suppress_boxmot_logs(not verbose, level="WARNING"):
+            detector = self._build_detector(device=device, imgsz=imgsz, conf=conf, iou=iou)
+            tracker = self._build_tracker(device=device, half=half)
+            reid = self._build_track_reid(tracker, device=device, half=half)
         run = track(source, detector, reid, tracker, verbose=verbose, drawer=drawer)
-        run.materialize()
 
         output_dir = self._resolve_track_output_dir(source)
         text_path = output_dir / "tracks.txt" if save_txt else None
@@ -691,18 +1045,16 @@ class Boxmot:
         if video_path is not None:
             self._save_video(run, video_path, fps=self._resolve_output_fps(source))
 
-        summary = run.summary()
-        timings = dict(summary["timings_ms"])
-        timings["fps"] = (1000.0 / timings["avg_total"]) if timings.get("avg_total") else 0.0
-
-        return TrackRunResult(
+        result = TrackRunResult(
             source=source,
             results=run,
             video_path=video_path,
             text_path=text_path,
-            timings=timings,
-            summary=summary,
+            timings={},
+            summary={},
         )
+        result.refresh()
+        return result
 
     def val(
         self,
@@ -726,6 +1078,7 @@ class Boxmot:
             half=half,
             project=project,
             verbose=verbose,
+            show_progress=True,
             postprocessing=postprocessing,
         )
 
@@ -748,26 +1101,67 @@ class Boxmot:
         rng = random.Random(seed)
         tracker_name = self._tracker_name(required=True)
         trials: list[TuneTrialResult] = []
+        best: TuneTrialResult | None = None
+        progress_width = 0
+        last_summary: dict[str, Any] | None = None
+        last_was_best = False
+        trial_durations: list[float] = []
 
         for index, config in enumerate(self._iter_tune_configs(n_trials, rng), start=1):
-            metrics = self._run_validation_pipeline(
-                benchmark=benchmark,
-                imgsz=imgsz,
-                conf=conf,
-                iou=iou,
-                device=device,
-                half=half,
-                project=project,
-                verbose=verbose,
-                evolve_config=config,
+            remaining_seconds = _estimate_tune_remaining(trial_durations, n_trials - (index - 1))
+            progress_width = _write_progress_line(
+                _format_tune_progress(
+                    index - 1,
+                    n_trials,
+                    summary=last_summary,
+                    current_trial=index,
+                    is_new_best=last_was_best,
+                    remaining_seconds=remaining_seconds,
+                ),
+                progress_width,
             )
-            score = self._score_summary(metrics.summary, maximize=maximize, minimize=minimize)
-            trials.append(TuneTrialResult(index=index, config=config, metrics=metrics, score=score))
 
-        best = trials[0]
-        for trial in trials[1:]:
-            if _compare_scores(trial.score, best.score):
-                best = trial
+            trial_started = time.perf_counter()
+            with _suppress_boxmot_logs(not verbose, level="WARNING"):
+                metrics = self._run_validation_pipeline(
+                    benchmark=benchmark,
+                    imgsz=imgsz,
+                    conf=conf,
+                    iou=iou,
+                    device=device,
+                    half=half,
+                    project=project,
+                    verbose=False,
+                    show_progress=False,
+                    evolve_config=config,
+                )
+
+            trial_durations.append(time.perf_counter() - trial_started)
+            score = self._score_summary(metrics.summary, maximize=maximize, minimize=minimize)
+            trial_result = TuneTrialResult(index=index, config=config, metrics=metrics, score=score)
+            trials.append(trial_result)
+
+            is_new_best = best is None or _compare_scores(trial_result.score, best.score)
+            if is_new_best:
+                best = trial_result
+            last_summary = metrics.summary
+            last_was_best = is_new_best
+
+            remaining_seconds = _estimate_tune_remaining(trial_durations, n_trials - index)
+            progress_width = _write_progress_line(
+                _format_tune_progress(
+                    index,
+                    n_trials,
+                    metrics.summary,
+                    is_new_best=is_new_best,
+                    remaining_seconds=remaining_seconds,
+                ),
+                progress_width,
+                final=index == n_trials,
+            )
+
+        if best is None:
+            raise RuntimeError("Tune did not produce any trials.")
 
         output_dir = increment_path(Path(project or self.project) / "tune" / f"{benchmark}_{tracker_name}", mkdir=True)
         best_yaml = output_dir / "best.yaml"

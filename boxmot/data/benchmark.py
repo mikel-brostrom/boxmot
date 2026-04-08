@@ -89,6 +89,7 @@ def configure_benchmark_runtime(
     """Apply benchmark-driven detector and ReID defaults to the current args namespace."""
     benchmark_bundle = load_benchmark_cfg_fn(args)
     benchmark_cfg = benchmark_bundle.get("benchmark", {})
+    verbose = bool(getattr(args, "verbose", False))
 
     use_benchmark_detector = should_use_benchmark_detector_fn(args, benchmark_bundle)
     use_benchmark_reid = should_use_benchmark_reid_fn(args, benchmark_bundle)
@@ -97,14 +98,14 @@ def configure_benchmark_runtime(
     required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
     if required_yolo_model and use_benchmark_detector:
         required_model = ensure_benchmark_detector_model_fn(benchmark_bundle) or resolve_model_path(required_yolo_model)
-        if args.yolo_model[0] != required_model:
+        if verbose and args.yolo_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")
         args.yolo_model = [required_model]
 
     required_reid_model = resolve_required_reid_model(benchmark_bundle)
     if required_reid_model and use_benchmark_reid:
         required_model = ensure_benchmark_reid_model_fn(benchmark_bundle) or resolve_model_path(required_reid_model)
-        if args.reid_model[0] != required_model:
+        if verbose and args.reid_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default ReID: {required_model}")
         args.reid_model = [required_model]
 

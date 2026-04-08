@@ -61,6 +61,7 @@ class RequirementsChecker:
         self,
         extra: str,
         extra_args: Optional[Sequence[str]] = None,
+        verbose: bool = True,
     ):
         """
         Install a project *extra* (PEP 621 optional-dependencies).
@@ -90,7 +91,8 @@ class RequirementsChecker:
             except Exception:
                 pass  # can't parse pyproject — fall through to install
 
-        LOGGER.warning(f"Installing extra '{extra}'...")
+        if verbose:
+            LOGGER.warning(f"Installing extra '{extra}'...")
 
         cmd: list[str]
 
@@ -109,8 +111,12 @@ class RequirementsChecker:
             cmd.extend(extra_args)
 
         try:
-            subprocess.check_call(cmd)
-            LOGGER.info(f"Extra '{extra}' installed successfully.")
+            if verbose:
+                subprocess.check_call(cmd)
+            else:
+                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if verbose:
+                LOGGER.info(f"Extra '{extra}' installed successfully.")
         except subprocess.CalledProcessError as e:
             LOGGER.error(f"Failed to install extra '{extra}': {e}")
             raise RuntimeError(f"Failed to install extra '{extra}': {e}")

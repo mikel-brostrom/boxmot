@@ -7,6 +7,7 @@ import concurrent.futures
 import multiprocessing as mp
 import queue
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Optional
 
@@ -35,19 +36,26 @@ def _worker_init() -> None:
     _configure_logging(main_thread_only=True)
 
 
-def _format_seq_progress(seq_progress: dict, n_display: int = 5) -> str:
-    """Format top-N in-progress sequences as mini progress bars."""
-    active = {name: counts for name, counts in seq_progress.items() if counts[0] < counts[1]}
-    if not active:
+def _format_seq_progress(sequence_names: list[str], seq_progress: dict) -> str:
+    """Format progress bars for all sequences in submission order."""
+    if not sequence_names:
         return ""
 
-    sorted_seqs = sorted(active.items(), key=lambda item: item[1][0] / max(item[1][1], 1), reverse=True)
-    display = sorted_seqs[:n_display]
-    name_width = max(len(name) for name, _ in display)
+    name_width = max(len(name) for name in sequence_names)
     lines = []
     bar_width = 20
-    for name, (current, total) in display:
-        pct = current / max(total, 1)
+    for name in sequence_names:
+        counts = seq_progress.get(name)
+        if counts is None:
+            bar = "\u2591" * bar_width
+            lines.append(f"  {name:<{name_width}s} {bar}    --  (pending)")
+            continue
+
+        current, total = counts
+        if total <= 0:
+            pct = 1.0 if current >= total else 0.0
+        else:
+            pct = min(max(current / total, 0.0), 1.0)
         filled = int(bar_width * pct)
         bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
         lines.append(f"  {name:<{name_width}s} {bar} {pct:>5.0%}  ({current}/{total})")
@@ -195,12 +203,13 @@ def _run_tracking_tasks(
     seq_progress: dict = {}
     prev_display_lines = 0
     last_progress_message = None
+    sequence_names = [task[0] for task in task_args]
 
     def _log_progress(progress_queue) -> None:
         nonlocal prev_display_lines, last_progress_message
         _drain_progress_queue(progress_queue, seq_progress)
         header = f"Tracking: {done_count}/{n_seqs} sequences done"
-        seq_display = _format_seq_progress(seq_progress)
+        seq_display = _format_seq_progress(sequence_names, seq_progress)
         message = "\n".join([header] + ([seq_display] if seq_display else []))
         if message == last_progress_message:
             return
@@ -214,10 +223,14 @@ def _run_tracking_tasks(
     _configure_logging(main_thread_only=True)
     spawn_context = mp.get_context("spawn")
 
-    with spawn_context.Manager() as manager:
-        progress_queue = manager.Queue()
-
-        bound_task_args = [task[:-1] + (progress_queue,) for task in task_args]
+    manager_context = spawn_context.Manager() if not quiet else nullcontext()
+    with manager_context as manager:
+        progress_queue = None if quiet else manager.Queue()
+        bound_task_args = (
+            task_args
+            if progress_queue is None
+            else [task[:-1] + (progress_queue,) for task in task_args]
+        )
 
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=args.n_threads,
@@ -241,18 +254,25 @@ def _run_tracking_tasks(
                         seq_frame_nums[sequence_name] = kept_ids
                         total_track_time_ms += timing_dict.get("track_time_ms", 0.0)
                         total_track_frames += timing_dict.get("num_frames", 0)
+                        num_frames = int(timing_dict.get("num_frames", 0))
+                        seq_progress[sequence_name] = (num_frames, num_frames)
                         done_count += 1
                     except Exception:
                         done_count += 1
                         LOGGER.exception(f"Error processing {seq_name}")
 
-                if not quiet:
+                if progress_queue is not None:
                     _log_progress(progress_queue)
 
-        if not quiet and prev_display_lines > 0:
+        if progress_queue is not None and prev_display_lines > 0:
+            _drain_progress_queue(progress_queue, seq_progress)
             sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
             sys.stderr.flush()
-            LOGGER.opt(colors=True).info(f"<cyan>Tracking: {n_seqs}/{n_seqs} sequences done</cyan>")
+            final_display = _format_seq_progress(sequence_names, seq_progress)
+            final_message = "\n".join(
+                [f"Tracking: {n_seqs}/{n_seqs} sequences done"] + ([final_display] if final_display else [])
+            )
+            LOGGER.opt(colors=True).info(f"<cyan>{final_message}</cyan>")
 
     return seq_frame_nums, total_track_time_ms, total_track_frames
 
@@ -265,6 +285,7 @@ def run_generate_mot_results(
 ) -> None:
     """Run trackers over cached detections/embeddings and write MOT result files."""
     args.project = Path(args.project)
+    verbose = bool(getattr(args, "verbose", False))
     base = args.project / "mot"
     if getattr(args, "benchmark", None):
         base = base / args.benchmark
@@ -293,7 +314,7 @@ def run_generate_mot_results(
         timing_stats.totals["track"] += total_track_time_ms
         if timing_stats.frames == 0 and total_track_frames > 0:
             timing_stats.frames = total_track_frames
-        if total_track_frames > 0:
+        if verbose and total_track_frames > 0:
             avg_track = total_track_time_ms / total_track_frames
             LOGGER.opt(colors=True).info(
                 f"<bold>Tracking:</bold> {total_track_frames} frames, "
@@ -302,12 +323,14 @@ def run_generate_mot_results(
             )
 
     if getattr(args, "postprocessing", "none") == "gsi":
-        LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GSI postprocessing...")
+        if verbose:
+            LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GSI postprocessing...")
         from boxmot.postprocessing.gsi import gsi
 
         gsi(mot_results_folder=exp_dir)
     elif getattr(args, "postprocessing", "none") == "gbrc":
-        LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GBRC postprocessing...")
+        if verbose:
+            LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GBRC postprocessing...")
         from boxmot.postprocessing.gbrc import gbrc
 
         gbrc(mot_results_folder=exp_dir)
