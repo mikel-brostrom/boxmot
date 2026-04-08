@@ -10,6 +10,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from boxmot.utils import WEIGHTS
+from boxmot.utils.compat import dataclass_slots_kwargs
 from boxmot.utils.misc import resolve_model_path
 
 RUNTIME_MODES = frozenset({"track", "generate", "eval", "tune"})
@@ -180,13 +181,13 @@ def _runtime_mode_kwargs(values: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, **dataclass_slots_kwargs())
 class SharedModeDefaults:
     detector: Path
     reid: Path
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, **dataclass_slots_kwargs())
 class RuntimeModeDefaults:
     imgsz: Any
     fps: int | None
@@ -224,7 +225,7 @@ class RuntimeModeDefaults:
         return cls(**_runtime_mode_kwargs(values))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, **dataclass_slots_kwargs())
 class TrackModeDefaults(RuntimeModeDefaults):
     source: str
     benchmark: str
@@ -240,7 +241,7 @@ class TrackModeDefaults(RuntimeModeDefaults):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, **dataclass_slots_kwargs())
 class GenerateModeDefaults(RuntimeModeDefaults):
     data: str | None
     source: str | None
@@ -260,7 +261,7 @@ class GenerateModeDefaults(RuntimeModeDefaults):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, **dataclass_slots_kwargs())
 class EvalModeDefaults(RuntimeModeDefaults):
     data: str | None
     source: str | None
@@ -280,7 +281,7 @@ class EvalModeDefaults(RuntimeModeDefaults):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, **dataclass_slots_kwargs())
 class TuneModeDefaults(RuntimeModeDefaults):
     data: str | None
     source: str | None
@@ -309,7 +310,7 @@ class TuneModeDefaults(RuntimeModeDefaults):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, **dataclass_slots_kwargs())
 class ExportModeDefaults:
     batch_size: int
     imgsz: Any
@@ -340,7 +341,7 @@ class ExportModeDefaults:
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, **dataclass_slots_kwargs())
 class BoxMOTDefaults:
     shared: SharedModeDefaults
     track: TrackModeDefaults

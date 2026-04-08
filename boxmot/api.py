@@ -18,6 +18,7 @@ from boxmot.configs import BOXMOT_DEFAULTS, build_mode_namespace
 from boxmot.data import IMAGE_EXTS, VIDEO_EXTS
 from boxmot.engine.results import Results, Tracks
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
+from boxmot.utils.compat import dataclass_slots_kwargs
 from boxmot.utils.misc import increment_path, resolve_model_path
 from boxmot.utils.timing import TimingStats
 from boxmot.utils.torch_utils import select_device
@@ -30,7 +31,7 @@ TRACKER_CLASS_TO_NAME = {
 }
 
 
-@dataclass(slots=True)
+@dataclass(**dataclass_slots_kwargs())
 class ValidationResult:
     benchmark: str
     raw: dict[str, Any]
@@ -41,7 +42,7 @@ class ValidationResult:
     args: Any = None
 
 
-@dataclass(slots=True)
+@dataclass(**dataclass_slots_kwargs())
 class TuneTrialResult:
     index: int
     config: dict[str, Any]
@@ -49,7 +50,7 @@ class TuneTrialResult:
     score: tuple[float, ...]
 
 
-@dataclass(slots=True)
+@dataclass(**dataclass_slots_kwargs())
 class TuneResult:
     benchmark: str
     tracker: str
@@ -59,13 +60,13 @@ class TuneResult:
     best_yaml: Path
 
 
-@dataclass(slots=True)
+@dataclass(**dataclass_slots_kwargs())
 class ExportResult:
     weights: Path
     files: dict[str, Any]
 
 
-@dataclass(slots=True)
+@dataclass(**dataclass_slots_kwargs())
 class TrackRunResult:
     source: Any
     results: Results

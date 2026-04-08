@@ -477,14 +477,17 @@ def main(args):
         return tracker.objective_function(cfg)
 
     tune_name = f"{args.tracking_method}_tune"
-    results_dir = args.project / "ray"
-    restore_path = results_dir / tune_name
 
     n_threads = int(args.n_threads)
     trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
 
     LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up evaluation environment...")
     eval_setup(args)
+
+    results_dir = Path(args.project).resolve() / "ray"
+    restore_path = results_dir / tune_name
+    restore_path_str = str(restore_path)
+    results_dir_str = str(results_dir)
 
     LOGGER.info("")
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
@@ -506,10 +509,10 @@ def main(args):
     run_generate_dets_embs(args)
 
     LOGGER.opt(colors=True).info("<cyan>[3/3]</cyan> Running hyperparameter optimization...")
-    if tune.Tuner.can_restore(restore_path):
+    if tune.Tuner.can_restore(restore_path_str):
         LOGGER.opt(colors=True).info(f"<bold>Resuming tuning from:</bold> <cyan>{restore_path}</cyan>")
         tuner = tune.Tuner.restore(
-            str(restore_path),
+            restore_path_str,
             trainable=trainable,
             resume_errored=True,
         )
@@ -523,7 +526,7 @@ def main(args):
                 trial_dirname_creator=lambda trial: f"trial_{trial.trial_id}",
             ),
             run_config=RunConfig(
-                storage_path=results_dir,
+                storage_path=results_dir_str,
                 name=tune_name,
                 callbacks=[TrialSaveCallback(yaml_cfg, args.tracking_method)],
             ),
