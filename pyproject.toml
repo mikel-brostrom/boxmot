@@ -6,6 +6,10 @@
 # UV-specific Overrides #
 #########################
 
+[tool.uv]
+preview = true
+extra-build-dependencies = { yolox = ["setuptools", "torch<3.0.0,>=2.2.1"] }
+
 # Override yolox's outdated dependencies
 [[tool.uv.dependency-metadata]]
 name          = "yolox"
@@ -17,12 +21,6 @@ requires-dist = [
   "tabulate",
 ]
 
-############
-# Flake8   #
-############
-
-[tool.uv.extra-build-dependencies]
-yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
 [tool.ruff]
 line-length = 120
 exclude = [".tox", "*.egg", "build", "temp"]
@@ -32,7 +30,7 @@ select = ["E", "W", "F", "I"]
 ignore = ["E731", "F405", "E402", "W504", "W605", "E741"]
 
 [tool.pytest.ini_options]
-norecursedirs = ["boxmot/engine/trackeval/tests"]
+norecursedirs = ["boxmot/engine/trackeval/tests", "runs"]
 
 ##############
 # Build System #
