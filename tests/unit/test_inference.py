@@ -1,6 +1,5 @@
 import importlib
 import queue
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,21 +10,21 @@ import torch
 from boxmot.configs import ensure_model_extension
 from boxmot.detectors import default_conf, default_imgsz, get_detector_url, get_runtime_detector_cfg, load_detector_cfg
 from boxmot.detectors.base import Detections
-import boxmot.detectors.executor as detector_executor_module
+import boxmot.data.loaders as loaders_module
+import boxmot.detectors.detector as detector_module
 import boxmot.detectors.ultralytics as ultralytics_detector_module
-from boxmot.detectors.ultralytics import UltralyticsDetector
-import boxmot.engine.predictor as tracker_module
+import boxmot.engine.evaluator as evaluator_module
+import boxmot.engine.inference as pipeline_module
 import boxmot.engine.replay as cached_tracking_module
-import boxmot.engine.runtime.pipeline as pipeline_module
-import boxmot.engine.runtime.tracker as tracker_runtime_module
-import boxmot.engine.validator as evaluator_module
-import boxmot.reid.runtime as reid_runtime_module
-import boxmot.utils.dataloaders.loaders as loaders_module
-from boxmot.engine.runtime.pipeline import _iter_source, prepare_detections
+import boxmot.engine.tracker as tracker_module
+import boxmot.engine.tracker as tracker_runtime_module
+import boxmot.reid.core as reid_core_module
+from boxmot.detectors.ultralytics import UltralyticsDetector
+from boxmot.engine.inference import _iter_source, prepare_detections
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
-from boxmot.utils.evaluation import (
+from boxmot.data.cache import (
     AppendableNpyWriter,
     _existing_cache_path,
     _existing_embedding_cache_path,
@@ -61,7 +60,7 @@ def test_prepare_detections_reads_aabb_result():
     dets = np.array([[10, 20, 30, 40, 0.9, 0]], dtype=np.float32)
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result)
+    out = prepare_detections(result, _DUMMY_IMG)
 
     assert out.shape == (1, 6)
     np.testing.assert_array_equal(out[0], np.array([10, 20, 30, 40, 0.9, 0], dtype=np.float32))
@@ -71,7 +70,7 @@ def test_prepare_detections_reads_obb_result():
     dets = np.array([[10, 20, 30, 40, 0.5, 0.8, 1]], dtype=np.float32)
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result)
+    out = prepare_detections(result, _DUMMY_IMG)
 
     assert out.shape == (1, 7)
     np.testing.assert_array_equal(out[0], dets[0])
@@ -81,7 +80,7 @@ def test_prepare_detections_preserves_empty_obb_width():
     dets = np.empty((0, 7), dtype=np.float32)
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result)
+    out = prepare_detections(result, _DUMMY_IMG)
 
     assert out.shape == (0, 7)
 
@@ -96,7 +95,7 @@ def test_prepare_detections_filters_invalid_obb_boxes():
     )
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result)
+    out = prepare_detections(result, _DUMMY_IMG)
 
     assert out.shape == (1, 7)
     np.testing.assert_array_equal(out[0], dets[0])
@@ -528,7 +527,7 @@ def test_iter_source_reads_line_based_source_lists(tmp_path):
     assert frames[0][1].shape == img.shape
 
 
-def test_detector_executor_predict_batch_uses_detector_backend(monkeypatch):
+def test_detector_wrapper_process_uses_detector_backend(monkeypatch):
     captured = {}
 
     class _FakeDetector:
@@ -543,15 +542,15 @@ def test_detector_executor_predict_batch_uses_detector_backend(monkeypatch):
                 "classes": classes,
                 "agnostic_nms": agnostic_nms,
             }
-            return ["ok"]
+            return "ok"
 
-    monkeypatch.setattr(detector_executor_module, "get_detector_class", lambda _path: _FakeDetector)
+    monkeypatch.setattr(detector_module, "get_detector_class", lambda _path: _FakeDetector)
 
-    executor = detector_executor_module.DetectorBackendExecutor("det.pt", device=torch.device("cpu"), imgsz=[64, 64])
-    results = executor.predict_batch([_DUMMY_IMG], conf=0.25, iou=0.7, agnostic_nms=False, classes=[0])
+    detector = detector_module.Detector("det.pt", device=torch.device("cpu"), imgsz=[64, 64])
+    results = detector.process([_DUMMY_IMG], conf=0.25, iou=0.7, agnostic_nms=False, classes=[0])
 
-    assert results == ["ok"]
-    assert captured["init"]["model"] == Path("det.pt")
+    assert results == "ok"
+    assert Path(captured["init"]["model"]) == Path("det.pt")
     assert captured["call"] == {
         "n_images": 1,
         "conf": 0.25,
@@ -570,81 +569,73 @@ def test_reid_runtime_returns_named_feature_sets(monkeypatch):
         def __init__(self, weights, device, half):
             self.model = _FakeReIDModel()
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.reid.core.auto_backend",
-        SimpleNamespace(ReIDAutoBackend=_FakeBackend),
-    )
+    class _FakeDetector:
+        def __init__(self, model, device, imgsz):
+            self.model = model
 
-    runtime = reid_runtime_module.ReIDRuntime([Path("alpha.pt"), Path("beta.pt")], device="cpu", half=False)
-    features = runtime.get_all_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG)
+        def __call__(self, images, conf, iou, classes, agnostic_nms):
+            return [Detections(dets=np.empty((0, 6), dtype=np.float32), orig_img=images[0], path="")]
+
+    monkeypatch.setattr(pipeline_module, "get_detector_class", lambda _path: _FakeDetector)
+    monkeypatch.setattr(reid_core_module, "ReID", _FakeBackend)
+
+    pipeline = pipeline_module.DetectorReIDPipeline(
+        "det.pt",
+        reid_paths=[Path("alpha.pt"), Path("beta.pt")],
+        device="cpu",
+        imgsz=[64, 64],
+    )
+    features = pipeline.get_all_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG)
 
     assert set(features) == {"alpha", "beta"}
     np.testing.assert_array_equal(features["alpha"], np.full((1, 4), 64.0, dtype=np.float32))
 
 
-def test_pipeline_delegates_to_detector_executor_and_reid_runtimes(monkeypatch):
+def test_pipeline_delegates_to_detector_backend_and_reid_models(monkeypatch):
     detector_calls = []
     reid_calls = []
 
-    class _FakeDetectorBackendExecutor:
-        def __init__(self, **kwargs):
-            self.device = torch.device("cpu")
-            self.detector_path = Path("det.pt")
-            self.imgsz = [64, 64]
-            self.half = False
-            self.detector = object()
-            self.timing_stats = kwargs["timing_stats"]
+    class _FakeDetector:
+        def __init__(self, model, device, imgsz):
+            detector_calls.append(("init", Path(model), str(device), imgsz))
 
-        def predict_batch(self, images, conf, iou, agnostic_nms, classes):
+        def __call__(self, images, conf, iou, classes, agnostic_nms):
             detector_calls.append((len(images), conf, iou, agnostic_nms, classes))
-            return ["det"]
+            return [Detections(dets=np.empty((0, 6), dtype=np.float32), orig_img=image, path="") for image in images]
 
-        def warmup(self):
-            detector_calls.append("warmup")
-
-        def autotune_batch_size(self, requested_batch_size):
-            detector_calls.append(("batch", requested_batch_size))
-            return 2
-
-        def iter_predictions(self, **kwargs):
-            detector_calls.append(("stream", kwargs["source"]))
-            yield 1, "frame.jpg", [SimpleNamespace(path="", dets=np.empty((0, 6)), is_obb=False)]
-
-    class _FakeReIDRuntime:
-        def __init__(self, **kwargs):
-            self.device = torch.device("cpu")
-            self.half = False
-            self.models = ["model"]
-            self.model_names = ["alpha"]
-
-        def get_features(self, xyxys, img, reid_index=0):
-            reid_calls.append(("one", reid_index, len(xyxys)))
+    class _FakeReIDModel:
+        def get_features(self, xyxys, img):
+            reid_calls.append((len(xyxys), img.shape[0]))
             return np.ones((len(xyxys), 2), dtype=np.float32)
 
-        def get_all_features(self, xyxys, img):
-            reid_calls.append(("all", len(xyxys)))
-            return {"alpha": np.ones((len(xyxys), 2), dtype=np.float32)}
+    class _FakeBackend:
+        def __init__(self, weights, device, half):
+            self.model = _FakeReIDModel()
 
-    monkeypatch.setattr(pipeline_module, "DetectorBackendExecutor", _FakeDetectorBackendExecutor)
-    monkeypatch.setattr(pipeline_module, "ReIDRuntime", _FakeReIDRuntime)
+    monkeypatch.setattr(pipeline_module, "get_detector_class", lambda _path: _FakeDetector)
+    monkeypatch.setattr(pipeline_module, "select_device", lambda device: device)
+    monkeypatch.setattr(pipeline_module, "_iter_source", lambda source, vid_stride=1: iter([("frame.jpg", _DUMMY_IMG)]))
+    monkeypatch.setattr(reid_core_module, "ReID", _FakeBackend)
 
-    pipeline = pipeline_module.DetectorReIDPipeline("det.pt", reid_paths=["alpha.pt"], device="cpu")
-    assert pipeline.predict_batch([_DUMMY_IMG], conf=0.25, iou=0.7, agnostic_nms=False, classes=None) == ["det"]
+    pipeline = pipeline_module.DetectorReIDPipeline("det.pt", reid_paths=["alpha.pt"], device="cuda:0", imgsz=[64, 64])
+    batch_results = pipeline.predict_batch([_DUMMY_IMG], conf=0.25, iou=0.7, agnostic_nms=False, classes=None)
+    assert len(batch_results) == 1
     pipeline.warmup()
-    assert pipeline.autotune_batch_size(8) == 2
+    assert pipeline.autotune_batch_size(8) == 8
     assert list(pipeline.predict("video.mp4", conf=0.25, iou=0.7, agnostic_nms=False, classes=None))
     np.testing.assert_array_equal(
         pipeline.get_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG),
         np.ones((1, 2), dtype=np.float32),
     )
     assert set(pipeline.get_all_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG)) == {"alpha"}
-    assert detector_calls[:3] == [
+    assert detector_calls[0] == ("init", Path("det.pt"), "cuda:0", [64, 64])
+    assert detector_calls[1:5] == [
         (1, 0.25, 0.7, False, None),
-        "warmup",
-        ("batch", 8),
+        (1, 0.25, 0.7, False, None),
+        (8, 0.25, 0.7, False, None),
+        (1, 0.25, 0.7, False, None),
     ]
-    assert reid_calls == [("one", 0, 1), ("all", 1)]
+    assert reid_calls == [(1, 64), (1, 64)]
 
 
 def test_aabb_text_output_uses_conf_class_det_ind_columns(tmp_path):
@@ -819,7 +810,7 @@ def test_load_obb_gt_matrix_rejects_legacy_xywha_format(tmp_path):
         raise AssertionError("Expected legacy xywha OBB GT to be rejected")
 
 
-def test_run_generate_mot_results_thread_backend_skips_process_pool(tmp_path, monkeypatch):
+def test_run_generate_mot_results_quiet_mode_skips_manager_queue(tmp_path, monkeypatch):
     source = tmp_path / "train"
     for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
         img_dir = source / seq_name / "img1"
@@ -840,88 +831,9 @@ def test_run_generate_mot_results_thread_backend_skips_process_pool(tmp_path, mo
         postprocessing="none",
         conf=0.25,
     )
-    seen_queues = []
-    log_config_calls = []
-
-    def fake_process_sequence(*task_arg):
-        seq_name = task_arg[0]
-        progress_queue = task_arg[-1]
-        seen_queues.append(progress_queue.__class__.__name__)
-        progress_queue.put_nowait((seq_name, 1, 1))
-        return seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}
-
-    def fail_manager():
-        raise AssertionError("Thread backend should not construct a multiprocessing manager")
-
-    def fail_process_pool(*_args, **_kwargs):
-        raise AssertionError("Thread backend should not construct a process pool")
-
-    monkeypatch.setattr(cached_tracking_module, "process_sequence", fake_process_sequence)
-    monkeypatch.setattr(cached_tracking_module.mp, "Manager", fail_manager)
-    monkeypatch.setattr(cached_tracking_module.concurrent.futures, "ProcessPoolExecutor", fail_process_pool)
-    monkeypatch.setattr(
-        cached_tracking_module,
-        "_configure_logging",
-        lambda **kwargs: log_config_calls.append(kwargs),
-    )
-
-    cached_tracking_module.run_generate_mot_results(args, quiet=True)
-
-    assert args.seq_frame_nums == {
-        "MOT17-02-FRCNN": [1],
-        "MOT17-04-FRCNN": [1],
-    }
-    assert seen_queues == ["Queue", "Queue"]
-    assert log_config_calls == [
-        {"main_thread_only": True},
-        {},
-    ]
-
-
-def test_evaluator_dependency_check_is_lazy(monkeypatch):
-    calls = []
-
-    from boxmot.utils import checks as checks_module
-
-    monkeypatch.setattr(
-        checks_module.RequirementsChecker,
-        "check_packages",
-        lambda self, packages: calls.append(tuple(packages)),
-    )
-
-    importlib.reload(evaluator_module)
-
-    assert calls == []
-
-    evaluator_module._ensure_eval_dependencies()
-
-    assert calls == [("ultralytics",)]
-
-
-def test_run_generate_mot_results_process_backend_uses_spawn_context(tmp_path, monkeypatch):
-    source = tmp_path / "train"
-    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
-        img_dir = source / seq_name / "img1"
-        img_dir.mkdir(parents=True)
-        (img_dir / "000001.jpg").write_bytes(b"")
-
-    args = SimpleNamespace(
-        project=tmp_path,
-        benchmark="mot17-mini",
-        source=source,
-        yolo_model=[Path("det.pt")],
-        reid_model=[Path("reid.pt")],
-        tracking_method="boosttrack",
-        fps=None,
-        device="cpu",
-        n_threads=2,
-        tracking_backend="process",
-        postprocessing="none",
-        conf=0.25,
-    )
-
     queue_types = []
     executor_kwargs = {}
+    manager_calls = []
 
     class FakeManager:
         def __enter__(self):
@@ -937,6 +849,7 @@ def test_run_generate_mot_results_process_backend_uses_spawn_context(tmp_path, m
 
     class FakeSpawnContext:
         def Manager(self):
+            manager_calls.append(True)
             return FakeManager()
 
     spawn_context = FakeSpawnContext()
@@ -961,7 +874,7 @@ def test_run_generate_mot_results_process_backend_uses_spawn_context(tmp_path, m
         def submit(self, _func, *task_arg):
             seq_name = task_arg[0]
             progress_queue = task_arg[-1]
-            progress_queue.put_nowait((seq_name, 1, 1))
+            assert progress_queue is None
             return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
 
     monkeypatch.setattr(cached_tracking_module.mp, "get_context", lambda method: spawn_context)
@@ -978,6 +891,117 @@ def test_run_generate_mot_results_process_backend_uses_spawn_context(tmp_path, m
         "MOT17-02-FRCNN": [1],
         "MOT17-04-FRCNN": [1],
     }
+    assert manager_calls == []
+    assert queue_types == []
+    assert executor_kwargs["mp_context"] is spawn_context
+    assert executor_kwargs["max_workers"] == 2
+
+
+def test_evaluator_dependency_check_is_lazy(monkeypatch):
+    calls = []
+
+    from boxmot.utils import checks as checks_module
+
+    monkeypatch.setattr(
+        checks_module.RequirementsChecker,
+        "check_packages",
+        lambda self, packages: calls.append(tuple(packages)),
+    )
+
+    importlib.reload(evaluator_module)
+
+    assert calls == []
+
+    evaluator_module._ensure_eval_dependencies()
+
+    assert calls == [("ultralytics",)]
+
+
+def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, monkeypatch):
+    source = tmp_path / "train"
+    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
+        img_dir = source / seq_name / "img1"
+        img_dir.mkdir(parents=True)
+        (img_dir / "000001.jpg").write_bytes(b"")
+
+    args = SimpleNamespace(
+        project=tmp_path,
+        benchmark="mot17-mini",
+        source=source,
+        yolo_model=[Path("det.pt")],
+        reid_model=[Path("reid.pt")],
+        tracking_method="boosttrack",
+        fps=None,
+        device="cpu",
+        n_threads=2,
+        tracking_backend="process",
+        postprocessing="none",
+        conf=0.25,
+    )
+
+    queue_types = []
+    executor_kwargs = {}
+    manager_calls = []
+
+    class FakeManager:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def Queue(self):
+            progress_queue = queue.Queue()
+            queue_types.append(type(progress_queue).__name__)
+            return progress_queue
+
+    class FakeSpawnContext:
+        def Manager(self):
+            manager_calls.append(True)
+            return FakeManager()
+
+    spawn_context = FakeSpawnContext()
+
+    class FakeFuture:
+        def __init__(self, value):
+            self._value = value
+
+        def result(self):
+            return self._value
+
+    class FakeProcessPoolExecutor:
+        def __init__(self, *args, **kwargs):
+            executor_kwargs.update(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, _func, *task_arg):
+            seq_name = task_arg[0]
+            progress_queue = task_arg[-1]
+            if progress_queue is not None:
+                progress_queue.put_nowait((seq_name, 1, 1))
+            return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
+
+    monkeypatch.setattr(cached_tracking_module.mp, "get_context", lambda method: spawn_context)
+    monkeypatch.setattr(cached_tracking_module.concurrent.futures, "ProcessPoolExecutor", FakeProcessPoolExecutor)
+    monkeypatch.setattr(
+        cached_tracking_module.concurrent.futures,
+        "wait",
+        lambda pending, timeout, return_when: (set(pending), set()),
+    )
+    monkeypatch.setattr(cached_tracking_module.LOGGER, "opt", lambda **kwargs: SimpleNamespace(info=lambda message: None))
+
+    cached_tracking_module.run_generate_mot_results(args, quiet=False)
+
+    assert args.seq_frame_nums == {
+        "MOT17-02-FRCNN": [1],
+        "MOT17-04-FRCNN": [1],
+    }
+    assert manager_calls == [True]
     assert queue_types == ["Queue"]
     assert executor_kwargs["mp_context"] is spawn_context
     assert executor_kwargs["max_workers"] == 2

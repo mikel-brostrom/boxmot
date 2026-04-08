@@ -490,81 +490,84 @@ def _print_validation_cli_report(
 ) -> None:
     results_module = import_module("boxmot.utils.evaluation.results")
     parsed_results = _normalize_report_results(raw, args)
-    if not parsed_results:
+    try:
+        if not parsed_results:
+            LOGGER.info("")
+            LOGGER.info(_format_core_summary(raw if isinstance(raw, dict) else {}))
+            return
+
+        cfg = _load_report_cfg(args)
+        primary_keys, aggregate_keys = results_module._summary_sort_keys(parsed_results, args or object(), cfg)
+        if not primary_keys and not aggregate_keys:
+            primary_keys = list(parsed_results.keys())
+
+        single_sequence = all(
+            len(metrics.get("per_sequence", {})) <= 1 for metrics in parsed_results.values() if isinstance(metrics, dict)
+        )
+
+        all_names = [results_module._display_summary_name(name) for name in [*primary_keys, *aggregate_keys]]
+        for class_metrics in parsed_results.values():
+            all_names.extend(class_metrics.get("per_sequence", {}).keys())
+        all_names.extend([f"COMBINED ({results_module._display_summary_name(name)})" for name in primary_keys])
+
+        name_width = max(18, max((len(name) for name in all_names), default=18) + 2)
+        total_width = name_width + 1 + 76
+
         LOGGER.info("")
-        LOGGER.info(_format_core_summary(raw if isinstance(raw, dict) else {}))
-        return
+        LOGGER.opt(colors=True).info("<blue>" + "=" * total_width + "</blue>")
+        LOGGER.opt(colors=True).info(f"<bold><cyan>{title:^{total_width}}</cyan></bold>")
+        LOGGER.opt(colors=True).info("<blue>" + "=" * total_width + "</blue>")
 
-    cfg = _load_report_cfg(args)
-    primary_keys, aggregate_keys = results_module._summary_sort_keys(parsed_results, args or object(), cfg)
-    if not primary_keys and not aggregate_keys:
-        primary_keys = list(parsed_results.keys())
+        if len(primary_keys) > 1:
+            class_rows = [(results_module._display_summary_name(name), parsed_results[name], False) for name in primary_keys]
+            results_module._print_summary_table("Per-Class Combined Metrics", "Class", class_rows, total_width, name_width)
 
-    single_sequence = all(
-        len(metrics.get("per_sequence", {})) <= 1 for metrics in parsed_results.values() if isinstance(metrics, dict)
-    )
+            if aggregate_keys:
+                aggregate_rows = [(results_module._display_summary_name(name), parsed_results[name], False) for name in aggregate_keys]
+                results_module._print_summary_table("Aggregate Groups", "Group", aggregate_rows, total_width, name_width)
 
-    all_names = [results_module._display_summary_name(name) for name in [*primary_keys, *aggregate_keys]]
-    for class_metrics in parsed_results.values():
-        all_names.extend(class_metrics.get("per_sequence", {}).keys())
-    all_names.extend([f"COMBINED ({results_module._display_summary_name(name)})" for name in primary_keys])
-
-    name_width = max(18, max((len(name) for name in all_names), default=18) + 2)
-    total_width = name_width + 1 + 76
-
-    LOGGER.info("")
-    LOGGER.opt(colors=True).info("<blue>" + "=" * total_width + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold><cyan>{title:^{total_width}}</cyan></bold>")
-    LOGGER.opt(colors=True).info("<blue>" + "=" * total_width + "</blue>")
-
-    if len(primary_keys) > 1:
-        class_rows = [(results_module._display_summary_name(name), parsed_results[name], False) for name in primary_keys]
-        results_module._print_summary_table("Per-Class Combined Metrics", "Class", class_rows, total_width, name_width)
-
-        if aggregate_keys:
-            aggregate_rows = [(results_module._display_summary_name(name), parsed_results[name], False) for name in aggregate_keys]
-            results_module._print_summary_table("Aggregate Groups", "Group", aggregate_rows, total_width, name_width)
-
-        if include_sequences and not single_sequence:
-            for class_name in primary_keys:
+            if include_sequences and not single_sequence:
+                for class_name in primary_keys:
+                    per_sequence_rows = [
+                        (seq_name, seq_metrics, False)
+                        for seq_name, seq_metrics in sorted(parsed_results[class_name].get("per_sequence", {}).items())
+                    ]
+                    per_sequence_rows.append(
+                        (f"COMBINED ({results_module._display_summary_name(class_name)})", parsed_results[class_name], True)
+                    )
+                    results_module._print_summary_table(
+                        f"Per-Sequence Details: {results_module._display_summary_name(class_name)}",
+                        "Sequence",
+                        per_sequence_rows,
+                        total_width,
+                        name_width,
+                    )
+        else:
+            detail_keys = primary_keys or aggregate_keys or list(parsed_results.keys())
+            for class_name in detail_keys:
                 per_sequence_rows = [
                     (seq_name, seq_metrics, False)
                     for seq_name, seq_metrics in sorted(parsed_results[class_name].get("per_sequence", {}).items())
                 ]
-                per_sequence_rows.append(
-                    (f"COMBINED ({results_module._display_summary_name(class_name)})", parsed_results[class_name], True)
-                )
+                if not include_sequences:
+                    per_sequence_rows = []
+                if not single_sequence or not per_sequence_rows:
+                    per_sequence_rows.append(
+                        (f"COMBINED ({results_module._display_summary_name(class_name)})", parsed_results[class_name], True)
+                    )
                 results_module._print_summary_table(
-                    f"Per-Sequence Details: {results_module._display_summary_name(class_name)}",
+                    results_module._display_summary_name(class_name),
                     "Sequence",
                     per_sequence_rows,
                     total_width,
                     name_width,
                 )
-    else:
-        detail_keys = primary_keys or aggregate_keys or list(parsed_results.keys())
-        for class_name in detail_keys:
-            per_sequence_rows = [
-                (seq_name, seq_metrics, False)
-                for seq_name, seq_metrics in sorted(parsed_results[class_name].get("per_sequence", {}).items())
-            ]
-            if not include_sequences:
-                per_sequence_rows = []
-            if not single_sequence or not per_sequence_rows:
-                per_sequence_rows.append(
-                    (f"COMBINED ({results_module._display_summary_name(class_name)})", parsed_results[class_name], True)
-                )
-            results_module._print_summary_table(
-                results_module._display_summary_name(class_name),
-                "Sequence",
-                per_sequence_rows,
-                total_width,
-                name_width,
-            )
 
-    timing_stats = _timing_stats_from_snapshot(timings)
-    if timing_stats is not None:
-        timing_stats.print_summary()
+        timing_stats = _timing_stats_from_snapshot(timings)
+        if timing_stats is not None:
+            timing_stats.print_summary()
+    finally:
+        _flush_logger_queue()
 
 
 def _format_remaining_time(seconds: float | None) -> str:
@@ -665,6 +668,13 @@ def _write_progress_line(
         output.write("\n")
     output.flush()
     return width
+
+
+def _flush_logger_queue() -> None:
+    complete = getattr(LOGGER, "complete", None)
+    if complete is None:
+        return
+    complete()
 
 
 @contextmanager

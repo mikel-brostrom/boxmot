@@ -717,6 +717,7 @@ def test_tune_result_formats_best_report():
 
 def test_validation_result_print_report_matches_cli_style(monkeypatch):
     logs = []
+    complete_calls = []
 
     class _FakeLogger:
         def opt(self, **kwargs):
@@ -724,6 +725,9 @@ def test_validation_result_print_report_matches_cli_style(monkeypatch):
 
         def info(self, message=""):
             logs.append(message)
+
+        def complete(self):
+            complete_calls.append(True)
 
     fake_logger = _FakeLogger()
     results_utils_module = importlib.import_module("boxmot.utils.evaluation.results")
@@ -788,6 +792,7 @@ def test_validation_result_print_report_matches_cli_style(monkeypatch):
     assert "person" in combined
     assert "COMBINED (person)" in combined
     assert "📊 TIMING SUMMARY" in combined
+    assert complete_calls == [True]
 
 
 def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
