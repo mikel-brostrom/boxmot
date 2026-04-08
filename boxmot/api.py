@@ -31,6 +31,7 @@ SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
 CORE_SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1")
 DEFAULT_VALIDATION_REPORT_TITLE = "VAL RESULTS"
 DEFAULT_TUNE_BEST_REPORT_TITLE = "TUNE BEST RESULTS"
+CLI_RESULTS_SUMMARY_TITLE = "📊 RESULTS SUMMARY"
 REID_TRACKERS = {"strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack"}
 TRACKER_CLASS_TO_NAME = {
     class_path.rsplit(".", 1)[-1].lower(): tracker_name
@@ -61,7 +62,13 @@ class ValidationResult:
         return _format_validation_report(self.raw, title=report_title, include_sequences=include_sequences)
 
     def print_report(self, *, title: str | None = None, include_sequences: bool = True) -> None:
-        print(self.format_report(title=title, include_sequences=include_sequences))
+        _print_validation_cli_report(
+            self.raw,
+            args=self.args,
+            timings=self.timings,
+            title=CLI_RESULTS_SUMMARY_TITLE if title is None else title,
+            include_sequences=include_sequences,
+        )
 
 
 @dataclass(**dataclass_slots_kwargs())
@@ -86,7 +93,10 @@ class TuneResult:
         return self.best.metrics.format_report(title=report_title, include_sequences=include_sequences)
 
     def print_best_report(self, *, title: str | None = None, include_sequences: bool = True) -> None:
-        print(self.format_best_report(title=title, include_sequences=include_sequences))
+        self.best.metrics.print_report(
+            title=CLI_RESULTS_SUMMARY_TITLE if title is None else title,
+            include_sequences=include_sequences,
+        )
 
 
 @dataclass(**dataclass_slots_kwargs())
@@ -401,6 +411,160 @@ def _format_validation_report(raw: dict[str, Any], *, title: str | None = None, 
         block_title = section_title if title is None else f"{title} | {section_title}"
         blocks.append(_format_summary_table(block_title, rows))
     return "\n\n".join(block for block in blocks if block)
+
+
+def _load_report_cfg(args: Any) -> dict[str, Any]:
+    if args is None:
+        return {}
+    try:
+        benchmark_module = import_module("boxmot.data.benchmark")
+        return benchmark_module.load_benchmark_cfg_from_args(args) or {}
+    except Exception:
+        return {}
+
+
+def _infer_single_class_report_name(args: Any) -> str:
+    if args is not None:
+        remapped = getattr(args, "remapped_class_names", None)
+        if remapped:
+            return str(remapped[0])
+
+        translated = getattr(args, "translated_benchmark_class_names", None)
+        if translated:
+            return str(translated[0])
+
+        cfg = _load_report_cfg(args)
+        bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
+        eval_classes = bench_cfg.get("eval_classes")
+        if isinstance(eval_classes, dict) and len(eval_classes) == 1:
+            return str(next(iter(eval_classes.values())))
+        if isinstance(eval_classes, (list, tuple)) and len(eval_classes) == 1:
+            return str(eval_classes[0])
+
+        class_indices = getattr(args, "classes", None)
+        if class_indices is not None:
+            indices = class_indices if isinstance(class_indices, list) else [class_indices]
+            if len(indices) == 1:
+                benchmark_module = import_module("boxmot.data.benchmark")
+                return str(benchmark_module.COCO_CLASSES[int(indices[0])])
+
+    return "results"
+
+
+def _normalize_report_results(raw: dict[str, Any], args: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict) or not raw:
+        return {}
+
+    if _combined_summary_metrics(raw):
+        return {_infer_single_class_report_name(args): raw}
+
+    normalized: dict[str, dict[str, Any]] = {}
+    for name, metrics in raw.items():
+        if isinstance(metrics, dict):
+            normalized[str(name)] = metrics
+    return normalized
+
+
+def _timing_stats_from_snapshot(timings: dict[str, Any] | None) -> TimingStats | None:
+    if not timings:
+        return None
+
+    totals_ms = timings.get("totals_ms")
+    if not isinstance(totals_ms, dict):
+        return None
+
+    timing_stats = TimingStats()
+    for key in timing_stats.totals:
+        timing_stats.totals[key] = float(totals_ms.get(key, 0.0) or 0.0)
+    timing_stats.frames = int(timings.get("frames", 0) or 0)
+    return timing_stats
+
+
+def _print_validation_cli_report(
+    raw: dict[str, Any],
+    *,
+    args: Any = None,
+    timings: dict[str, Any] | None = None,
+    title: str = CLI_RESULTS_SUMMARY_TITLE,
+    include_sequences: bool = True,
+) -> None:
+    results_module = import_module("boxmot.utils.evaluation.results")
+    parsed_results = _normalize_report_results(raw, args)
+    if not parsed_results:
+        LOGGER.info("")
+        LOGGER.info(_format_core_summary(raw if isinstance(raw, dict) else {}))
+        return
+
+    cfg = _load_report_cfg(args)
+    primary_keys, aggregate_keys = results_module._summary_sort_keys(parsed_results, args or object(), cfg)
+    if not primary_keys and not aggregate_keys:
+        primary_keys = list(parsed_results.keys())
+
+    single_sequence = all(
+        len(metrics.get("per_sequence", {})) <= 1 for metrics in parsed_results.values() if isinstance(metrics, dict)
+    )
+
+    all_names = [results_module._display_summary_name(name) for name in [*primary_keys, *aggregate_keys]]
+    for class_metrics in parsed_results.values():
+        all_names.extend(class_metrics.get("per_sequence", {}).keys())
+    all_names.extend([f"COMBINED ({results_module._display_summary_name(name)})" for name in primary_keys])
+
+    name_width = max(18, max((len(name) for name in all_names), default=18) + 2)
+    total_width = name_width + 1 + 76
+
+    LOGGER.info("")
+    LOGGER.opt(colors=True).info("<blue>" + "=" * total_width + "</blue>")
+    LOGGER.opt(colors=True).info(f"<bold><cyan>{title:^{total_width}}</cyan></bold>")
+    LOGGER.opt(colors=True).info("<blue>" + "=" * total_width + "</blue>")
+
+    if len(primary_keys) > 1:
+        class_rows = [(results_module._display_summary_name(name), parsed_results[name], False) for name in primary_keys]
+        results_module._print_summary_table("Per-Class Combined Metrics", "Class", class_rows, total_width, name_width)
+
+        if aggregate_keys:
+            aggregate_rows = [(results_module._display_summary_name(name), parsed_results[name], False) for name in aggregate_keys]
+            results_module._print_summary_table("Aggregate Groups", "Group", aggregate_rows, total_width, name_width)
+
+        if include_sequences and not single_sequence:
+            for class_name in primary_keys:
+                per_sequence_rows = [
+                    (seq_name, seq_metrics, False)
+                    for seq_name, seq_metrics in sorted(parsed_results[class_name].get("per_sequence", {}).items())
+                ]
+                per_sequence_rows.append(
+                    (f"COMBINED ({results_module._display_summary_name(class_name)})", parsed_results[class_name], True)
+                )
+                results_module._print_summary_table(
+                    f"Per-Sequence Details: {results_module._display_summary_name(class_name)}",
+                    "Sequence",
+                    per_sequence_rows,
+                    total_width,
+                    name_width,
+                )
+    else:
+        detail_keys = primary_keys or aggregate_keys or list(parsed_results.keys())
+        for class_name in detail_keys:
+            per_sequence_rows = [
+                (seq_name, seq_metrics, False)
+                for seq_name, seq_metrics in sorted(parsed_results[class_name].get("per_sequence", {}).items())
+            ]
+            if not include_sequences:
+                per_sequence_rows = []
+            if not single_sequence or not per_sequence_rows:
+                per_sequence_rows.append(
+                    (f"COMBINED ({results_module._display_summary_name(class_name)})", parsed_results[class_name], True)
+                )
+            results_module._print_summary_table(
+                results_module._display_summary_name(class_name),
+                "Sequence",
+                per_sequence_rows,
+                total_width,
+                name_width,
+            )
+
+    timing_stats = _timing_stats_from_snapshot(timings)
+    if timing_stats is not None:
+        timing_stats.print_summary()
 
 
 def _format_remaining_time(seconds: float | None) -> str:

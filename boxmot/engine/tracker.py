@@ -22,6 +22,14 @@ def _primary_model_ref(value):
 	return value
 
 
+def _is_live_source(source: Any) -> bool:
+	if isinstance(source, int):
+		return True
+	if isinstance(source, str):
+		return source.isdigit() or "://" in source
+	return False
+
+
 class TrackerRuntime:
 	"""Wrap one tracker instance with timing and formatting helpers."""
 
@@ -145,6 +153,13 @@ class TrackingSession:
 	def __init__(self, args):
 		self.args = args
 
+	def _should_consume_result(self) -> bool:
+		if getattr(self.args, "show", False):
+			return False
+		if getattr(self.args, "save", False) or getattr(self.args, "save_txt", False):
+			return False
+		return not _is_live_source(getattr(self.args, "source", None))
+
 	def _resolve_output_stem(self) -> str:
 		source = str(getattr(self.args, "source", ""))
 		if source.isdigit():
@@ -227,6 +242,15 @@ class TrackingSession:
 		)
 		if getattr(self.args, "show", False):
 			result.show()
+		elif self._should_consume_result():
+			previous_cache_results = getattr(result.results, "_cache_results", True)
+			try:
+				result.results._cache_results = False
+				for _ in result.results:
+					pass
+			finally:
+				result.results._cache_results = previous_cache_results
+			result.refresh()
 		return result
 
 

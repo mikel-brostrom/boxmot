@@ -715,6 +715,81 @@ def test_tune_result_formats_best_report():
     assert "COMBINED" in report
 
 
+def test_validation_result_print_report_matches_cli_style(monkeypatch):
+    logs = []
+
+    class _FakeLogger:
+        def opt(self, **kwargs):
+            return self
+
+        def info(self, message=""):
+            logs.append(message)
+
+    fake_logger = _FakeLogger()
+    results_utils_module = importlib.import_module("boxmot.utils.evaluation.results")
+    timing_module = importlib.import_module("boxmot.utils.timing")
+
+    monkeypatch.setattr(api_module, "LOGGER", fake_logger)
+    monkeypatch.setattr(results_utils_module, "LOGGER", fake_logger)
+    monkeypatch.setattr(timing_module, "LOGGER", fake_logger)
+
+    result = api_module.ValidationResult(
+        benchmark="mot17-ablation",
+        raw={
+            "HOTA": 69.445,
+            "MOTA": 78.243,
+            "IDF1": 81.937,
+            "AssA": 72.34,
+            "AssRe": 77.58,
+            "IDSW": 137,
+            "IDs": 367,
+            "per_sequence": {
+                "MOT17-02": {
+                    "HOTA": 49.23,
+                    "MOTA": 54.55,
+                    "IDF1": 58.94,
+                    "AssA": 50.56,
+                    "AssRe": 55.79,
+                    "IDSW": 63,
+                    "IDs": 72,
+                },
+                "MOT17-04": {
+                    "HOTA": 80.37,
+                    "MOTA": 89.75,
+                    "IDF1": 92.51,
+                    "AssA": 82.85,
+                    "AssRe": 86.41,
+                    "IDSW": 22,
+                    "IDs": 82,
+                },
+            },
+        },
+        summary_label="single_class",
+        summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
+        timings={
+            "frames": 2652,
+            "totals_ms": {
+                "preprocess": 0.0,
+                "inference": 0.0,
+                "postprocess": 0.0,
+                "reid": 0.0,
+                "track": 29945.9,
+                "plot": 0.0,
+                "total": 29945.9,
+            },
+        },
+        args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
+    )
+
+    result.print_report()
+
+    combined = "\n".join(str(entry) for entry in logs)
+    assert "📊 RESULTS SUMMARY" in combined
+    assert "person" in combined
+    assert "COMBINED (person)" in combined
+    assert "📊 TIMING SUMMARY" in combined
+
+
 def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     state = {"last_config": None}
     evaluator_calls = []
