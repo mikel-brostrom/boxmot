@@ -88,35 +88,20 @@ class StrongSort(BaseTracker):
         # Initialize camera motion compensation
         self.cmc = get_cmc_method("ecc")()
         
+    @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
     ) -> np.ndarray:
-        assert isinstance(
-            dets, np.ndarray
-        ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
-        assert isinstance(
-            img, np.ndarray
-        ), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
-        assert (
-            len(dets.shape) == 2
-        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
-        assert (
-            dets.shape[1] == 6
-        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
-        if embs is not None:
-            assert (
-                dets.shape[0] == embs.shape[0]
-            ), "Missmatch between detections and embeddings sizes"
-
-        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
-        remain_inds = dets[:, 4] >= self.min_conf
+        self.check_inputs(dets, img, embs)
+        dets = self.detection_layout.with_detection_indices(dets)
+        remain_inds = self.detection_layout.confidences(dets) >= self.min_conf
         dets = dets[remain_inds]
 
-        xyxy = dets[:, 0:4]
-        confs = dets[:, 4]
-        clss = dets[:, 5]
-        det_ind = dets[:, 6]
+        xyxy = self.detection_layout.boxes(dets)
+        confs = self.detection_layout.confidences(dets)
+        clss = self.detection_layout.classes(dets)
+        det_ind = dets[:, self.detection_layout.det_cols]
 
         if len(self.tracker.tracks) >= 1:
             warp_matrix = self.cmc.apply(img, xyxy)
@@ -161,7 +146,7 @@ class StrongSort(BaseTracker):
             )
         if len(outputs) > 0:
             return np.concatenate(outputs)
-        return np.array([])
+        return self.empty_output()
 
     def reset(self):
         pass

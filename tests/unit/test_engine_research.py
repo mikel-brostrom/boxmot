@@ -25,7 +25,7 @@ def test_validate_candidate_keys_rejects_missing_or_unexpected():
 
 def test_ensure_not_local_gepa_path_rejects_repo_checkout():
     with pytest.raises(RuntimeError) as exc:
-        research_module._ensure_not_local_gepa_path(Path("/Users/mikel.brostrom/boxmot/gepa/src/gepa"))
+        research_module._ensure_not_local_gepa_path(research_module.ROOT / "gepa" / "src" / "gepa")
     assert "local `./gepa` checkout" in str(exc.value)
 
 
@@ -200,10 +200,7 @@ def test_build_reflection_lm_uses_published_gepa_factory_when_available(monkeypa
         calls.append(model_name)
         return lambda prompt: "ok"
 
-    monkeypatch.setattr(
-        "gepa.optimize_anything.make_litellm_lm",
-        fake_make_litellm_lm,
-    )
+    monkeypatch.setattr(research_module, "_load_gepa_litellm_factory", lambda: fake_make_litellm_lm)
 
     lm = research_module._build_reflection_lm("openai/gpt-5.4", {"reasoning_effort": "medium"})
 

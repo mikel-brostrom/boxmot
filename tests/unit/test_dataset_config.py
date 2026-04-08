@@ -252,9 +252,18 @@ def test_find_dataset_cfg_for_nested_source_path():
 def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
     calls = {}
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: calls.update(kwargs))
+    source = "boxmot/engine/trackeval/data/MMOT-OBB/train/data44-3/img1"
+    real_exists = Path.exists
+
+    def fake_exists(self):
+        if self == Path(source):
+            return False
+        return real_exists(self)
+
+    monkeypatch.setattr(benchmark_config.Path, "exists", fake_exists)
 
     args = SimpleNamespace(
-        source="boxmot/engine/trackeval/data/MMOT-OBB/train/data44-3/img1",
+        source=source,
         eval_box_type=None,
     )
 

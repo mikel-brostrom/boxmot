@@ -541,21 +541,31 @@ def _import_installed_gepa() -> Any:
     return module
 
 
+def _load_gepa_litellm_factory() -> Callable[[str], Any] | None:
+    """Resolve the published GEPA liteLLM factory when that layout is installed."""
+    try:
+        module = importlib.import_module("gepa.optimize_anything")
+    except ImportError:
+        return None
+
+    factory = getattr(module, "make_litellm_lm", None)
+    return factory if callable(factory) else None
+
+
 def _build_reflection_lm(model_name: str, model_kwargs: Mapping[str, Any]) -> Any:
     """Construct a GEPA-compatible reflection LM across published package layouts."""
-    try:
-        from gepa.optimize_anything import make_litellm_lm
-
+    make_litellm_lm = _load_gepa_litellm_factory()
+    if make_litellm_lm is not None:
         if model_kwargs:
             LOGGER.warning(
                 "Installed GEPA package uses make_litellm_lm(); "
                 f"ignoring unsupported proposal_model_kwargs: {dict(model_kwargs)}"
             )
         return make_litellm_lm(model_name)
-    except ImportError:
-        from gepa.lm import LM
 
-        return LM(model_name, **dict(model_kwargs))
+    from gepa.lm import LM
+
+    return LM(model_name, **dict(model_kwargs))
 
 
 def _run_instruction_proposal_signature(
