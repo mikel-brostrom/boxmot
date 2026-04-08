@@ -153,6 +153,7 @@ jobs:
       status: ${{ job.status }}
     env:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort sfsort"
+      EXPECTED_OBB_TRACKERS: "ocsort bytetrack botsort sfsort"
       SMOKE_SOURCE: ./assets/DOTA8-MOT/train/P1142__1024__0___824/img1
 
     timeout-minutes: 50
@@ -171,16 +172,41 @@ jobs:
         shell: bash
         run: |
           source .venv/bin/activate
-          echo "Format,OBB" > obb.csv
+          echo "Format,OBB,Reason" > obb.csv
+          failed=0
+          set +e
           for tracker in $TRACKERS; do
-            if boxmot track --detector yolo11s-obb.pt --reid lmbn_n_duke.pt --tracker $tracker --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok; then
+            log_file="${tracker}_obb.log"
+            boxmot track --detector yolo11s-obb.pt --reid lmbn_n_duke.pt --tracker "$tracker" --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok >"$log_file" 2>&1
+            tracker_exit=$?
+            if [ "$tracker_exit" -eq 0 ]; then
               OBB_STATUS="✅"
+              OBB_REASON="ok"
             else
               OBB_STATUS="❌"
+              if grep -q "does not support OBB detections" "$log_file"; then
+                if echo " $EXPECTED_OBB_TRACKERS " | grep -q " $tracker "; then
+                  OBB_REASON="expected-support-missing"
+                  failed=1
+                else
+                  OBB_REASON="unsupported"
+                fi
+              else
+                OBB_REASON="runtime-error"
+                failed=1
+              fi
             fi
-            TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
-            echo "$TRACKER_NAME,$OBB_STATUS" >> obb.csv
+
+            TRACKER_NAME=$(echo "$tracker" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+            echo "$TRACKER_NAME,$OBB_STATUS,$OBB_REASON" >> obb.csv
+            echo "OBB smoke $tracker: $OBB_STATUS ($OBB_REASON)"
+
+            if [ "$tracker_exit" -ne 0 ] && [ "$OBB_REASON" = "runtime-error" ]; then
+              cat "$log_file"
+            fi
           done
+          set -e
+          exit "$failed"
       - name: Show OBB Results
         shell: bash
         run: |

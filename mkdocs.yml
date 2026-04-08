@@ -37,6 +37,7 @@ nav:
       - Generate:     modes/generate.md
       - Evaluate:     modes/eval.md
       - Tune:         modes/tune.md
+      - Research:     modes/research.md
   - Trackers:
       - ByteTrack:    trackers/bytetrack.md
       - BotSort:      trackers/botsort.md
@@ -44,5 +45,5 @@ nav:
       - StrongSort:   trackers/strongsort.md
       - OcSort:       trackers/ocsort.md
       - DeepOcSort:   trackers/deepocsort.md
-      # - HybridSort:   api/trackers/hybridsort.md
+      - HybridSort:   trackers/hybridsort.md
       - BoostTrack:   trackers/boosttrack.md

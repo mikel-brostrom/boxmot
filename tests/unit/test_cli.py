@@ -134,6 +134,51 @@ def test_tune_rejects_source_option():
     assert "No such option: --source" in result.output
 
 
+def test_research_requires_benchmark():
+    result = CliRunner().invoke(boxmot, ["research"])
+    assert result.exit_code != 0
+    assert "requires --benchmark <benchmark.yaml>" in result.output
+
+
+def test_research_accepts_tracker_only_for_benchmark_runs(monkeypatch):
+    captured = {}
+
+    def fake_run(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(
+        sys.modules,
+        "boxmot.engine.research",
+        SimpleNamespace(TrackerResearchWorkflow=_workflow_stub(fake_run)),
+    )
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "research",
+            "boosttrack",
+            "--benchmark",
+            "mot17-ablation",
+            "--proposal-model",
+            "openai/gpt-5.4",
+            "--max-metric-calls",
+            "5",
+            "--eval-timeout",
+            "12",
+            "--keep-workspace",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["args"].tracking_method == "boosttrack"
+    assert captured["args"].data == "mot17-ablation"
+    assert captured["args"].proposal_model == "openai/gpt-5.4"
+    assert captured["args"].max_metric_calls == 5
+    assert captured["args"].eval_timeout == 12.0
+    assert captured["args"].keep_workspace is True
+    assert captured["args"].yolo_model_explicit is False
+    assert captured["args"].reid_model_explicit is False
+
+
 def test_eval_accepts_legacy_data_alias(monkeypatch):
     captured = {}
 
@@ -218,6 +263,13 @@ def test_track_help_lists_current_component_options():
     assert "--save" in result.output
     assert "--save-txt" in result.output
     assert "--save-crop" in result.output
+
+
+def test_root_help_lists_research_mode():
+    result = CliRunner().invoke(boxmot, ["--help"])
+    assert result.exit_code == 0, result.output
+    assert "research" in result.output
+    assert "boxmot research --benchmark mot17-ablation --tracker bytetrack" in result.output
 
 
 def test_export_builds_shared_namespace(monkeypatch):

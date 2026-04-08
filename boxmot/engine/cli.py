@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """
 CLI for BoxMOT: multi-step multiple object tracking pipeline.
-Provides commands to track, generate detections and embeddings, evaluate performance, tune models, or run all steps.
+Provides commands to track, generate detections and embeddings, evaluate performance, tune models, research tracker changes, or run all steps.
 """
 import importlib
 
@@ -28,6 +28,7 @@ from boxmot.utils.misc import parse_imgsz
 RUNTIME_DEFAULTS = BOXMOT_DEFAULTS.eval
 TRACK_DEFAULTS = BOXMOT_DEFAULTS.track
 TUNE_DEFAULTS = BOXMOT_DEFAULTS.tune
+RESEARCH_DEFAULTS = BOXMOT_DEFAULTS.research
 EXPORT_DEFAULTS = BOXMOT_DEFAULTS.export
 SHARED_DEFAULTS = BOXMOT_DEFAULTS.shared
 
@@ -351,6 +352,33 @@ def tune_options(func):
     return func
 
 
+def research_options(func):
+    """
+    Decorator adding GEPA-backed research options.
+    """
+    options = [
+        click.option('--proposal-model', type=str, default=RESEARCH_DEFAULTS.proposal_model, show_default=True,
+                     help='proposal model identifier used by GEPA reflections'),
+        click.option('--max-metric-calls', type=int, default=RESEARCH_DEFAULTS.max_metric_calls, show_default=True,
+                     help='maximum number of benchmark evaluations during research'),
+        click.option('--eval-timeout', type=float, default=RESEARCH_DEFAULTS.eval_timeout, show_default=True,
+                     help='hard timeout in seconds for each benchmark evaluation'),
+        click.option('--keep-workspace/--no-keep-workspace', default=RESEARCH_DEFAULTS.keep_workspace, show_default=True,
+                     help='preserve the temporary research workspace after the run'),
+        click.option('--idf1-penalty', type=float, default=RESEARCH_DEFAULTS.idf1_penalty, show_default=True,
+                     help='penalty multiplier for combined IDF1 regression versus baseline'),
+        click.option('--mota-penalty', type=float, default=RESEARCH_DEFAULTS.mota_penalty, show_default=True,
+                     help='penalty multiplier for combined MOTA regression versus baseline'),
+        click.option('--idf1-tolerance', type=float, default=RESEARCH_DEFAULTS.idf1_tolerance, show_default=True,
+                     help='allowed combined IDF1 drop before penalties apply'),
+        click.option('--mota-tolerance', type=float, default=RESEARCH_DEFAULTS.mota_tolerance, show_default=True,
+                     help='allowed combined MOTA drop before penalties apply'),
+    ]
+    for opt in reversed(options):
+        func = opt(func)
+    return func
+
+
 
 class CommandFirstGroup(click.Group):
     """Custom Click Group with improved help formatting - Ultralytics-style."""
@@ -373,11 +401,11 @@ class CommandFirstGroup(click.Group):
         # Argument descriptions
         formatter.width = 120  # Increase formatter width to prevent wrapping
         with formatter.indentation():
-            formatter.write_text("Where  MODE (required) is one of [track, eval, tune, generate, export]")
+            formatter.write_text("Where  MODE (required) is one of [track, eval, tune, research, generate, export]")
             formatter.write_text("       --detector selects a YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
             formatter.write_text("       --reid selects a ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
             formatter.write_text("       --tracker selects one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]")
-            formatter.write_text("       OPTIONS (optional) flags like '--source 0' for tracking inputs or '--benchmark mot17-ablation' for benchmark-driven eval/tune runs.")
+            formatter.write_text("       OPTIONS (optional) flags like '--source 0' for tracking inputs or '--benchmark mot17-ablation' for benchmark-driven eval/tune/research runs.")
             formatter.write_text("       Benchmark configs select their dataset, detector, and ReID profiles.")
             formatter.write_text("          See all options at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
         formatter.write_paragraph()
@@ -404,8 +432,13 @@ class CommandFirstGroup(click.Group):
             with formatter.indentation():
                 formatter.write_text("boxmot tune --benchmark mot17-ablation --tracker deepocsort --n-trials 10")
             formatter.write_paragraph()
+
+            formatter.write_text("5. Research tracker code changes:")
+            with formatter.indentation():
+                formatter.write_text("boxmot research --benchmark mot17-ablation --tracker bytetrack --max-metric-calls 24")
+            formatter.write_paragraph()
             
-            formatter.write_text("5. Export ReID model:")
+            formatter.write_text("6. Export ReID model:")
             with formatter.indentation():
                 formatter.write_text("boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic")
         formatter.write_paragraph()
@@ -416,6 +449,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("track      Track objects in video/webcam stream")
             formatter.write_text("eval       Evaluate tracker performance on MOT dataset")
             formatter.write_text("tune       Optimize tracker hyperparameters")
+            formatter.write_text("research   Evolve tracker code against benchmark metrics")
             formatter.write_text("generate   Generate detections and embeddings")
             formatter.write_text("export     Export ReID models to different formats")
         formatter.write_paragraph()
@@ -557,6 +591,44 @@ def tune(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **
         "tune",
         "boxmot.engine.tuner",
         "TrackerTuner",
+        {
+            **kwargs,
+            "yolo_model": detector or list(yolo_model),
+            "reid_model": reid or list(reid_model),
+            "classes": classes,
+            "data": data,
+            "source": None,
+            "benchmark": "",
+            "split": "",
+            **({"tracker": tracker} if tracker is not None else {}),
+        },
+        detector=detector,
+        reid=reid,
+        tracker=tracker,
+    )
+
+
+@boxmot.command(help='Research tracker code changes with GEPA')
+@click.argument('detector', required=False)
+@click.argument('reid', required=False)
+@click.argument('tracker', required=False)
+@data_option
+@core_options
+@research_options
+@plural_model_options
+@click.pass_context
+def research(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **kwargs):
+    # Allow benchmark/default-model runs to specify only the tracker positionally.
+    detector, reid, tracker = _normalize_eval_positionals(detector, reid, tracker)
+    if tracker:
+        kwargs.pop("tracking_method", None)
+
+    data = _require_benchmark_input(data, "research")
+    _dispatch_cli_workflow(
+        ctx,
+        "research",
+        "boxmot.engine.research",
+        "TrackerResearchWorkflow",
         {
             **kwargs,
             "yolo_model": detector or list(yolo_model),

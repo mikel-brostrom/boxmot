@@ -107,13 +107,16 @@ boxmot generate --benchmark mot17-ablation
 # Tune tracker hyperparameters on a benchmark
 boxmot tune --benchmark mot17-ablation --tracker ocsort --n-trials 10
 
+# Research tracker code changes on a benchmark
+boxmot research --benchmark mot17-ablation --tracker bytetrack --max-metric-calls 24
+
 # Export a ReID model to ONNX and TensorRT with dynamic input
 boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic
 ```
 
 Common `--source` values for `track` and direct-source `generate` runs include `0`, `img.jpg`, `video.mp4`, `path/`, `path/*.jpg`, YouTube URLs, and RTSP / RTMP / HTTP streams.
 
-For config-driven `generate`, `eval`, and `tune` runs:
+For config-driven `generate`, `eval`, `tune`, and `research` runs:
 
 - `--benchmark <benchmark>` selects a benchmark config from `boxmot/configs/benchmarks/`
 - the benchmark config selects its associated dataset config from `boxmot/configs/datasets/`
@@ -143,10 +146,15 @@ boxmot track --detector yolov8s --source 0 --classes 16,17
 
 ## Python API
 
-BoxMOT exposes two Python API layers:
+The canonical public Python API lives in `boxmot/api.py` and is re-exported from `boxmot`, so most end-user imports should stay at the package root. Shared defaults for both the CLI and the high-level Python API come from `boxmot/configs/modes.yaml`.
 
-- A high-level facade for `track`, `val`, `tune`, and `export`
-- A low-level tracker API for custom detector loops
+Supporting modules are grouped by concern: `boxmot.engine` contains the flat workflow implementations, `boxmot.data` contains dataset and source-loading helpers, `boxmot.detectors` exposes the public `Detector` wrapper plus detector registry helpers, and `boxmot.reid` exposes the unified `ReID` wrapper. For custom loops, use the package-level `track(...)` helper instead of importing internal engine modules directly.
+
+BoxMOT exposes three public Python entry points:
+
+- A high-level `Boxmot` facade for `track`, `val`, `tune`, and `export`
+- A package-level `track(...)` helper for detector/ReID/tracker pipelines
+- A package-level `evaluate(...)` helper for runtime summaries
 
 ### High-level facade
 
@@ -228,6 +236,18 @@ print(results.summary())
 
 The public `Detector` and `ReID` classes expose `preprocess`, `process`, and `postprocess` hooks, so you can subclass or override stages without rewriting the whole pipeline.
 
+For lightweight runtime summaries, call the package-level `evaluate(...)` helper:
+
+```python
+from boxmot import evaluate
+
+summary = evaluate(results)
+print(summary["metrics"])
+print(summary["speed"])
+```
+
+`evaluate(...)` aggregates counts and timings over one or more tracking runs. It does not replace TrackEval ground-truth benchmark evaluation.
+
 ### Tracker-only API
 
 If you already have detections from your own model, call `tracker.update(...)` once per frame inside your video loop:
@@ -274,7 +294,7 @@ cap.release()
 cv2.destroyAllWindows()
 ```
 
-For end-to-end detector integrations, see the notebooks in [examples](examples).
+For end-to-end detector integrations, see the notebooks in [examples](https://github.com/mikel-brostrom/boxmot/tree/master/examples).
 
 ## Detection Layouts
 
@@ -445,14 +465,14 @@ boxmot export --weights osnet_x0_25_msmt17.pt --include engine --device 0 --dyna
 
 OBB references:
 
-- Notebook: [examples/det/obb.ipynb](examples/det/obb.ipynb)
+- Notebook: [examples/det/obb.ipynb](https://github.com/mikel-brostrom/boxmot/blob/master/examples/det/obb.ipynb)
 - OBB-capable trackers: `bytetrack`, `botsort`, `ocsort`, `sfsort`
 
 </details>
 
 ## Contributing
 
-If you want to contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md).
+If you want to contribute, start with [CONTRIBUTING.md](https://github.com/mikel-brostrom/boxmot/blob/master/CONTRIBUTING.md).
 
 ## Contributors
 
@@ -464,5 +484,5 @@ If you want to contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Bugs and feature requests: [GitHub Issues](https://github.com/mikel-brostrom/boxmot/issues)
 - Questions and discussion: [GitHub Discussions](https://github.com/mikel-brostrom/boxmot/discussions) or [Discord](https://discord.gg/tUmFEcYU4q)
-- Citation metadata: [CITATION.cff](CITATION.cff)
+- Citation metadata: [CITATION.cff](https://github.com/mikel-brostrom/boxmot/blob/master/CITATION.cff)
 - Commercial support: `box-mot@outlook.com`

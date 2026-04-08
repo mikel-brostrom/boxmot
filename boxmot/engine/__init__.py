@@ -6,6 +6,7 @@ __all__ = (
 	"evaluator",
 	"export",
 	"inference",
+	"research",
 	"replay",
 	"results",
 	"tracker",

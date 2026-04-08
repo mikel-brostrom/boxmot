@@ -319,13 +319,22 @@ class DeepOcSort(BaseTracker):
     def update(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
     ) -> np.ndarray:
-        """
-        Params:
-          dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
-        Requires: this method must be called once for each frame even with empty detections
-        (use np.empty((0, 5)) for frames without detections).
-        Returns the a similar array, where the last column is the object ID.
-        NOTE: The number of objects returned may differ from the number of detections provided.
+        """Update tracks for one frame.
+
+        Args:
+            dets: Detection array for the current frame in the active BoxMOT
+                layout.
+            img: Current image frame.
+            embs: Optional appearance embeddings aligned with ``dets``.
+
+        Returns:
+            Array of active tracks with the object ID in the last column.
+
+        Notes:
+            Call this once per frame, including frames with no detections.
+            Pass an empty detection array with the matching layout when a frame
+            has no detections. The number of returned tracks may differ from the
+            number of detections provided.
         """
         # dets, s, c = dets.data
         # print(dets, s, c)

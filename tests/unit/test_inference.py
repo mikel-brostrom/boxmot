@@ -333,6 +333,58 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
     assert args.dataset_detector_cfg["classes"][0] == detector_cfg["classes"][0]
 
 
+def test_configure_benchmark_runtime_reuses_existing_benchmark_model_paths(monkeypatch, tmp_path):
+    detector_cfg = load_detector_cfg("yolox_x_mot17_ablation")
+    detector_path = tmp_path / "yolox_x_MOT17_ablation.pt"
+    reid_path = tmp_path / "lmbn_n_duke.pt"
+    detector_path.write_bytes(b"detector")
+    reid_path.write_bytes(b"reid")
+
+    benchmark_bundle = {
+        "benchmark": {"box_type": "aabb"},
+        "detector": detector_cfg,
+        "reid": {
+            "default_model": "models/lmbn_n_duke.pt",
+            "device": "",
+            "half": True,
+        },
+    }
+    args = SimpleNamespace(
+        yolo_model=[detector_path],
+        reid_model=[reid_path],
+        yolo_model_explicit=True,
+        reid_model_explicit=True,
+        device="cpu",
+        half=False,
+        imgsz=None,
+        conf=None,
+        eval_box_type=None,
+        dataset_detector_cfg=None,
+    )
+
+    monkeypatch.setattr(evaluator_module, "_load_benchmark_cfg", lambda _args: benchmark_bundle)
+    monkeypatch.setattr(evaluator_module, "should_use_benchmark_detector", lambda _args, _cfg: True)
+    monkeypatch.setattr(evaluator_module, "should_use_benchmark_reid", lambda _args, _cfg: True)
+    monkeypatch.setattr(
+        evaluator_module,
+        "ensure_benchmark_detector_model",
+        lambda _cfg: (_ for _ in ()).throw(AssertionError("detector download should not be triggered")),
+    )
+    monkeypatch.setattr(
+        evaluator_module,
+        "ensure_benchmark_reid_model",
+        lambda _cfg: (_ for _ in ()).throw(AssertionError("reid download should not be triggered")),
+    )
+
+    _, _, runtime_cfg = evaluator_module._configure_benchmark_runtime(args)
+
+    assert args.yolo_model == [detector_path]
+    assert args.reid_model == [reid_path]
+    assert args.imgsz == detector_cfg["imgsz"]
+    assert args.conf == detector_cfg["conf"]
+    assert runtime_cfg["id"] == detector_cfg["id"]
+
+
 def test_configure_benchmark_runtime_uses_explicit_component_configs_without_benchmark(monkeypatch):
     detector_cfg = load_detector_cfg("yolo11s-obb.pt")
     args = SimpleNamespace(
@@ -734,25 +786,71 @@ def test_parse_mot_results_preserves_multiword_class_names():
     # TrackEval fixed-width format: name column %-35s, each value %-10s
     results = (
         "\nHOTA: tracker-storage tank HOTA      DetA      AssA      DetRe     DetPr     AssRe     AssPr     LocA      OWTA      HOTA(0)   LocA(0)   HOTALocA(0)\n"
-        "COMBINED                           51.0      0         61.0      0         0         71.0      0         0         0         0         0         \n"
-        "CLEAR: tracker-storage tank MOTA      MOTP      MODA      CLR_Re    CLR_Pr    MTR       PTR       MLR       CLR_TP    CLR_FN    CLR_FP    IDSW      MT        PT        ML        Frag      sMOTA     \n"
-        "COMBINED                           41.0      0         0         0         0         0         0         0         0         0         0         0         3         0         0         0         0         0         \n"
+        "COMBINED                           51.0      52.0      61.0      53.0      54.0      71.0      72.0      73.0      74.0      75.0      76.0      77.0      \n"
+        "CLEAR: tracker-storage tank MOTA      MOTP      MODA      CLR_Re    CLR_Pr    MTR       PTR       MLR       sMOTA     CLR_TP    CLR_FN    CLR_FP    IDSW      MT        PT        ML        Frag      \n"
+        "COMBINED                           41.0      42.0      43.0      44.0      45.0      46.0      47.0      48.0      52.0      49        50        51        3         4         5         6         7         \n"
         "Identity: tracker-storage tank IDF1      IDR       IDP       IDTP      IDFN      IDFP      \n"
-        "COMBINED                           31.0      0         0         0         0         0         \n"
+        "COMBINED                           31.0      32.0      33.0      34        35        36        \n"
         "Count: tracker-storage tank Dets      GT_Dets   IDs       GT_IDs    \n"
-        "COMBINED                           0         0         7         0         \n"
+        "COMBINED                           80        81        7         82        \n"
     )
 
     parsed = evaluator_module.parse_mot_results(results, known_classes=["storage tank"])
 
     assert list(parsed) == ["storage tank"]
     assert parsed["storage tank"]["HOTA"] == 51.0
+    assert parsed["storage tank"]["DetA"] == 52.0
     assert parsed["storage tank"]["AssA"] == 61.0
     assert parsed["storage tank"]["AssRe"] == 71.0
+    assert parsed["storage tank"]["LocA"] == 73.0
+    assert parsed["storage tank"]["HOTA(0)"] == 75.0
     assert parsed["storage tank"]["MOTA"] == 41.0
+    assert parsed["storage tank"]["MOTP"] == 42.0
+    assert parsed["storage tank"]["sMOTA"] == 52.0
+    assert parsed["storage tank"]["CLR_TP"] == 49
+    assert parsed["storage tank"]["Frag"] == 7
     assert parsed["storage tank"]["IDSW"] == 3
     assert parsed["storage tank"]["IDF1"] == 31.0
+    assert parsed["storage tank"]["IDR"] == 32.0
+    assert parsed["storage tank"]["IDTP"] == 34
+    assert parsed["storage tank"]["Dets"] == 80
+    assert parsed["storage tank"]["GT_Dets"] == 81
     assert parsed["storage tank"]["IDs"] == 7
+    assert parsed["storage tank"]["GT_IDs"] == 82
+
+
+def test_build_trackeval_feedback_keeps_summary_and_per_sequence_metrics():
+    results_module = importlib.import_module("boxmot.utils.evaluation.results")
+    raw = {
+        "all": {
+            "HOTA": 62.5,
+            "MOTA": 70.0,
+            "IDF1": 65.0,
+            "DetA": 60.0,
+            "CLR_TP": 123,
+            "per_sequence": {
+                "MOT17-02": {"HOTA": 61.0, "MOTA": 69.0, "IDSW": 4, "CLR_TP": 50},
+            },
+        },
+        "person": {
+            "HOTA": 58.0,
+            "MOTA": 66.0,
+            "IDF1": 60.0,
+            "CLR_TP": 100,
+            "per_sequence": {
+                "MOT17-02": {"HOTA": 57.0, "MOTA": 65.0, "IDSW": 5},
+            },
+        },
+    }
+
+    feedback = results_module.build_trackeval_feedback(raw)
+
+    assert feedback["summary_label"] == "all"
+    assert feedback["summary"]["HOTA"] == 62.5
+    assert feedback["summary"]["CLR_TP"] == 123
+    assert feedback["per_sequence_metrics"]["MOT17-02"]["IDSW"] == 4
+    assert feedback["per_class_metrics"]["all"]["MOTA"] == 70.0
+    assert feedback["per_class_metrics"]["person"]["CLR_TP"] == 100
 
 
 def test_ordered_benchmark_eval_class_names_preserve_multiword_names():

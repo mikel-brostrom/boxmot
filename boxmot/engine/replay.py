@@ -78,13 +78,14 @@ def _build_task_args(
     sequence_names: list[str],
     evolve_config: dict | None,
     conf_threshold: float,
+    cache_project_root: str,
     progress_queue,
 ) -> list[tuple]:
     return [
         (
             seq_name,
             str(args.source),
-            str(args.project),
+            cache_project_root,
             args.yolo_model[0].stem,
             str(args.reid_model[0]),
             args.tracking_method,
@@ -285,6 +286,7 @@ def run_generate_mot_results(
 ) -> None:
     """Run trackers over cached detections/embeddings and write MOT result files."""
     args.project = Path(args.project)
+    cache_project = Path(getattr(args, "cache_project", args.project))
     verbose = bool(getattr(args, "verbose", False))
     base = args.project / "mot"
     if getattr(args, "benchmark", None):
@@ -305,6 +307,7 @@ def run_generate_mot_results(
         sequence_names,
         evolve_config,
         conf_threshold,
+        str(cache_project),
         None,
     )
     seq_frame_nums, total_track_time_ms, total_track_frames = _run_tracking_tasks(args, task_args, quiet=quiet)

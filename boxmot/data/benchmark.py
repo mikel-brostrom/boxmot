@@ -77,6 +77,31 @@ def resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] = 
     return str(box_type).lower() if box_type else "aabb"
 
 
+def _matches_benchmark_model_reference(
+    current_model: str | Path | None,
+    benchmark_model: str | Path | None,
+    *,
+    normalize_stem: bool = False,
+) -> bool:
+    """Return True when the current runtime model points at the benchmark-selected artifact."""
+    if current_model in (None, "") or benchmark_model in (None, ""):
+        return False
+
+    current_path = resolve_model_path(current_model)
+    benchmark_path = Path(benchmark_model)
+
+    if current_path.name.lower() == benchmark_path.name.lower():
+        return True
+
+    if normalize_stem:
+        current_stem = current_path.stem.lower().replace("-", "").replace("_", "")
+        benchmark_stem = benchmark_path.stem.lower().replace("-", "").replace("_", "")
+        if current_stem == benchmark_stem:
+            return True
+
+    return False
+
+
 def configure_benchmark_runtime(
     args: argparse.Namespace,
     *,
@@ -97,14 +122,29 @@ def configure_benchmark_runtime(
 
     required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
     if required_yolo_model and use_benchmark_detector:
-        required_model = ensure_benchmark_detector_model_fn(benchmark_bundle) or resolve_model_path(required_yolo_model)
+        current_detector = resolve_model_path(args.yolo_model[0]) if getattr(args, "yolo_model", None) else None
+        if current_detector is not None and current_detector.exists() and _matches_benchmark_model_reference(
+            current_detector,
+            required_yolo_model,
+            normalize_stem=True,
+        ):
+            required_model = current_detector
+        else:
+            required_model = ensure_benchmark_detector_model_fn(benchmark_bundle) or resolve_model_path(required_yolo_model)
         if verbose and args.yolo_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")
         args.yolo_model = [required_model]
 
     required_reid_model = resolve_required_reid_model(benchmark_bundle)
     if required_reid_model and use_benchmark_reid:
-        required_model = ensure_benchmark_reid_model_fn(benchmark_bundle) or resolve_model_path(required_reid_model)
+        current_reid = resolve_model_path(args.reid_model[0]) if getattr(args, "reid_model", None) else None
+        if current_reid is not None and current_reid.exists() and _matches_benchmark_model_reference(
+            current_reid,
+            required_reid_model,
+        ):
+            required_model = current_reid
+        else:
+            required_model = ensure_benchmark_reid_model_fn(benchmark_bundle) or resolve_model_path(required_reid_model)
         if verbose and args.reid_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default ReID: {required_model}")
         args.reid_model = [required_model]

@@ -62,6 +62,20 @@ tune:
   maximize: []
   minimize: []
 
+research:
+  data: null
+  source: null
+  benchmark: ""
+  split: ""
+  proposal_model: openai/gpt-5.4
+  max_metric_calls: 24
+  eval_timeout: 900.0
+  keep_workspace: false
+  idf1_penalty: 1.0
+  mota_penalty: 1.0
+  idf1_tolerance: 0.0
+  mota_tolerance: 0.0
+
 export:
   batch_size: 1
   imgsz:

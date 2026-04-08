@@ -13,7 +13,7 @@ from boxmot.utils import WEIGHTS
 from boxmot.utils.compat import dataclass_slots_kwargs
 from boxmot.utils.misc import resolve_model_path
 
-RUNTIME_MODES = frozenset({"track", "generate", "eval", "tune"})
+RUNTIME_MODES = frozenset({"track", "generate", "eval", "tune", "research"})
 MODE_DEFAULTS_PATH = Path(__file__).resolve().parent / "modes.yaml"
 
 
@@ -112,7 +112,7 @@ def build_mode_namespace(
     values.update(dict(payload))
 
     if normalized_mode in RUNTIME_MODES:
-        multiple_models = normalized_mode in {"generate", "eval", "tune"}
+        multiple_models = normalized_mode in {"generate", "eval", "tune", "research"}
         values["yolo_model"] = _normalize_model_list(
             values.get("yolo_model", [DEFAULT_DETECTOR] if multiple_models else DEFAULT_DETECTOR),
             multiple=multiple_models,
@@ -311,6 +311,42 @@ class TuneModeDefaults(RuntimeModeDefaults):
 
 
 @dataclass(frozen=True, **dataclass_slots_kwargs())
+class ResearchModeDefaults(RuntimeModeDefaults):
+    data: str | None
+    source: str | None
+    benchmark: str
+    split: str
+    proposal_model: str
+    max_metric_calls: int
+    eval_timeout: float
+    keep_workspace: bool
+    idf1_penalty: float
+    mota_penalty: float
+    idf1_tolerance: float
+    mota_tolerance: float
+
+    @classmethod
+    def from_mapping(cls, values: Mapping[str, Any]) -> "ResearchModeDefaults":
+        data = values.get("data")
+        source = values.get("source")
+        return cls(
+            **_runtime_mode_kwargs(values),
+            data=None if data is None else str(data),
+            source=None if source is None else str(source),
+            benchmark=str(values.get("benchmark", "")),
+            split=str(values.get("split", "")),
+            proposal_model=str(values.get("proposal_model", "openai/gpt-5.4")),
+            max_metric_calls=int(values.get("max_metric_calls", 24)),
+            eval_timeout=float(values.get("eval_timeout", 900.0)),
+            keep_workspace=bool(values.get("keep_workspace", False)),
+            idf1_penalty=float(values.get("idf1_penalty", 1.0)),
+            mota_penalty=float(values.get("mota_penalty", 1.0)),
+            idf1_tolerance=float(values.get("idf1_tolerance", 0.0)),
+            mota_tolerance=float(values.get("mota_tolerance", 0.0)),
+        )
+
+
+@dataclass(frozen=True, **dataclass_slots_kwargs())
 class ExportModeDefaults:
     batch_size: int
     imgsz: Any
@@ -348,6 +384,7 @@ class BoxMOTDefaults:
     generate: GenerateModeDefaults
     eval: EvalModeDefaults
     tune: TuneModeDefaults
+    research: ResearchModeDefaults
     export: ExportModeDefaults
 
 
@@ -357,6 +394,7 @@ BOXMOT_DEFAULTS = BoxMOTDefaults(
     generate=GenerateModeDefaults.from_mapping(get_mode_defaults("generate")),
     eval=EvalModeDefaults.from_mapping(get_mode_defaults("eval")),
     tune=TuneModeDefaults.from_mapping(get_mode_defaults("tune")),
+    research=ResearchModeDefaults.from_mapping(get_mode_defaults("research")),
     export=ExportModeDefaults.from_mapping(get_mode_defaults("export")),
 )
 
@@ -369,6 +407,7 @@ __all__ = (
     "ExportModeDefaults",
     "GenerateModeDefaults",
     "MODE_DEFAULTS_PATH",
+    "ResearchModeDefaults",
     "RuntimeModeDefaults",
     "SharedModeDefaults",
     "TrackModeDefaults",

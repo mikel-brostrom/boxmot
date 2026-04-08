@@ -97,7 +97,8 @@ def generate_dets_embs_batched(
     expected_det_cols = 8 if str(getattr(args, "eval_box_type", "")).lower() == "obb" else 7
 
     benchmark = getattr(args, "benchmark", None)
-    dets_base = Path(args.project) / "dets_n_embs"
+    cache_project = Path(getattr(args, "cache_project", args.project))
+    dets_base = cache_project / "dets_n_embs"
     if benchmark:
         dets_base = dets_base / benchmark
     dets_folder = dets_base / y.stem / "dets"
