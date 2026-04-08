@@ -13,7 +13,7 @@ import numpy as np
 from boxmot.utils import ROOT, logger as LOGGER
 from boxmot.utils.benchmark_config import load_benchmark_cfg
 
-from .benchmark import (
+from boxmot.data.benchmark import (
     COCO_CLASSES,
     load_benchmark_cfg_from_args,
     resolve_obb_class_ids_to_eval,

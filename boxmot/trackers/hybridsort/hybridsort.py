@@ -1,7 +1,7 @@
 # Hybrid-SORT-ReID with ECC + ReID (explicit config, BaseTracker-style)
 # - Assumes detection input is M x [x1, y1, x2, y2, conf, cls]
 # - ECC via get_cmc_method(...).apply(img, dets)
-# - ReID via ReidAutoBackend(weights, device, half).model.get_features(...)
+# - ReID via ReID(weights, device, half).model.get_features(...)
 # - update(dets, img, embs=None) signature compatible with BoxMOT trackers
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
 # - Safe with COCO 80 classes; preserves det_ind; guards out-of-range indices
@@ -14,7 +14,7 @@ import numpy as np
 import torch
 
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 # Keep your original association functions:
 from boxmot.trackers.hybridsort.association import (
@@ -441,7 +441,7 @@ class HybridSort(BaseTracker):
         self.with_reid = bool(with_reid)
         self.model = None
         if self.with_reid and reid_weights is not None:
-            self.model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
+            self.model = ReID(weights=reid_weights, device=device, half=half).model
 
         # ECC CMC (BotSort-style)
         self.cmc = get_cmc_method(cmc_method)()

@@ -9,18 +9,12 @@ import numpy as np
 import torch
 from numpy.lib import format as npy_format
 
-
-def _sequence_img_dir(seq_dir: Path) -> Path:
-    img1 = seq_dir / "img1"
-    return img1 if img1.exists() else seq_dir
-
-
-def _list_sequence_frames(img_dir: Path) -> list[Path]:
-    return sorted(list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")))
-
-
-def _sequence_name_from_img_dir(img_dir: Path) -> str:
-    return img_dir.parent.name if img_dir.name == "img1" else img_dir.name
+from boxmot.data.dataset import (
+    _collect_seq_info,
+    _list_sequence_frames,
+    _sequence_img_dir,
+    _sequence_name_from_img_dir,
+)
 
 
 def _read_image_cv2(path: Path) -> np.ndarray:
@@ -30,19 +24,6 @@ def _read_image_cv2(path: Path) -> np.ndarray:
     return image
 
 
-def _collect_seq_info(source: Path) -> tuple[list[Path], dict[str, int]]:
-    seq_paths: list[Path] = []
-    seq_info: dict[str, int] = {}
-    for seq_dir in sorted(path for path in source.iterdir() if path.is_dir()):
-        img_dir = _sequence_img_dir(seq_dir)
-        frame_files = _list_sequence_frames(img_dir)
-        if not frame_files:
-            continue
-        seq_paths.append(img_dir)
-        seq_info[seq_dir.name] = len(frame_files)
-    return seq_paths, seq_info
-
-
 def _clear_device_cache(device: str) -> None:
     dev_lower = str(device).lower()
     if dev_lower.startswith("cuda") and torch.cuda.is_available():
@@ -50,7 +31,7 @@ def _clear_device_cache(device: str) -> None:
     elif dev_lower.startswith(("mps", "metal")) and hasattr(torch, "mps"):
         try:
             torch.mps.empty_cache()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
 
@@ -71,7 +52,7 @@ def _count_embedding_rows(path: Path) -> int:
         try:
             arr = np.load(path, mmap_mode="r")
             return arr.shape[0]
-        except Exception:  # noqa: BLE001
+        except Exception:
             return 0
     return _count_data_lines(path, skip_header=True)
 
@@ -209,8 +190,6 @@ class AppendableNpyWriter:
         self.dtype = np.dtype(dtype)
         self.rows = int(shape[0]) if len(shape) > 0 else 0
         self.trailing_shape = tuple(shape[1:]) if len(shape) > 1 else ()
-        # Empty file with shape (0, 0) has unknown trailing shape — treat as
-        # uninitialised so the first append() determines the real shape.
         if self.rows == 0 and self.trailing_shape == (0,):
             self._fp.close()
             self._fp = None
@@ -262,7 +241,7 @@ def _max_frame_id(path: Path) -> int:
             if arr.size == 0 or arr.ndim != 2 or arr.shape[1] == 0:
                 return 0
             return int(np.max(arr[:, 0]))
-        except Exception:  # noqa: BLE001
+        except Exception:
             return 0
 
     max_frame_id = 0
@@ -277,7 +256,7 @@ def _max_frame_id(path: Path) -> int:
                     continue
                 try:
                     frame_value = int(float(parts[0]))
-                except Exception:  # noqa: BLE001
+                except Exception:
                     continue
                 if frame_value > max_frame_id:
                     max_frame_id = frame_value
@@ -294,7 +273,7 @@ def _saved_detection_column_count(path: Path) -> int:
             if arr.ndim != 2:
                 return 0
             return int(arr.shape[1])
-        except Exception:  # noqa: BLE001
+        except Exception:
             return 0
 
     try:

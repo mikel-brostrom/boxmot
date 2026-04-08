@@ -11,7 +11,6 @@ inside the individual detector classes.
 
 import time
 import types
-from glob import glob
 from pathlib import Path
 from typing import Callable, Generator, List, Optional, Union
 
@@ -19,8 +18,9 @@ import cv2
 import numpy as np
 import torch
 
+from boxmot.data import iter_source
 from boxmot.detectors import default_imgsz, get_detector_class
-from boxmot.detectors.detector import Detections
+from boxmot.detectors.base import Detections
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.timing import TimingStats
 from boxmot.utils.torch_utils import select_device
@@ -70,116 +70,10 @@ class _PredictorProxy:
 
 
 # ---------------------------------------------------------------------------
-# Source iterator — yields (path, frame) from any common source type
+# Source iterator alias — canonical implementation lives in boxmot.data
 # ---------------------------------------------------------------------------
 
-def _iter_source(source, vid_stride: int = 1):
-    """
-    Yield (path, numpy_bgr_frame) pairs for every selected frame in *source*.
-
-    Supported source types:
-      - np.ndarray                single image
-      - list[np.ndarray]          batch of images (each yielded separately)
-      - str/Path  →  image file   single image
-      - str/Path  →  directory    all images inside (sorted)
-      - str/Path  →  video file   all frames (respecting vid_stride)
-      - int                       webcam index
-    """
-    IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
-
-    if isinstance(source, np.ndarray):
-        yield "", source
-        return
-
-    if isinstance(source, list):
-        for item in source:
-            if isinstance(item, np.ndarray):
-                yield "", item
-            else:
-                img = cv2.imread(str(item))
-                if img is not None:
-                    yield str(item), img
-        return
-
-    if isinstance(source, (str, Path)):
-        source_str = str(source)
-
-        # Preserve raw URL/stream sources; ``Path("rtsp://...")`` would corrupt the scheme.
-        if "://" in source_str:
-            cap = cv2.VideoCapture(source_str)
-            if not cap.isOpened():
-                cap.release()
-                LOGGER.error(f"Could not open source: {source_str}")
-                return
-
-            frame_idx = 0
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                frame_idx += 1
-                if (frame_idx - 1) % vid_stride == 0:
-                    yield source_str, frame
-            cap.release()
-            return
-
-        # Expand file globs before trying webcam parsing.
-        if any(ch in source_str for ch in "*?[]"):
-            for match in sorted(glob(source_str)):
-                img = cv2.imread(match)
-                if img is not None:
-                    yield match, img
-            return
-
-        p = Path(source_str)
-        if p.exists():
-            # Directory of images
-            if p.is_dir():
-                paths = sorted(f for f in p.iterdir() if f.suffix.lower() in IMG_EXTS)
-                for fp in paths:
-                    img = cv2.imread(str(fp))
-                    if img is not None:
-                        yield str(fp), img
-                return
-
-            # Single image file
-            img = cv2.imread(str(p))
-            if img is not None:
-                yield str(p), img
-                return
-
-            # Video file
-            cap = cv2.VideoCapture(str(p))
-            if cap.isOpened():
-                frame_idx = 0
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    frame_idx += 1
-                    if (frame_idx - 1) % vid_stride == 0:
-                        yield str(p), frame
-                cap.release()
-                return
-
-    # Integer → webcam
-    try:
-        cam_id = int(source)
-        cap = cv2.VideoCapture(cam_id)
-        frame_idx = 0
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame_idx += 1
-            if (frame_idx - 1) % vid_stride == 0:
-                yield str(cam_id), frame
-        cap.release()
-        return
-    except (TypeError, ValueError):
-        pass
-
-    LOGGER.error(f"Could not open source: {source}")
+_iter_source = iter_source
 
 
 # ---------------------------------------------------------------------------
@@ -241,14 +135,14 @@ class DetectorReIDPipeline:
     # ------------------------------------------------------------------
 
     def _init_reid_models(self, reid_model_paths):
-        from boxmot.reid.core.auto_backend import ReidAutoBackend
+        from boxmot.reid.core import ReID
 
         if isinstance(reid_model_paths, (str, Path)):
             reid_model_paths = [reid_model_paths]
 
         for reid_path in reid_model_paths:
             reid_path = Path(reid_path)
-            backend = ReidAutoBackend(
+            backend = ReID(
                 weights=reid_path, device=self.reid_device, half=self.reid_half
             )
             self.reid_models.append(TimedReIDModel(backend.model, self.timing_stats))

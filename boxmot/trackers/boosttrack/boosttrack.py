@@ -5,7 +5,7 @@ import numpy as np
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xyhr import KalmanFilterXYHR
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.boosttrack.assoc import (MhDist_similarity, associate,
                                               iou_batch, shape_similarity,
@@ -213,12 +213,12 @@ class BoostTrack(BaseTracker):
         self.with_reid = with_reid
         
         if reid is not None:
-             self.reid_model = reid
-             self.with_reid = True
+            self.reid_model = reid
+            self.with_reid = True
         elif self.with_reid and reid_weights is not None:
-             self.reid_model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
+            self.reid_model = ReID(weights=reid_weights, device=device, half=half).model
         else:
-             self.reid_model = None
+            self.reid_model = None
 
         if self.use_ecc:
             self.cmc = get_cmc_method(cmc_method)()

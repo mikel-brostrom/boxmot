@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
 from boxmot.reid.exporters.onnx_exporter import ONNXExporter
 from boxmot.utils import ROOT, WEIGHTS
 from boxmot.utils.checks import RequirementsChecker
@@ -20,7 +20,7 @@ def _load_existing_osnet_model_and_input(batch_size=2):
     if weights is None:
         pytest.skip("Missing osnet_x0_25_msmt17.pt in repository root or engine/weights.")
 
-    backend = ReidAutoBackend(weights=weights, device="cpu", half=False)
+    backend = ReID(weights=weights, device="cpu", half=False)
     model = backend.model.model.eval()
     im = torch.randn(batch_size, 3, 256, 128)
     return model, im

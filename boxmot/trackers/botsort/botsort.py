@@ -7,7 +7,7 @@ import torch
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.trackers.botsort.botsort_track import STrack
@@ -102,7 +102,7 @@ class BotSort(BaseTracker):
         self.appearance_thresh = appearance_thresh
         self.with_reid = with_reid
         if self.with_reid:
-            self.model = ReidAutoBackend(
+            self.model = ReID(
                 weights=reid_weights, device=device, half=half
             ).model
 

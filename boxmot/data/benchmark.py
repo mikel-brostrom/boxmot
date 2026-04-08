@@ -54,6 +54,19 @@ def load_benchmark_cfg_from_args(args: argparse.Namespace) -> dict:
         return {}
 
 
+def _ordered_benchmark_eval_class_names(bench_cfg: dict) -> list[str]:
+    """Return benchmark eval class names in config order without splitting embedded whitespace."""
+    if not isinstance(bench_cfg, dict):
+        return []
+
+    eval_classes_cfg = bench_cfg.get("eval_classes")
+    if isinstance(eval_classes_cfg, dict) and eval_classes_cfg:
+        return [str(name) for _, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))]
+    if isinstance(eval_classes_cfg, (list, tuple)):
+        return [str(name) for name in eval_classes_cfg]
+    return []
+
+
 def resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] = None) -> str:
     eval_box_type = getattr(args, "eval_box_type", None)
     if eval_box_type:
@@ -83,20 +96,14 @@ def configure_benchmark_runtime(
 
     required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
     if required_yolo_model and use_benchmark_detector:
-        required_model = (
-            ensure_benchmark_detector_model_fn(benchmark_bundle)
-            or resolve_model_path(required_yolo_model)
-        )
+        required_model = ensure_benchmark_detector_model_fn(benchmark_bundle) or resolve_model_path(required_yolo_model)
         if args.yolo_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")
         args.yolo_model = [required_model]
 
     required_reid_model = resolve_required_reid_model(benchmark_bundle)
     if required_reid_model and use_benchmark_reid:
-        required_model = (
-            ensure_benchmark_reid_model_fn(benchmark_bundle)
-            or resolve_model_path(required_reid_model)
-        )
+        required_model = ensure_benchmark_reid_model_fn(benchmark_bundle) or resolve_model_path(required_reid_model)
         if args.reid_model[0] != required_model:
             LOGGER.info(f"Using benchmark-default ReID: {required_model}")
         args.reid_model = [required_model]
@@ -199,7 +206,7 @@ def build_gt_class_remap(
         LOGGER.warning(f"Detector config for '{model_stem}' has no 'classes' field. Skipping remap.")
         return None
 
-    det_name_to_id = {str(v): int(k) for k, v in det_classes.items()}
+    det_name_to_id = {str(value): int(key) for key, value in det_classes.items()}
 
     if not class_mapping:
         remap_logging = len(eval_classes_cfg) > 1
@@ -210,8 +217,8 @@ def build_gt_class_remap(
                 "Using positional auto-mapping: first N benchmark classes -> first N detector classes."
             )
 
-        bench_ordered = sorted((int(k), str(v)) for k, v in eval_classes_cfg.items())
-        det_ordered = sorted((int(k), str(v)) for k, v in det_classes.items())
+        bench_ordered = sorted((int(key), str(value)) for key, value in eval_classes_cfg.items())
+        det_ordered = sorted((int(key), str(value)) for key, value in det_classes.items())
         n_pairs = min(len(bench_ordered), len(det_ordered))
 
         remap: dict[int, int] = {}
@@ -246,7 +253,7 @@ def build_gt_class_remap(
         LOGGER.warning("class_mapping is set but eval_classes is missing in benchmark config. Skipping remap.")
         return None
 
-    bench_name_to_id = {str(v): int(k) for k, v in eval_classes_cfg.items()}
+    bench_name_to_id = {str(value): int(key) for key, value in eval_classes_cfg.items()}
 
     remap: dict[int, int] = {}
     det_classes_used: dict[str, int] = {}
@@ -313,7 +320,7 @@ def apply_gt_class_remap(
     for gt_file in gt_files:
         try:
             data = np.loadtxt(gt_file, delimiter=",")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             LOGGER.warning(f"apply_gt_class_remap: could not read {gt_file}: {exc}")
             continue
 
@@ -402,9 +409,7 @@ def eval_init(
     branch: str = "main",
     overwrite: bool = False,
 ) -> None:
-    """
-    Common initialization: download TrackEval and benchmark data, then canonicalize paths.
-    """
+    """Common initialization: download TrackEval and benchmark data, then canonicalize paths."""
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
     apply_benchmark_config(args, overwrite=overwrite)
 
@@ -415,6 +420,7 @@ def eval_init(
 
 __all__ = [
     "COCO_CLASSES",
+    "_ordered_benchmark_eval_class_names",
     "apply_gt_class_remap",
     "build_gt_class_remap",
     "configure_benchmark_runtime",

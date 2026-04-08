@@ -8,7 +8,7 @@ import torch
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xysr import KalmanFilterXYSR
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.ops import xyxy2xysr
@@ -305,7 +305,7 @@ class DeepOcSort(BaseTracker):
         self.Q_s_scaling = Q_s_scaling
         KalmanBoxTracker.count = 1
 
-        self.model = ReidAutoBackend(
+        self.model = ReID(
             weights=reid_weights, device=device, half=half
         ).model
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"

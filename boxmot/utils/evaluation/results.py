@@ -4,9 +4,12 @@ import argparse
 import re
 from typing import Optional
 
+from boxmot.data.benchmark import (
+    _ordered_benchmark_eval_class_names,
+    resolve_eval_box_type,
+    resolve_obb_classes_to_eval,
+)
 from boxmot.utils import logger as LOGGER
-
-from .benchmark import resolve_eval_box_type, resolve_obb_classes_to_eval
 
 
 SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
@@ -60,19 +63,6 @@ def _extract_metric_header_tracker_class(content: str, header_token: str) -> str
     if first_word.endswith(header_token):
         return first_word[: -len(header_token)]
     return first_word
-
-
-def _ordered_benchmark_eval_class_names(bench_cfg: dict) -> list[str]:
-    """Return benchmark eval class names in config order without splitting embedded whitespace."""
-    if not isinstance(bench_cfg, dict):
-        return []
-
-    eval_classes_cfg = bench_cfg.get("eval_classes")
-    if isinstance(eval_classes_cfg, dict) and eval_classes_cfg:
-        return [str(name) for _, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))]
-    if isinstance(eval_classes_cfg, (list, tuple)):
-        return [str(name) for name in eval_classes_cfg]
-    return []
 
 
 def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list[str]] = None) -> dict:
@@ -328,7 +318,6 @@ __all__ = [
     "_display_summary_name",
     "_filter_obb_trackeval_results",
     "_known_trackeval_class_names",
-    "_ordered_benchmark_eval_class_names",
     "_print_summary_table",
     "_select_plot_metrics_data",
     "_summary_sort_keys",

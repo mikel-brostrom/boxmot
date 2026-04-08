@@ -3,8 +3,7 @@ import time
 
 import torch
 
-from boxmot.reid.core import export_formats
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID, export_formats
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.utils import WEIGHTS
@@ -28,9 +27,9 @@ def setup_model(args):
     if args.half and args.device.type == "cpu":
         raise AssertionError("--half only compatible with GPU export, use --device 0 for GPU")
 
-    auto_backend = ReidAutoBackend(weights=args.weights, device=args.device, half=args.half)
+    reid = ReID(weights=args.weights, device=args.device, half=args.half)
     model_name = ReIDModelRegistry.get_model_name(args.weights)
-    model = auto_backend.model.model.eval()
+    model = reid.model.model.eval()
 
     if args.optimize and args.device.type != "cpu":
         raise AssertionError("--optimize not compatible with CUDA devices, use --device cpu")

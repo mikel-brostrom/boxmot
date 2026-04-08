@@ -143,6 +143,93 @@ boxmot track --detector yolov8s --source 0 --classes 16,17
 
 ## Python API
 
+BoxMOT exposes two Python API layers:
+
+- A high-level facade for `track`, `val`, `tune`, and `export`
+- A low-level tracker API for custom detector loops
+
+### High-level facade
+
+Use `Boxmot` when you want the Python equivalent of the CLI with minimal boilerplate:
+
+```python
+from boxmot import Boxmot
+
+model = Boxmot(
+  detector="yolov8n",
+  reid="lmbn_n_duke",
+  tracker="boosttrack",
+)
+
+run = model.track(
+  source="video.mp4",
+  save=True,
+  save_txt=True,
+)
+
+print(run.video_path)
+print(run.text_path)
+print(run.summary)
+print(run.timings)
+
+metrics = model.val(benchmark="mot17-mini")
+print(metrics.summary)
+
+tuned = model.tune(benchmark="mot17-mini", n_trials=5)
+print(tuned.best_config)
+print(tuned.best_yaml)
+
+exported = model.export(include=("onnx",))
+print(exported.files)
+```
+
+What you get:
+
+- `model.track(...)` runs detector + optional ReID + tracker and returns a `TrackRunResult`
+- `model.val(...)` runs the benchmark validation pipeline and returns a `ValidationResult`
+- `model.tune(...)` evaluates tracker configs and writes the best one to `best.yaml`
+- `model.export(...)` exports the configured ReID model to deployment formats
+
+`TrackRunResult.results` is a lazy `Results` object, so you can also iterate frame by frame, save MOT text output, render frames, or inspect summaries:
+
+```python
+from boxmot import Boxmot
+
+model = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
+run = model.track(source="video.mp4")
+
+for frame_result in run:
+  print(frame_result.frame_idx, frame_result.num_tracks)
+  frame = frame_result.render()
+
+print(run.results.summary())
+run.results.save("runs/track/example/tracks.txt")
+```
+
+### Composable detector + ReID + tracker API
+
+If you want more control, instantiate the public detector and ReID wrappers directly and use the module-level `track(...)` helper:
+
+```python
+from boxmot import ReID, StrongSort, track
+from boxmot.detectors import Detector
+
+detector = Detector("yolov8n.pt", device="cpu")
+reid = ReID("osnet_x0_25_msmt17.pt", device="cpu")
+tracker = StrongSort(reid_weights="osnet_x0_25_msmt17.pt", device="cpu", half=False)
+
+results = track("video.mp4", detector, reid, tracker, verbose=False)
+
+for frame_result in results:
+  print(frame_result.to_mot())
+
+print(results.summary())
+```
+
+The public `Detector` and `ReID` classes expose `preprocess`, `process`, and `postprocess` hooks, so you can subclass or override stages without rewriting the whole pipeline.
+
+### Tracker-only API
+
 If you already have detections from your own model, call `tracker.update(...)` once per frame inside your video loop:
 
 ```python
@@ -153,35 +240,35 @@ import numpy as np
 from boxmot import BotSort
 
 tracker = BotSort(
-    reid_weights=Path("osnet_x0_25_msmt17.pt"),
-    device="cpu",
-    half=False,
+  reid_weights=Path("osnet_x0_25_msmt17.pt"),
+  device="cpu",
+  half=False,
 )
 
 cap = cv2.VideoCapture("video.mp4")
 
 while True:
-    ok, frame = cap.read()
-    if not ok:
-        break
+  ok, frame = cap.read()
+  if not ok:
+    break
 
-    # Replace this with your detector output for the current frame.
-    # AABB input: (N, 6) = (x1, y1, x2, y2, conf, cls)
-    # OBB input: (N, 7) = (cx, cy, w, h, angle, conf, cls)
-    detections = np.empty((0, 6), dtype=np.float32)
-    # detections = your_detector(frame)
+  # Replace this with your detector output for the current frame.
+  # AABB input: (N, 6) = (x1, y1, x2, y2, conf, cls)
+  # OBB input: (N, 7) = (cx, cy, w, h, angle, conf, cls)
+  detections = np.empty((0, 6), dtype=np.float32)
+  # detections = your_detector(frame)
 
-    tracks = tracker.update(detections, frame)
-    tracker.plot_results(frame, show_trajectories=True)
+  tracks = tracker.update(detections, frame)
+  tracker.plot_results(frame, show_trajectories=True)
 
-    print(tracks)
-    # AABB output: (N, 8) = (x1, y1, x2, y2, id, conf, cls, det_ind)
-    # OBB output: (N, 9) = (cx, cy, w, h, angle, id, conf, cls, det_ind)
-    # Use det_ind to map a track back to the detector output
+  print(tracks)
+  # AABB output: (N, 8) = (x1, y1, x2, y2, id, conf, cls, det_ind)
+  # OBB output: (N, 9) = (cx, cy, w, h, angle, id, conf, cls, det_ind)
+  # Use det_ind to map a track back to the detector output
 
-    cv2.imshow("BoxMOT", frame)
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+  cv2.imshow("BoxMOT", frame)
+  if cv2.waitKey(1) & 0xFF == ord("q"):
+    break
 
 cap.release()
 cv2.destroyAllWindows()
@@ -325,6 +412,17 @@ boxmot tune --benchmark mot17-ablation --tracker boosttrack --n-trials 9
 
 # Tune a tracker with explicit detector/ReID overrides
 boxmot tune --benchmark mot17-ablation --detector yolo11s_obb --reid lmbn_n_duke --tracker botsort --n-trials 9
+
+# Python facade
+python - <<'PY'
+from boxmot import Boxmot
+
+model = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
+track_results = model.track(source="video.mp4", save=True, save_txt=True)
+metrics = model.val(benchmark="mot17-mini")
+export_results = model.export(include=("onnx",))
+print(track_results.text_path, metrics.summary, export_results.files)
+PY
 ```
 
 </details>

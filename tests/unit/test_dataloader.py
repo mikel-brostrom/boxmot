@@ -3,7 +3,7 @@ import numpy as np
 import configparser
 import cv2
 from pathlib import Path
-from boxmot.utils.dataloaders.dataset import (
+from boxmot.data.dataset import (
     read_seq_fps,
     compute_fps_mask,
     MOTDataset,

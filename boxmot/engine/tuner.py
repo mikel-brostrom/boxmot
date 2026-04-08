@@ -19,12 +19,11 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from boxmot.utils.evaluation.results import SUMMARY_COLUMNS
-from boxmot.engine.evaluator import (eval_setup,
-                                     run_generate_dets_embs,
-                                     run_generate_mot_results, run_trackeval)
+from boxmot.engine.evaluator import eval_setup, run_generate_dets_embs, run_trackeval
+from boxmot.engine.replay import run_generate_mot_results
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.evaluation.results import SUMMARY_COLUMNS
 
 # Metrics that must be summed across classes (not averaged), because they are counts
 METRIC_SUM = frozenset({"IDSW", "IDs"})
@@ -540,3 +539,11 @@ def main(args):
 
 if __name__ == "__main__":
     main()
+
+
+class TrackerTuner:
+    def __init__(self, args):
+        self.args = args
+
+    def run(self):
+        return main(self.args)

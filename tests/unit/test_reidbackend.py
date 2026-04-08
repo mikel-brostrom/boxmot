@@ -8,7 +8,7 @@ from boxmot.reid.backends.onnx_backend import ONNXBackend
 from boxmot.reid.backends.openvino_backend import OpenVinoBackend
 from boxmot.reid.backends.pytorch_backend import PyTorchBackend
 from boxmot.reid.backends.torchscript_backend import TorchscriptBackend
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
 from boxmot.utils import ROOT, WEIGHTS
 
 # Exported artifacts are covered by the dedicated CI export job.
@@ -25,8 +25,8 @@ def get_backend(weights: Path, requires_export: bool):
     if requires_export and not weights.exists():
         pytest.skip(f"Missing exported ReID artifact: {weights}")
 
-    rab = ReidAutoBackend(weights=weights, device="cpu", half=False)
-    return rab.get_backend()
+    reid = ReID(weights=weights, device="cpu", half=False)
+    return reid.get_backend()
 
 
 @pytest.mark.parametrize("reid_model, _, requires_export", REID_MODEL_CASES)

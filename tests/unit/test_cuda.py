@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
 
 REID_MODELS = [
     Path("mobilenetv2_x1_0_market1501.pt"),
@@ -15,8 +15,8 @@ def test_reidbackend_device(reid_model):
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    rab = ReidAutoBackend(weights=reid_model, device=device, half=False)
-    r = rab.get_backend()
+    reid = ReID(weights=reid_model, device=device, half=False)
+    r = reid.get_backend()
 
     if torch.cuda.is_available():
         assert next(r.model.parameters()).is_cuda
@@ -29,8 +29,8 @@ def test_reidbackend_half(reid_model):
 
     half = True if torch.cuda.is_available() else False
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    rab = ReidAutoBackend(weights=reid_model, device=device, half=half)
-    r = rab.get_backend()
+    reid = ReID(weights=reid_model, device=device, half=half)
+    r = reid.get_backend()
 
     if device == "cpu":
         expected_dtype = torch.float32

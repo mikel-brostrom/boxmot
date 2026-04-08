@@ -6,7 +6,7 @@ import numpy as np
 from torch import device
 
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.linear_assignment import \
@@ -71,7 +71,7 @@ class StrongSort(BaseTracker):
         self.min_conf = min_conf
         
         # Initialize ReID model
-        self.model = ReidAutoBackend(
+        self.model = ReID(
             weights=reid_weights, device=device, half=half
         ).model
 

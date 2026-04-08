@@ -1,0 +1,79 @@
+shared:
+  detector: yolov8n
+  reid: osnet_x0_25_msmt17
+
+runtime:
+  imgsz: null
+  fps: null
+  conf: null
+  iou: 0.7
+  device: cpu
+  batch_size: 16
+  auto_batch: true
+  resume: true
+  n_threads: auto
+  project: runs
+  name: exp
+  exist_ok: false
+  half: false
+  vid_stride: 1
+  ci: false
+  tracker: bytetrack
+  verbose: false
+  agnostic_nms: false
+  postprocessing: none
+  show: false
+  show_labels: true
+  show_conf: true
+  show_trajectories: false
+  show_kf_preds: false
+  save_txt: false
+  save_crop: false
+  save: false
+  line_width: null
+  per_class: false
+  target_id: null
+
+track:
+  source: "0"
+  benchmark: ""
+  split: ""
+
+generate:
+  data: null
+  source: null
+  benchmark: ""
+  split: ""
+
+eval:
+  data: null
+  source: null
+  benchmark: ""
+  split: ""
+
+tune:
+  data: null
+  source: null
+  benchmark: ""
+  split: ""
+  n_trials: 10
+  objectives:
+    - HOTA
+  maximize: []
+  minimize: []
+
+export:
+  batch_size: 1
+  imgsz:
+    - 256
+    - 128
+  device: cpu
+  optimize: false
+  dynamic: false
+  simplify: false
+  opset: 17
+  workspace: 4
+  weights: osnet_x0_25_msmt17
+  half: false
+  include:
+    - onnx
