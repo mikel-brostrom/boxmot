@@ -34,8 +34,8 @@ def test_run_generate_dets_embs_logs_only_when_verbose(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cache_module,
         "generate_dets_embs_batched",
-        lambda args, yolo_model, source_root, timing_stats=None: generated.append(
-            (args.verbose, args.show_progress, yolo_model, source_root)
+        lambda args, detector, source_root, timing_stats=None: generated.append(
+            (args.verbose, args.show_progress, detector, source_root)
         ),
     )
     monkeypatch.setattr(cache_module.LOGGER, "info", lambda message: logged.append(message))

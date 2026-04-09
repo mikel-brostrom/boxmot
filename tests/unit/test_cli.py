@@ -257,7 +257,7 @@ def test_root_help_lists_research_mode():
     result = CliRunner().invoke(boxmot, ["--help"])
     assert result.exit_code == 0, result.output
     assert "research" in result.output
-    assert "boxmot research --benchmark mot17-ablation --tracker bytetrack" in result.output
+    assert "boxmot research --benchmark mot17-ablation --tracker bytetrack --proposal-model openai/gpt-5.4" in result.output
 
 
 def test_export_builds_shared_namespace(monkeypatch):

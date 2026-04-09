@@ -40,7 +40,7 @@ class TrackerRuntime:
 	@classmethod
 	def create(
 		cls,
-		tracking_method: str,
+		tracker_name: str,
 		reid_weights,
 		device,
 		half: bool,
@@ -50,14 +50,14 @@ class TrackerRuntime:
 		timing_stats: TimingStats | None = None,
 	) -> TrackerRuntime:
 		"""Instantiate a tracker and wrap it in the runtime helper."""
-		normalized_method = str(tracking_method).lower()
-		if normalized_method not in TRACKER_MAPPING:
+		normalized_tracker = str(tracker_name).lower()
+		if normalized_tracker not in TRACKER_MAPPING:
 			available = ", ".join(sorted(TRACKER_MAPPING))
-			raise ValueError(f"'{tracking_method}' is not supported. Supported ones are {available}")
+			raise ValueError(f"'{tracker_name}' is not supported. Supported ones are {available}")
 
 		tracker = create_tracker(
-			tracker_type=normalized_method,
-			tracker_config=get_tracker_config(normalized_method),
+			tracker_type=normalized_tracker,
+			tracker_config=get_tracker_config(normalized_tracker),
 			reid_weights=reid_weights,
 			device=device,
 			half=half,
@@ -210,7 +210,7 @@ class TrackingSession:
 		batch_size = int(getattr(getattr(predictor, "dataset", None), "bs", 1) or 1)
 		predictor.trackers = [
 			TrackerRuntime.create(
-				tracking_method=tracker_name,
+				tracker_name=tracker_name,
 				reid_weights=reid_weights,
 				device=select_device(getattr(predictor, "device", "cpu")),
 				half=bool(getattr(args, "half", False)),

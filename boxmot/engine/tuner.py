@@ -36,8 +36,8 @@ ALL_TUNE_METRICS = (*SUMMARY_COLUMNS, "IDSW_rate")
 # YAML helpers
 # ---------------------------------------------------------------------------
 
-def load_yaml_config(tracking_method: str) -> dict:
-    config_path = TRACKER_CONFIGS / f"{tracking_method}.yaml"
+def load_yaml_config(tracker_name: str) -> dict:
+    config_path = TRACKER_CONFIGS / f"{tracker_name}.yaml"
     with open(config_path, "r") as file:
         return yaml.safe_load(file)
 
@@ -222,7 +222,7 @@ def _generate_summary(
     tune_dir: Path,
     trial_data: list,
     yaml_cfg: dict,
-    tracking_method: str,
+    tracker_name: str,
     maximize: list,
     minimize: list,
     args,
@@ -239,8 +239,8 @@ def _generate_summary(
     lines = []
 
     # --- Header ---
-    lines.append(f"# Tuning Summary: {tracking_method}\n")
-    lines.append(f"- **Tracker:** {tracking_method}")
+    lines.append(f"# Tuning Summary: {tracker_name}\n")
+    lines.append(f"- **Tracker:** {tracker_name}")
     lines.append(f"- **Detector:** {Path(args.detector[0]).stem}")
     lines.append(f"- **Benchmark:** {getattr(args, 'benchmark', getattr(args, 'data', ''))}")
     lines.append(f"- **Completed trials:** {len(trial_data)}")
@@ -260,7 +260,7 @@ def _generate_summary(
     lines.append(f"| {metric_header} |")
     lines.append(f"| {metric_sep} |")
     lines.append(f"| {metric_vals} |")
-    lines.append(f"\nConfig saved to: `best_{tracking_method}.yaml`\n")
+    lines.append(f"\nConfig saved to: `best_{tracker_name}.yaml`\n")
 
     # --- Pareto Front ---
     if is_pareto:
@@ -349,7 +349,7 @@ def _save_all_results(
     tune_dir: Path,
     results,
     yaml_cfg: dict,
-    tracking_method: str,
+    tracker_name: str,
     maximize: list,
     minimize: list,
     args,
@@ -370,7 +370,7 @@ def _save_all_results(
     for td in trial_data:
         trial_dir = td["trial_dir"]
         if trial_dir.exists():
-            yaml_path = trial_dir / f"{tracking_method}_{td['trial_id']}.yaml"
+            yaml_path = trial_dir / f"{tracker_name}_{td['trial_id']}.yaml"
             _write_trial_yaml(yaml_cfg, td["config"], yaml_path)
 
     # 2. results.csv
@@ -381,14 +381,14 @@ def _save_all_results(
     # 3. Best config → tune root
     primary = maximize[0]
     best = max(trial_data, key=lambda t: t["metrics"].get(primary, 0))
-    best_yaml_path = tune_dir / f"best_{tracking_method}.yaml"
+    best_yaml_path = tune_dir / f"best_{tracker_name}.yaml"
     _write_trial_yaml(yaml_cfg, best["config"], best_yaml_path)
     LOGGER.opt(colors=True).info(
         f"<bold>Best config ({best['trial_id']}):</bold> <cyan>{best_yaml_path}</cyan>"
     )
 
     # 4. summary.md
-    _generate_summary(tune_dir, trial_data, yaml_cfg, tracking_method, maximize, minimize, args)
+    _generate_summary(tune_dir, trial_data, yaml_cfg, tracker_name, maximize, minimize, args)
 
 
 # ---------------------------------------------------------------------------
@@ -405,16 +405,16 @@ try:
         immediately after each trial completes.
         """
 
-        def __init__(self, yaml_cfg: dict, tracking_method: str):
+        def __init__(self, yaml_cfg: dict, tracker_name: str):
             self._yaml_cfg = yaml_cfg
-            self._tracking_method = tracking_method
+            self._tracker_name = tracker_name
 
         def on_trial_complete(self, _iteration, _trials, trial, **_info):
             trial_dir = Path(
                 getattr(trial, "local_path", None) or getattr(trial, "logdir", "")
             )
             if trial_dir and trial_dir.exists():
-                yaml_path = trial_dir / f"{self._tracking_method}_{trial.trial_id}.yaml"
+                yaml_path = trial_dir / f"{self._tracker_name}_{trial.trial_id}.yaml"
                 _write_trial_yaml(self._yaml_cfg, trial.config, yaml_path)
 
 except ImportError:
@@ -425,7 +425,7 @@ except ImportError:
 # Tracker (objective function)
 # ---------------------------------------------------------------------------
 
-class Tracker:
+class TrackerObjective:
     def __init__(self, opt):
         self.opt = opt
 
@@ -471,10 +471,10 @@ def main(args):
 
     yaml_cfg = load_yaml_config(args.tracker)
     search_space = yaml_to_search_space(yaml_cfg, tune)
-    tracker = Tracker(args)
+    tracker_objective = TrackerObjective(args)
 
     def tune_wrapper(cfg):
-        return tracker.objective_function(cfg)
+        return tracker_objective.objective_function(cfg)
 
     tune_name = f"{args.tracker}_tune"
 

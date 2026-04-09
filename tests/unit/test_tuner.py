@@ -11,8 +11,8 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
         def sync_extra(self, extra):
             captured["extra"] = extra
 
-    monkeypatch.setattr(tuner_module, "TrialSaveCallback", lambda yaml_cfg, tracking_method: object())
-    monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracking_method: {})
+    monkeypatch.setattr(tuner_module, "TrialSaveCallback", lambda yaml_cfg, tracker_name: object())
+    monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
     monkeypatch.setattr(tuner_module, "_save_all_results", lambda *args, **kwargs: None)
     monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: captured.setdefault("generated", True))
     monkeypatch.setattr(

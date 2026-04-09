@@ -104,9 +104,9 @@ def process_sequence(
     seq_name: str,
     mot_root: str,
     project_root: str,
-    model_name: str,
+    detector_name: str,
     reid_name: str,
-    tracking_method: str,
+    tracker_name: str,
     exp_folder: str,
     target_fps: Optional[int],
     cfg_dict: dict | None = None,
@@ -115,14 +115,14 @@ def process_sequence(
     progress_queue=None,
 ):
     """Run a tracker over cached detections and embeddings for one sequence."""
-    model_key = Path(model_name).stem if Path(model_name).suffix else str(model_name)
+    detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
     reid_weights = Path(reid_name)
     reid_key = reid_weights.stem if reid_weights.suffix else str(reid_weights)
     if not reid_weights.suffix:
         reid_weights = reid_weights.with_suffix(".pt")
 
     tracker_runtime = TrackerRuntime.create(
-        tracking_method=tracking_method,
+        tracker_name=tracker_name,
         reid_weights=reid_weights,
         device=select_device("cpu"),
         half=False,
@@ -136,7 +136,7 @@ def process_sequence(
     dataset = MOTDataset(
         mot_root=mot_root,
         det_emb_root=str(det_emb_root),
-        model_name=model_key,
+        model_name=detector_key,
         reid_name=reid_key,
         target_fps=target_fps,
     )

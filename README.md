@@ -108,7 +108,7 @@ boxmot generate --benchmark mot17-ablation
 boxmot tune --benchmark mot17-ablation --tracker ocsort --n-trials 10
 
 # Research tracker code changes on a benchmark
-boxmot research --benchmark mot17-ablation --tracker bytetrack --max-metric-calls 24
+boxmot research --benchmark mot17-ablation --tracker bytetrack --proposal-model openai/gpt-5.4 --max-metric-calls 24
 
 # Export a ReID model to ONNX and TensorRT with dynamic input
 boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic

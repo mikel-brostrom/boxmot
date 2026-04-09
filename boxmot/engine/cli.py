@@ -389,7 +389,10 @@ class CommandFirstGroup(click.Group):
 
             formatter.write_text("5. Research tracker code changes:")
             with formatter.indentation():
-                formatter.write_text("boxmot research --benchmark mot17-ablation --tracker bytetrack --max-metric-calls 24")
+                formatter.write_text(
+                    "boxmot research --benchmark mot17-ablation --tracker bytetrack "
+                    "--proposal-model openai/gpt-5.4 --max-metric-calls 24"
+                )
             formatter.write_paragraph()
             
             formatter.write_text("6. Export ReID model:")
