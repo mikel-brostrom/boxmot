@@ -60,7 +60,7 @@ def test_prepare_detections_reads_aabb_result():
     dets = np.array([[10, 20, 30, 40, 0.9, 0]], dtype=np.float32)
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result, _DUMMY_IMG)
+    out = prepare_detections(result)
 
     assert out.shape == (1, 6)
     np.testing.assert_array_equal(out[0], np.array([10, 20, 30, 40, 0.9, 0], dtype=np.float32))
@@ -70,7 +70,7 @@ def test_prepare_detections_reads_obb_result():
     dets = np.array([[10, 20, 30, 40, 0.5, 0.8, 1]], dtype=np.float32)
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result, _DUMMY_IMG)
+    out = prepare_detections(result)
 
     assert out.shape == (1, 7)
     np.testing.assert_array_equal(out[0], dets[0])
@@ -80,7 +80,7 @@ def test_prepare_detections_preserves_empty_obb_width():
     dets = np.empty((0, 7), dtype=np.float32)
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result, _DUMMY_IMG)
+    out = prepare_detections(result)
 
     assert out.shape == (0, 7)
 
@@ -95,7 +95,7 @@ def test_prepare_detections_filters_invalid_obb_boxes():
     )
     result = Detections(dets=dets, orig_img=_DUMMY_IMG)
 
-    out = prepare_detections(result, _DUMMY_IMG)
+    out = prepare_detections(result)
 
     assert out.shape == (1, 7)
     np.testing.assert_array_equal(out[0], dets[0])
@@ -125,7 +125,7 @@ def test_ultralytics_detector_preserves_obb_results(monkeypatch):
             self.model = model
             self.names = {0: "plane"}
 
-        def predict(self, **kwargs):
+        def predict(self, **_kwargs):
             return [
                 _FakeResult(
                     [[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]]
@@ -619,13 +619,16 @@ def test_reid_runtime_returns_named_feature_sets(monkeypatch):
 
     class _FakeBackend:
         def __init__(self, weights, device, half):
+            _ = (weights, device, half)
             self.model = _FakeReIDModel()
 
     class _FakeDetector:
         def __init__(self, model, device, imgsz):
+            _ = (device, imgsz)
             self.model = model
 
         def __call__(self, images, conf, iou, classes, agnostic_nms):
+            _ = (conf, iou, classes, agnostic_nms)
             return [Detections(dets=np.empty((0, 6), dtype=np.float32), orig_img=images[0], path="")]
 
     monkeypatch.setattr(pipeline_module, "get_detector_class", lambda _path: _FakeDetector)
@@ -662,6 +665,7 @@ def test_pipeline_delegates_to_detector_backend_and_reid_models(monkeypatch):
 
     class _FakeBackend:
         def __init__(self, weights, device, half):
+            _ = (weights, device, half)
             self.model = _FakeReIDModel()
 
     monkeypatch.setattr(pipeline_module, "get_detector_class", lambda _path: _FakeDetector)
@@ -960,7 +964,7 @@ def test_run_generate_mot_results_quiet_mode_skips_manager_queue(tmp_path, monke
             return self._value
 
     class FakeProcessPoolExecutor:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *_args, **kwargs):
             executor_kwargs.update(kwargs)
 
         def __enter__(self):
@@ -1068,7 +1072,7 @@ def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, mon
             return self._value
 
     class FakeProcessPoolExecutor:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *_args, **kwargs):
             executor_kwargs.update(kwargs)
 
         def __enter__(self):
@@ -1132,6 +1136,7 @@ def test_tracker_runtime_update_measures_elapsed_time_and_passes_embeddings():
             return np.array([[1, 2, 5, 6, 7, 0.9, 0, 0]], dtype=np.float32)
 
         def plot_results(self, img, show_trajectories, *, thickness, show_kf_preds):
+            _ = (show_trajectories, thickness, show_kf_preds)
             return img
 
     timing_stats = tracker_runtime_module.TimingStats()

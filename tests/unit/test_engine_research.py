@@ -23,6 +23,22 @@ def test_validate_candidate_keys_rejects_missing_or_unexpected():
     assert "unexpected keys" in str(exc.value)
 
 
+def test_validate_candidate_keys_preserves_underlying_proposal_text():
+    candidate = {
+        "boxmot/trackers/bytetrack/bytetrack.py": research_module._ProposalLogText(
+            "print('ok')",
+            "[summary]",
+        )
+    }
+
+    validated = research_module._validate_candidate_keys(
+        candidate,
+        ("boxmot/trackers/bytetrack/bytetrack.py",),
+    )
+
+    assert validated["boxmot/trackers/bytetrack/bytetrack.py"] == "print('ok')"
+
+
 def test_ensure_not_local_gepa_path_rejects_repo_checkout():
     with pytest.raises(RuntimeError) as exc:
         research_module._ensure_not_local_gepa_path(research_module.ROOT / "gepa" / "src" / "gepa")
@@ -139,8 +155,56 @@ def test_build_reflection_prompt_templates_embed_objective_and_background():
     assert "Detector: /tmp/yolox.pt" in template
     assert "Prefer algorithmic tracking improvements" in template
     assert "Do not spend a proposal on isolated single-variable" in template
+    assert "Do not wrap the response in Markdown fences" in template
     assert "<curr_param>" in template
     assert "<side_info>" in template
+
+
+def test_normalize_proposed_text_strips_wrapping_code_fence():
+    proposed = "```python\nprint('ok')\n```\n"
+
+    normalized = research_module._normalize_proposed_text(proposed, "module.py")
+
+    assert normalized == "print('ok')"
+
+
+def test_normalize_proposed_text_extracts_code_block_from_chatty_response():
+    proposed = (
+        "Here is the updated file.\n\n"
+        "```python\n"
+        "from x import y\n"
+        "print('ok')\n"
+        "```\n\n"
+        "This version keeps the API stable.\n"
+    )
+
+    normalized = research_module._normalize_proposed_text(proposed, "module.py")
+
+    assert normalized == "from x import y\nprint('ok')"
+
+
+def test_normalize_proposed_text_recovers_unfenced_python_from_chatty_response():
+    proposed = (
+        "Updated file below.\n\n"
+        "from x import y\n"
+        "\n"
+        "def main():\n"
+        "    return 1\n"
+        "\n"
+        "main()\n"
+        "\n"
+        "Explanation: I kept the API stable.\n"
+    )
+
+    normalized = research_module._normalize_proposed_text(proposed, "module.py")
+
+    assert normalized == "from x import y\n\ndef main():\n    return 1\n\nmain()"
+
+
+def test_raw_text_extracts_underlying_proposal_value():
+    wrapped = research_module._ProposalLogText("print('ok')", "[summary]")
+
+    assert research_module._raw_text(wrapped) == "print('ok')"
 
 
 def test_run_instruction_proposal_signature_uses_published_run_api():
@@ -212,12 +276,13 @@ def test_run_eval_subprocess_streams_stderr_when_progress_bar_enabled(monkeypatc
     popen_kwargs = {}
 
     class _FakePopen:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *_args, **kwargs):
             popen_kwargs.update(kwargs)
             self.returncode = 0
             self.pid = 1234
 
         def communicate(self, timeout=None):
+            _ = timeout
             return ('{"ok": true, "summary": {"HOTA": 1.0}}', None)
 
     monkeypatch.setattr(research_module.subprocess, "Popen", _FakePopen)
@@ -263,7 +328,7 @@ def test_reset_gepa_run_dir_removes_stale_state(tmp_path):
 def test_checked_candidate_proposer_retries_invalid_candidate_before_returning():
     attempts = []
 
-    def fake_runner(candidate, reflective_dataset, components_to_update):
+    def fake_runner(_candidate, reflective_dataset, _components_to_update):
         attempts.append(reflective_dataset)
         if len(attempts) == 1:
             return {"boxmot/trackers/bytetrack/bytetrack.py": "def broken(:\n"}
@@ -290,7 +355,7 @@ def test_checked_candidate_proposer_retries_invalid_candidate_before_returning()
 
 def test_run_eval_subprocess_timeout_returns_failure(monkeypatch):
     class _FakePopen:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *_args, **_kwargs):
             self.pid = 123
             self.calls = 0
 
@@ -320,11 +385,12 @@ def test_run_eval_subprocess_keyboard_interrupt_terminates_process_group(monkeyp
     signals = []
 
     class _FakePopen:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *_args, **_kwargs):
             self.pid = 456
             self.calls = 0
 
         def communicate(self, timeout=None):
+            _ = timeout
             self.calls += 1
             if self.calls == 1:
                 raise KeyboardInterrupt
@@ -353,11 +419,12 @@ def test_run_eval_subprocess_preserves_rich_trackeval_feedback(monkeypatch):
     }
 
     class _FakePopen:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *_args, **_kwargs):
             self.pid = 123
             self.returncode = 0
 
         def communicate(self, timeout=None):
+            _ = timeout
             return (json.dumps(payload), "")
 
     monkeypatch.setattr(research_module.subprocess, "Popen", _FakePopen)

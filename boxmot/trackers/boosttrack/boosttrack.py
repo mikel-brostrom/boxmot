@@ -452,8 +452,6 @@ class BoostTrack(BaseTracker):
         if self.use_vt:
             threshold_s = 0.95
             threshold_e = 0.8
-            n_steps = 20
-            # alpha = (threshold_s - threshold_e) / n_steps # todo alpha is not being used probably a bug
             tmp = (S > np.maximum(
                 threshold_s - np.array([trk.time_since_update - 1 for trk in self.trackers]),
                                     threshold_e)).max(1)

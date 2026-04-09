@@ -1,6 +1,4 @@
-import shutil
 import subprocess
-import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Iterable, Optional, Sequence

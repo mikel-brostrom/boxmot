@@ -409,7 +409,7 @@ try:
             self._yaml_cfg = yaml_cfg
             self._tracking_method = tracking_method
 
-        def on_trial_complete(self, iteration, trials, trial, **info):
+        def on_trial_complete(self, _iteration, _trials, trial, **_info):
             trial_dir = Path(
                 getattr(trial, "local_path", None) or getattr(trial, "logdir", "")
             )

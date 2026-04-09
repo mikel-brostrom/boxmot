@@ -2,12 +2,10 @@ import pytest
 import numpy as np
 import configparser
 import cv2
-from pathlib import Path
 from boxmot.data.dataset import (
     read_seq_fps,
     compute_fps_mask,
     MOTDataset,
-    MOTSequence,
 )
 from boxmot.data.loaders import iter_source
 

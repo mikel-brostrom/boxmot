@@ -7,8 +7,6 @@ import json
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
-
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     _ordered_benchmark_eval_class_names,

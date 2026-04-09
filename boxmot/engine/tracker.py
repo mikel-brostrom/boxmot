@@ -48,7 +48,7 @@ class TrackerRuntime:
 		evolve_param_dict: dict | None = None,
 		target_id: int | None = None,
 		timing_stats: TimingStats | None = None,
-	) -> "TrackerRuntime":
+	) -> TrackerRuntime:
 		"""Instantiate a tracker and wrap it in the runtime helper."""
 		normalized_method = str(tracking_method).lower()
 		if normalized_method not in TRACKER_MAPPING:

@@ -18,7 +18,6 @@ from boxmot import __version__
 from boxmot.configs import (
     BOXMOT_DEFAULTS,
     build_mode_namespace,
-    ensure_model_extension,
 )
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING
 from boxmot.utils.benchmark_config import resolve_benchmark_cfg_path
@@ -383,7 +382,7 @@ def research_options(func):
 class CommandFirstGroup(click.Group):
     """Custom Click Group with improved help formatting - Ultralytics-style."""
     
-    def format_help(self, ctx, formatter):
+    def format_help(self, _ctx, formatter):
         """Override to show custom help with Ultralytics-style formatting."""
         
         # Main heading

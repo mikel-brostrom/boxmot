@@ -13,8 +13,6 @@ import time
 import types
 from pathlib import Path
 from typing import Callable, Generator, List, Optional, Union
-
-import cv2
 import numpy as np
 import torch
 
@@ -306,7 +304,7 @@ class DetectorReIDPipeline:
 # Utility functions (used by evaluator.py and tracker.py)
 # ---------------------------------------------------------------------------
 
-def prepare_detections(result: Detections, img: np.ndarray) -> np.ndarray:
+def prepare_detections(result: Detections) -> np.ndarray:
     """
     Extract detections from a result and sanitize them for downstream use.
 

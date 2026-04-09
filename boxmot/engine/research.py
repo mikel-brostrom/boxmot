@@ -7,6 +7,7 @@ import importlib
 from importlib.metadata import PackageNotFoundError, distribution
 import json
 import os
+import re
 import signal
 import shutil
 import subprocess
@@ -22,7 +23,7 @@ import yaml
 
 from boxmot.configs import DEFAULT_DETECTOR, DEFAULT_REID
 from boxmot.data.dataset import _collect_seq_info
-from boxmot.utils import ROOT, TRACKER_CONFIGS, logger as LOGGER
+from boxmot.utils import ROOT, logger as LOGGER
 from boxmot.utils.benchmark_config import (
     apply_benchmark_config,
     resolve_required_reid_model,
@@ -391,7 +392,7 @@ def _validate_candidate_keys(candidate: Mapping[str, str], expected_keys: Sequen
             parts.append(f"unexpected keys: {unexpected}")
         raise ValueError("; ".join(parts))
 
-    return {key: str(candidate[key]) for key in expected}
+    return {key: _raw_text(candidate[key]) for key in expected}
 
 
 def _validate_candidate_content(candidate: Mapping[str, str]) -> list[str]:
@@ -472,6 +473,7 @@ def _make_checked_candidate_proposer(
         components_to_update: list[str],
     ) -> dict[str, str]:
         rejection_feedback: list[str] = []
+        last_proposed_updates: dict[str, str] = {}
         for attempt in range(1, max_attempts + 1):
             dataset_for_attempt = (
                 _inject_validation_feedback(reflective_dataset, components_to_update, rejection_feedback)
@@ -479,6 +481,7 @@ def _make_checked_candidate_proposer(
                 else reflective_dataset
             )
             proposed_updates = proposal_runner(candidate, dataset_for_attempt, components_to_update)
+            last_proposed_updates = {name: _raw_text(text) for name, text in proposed_updates.items()}
 
             if not proposed_updates or all(candidate.get(name) == text for name, text in proposed_updates.items()):
                 rejection_feedback = [
@@ -494,11 +497,30 @@ def _make_checked_candidate_proposer(
             if not rejection_feedback:
                 return proposed_updates
 
-            LOGGER.warning(
+            log_message = (
                 f"Rejected unevaluated proposal attempt {attempt}/{max_attempts} due to validation errors: "
                 + "; ".join(rejection_feedback)
             )
+            if attempt < max_attempts:
+                LOGGER.debug(log_message)
+            else:
+                LOGGER.warning(log_message)
 
+        dump_dir = ROOT / "runs" / "research" / "_rejected_proposals"
+        dump_dir.mkdir(parents=True, exist_ok=True)
+        dump_path = dump_dir / f"{_slugify('__'.join(components_to_update) or 'candidate')}.json"
+        dump_path.write_text(
+            json.dumps(
+                {
+                    "components_to_update": list(components_to_update),
+                    "validation_errors": rejection_feedback,
+                    "raw_updates": last_proposed_updates,
+                },
+                indent=2,
+                default=_json_default,
+            ),
+            encoding="utf-8",
+        )
         raise RuntimeError(
             "Failed to produce a valid candidate before benchmark evaluation. "
             f"Last validation errors: {rejection_feedback}"
@@ -556,11 +578,6 @@ def _build_reflection_lm(model_name: str, model_kwargs: Mapping[str, Any]) -> An
     """Construct a GEPA-compatible reflection LM across published package layouts."""
     make_litellm_lm = _load_gepa_litellm_factory()
     if make_litellm_lm is not None:
-        if model_kwargs:
-            LOGGER.warning(
-                "Installed GEPA package uses make_litellm_lm(); "
-                f"ignoring unsupported proposal_model_kwargs: {dict(model_kwargs)}"
-            )
         return make_litellm_lm(model_name)
 
     from gepa.lm import LM
@@ -618,6 +635,72 @@ def _proposal_log_summary(file_path: str, previous_text: str, new_text: str) -> 
     )
 
 
+_FENCED_CODE_BLOCK_RE = re.compile(r"```[\w.+-]*\n(?P<body>.*?)\n```", re.DOTALL)
+_PYTHON_CODE_PREFIX_RE = re.compile(
+    r"^\s*(?:"
+    r"from\b|import\b|class\b|def\b|async\s+def\b|@|if\b|elif\b|else:|for\b|while\b|try:|except\b|finally:|with\b|"
+    r"return\b|raise\b|assert\b|pass\b|break\b|continue\b|global\b|nonlocal\b|del\b|lambda\b|yield\b|"
+    r"[A-Za-z_][\w\.]*\s*=|"
+    r'"""|\'\'\'|#'
+    r")"
+)
+
+
+def _is_valid_python_source(text: str, file_path: str) -> bool:
+    try:
+        compile(text, file_path, "exec")
+        return True
+    except SyntaxError:
+        return False
+
+
+def _recover_python_source(text: str, file_path: str) -> str:
+    """Recover Python source from chatty model output by trimming prose wrappers."""
+    stripped = text.strip()
+    if not stripped:
+        return stripped
+    if _is_valid_python_source(stripped, file_path):
+        return stripped
+
+    lines = stripped.splitlines()
+    start_candidates = [0]
+    for idx, line in enumerate(lines):
+        if _PYTHON_CODE_PREFIX_RE.match(line):
+            start_candidates.append(idx)
+            break
+
+    seen_spans: set[tuple[int, int]] = set()
+    for start in start_candidates:
+        for end in range(len(lines), start, -1):
+            span = (start, end)
+            if span in seen_spans:
+                continue
+            seen_spans.add(span)
+            candidate = "\n".join(lines[start:end]).strip()
+            if candidate and _is_valid_python_source(candidate, file_path):
+                return candidate
+
+    return stripped
+
+
+def _normalize_proposed_text(text: str, file_path: str) -> str:
+    """Strip common chat wrappers from proposal output and recover source text when possible."""
+    stripped = text.strip()
+    matches = [match.group("body") for match in _FENCED_CODE_BLOCK_RE.finditer(stripped)]
+    if matches:
+        # Prefer the longest fenced block when the model mixes explanation and code samples.
+        stripped = max(matches, key=len).strip()
+
+    if Path(file_path).suffix.lower() == ".py":
+        return _recover_python_source(stripped, file_path)
+    return stripped
+
+
+def _raw_text(value: str) -> str:
+    """Return the underlying string value even for _ProposalLogText wrappers."""
+    return value[:] if isinstance(value, str) else str(value)
+
+
 def _build_reflection_prompt_templates(
     editable_files: Sequence[str],
     objective: str,
@@ -635,7 +718,8 @@ def _build_reflection_prompt_templates(
             "- Do not spend a proposal on isolated single-variable, threshold, constant, or formatting-only changes.\n"
             "- Avoid rename-only changes, import/export churn, and other non-behavioral cleanup.\n"
             "- Only change a scalar or hyperparameter when it is required as one part of a broader algorithmic modification.\n"
-            "- Strong proposals usually modify the association, lifecycle, motion, or geometry logic in a coherent way.\n\n"
+            "- Strong proposals usually modify the association, lifecycle, motion, or geometry logic in a coherent way.\n"
+            "- Return only raw file contents. Do not wrap the response in Markdown fences or extra commentary.\n\n"
             + (
                 "Domain context:\n"
                 "```\n"
@@ -747,7 +831,7 @@ class ResearchConfig:
     keep_workspace: bool = False
 
     @classmethod
-    def from_namespace(cls, args: argparse.Namespace) -> "ResearchConfig":
+    def from_namespace(cls, args: argparse.Namespace) -> ResearchConfig:
         benchmark = getattr(args, "benchmark", None) or getattr(args, "data", "")
         detector = None
         if getattr(args, "yolo_model_explicit", False) and getattr(args, "yolo_model", None):
@@ -1322,7 +1406,7 @@ class TrackerResearcher:
                         "prompt_template": reflection_templates.get(name),
                     },
                 )
-                new_instruction = result["new_instruction"]
+                new_instruction = _normalize_proposed_text(result["new_instruction"], name)
                 new_texts[name] = _ProposalLogText(
                     new_instruction,
                     _proposal_log_summary(name, candidate[name], new_instruction),

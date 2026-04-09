@@ -377,7 +377,7 @@ def generate_dets_embs_batched(
                     )
 
                 for (seq_name, frame_id, _), result, img in zip(batch_items, yolo_results, imgs):
-                    dets = prepare_detections(result, img)
+                    dets = prepare_detections(result)
 
                     if len(dets) == 0:
                         if timing_stats:

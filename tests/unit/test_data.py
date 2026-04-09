@@ -1,7 +1,3 @@
-from pathlib import Path
-
-import numpy as np
-
 from boxmot.data.benchmark import _ordered_benchmark_eval_class_names
 from boxmot.data.dataset import _collect_seq_info
 

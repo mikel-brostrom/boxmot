@@ -703,7 +703,7 @@ class _TrackerReIDAdapter:
     def __init__(self, backend: Any) -> None:
         self.backend = backend
 
-    def __call__(self, inputs, boxes=None, **kwargs):
+    def __call__(self, inputs, boxes=None, **_kwargs):
         if boxes is None:
             raise TypeError("boxes are required when reusing a tracker ReID backend")
         return self.backend.get_features(boxes, inputs)
