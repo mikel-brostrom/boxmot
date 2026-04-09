@@ -1,5 +1,5 @@
 from boxmot.detectors.base import Detections
-from boxmot.detectors.detector import Detector, RTDETR, Ultralytics, YOLOX
+from boxmot.detectors.detector import Detector
 from boxmot.detectors.registry import (
     default_conf,
     default_imgsz,
@@ -16,9 +16,6 @@ from boxmot.detectors.registry import (
 __all__ = (
     "Detector",
     "Detections",
-    "YOLOX",
-    "Ultralytics",
-    "RTDETR",
     "default_conf",
     "default_imgsz",
     "get_detector_class",

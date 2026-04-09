@@ -19,7 +19,6 @@ from boxmot.configs import (
     BOXMOT_DEFAULTS,
     build_mode_namespace,
 )
-from boxmot.trackers.tracker_zoo import TRACKER_MAPPING
 from boxmot.utils.benchmark_config import resolve_benchmark_cfg_path
 from boxmot.utils.misc import parse_imgsz
 
@@ -71,7 +70,7 @@ def core_options(func):
                      help='video frame-rate stride'),
         click.option('--ci', is_flag=True, default=RUNTIME_DEFAULTS.ci,
                      help='reuse existing runs in CI (no UI)'),
-        click.option('--tracker', 'tracking_method', type=str, default=RUNTIME_DEFAULTS.tracker, show_default=True,
+        click.option('--tracker', type=str, default=RUNTIME_DEFAULTS.tracker, show_default=True,
                      help='deepocsort, botsort, strongsort, ...'),
         click.option('--verbose', is_flag=True, default=RUNTIME_DEFAULTS.verbose,
                      help='print detailed logs'),
@@ -118,12 +117,12 @@ def data_option(func):
     """Attach the benchmark-config option."""
     return click.option(
         '--benchmark',
-        '--data',
         'data',
         type=str,
         default=None,
         help='benchmark config name or YAML file, e.g. mot17-ablation or boxmot/configs/benchmarks/mot17-ablation.yaml',
     )(func)
+
 
 def _is_option_explicit(ctx: click.Context, option_name: str) -> bool:
     """Return True when a Click option came from the command line instead of defaults."""
@@ -139,36 +138,24 @@ def _explicit_cli_keys(ctx: click.Context) -> set[str]:
     }
 
 
-def _mark_explicit_positionals(explicit_keys: set[str], **positionals: Optional[str]) -> set[str]:
-    """Augment explicit CLI keys with positional component arguments that were provided."""
-    for name, value in positionals.items():
-        if value is not None:
-            explicit_keys.add(name)
-    return explicit_keys
-
-
 def _build_cli_namespace(
     ctx: click.Context,
     mode: str,
     payload: dict,
-    **positionals: Optional[str],
 ):
     """Build the normalized mode namespace while preserving explicitly provided CLI values."""
-    explicit_keys = _mark_explicit_positionals(_explicit_cli_keys(ctx), **positionals)
-    return build_mode_namespace(mode, payload, explicit_keys=explicit_keys)
+    return build_mode_namespace(mode, payload, explicit_keys=_explicit_cli_keys(ctx))
 
 
 def _dispatch_cli_workflow(
     ctx: click.Context,
     mode: str,
     module_name: str,
-    class_name: Optional[str],
     payload: dict,
-    **positionals: Optional[str],
 ) -> None:
-    """Build CLI args for a workflow and execute its engine class."""
-    args = _build_cli_namespace(ctx, mode, payload, **positionals)
-    _run_engine_workflow(module_name, class_name, args)
+    """Build CLI args for a workflow and execute its canonical ``main(args)`` entry point."""
+    args = _build_cli_namespace(ctx, mode, payload)
+    _run_engine_workflow(module_name, args)
 
 
 def _resolve_source_context(source: Optional[str]) -> Tuple[Optional[str], str, str]:
@@ -190,29 +177,18 @@ def _require_generate_input(data: Optional[str], source: Optional[str], command_
         raise click.UsageError(
             f"{command_name} requires --benchmark <benchmark.yaml> for config-driven runs or --source <dataset-path> for direct datasets."
         )
-
-
-def _normalize_generate_input(data: Optional[str], source: Optional[str], command_name: str) -> Tuple[Optional[str], Optional[str]]:
-    """Auto-promote benchmark names passed through ``--source`` to ``--benchmark``."""
-    _require_generate_input(data, source, command_name)
-
-    if data or source is None:
-        return data, source
-
-    if Path(source).exists():
-        return data, source
+    if source is None or Path(source).exists():
+        return
 
     try:
         resolve_benchmark_cfg_path(source)
     except FileNotFoundError:
-        return data, source
+        return
 
-    click.echo(
-        f"{command_name}: resolving benchmark config '{source}' from boxmot/configs/benchmarks; "
-        f"use '--benchmark {source}' instead of '--source {source}'.",
-        err=True,
+    raise click.UsageError(
+        f"{command_name} uses --benchmark <benchmark.yaml> for benchmark configs. "
+        f"Pass '--benchmark {source}' instead of '--source {source}'."
     )
-    return source, None
 
 
 def _require_benchmark_input(data: Optional[str], command_name: str) -> str:
@@ -225,49 +201,21 @@ def _require_benchmark_input(data: Optional[str], command_name: str) -> str:
     return data
 
 
-def _run_engine_workflow(module_name: str, class_name: Optional[str], args) -> None:
-    """Instantiate an engine workflow class when present, otherwise call ``main(args)``."""
+def _run_engine_workflow(module_name: str, args) -> None:
+    """Run an engine module through its canonical ``main(args)`` entry point."""
     module = importlib.import_module(module_name)
-    workflow_cls = getattr(module, class_name, None) if class_name else None
-    if workflow_cls is not None:
-        workflow_cls(args).run()
-        return
-
     main_fn = getattr(module, "main", None)
     if main_fn is None:
-        raise AttributeError(f"{module_name} does not expose {class_name} or main")
+        raise AttributeError(f"{module_name} does not expose main")
     main_fn(args)
-
-
-def _is_tracker_name(name: Optional[str]) -> bool:
-    """Return True when ``name`` matches a registered tracker name."""
-    return bool(name) and str(name).lower() in TRACKER_MAPPING
-
-
-def _normalize_eval_positionals(
-    detector: Optional[str],
-    reid: Optional[str],
-    tracker: Optional[str],
-) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Interpret tracker-only positional benchmark calls while preserving detector/reid ordering."""
-    if tracker is not None:
-        return detector, reid, tracker
-
-    if reid is not None and _is_tracker_name(reid):
-        return detector, None, reid
-
-    if reid is None and detector is not None and _is_tracker_name(detector):
-        return None, None, detector
-
-    return detector, reid, tracker
 
 
 def singular_model_options(func):
     options = [
-        click.option('--detector', 'yolo_model', type=Path,
+        click.option('--detector', type=Path,
                      default=SHARED_DEFAULTS.detector,
                      help='path to YOLO weights for detection'),
-        click.option('--reid', 'reid_model', type=Path,
+        click.option('--reid', type=Path,
                      default=SHARED_DEFAULTS.reid,
                      help='path to ReID model weights'),
         click.option('--classes', type=str, default=None,
@@ -280,10 +228,10 @@ def singular_model_options(func):
 
 def plural_model_options(func):
     options = [
-        click.option('--detector', 'yolo_model', type=Path, multiple=True,
+        click.option('--detector', type=Path, multiple=True,
                      default=[SHARED_DEFAULTS.detector],
                      help='one or more YOLO weights for detection'),
-        click.option('--reid', 'reid_model', type=Path, multiple=True,
+        click.option('--reid', type=Path, multiple=True,
                      default=[SHARED_DEFAULTS.reid],
                      help='one or more ReID model weights'),
         click.option('--classes', type=str, default=None,
@@ -357,7 +305,14 @@ def research_options(func):
     """
     options = [
         click.option('--proposal-model', type=str, default=RESEARCH_DEFAULTS.proposal_model, show_default=True,
-                     help='proposal model identifier used by GEPA reflections'),
+                     help='proposal model identifier used by GEPA reflections, e.g. '
+                          'openai/gpt-5.4, anthropic/claude-sonnet-4-20250514, '
+                          'openrouter/openai/gpt-5.4'),
+        click.option('--proposal-api-key', type=str, default=RESEARCH_DEFAULTS.proposal_api_key,
+                     help='proposal model API key; prefer shell env vars in CI but this can inject the key at runtime'),
+        click.option('--proposal-api-key-env', type=str, default=RESEARCH_DEFAULTS.proposal_api_key_env,
+                     help='environment variable name for --proposal-api-key when the provider is not inferred, '
+                          'e.g. OPENAI_API_KEY or ANTHROPIC_API_KEY'),
         click.option('--max-metric-calls', type=int, default=RESEARCH_DEFAULTS.max_metric_calls, show_default=True,
                      help='maximum number of benchmark evaluations during research'),
         click.option('--eval-timeout', type=float, default=RESEARCH_DEFAULTS.eval_timeout, show_default=True,
@@ -469,179 +424,125 @@ def boxmot(ctx):
 
 
 @boxmot.command(help='Run tracking only')
-@click.argument('detector', required=False)
-@click.argument('reid', required=False)
-@click.argument('tracker', required=False)
 @source_option(default=TRACK_DEFAULTS.source, help_text='file/dir/URL/glob, 0 for webcam')
 @core_options
 @singular_model_options
 @click.pass_context
-def track(ctx, detector, reid, tracker, yolo_model, reid_model, classes, **kwargs):
-    if tracker:
-        kwargs.pop("tracking_method", None)
+def track(ctx, detector, reid, classes, **kwargs):
     src, bench, split = _resolve_source_context(kwargs.pop('source'))
     _dispatch_cli_workflow(
         ctx,
         "track",
         "boxmot.engine.tracker",
-        "TrackingSession",
         {
             **kwargs,
-            "yolo_model": detector or yolo_model,
-            "reid_model": reid or reid_model,
+            "detector": detector,
+            "reid": reid,
             "classes": classes,
             "source": src,
             "benchmark": bench,
             "split": split,
-            **({"tracker": tracker} if tracker is not None else {}),
         },
-        detector=detector,
-        reid=reid,
-        tracker=tracker,
     )
     
 @boxmot.command(help='Generate detections and embeddings')
-@click.argument('detector', required=False)
-@click.argument('reid', required=False)
 @data_option
 @source_option(default=BOXMOT_DEFAULTS.generate.source, help_text='direct dataset root to generate dets/embs for without a benchmark config')
 @core_options
 @plural_model_options
 @click.pass_context
-def generate(ctx, detector, reid, data, yolo_model, reid_model, classes, **kwargs):
+def generate(ctx, data, detector, reid, classes, **kwargs):
     src = kwargs.pop('source')
-    data, src = _normalize_generate_input(data, src, "generate")
+    _require_generate_input(data, src, "generate")
     src, bench, split = _resolve_source_context(src)
     _dispatch_cli_workflow(
         ctx,
         "generate",
         "boxmot.engine.cache",
-        "DetectionsEmbeddingsGenerator",
         {
             **kwargs,
-            "yolo_model": detector or list(yolo_model),
-            "reid_model": reid or list(reid_model),
+            "detector": list(detector),
+            "reid": list(reid),
             "classes": classes,
             "data": data,
             "source": src,
             "benchmark": bench,
             "split": split,
         },
-        detector=detector,
-        reid=reid,
     )
 
 
 @boxmot.command(help='Evaluate tracking performance')
-@click.argument('detector', required=False)
-@click.argument('reid', required=False)
-@click.argument('tracker', required=False)
 @data_option
 @core_options
 @plural_model_options
 @click.pass_context
-def eval(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **kwargs):
-    # Allow benchmark/default-model runs to specify only the tracker positionally.
-    detector, reid, tracker = _normalize_eval_positionals(detector, reid, tracker)
-    if tracker:
-        kwargs.pop("tracking_method", None)
-
+def eval(ctx, data, detector, reid, classes, **kwargs):
     data = _require_benchmark_input(data, "eval")
     _dispatch_cli_workflow(
         ctx,
         "eval",
         "boxmot.engine.evaluator",
-        None,
         {
             **kwargs,
-            "yolo_model": detector or list(yolo_model),
-            "reid_model": reid or list(reid_model),
+            "detector": list(detector),
+            "reid": list(reid),
             "classes": classes,
             "data": data,
             "source": None,
             "benchmark": "",
             "split": "",
-            **({"tracker": tracker} if tracker is not None else {}),
         },
-        detector=detector,
-        reid=reid,
-        tracker=tracker,
     )
 
 
 @boxmot.command(help='Tune models via evolutionary algorithms')
-@click.argument('detector', required=False)
-@click.argument('reid', required=False)
-@click.argument('tracker', required=False)
 @data_option
 @core_options
 @tune_options
 @plural_model_options
 @click.pass_context
-def tune(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **kwargs):
-    # Allow benchmark/default-model runs to specify only the tracker positionally.
-    detector, reid, tracker = _normalize_eval_positionals(detector, reid, tracker)
-    if tracker:
-        kwargs.pop("tracking_method", None)
-
+def tune(ctx, data, detector, reid, classes, **kwargs):
     data = _require_benchmark_input(data, "tune")
     _dispatch_cli_workflow(
         ctx,
         "tune",
         "boxmot.engine.tuner",
-        "TrackerTuner",
         {
             **kwargs,
-            "yolo_model": detector or list(yolo_model),
-            "reid_model": reid or list(reid_model),
+            "detector": list(detector),
+            "reid": list(reid),
             "classes": classes,
             "data": data,
             "source": None,
             "benchmark": "",
             "split": "",
-            **({"tracker": tracker} if tracker is not None else {}),
         },
-        detector=detector,
-        reid=reid,
-        tracker=tracker,
     )
 
 
 @boxmot.command(help='Research tracker code changes with GEPA')
-@click.argument('detector', required=False)
-@click.argument('reid', required=False)
-@click.argument('tracker', required=False)
 @data_option
 @core_options
 @research_options
 @plural_model_options
 @click.pass_context
-def research(ctx, detector, reid, tracker, data, yolo_model, reid_model, classes, **kwargs):
-    # Allow benchmark/default-model runs to specify only the tracker positionally.
-    detector, reid, tracker = _normalize_eval_positionals(detector, reid, tracker)
-    if tracker:
-        kwargs.pop("tracking_method", None)
-
+def research(ctx, data, detector, reid, classes, **kwargs):
     data = _require_benchmark_input(data, "research")
     _dispatch_cli_workflow(
         ctx,
         "research",
         "boxmot.engine.research",
-        "TrackerResearchWorkflow",
         {
             **kwargs,
-            "yolo_model": detector or list(yolo_model),
-            "reid_model": reid or list(reid_model),
+            "detector": list(detector),
+            "reid": list(reid),
             "classes": classes,
             "data": data,
             "source": None,
             "benchmark": "",
             "split": "",
-            **({"tracker": tracker} if tracker is not None else {}),
         },
-        detector=detector,
-        reid=reid,
-        tracker=tracker,
     )
 
 
@@ -654,7 +555,7 @@ def export(ctx, **kwargs):
     Mirrors the standalone argparse-based export script.
     """
     args = _build_cli_namespace(ctx, "export", kwargs)
-    _run_engine_workflow("boxmot.engine.export", None, args)
+    _run_engine_workflow("boxmot.engine.export", args)
 
 
 main = boxmot

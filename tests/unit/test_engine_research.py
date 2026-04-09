@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -83,14 +84,14 @@ def test_select_examples_uses_union_of_requested_sequences():
 def test_research_config_from_namespace_uses_data_when_benchmark_field_is_empty():
     config = research_module.ResearchConfig.from_namespace(
         SimpleNamespace(
-            tracking_method="bytetrack",
+            tracker="bytetrack",
             benchmark="",
             data="mot17-ablation",
             source=None,
-            yolo_model=[Path("yolov8n.pt")],
-            reid_model=[Path("osnet_x0_25_msmt17.pt")],
-            yolo_model_explicit=False,
-            reid_model_explicit=False,
+            detector=[Path("yolov8n.pt")],
+            reid=[Path("osnet_x0_25_msmt17.pt")],
+            detector_explicit=False,
+            reid_explicit=False,
         )
     )
     assert config.benchmark == "mot17-ablation"
@@ -102,19 +103,42 @@ def test_research_config_from_namespace_uses_data_when_benchmark_field_is_empty(
 def test_research_config_from_namespace_preserves_explicit_model_overrides():
     config = research_module.ResearchConfig.from_namespace(
         SimpleNamespace(
-            tracking_method="bytetrack",
+            tracker="bytetrack",
             benchmark="mot17-ablation",
             data="",
             source=None,
-            yolo_model=[Path("custom_detector.pt")],
-            reid_model=[Path("custom_reid.pt")],
-            yolo_model_explicit=True,
-            reid_model_explicit=True,
+            detector=[Path("custom_detector.pt")],
+            reid=[Path("custom_reid.pt")],
+            detector_explicit=True,
+            reid_explicit=True,
         )
     )
 
     assert config.detector == Path("custom_detector.pt")
     assert config.reid == Path("custom_reid.pt")
+
+
+def test_research_config_from_namespace_captures_proposal_api_key_settings():
+    config = research_module.ResearchConfig.from_namespace(
+        SimpleNamespace(
+            tracker="bytetrack",
+            benchmark="mot17-ablation",
+            data="",
+            source=None,
+            detector=[Path("yolov8n.pt")],
+            reid=[Path("osnet_x0_25_msmt17.pt")],
+            detector_explicit=False,
+            reid_explicit=False,
+            proposal_model="anthropic/claude-sonnet-4-20250514",
+            proposal_api_key="anthropic-secret",
+            proposal_api_key_env="ANTHROPIC_API_KEY",
+        )
+    )
+
+    assert config.proposal_model == "anthropic/claude-sonnet-4-20250514"
+    assert config.proposal_model_kwargs["api_key"] == "anthropic-secret"
+    assert config.proposal_model_kwargs["api_key_env"] == "ANTHROPIC_API_KEY"
+    assert config.proposal_model_kwargs["reasoning_effort"] == "medium"
 
 
 def test_resolve_benchmark_runtime_normalizes_models_to_absolute_paths(monkeypatch, tmp_path):
@@ -270,6 +294,23 @@ def test_build_reflection_lm_uses_published_gepa_factory_when_available(monkeypa
 
     assert callable(lm)
     assert calls == ["openai/gpt-5.4"]
+
+
+def test_build_reflection_lm_injects_inferred_provider_api_key_env(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(research_module, "_load_gepa_litellm_factory", lambda: lambda model_name: model_name)
+
+    lm = research_module._build_reflection_lm("openai/gpt-5.4", {"api_key": "sk-test"})
+
+    assert lm == "openai/gpt-5.4"
+    assert os.environ["OPENAI_API_KEY"] == "sk-test"
+
+
+def test_build_reflection_lm_requires_env_name_for_unknown_provider_api_keys(monkeypatch):
+    monkeypatch.setattr(research_module, "_load_gepa_litellm_factory", lambda: lambda model_name: model_name)
+
+    with pytest.raises(ValueError, match="--proposal-api-key-env"):
+        research_module._build_reflection_lm("custom/provider-model", {"api_key": "secret"})
 
 
 def test_run_eval_subprocess_streams_stderr_when_progress_bar_enabled(monkeypatch):

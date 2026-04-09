@@ -68,13 +68,6 @@ class _PredictorProxy:
 
 
 # ---------------------------------------------------------------------------
-# Source iterator alias — canonical implementation lives in boxmot.data
-# ---------------------------------------------------------------------------
-
-_iter_source = iter_source
-
-
-# ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
 
@@ -177,7 +170,7 @@ class DetectorReIDPipeline:
         proxy = _PredictorProxy(device=self.device, bs=1)
         self._fire("on_predict_start", proxy)
 
-        for frame_idx, (path, frame) in enumerate(_iter_source(source, vid_stride=vid_stride), start=1):
+        for frame_idx, (path, frame) in enumerate(iter_source(source, vid_stride=vid_stride), start=1):
             self.timing_stats.start_frame()
             t0 = time.perf_counter()
             results = self.detector(

@@ -39,6 +39,15 @@ DEFAULT_PROPOSAL_MODEL = "openai/gpt-5.4"
 DEFAULT_PROPOSAL_MODEL_KWARGS = {"reasoning_effort": "medium"}
 _RESEARCH_ROOT = ".boxmot_research"
 _PROPOSAL_VALIDATION_ATTEMPTS = 3
+_PROPOSAL_API_KEY_ENV_BY_PROVIDER = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "xai": "XAI_API_KEY",
+}
 TRACKEVAL_METRIC_GLOSSARY = {
     "HOTA": "Higher is better. Overall tracking quality balancing detection and association.",
     "DetA": "Higher is better. Detection accuracy within the HOTA family.",
@@ -574,15 +583,45 @@ def _load_gepa_litellm_factory() -> Callable[[str], Any] | None:
     return factory if callable(factory) else None
 
 
+def _resolve_proposal_api_key_env(model_name: str, configured_env: str | None) -> str | None:
+    """Resolve the provider API-key environment variable for a proposal model."""
+    if configured_env:
+        return str(configured_env).strip() or None
+
+    provider = str(model_name).split("/", 1)[0].strip().lower()
+    return _PROPOSAL_API_KEY_ENV_BY_PROVIDER.get(provider)
+
+
+def _prepare_proposal_model_env(model_name: str, model_kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    """Apply proposal-model credential settings and return kwargs safe for LM construction."""
+    sanitized_kwargs = dict(model_kwargs)
+    api_key = sanitized_kwargs.pop("api_key", None)
+    api_key_env = sanitized_kwargs.pop("api_key_env", None)
+
+    if api_key is None:
+        return sanitized_kwargs
+
+    env_name = _resolve_proposal_api_key_env(model_name, api_key_env)
+    if env_name is None:
+        raise ValueError(
+            f"Cannot infer an API-key environment variable for proposal model '{model_name}'. "
+            "Pass --proposal-api-key-env ENV_NAME alongside --proposal-api-key."
+        )
+
+    os.environ[env_name] = str(api_key)
+    return sanitized_kwargs
+
+
 def _build_reflection_lm(model_name: str, model_kwargs: Mapping[str, Any]) -> Any:
     """Construct a GEPA-compatible reflection LM across published package layouts."""
+    sanitized_kwargs = _prepare_proposal_model_env(model_name, model_kwargs)
     make_litellm_lm = _load_gepa_litellm_factory()
     if make_litellm_lm is not None:
         return make_litellm_lm(model_name)
 
     from gepa.lm import LM
 
-    return LM(model_name, **dict(model_kwargs))
+    return LM(model_name, **sanitized_kwargs)
 
 
 def _run_instruction_proposal_signature(
@@ -834,20 +873,33 @@ class ResearchConfig:
     def from_namespace(cls, args: argparse.Namespace) -> ResearchConfig:
         benchmark = getattr(args, "benchmark", None) or getattr(args, "data", "")
         detector = None
-        if getattr(args, "yolo_model_explicit", False) and getattr(args, "yolo_model", None):
-            detector = Path(args.yolo_model[0])
+        if getattr(args, "detector_explicit", False) and getattr(args, "detector", None):
+            detector = Path(args.detector[0])
 
         reid = None
-        if getattr(args, "reid_model_explicit", False) and getattr(args, "reid_model", None):
-            reid = Path(args.reid_model[0])
+        if getattr(args, "reid_explicit", False) and getattr(args, "reid", None):
+            reid = Path(args.reid[0])
+
+        proposal_model_kwargs = dict(getattr(args, "proposal_model_kwargs", DEFAULT_PROPOSAL_MODEL_KWARGS) or {})
+        if "reasoning_effort" not in proposal_model_kwargs:
+            proposal_model_kwargs["reasoning_effort"] = DEFAULT_PROPOSAL_MODEL_KWARGS["reasoning_effort"]
+
+        proposal_api_key = getattr(args, "proposal_api_key", None)
+        if proposal_api_key:
+            proposal_model_kwargs["api_key"] = str(proposal_api_key)
+
+        proposal_api_key_env = getattr(args, "proposal_api_key_env", None)
+        if proposal_api_key_env:
+            proposal_model_kwargs["api_key_env"] = str(proposal_api_key_env)
 
         return cls(
-            tracker=str(getattr(args, "tracking_method", getattr(args, "tracker", ""))),
+            tracker=str(getattr(args, "tracker", "")),
             benchmark=str(benchmark),
             source=Path(getattr(args, "source")) if getattr(args, "source", None) else None,
             detector=detector,
             reid=reid,
             proposal_model=str(getattr(args, "proposal_model", DEFAULT_PROPOSAL_MODEL)),
+            proposal_model_kwargs=proposal_model_kwargs,
             penalties=RegressionPenalties(
                 idf1_penalty=float(getattr(args, "idf1_penalty", 1.0)),
                 mota_penalty=float(getattr(args, "mota_penalty", 1.0)),
@@ -1044,8 +1096,8 @@ class TrackerResearcher:
             "benchmark_id": self.benchmark_id,
             "dataset_id": self.benchmark_id,
             "tracker": self.config.tracker,
-            "yolo_model": [self.detector_path],
-            "reid_model": [self.reid_path],
+            "detector": [self.detector_path],
+            "reid": [self.reid_path],
             "project": self.boxmot_project_dir,
             "cache_project": self.cache_project_dir,
             "name": tag,
@@ -1056,8 +1108,8 @@ class TrackerResearcher:
             "save_txt": False,
             "save_crop": False,
             "ci": False,
-            "yolo_model_explicit": True,
-            "reid_model_explicit": True,
+            "detector_explicit": True,
+            "reid_explicit": True,
         }
 
     def _run_eval_subprocess(self, manifest_path: Path) -> dict[str, Any]:
@@ -1518,21 +1570,12 @@ def main(args: argparse.Namespace) -> ResearchResult:
     return TrackerResearcher(config).run()
 
 
-class TrackerResearchWorkflow:
-    def __init__(self, args: argparse.Namespace):
-        self.args = args
-
-    def run(self) -> ResearchResult:
-        return main(self.args)
-
-
 __all__ = [
     "DEFAULT_PROPOSAL_MODEL",
     "RESEARCH_METRICS",
     "RegressionPenalties",
     "ResearchConfig",
     "ResearchResult",
-    "TrackerResearchWorkflow",
     "TrackerResearcher",
     "main",
 ]

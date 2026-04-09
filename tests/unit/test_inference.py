@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from boxmot.configs import ensure_model_extension
+from boxmot.data import iter_source
 from boxmot.detectors import default_conf, default_imgsz, get_detector_url, get_runtime_detector_cfg, load_detector_cfg
 from boxmot.detectors.base import Detections
 import boxmot.data.loaders as loaders_module
@@ -20,7 +21,7 @@ import boxmot.engine.tracker as tracker_module
 import boxmot.engine.tracker as tracker_runtime_module
 import boxmot.reid.core as reid_core_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
-from boxmot.engine.inference import _iter_source, prepare_detections
+from boxmot.engine.inference import prepare_detections
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
@@ -294,10 +295,10 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
         },
     }
     args = SimpleNamespace(
-        yolo_model=[Path("models/yolov8n.pt")],
-        reid_model=[Path("models/osnet_x0_25_msmt17.pt")],
-        yolo_model_explicit=False,
-        reid_model_explicit=False,
+        detector=[Path("models/yolov8n.pt")],
+        reid=[Path("models/osnet_x0_25_msmt17.pt")],
+        detector_explicit=False,
+        reid_explicit=False,
         device="cuda:0",
         half=False,
         imgsz=None,
@@ -322,8 +323,8 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
 
     _, _, runtime_cfg = evaluator_module._configure_benchmark_runtime(args)
 
-    assert args.yolo_model == [Path("models/yolo11s-obb.pt")]
-    assert args.reid_model == [Path("models/lmbn_n_duke.pt")]
+    assert args.detector == [Path("models/yolo11s-obb.pt")]
+    assert args.reid == [Path("models/lmbn_n_duke.pt")]
     assert args.reid_device == "cpu"
     assert args.reid_half is True
     assert args.imgsz == detector_cfg["imgsz"]
@@ -350,10 +351,10 @@ def test_configure_benchmark_runtime_reuses_existing_benchmark_model_paths(monke
         },
     }
     args = SimpleNamespace(
-        yolo_model=[detector_path],
-        reid_model=[reid_path],
-        yolo_model_explicit=True,
-        reid_model_explicit=True,
+        detector=[detector_path],
+        reid=[reid_path],
+        detector_explicit=True,
+        reid_explicit=True,
         device="cpu",
         half=False,
         imgsz=None,
@@ -378,8 +379,8 @@ def test_configure_benchmark_runtime_reuses_existing_benchmark_model_paths(monke
 
     _, _, runtime_cfg = evaluator_module._configure_benchmark_runtime(args)
 
-    assert args.yolo_model == [detector_path]
-    assert args.reid_model == [reid_path]
+    assert args.detector == [detector_path]
+    assert args.reid == [reid_path]
     assert args.imgsz == detector_cfg["imgsz"]
     assert args.conf == detector_cfg["conf"]
     assert runtime_cfg["id"] == detector_cfg["id"]
@@ -388,10 +389,10 @@ def test_configure_benchmark_runtime_reuses_existing_benchmark_model_paths(monke
 def test_configure_benchmark_runtime_uses_explicit_component_configs_without_benchmark(monkeypatch):
     detector_cfg = load_detector_cfg("yolo11s-obb.pt")
     args = SimpleNamespace(
-        yolo_model=[Path("models/yolo11s-obb.pt")],
-        reid_model=[Path("models/lmbn_n_duke.pt")],
-        yolo_model_explicit=True,
-        reid_model_explicit=True,
+        detector=[Path("models/yolo11s-obb.pt")],
+        reid=[Path("models/lmbn_n_duke.pt")],
+        detector_explicit=True,
+        reid_explicit=True,
         device="cuda:0",
         half=False,
         device_explicit=False,
@@ -421,7 +422,7 @@ def test_iter_source_expands_globs(tmp_path):
     import cv2
     cv2.imwrite(str(img_path), img)
 
-    frames = list(_iter_source(str(tmp_path / "*.jpg")))
+    frames = list(iter_source(str(tmp_path / "*.jpg")))
 
     assert len(frames) == 1
     assert frames[0][0] == str(img_path)
@@ -555,7 +556,7 @@ def test_iter_source_preserves_stream_urls(monkeypatch):
 
     monkeypatch.setattr(loaders_module.cv2, "VideoCapture", _FakeCapture)
 
-    frames = list(_iter_source("rtsp://camera/stream"))
+    frames = list(iter_source("rtsp://camera/stream"))
 
     assert frames == []
     assert seen["source"] == "rtsp://camera/stream"
@@ -572,7 +573,7 @@ def test_iter_source_reads_line_based_source_lists(tmp_path):
     manifest = tmp_path / "list.txt"
     manifest.write_text("000001.jpg\n", encoding="utf-8")
 
-    frames = list(_iter_source(manifest))
+    frames = list(iter_source(manifest))
 
     assert len(frames) == 1
     assert frames[0][0] == str(img_path.resolve())
@@ -670,7 +671,7 @@ def test_pipeline_delegates_to_detector_backend_and_reid_models(monkeypatch):
 
     monkeypatch.setattr(pipeline_module, "get_detector_class", lambda _path: _FakeDetector)
     monkeypatch.setattr(pipeline_module, "select_device", lambda device: device)
-    monkeypatch.setattr(pipeline_module, "_iter_source", lambda source, vid_stride=1: iter([("frame.jpg", _DUMMY_IMG)]))
+    monkeypatch.setattr(pipeline_module, "iter_source", lambda source, vid_stride=1: iter([("frame.jpg", _DUMMY_IMG)]))
     monkeypatch.setattr(reid_core_module, "ReID", _FakeBackend)
 
     pipeline = pipeline_module.DetectorReIDPipeline("det.pt", reid_paths=["alpha.pt"], device="cuda:0", imgsz=[64, 64])
@@ -923,9 +924,9 @@ def test_run_generate_mot_results_quiet_mode_skips_manager_queue(tmp_path, monke
         project=tmp_path,
         benchmark="mot17-mini",
         source=source,
-        yolo_model=[Path("det.pt")],
-        reid_model=[Path("reid.pt")],
-        tracking_method="boosttrack",
+        detector=[Path("det.pt")],
+        reid=[Path("reid.pt")],
+        tracker="boosttrack",
         fps=None,
         device="cpu",
         n_threads=2,
@@ -1030,9 +1031,9 @@ def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, mon
         project=tmp_path,
         benchmark="mot17-mini",
         source=source,
-        yolo_model=[Path("det.pt")],
-        reid_model=[Path("reid.pt")],
-        tracking_method="boosttrack",
+        detector=[Path("det.pt")],
+        reid=[Path("reid.pt")],
+        tracker="boosttrack",
         fps=None,
         device="cpu",
         n_threads=2,
@@ -1154,9 +1155,9 @@ def test_tracker_runtime_update_measures_elapsed_time_and_passes_embeddings():
     assert calls == [((1, 6), _DUMMY_IMG.shape, (1, 4))]
 
 
-def test_initialize_trackers_rejects_unknown_tracking_method():
+def test_initialize_trackers_rejects_unknown_tracker():
     predictor = SimpleNamespace(dataset=SimpleNamespace(bs=1), device="cpu")
-    args = SimpleNamespace(tracking_method="unknown", reid_model=Path("reid.pt"), half=False, per_class=False, target_id=None)
+    args = SimpleNamespace(tracker="unknown", reid=Path("reid.pt"), half=False, per_class=False, target_id=None)
 
     with pytest.raises(ValueError, match="not supported"):
         tracker_module.TrackingSession.initialize_trackers(predictor, args)

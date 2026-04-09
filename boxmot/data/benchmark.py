@@ -122,7 +122,7 @@ def configure_benchmark_runtime(
 
     required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
     if required_yolo_model and use_benchmark_detector:
-        current_detector = resolve_model_path(args.yolo_model[0]) if getattr(args, "yolo_model", None) else None
+        current_detector = resolve_model_path(args.detector[0]) if getattr(args, "detector", None) else None
         if current_detector is not None and current_detector.exists() and _matches_benchmark_model_reference(
             current_detector,
             required_yolo_model,
@@ -131,13 +131,13 @@ def configure_benchmark_runtime(
             required_model = current_detector
         else:
             required_model = ensure_benchmark_detector_model_fn(benchmark_bundle) or resolve_model_path(required_yolo_model)
-        if verbose and args.yolo_model[0] != required_model:
+        if verbose and args.detector[0] != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")
-        args.yolo_model = [required_model]
+        args.detector = [required_model]
 
     required_reid_model = resolve_required_reid_model(benchmark_bundle)
     if required_reid_model and use_benchmark_reid:
-        current_reid = resolve_model_path(args.reid_model[0]) if getattr(args, "reid_model", None) else None
+        current_reid = resolve_model_path(args.reid[0]) if getattr(args, "reid", None) else None
         if current_reid is not None and current_reid.exists() and _matches_benchmark_model_reference(
             current_reid,
             required_reid_model,
@@ -145,18 +145,18 @@ def configure_benchmark_runtime(
             required_model = current_reid
         else:
             required_model = ensure_benchmark_reid_model_fn(benchmark_bundle) or resolve_model_path(required_reid_model)
-        if verbose and args.reid_model[0] != required_model:
+        if verbose and args.reid[0] != required_model:
             LOGGER.info(f"Using benchmark-default ReID: {required_model}")
-        args.reid_model = [required_model]
+        args.reid = [required_model]
 
     runtime_reid_cfg = (
         get_benchmark_reid_cfg(benchmark_bundle)
         if use_benchmark_reid
-        else load_runtime_reid_component_cfg(args.reid_model[0])
+        else load_runtime_reid_component_cfg(args.reid[0])
     )
     apply_reid_runtime_defaults(args, {"reid": runtime_reid_cfg}, use_config=bool(runtime_reid_cfg))
 
-    dataset_detector_cfg = get_runtime_detector_cfg(args.yolo_model[0], benchmark_detector_cfg)
+    dataset_detector_cfg = get_runtime_detector_cfg(args.detector[0], benchmark_detector_cfg)
     args.dataset_detector_cfg = dataset_detector_cfg or None
 
     if not getattr(args, "eval_box_type", None):
@@ -168,14 +168,14 @@ def configure_benchmark_runtime(
         args.imgsz = (
             list(dataset_detector_cfg["imgsz"])
             if "imgsz" in dataset_detector_cfg
-            else default_imgsz(args.yolo_model[0])
+            else default_imgsz(args.detector[0])
         )
 
     if args.conf is None:
         args.conf = (
             float(dataset_detector_cfg["conf"])
             if "conf" in dataset_detector_cfg
-            else default_conf(args.yolo_model[0])
+            else default_conf(args.detector[0])
         )
 
     return benchmark_bundle, benchmark_cfg, dataset_detector_cfg

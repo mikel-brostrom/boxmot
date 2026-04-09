@@ -86,9 +86,9 @@ def _build_task_args(
             seq_name,
             str(args.source),
             cache_project_root,
-            args.yolo_model[0].stem,
-            str(args.reid_model[0]),
-            args.tracking_method,
+            args.detector[0].stem,
+            str(args.reid[0]),
+            args.tracker,
             str(exp_dir),
             getattr(args, "fps", None),
             evolve_config,
@@ -289,7 +289,7 @@ def run_generate_mot_results(
     base = args.project / "mot"
     if getattr(args, "benchmark", None):
         base = base / args.benchmark
-    base = base / f"{args.yolo_model[0].stem}_{args.reid_model[0].stem}_{args.tracking_method}"
+    base = base / f"{args.detector[0].stem}_{args.reid[0].stem}_{args.tracker}"
     exp_dir = increment_path(base, sep="_", exist_ok=False)
     exp_dir.mkdir(parents=True, exist_ok=True)
     args.exp_dir = exp_dir
@@ -297,7 +297,7 @@ def run_generate_mot_results(
     sequence_names = MOTDataset(mot_root=str(args.source)).sequence_names()
     conf_threshold = getattr(args, "conf", None)
     if conf_threshold is None:
-        conf_threshold = default_conf(args.yolo_model[0])
+        conf_threshold = default_conf(args.detector[0])
 
     task_args = _build_task_args(
         args,

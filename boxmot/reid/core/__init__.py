@@ -18,6 +18,4 @@ def export_formats():
 
 from .reid import ReID
 
-ReidAutoBackend = ReID
-
-__all__ = ("export_formats", "ReID", "ReidAutoBackend")
+__all__ = ("export_formats", "ReID")

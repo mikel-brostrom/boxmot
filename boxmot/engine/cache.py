@@ -40,7 +40,6 @@ from boxmot.utils.misc import prompt_overwrite, resolve_model_path
 from boxmot.utils.timing import TimingStats
 
 __all__ = (
-    "DetectionsEmbeddingsGenerator",
     "generate_dets_embs_batched",
     "main",
     "run_generate_dets_embs",
@@ -70,8 +69,8 @@ def _ensure_model_list(models) -> list[Path]:
 
 def _normalize_generate_args(args: argparse.Namespace) -> None:
     args.project = Path(args.project)
-    args.yolo_model = _ensure_model_list(args.yolo_model)
-    args.reid_model = _ensure_model_list(args.reid_model)
+    args.detector = _ensure_model_list(args.detector)
+    args.reid = _ensure_model_list(args.reid)
 
 
 @torch.inference_mode()
@@ -108,7 +107,7 @@ def generate_dets_embs_batched(
 
     seq_states = {}
     det_writers: dict[str, AppendableNpyWriter] = {}
-    emb_writers: dict[str, dict[str, AppendableNpyWriter]] = {reid.stem: {} for reid in args.reid_model}
+    emb_writers: dict[str, dict[str, AppendableNpyWriter]] = {reid.stem: {} for reid in args.reid}
     total_frames = 0
     initial_done = 0
 
@@ -127,7 +126,7 @@ def generate_dets_embs_batched(
         emb_paths = {}
         cached_emb_paths = {}
         any_emb_cached = False
-        for reid_model in args.reid_model:
+        for reid_model in args.reid:
             emb_path = embs_root / reid_model.stem / f"{seq_name}.npy"
             emb_paths[reid_model.stem] = emb_path
             cached_emb_path = _existing_embedding_cache_path(emb_path)
@@ -245,7 +244,7 @@ def generate_dets_embs_batched(
             empty_trailing_shape=(expected_det_cols,),
         )
 
-        for reid_model in args.reid_model:
+        for reid_model in args.reid:
             emb_path = emb_paths[reid_model.stem]
             emb_path.parent.mkdir(parents=True, exist_ok=True)
             cached_emb_path = cached_emb_paths[reid_model.stem]
@@ -275,7 +274,7 @@ def generate_dets_embs_batched(
 
     pipeline = DetectorReIDPipeline(
         detector_path=y,
-        reid_paths=args.reid_model,
+        reid_paths=args.reid,
         device=args.device,
         reid_device=getattr(args, "reid_device", args.device),
         imgsz=args.imgsz,
@@ -454,10 +453,10 @@ def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[Timi
     if not hasattr(args, "resume"):
         args.resume = True
 
-    for yolo_model in args.yolo_model:
+    for detector in args.detector:
         if verbose:
-            LOGGER.info(f"Generating dets+embs (batched single-process): {yolo_model.name}")
-        generate_dets_embs_batched(args, yolo_model, source_root, timing_stats=timing_stats)
+            LOGGER.info(f"Generating dets+embs (batched single-process): {detector.name}")
+        generate_dets_embs_batched(args, detector, source_root, timing_stats=timing_stats)
 
 
 def main(args: argparse.Namespace) -> None:
@@ -465,11 +464,3 @@ def main(args: argparse.Namespace) -> None:
     run_generate_dets_embs(args, timing_stats=timing_stats)
     if timing_stats.frames > 0:
         timing_stats.print_summary()
-
-
-class DetectionsEmbeddingsGenerator:
-    def __init__(self, args: argparse.Namespace) -> None:
-        self.args = args
-
-    def run(self) -> None:
-        main(self.args)

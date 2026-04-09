@@ -7,18 +7,18 @@ import boxmot.engine.cache as cache_module
 import boxmot.engine.evaluator as evaluator_module
 
 
-def test_cache_workflow_runner_delegates_to_main(monkeypatch):
-    captured = {}
+def test_cache_main_runs_generation_pipeline(monkeypatch):
+    generated = []
+    printed = []
 
-    def fake_main(args):
-        captured["args"] = args
-
-    monkeypatch.setattr(cache_module, "main", fake_main)
+    monkeypatch.setattr(cache_module, "run_generate_dets_embs", lambda args, timing_stats=None: generated.append((args, timing_stats)))
+    monkeypatch.setattr(cache_module.TimingStats, "print_summary", lambda self: printed.append(self.frames))
 
     args = SimpleNamespace()
-    cache_module.DetectionsEmbeddingsGenerator(args).run()
+    cache_module.main(args)
 
-    assert captured["args"] is args
+    assert generated and generated[0][0] is args
+    assert len(printed) == 0
 
 
 def test_evaluator_reexports_cache_generation_helpers():
@@ -44,8 +44,8 @@ def test_run_generate_dets_embs_logs_only_when_verbose(monkeypatch, tmp_path):
         project=tmp_path,
         source=tmp_path / "benchmark",
         data=None,
-        yolo_model=[Path("det.pt")],
-        reid_model=[Path("reid.pt")],
+        detector=[Path("det.pt")],
+        reid=[Path("reid.pt")],
         batch_size=16,
         n_threads=1,
         auto_batch=True,
@@ -66,8 +66,8 @@ def test_run_generate_dets_embs_logs_only_when_verbose(monkeypatch, tmp_path):
         project=tmp_path,
         source=tmp_path / "benchmark",
         data=None,
-        yolo_model=[Path("det.pt")],
-        reid_model=[Path("reid.pt")],
+        detector=[Path("det.pt")],
+        reid=[Path("reid.pt")],
         batch_size=16,
         n_threads=1,
         auto_batch=True,

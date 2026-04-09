@@ -227,39 +227,10 @@ class Detector:
         if _is_single_inference_source(source):
             return self._predict_single(source, **kwargs)
         return list(self.stream_inference(source, **kwargs))
-
-
-class YOLOX(Detector):
-    @classmethod
-    def _get_backend_class(cls, path: str | Path):
-        from boxmot.detectors.yolox import YoloXDetector
-
-        return YoloXDetector
-
-
-class Ultralytics(Detector):
-    @classmethod
-    def _get_backend_class(cls, path: str | Path):
-        from boxmot.detectors.ultralytics import UltralyticsDetector
-
-        return UltralyticsDetector
-
-
-class RTDETR(Detector):
-    @classmethod
-    def _get_backend_class(cls, path: str | Path):
-        from boxmot.detectors.rtdetr import RTDetrDetector
-
-        return RTDetrDetector
-
-
 __all__ = (
     "BaseDetectorBackend",
     "Detector",
     "Detections",
-    "RTDETR",
-    "Ultralytics",
-    "YOLOX",
     "load_weights",
     "resolve_image",
 )

@@ -113,19 +113,20 @@ def build_mode_namespace(
 
     if normalized_mode in RUNTIME_MODES:
         multiple_models = normalized_mode in {"generate", "eval", "tune", "research"}
-        values["yolo_model"] = _normalize_model_list(
-            values.get("yolo_model", [DEFAULT_DETECTOR] if multiple_models else DEFAULT_DETECTOR),
+        values["detector"] = _normalize_model_list(
+            values.get("detector", [DEFAULT_DETECTOR] if multiple_models else DEFAULT_DETECTOR),
             multiple=multiple_models,
         )
-        values["reid_model"] = _normalize_model_list(
-            values.get("reid_model", [DEFAULT_REID] if multiple_models else DEFAULT_REID),
+        values["reid"] = _normalize_model_list(
+            values.get("reid", [DEFAULT_REID] if multiple_models else DEFAULT_REID),
             multiple=multiple_models,
         )
+        values["tracker"] = str(values.get("tracker") or get_mode_default(normalized_mode, "tracker"))
         values["classes"] = _normalize_classes(values.get("classes"))
         values["project"] = Path(values.get("project") or "runs")
-        values.setdefault("tracking_method", values.pop("tracker", None) or get_mode_default(normalized_mode, "tracker"))
-        values.setdefault("yolo_model_explicit", bool({"detector", "yolo_model"} & explicit))
-        values.setdefault("reid_model_explicit", bool({"reid", "reid_model"} & explicit))
+        values.setdefault("detector_explicit", "detector" in explicit)
+        values.setdefault("reid_explicit", "reid" in explicit)
+        values.setdefault("tracker_explicit", "tracker" in explicit)
         values.setdefault("device_explicit", "device" in explicit)
         values.setdefault("half_explicit", "half" in explicit)
     elif normalized_mode == "export":
@@ -136,9 +137,6 @@ def build_mode_namespace(
         if project is not None:
             values["project"] = Path(project)
 
-    values.pop("detector", None)
-    values.pop("reid", None)
-    values.pop("tracker", None)
     return SimpleNamespace(**values)
 
 
@@ -317,6 +315,8 @@ class ResearchModeDefaults(RuntimeModeDefaults):
     benchmark: str
     split: str
     proposal_model: str
+    proposal_api_key: str | None
+    proposal_api_key_env: str | None
     max_metric_calls: int
     eval_timeout: float
     keep_workspace: bool
@@ -336,6 +336,10 @@ class ResearchModeDefaults(RuntimeModeDefaults):
             benchmark=str(values.get("benchmark", "")),
             split=str(values.get("split", "")),
             proposal_model=str(values.get("proposal_model", "openai/gpt-5.4")),
+            proposal_api_key=None if values.get("proposal_api_key") in {None, ""} else str(values.get("proposal_api_key")),
+            proposal_api_key_env=(
+                None if values.get("proposal_api_key_env") in {None, ""} else str(values.get("proposal_api_key_env"))
+            ),
             max_metric_calls=int(values.get("max_metric_calls", 24)),
             eval_timeout=float(values.get("eval_timeout", 900.0)),
             keep_workspace=bool(values.get("keep_workspace", False)),

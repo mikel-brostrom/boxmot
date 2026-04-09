@@ -36,7 +36,7 @@ def test_boxmot_eval_namespace_uses_shared_reid_default_when_reid_is_none(tmp_pa
 
     args = model._base_eval_args("mot17-ablation")
 
-    assert args.reid_model == [DEFAULT_REID]
+    assert args.reid == [DEFAULT_REID]
 
 
 def test_public_reid_supports_boxes_and_crops(monkeypatch):
@@ -806,7 +806,7 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
         args.project.mkdir(parents=True, exist_ok=True)
 
     def fake_run_generate_dets_embs(args, timing_stats=None):
-        evaluator_calls.append(("generate", args.data, args.yolo_model[0].name, args.reid_model[0].name, args.classes))
+        evaluator_calls.append(("generate", args.data, args.detector[0].name, args.reid[0].name, args.classes))
         if timing_stats is not None:
             timing_stats.frames = 2
             timing_stats.totals["inference"] = 12.0

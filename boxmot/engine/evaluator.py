@@ -273,7 +273,7 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
                 )
 
     if getattr(args, "ci", False):
-        with open(args.tracking_method + "_output.json", "w") as outfile:
+        with open(args.tracker + "_output.json", "w") as outfile:
             outfile.write(json.dumps(final_results))
 
     return final_results
@@ -286,7 +286,7 @@ def eval_setup(args) -> None:
     _ensure_eval_dependencies()
     eval_init(args)
     _, _, dataset_detector_cfg = _configure_benchmark_runtime(args)
-    det_cfg = get_runtime_detector_cfg(args.yolo_model[0], dataset_detector_cfg)
+    det_cfg = get_runtime_detector_cfg(args.detector[0], dataset_detector_cfg)
     apply_class_remap(args, det_cfg)
 
 
@@ -313,7 +313,7 @@ def apply_class_remap(args, det_cfg: dict) -> None:
         bench_cfg,
         det_cfg,
         benchmark_name=getattr(args, "benchmark", ""),
-        model_stem=args.yolo_model[0].stem,
+        model_stem=args.detector[0].stem,
     )
     if remap_result is not None:
         remap_dict, new_class_ids, new_class_names = remap_result
@@ -326,8 +326,8 @@ def apply_class_remap(args, det_cfg: dict) -> None:
 
 def main(args):
     _ensure_eval_dependencies()
-    args.yolo_model = [resolve_model_path(model) for model in args.yolo_model]
-    args.reid_model = [resolve_model_path(model) for model in args.reid_model]
+    args.detector = [resolve_model_path(model) for model in args.detector]
+    args.reid = [resolve_model_path(model) for model in args.reid]
 
     LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
     eval_setup(args)
@@ -336,9 +336,9 @@ def main(args):
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
     LOGGER.opt(colors=True).info("<bold><cyan>🚀 BoxMOT Evaluation Pipeline</cyan></bold>")
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>  <cyan>{args.yolo_model[0]}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>      <cyan>{args.reid_model[0]}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>   <cyan>{args.tracking_method}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>  <cyan>{args.detector[0]}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>      <cyan>{args.reid[0]}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>   <cyan>{args.tracker}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Benchmark:</bold> <cyan>{args.source}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Image size:</bold> <cyan>{getattr(args, 'imgsz', None)}</cyan>")
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
@@ -364,7 +364,7 @@ def main(args):
         plot_values = [metrics_data.get(metric, 0) for metric in plot_metrics]
 
         plotter.plot_radar_chart(
-            {args.tracking_method: plot_values},
+            {args.tracker: plot_values},
             plot_metrics,
             title=f"MOT metrics radar Chart ({plot_class})",
             ylim=(0, 100),

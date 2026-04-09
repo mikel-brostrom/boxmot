@@ -43,9 +43,9 @@ def test_tracking_session_consumes_finite_track_runs_without_show_or_save(monkey
     session = tracker_module.TrackingSession(
         SimpleNamespace(
             source="assets/DOTA8-MOT/train/P1142__1024__0___824/img1",
-            yolo_model="yolo11s-obb.pt",
-            reid_model="lmbn_n_duke.pt",
-            tracking_method="strongsort",
+            detector="yolo11s-obb.pt",
+            reid="lmbn_n_duke.pt",
+            tracker="strongsort",
             classes=None,
             project="runs/test",
             imgsz=None,
@@ -93,9 +93,9 @@ def test_tracking_session_keeps_live_sources_lazy_without_show_or_save(monkeypat
     session = tracker_module.TrackingSession(
         SimpleNamespace(
             source="0",
-            yolo_model="yolo11s-obb.pt",
-            reid_model="lmbn_n_duke.pt",
-            tracking_method="strongsort",
+            detector="yolo11s-obb.pt",
+            reid="lmbn_n_duke.pt",
+            tracker="strongsort",
             classes=None,
             project="runs/test",
             imgsz=None,

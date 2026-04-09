@@ -67,9 +67,9 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
     args = SimpleNamespace(
-        yolo_model=[tmp_path / "yolov8n.pt"],
-        reid_model=[tmp_path / "osnet_x0_25_msmt17.pt"],
-        tracking_method="strongsort",
+        detector=[tmp_path / "yolov8n.pt"],
+        reid=[tmp_path / "osnet_x0_25_msmt17.pt"],
+        tracker="strongsort",
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),

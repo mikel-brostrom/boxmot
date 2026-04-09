@@ -241,7 +241,7 @@ def _generate_summary(
     # --- Header ---
     lines.append(f"# Tuning Summary: {tracking_method}\n")
     lines.append(f"- **Tracker:** {tracking_method}")
-    lines.append(f"- **Detector:** {Path(args.yolo_model[0]).stem}")
+    lines.append(f"- **Detector:** {Path(args.detector[0]).stem}")
     lines.append(f"- **Benchmark:** {getattr(args, 'benchmark', getattr(args, 'data', ''))}")
     lines.append(f"- **Completed trials:** {len(trial_data)}")
     if is_pareto:
@@ -455,8 +455,8 @@ def main(args):
     from ray.tune import RunConfig
     from ray.tune.search.optuna import OptunaSearch
 
-    args.yolo_model = [Path(y).resolve() for y in args.yolo_model]
-    args.reid_model = [Path(r).resolve() for r in args.reid_model]
+    args.detector = [Path(y).resolve() for y in args.detector]
+    args.reid = [Path(r).resolve() for r in args.reid]
 
     # Resolve optimize targets
     maximize = list(args.maximize) if args.maximize else [args.objectives[0]]
@@ -469,14 +469,14 @@ def main(args):
     else:
         optuna_search = OptunaSearch(metric=opt_metrics, mode=opt_modes)
 
-    yaml_cfg = load_yaml_config(args.tracking_method)
+    yaml_cfg = load_yaml_config(args.tracker)
     search_space = yaml_to_search_space(yaml_cfg, tune)
     tracker = Tracker(args)
 
     def tune_wrapper(cfg):
         return tracker.objective_function(cfg)
 
-    tune_name = f"{args.tracking_method}_tune"
+    tune_name = f"{args.tracker}_tune"
 
     n_threads = int(args.n_threads)
     trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
@@ -493,9 +493,9 @@ def main(args):
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
     LOGGER.opt(colors=True).info("<bold><cyan>BoxMOT Hyperparameter Tuning</cyan></bold>")
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>    <cyan>{args.tracking_method}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>   <cyan>{args.yolo_model[0]}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>       <cyan>{args.reid_model[0]}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>    <cyan>{args.tracker}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>   <cyan>{args.detector[0]}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>       <cyan>{args.reid[0]}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Trials:</bold>     <cyan>{args.n_trials}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Maximize:</bold>   <cyan>{', '.join(maximize)}</cyan>")
     if minimize:
@@ -528,7 +528,7 @@ def main(args):
             run_config=RunConfig(
                 storage_path=results_dir_str,
                 name=tune_name,
-                callbacks=[TrialSaveCallback(yaml_cfg, args.tracking_method)],
+                callbacks=[TrialSaveCallback(yaml_cfg, args.tracker)],
             ),
         )
 
@@ -537,16 +537,8 @@ def main(args):
     # Post-processing: per-trial configs, CSV, best config, summary
     tune_dir = results_dir / tune_name
     _save_all_results(tune_dir, tuner.get_results(), yaml_cfg,
-                      args.tracking_method, maximize, minimize, args)
+                      args.tracker, maximize, minimize, args)
 
 
 if __name__ == "__main__":
     main()
-
-
-class TrackerTuner:
-    def __init__(self, args):
-        self.args = args
-
-    def run(self):
-        return main(self.args)

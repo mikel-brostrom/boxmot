@@ -145,25 +145,25 @@ def test_mot17_dataset_exposes_default_reid():
 
 def test_dataset_detector_is_used_for_default_model_selection():
     cfg = load_benchmark_cfg("MOT17-ablation")
-    args = SimpleNamespace(yolo_model=[Path("models/yolov8n.pt")], yolo_model_explicit=False)
+    args = SimpleNamespace(detector=[Path("models/yolov8n.pt")], detector_explicit=False)
     assert should_use_benchmark_detector(args, cfg) is True
 
 
 def test_dataset_reid_is_used_for_default_model_selection():
     cfg = load_benchmark_cfg("MOT17-ablation")
-    args = SimpleNamespace(reid_model=[Path("models/osnet_x0_25_msmt17.pt")], reid_model_explicit=False)
+    args = SimpleNamespace(reid=[Path("models/osnet_x0_25_msmt17.pt")], reid_explicit=False)
     assert should_use_benchmark_reid(args, cfg) is True
 
 
 def test_dataset_detector_is_used_when_same_model_is_explicit():
     cfg = load_benchmark_cfg("MMOT-OBB")
-    args = SimpleNamespace(yolo_model=[Path("models/yolo11l-3ch.pt")], yolo_model_explicit=True)
+    args = SimpleNamespace(detector=[Path("models/yolo11l-3ch.pt")], detector_explicit=True)
     assert should_use_benchmark_detector(args, cfg) is True
 
 
 def test_dataset_reid_is_not_used_for_other_explicit_models():
     cfg = load_benchmark_cfg("MOT17-ablation")
-    args = SimpleNamespace(reid_model=[Path("models/mobilenetv2_x1_4_dukemtmcreid.pt")], reid_model_explicit=True)
+    args = SimpleNamespace(reid=[Path("models/mobilenetv2_x1_4_dukemtmcreid.pt")], reid_explicit=True)
     assert should_use_benchmark_reid(args, cfg) is False
 
 
@@ -205,7 +205,7 @@ def test_mot17_detector_exposes_download_url():
 
 def test_dataset_detector_is_not_used_for_other_explicit_models():
     cfg = load_benchmark_cfg("visdrone-ablation")
-    args = SimpleNamespace(yolo_model=[Path("models/yolov8x.pt")], yolo_model_explicit=True)
+    args = SimpleNamespace(detector=[Path("models/yolov8x.pt")], detector_explicit=True)
     assert should_use_benchmark_detector(args, cfg) is False
 
 

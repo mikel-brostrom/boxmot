@@ -68,6 +68,8 @@ research:
   benchmark: ""
   split: ""
   proposal_model: openai/gpt-5.4
+  proposal_api_key: null
+  proposal_api_key_env: null
   max_metric_calls: 24
   eval_timeout: 900.0
   keep_workspace: false

@@ -20,7 +20,6 @@ class RequirementsChecker:
       - Read and install from a requirements.txt
       - Install a uv dependency *group* (requires uv)
       - Install a project *extra* (PEP 621 optional-dependencies) via uv
-      - Backward-compatible alias: `cmds` == `extra_args`
     """
 
     def __init__(
@@ -39,18 +38,13 @@ class RequirementsChecker:
         self,
         requirements: Iterable[str],
         extra_args: Optional[Sequence[str]] = None,
-        cmds: Optional[Sequence[str]] = None,  # legacy alias
     ):
         """
         Check & install packages specified by requirement strings.
 
         :param requirements: iterable of requirement specifiers as strings
         :param extra_args: extra args for the installer (e.g. ["--upgrade"])
-        :param cmds: legacy alias for extra_args
         """
-        if extra_args is None and cmds is not None:
-            extra_args = list(cmds)
-
         missing = self._missing_packages(requirements)
         if missing:
             self._install_packages(missing, extra_args)

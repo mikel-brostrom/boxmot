@@ -948,8 +948,8 @@ class Boxmot:
                 "benchmark": str(benchmark),
                 "source": None,
                 "split": "",
-                "yolo_model": [self._detector_path(required=True)],
-                "reid_model": [reid_path],
+                "detector": [self._detector_path(required=True)],
+                "reid": [reid_path],
                 "device": device,
                 "half": bool(half),
                 "imgsz": imgsz,
@@ -960,7 +960,7 @@ class Boxmot:
                 "name": "python_api",
                 "exist_ok": True,
                 "ci": True,
-                "tracking_method": self._tracker_name(required=True),
+                "tracker": self._tracker_name(required=True),
                 "verbose": bool(verbose),
                 "show_progress": bool(show_progress),
                 "postprocessing": postprocessing,
@@ -975,7 +975,7 @@ class Boxmot:
                 "target_id": None,
                 "vid_stride": BOXMOT_DEFAULTS.eval.vid_stride,
             },
-            explicit_keys={"yolo_model", "reid_model", "device", "half", "tracker"},
+            explicit_keys={"detector", "reid", "device", "half", "tracker"},
         )
         args.reid_device = device
         args.reid_half = bool(half)
@@ -1380,12 +1380,7 @@ class Boxmot:
             imgsz=imgsz,
         )
 
-
-BoxMOT = Boxmot
-
-
 __all__ = (
-    "BoxMOT",
     "Boxmot",
     "ExportResult",
     "Results",

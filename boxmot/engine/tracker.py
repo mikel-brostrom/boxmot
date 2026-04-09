@@ -198,19 +198,19 @@ class TrackingSession:
 
 	@staticmethod
 	def initialize_trackers(predictor, args):
-		tracking_method = str(getattr(args, "tracking_method", "")).lower()
-		if tracking_method not in TRACKER_MAPPING:
+		tracker_name = str(getattr(args, "tracker", "")).lower()
+		if tracker_name not in TRACKER_MAPPING:
 			available = ", ".join(sorted(TRACKER_MAPPING))
-			raise ValueError(f"'{tracking_method}' is not supported. Supported ones are {available}")
+			raise ValueError(f"'{tracker_name}' is not supported. Supported ones are {available}")
 
-		reid_weights = _primary_model_ref(getattr(args, "reid_model", None))
+		reid_weights = _primary_model_ref(getattr(args, "reid", None))
 		if reid_weights is not None:
 			reid_weights = Path(reid_weights)
 
 		batch_size = int(getattr(getattr(predictor, "dataset", None), "bs", 1) or 1)
 		predictor.trackers = [
 			TrackerRuntime.create(
-				tracking_method=tracking_method,
+				tracking_method=tracker_name,
 				reid_weights=reid_weights,
 				device=select_device(getattr(predictor, "device", "cpu")),
 				half=bool(getattr(args, "half", False)),
@@ -223,9 +223,9 @@ class TrackingSession:
 
 	def run(self):
 		model = Boxmot(
-			detector=_primary_model_ref(getattr(self.args, "yolo_model", None)),
-			reid=_primary_model_ref(getattr(self.args, "reid_model", None)),
-			tracker=getattr(self.args, "tracking_method", get_mode_default("track", "tracker")),
+			detector=_primary_model_ref(getattr(self.args, "detector", None)),
+			reid=_primary_model_ref(getattr(self.args, "reid", None)),
+			tracker=getattr(self.args, "tracker", get_mode_default("track", "tracker")),
 			classes=getattr(self.args, "classes", None),
 			project=getattr(self.args, "project", get_mode_default("track", "project")),
 		)

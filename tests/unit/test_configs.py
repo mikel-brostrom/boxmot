@@ -21,11 +21,11 @@ def test_ensure_model_extension_keeps_bare_reid_names_in_weights_dir():
 def test_build_mode_namespace_uses_shared_runtime_defaults():
     args = build_mode_namespace("eval", {"data": "mot17-mini"}, explicit_keys=set())
 
-    assert args.yolo_model == [DEFAULT_DETECTOR]
-    assert args.reid_model == [DEFAULT_REID]
-    assert args.tracking_method == get_mode_default("eval", "tracker")
-    assert args.yolo_model_explicit is False
-    assert args.reid_model_explicit is False
+    assert args.detector == [DEFAULT_DETECTOR]
+    assert args.reid == [DEFAULT_REID]
+    assert args.tracker == get_mode_default("eval", "tracker")
+    assert args.detector_explicit is False
+    assert args.reid_explicit is False
     assert args.project == Path(get_mode_default("eval", "project"))
 
 
@@ -52,7 +52,7 @@ def test_build_mode_namespace_normalizes_track_and_export_models():
     track_args = build_mode_namespace("track", {"source": "0"}, explicit_keys=set())
     export_args = build_mode_namespace("export", {"weights": "osnet_x0_25_msmt17", "include": ["onnx"]}, explicit_keys={"weights", "include"})
 
-    assert track_args.yolo_model == DEFAULT_DETECTOR
-    assert track_args.reid_model == DEFAULT_REID
+    assert track_args.detector == DEFAULT_DETECTOR
+    assert track_args.reid == DEFAULT_REID
     assert export_args.weights == WEIGHTS / "osnet_x0_25_msmt17.pt"
     assert export_args.include == ("onnx",)
