@@ -53,5 +53,5 @@ Next steps:
 - [CLI Usage](usage/cli.md)
 - [Python Usage](usage/python.md)
 - [Configuration](usage/configuration.md)
-- [Python API](python/index.md)
+- [API Reference](python/index.md)
 - [Trackers](trackers/index.md)

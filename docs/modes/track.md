@@ -91,7 +91,7 @@ See [Results and Artifacts](../guides/results.md).
 
 ## Detection geometry
 
-`track` accepts either AABB or OBB detections, and BoxMOT switches automatically based on tensor shape. See [Detection Layouts](../reference/detection-layouts.md).
+`track` accepts either AABB or OBB detections, and BoxMOT switches automatically based on tensor shape. See [Detection Layouts](../concepts/detection-layouts.md).
 
 ## CLI Arguments
 

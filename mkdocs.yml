@@ -75,21 +75,21 @@ nav:
       - CLI: usage/cli.md
       - Python: usage/python.md
       - Configuration: usage/configuration.md
-  - Reference:
-      - Python API:
-          - Overview: python/index.md
-          - Boxmot Facade: python/boxmot.md
-          - track(...) and evaluate(...): python/functions.md
-          - Detector: python/detector.md
-          - ReID: python/reid.md
-          - Results Objects: python/results.md
-          - Tracker Factory: python/tracker-zoo.md
-      - Detection Layouts: reference/detection-layouts.md
-      - Metrics and Evaluation: reference/metrics.md
-      - Postprocessing: reference/postprocessing.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - Detection Layouts: concepts/detection-layouts.md
   - Guides:
+      - Evaluation and Postprocessing: guides/evaluation.md
       - Benchmark Workflows: guides/benchmarks.md
       - Results and Artifacts: guides/results.md
+  - API Reference:
+      - Overview: python/index.md
+      - Boxmot Facade: python/boxmot.md
+      - track(...) and evaluate(...): python/functions.md
+      - Detector: python/detector.md
+      - ReID: python/reid.md
+      - Results Objects: python/results.md
+      - Tracker Factory: python/tracker-zoo.md
   - Contributing:
       - Contributing Guide: contributing/index.md
       - Add a Tracker: contributing/add-tracker.md

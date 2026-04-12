@@ -64,7 +64,7 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
 
         `Boxmot.val(...)` is the Python-facing validation entry point. Postprocessing details and metric interpretation are the same as in the CLI evaluation pipeline.
 
-See [Postprocessing](../reference/postprocessing.md).
+See [Evaluation and Postprocessing](../guides/evaluation.md).
 
 ## Main outputs
 
@@ -73,7 +73,7 @@ See [Postprocessing](../reference/postprocessing.md).
 - MOT-style tracker outputs
 - reused cache paths and evaluation artifacts in the run directory
 
-See [Metrics and Evaluation](../reference/metrics.md) and [Results and Artifacts](../guides/results.md).
+See [Evaluation and Postprocessing](../guides/evaluation.md) and [Results and Artifacts](../guides/results.md).
 
 ## CLI Arguments
 
