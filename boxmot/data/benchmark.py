@@ -54,6 +54,19 @@ def load_benchmark_cfg_from_args(args: argparse.Namespace) -> dict:
         return {}
 
 
+def _ordered_benchmark_eval_class_names(bench_cfg: dict) -> list[str]:
+    """Return benchmark eval class names in config order without splitting embedded whitespace."""
+    if not isinstance(bench_cfg, dict):
+        return []
+
+    eval_classes_cfg = bench_cfg.get("eval_classes")
+    if isinstance(eval_classes_cfg, dict) and eval_classes_cfg:
+        return [str(name) for _, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))]
+    if isinstance(eval_classes_cfg, (list, tuple)):
+        return [str(name) for name in eval_classes_cfg]
+    return []
+
+
 def resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] = None) -> str:
     eval_box_type = getattr(args, "eval_box_type", None)
     if eval_box_type:
@@ -62,6 +75,31 @@ def resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] = 
     benchmark_cfg = (bench_cfg or {}).get("benchmark", {})
     box_type = benchmark_cfg.get("box_type")
     return str(box_type).lower() if box_type else "aabb"
+
+
+def _matches_benchmark_model_reference(
+    current_model: str | Path | None,
+    benchmark_model: str | Path | None,
+    *,
+    normalize_stem: bool = False,
+) -> bool:
+    """Return True when the current runtime model points at the benchmark-selected artifact."""
+    if current_model in (None, "") or benchmark_model in (None, ""):
+        return False
+
+    current_path = resolve_model_path(current_model)
+    benchmark_path = Path(benchmark_model)
+
+    if current_path.name.lower() == benchmark_path.name.lower():
+        return True
+
+    if normalize_stem:
+        current_stem = current_path.stem.lower().replace("-", "").replace("_", "")
+        benchmark_stem = benchmark_path.stem.lower().replace("-", "").replace("_", "")
+        if current_stem == benchmark_stem:
+            return True
+
+    return False
 
 
 def configure_benchmark_runtime(
@@ -76,6 +114,7 @@ def configure_benchmark_runtime(
     """Apply benchmark-driven detector and ReID defaults to the current args namespace."""
     benchmark_bundle = load_benchmark_cfg_fn(args)
     benchmark_cfg = benchmark_bundle.get("benchmark", {})
+    verbose = bool(getattr(args, "verbose", False))
 
     use_benchmark_detector = should_use_benchmark_detector_fn(args, benchmark_bundle)
     use_benchmark_reid = should_use_benchmark_reid_fn(args, benchmark_bundle)
@@ -83,32 +122,41 @@ def configure_benchmark_runtime(
 
     required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
     if required_yolo_model and use_benchmark_detector:
-        required_model = (
-            ensure_benchmark_detector_model_fn(benchmark_bundle)
-            or resolve_model_path(required_yolo_model)
-        )
-        if args.yolo_model[0] != required_model:
+        current_detector = resolve_model_path(args.detector[0]) if getattr(args, "detector", None) else None
+        if current_detector is not None and current_detector.exists() and _matches_benchmark_model_reference(
+            current_detector,
+            required_yolo_model,
+            normalize_stem=True,
+        ):
+            required_model = current_detector
+        else:
+            required_model = ensure_benchmark_detector_model_fn(benchmark_bundle) or resolve_model_path(required_yolo_model)
+        if verbose and args.detector[0] != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")
-        args.yolo_model = [required_model]
+        args.detector = [required_model]
 
     required_reid_model = resolve_required_reid_model(benchmark_bundle)
     if required_reid_model and use_benchmark_reid:
-        required_model = (
-            ensure_benchmark_reid_model_fn(benchmark_bundle)
-            or resolve_model_path(required_reid_model)
-        )
-        if args.reid_model[0] != required_model:
+        current_reid = resolve_model_path(args.reid[0]) if getattr(args, "reid", None) else None
+        if current_reid is not None and current_reid.exists() and _matches_benchmark_model_reference(
+            current_reid,
+            required_reid_model,
+        ):
+            required_model = current_reid
+        else:
+            required_model = ensure_benchmark_reid_model_fn(benchmark_bundle) or resolve_model_path(required_reid_model)
+        if verbose and args.reid[0] != required_model:
             LOGGER.info(f"Using benchmark-default ReID: {required_model}")
-        args.reid_model = [required_model]
+        args.reid = [required_model]
 
     runtime_reid_cfg = (
         get_benchmark_reid_cfg(benchmark_bundle)
         if use_benchmark_reid
-        else load_runtime_reid_component_cfg(args.reid_model[0])
+        else load_runtime_reid_component_cfg(args.reid[0])
     )
     apply_reid_runtime_defaults(args, {"reid": runtime_reid_cfg}, use_config=bool(runtime_reid_cfg))
 
-    dataset_detector_cfg = get_runtime_detector_cfg(args.yolo_model[0], benchmark_detector_cfg)
+    dataset_detector_cfg = get_runtime_detector_cfg(args.detector[0], benchmark_detector_cfg)
     args.dataset_detector_cfg = dataset_detector_cfg or None
 
     if not getattr(args, "eval_box_type", None):
@@ -120,14 +168,14 @@ def configure_benchmark_runtime(
         args.imgsz = (
             list(dataset_detector_cfg["imgsz"])
             if "imgsz" in dataset_detector_cfg
-            else default_imgsz(args.yolo_model[0])
+            else default_imgsz(args.detector[0])
         )
 
     if args.conf is None:
         args.conf = (
             float(dataset_detector_cfg["conf"])
             if "conf" in dataset_detector_cfg
-            else default_conf(args.yolo_model[0])
+            else default_conf(args.detector[0])
         )
 
     return benchmark_bundle, benchmark_cfg, dataset_detector_cfg
@@ -199,7 +247,7 @@ def build_gt_class_remap(
         LOGGER.warning(f"Detector config for '{model_stem}' has no 'classes' field. Skipping remap.")
         return None
 
-    det_name_to_id = {str(v): int(k) for k, v in det_classes.items()}
+    det_name_to_id = {str(value): int(key) for key, value in det_classes.items()}
 
     if not class_mapping:
         remap_logging = len(eval_classes_cfg) > 1
@@ -210,8 +258,8 @@ def build_gt_class_remap(
                 "Using positional auto-mapping: first N benchmark classes -> first N detector classes."
             )
 
-        bench_ordered = sorted((int(k), str(v)) for k, v in eval_classes_cfg.items())
-        det_ordered = sorted((int(k), str(v)) for k, v in det_classes.items())
+        bench_ordered = sorted((int(key), str(value)) for key, value in eval_classes_cfg.items())
+        det_ordered = sorted((int(key), str(value)) for key, value in det_classes.items())
         n_pairs = min(len(bench_ordered), len(det_ordered))
 
         remap: dict[int, int] = {}
@@ -246,7 +294,7 @@ def build_gt_class_remap(
         LOGGER.warning("class_mapping is set but eval_classes is missing in benchmark config. Skipping remap.")
         return None
 
-    bench_name_to_id = {str(v): int(k) for k, v in eval_classes_cfg.items()}
+    bench_name_to_id = {str(value): int(key) for key, value in eval_classes_cfg.items()}
 
     remap: dict[int, int] = {}
     det_classes_used: dict[str, int] = {}
@@ -313,7 +361,7 @@ def apply_gt_class_remap(
     for gt_file in gt_files:
         try:
             data = np.loadtxt(gt_file, delimiter=",")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             LOGGER.warning(f"apply_gt_class_remap: could not read {gt_file}: {exc}")
             continue
 
@@ -402,9 +450,7 @@ def eval_init(
     branch: str = "main",
     overwrite: bool = False,
 ) -> None:
-    """
-    Common initialization: download TrackEval and benchmark data, then canonicalize paths.
-    """
+    """Common initialization: download TrackEval and benchmark data, then canonicalize paths."""
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
     apply_benchmark_config(args, overwrite=overwrite)
 
@@ -415,6 +461,7 @@ def eval_init(
 
 __all__ = [
     "COCO_CLASSES",
+    "_ordered_benchmark_eval_class_names",
     "apply_gt_class_remap",
     "build_gt_class_remap",
     "configure_benchmark_runtime",

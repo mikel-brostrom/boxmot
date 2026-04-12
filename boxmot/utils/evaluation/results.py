@@ -4,13 +4,86 @@ import argparse
 import re
 from typing import Optional
 
+from boxmot.data.benchmark import (
+    _ordered_benchmark_eval_class_names,
+    resolve_eval_box_type,
+    resolve_obb_classes_to_eval,
+)
 from boxmot.utils import logger as LOGGER
-
-from .benchmark import resolve_eval_box_type, resolve_obb_classes_to_eval
 
 
 SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
 SUMMARY_INT_COLUMNS = {"IDSW", "IDs"}
+TRACKEVAL_INTEGER_FIELDS = {
+    "CLR_TP",
+    "CLR_FN",
+    "CLR_FP",
+    "IDSW",
+    "MT",
+    "PT",
+    "ML",
+    "Frag",
+    "IDTP",
+    "IDFN",
+    "IDFP",
+    "Dets",
+    "GT_Dets",
+    "IDs",
+    "GT_IDs",
+}
+TRACKEVAL_METRIC_SPECS = {
+    "HOTA": (
+        "HOTA:",
+        "HOTA",
+        (
+            "HOTA",
+            "DetA",
+            "AssA",
+            "DetRe",
+            "DetPr",
+            "AssRe",
+            "AssPr",
+            "LocA",
+            "OWTA",
+            "HOTA(0)",
+            "LocA(0)",
+            "HOTALocA(0)",
+        ),
+    ),
+    "CLEAR": (
+        "CLEAR:",
+        "MOTA",
+        (
+            "MOTA",
+            "MOTP",
+            "MODA",
+            "CLR_Re",
+            "CLR_Pr",
+            "MTR",
+            "PTR",
+            "MLR",
+            "sMOTA",
+            "CLR_TP",
+            "CLR_FN",
+            "CLR_FP",
+            "IDSW",
+            "MT",
+            "PT",
+            "ML",
+            "Frag",
+        ),
+    ),
+    "Identity": (
+        "Identity:",
+        "IDF1",
+        ("IDF1", "IDR", "IDP", "IDTP", "IDFN", "IDFP"),
+    ),
+    "Count": (
+        "Count:",
+        "Dets",
+        ("Dets", "GT_Dets", "IDs", "GT_IDs"),
+    ),
+}
 SUMMARY_AGGREGATE_LABELS = {
     "cls_comb_det_av": "Class Avg (Det)",
     "cls_comb_cls_av": "Class Avg (Cls)",
@@ -62,31 +135,10 @@ def _extract_metric_header_tracker_class(content: str, header_token: str) -> str
     return first_word
 
 
-def _ordered_benchmark_eval_class_names(bench_cfg: dict) -> list[str]:
-    """Return benchmark eval class names in config order without splitting embedded whitespace."""
-    if not isinstance(bench_cfg, dict):
-        return []
-
-    eval_classes_cfg = bench_cfg.get("eval_classes")
-    if isinstance(eval_classes_cfg, dict) and eval_classes_cfg:
-        return [str(name) for _, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))]
-    if isinstance(eval_classes_cfg, (list, tuple)):
-        return [str(name) for name in eval_classes_cfg]
-    return []
-
-
 def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list[str]] = None) -> dict:
     """
-    Extract COMBINED and per-sequence HOTA, MOTA, IDF1, AssA, AssRe, IDSW, and IDs.
+    Extract COMBINED and per-sequence TrackEval summary metrics.
     """
-    metric_specs = {
-        "HOTA": ("HOTA:", {"HOTA": 0, "AssA": 2, "AssRe": 5}),
-        "MOTA": ("CLEAR:", {"MOTA": 0, "IDSW": 12}),
-        "IDF1": ("Identity:", {"IDF1": 0}),
-        "IDs": ("Count:", {"IDs": 2}),
-    }
-
-    int_fields = {"IDSW", "IDs"}
     parsed_results: dict = {}
     sorted_names = sorted(seq_names, key=len, reverse=True) if seq_names else None
 
@@ -100,11 +152,10 @@ def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list
             continue
 
         is_header = False
-        for metric_name, (prefix, _) in metric_specs.items():
+        for metric_name, (prefix, header_token, _) in TRACKEVAL_METRIC_SPECS.items():
             if line.startswith(prefix):
                 is_header = True
                 current_metric_type = metric_name
-                header_token = "Dets" if metric_name == "IDs" else metric_name
 
                 content = line[len(prefix):].strip()
                 tracker_class = _extract_metric_header_tracker_class(content, header_token)
@@ -120,7 +171,7 @@ def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list
         if not current_class or not current_metric_type:
             continue
 
-        _, field_map = metric_specs[current_metric_type]
+        _, _, fields = TRACKEVAL_METRIC_SPECS[current_metric_type]
         col_name = 35
         col_val = 10
 
@@ -155,26 +206,71 @@ def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list
             continue
 
         if row_name == "COMBINED":
-            for key, idx in field_map.items():
+            for idx, key in enumerate(fields):
                 if idx < len(values):
                     val = values[idx]
                     parsed_results[current_class][key] = max(
                         0,
-                        int(val) if key in int_fields else float(val),
+                        int(val) if key in TRACKEVAL_INTEGER_FIELDS else float(val),
                     )
             continue
 
         if row_name not in parsed_results[current_class]["per_sequence"]:
             parsed_results[current_class]["per_sequence"][row_name] = {}
-        for key, idx in field_map.items():
+        for idx, key in enumerate(fields):
             if idx < len(values):
                 val = values[idx]
                 parsed_results[current_class]["per_sequence"][row_name][key] = max(
                     0,
-                    int(val) if key in int_fields else float(val),
+                    int(val) if key in TRACKEVAL_INTEGER_FIELDS else float(val),
                 )
 
     return parsed_results
+
+
+def _extract_numeric_metrics(metrics: dict) -> dict:
+    numeric_metrics: dict = {}
+    for key, value in metrics.items():
+        if key == "per_sequence":
+            continue
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            numeric_metrics[key] = int(value) if key in TRACKEVAL_INTEGER_FIELDS else float(value)
+    return numeric_metrics
+
+
+def build_trackeval_feedback(results: dict) -> dict:
+    """Normalize TrackEval output into a stable payload for research/reflection."""
+    summary_label, summary_metrics = _select_plot_metrics_data(results)
+    summary = _extract_numeric_metrics(summary_metrics)
+
+    selected_view: dict = {}
+    if summary_label == "single_class" and isinstance(results, dict):
+        selected_view = results
+    elif isinstance(results, dict):
+        selected_view = results.get(summary_label, {}) or {}
+
+    per_sequence_metrics = {}
+    for seq_name, seq_metrics in selected_view.get("per_sequence", {}).items():
+        if isinstance(seq_metrics, dict):
+            per_sequence_metrics[seq_name] = _extract_numeric_metrics(seq_metrics)
+
+    per_class_metrics = {}
+    if isinstance(results, dict) and summary_label != "single_class":
+        for class_name, class_metrics in results.items():
+            if not isinstance(class_metrics, dict):
+                continue
+            numeric_metrics = _extract_numeric_metrics(class_metrics)
+            if numeric_metrics:
+                per_class_metrics[class_name] = numeric_metrics
+
+    return {
+        "summary_label": summary_label,
+        "summary": summary,
+        "per_sequence_metrics": per_sequence_metrics,
+        "per_class_metrics": per_class_metrics,
+    }
 
 
 def _filter_obb_trackeval_results(
@@ -220,6 +316,14 @@ def _display_summary_name(name: str) -> str:
 def _select_plot_metrics_data(results: dict) -> tuple[str, dict]:
     if not results:
         return "", {}
+
+    flat_summary = {
+        key: results[key]
+        for key in SUMMARY_COLUMNS
+        if isinstance(results.get(key), (int, float))
+    }
+    if flat_summary:
+        return "single_class", flat_summary
 
     first_value = next(iter(results.values()))
     if isinstance(first_value, (int, float)):
@@ -326,9 +430,9 @@ def _print_summary_table(
 
 __all__ = [
     "_display_summary_name",
+    "build_trackeval_feedback",
     "_filter_obb_trackeval_results",
     "_known_trackeval_class_names",
-    "_ordered_benchmark_eval_class_names",
     "_print_summary_table",
     "_select_plot_metrics_data",
     "_summary_sort_keys",

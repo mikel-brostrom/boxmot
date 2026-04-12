@@ -13,12 +13,55 @@ import numpy as np
 from boxmot.utils import ROOT, logger as LOGGER
 from boxmot.utils.benchmark_config import load_benchmark_cfg
 
-from .benchmark import (
+from boxmot.data.benchmark import (
     COCO_CLASSES,
     load_benchmark_cfg_from_args,
     resolve_obb_class_ids_to_eval,
     resolve_obb_classes_to_eval,
 )
+
+
+_RESOURCE_TRACKER_STDERR_PATTERNS = (
+    "resource_tracker",
+    "multiprocessing/resource_tracker.py",
+    "warnings.warn('resource_tracker:",
+)
+
+
+def _should_use_parallel_trackeval(
+    *,
+    platform_name: str | None = None,
+    version_info: tuple[int, ...] | None = None,
+) -> bool:
+    platform_name = sys.platform if platform_name is None else platform_name
+    version_info = tuple(sys.version_info) if version_info is None else tuple(version_info)
+
+    # macOS + Python 3.12 emits spurious resource_tracker semaphore warnings
+    # from TrackEval's multiprocessing path. Fall back to serial evaluation there.
+    if platform_name == "darwin" and version_info[:2] >= (3, 12):
+        return False
+    return True
+
+
+def _trackeval_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    warning_filter = "ignore:resource_tracker:UserWarning"
+    existing = env.get("PYTHONWARNINGS", "")
+    if warning_filter not in existing.split(","):
+        env["PYTHONWARNINGS"] = ",".join(filter(None, [existing, warning_filter]))
+    return env
+
+
+def _filter_trackeval_stderr(stderr: str) -> str:
+    if not stderr:
+        return ""
+
+    kept_lines = [
+        line
+        for line in stderr.splitlines()
+        if line and not any(pattern in line for pattern in _RESOURCE_TRACKER_STDERR_PATTERNS)
+    ]
+    return "\n".join(kept_lines).strip()
 
 
 def build_dataset_eval_settings(
@@ -142,6 +185,8 @@ def trackeval(
     distractor_ids = dataset_settings["distractor_ids"]
     gt_loc_format = dataset_settings["gt_loc_format"]
     benchmark_name = dataset_settings["benchmark_name"]
+    use_parallel = _should_use_parallel_trackeval()
+    parallel_cores = 4 if use_parallel else 1
 
     cmd_args = [
         sys.executable,
@@ -158,12 +203,10 @@ def trackeval(
         args.split,
         "--METRICS",
         *metrics,
-        "--USE_PARALLEL",
-        "True",
         "--TRACKER_SUB_FOLDER",
         "",
         "--NUM_PARALLEL_CORES",
-        str(4),
+        str(parallel_cores),
         "--SKIP_SPLIT_FOL",
         "True",
         "--GT_LOC_FORMAT",
@@ -176,6 +219,8 @@ def trackeval(
         *[str(class_id) for class_id in distractor_ids],
         "--SEQ_INFO",
         *seq_info_args,
+        "--USE_PARALLEL",
+        "True" if use_parallel else "False",
     ]
 
     proc = subprocess.Popen(
@@ -183,8 +228,10 @@ def trackeval(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=_trackeval_subprocess_env(),
     )
     stdout, stderr = proc.communicate()
+    stderr = _filter_trackeval_stderr(stderr)
 
     if stderr:
         LOGGER.warning(f"TrackEval stderr:\n{stderr}")
@@ -337,9 +384,10 @@ def trackeval_obb(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        env=os.environ.copy(),
+        env=_trackeval_subprocess_env(),
     )
     stdout, stderr = proc.communicate()
+    stderr = _filter_trackeval_stderr(stderr)
 
     if stderr:
         LOGGER.warning(f"OBB TrackEval stderr:\n{stderr}")

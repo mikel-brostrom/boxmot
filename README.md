@@ -20,22 +20,21 @@
 
 </div>
 
-BoxMOT gives you one CLI and one Python API for running, evaluating, tuning, and exporting modern multi-object tracking pipelines. Swap trackers without rewriting your detector stack, reuse cached detections and embeddings across experiments, and benchmark locally on MOT-style datasets.
+BoxMOT gives you one CLI and one Python API for running modern multi-object tracking workflows. It covers direct tracking, cached benchmark evaluation, tuning, research loops, and ReID export without forcing you to rebuild the detector and tracker stack for each experiment.
 
 <div align="center" markdown="1">
 
-[Installation](#installation) • [Metrics](#benchmark-results-mot17-ablation-split) • [CLI](#cli) • [Python API](#python-api) • [Detection Layouts](#detection-layouts) • [Examples](#examples) • [Contributing](#contributing)
+[Docs](docs/index.md) • [Installation](docs/getting-started/installation.md) • [Modes](docs/modes/index.md) • [API Reference](docs/python/index.md) • [Trackers](docs/trackers/index.md) • [Contributing](CONTRIBUTING.md)
 
 </div>
 
 ## Why BoxMOT
 
-- One interface for `track`, `generate`, `eval`, `tune`, and `export`.
-- Works with detection, segmentation, and pose models as long as they emit boxes.
-- Supports both motion-only trackers and motion + appearance trackers.
-- Reuses saved detections and embeddings to speed up repeated evaluation and tuning.
-- Handles both AABB and OBB detection layouts natively.
-- Includes local benchmarking workflows for MOT17, MOT20, and DanceTrack ablation splits.
+- One interface for `track`, `generate`, `eval`, `tune`, `research`, and `export`.
+- Swappable trackers with shared detector and ReID plumbing.
+- Benchmark-oriented workflows with reusable detections and embeddings.
+- Support for both AABB and OBB tracking paths.
+- Public Python API for embedding the same workflows in applications and notebooks.
 
 ## Installation
 
@@ -45,6 +44,37 @@ BoxMOT supports Python `3.9` through `3.12`.
 pip install boxmot
 boxmot --help
 ```
+
+For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino`, and `tflite`, see the [installation guide](docs/getting-started/installation.md).
+
+## Minimal Usage
+
+CLI:
+
+```bash
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save
+```
+
+Python:
+
+```python
+from boxmot import Boxmot
+
+run = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort").track(
+    source="video.mp4",
+    save=True,
+)
+print(run.summary)
+```
+
+For `generate`, `eval`, `tune`, `research`, `export`, tracker-only loops, and detailed CLI or API usage, use the docs:
+
+- [Choose a Mode](docs/getting-started/workflows.md)
+- [Modes Overview](docs/modes/index.md)
+- [CLI Usage](docs/usage/cli.md)
+- [Python Usage](docs/usage/python.md)
+- [Configuration](docs/config/index.md)
+- [Concepts](docs/concepts/index.md)
 
 ## Benchmark Results (MOT17 ablation split)
 
@@ -67,294 +97,24 @@ boxmot --help
 
 </div>
 
-## CLI
-
-BoxMOT provides a unified CLI with a simple syntax:
-
-```bash
-boxmot MODE [OPTIONS] [DETECTOR] [REID] [TRACKER]
-```
-
-Modes:
-
-```text
-track      run detector + tracker on webcam, images, videos, directories, or streams
-generate   precompute detections and embeddings for later reuse
-eval       benchmark on MOT-style datasets and apply optional postprocessing
-tune       optimize tracker hyperparameters with multi-objective search
-export     export ReID models to deployment formats
-```
-
-Use `boxmot MODE --help` for mode-specific flags.
-
-Use `--detector`, `--reid`, and `--tracker` for explicit component selection. Legacy aliases such as `--yolo-model`, `--reid-model`, and `--tracking-method` are not supported.
-
-Quick examples:
-
-```bash
-# Track a webcam feed
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort --source 0 --show
-
-# Track a video, draw trajectories, and save the result
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --show-trajectories --save
-
-# Evaluate on the MOT17 ablation split with GBRC postprocessing
-boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gbrc --verbose
-
-# Generate reusable detections and embeddings for a benchmark
-boxmot generate --benchmark mot17-ablation
-
-# Tune tracker hyperparameters on a benchmark
-boxmot tune --benchmark mot17-ablation --tracker ocsort --n-trials 10
-
-# Export a ReID model to ONNX and TensorRT with dynamic input
-boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic
-```
-
-Common `--source` values for `track` and direct-source `generate` runs include `0`, `img.jpg`, `video.mp4`, `path/`, `path/*.jpg`, YouTube URLs, and RTSP / RTMP / HTTP streams.
-
-For config-driven `generate`, `eval`, and `tune` runs:
-
-- `--benchmark <benchmark>` selects a benchmark config from `boxmot/configs/benchmarks/`
-- the benchmark config selects its associated dataset config from `boxmot/configs/datasets/`
-- the benchmark config selects its associated detector profile from `boxmot/configs/detectors/`
-- the benchmark config selects its associated ReID profile from `boxmot/configs/reid/`
-- `--tracker <name>` selects the tracker and loads `boxmot/configs/trackers/<name>.yaml`
-
-Example:
-
-```bash
-boxmot eval --benchmark mot17-ablation --tracker boosttrack
-```
-
-The benchmark config's associated dataset, detector, and ReID profiles are used automatically.
-
-To override the benchmark's detector and ReID defaults explicitly:
-
-```bash
-boxmot eval --benchmark mot17-ablation --detector yolo11s_obb --reid lmbn_n_duke --tracker boosttrack
-```
-
-If you want to track only selected classes, pass a comma-separated list:
-
-```bash
-boxmot track --detector yolov8s --source 0 --classes 16,17
-```
-
-## Python API
-
-If you already have detections from your own model, call `tracker.update(...)` once per frame inside your video loop:
-
-```python
-from pathlib import Path
-
-import cv2
-import numpy as np
-from boxmot import BotSort
-
-tracker = BotSort(
-    reid_weights=Path("osnet_x0_25_msmt17.pt"),
-    device="cpu",
-    half=False,
-)
-
-cap = cv2.VideoCapture("video.mp4")
-
-while True:
-    ok, frame = cap.read()
-    if not ok:
-        break
-
-    # Replace this with your detector output for the current frame.
-    # AABB input: (N, 6) = (x1, y1, x2, y2, conf, cls)
-    # OBB input: (N, 7) = (cx, cy, w, h, angle, conf, cls)
-    detections = np.empty((0, 6), dtype=np.float32)
-    # detections = your_detector(frame)
-
-    tracks = tracker.update(detections, frame)
-    tracker.plot_results(frame, show_trajectories=True)
-
-    print(tracks)
-    # AABB output: (N, 8) = (x1, y1, x2, y2, id, conf, cls, det_ind)
-    # OBB output: (N, 9) = (cx, cy, w, h, angle, id, conf, cls, det_ind)
-    # Use det_ind to map a track back to the detector output
-
-    cv2.imshow("BoxMOT", frame)
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
-```
-
-For end-to-end detector integrations, see the notebooks in [examples](examples).
-
-## Detection Layouts
-
-BoxMOT switches tracking mode from the detection tensor shape:
-
-| Geometry | Input detections | Output tracks |
-| --- | --- | --- |
-| AABB | `(N, 6)` = `(x1, y1, x2, y2, conf, cls)` | `(N, 8)` = `(x1, y1, x2, y2, id, conf, cls, det_ind)` |
-| OBB | `(N, 7)` = `(cx, cy, w, h, angle, conf, cls)` | `(N, 9)` = `(cx, cy, w, h, angle, id, conf, cls, det_ind)` |
-
-OBB-specific tracking paths are enabled automatically when OBB detections are provided. Current OBB-capable trackers: `bytetrack`, `botsort`, `ocsort`, and `sfsort`.
-
-## Examples
-
-The short commands above are enough to get started. The sections below keep the longer recipe list available without turning the README into a wall of commands.
-
-<details>
-<summary><strong>Tracking recipes</strong></summary>
-
-Track from common sources:
-
-```bash
-# Webcam
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort --source 0 --show
-
-# Video file
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save
-
-# Image directory
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker bytetrack --source path/to/images --save
-
-# Stream or URL
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker ocsort --source 'rtsp://example.com/media.mp4'
-
-# YouTube
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker boosttrack --source 'https://youtu.be/Zgi9g1ksQHc'
-```
-
-</details>
-
-<details>
-<summary><strong>Detector backends</strong></summary>
-
-Swap detectors without changing the overall CLI:
-
-```bash
-# Ultralytics detection
-boxmot track --detector yolov8n
-boxmot track --detector yolo11n
-
-# Segmentation and pose variants
-boxmot track --detector yolov8n-seg
-boxmot track --detector yolov8n-pose
-
-# YOLOX
-boxmot track --detector yolox_s
-
-# RF-DETR
-boxmot track --detector rf-detr-base
-```
-
-</details>
-
-<details>
-<summary><strong>Tracker swaps</strong></summary>
-
-Use the same detector and ReID model while changing only the tracker:
-
-```bash
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker strongsort
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker boosttrack
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker hybridsort
-
-# Motion-only trackers
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker bytetrack
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker ocsort
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker sfsort
-```
-
-</details>
-
-<details>
-<summary><strong>Filtering and visualization</strong></summary>
-
-Useful flags for inspection and debugging:
-
-```bash
-# Draw trajectories and show kalman filter predictions when track is lost
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --show-trajectories --show-kf-preds --save
-
-# Track only selected classes
-boxmot track --detector yolov8s --source 0 --classes 16,17
-
-# Track each class independently
-boxmot track --detector yolov8n --source video.mp4 --per-class --save
-
-# Highlight one target ID
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort --source video.mp4 --target-id 7 --show
-```
-
-</details>
-
-<details>
-<summary><strong>Evaluation and tuning</strong></summary>
-
-Benchmark on built-in MOT-style dataset shortcuts:
-
-```bash
-# Reproduce README-style MOT17 results
-boxmot eval --benchmark mot17-ablation --tracker boosttrack --verbose
-
-# MOT20 ablation split
-boxmot eval --benchmark mot20-ablation --tracker boosttrack --verbose
-
-# DanceTrack ablation split
-boxmot eval --benchmark dancetrack-ablation --tracker boosttrack --verbose
-
-# VisDrone ablation split
-boxmot eval --benchmark visdrone-ablation --tracker botsort --verbose
-
-# Apply postprocessing
-boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gsi
-boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gbrc
-
-# Generate detections and embeddings once for a benchmark
-boxmot generate --benchmark mot17-ablation
-
-# Generate detections and embeddings for a direct dataset path
-boxmot generate --detector yolov8n --reid osnet_x0_25_msmt17 --source ./assets/MOT17-mini/train
-
-# Tune on a built-in benchmark config
-boxmot tune --benchmark mot17-ablation --tracker boosttrack --n-trials 9
-
-# Tune a tracker with explicit detector/ReID overrides
-boxmot tune --benchmark mot17-ablation --detector yolo11s_obb --reid lmbn_n_duke --tracker botsort --n-trials 9
-```
-
-</details>
-
-<details>
-<summary><strong>Export and OBB</strong></summary>
-
-Deployment and oriented-box examples:
-
-```bash
-# Export to ONNX
-boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --device cpu
-
-# Export to OpenVINO
-boxmot export --weights osnet_x0_25_msmt17.pt --include openvino --device cpu
-
-# Export to TensorRT with dynamic input
-boxmot export --weights osnet_x0_25_msmt17.pt --include engine --device 0 --dynamic
-```
-
-OBB references:
-
-- Notebook: [examples/det/obb.ipynb](examples/det/obb.ipynb)
-- OBB-capable trackers: `bytetrack`, `botsort`, `ocsort`, `sfsort`
-
-</details>
+Reproduction details and evaluation semantics live in:
+
+- [Evaluation and Postprocessing](docs/guides/evaluation.md)
+- [Benchmark Workflows](docs/guides/benchmarks.md)
+
+## Docs
+
+- [Quickstart](docs/index.md)
+- [Getting Started](docs/getting-started/installation.md)
+- [Modes](docs/modes/index.md)
+- [Trackers](docs/trackers/index.md)
+- [Configuration](docs/config/index.md)
+- [API Reference](docs/python/index.md)
+- [Contributing Guide](docs/contributing/index.md)
 
 ## Contributing
 
-If you want to contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md).
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the [contributor docs](docs/contributing/index.md).
 
 ## Contributors
 
@@ -366,5 +126,5 @@ If you want to contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Bugs and feature requests: [GitHub Issues](https://github.com/mikel-brostrom/boxmot/issues)
 - Questions and discussion: [GitHub Discussions](https://github.com/mikel-brostrom/boxmot/discussions) or [Discord](https://discord.gg/tUmFEcYU4q)
-- Citation metadata: [CITATION.cff](CITATION.cff)
+- Citation metadata: [CITATION.cff](https://github.com/mikel-brostrom/boxmot/blob/master/CITATION.cff)
 - Commercial support: `box-mot@outlook.com`

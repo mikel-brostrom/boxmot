@@ -2,13 +2,12 @@ import pytest
 import numpy as np
 import configparser
 import cv2
-from pathlib import Path
-from boxmot.utils.dataloaders.dataset import (
+from boxmot.data.dataset import (
     read_seq_fps,
     compute_fps_mask,
     MOTDataset,
-    MOTSequence,
 )
+from boxmot.data.loaders import iter_source
 
 
 def test_read_seq_fps(tmp_path):
@@ -228,3 +227,35 @@ def test_dataset_falls_back_to_legacy_txt_caches(simple_sequence):
     assert len(out) == 2
     assert out[0]["dets"].shape[0] == 1
     assert out[0]["embs"].shape == (1, 128)
+
+
+def test_iter_source_uses_integer_capture_for_numeric_webcam_strings(monkeypatch):
+    calls = {}
+    frame = np.zeros((4, 4, 3), dtype=np.uint8)
+
+    class _FakeCapture:
+        def __init__(self, source):
+            calls["source"] = source
+            self._reads = 0
+
+        def isOpened(self):
+            return True
+
+        def read(self):
+            if self._reads > 0:
+                return False, None
+            self._reads += 1
+            return True, frame.copy()
+
+        def release(self):
+            calls["released"] = True
+
+    monkeypatch.setattr(cv2, "VideoCapture", _FakeCapture)
+
+    items = list(iter_source("0"))
+
+    assert calls["source"] == 0
+    assert calls["released"] is True
+    assert len(items) == 1
+    assert items[0][0] == "0"
+    np.testing.assert_array_equal(items[0][1], frame)

@@ -16,4 +16,6 @@ def export_formats():
     return pd.DataFrame(x, columns=["Format", "Argument", "Suffix", "CPU", "GPU"])
 
 
-from .reid_handler import ReID
+from .reid import ReID
+
+__all__ = ("export_formats", "ReID")

@@ -1,66 +1,39 @@
-# name: Deploy MkDocs Docs
-# on:
-#   push:
-#     branches: [master]
+name: Deploy Docs
 
-# permissions:
-#   contents: write
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
 
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: actions/checkout@v4
+permissions:
+  contents: write
 
-#       - uses: actions/setup-python@v4
-#         with:
-#           python-version: '3.10'
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
 
-#       - name: Install MkDocs and plugins
-#         run: |
-#           python -m pip install --upgrade pip setuptools wheel uv
-#           uv sync --group dev --group test --group docs
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-#       - name: Symlink README into docs
-#         run: cp --remove-destination README.md docs/index.md
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-#       - name: Extract code examples (with section titles) from README
-#         run: |
-#           cat <<'AWK' > /tmp/extract_examples.awk
-#           /^##[[:space:]]*.*Code Examples/ { insec=1; next }
-#           insec && /^##[[:space:]]/ { exit }
+      - name: Install docs dependencies
+        run: |
+          bash .github/scripts/uv_ci_install.sh "." --group docs
 
-#           insec {
-#             # capture text inside <summary> ... </summary>
-#             if ($0 ~ /<summary>/) {
-#               t=$0
-#               sub(/.*<summary>[[:space:]]*/, "", t)
-#               sub(/[[:space:]]*<\/summary>.*/, "", t)
-#               title=t
-#             }
+      - name: Build docs
+        run: |
+          uv run mkdocs build --strict
 
-#             # start of fenced code block
-#             if ($0 ~ /^[[:space:]]*```(bash|python)/) {
-#               if (title != "") { print "# " title }
-#               code=1; print; next
-#             }
-
-#             # end of fenced code block
-#             if (code && $0 ~ /^[[:space:]]*```[[:space:]]*$/) { code=0; print; next }
-
-#             if (code) print
-#           }
-#           AWK
-#           awk -f /tmp/extract_examples.awk README.md > docs/quickstart.md
-
-#       - name: Expose project on PYTHONPATH
-#         run: echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
-
-#       - name: Deploy to GitHub Pages
-#         env:
-#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#         run: |
-#           source .venv/bin/activate
-#           git config --local user.email yolov5.deepsort.pytorch@gmail.com
-#           git config --local user.name mikel-brostrom
-#           mkdocs gh-deploy --clean --force --verbose
+      - name: Deploy to GitHub Pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          uv run mkdocs gh-deploy --clean --force

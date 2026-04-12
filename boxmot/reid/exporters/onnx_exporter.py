@@ -9,9 +9,9 @@ from boxmot.utils import logger as LOGGER
 class ONNXExporter(BaseExporter):
     group = "onnx"
 
-    def __init__(self, model, im, file, opset=None, dynamic=False, half=False, simplify=False):
+    def __init__(self, model, im, file, opset=None, dynamic=False, half=False, simplify=False, verbose=True):
         # keep BaseExporter behavior (optimize handled elsewhere in boxmot)
-        super().__init__(model, im, file, optimize=False, dynamic=dynamic, half=half, simplify=simplify)
+        super().__init__(model, im, file, optimize=False, dynamic=dynamic, half=half, simplify=simplify, verbose=verbose)
         self.opset = opset  # None -> auto
 
     def export(self):
@@ -20,7 +20,8 @@ class ONNXExporter(BaseExporter):
         f = self.file.with_suffix(".onnx")
 
         opset = self.opset or self._best_onnx_opset(onnx, cuda=torch.cuda.is_available())
-        LOGGER.info(f"Exporting ONNX with onnx {onnx.__version__} opset {opset}...")
+        if self.verbose:
+            LOGGER.info(f"Exporting ONNX with onnx {onnx.__version__} opset {opset}...")
 
         # Determine output count for correct output_names length
         output_names = self._infer_output_names()
@@ -29,6 +30,7 @@ class ONNXExporter(BaseExporter):
         args = (self.im,)
         export_sig = inspect.signature(torch.onnx.export)
         has_dynamo_arg = "dynamo" in export_sig.parameters
+        use_dynamo = self.verbose
 
         export_kwargs = {
             "opset_version": opset,
@@ -37,11 +39,16 @@ class ONNXExporter(BaseExporter):
         }
 
         if self.dynamic:
-            # Constrain dynamic batch range to satisfy torch.export shape guards on CUDA.
-            export_kwargs["dynamic_shapes"] = ({0: Dim("batch", min=1, max=65535)},)
+            if use_dynamo:
+                # Constrain dynamic batch range to satisfy torch.export shape guards on CUDA.
+                export_kwargs["dynamic_shapes"] = ({0: Dim("batch", min=1, max=65535)},)
+            else:
+                export_kwargs["dynamic_axes"] = self._build_dynamic_axes(output_names)
 
-        if has_dynamo_arg:
+        if use_dynamo:
             export_kwargs["dynamo"] = True
+        elif has_dynamo_arg:
+            export_kwargs["dynamo"] = False
 
         try:
             torch.onnx.export(
@@ -51,23 +58,31 @@ class ONNXExporter(BaseExporter):
                 **export_kwargs,
             )
         except Exception as e:
-            if not self.dynamic:
+            if not use_dynamo:
                 raise
+            if self.dynamic:
+                if self.verbose:
+                    LOGGER.warning(
+                        f"Dynamic export via torch.export failed ({e}). "
+                        "Retrying with legacy dynamic_axes export..."
+                    )
+            else:
+                if self.verbose:
+                    LOGGER.warning(
+                        f"Export via torch.export failed ({e}). "
+                        "Retrying with legacy ONNX exporter..."
+                    )
 
-            LOGGER.warning(
-                f"Dynamic export via torch.export failed ({e}). "
-                "Retrying with legacy dynamic_axes export..."
-            )
-
-            # Fallback for torch.export/dynamo dynamic shape guard failures.
             fallback_kwargs = {
                 "opset_version": opset,
                 "input_names": ["images"],
                 "output_names": output_names,
-                "dynamic_axes": self._build_dynamic_axes(output_names),
             }
             if has_dynamo_arg:
                 fallback_kwargs["dynamo"] = False
+            if self.dynamic:
+                # Legacy exporter uses dynamic_axes instead of torch.export dynamic_shapes.
+                fallback_kwargs["dynamic_axes"] = self._build_dynamic_axes(output_names)
 
             torch.onnx.export(
                 self.model,
@@ -86,9 +101,10 @@ class ONNXExporter(BaseExporter):
 
         # --- IR version clamp for ONNXRuntime compatibility ---
         if getattr(model_onnx, "ir_version", 0) > 10:
-            LOGGER.info(
-                f"Limiting IR version {model_onnx.ir_version} -> 10 for ONNXRuntime compatibility..."
-            )
+            if self.verbose:
+                LOGGER.info(
+                    f"Limiting IR version {model_onnx.ir_version} -> 10 for ONNXRuntime compatibility..."
+                )
             model_onnx.ir_version = 10
 
         # --- Optional FP16 conversion for CPU export ---
@@ -103,10 +119,12 @@ class ONNXExporter(BaseExporter):
         try:
             import onnxslim
 
-            LOGGER.info(f"Slimming with onnxslim {onnxslim.__version__}...")
+            if self.verbose:
+                LOGGER.info(f"Slimming with onnxslim {onnxslim.__version__}...")
             return onnxslim.slim(model_onnx)
         except Exception as e:
-            LOGGER.warning(f"Simplifier failure: {e}")
+            if self.verbose:
+                LOGGER.warning(f"Simplifier failure: {e}")
             return model_onnx
 
     # -----------------
@@ -188,8 +206,10 @@ class ONNXExporter(BaseExporter):
         try:
             from onnxruntime.transformers import float16
 
-            LOGGER.info("Converting ONNX graph to FP16 (CPU export)...")
+            if self.verbose:
+                LOGGER.info("Converting ONNX graph to FP16 (CPU export)...")
             return float16.convert_float_to_float16(model_onnx, keep_io_types=True)
         except Exception as e:
-            LOGGER.warning(f"FP16 conversion failure: {e}")
+            if self.verbose:
+                LOGGER.warning(f"FP16 conversion failure: {e}")
             return model_onnx

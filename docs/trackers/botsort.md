@@ -1,3 +1,13 @@
 # BotSort
 
+[Paper: BoT-SORT: Robust Associations Multi-Pedestrian Tracking](https://arxiv.org/abs/2206.14651)
+
+BoT-SORT extends the ByteTrack family by combining motion, appearance, and camera-motion compensation more explicitly. The paper improves the Kalman state, uses global motion compensation, and fuses ReID cues with IoU-based association to make identity assignment more stable in crowded scenes and moving-camera footage. The result is a tracker that is still online and practical, but more robust than motion-only alternatives when identities are ambiguous.
+
+## What BoxMOT Needs For BotSort
+
+- A detector and, for the full method, a ReID model.
+- Supports both AABB and OBB detections in BoxMOT.
+- Best when you need stronger identity preservation than ByteTrack, especially with camera motion or repeated occlusions.
+
 ::: boxmot.trackers.botsort.botsort.BotSort

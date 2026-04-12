@@ -19,12 +19,11 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from boxmot.utils.evaluation.results import SUMMARY_COLUMNS
-from boxmot.engine.evaluator import (eval_setup,
-                                     run_generate_dets_embs,
-                                     run_generate_mot_results, run_trackeval)
+from boxmot.engine.evaluator import eval_setup, run_generate_dets_embs, run_trackeval
+from boxmot.engine.replay import run_generate_mot_results
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.evaluation.results import SUMMARY_COLUMNS
 
 # Metrics that must be summed across classes (not averaged), because they are counts
 METRIC_SUM = frozenset({"IDSW", "IDs"})
@@ -37,8 +36,8 @@ ALL_TUNE_METRICS = (*SUMMARY_COLUMNS, "IDSW_rate")
 # YAML helpers
 # ---------------------------------------------------------------------------
 
-def load_yaml_config(tracking_method: str) -> dict:
-    config_path = TRACKER_CONFIGS / f"{tracking_method}.yaml"
+def load_yaml_config(tracker_name: str) -> dict:
+    config_path = TRACKER_CONFIGS / f"{tracker_name}.yaml"
     with open(config_path, "r") as file:
         return yaml.safe_load(file)
 
@@ -223,7 +222,7 @@ def _generate_summary(
     tune_dir: Path,
     trial_data: list,
     yaml_cfg: dict,
-    tracking_method: str,
+    tracker_name: str,
     maximize: list,
     minimize: list,
     args,
@@ -240,9 +239,9 @@ def _generate_summary(
     lines = []
 
     # --- Header ---
-    lines.append(f"# Tuning Summary: {tracking_method}\n")
-    lines.append(f"- **Tracker:** {tracking_method}")
-    lines.append(f"- **Detector:** {Path(args.yolo_model[0]).stem}")
+    lines.append(f"# Tuning Summary: {tracker_name}\n")
+    lines.append(f"- **Tracker:** {tracker_name}")
+    lines.append(f"- **Detector:** {Path(args.detector[0]).stem}")
     lines.append(f"- **Benchmark:** {getattr(args, 'benchmark', getattr(args, 'data', ''))}")
     lines.append(f"- **Completed trials:** {len(trial_data)}")
     if is_pareto:
@@ -261,7 +260,7 @@ def _generate_summary(
     lines.append(f"| {metric_header} |")
     lines.append(f"| {metric_sep} |")
     lines.append(f"| {metric_vals} |")
-    lines.append(f"\nConfig saved to: `best_{tracking_method}.yaml`\n")
+    lines.append(f"\nConfig saved to: `best_{tracker_name}.yaml`\n")
 
     # --- Pareto Front ---
     if is_pareto:
@@ -350,7 +349,7 @@ def _save_all_results(
     tune_dir: Path,
     results,
     yaml_cfg: dict,
-    tracking_method: str,
+    tracker_name: str,
     maximize: list,
     minimize: list,
     args,
@@ -371,7 +370,7 @@ def _save_all_results(
     for td in trial_data:
         trial_dir = td["trial_dir"]
         if trial_dir.exists():
-            yaml_path = trial_dir / f"{tracking_method}_{td['trial_id']}.yaml"
+            yaml_path = trial_dir / f"{tracker_name}_{td['trial_id']}.yaml"
             _write_trial_yaml(yaml_cfg, td["config"], yaml_path)
 
     # 2. results.csv
@@ -382,51 +381,21 @@ def _save_all_results(
     # 3. Best config → tune root
     primary = maximize[0]
     best = max(trial_data, key=lambda t: t["metrics"].get(primary, 0))
-    best_yaml_path = tune_dir / f"best_{tracking_method}.yaml"
+    best_yaml_path = tune_dir / f"best_{tracker_name}.yaml"
     _write_trial_yaml(yaml_cfg, best["config"], best_yaml_path)
     LOGGER.opt(colors=True).info(
         f"<bold>Best config ({best['trial_id']}):</bold> <cyan>{best_yaml_path}</cyan>"
     )
 
     # 4. summary.md
-    _generate_summary(tune_dir, trial_data, yaml_cfg, tracking_method, maximize, minimize, args)
-
-
-# ---------------------------------------------------------------------------
-# Per-trial callback: saves YAML config after each trial completes
-# ---------------------------------------------------------------------------
-
-try:
-    from ray.tune import Callback as _RayCallback
-
-    class TrialSaveCallback(_RayCallback):
-        """
-        Saves a ready-to-use YAML config (matching the original search-space format
-        but with ``default`` updated to this trial's values) into the trial directory
-        immediately after each trial completes.
-        """
-
-        def __init__(self, yaml_cfg: dict, tracking_method: str):
-            self._yaml_cfg = yaml_cfg
-            self._tracking_method = tracking_method
-
-        def on_trial_complete(self, iteration, trials, trial, **info):
-            trial_dir = Path(
-                getattr(trial, "local_path", None) or getattr(trial, "logdir", "")
-            )
-            if trial_dir and trial_dir.exists():
-                yaml_path = trial_dir / f"{self._tracking_method}_{trial.trial_id}.yaml"
-                _write_trial_yaml(self._yaml_cfg, trial.config, yaml_path)
-
-except ImportError:
-    TrialSaveCallback = None  # ray not installed; callback won't be used
+    _generate_summary(tune_dir, trial_data, yaml_cfg, tracker_name, maximize, minimize, args)
 
 
 # ---------------------------------------------------------------------------
 # Tracker (objective function)
 # ---------------------------------------------------------------------------
 
-class Tracker:
+class TrackerObjective:
     def __init__(self, opt):
         self.opt = opt
 
@@ -456,8 +425,8 @@ def main(args):
     from ray.tune import RunConfig
     from ray.tune.search.optuna import OptunaSearch
 
-    args.yolo_model = [Path(y).resolve() for y in args.yolo_model]
-    args.reid_model = [Path(r).resolve() for r in args.reid_model]
+    args.detector = [Path(y).resolve() for y in args.detector]
+    args.reid = [Path(r).resolve() for r in args.reid]
 
     # Resolve optimize targets
     maximize = list(args.maximize) if args.maximize else [args.objectives[0]]
@@ -470,16 +439,14 @@ def main(args):
     else:
         optuna_search = OptunaSearch(metric=opt_metrics, mode=opt_modes)
 
-    yaml_cfg = load_yaml_config(args.tracking_method)
+    yaml_cfg = load_yaml_config(args.tracker)
     search_space = yaml_to_search_space(yaml_cfg, tune)
-    tracker = Tracker(args)
+    tracker_objective = TrackerObjective(args)
 
     def tune_wrapper(cfg):
-        return tracker.objective_function(cfg)
+        return tracker_objective.objective_function(cfg)
 
-    tune_name = f"{args.tracking_method}_tune"
-    results_dir = args.project / "ray"
-    restore_path = results_dir / tune_name
+    tune_name = f"{args.tracker}_tune"
 
     n_threads = int(args.n_threads)
     trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
@@ -487,13 +454,18 @@ def main(args):
     LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up evaluation environment...")
     eval_setup(args)
 
+    results_dir = Path(args.project).resolve() / "ray"
+    restore_path = results_dir / tune_name
+    restore_path_str = str(restore_path)
+    results_dir_str = str(results_dir)
+
     LOGGER.info("")
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
     LOGGER.opt(colors=True).info("<bold><cyan>BoxMOT Hyperparameter Tuning</cyan></bold>")
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>    <cyan>{args.tracking_method}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>   <cyan>{args.yolo_model[0]}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>       <cyan>{args.reid_model[0]}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>    <cyan>{args.tracker}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>   <cyan>{args.detector[0]}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>       <cyan>{args.reid[0]}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Trials:</bold>     <cyan>{args.n_trials}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Maximize:</bold>   <cyan>{', '.join(maximize)}</cyan>")
     if minimize:
@@ -507,10 +479,10 @@ def main(args):
     run_generate_dets_embs(args)
 
     LOGGER.opt(colors=True).info("<cyan>[3/3]</cyan> Running hyperparameter optimization...")
-    if tune.Tuner.can_restore(restore_path):
+    if tune.Tuner.can_restore(restore_path_str):
         LOGGER.opt(colors=True).info(f"<bold>Resuming tuning from:</bold> <cyan>{restore_path}</cyan>")
         tuner = tune.Tuner.restore(
-            str(restore_path),
+            restore_path_str,
             trainable=trainable,
             resume_errored=True,
         )
@@ -524,9 +496,8 @@ def main(args):
                 trial_dirname_creator=lambda trial: f"trial_{trial.trial_id}",
             ),
             run_config=RunConfig(
-                storage_path=results_dir,
+                storage_path=results_dir_str,
                 name=tune_name,
-                callbacks=[TrialSaveCallback(yaml_cfg, args.tracking_method)],
             ),
         )
 
@@ -535,7 +506,7 @@ def main(args):
     # Post-processing: per-trial configs, CSV, best config, summary
     tune_dir = results_dir / tune_name
     _save_all_results(tune_dir, tuner.get_results(), yaml_cfg,
-                      args.tracking_method, maximize, minimize, args)
+                      args.tracker, maximize, minimize, args)
 
 
 if __name__ == "__main__":

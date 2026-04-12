@@ -1,20 +1,20 @@
 # Hybrid-SORT-ReID with ECC + ReID (explicit config, BaseTracker-style)
 # - Assumes detection input is M x [x1, y1, x2, y2, conf, cls]
 # - ECC via get_cmc_method(...).apply(img, dets)
-# - ReID via ReidAutoBackend(weights, device, half).model.get_features(...)
+# - ReID via ReID(weights, device, half).model.get_features(...)
 # - update(dets, img, embs=None) signature compatible with BoxMOT trackers
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
 # - Safe with COCO 80 classes; preserves det_ind; guards out-of-range indices
 
 from collections import deque
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import numpy as np
 import torch
 
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 # Keep your original association functions:
 from boxmot.trackers.hybridsort.association import (
@@ -354,14 +354,50 @@ ASSO_FUNCS = {
 
 
 class HybridSort(BaseTracker):
-    """
-    Hybrid SORT + ReID with ECC CMC
+    """Initialize the HybridSort tracker.
 
-    - Explicit configuration only (no self.args)
-    - ReID model and ECC setup like BotSort
-    - BaseTracker API: update(dets, img, embs=None) -> np.ndarray [[x1,y1,x2,y2,track_id,conf,cls,det_ind], ...]
-    - Now outputs real cls & det_ind and guards det_ind bounds
-    - Assumes detection input is [x1,y1,x2,y2,conf,cls]
+    Args:
+        reid_weights (Path | str | None): Path to the ReID model weights.
+        device (torch.device): Device used for ReID inference.
+        half (bool): Whether to use half precision for ReID inference.
+        cmc_method (str): Camera-motion compensation method.
+        with_reid (bool): Whether to enable appearance features.
+        low_thresh (float): Low-confidence threshold for second-pass matching.
+        delta_t (int): Time window used for motion estimation.
+        inertia (float): Motion-consistency weight.
+        use_byte (bool): Whether to enable ByteTrack-style second association.
+        use_custom_kf (bool): Whether to use the HybridSort custom Kalman
+            filter.
+        longterm_bank_length (int): Number of appearance features to keep in
+            the long-term bank.
+        alpha (float): Feature update coefficient.
+        adapfs (bool): Whether to enable adaptive feature smoothing.
+        track_thresh (float): High-confidence threshold for the first
+            association pass.
+        EG_weight_high_score (float): Embedding-guided association weight for
+            high-score detections.
+        EG_weight_low_score (float): Embedding-guided association weight for
+            low-score detections.
+        TCM_first_step (bool): Whether to enable TCM in the first step.
+        TCM_byte_step (bool): Whether to enable TCM in the Byte step.
+        TCM_byte_step_weight (float): TCM weight in the Byte step.
+        high_score_matching_thresh (float): Threshold for high-score matching.
+        with_longterm_reid (bool): Whether to enable long-term ReID features.
+        longterm_reid_weight (float): Weight applied to long-term ReID scores.
+        with_longterm_reid_correction (bool): Whether to enable long-term ReID
+            correction.
+        longterm_reid_correction_thresh (float): Correction threshold for
+            regular detections.
+        longterm_reid_correction_thresh_low (float): Correction threshold for
+            low-score detections.
+        dataset (str): Dataset hint used by the association logic.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`.
+
+    Attributes:
+        with_reid (bool): Whether appearance features are enabled.
+        model: ReID model used for appearance extraction when enabled.
+        cmc: Camera-motion compensation method.
+        active_tracks (list[KalmanBoxTracker]): Currently active tracks.
     """
 
     def __init__(
@@ -405,7 +441,7 @@ class HybridSort(BaseTracker):
 
         # misc
         dataset: str = "",
-        **kwargs,  # BaseTracker parameters
+        **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
@@ -441,7 +477,7 @@ class HybridSort(BaseTracker):
         self.with_reid = bool(with_reid)
         self.model = None
         if self.with_reid and reid_weights is not None:
-            self.model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
+            self.model = ReID(weights=reid_weights, device=device, half=half).model
 
         # ECC CMC (BotSort-style)
         self.cmc = get_cmc_method(cmc_method)()
