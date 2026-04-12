@@ -1,4 +1,4 @@
-from boxmot import (
+from boxmot.trackers import (
     BoostTrack,
     BotSort,
     ByteTrack,

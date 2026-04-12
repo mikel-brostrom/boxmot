@@ -22,8 +22,13 @@ from boxmot.reid import ReID
 _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)
 
 
+def test_package_root_only_exports_metadata():
+    assert boxmot.__all__ == ("__version__",)
+    assert not hasattr(boxmot, "Boxmot")
+
+
 def test_boxmot_defaults_follow_shared_configs():
-    model = boxmot.Boxmot()
+    model = api_module.Boxmot()
 
     assert model.detector == DEFAULT_DETECTOR == BOXMOT_DEFAULTS.shared.detector
     assert model.reid == DEFAULT_REID == BOXMOT_DEFAULTS.shared.reid
@@ -32,7 +37,7 @@ def test_boxmot_defaults_follow_shared_configs():
 
 
 def test_boxmot_eval_namespace_uses_shared_reid_default_when_reid_is_none(tmp_path):
-    model = boxmot.Boxmot(reid=None, project=tmp_path / "runs")
+    model = api_module.Boxmot(reid=None, project=tmp_path / "runs")
 
     args = model._base_eval_args("mot17-ablation")
 
@@ -204,7 +209,7 @@ def test_results_save_summary_and_evaluate(tmp_path):
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    results = boxmot.track(tmp_path, _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results = api_module.track(tmp_path, _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
     first = next(iter(results))
 
     results.drawer = lambda frame, tracks: np.full_like(frame, 127)
@@ -217,7 +222,7 @@ def test_results_save_summary_and_evaluate(tmp_path):
     output_path = tmp_path / "tracks.txt"
     saved = results.save(output_path)
     summary = results.summary()
-    evaluation = boxmot.evaluate([results], metrics=True, speed=True)
+    evaluation = api_module.evaluate([results], metrics=True, speed=True)
 
     assert saved == output_path
     assert output_path.read_text(encoding="utf-8").count("\n") == 2
@@ -266,7 +271,7 @@ def test_boxmot_track_returns_paths_and_timings(tmp_path, monkeypatch):
 
     monkeypatch.setattr(api_module.cv2, "VideoWriter", _FakeVideoWriter)
 
-    model = boxmot.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
+    model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
     run = model.track(source=tmp_path, save=True, save_txt=True)
 
     assert run.source == tmp_path
@@ -324,7 +329,7 @@ def test_boxmot_track_reuses_tracker_reid_backend_and_suppresses_setup_logs(monk
 
     monkeypatch.setattr(api_module.Boxmot, "_build_reid", fail_build_reid)
 
-    model = boxmot.Boxmot(
+    model = api_module.Boxmot(
         detector="yolov8n",
         reid="lmbn_n_duke",
         tracker="botsort",
@@ -387,7 +392,7 @@ def test_boxmot_track_keeps_live_sources_lazy(monkeypatch, tmp_path):
     fake_results = _FakeResults()
     monkeypatch.setattr(api_module, "track", lambda *args, **kwargs: fake_results)
 
-    model = boxmot.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
+    model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source="0")
 
     assert fake_results.materialized is False
@@ -426,7 +431,7 @@ def test_results_summary_does_not_resume_live_source_after_partial_iteration(mon
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    results = boxmot.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results = api_module.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
 
     first = next(iter(results))
     summary = results.summary()
@@ -460,7 +465,7 @@ def test_results_live_sources_do_not_cache_frames(monkeypatch):
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    results = boxmot.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results = api_module.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
 
     first = next(iter(results))
 
@@ -509,7 +514,7 @@ def test_boxmot_track_keeps_finite_sources_lazy_without_save(monkeypatch, tmp_pa
     fake_results = _FakeResults()
     monkeypatch.setattr(api_module, "track", lambda *args, **kwargs: fake_results)
 
-    model = boxmot.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
+    model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source=tmp_path)
 
     assert fake_results.materialized is False
@@ -545,7 +550,7 @@ def test_results_keyboard_interrupt_stops_live_tracking_cleanly(monkeypatch):
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    results = boxmot.track("0", _InterruptingDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results = api_module.track("0", _InterruptingDetector(), _FakeReID(), _FakeTracker(), verbose=False)
 
     output = list(results)
     summary = results.summary()
@@ -581,7 +586,7 @@ def test_tracks_show_stops_live_results_on_q(monkeypatch):
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    results = boxmot.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results = api_module.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
 
     first = next(iter(results))
 
@@ -614,7 +619,7 @@ def test_track_run_result_formats_summary_block(tmp_path, monkeypatch):
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    model = boxmot.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
+    model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
     run = model.track(source=tmp_path)
 
     summary_text = run.format_summary()
@@ -850,7 +855,7 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     )
     monkeypatch.setitem(sys.modules, "boxmot.engine.export", fake_export)
 
-    model = boxmot.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", classes=[0, 1], project=tmp_path / "runs")
+    model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", classes=[0, 1], project=tmp_path / "runs")
 
     metrics = model.val(benchmark="mot17-mini", device="cpu")
 
@@ -902,7 +907,7 @@ def test_boxmot_tune_logs_trial_progress(monkeypatch, tmp_path):
     perf_counter_values = iter([100.0, 101.2, 101.2, 103.6])
     monkeypatch.setattr(api_module.time, "perf_counter", lambda: next(perf_counter_values))
 
-    model = boxmot.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", project=tmp_path / "runs")
+    model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", project=tmp_path / "runs")
 
     monkeypatch.setattr(
         api_module.Boxmot,

@@ -1,6 +1,6 @@
 # Python API
 
-The public Python API is re-exported from `boxmot/__init__.py`.
+Use the explicit public modules: `boxmot.api`, `boxmot.reid`, `boxmot.trackers`, and `boxmot.trackers.tracker_zoo`. The package root is intentionally limited to metadata.
 
 For a getting-started view, see [Python Usage](../usage/python.md).
 
@@ -16,7 +16,7 @@ For a getting-started view, see [Python Usage](../usage/python.md).
 ## Minimal example
 
 ```python
-from boxmot import Boxmot
+from boxmot.api import Boxmot
 
 boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 run = boxmot.track(source="video.mp4", save=True)

@@ -1,53 +1,11 @@
-# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
+"""BoxMOT package metadata.
 
-__version__ = '17.0.0'
+The package root stays intentionally small so CLI/docs tooling can import
+``boxmot`` without pulling in optional runtime dependencies. Public APIs live
+under explicit modules such as ``boxmot.api``, ``boxmot.reid``,
+``boxmot.trackers``, and ``boxmot.trackers.tracker_zoo``.
+"""
 
-from boxmot.api import Boxmot, ExportResult, Results, TrackRunResult, Tracks, TuneResult, TuneTrialResult, ValidationResult, evaluate, track
-from boxmot.postprocessing.gsi import gsi
-from boxmot.reid import ReID
-from boxmot.trackers.boosttrack.boosttrack import BoostTrack
-from boxmot.trackers.botsort.botsort import BotSort
-from boxmot.trackers.bytetrack.bytetrack import ByteTrack
-from boxmot.trackers.deepocsort.deepocsort import DeepOcSort
-from boxmot.trackers.hybridsort.hybridsort import HybridSort
-from boxmot.trackers.ocsort.ocsort import OcSort
-from boxmot.trackers.sfsort.sfsort import SFSORT
-from boxmot.trackers.strongsort.strongsort import StrongSort
-from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
+__version__ = "17.0.0"
 
-TRACKERS = [
-    "bytetrack",
-    "botsort",
-    "strongsort",
-    "ocsort",
-    "deepocsort",
-    "hybridsort",
-    "boosttrack",
-    "sfsort",
-]
-
-__all__ = (
-    "__version__",
-    "Boxmot",
-    "ValidationResult",
-    "TuneTrialResult",
-    "TuneResult",
-    "TrackRunResult",
-    "ExportResult",
-    "Results",
-    "Tracks",
-    "StrongSort",
-    "OcSort",
-    "ByteTrack",
-    "BotSort",
-    "DeepOcSort",
-    "HybridSort",
-    "BoostTrack",
-    "SFSORT",
-    "ReID",
-    "track",
-    "evaluate",
-    "create_tracker",
-    "get_tracker_config",
-    "gsi",
-)
+__all__ = ("__version__",)

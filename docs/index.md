@@ -34,7 +34,7 @@
         Use the high-level Python API:
 
         ```python
-        from boxmot import Boxmot
+        from boxmot.api import Boxmot
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
         run = boxmot.track(source="video.mp4", save=True)
@@ -44,7 +44,7 @@
         print(metrics.summary)
         ```
 
-The canonical public API lives in `boxmot/api.py` and is re-exported from `boxmot`. Shared CLI and Python defaults come from `boxmot/configs/modes.yaml`, so detector, ReID, tracker, and runtime defaults stay aligned across both entry points.
+The canonical public API lives in `boxmot.api`. The package root stays minimal, while shared CLI and Python defaults still come from `boxmot/configs/modes.yaml` so detector, ReID, tracker, and runtime defaults stay aligned across both entry points.
 
 Next steps:
 

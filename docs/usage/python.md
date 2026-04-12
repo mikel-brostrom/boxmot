@@ -1,13 +1,13 @@
 # Python
 
-The public Python API is re-exported from `boxmot`, so most user code should import directly from the package root.
+Use explicit public modules for Python integration: `boxmot.api` for workflows and result types, `boxmot.reid` for ReID, `boxmot.trackers` for tracker classes, and `boxmot.trackers.tracker_zoo` for tracker factory helpers. The package root stays minimal.
 
 ## High-level facade
 
 Use `Boxmot` when you want the Python equivalent of the CLI with minimal boilerplate:
 
 ```python
-from boxmot import Boxmot
+from boxmot.api import Boxmot
 
 boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 run = boxmot.track(source="video.mp4", save=True)
@@ -21,7 +21,9 @@ The same facade also exposes `val(...)`, `tune(...)`, and `export(...)`.
 If you need more control, compose the detector, ReID runtime, and tracker explicitly:
 
 ```python
-from boxmot import ReID, StrongSort, track
+from boxmot.api import track
+from boxmot.reid import ReID
+from boxmot.trackers import StrongSort
 from boxmot.detectors import Detector
 
 detector = Detector("yolov8n.pt", device="cpu")

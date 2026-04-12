@@ -3,12 +3,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from boxmot import (
+from boxmot.trackers import (
     DeepOcSort,
     OcSort,
     StrongSort,
-    create_tracker,
-    get_tracker_config,
 )
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
@@ -20,6 +18,7 @@ from boxmot.trackers.botsort.botsort_track import STrack as BotSortTrack
 from boxmot.trackers.bytetrack.bytetrack import ByteTrack, STrack as ByteTrackTrack
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.sfsort.sfsort import SFSORT
+from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
 from boxmot.utils import WEIGHTS
 from boxmot.utils.matching import iou_distance
 from tests.test_config import (
