@@ -40,17 +40,11 @@ Bare OpenAI model names such as `gpt-5.4` are normalized to `openai/gpt-5.4`, bu
 
 ## Credential setup
 
-For standard OpenAI-compatible usage:
+Set the provider API key in the matching environment variable, for example:
 
 ```bash
 export OPENAI_API_KEY=...
-```
-
-For Azure OpenAI or Azure AI Foundry project routing, set the base URL to the `/openai/v1` root and let LiteLLM append `/responses` itself:
-
-```bash
-export OPENAI_BASE_URL="https://<resource>.services.ai.azure.com/api/projects/<project>/openai/v1"
-export OPENAI_API_KEY=...
+export ANTHROPIC_API_KEY=...
 ```
 
 ## Evaluation budget and timeout

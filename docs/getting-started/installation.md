@@ -43,8 +43,8 @@ That installs GEPA and the additional dependencies used by the code-evolution lo
         ```python
         from boxmot import Boxmot
 
-        model = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="bytetrack")
-        print(model)
+        boxmot = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="bytetrack")
+        print(boxmot)
         ```
 
 ## Next steps

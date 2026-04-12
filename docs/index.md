@@ -36,11 +36,11 @@
         ```python
         from boxmot import Boxmot
 
-        model = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-        run = model.track(source="video.mp4", save=True)
+        boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
+        run = boxmot.track(source="video.mp4", save=True)
         print(run.summary)
 
-        metrics = model.val(benchmark="mot17-mini")
+        metrics = boxmot.val(benchmark="mot17-mini")
         print(metrics.summary)
         ```
 

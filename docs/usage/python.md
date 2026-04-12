@@ -9,8 +9,8 @@ Use `Boxmot` when you want the Python equivalent of the CLI with minimal boilerp
 ```python
 from boxmot import Boxmot
 
-model = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-run = model.track(source="video.mp4", save=True)
+boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
+run = boxmot.track(source="video.mp4", save=True)
 print(run.summary)
 ```
 

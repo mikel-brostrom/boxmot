@@ -163,13 +163,13 @@ Use `Boxmot` when you want the Python equivalent of the CLI with minimal boilerp
 ```python
 from boxmot import Boxmot
 
-model = Boxmot(
+boxmot = Boxmot(
   detector="yolov8n",
   reid="lmbn_n_duke",
   tracker="boosttrack",
 )
 
-run = model.track(
+run = boxmot.track(
   source="video.mp4",
   save=True,
   save_txt=True,
@@ -180,31 +180,31 @@ print(run.text_path)
 print(run.summary)
 print(run.timings)
 
-metrics = model.val(benchmark="mot17-mini")
+metrics = boxmot.val(benchmark="mot17-mini")
 print(metrics.summary)
 
-tuned = model.tune(benchmark="mot17-mini", n_trials=5)
+tuned = boxmot.tune(benchmark="mot17-mini", n_trials=5)
 print(tuned.best_config)
 print(tuned.best_yaml)
 
-exported = model.export(include=("onnx",))
+exported = boxmot.export(include=("onnx",))
 print(exported.files)
 ```
 
 What you get:
 
-- `model.track(...)` runs detector + optional ReID + tracker and returns a `TrackRunResult`
-- `model.val(...)` runs the benchmark validation pipeline and returns a `ValidationResult`
-- `model.tune(...)` evaluates tracker configs and writes the best one to `best.yaml`
-- `model.export(...)` exports the configured ReID model to deployment formats
+- `boxmot.track(...)` runs detector + optional ReID + tracker and returns a `TrackRunResult`
+- `boxmot.val(...)` runs the benchmark validation pipeline and returns a `ValidationResult`
+- `boxmot.tune(...)` evaluates tracker configs and writes the best one to `best.yaml`
+- `boxmot.export(...)` exports the configured ReID model to deployment formats
 
 `TrackRunResult.results` is a lazy `Results` object, so you can also iterate frame by frame, save MOT text output, render frames, or inspect summaries:
 
 ```python
 from boxmot import Boxmot
 
-model = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
-run = model.track(source="video.mp4")
+boxmot = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
+run = boxmot.track(source="video.mp4")
 
 for frame_result in run:
   print(frame_result.frame_idx, frame_result.num_tracks)
@@ -437,10 +437,10 @@ boxmot tune --benchmark mot17-ablation --detector yolo11s_obb --reid lmbn_n_duke
 python - <<'PY'
 from boxmot import Boxmot
 
-model = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-track_results = model.track(source="video.mp4", save=True, save_txt=True)
-metrics = model.val(benchmark="mot17-mini")
-export_results = model.export(include=("onnx",))
+boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
+track_results = boxmot.track(source="video.mp4", save=True, save_txt=True)
+metrics = boxmot.val(benchmark="mot17-mini")
+export_results = boxmot.export(include=("onnx",))
 print(track_results.text_path, metrics.summary, export_results.files)
 PY
 ```

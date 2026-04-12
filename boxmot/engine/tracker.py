@@ -222,14 +222,14 @@ class TrackingSession:
 		return predictor.trackers
 
 	def run(self):
-		model = Boxmot(
+		boxmot = Boxmot(
 			detector=_primary_model_ref(getattr(self.args, "detector", None)),
 			reid=_primary_model_ref(getattr(self.args, "reid", None)),
 			tracker=getattr(self.args, "tracker", get_mode_default("track", "tracker")),
 			classes=getattr(self.args, "classes", None),
 			project=getattr(self.args, "project", get_mode_default("track", "project")),
 		)
-		result = model.track(
+		result = boxmot.track(
 			source=getattr(self.args, "source", get_mode_default("track", "source")),
 			imgsz=getattr(self.args, "imgsz", None),
 			conf=getattr(self.args, "conf", None),

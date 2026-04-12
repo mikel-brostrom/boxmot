@@ -27,8 +27,8 @@ Use `export` to convert ReID models to deployment formats such as ONNX and Tenso
         ```python
         from boxmot import Boxmot
 
-        model = Boxmot(reid="osnet_x0_25_msmt17")
-        exported = model.export(include=("onnx", "engine"), dynamic=True)
+        boxmot = Boxmot(reid="osnet_x0_25_msmt17")
+        exported = boxmot.export(include=("onnx", "engine"), dynamic=True)
         print(exported.files)
         ```
 

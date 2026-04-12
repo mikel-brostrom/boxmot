@@ -22,8 +22,8 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
         ```python
         from boxmot import Boxmot
 
-        model = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
-        run = model.track(source="video.mp4", save=True)
+        boxmot = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
+        run = boxmot.track(source="video.mp4", save=True)
         print(run.summary)
         ```
 
@@ -66,8 +66,8 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
         ```python
         from boxmot import Boxmot
 
-        model = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
-        saved = model.track(source="video.mp4", save=True, save_txt=True)
+        boxmot = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
+        saved = boxmot.track(source="video.mp4", save=True, save_txt=True)
         print(saved.video_path)
         print(saved.text_path)
 

@@ -17,8 +17,8 @@ Use `tune` to search tracker hyperparameters against one or more objective metri
         ```python
         from boxmot import Boxmot
 
-        model = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="ocsort")
-        tuned = model.tune(benchmark="mot17-ablation", n_trials=10)
+        boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="ocsort")
+        tuned = boxmot.tune(benchmark="mot17-ablation", n_trials=10)
         print(tuned.best_yaml)
         ```
 
@@ -52,8 +52,8 @@ Tracker search spaces come from the selected tracker YAML in `boxmot/configs/tra
         ```python
         from boxmot import Boxmot
 
-        model = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="bytetrack")
-        tuned = model.tune(
+        boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="bytetrack")
+        tuned = boxmot.tune(
             benchmark="mot17-ablation",
             n_trials=10,
             maximize=("HOTA",),
