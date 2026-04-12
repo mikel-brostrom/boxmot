@@ -766,6 +766,48 @@ def test_tune_result_formats_best_report():
     assert "COMBINED" in report
 
 
+def test_tune_results_expose_validation_like_accessors():
+    metrics = api_module.ValidationResult(
+        benchmark="mot17-ablation",
+        raw={"all": {"HOTA": 69.445}},
+        summary_label="all",
+        summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
+        timings={"frames": 10},
+        exp_dir=Path("runs/eval"),
+        args=SimpleNamespace(device="cpu"),
+    )
+    trial = api_module.TuneTrialResult(
+        index=2,
+        config={"track_buffer": 40},
+        metrics=metrics,
+        score=(69.445, 78.243, 81.937),
+    )
+    tune = api_module.TuneResult(
+        benchmark="mot17-ablation",
+        tracker="bytetrack",
+        trials=[trial],
+        best=trial,
+        best_config={"track_buffer": 40},
+        best_yaml=Path("best.yaml"),
+    )
+
+    assert trial.summary == metrics.summary
+    assert trial.raw == metrics.raw
+    assert trial.timings == metrics.timings
+    assert trial.exp_dir == metrics.exp_dir
+    assert "TuneTrialResult(index=2" in str(trial)
+    assert trial.to_dict()["metrics"]["summary"] == metrics.summary
+
+    assert tune.summary == metrics.summary
+    assert tune.raw == metrics.raw
+    assert tune.timings == metrics.timings
+    assert tune.exp_dir == metrics.exp_dir
+    assert tune.format_report() == tune.format_best_report()
+    assert "TuneResult(benchmark='mot17-ablation'" in str(tune)
+    assert tune.to_dict()["summary"] == metrics.summary
+    assert tune.to_dict(include_trials=True)["trials"][0]["metrics"]["summary"] == metrics.summary
+
+
 def test_validation_result_print_report_matches_cli_style(monkeypatch):
     logs = []
     complete_calls = []
