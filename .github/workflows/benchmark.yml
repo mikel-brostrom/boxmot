@@ -191,13 +191,10 @@ jobs:
 
           mv temp_readme.md "$README_FILE"
 
-      - name: Sync docs benchmark table
-        run: cp README.md docs/index.md
-
       - name: Check for changes in benchmark docs
         id: check_changes
         run: |
-          if git diff --quiet README.md docs/index.md; then
+          if git diff --quiet README.md; then
             echo "changed=false" >> $GITHUB_OUTPUT
           else
             BRANCH_NAME="update-tracker-results-$(date +%Y%m%d%H%M%S)"
@@ -211,9 +208,8 @@ jobs:
         with:
           add-paths: |
             README.md
-            docs/index.md
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ steps.check_changes.outputs.branch_name }}
           commit-message: "docs: update benchmark results"
           title: "docs: update benchmark results"
-          body: "This PR updates the benchmark tables in the README and docs index."
+          body: "This PR updates the benchmark tables in the README."
