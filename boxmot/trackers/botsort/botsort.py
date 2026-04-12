@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -19,47 +20,43 @@ from boxmot.utils.matching import (embedding_distance, fuse_score,
 
 
 class BotSort(BaseTracker):
-    supports_obb = True
+    """Initialize the BotSort tracker.
 
-    """
-    Initialize the BotSort tracker with various parameters.
+    Args:
+        reid_weights (Path): Path to the ReID model weights.
+        device (torch.device): Device used for ReID inference.
+        half (bool): Whether to use half precision for ReID inference.
+        track_high_thresh (float): Confidence threshold for the first
+            association pass.
+        track_low_thresh (float): Lower confidence bound for candidate
+            detections.
+        new_track_thresh (float): Threshold required to initialize a new track.
+        track_buffer (int): Number of frames to keep unmatched tracks alive.
+        match_thresh (float): Matching threshold used during association.
+        proximity_thresh (float): IoU gate used before appearance matching.
+        appearance_thresh (float): Maximum embedding distance accepted for ReID
+            matching.
+        cmc_method (str): Camera-motion compensation method.
+        frame_rate (int): Frame rate used to scale the internal track buffer.
+        fuse_first_associate (bool): Whether to fuse motion and appearance in
+            the first association step.
+        with_reid (bool): Whether to enable appearance features.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
+            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
+            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
+            and ``is_obb``.
 
-    Parameters:
-    - reid_weights (Path): Path to the re-identification model weights.
-    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
-    - half (bool): Whether to use half-precision (fp16) for faster inference.
-    - det_thresh (float): Detection threshold for considering detections.
-    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
-    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
-    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
-    - per_class (bool): Enables class-separated tracking.
-    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
-    - asso_func (str): Algorithm name used for data association between detections and tracks.
-    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
-    BotSort-specific parameters:
-    - track_high_thresh (float): Detection confidence threshold for first association.
-    - track_low_thresh (float): Detection confidence threshold for ignoring detections.
-    - new_track_thresh (float): Threshold for creating a new track.
-    - track_buffer (int): Frames to keep a track alive after last detection.
-    - match_thresh (float): Matching threshold for data association.
-    - proximity_thresh (float): IoU threshold for first-round association.
-    - appearance_thresh (float): Appearance embedding distance threshold for ReID.
-    - cmc_method (str): Method for correcting camera motion, e.g., "sof" (simple optical flow).
-    - frame_rate (int): Video frame rate, used to scale the track buffer.
-    - fuse_first_associate (bool): Fuse appearance and motion in the first association step.
-    - with_reid (bool): Use ReID features for association.
-    
     Attributes:
-    - frame_count (int): Counter for the frames processed.
-    - active_tracks (list): List to hold active tracks.
-    - lost_stracks (list[STrack]): List of lost tracks.
-    - removed_stracks (list[STrack]): List of removed tracks.
-    - buffer_size (int): Size of the track buffer based on frame rate.
-    - max_time_lost (int): Maximum time a track can be lost.
-    - kalman_filter (KalmanFilterXYWH): Kalman filter for motion prediction.
+        lost_stracks (list[STrack]): Tracks kept in the lost state.
+        removed_stracks (list[STrack]): Tracks removed from the tracker state.
+        buffer_size (int): Track buffer size after frame-rate scaling.
+        max_time_lost (int): Maximum number of frames a track may stay lost.
+        kalman_filter (KalmanFilterXYWH): Motion model used for prediction.
+        model: ReID model used for appearance extraction when enabled.
+        cmc: Camera-motion compensation method.
     """
+
+    supports_obb = True
 
     def __init__(
         self,
@@ -78,7 +75,7 @@ class BotSort(BaseTracker):
         frame_rate: int = 30,
         fuse_first_associate: bool = False,
         with_reid: bool = True,
-        **kwargs  # BaseTracker parameters
+        **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}

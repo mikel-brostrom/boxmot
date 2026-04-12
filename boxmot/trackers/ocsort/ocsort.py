@@ -4,6 +4,7 @@
 This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
 from collections import deque
+from typing import Any
 
 import cv2
 import numpy as np
@@ -307,35 +308,28 @@ class KalmanBoxTracker(object):
 
 
 class OcSort(BaseTracker):
-    supports_obb = True
+    """Initialize the OcSort tracker.
 
-    """
-    Initialize the OcSort tracker with various parameters.
+    Args:
+        min_conf (float): Minimum confidence threshold used in the second-stage
+            association pass.
+        delta_t (int): Time window used for motion estimation.
+        inertia (float): Weight applied to the velocity-direction term during
+            matching.
+        use_byte (bool): Whether to enable ByteTrack-style second association.
+        Q_xy_scaling (float): Process-noise scaling for position coordinates.
+        Q_s_scaling (float): Process-noise scaling for scale coordinates.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
+            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
+            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
+            and ``is_obb``.
 
-    Parameters:
-    - det_thresh (float): Detection threshold for considering detections.
-    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
-    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
-    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
-    - per_class (bool): Enables class-separated tracking.
-    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
-    - asso_func (str): Algorithm name used for data association between detections and tracks.
-    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
-    OcSort-specific parameters:
-    - min_conf (float): Minimum confidence threshold for detections to be considered in second-stage association.
-    - delta_t (int): Time window size for velocity estimation in Kalman Filter.
-    - inertia (float): Motion model weight for velocity direction in matching cost.
-    - use_byte (bool): Whether to use BYTE association in the second association step.
-    - Q_xy_scaling (float): Scaling factor for process noise in position coordinates.
-    - Q_s_scaling (float): Scaling factor for process noise in scale coordinates.
-    
     Attributes:
-    - frame_count (int): Counter for the frames processed.
-    - active_tracks (list): List to hold active tracks.
-    - trackers (list): List of Kalman filter trackers.
+        frame_count (int): Number of processed frames.
+        active_tracks (list): Currently active tracks.
     """
+
+    supports_obb = True
 
     def __init__(
         self,
@@ -346,7 +340,7 @@ class OcSort(BaseTracker):
         use_byte: bool = False,
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001,
-        **kwargs  # BaseTracker parameters
+        **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}

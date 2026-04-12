@@ -1,7 +1,9 @@
 from collections import deque
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, List, Optional
 
 import numpy as np
+import torch
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xyhr import KalmanFilterXYHR
@@ -118,52 +120,45 @@ class KalmanBoxTracker:
 
 
 class BoostTrack(BaseTracker):
-    """
-    Initialize the BoostTrack tracker with various parameters.
+    """Initialize the BoostTrack tracker.
 
-    Parameters:
-    - reid_weights (Path): Path to the re-identification model weights.
-    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
-    - half (bool): Whether to use half-precision (fp16) for faster inference.
-    - det_thresh (float): Detection threshold for considering detections.
-    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
-    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
-    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
-    - per_class (bool): Enables class-separated tracking.
-    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
-    - asso_func (str): Algorithm name used for data association between detections and tracks.
-    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
-    BoostTrack-specific parameters:
-    - use_ecc (bool): Whether to use ECC for camera motion compensation.
-    - min_box_area (int): Minimum box area for detections.
-    - aspect_ratio_thresh (float): Aspect ratio threshold for detections.
-    - cmc_method (str): Method for camera motion compensation.
-    - lambda_iou (float): Weight for IoU-based association.
-    - lambda_mhd (float): Weight for Mahalanobis distance-based association.
-    - lambda_shape (float): Weight for shape-based association.
-    - use_dlo_boost (bool): Whether to use DLO boost for confidence adjustment.
-    - use_duo_boost (bool): Whether to use DUO boost for confidence adjustment.
-    - dlo_boost_coef (float): Coefficient for DLO boost.
-    - s_sim_corr (bool): Whether to use shape similarity correction.
-    - use_rich_s (bool): Whether to use rich shape features.
-    - use_sb (bool): Whether to use soft-BIoU.
-    - use_vt (bool): Whether to use visual tracking.
-    - with_reid (bool): Whether to use re-identification.
-    
+    Args:
+        reid_weights: Path to the ReID model weights.
+        device: Device used for ReID inference.
+        half (bool): Whether to use half precision for ReID inference.
+        use_ecc (bool): Whether to enable camera-motion compensation.
+        min_box_area (int): Minimum detection area.
+        aspect_ratio_thresh (float): Maximum accepted aspect ratio.
+        cmc_method (str): Camera-motion compensation method.
+        lambda_iou (float): Weight applied to IoU association.
+        lambda_mhd (float): Weight applied to Mahalanobis association.
+        lambda_shape (float): Weight applied to shape similarity.
+        use_dlo_boost (bool): Whether to enable DLO boosting.
+        use_duo_boost (bool): Whether to enable DUO boosting.
+        dlo_boost_coef (float): Coefficient used by DLO boosting.
+        s_sim_corr (bool): Whether to enable shape-similarity correction.
+        use_rich_s (bool): Whether to enable rich shape features.
+        use_sb (bool): Whether to enable soft-BIoU.
+        use_vt (bool): Whether to enable visual tracking cues.
+        with_reid (bool): Whether to enable ReID features.
+        reid: Optional prebuilt ReID runtime.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
+            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
+            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
+            and ``is_obb``.
+
     Attributes:
-    - frame_count (int): Counter for the frames processed.
-    - active_tracks (list): List to hold active tracks.
-    - trackers (List[KalmanBoxTracker]): List of active Kalman filter trackers.
-    - cmc: Camera motion compensation object.
-    - reid_model: Re-identification model instance (if with_reid=True).
+        frame_count (int): Number of processed frames.
+        active_tracks (list): Currently active tracks.
+        trackers (list[KalmanBoxTracker]): Internal Kalman trackers.
+        cmc: Camera-motion compensation method when enabled.
+        reid_model: ReID model used for appearance extraction when enabled.
     """
 
     def __init__(
         self,
-        reid_weights=None,
-        device='cpu',
+        reid_weights: Path | str | None = None,
+        device: torch.device | str = 'cpu',
         half: bool = False,
         # BoostTrack-specific parameters
         use_ecc: bool = True,
@@ -181,8 +176,8 @@ class BoostTrack(BaseTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         with_reid: bool = False,
-        reid=None,
-        **kwargs  # BaseTracker parameters
+        reid: ReID | None = None,
+        **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}

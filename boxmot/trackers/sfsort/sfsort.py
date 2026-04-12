@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 import cv2
 import numpy as np
@@ -155,41 +155,43 @@ class Track:
 
 
 class SFSORT(BaseTracker):
+    """Initialize the SFSORT tracker.
+
+    Args:
+        high_th (float | None): High-confidence threshold for detections.
+        match_th_first (float | None): Match threshold for the first
+            association pass.
+        new_track_th (float | None): Confidence threshold for initializing new
+            tracks.
+        low_th (float | None): Low-confidence threshold for the second
+            association pass.
+        match_th_second (float | None): Match threshold for the second
+            association pass.
+        dynamic_tuning (bool): Whether to enable density-based threshold
+            tuning.
+        cth (float | None): Confidence threshold used by dynamic tuning.
+        high_th_m (float | None): Dynamic adjustment scale for ``high_th``.
+        new_track_th_m (float | None): Dynamic adjustment scale for
+            ``new_track_th``.
+        match_th_first_m (float | None): Dynamic adjustment scale for
+            ``match_th_first``.
+        obb_theta_damping (float): Damping factor applied to OBB angle updates.
+        marginal_timeout (int | None): Timeout for marginally lost tracks.
+        central_timeout (int | None): Timeout for centrally lost tracks.
+        frame_width (int | None): Optional frame width for margin computation.
+        frame_height (int | None): Optional frame height for margin
+            computation.
+        horizontal_margin (int | None): Horizontal margin for central-loss
+            detection.
+        vertical_margin (int | None): Vertical margin for central-loss
+            detection.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
+            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
+            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
+            and ``is_obb``.
+    """
+
     supports_obb = True
-
-    """
-    SFSORT tracker (v4.2) adapted for BoxMOT.
-
-    Parameters:
-    - det_thresh (float): Detection threshold for considering detections.
-    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-    - max_obs (int): Maximum number of historical observations stored for each track.
-    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
-    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
-    - per_class (bool): Enables class-separated tracking.
-    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
-    - asso_func (str): Algorithm name used for data association between detections and tracks.
-    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-
-    SFSORT-specific parameters:
-    - high_th (float): High confidence threshold for detections.
-    - match_th_first (float): Match threshold for the first association step.
-    - new_track_th (float): Confidence threshold for initializing new tracks.
-    - low_th (float): Low confidence threshold for second association step.
-    - match_th_second (float): Match threshold for the second association step.
-    - dynamic_tuning (bool): Enable dynamic threshold tuning based on detection density.
-    - cth (float): Confidence threshold for counting detections (dynamic tuning).
-    - high_th_m (float): Dynamic adjustment scale for high_th.
-    - new_track_th_m (float): Dynamic adjustment scale for new_track_th.
-    - match_th_first_m (float): Dynamic adjustment scale for match_th_first.
-    - obb_theta_damping (float): Damping factor for OBB angular-velocity updates (0=no history, 1=full history).
-    - marginal_timeout (int): Timeout for marginally lost tracks.
-    - central_timeout (int): Timeout for centrally lost tracks.
-    - frame_width (int | None): Optional frame width for margin computation.
-    - frame_height (int | None): Optional frame height for margin computation.
-    - horizontal_margin (int | None): Horizontal margin for central loss definition.
-    - vertical_margin (int | None): Vertical margin for central loss definition.
-    """
 
     def __init__(
         self,
@@ -210,7 +212,7 @@ class SFSORT(BaseTracker):
         frame_height: int | None = None,
         horizontal_margin: int | None = None,
         vertical_margin: int | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         init_args = {k: v for k, v in locals().items() if k not in ("self", "kwargs")}
         det_thresh = 0.6 if high_th is None else float(high_th)

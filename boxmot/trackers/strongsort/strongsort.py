@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from torch import device
@@ -16,36 +17,31 @@ from boxmot.utils.ops import xyxy2tlwh
 
 
 class StrongSort(BaseTracker):
-    """
-    Initialize the StrongSort tracker with various parameters.
+    """Initialize the StrongSort tracker.
 
-    Parameters:
-    - reid_weights (Path): Path to the re-identification model weights.
-    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
-    - half (bool): Whether to use half-precision (fp16) for faster inference.
-    - det_thresh (float): Detection threshold for considering detections.
-    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
-    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
-    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
-    - per_class (bool): Enables class-separated tracking.
-    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
-    - asso_func (str): Algorithm name used for data association between detections and tracks.
-    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
-    StrongSort-specific parameters:
-    - min_conf (float): Minimum confidence threshold for detections.
-    - max_cos_dist (float): Maximum cosine distance for ReID feature matching in Nearest Neighbor Distance Metric.
-    - max_iou_dist (float): Maximum IoU distance for data association.
-    - n_init (int): Number of consecutive frames required to confirm a track.
-    - nn_budget (int): Maximum size of the feature library for Nearest Neighbor Distance Metric.
-    - mc_lambda (float): Weight for motion consistency in the track state estimation.
-    - ema_alpha (float): Alpha value for exponential moving average (EMA) update of appearance features.
-    
+    Args:
+        reid_weights (Path): Path to the ReID model weights.
+        device (torch.device): Device used for ReID inference.
+        half (bool): Whether to use half precision for ReID inference.
+        min_conf (float): Minimum confidence threshold for detections.
+        max_cos_dist (float): Maximum cosine distance accepted by the
+            nearest-neighbor metric.
+        max_iou_dist (float): Maximum IoU distance used during association.
+        n_init (int): Number of consecutive hits required to confirm a track.
+        nn_budget (int): Maximum number of appearance features stored per
+            track.
+        mc_lambda (float): Motion-consistency weight used by StrongSORT.
+        ema_alpha (float): Exponential moving average coefficient for
+            appearance features.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
+            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
+            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
+            and ``is_obb``.
+
     Attributes:
-    - model: ReID model for appearance feature extraction.
-    - tracker: StrongSort tracker instance.
-    - cmc: Camera motion compensation object.
+        model: ReID model used for appearance extraction.
+        tracker (Tracker): Internal StrongSORT tracker instance.
+        cmc: Camera-motion compensation method.
     """
 
     def __init__(
@@ -61,7 +57,7 @@ class StrongSort(BaseTracker):
         nn_budget: int = 100,
         mc_lambda: float = 0.98,
         ema_alpha: float = 0.9,
-        **kwargs  # BaseTracker parameters
+        **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}

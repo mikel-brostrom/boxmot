@@ -121,7 +121,7 @@ test = ["pytest>=8.0.2,<10.0.0", "pytest-cov>=6.0.0,<7.0.0"]
 docs = [
   "mkdocs>=1.6.1", "mkdocs-click>=0.9.0",
   "mkdocs-include-markdown-plugin>=7.1.6",
-  "mkdocs-material>=9.6.15",
+  "mkdocs-material==9.6.15",
   "mkdocstrings>=0.30.0", "mkdocstrings-python>=1.16.12",
 ]
 
@@ -140,7 +140,7 @@ evolve = [
   "plotly==5.19.0",
   "bayesian-optimization==2.0.4",
   "optuna==3.5.0",
-  "pydantic==2.7.2"
+  "pydantic>=2.12.5,<3.0.0"
 ]
 
 research = [
