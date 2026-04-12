@@ -1,0 +1,5 @@
+/* The logo already contains the product name, so hide the duplicated
+   site title that Material renders beside it in the header. */
+.md-header__title .md-header__topic:first-child {
+  display: none;
+}

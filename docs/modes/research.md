@@ -22,11 +22,11 @@ Use `research` when you want GEPA to propose code changes to tracker source file
 
         Use the CLI for the GEPA optimization loop. Use the Python API for surrounding tasks such as tracking, validation, tuning, and exporting.
 
-## Install the research extra
+## Prerequisites
 
-```bash
-uv sync --extra research
-```
+See [Mode-specific extras](../getting-started/installation.md#mode-specific-extras).
+
+`research` needs the `research` extra for GEPA, plus whatever detector backend the selected benchmark uses.
 
 ## Proposal models
 

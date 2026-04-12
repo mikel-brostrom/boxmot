@@ -7,14 +7,16 @@ BoxMOT has two main usage styles:
 
 ## Mode Guide
 
-| Mode | Use it when | Main command | Guide |
-| --- | --- | --- | --- |
-| Track | You want detector + tracker output on a live or saved source | `boxmot track` | [Track](../modes/track.md) |
-| Generate | You want reusable detections and embeddings | `boxmot generate` | [Generate](../modes/generate.md) |
-| Evaluate | You want TrackEval metrics on a benchmark | `boxmot eval` | [Evaluate](../modes/eval.md) |
-| Tune | You want to search tracker hyperparameters | `boxmot tune` | [Tune](../modes/tune.md) |
-| Research | You want GEPA to propose tracker code changes | `boxmot research` | [Research](../modes/research.md) |
-| Export | You want to convert a ReID model to deployment formats | `boxmot export` | [Export](../modes/export.md) |
+| Mode | Use it when | Main command | Install notes | Guide |
+| --- | --- | --- | --- | --- |
+| Track | You want detector + tracker output on a live or saved source | `boxmot track` | Core install is enough if detector backends are already available. Install `yolo` upfront for common YOLO workflows. | [Track](../modes/track.md) |
+| Generate | You want reusable detections and embeddings | `boxmot generate` | Same detector-backend requirement as `track`. `yolo` is the common extra to preinstall. | [Generate](../modes/generate.md) |
+| Evaluate | You want TrackEval metrics on a benchmark | `boxmot eval` | Usually the same detector-backend setup as `generate`, because benchmark evaluation reuses generated detections and embeddings. | [Evaluate](../modes/eval.md) |
+| Tune | You want to search tracker hyperparameters | `boxmot tune` | Add the `evolve` extra. | [Tune](../modes/tune.md) |
+| Research | You want GEPA to propose tracker code changes | `boxmot research` | Add the `research` extra. | [Research](../modes/research.md) |
+| Export | You want to convert a ReID model to deployment formats | `boxmot export` | Add format-specific extras such as `onnx`, `openvino`, or `tflite`. | [Export](../modes/export.md) |
+
+See [Installation](installation.md#mode-specific-extras) for exact commands.
 
 ## Two common paths
 

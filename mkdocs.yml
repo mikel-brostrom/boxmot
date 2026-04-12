@@ -9,6 +9,9 @@ theme:
     - navigation.expand
     - content.tabs.link
 
+extra_css:
+  - stylesheets/extra.css
+
 markdown_extensions:
   - admonition
   - mkdocs-click
