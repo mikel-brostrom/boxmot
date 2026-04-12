@@ -47,35 +47,6 @@ boxmot --help
 
 For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino`, and `tflite`, see the [installation guide](docs/getting-started/installation.md).
 
-## Minimal Usage
-
-CLI:
-
-```bash
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save
-```
-
-Python:
-
-```python
-from boxmot.api import Boxmot
-
-run = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort").track(
-    source="video.mp4",
-    save=True,
-)
-print(run.summary)
-```
-
-For `generate`, `eval`, `tune`, `research`, `export`, tracker-only loops, and detailed CLI or API usage, use the docs:
-
-- [Choose a Mode](docs/getting-started/workflows.md)
-- [Modes Overview](docs/modes/index.md)
-- [CLI Usage](docs/usage/cli.md)
-- [Python Usage](docs/usage/python.md)
-- [Configuration](docs/config/index.md)
-- [Concepts](docs/concepts/index.md)
-
 ## Benchmark Results (MOT17 ablation split)
 
 <div align="center" markdown="1">
@@ -102,15 +73,25 @@ Reproduction details and evaluation semantics live in:
 - [Evaluation and Postprocessing](docs/guides/evaluation.md)
 - [Benchmark Workflows](docs/guides/benchmarks.md)
 
-## Docs
+## Minimal Usage
 
-- [Quickstart](docs/index.md)
-- [Getting Started](docs/getting-started/installation.md)
-- [Modes](docs/modes/index.md)
-- [Trackers](docs/trackers/index.md)
-- [Configuration](docs/config/index.md)
-- [API Reference](docs/python/index.md)
-- [Contributing Guide](docs/contributing/index.md)
+CLI:
+
+```bash
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save
+```
+
+Python:
+
+```python
+from boxmot.api import Boxmot
+
+run = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort").track(
+    source="video.mp4",
+    save=True,
+)
+print(run.summary)
+```
 
 ## Contributing
 

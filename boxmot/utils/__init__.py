@@ -40,7 +40,17 @@ def _is_main_process(record):
     # Works correctly even with enqueue=True
     return record["process"].name == "MainProcess"
 
-def configure_logging(main_only: bool = True):
+def _is_main_process_main_thread(record):
+    return _is_main_process(record) and record["thread"].name == threading.main_thread().name
+
+
+def configure_logging(main_only: bool = True, main_thread_only: bool = False):
+    log_filter = None
+    if main_thread_only:
+        log_filter = _is_main_process_main_thread
+    elif main_only:
+        log_filter = _is_main_process
+
     logger.remove()
     logger.add(
         sys.stderr,
@@ -49,7 +59,7 @@ def configure_logging(main_only: bool = True):
         backtrace=True,
         diagnose=True,
         enqueue=True,  # safe with ProcessPool / spawn
-        filter=_is_main_process if main_only else None,
+        filter=log_filter,
         format="<level>{level: <8}</level> | <level>{message}</level>",
     )
     return logger

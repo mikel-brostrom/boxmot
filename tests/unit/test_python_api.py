@@ -44,6 +44,52 @@ def test_boxmot_eval_namespace_uses_shared_reid_default_when_reid_is_none(tmp_pa
     assert args.reid == [DEFAULT_REID]
 
 
+def test_boxmot_eval_namespace_treats_inherited_defaults_as_non_explicit():
+    model = api_module.Boxmot()
+
+    args = model._base_eval_args("mot17-ablation")
+
+    assert args.detector_explicit is False
+    assert args.reid_explicit is False
+    assert args.tracker_explicit is False
+    assert args.device_explicit is False
+    assert args.half_explicit is False
+    assert args.tracking_backend == "thread"
+
+
+def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
+    model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
+
+    args = model._base_eval_args("mot17-ablation")
+
+    assert args.detector_explicit is True
+    assert args.reid_explicit is True
+    assert args.tracker_explicit is True
+
+
+def test_boxmot_eval_namespace_allows_benchmark_runtime_to_override_inherited_defaults(monkeypatch):
+    evaluator_module = importlib.import_module("boxmot.engine.evaluator")
+    model = api_module.Boxmot()
+    args = model._base_eval_args("mot17-mini")
+
+    monkeypatch.setattr(
+        evaluator_module,
+        "ensure_benchmark_detector_model",
+        lambda _cfg: Path("models/yolox_x_mot17_ablation.pt"),
+    )
+    monkeypatch.setattr(
+        evaluator_module,
+        "ensure_benchmark_reid_model",
+        lambda _cfg: Path("models/lmbn_n_duke.pt"),
+    )
+
+    evaluator_module._configure_benchmark_runtime(args)
+
+    assert args.detector[0].name == "yolox_x_mot17_ablation.pt"
+    assert args.reid[0].name == "lmbn_n_duke.pt"
+    assert args.reid_half is True
+
+
 def test_public_reid_supports_boxes_and_crops(monkeypatch):
     class _FakeModel:
         def __init__(self):

@@ -47,6 +47,14 @@ SUMMARY_DISPLAY_NAMES = {
 }
 
 
+class _DefaultArg:
+    def __repr__(self) -> str:
+        return "DEFAULT"
+
+
+_UNSET = _DefaultArg()
+
+
 @dataclass(**dataclass_slots_kwargs())
 class ValidationResult:
     benchmark: str
@@ -762,15 +770,19 @@ def evaluate(data, detector=None, reid=None, tracker=None, *, metrics: bool = Tr
 class Boxmot:
     def __init__(
         self,
-        detector: Any = BOXMOT_DEFAULTS.shared.detector,
-        reid: Any = BOXMOT_DEFAULTS.shared.reid,
-        tracker: Any = BOXMOT_DEFAULTS.track.tracker,
+        detector: Any = _UNSET,
+        reid: Any = _UNSET,
+        tracker: Any = _UNSET,
         classes: Any = None,
         project: str | Path = BOXMOT_DEFAULTS.track.project,
     ) -> None:
-        self.detector = detector
-        self.reid = reid
-        self.tracker = tracker
+        self._detector_explicit = detector is not _UNSET and detector is not None
+        self._reid_explicit = reid is not _UNSET and reid is not None
+        self._tracker_explicit = tracker is not _UNSET and tracker is not None
+
+        self.detector = BOXMOT_DEFAULTS.shared.detector if detector is _UNSET else detector
+        self.reid = BOXMOT_DEFAULTS.shared.reid if reid is _UNSET else reid
+        self.tracker = BOXMOT_DEFAULTS.track.tracker if tracker is _UNSET else tracker
         self.classes = _normalize_classes(classes)
         self.project = Path(project)
 
@@ -974,8 +986,15 @@ class Boxmot:
                 "per_class": per_class,
                 "target_id": None,
                 "vid_stride": BOXMOT_DEFAULTS.eval.vid_stride,
+                "tracking_backend": "thread",
             },
-            explicit_keys={"detector", "reid", "device", "half", "tracker"},
+            explicit_keys={
+                *({"detector"} if self._detector_explicit else set()),
+                *({"reid"} if self._reid_explicit else set()),
+                *({"tracker"} if self._tracker_explicit else set()),
+                *({"device"} if device != BOXMOT_DEFAULTS.eval.device else set()),
+                *({"half"} if bool(half) != bool(BOXMOT_DEFAULTS.eval.half) else set()),
+            },
         )
         args.reid_device = device
         args.reid_half = bool(half)
