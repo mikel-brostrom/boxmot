@@ -1,6 +1,6 @@
 from collections import deque
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 import numpy as np
 import torch
@@ -157,8 +157,8 @@ class BoostTrack(BaseTracker):
 
     def __init__(
         self,
-        reid_weights: Path | str | None = None,
-        device: torch.device | str = 'cpu',
+        reid_weights: Optional[Union[Path, str]] = None,
+        device: Union[torch.device, str] = 'cpu',
         half: bool = False,
         # BoostTrack-specific parameters
         use_ecc: bool = True,
@@ -176,7 +176,7 @@ class BoostTrack(BaseTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         with_reid: bool = False,
-        reid: ReID | None = None,
+        reid: Optional[ReID] = None,
         **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
