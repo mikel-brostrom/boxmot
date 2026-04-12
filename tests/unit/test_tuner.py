@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import boxmot.engine.tuner as tuner_module
 
 
@@ -85,3 +87,32 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     assert Path(captured["storage_path"]).is_absolute()
     assert Path(captured["storage_path"]) == (tmp_path / "runs" / "ray").resolve()
     assert captured["fit"] is True
+
+
+@pytest.mark.skipif(tuner_module.TrialSaveCallback is None, reason="ray not installed")
+def test_trial_save_callback_accepts_keyword_completion_payload(monkeypatch, tmp_path):
+    written = {}
+
+    monkeypatch.setattr(
+        tuner_module,
+        "_write_trial_yaml",
+        lambda yaml_cfg, config, path: written.update(
+            yaml_cfg=yaml_cfg,
+            config=config,
+            path=path,
+        ),
+    )
+
+    callback = tuner_module.TrialSaveCallback({"search": "space"}, "strongsort")
+    trial = SimpleNamespace(
+        local_path=str(tmp_path),
+        logdir="",
+        trial_id="abc123",
+        config={"max_age": 42},
+    )
+
+    callback.on_trial_complete(iteration=1, trials=[trial], trial=trial)
+
+    assert written["yaml_cfg"] == {"search": "space"}
+    assert written["config"] == {"max_age": 42}
+    assert written["path"] == tmp_path / "strongsort_abc123.yaml"

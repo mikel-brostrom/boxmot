@@ -398,6 +398,21 @@ def _save_all_results(
 try:
     from ray.tune import Callback as _RayCallback
 
+    def _resolve_completed_trial(*args, **info):
+        """Support Ray callback payloads across positional and keyword-based APIs."""
+        trial = info.get("trial")
+        if trial is not None:
+            return trial
+
+        if len(args) >= 3 and getattr(args[2], "trial_id", None) is not None:
+            return args[2]
+
+        for value in reversed(args):
+            if getattr(value, "trial_id", None) is not None:
+                return value
+
+        return None
+
     class TrialSaveCallback(_RayCallback):
         """
         Saves a ready-to-use YAML config (matching the original search-space format
@@ -409,7 +424,10 @@ try:
             self._yaml_cfg = yaml_cfg
             self._tracker_name = tracker_name
 
-        def on_trial_complete(self, _iteration, _trials, trial, **_info):
+        def on_trial_complete(self, *args, **info):
+            trial = _resolve_completed_trial(*args, **info)
+            if trial is None:
+                return
             trial_dir = Path(
                 getattr(trial, "local_path", None) or getattr(trial, "logdir", "")
             )
