@@ -1,7 +1,11 @@
 site_name: "BoxMOT"
+repo_url: https://github.com/mikel-brostrom/boxmot
+repo_name: mikel-brostrom/boxmot
 theme:
   name: material
   logo: logo/logo.png
+  icon:
+    repo: fontawesome/brands/github
   features:
     - navigation.tabs
     - navigation.tabs.sticky
