@@ -1,8 +1,9 @@
-name: Deploy Docs
+name: Docs
 
 on:
   push:
-    branches: [master]
+    branches:
+      - '**'
   workflow_dispatch:
 
 permissions:
@@ -13,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +32,7 @@ jobs:
           uv run mkdocs build --strict
 
       - name: Deploy to GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

@@ -38,10 +38,12 @@ plugins:
         python:
           options:
             docstring_style: google
-            selection:
-              members: "__all__"
-              filters:
-                - "!^update$"
+            members_order:
+              - "__all__"
+              - alphabetical
+            filters:
+              - "!^_[^_]"
+              - "!^update$"
 
 nav:
   - Quickstart: index.md

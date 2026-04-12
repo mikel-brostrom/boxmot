@@ -15,7 +15,7 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot.api import Boxmot
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
         metrics = boxmot.val(benchmark="mot17-ablation")
@@ -40,7 +40,7 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot.api import Boxmot
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
         metrics = boxmot.val(benchmark="mot17-ablation")

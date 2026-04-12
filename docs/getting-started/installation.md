@@ -53,7 +53,7 @@ pip install "boxmot[yolo,evolve,research]"
         Smoke-test the Python API:
 
         ```python
-        from boxmot import Boxmot
+        from boxmot.api import Boxmot
 
         boxmot = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="bytetrack")
         print(boxmot)
