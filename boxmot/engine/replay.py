@@ -29,7 +29,7 @@ __all__ = (
 
 
 def _configure_logging(*, main_thread_only: bool = False):
-    return _base_configure_logging(main_only=main_thread_only)
+    return _base_configure_logging(main_only=True, main_thread_only=main_thread_only)
 
 
 def _worker_init() -> None:
@@ -203,6 +203,12 @@ def _run_tracking_tasks(
     prev_display_lines = 0
     last_progress_message = None
     sequence_names = [task[0] for task in task_args]
+    tracking_backend = str(getattr(args, "tracking_backend", "process")).strip().lower() or "process"
+
+    if tracking_backend not in {"process", "thread"}:
+        raise ValueError(
+            f"Unsupported tracking backend '{tracking_backend}'. Expected 'process' or 'thread'."
+        )
 
     def _log_progress(progress_queue) -> None:
         nonlocal prev_display_lines, last_progress_message
@@ -220,58 +226,75 @@ def _run_tracking_tasks(
         last_progress_message = message
 
     _configure_logging(main_thread_only=True)
-    spawn_context = mp.get_context("spawn")
 
-    manager_context = spawn_context.Manager() if not quiet else nullcontext()
-    with manager_context as manager:
-        progress_queue = None if quiet else manager.Queue()
+    def _run_executor(executor, progress_queue) -> None:
+        nonlocal total_track_time_ms, total_track_frames, done_count
+
+        futures = {executor.submit(process_sequence, *task_arg): task_arg[0] for task_arg in bound_task_args}
+        pending = set(futures)
+
+        while pending:
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=0.3,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+
+            for future in done:
+                seq_name = futures[future]
+                try:
+                    sequence_name, kept_ids, timing_dict = future.result()
+                    seq_frame_nums[sequence_name] = kept_ids
+                    total_track_time_ms += timing_dict.get("track_time_ms", 0.0)
+                    total_track_frames += timing_dict.get("num_frames", 0)
+                    num_frames = int(timing_dict.get("num_frames", 0))
+                    seq_progress[sequence_name] = (num_frames, num_frames)
+                    done_count += 1
+                except Exception:
+                    done_count += 1
+                    LOGGER.exception(f"Error processing {seq_name}")
+
+            if progress_queue is not None:
+                _log_progress(progress_queue)
+
+    if tracking_backend == "process":
+        spawn_context = mp.get_context("spawn")
+        manager_context = spawn_context.Manager() if not quiet else nullcontext()
+
+        with manager_context as manager:
+            progress_queue = None if quiet else manager.Queue()
+            bound_task_args = (
+                task_args
+                if progress_queue is None
+                else [task[:-1] + (progress_queue,) for task in task_args]
+            )
+
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=args.n_threads,
+                initializer=_worker_init,
+                mp_context=spawn_context,
+            ) as executor:
+                _run_executor(executor, progress_queue)
+    else:
+        progress_queue = None if quiet else queue.Queue()
         bound_task_args = (
             task_args
             if progress_queue is None
             else [task[:-1] + (progress_queue,) for task in task_args]
         )
 
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=args.n_threads,
-            initializer=_worker_init,
-            mp_context=spawn_context,
-        ) as executor:
-            futures = {executor.submit(process_sequence, *task_arg): task_arg[0] for task_arg in bound_task_args}
-            pending = set(futures)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.n_threads) as executor:
+            _run_executor(executor, progress_queue)
 
-            while pending:
-                done, pending = concurrent.futures.wait(
-                    pending,
-                    timeout=0.3,
-                    return_when=concurrent.futures.FIRST_COMPLETED,
-                )
-
-                for future in done:
-                    seq_name = futures[future]
-                    try:
-                        sequence_name, kept_ids, timing_dict = future.result()
-                        seq_frame_nums[sequence_name] = kept_ids
-                        total_track_time_ms += timing_dict.get("track_time_ms", 0.0)
-                        total_track_frames += timing_dict.get("num_frames", 0)
-                        num_frames = int(timing_dict.get("num_frames", 0))
-                        seq_progress[sequence_name] = (num_frames, num_frames)
-                        done_count += 1
-                    except Exception:
-                        done_count += 1
-                        LOGGER.exception(f"Error processing {seq_name}")
-
-                if progress_queue is not None:
-                    _log_progress(progress_queue)
-
-        if progress_queue is not None and prev_display_lines > 0:
-            _drain_progress_queue(progress_queue, seq_progress)
-            sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
-            sys.stderr.flush()
-            final_display = _format_seq_progress(sequence_names, seq_progress)
-            final_message = "\n".join(
-                [f"Tracking: {n_seqs}/{n_seqs} sequences done"] + ([final_display] if final_display else [])
-            )
-            LOGGER.opt(colors=True).info(f"<cyan>{final_message}</cyan>")
+    if progress_queue is not None and prev_display_lines > 0:
+        _drain_progress_queue(progress_queue, seq_progress)
+        sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
+        sys.stderr.flush()
+        final_display = _format_seq_progress(sequence_names, seq_progress)
+        final_message = "\n".join(
+            [f"Tracking: {n_seqs}/{n_seqs} sequences done"] + ([final_display] if final_display else [])
+        )
+        LOGGER.opt(colors=True).info(f"<cyan>{final_message}</cyan>")
 
     return seq_frame_nums, total_track_time_ms, total_track_frames
 

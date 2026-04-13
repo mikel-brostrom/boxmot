@@ -964,7 +964,7 @@ def test_run_generate_mot_results_quiet_mode_skips_manager_queue(tmp_path, monke
         def result(self):
             return self._value
 
-    class FakeProcessPoolExecutor:
+    class FakeThreadPoolExecutor:
         def __init__(self, *_args, **kwargs):
             executor_kwargs.update(kwargs)
 
@@ -981,7 +981,7 @@ def test_run_generate_mot_results_quiet_mode_skips_manager_queue(tmp_path, monke
             return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
 
     monkeypatch.setattr(cached_tracking_module.mp, "get_context", lambda method: spawn_context)
-    monkeypatch.setattr(cached_tracking_module.concurrent.futures, "ProcessPoolExecutor", FakeProcessPoolExecutor)
+    monkeypatch.setattr(cached_tracking_module.concurrent.futures, "ThreadPoolExecutor", FakeThreadPoolExecutor)
     monkeypatch.setattr(
         cached_tracking_module.concurrent.futures,
         "wait",
@@ -996,7 +996,6 @@ def test_run_generate_mot_results_quiet_mode_skips_manager_queue(tmp_path, monke
     }
     assert manager_calls == []
     assert queue_types == []
-    assert executor_kwargs["mp_context"] is spawn_context
     assert executor_kwargs["max_workers"] == 2
 
 

@@ -38,10 +38,10 @@
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
         run = boxmot.track(source="video.mp4", save=True)
-        print(run.summary)
+        print(run)
 
         metrics = boxmot.val(benchmark="mot17-mini")
-        print(metrics.summary)
+        print(metrics)
         ```
 
 The canonical public API lives in `boxmot.api`. The package root stays minimal, while shared CLI and Python defaults still come from `boxmot/configs/modes.yaml` so detector, ReID, tracker, and runtime defaults stay aligned across both entry points.

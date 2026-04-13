@@ -19,7 +19,7 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
         metrics = boxmot.val(benchmark="mot17-ablation")
-        print(metrics.summary)
+        print(metrics)
         ```
 
 ## Typical workflow
@@ -44,7 +44,7 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
         metrics = boxmot.val(benchmark="mot17-ablation")
-        print(metrics.summary)
+        print(metrics)
         ```
 
 ## Postprocessing
@@ -70,6 +70,7 @@ See [Evaluation and Postprocessing](../guides/evaluation.md).
 
 - combined benchmark metrics such as `HOTA`, `MOTA`, and `IDF1`
 - per-sequence summaries
+- optional runtime timing summary with `--show-timing`
 - MOT-style tracker outputs
 - reused cache paths and evaluation artifacts in the run directory
 

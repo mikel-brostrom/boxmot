@@ -20,6 +20,7 @@ runtime:
   ci: false
   tracker: bytetrack
   verbose: false
+  show_timing: false
   agnostic_nms: false
   postprocessing: none
   show: false

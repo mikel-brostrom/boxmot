@@ -74,6 +74,8 @@ def core_options(func):
                      help='deepocsort, botsort, strongsort, ...'),
         click.option('--verbose', is_flag=True, default=RUNTIME_DEFAULTS.verbose,
                      help='print detailed logs'),
+        click.option('--show-timing/--hide-timing', default=RUNTIME_DEFAULTS.show_timing, show_default=True,
+                     help='print runtime timing summary after evaluation'),
         click.option('--agnostic-nms', is_flag=True, default=RUNTIME_DEFAULTS.agnostic_nms,
                      help='class-agnostic NMS'),
         click.option(

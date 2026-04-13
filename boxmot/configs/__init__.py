@@ -163,6 +163,7 @@ def _runtime_mode_kwargs(values: Mapping[str, Any]) -> dict[str, Any]:
         "ci": bool(values.get("ci", False)),
         "tracker": str(values.get("tracker", "bytetrack")),
         "verbose": bool(values.get("verbose", False)),
+        "show_timing": bool(values.get("show_timing", False)),
         "agnostic_nms": bool(values.get("agnostic_nms", False)),
         "postprocessing": str(values.get("postprocessing", "none")),
         "show": bool(values.get("show", False)),
@@ -204,6 +205,7 @@ class RuntimeModeDefaults:
     ci: bool
     tracker: str
     verbose: bool
+    show_timing: bool
     agnostic_nms: bool
     postprocessing: str
     show: bool
