@@ -602,7 +602,7 @@ def _colorize_delta(text: str, column: str, delta: float, *, colorize: bool) -> 
     return f"\033[{color_code}m{text}\033[0m"
 
 
-def _format_summary_delta_cell(
+def _format_summary_delta_only_cell(
     column: str,
     value: Any,
     baseline_value: Any | None = None,
@@ -611,25 +611,21 @@ def _format_summary_delta_cell(
     colorize: bool,
 ) -> str:
     if baseline_value is None:
-        if column in {"IDSW", "IDs"}:
-            return f"{int(value or 0):>{width}}"
-        return f"{float(value or 0):>{width}.2f}"
+        return " " * width
 
     if column in {"IDSW", "IDs"}:
         current = int(value or 0)
         baseline = int(baseline_value or 0)
         delta = current - baseline
         delta_text = f"({delta:+d})"
-        plain = f"{current} {delta_text}"
-        padded = f"{plain:>{width}}"
+        padded = f"{delta_text:>{width}}"
         return padded.replace(delta_text, _colorize_delta(delta_text, column, float(delta), colorize=colorize), 1)
 
     current = float(value or 0.0)
     baseline = float(baseline_value or 0.0)
     delta = current - baseline
     delta_text = f"({delta:+.2f})"
-    plain = f"{current:.2f} {delta_text}"
-    padded = f"{plain:>{width}}"
+    padded = f"{delta_text:>{width}}"
     return padded.replace(delta_text, _colorize_delta(delta_text, column, delta, colorize=colorize), 1)
 
 
@@ -728,7 +724,7 @@ def _render_cli_summary_table(
         return ""
 
     compare_enabled = any(compare_metrics is not None for _, _, _, compare_metrics in rows)
-    cell_width = 16 if compare_enabled else 10
+    cell_width = 10
     header_values = [name_header, *SUMMARY_COLUMNS]
     header_fmt = f"{{:<{name_width}}} " + " ".join([f"{{:>{cell_width}}}"] * len(SUMMARY_COLUMNS))
     lines = [
@@ -739,17 +735,20 @@ def _render_cli_summary_table(
         "-" * total_width,
     ]
     for row_name, metrics, _highlight, compare_metrics in rows:
-        vals_str = " ".join(
-            _format_summary_delta_cell(
-                column,
-                metrics.get(column, 0),
-                None if compare_metrics is None else compare_metrics.get(column),
-                width=cell_width,
-                colorize=colorize,
+        main_vals = " ".join(_format_summary_cell(column, metrics.get(column, 0)) for column in SUMMARY_COLUMNS)
+        lines.append(f"{row_name:<{name_width}} {main_vals}")
+        if compare_enabled and compare_metrics is not None:
+            delta_vals = " ".join(
+                _format_summary_delta_only_cell(
+                    column,
+                    metrics.get(column, 0),
+                    compare_metrics.get(column),
+                    width=cell_width,
+                    colorize=colorize,
+                )
+                for column in SUMMARY_COLUMNS
             )
-            for column in SUMMARY_COLUMNS
-        )
-        lines.append(f"{row_name:<{name_width}} {vals_str}")
+            lines.append(f"{'':<{name_width}} {delta_vals}")
     lines.append("=" * total_width)
     return "\n".join(lines)
 
@@ -858,8 +857,7 @@ def _render_validation_cli_report(
     all_names.extend([f"COMBINED ({results_module._display_summary_name(name)})" for name in primary_keys])
 
     name_width = max(18, max((len(name) for name in all_names), default=18) + 2)
-    cell_width = 16 if compare_results else 10
-    total_width = name_width + 1 + (cell_width * len(SUMMARY_COLUMNS)) + (len(SUMMARY_COLUMNS) - 1)
+    total_width = name_width + 1 + (10 * len(SUMMARY_COLUMNS)) + (len(SUMMARY_COLUMNS) - 1)
 
     blocks = [
         "\n".join(
@@ -915,7 +913,7 @@ def _render_validation_cli_report(
 
         if include_sequences and not single_sequence:
             for class_name in primary_keys:
-                compare_class_metrics = compare_results.get(class_name, {})
+                compare_class_metrics = compare_results.get(class_name)
                 per_sequence_rows = [
                     (
                         seq_name,
@@ -932,7 +930,7 @@ def _render_validation_cli_report(
                         f"COMBINED ({results_module._display_summary_name(class_name)})",
                         parsed_results[class_name],
                         True,
-                        compare_class_metrics if isinstance(compare_class_metrics, dict) else None,
+                        compare_class_metrics if isinstance(compare_class_metrics, dict) and compare_class_metrics else None,
                     )
                 )
                 blocks.append(
@@ -948,7 +946,7 @@ def _render_validation_cli_report(
     else:
         detail_keys = primary_keys or aggregate_keys or list(parsed_results.keys())
         for class_name in detail_keys:
-            compare_class_metrics = compare_results.get(class_name, {})
+            compare_class_metrics = compare_results.get(class_name)
             per_sequence_rows = [
                 (
                     seq_name,
@@ -968,7 +966,7 @@ def _render_validation_cli_report(
                         f"COMBINED ({results_module._display_summary_name(class_name)})",
                         parsed_results[class_name],
                         True,
-                        compare_class_metrics if isinstance(compare_class_metrics, dict) else None,
+                        compare_class_metrics if isinstance(compare_class_metrics, dict) and compare_class_metrics else None,
                     )
                 )
             blocks.append(

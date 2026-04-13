@@ -869,6 +869,7 @@ def test_validation_result_str_renders_cli_style_report():
     assert "📊 RESULTS SUMMARY" in rendered
     assert "person" in rendered
     assert "COMBINED (person)" in rendered
+    assert "Sequence                  HOTA       MOTA       IDF1" in rendered
     assert "ValidationResult(" in repr(result)
 
 
@@ -1051,11 +1052,13 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
     rendered = str(tune)
 
     assert "📊 BEST TRIAL SUMMARY" in rendered
-    assert "67.50 \x1b[32m(+1.50)\x1b[0m" in rendered
-    assert "185 \x1b[32m(-15)\x1b[0m" in rendered
-    assert "47.00 \x1b[32m(+2.00)\x1b[0m" in rendered
-    assert "63 \x1b[32m(-7)\x1b[0m" in rendered
-    assert "91 \x1b[31m(+1)\x1b[0m" in rendered
+    assert "Sequence                  HOTA       MOTA       IDF1" in rendered
+    assert "COMBINED (person)        67.50      78.20      80.00" in rendered
+    assert "\x1b[32m(+1.50)\x1b[0m" in rendered
+    assert "\x1b[32m(-15)\x1b[0m" in rendered
+    assert "\x1b[32m(+2.00)\x1b[0m" in rendered
+    assert "\x1b[32m(-7)\x1b[0m" in rendered
+    assert "\x1b[31m(+1)\x1b[0m" in rendered
 
 
 def test_validation_result_print_report_matches_cli_style(capsys):
