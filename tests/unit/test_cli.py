@@ -46,6 +46,19 @@ def test_eval_accepts_tracker_option(monkeypatch):
     assert captured["args"].tracker == "boosttrack"
 
 
+def test_eval_passes_show_timing_flag(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-ablation", "--show-timing"])
+    assert result.exit_code == 0, result.output
+    assert captured["args"].show_timing is True
+
+
 def test_eval_rejects_positional_tracker_shim():
     result = CliRunner().invoke(boxmot, ["eval", "boosttrack", "--benchmark", "mot17-ablation"])
     assert result.exit_code != 0

@@ -24,7 +24,7 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
 
         boxmot = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
         run = boxmot.track(source="video.mp4", save=True)
-        print(run.summary)
+        print(run)
         ```
 
 ## Common source values

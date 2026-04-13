@@ -27,6 +27,7 @@ def test_build_mode_namespace_uses_shared_runtime_defaults():
     assert args.detector_explicit is False
     assert args.reid_explicit is False
     assert args.project == Path(get_mode_default("eval", "project"))
+    assert args.show_timing is False
 
 
 def test_get_mode_defaults_returns_normalized_merged_defaults():
@@ -36,6 +37,7 @@ def test_get_mode_defaults_returns_normalized_merged_defaults():
     assert defaults["reid"] == DEFAULT_REID
     assert defaults["tracker"] == get_mode_default("eval", "tracker")
     assert defaults["project"] == Path(get_mode_default("eval", "project"))
+    assert defaults["show_timing"] is False
     assert isinstance(defaults["n_threads"], int)
     assert defaults["n_threads"] >= 1
 

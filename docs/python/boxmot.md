@@ -10,9 +10,9 @@ run = boxmot.track(source="video.mp4", save=True)
 metrics = boxmot.val(benchmark="mot17-mini")
 tuned = boxmot.tune(benchmark="mot17-mini", n_trials=2)
 
-print(run.summary)
-print(metrics.summary)
-print(tuned.summary)
+print(run)
+print(metrics)
+print(tuned)
 ```
 
 ::: boxmot.api.Boxmot

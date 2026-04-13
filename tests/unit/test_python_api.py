@@ -564,7 +564,110 @@ def test_boxmot_track_keeps_finite_sources_lazy_without_save(monkeypatch, tmp_pa
     run = model.track(source=tmp_path)
 
     assert fake_results.materialized is False
-    assert run.summary["frames"] == 0
+    assert fake_results.totals["frames"] == 0
+
+
+def test_boxmot_track_summary_materializes_finite_sources(tmp_path):
+    for index in range(2):
+        cv2.imwrite(str(tmp_path / f"{index + 1:06d}.jpg"), _DUMMY_IMG)
+
+    class _FakeDetector:
+        def __call__(self, frame):
+            return np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32)
+
+    class _FakeReID:
+        def __call__(self, frame, boxes=None):
+            return np.ones((len(boxes), 4), dtype=np.float32)
+
+    class _FakeTracker:
+        def __init__(self):
+            self.count = 0
+
+        def reset(self):
+            self.count = 0
+
+        def update(self, dets, frame, embs=None):
+            self.count += 1
+            return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
+
+    model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
+    run = model.track(source=tmp_path)
+
+    assert run.results.totals["frames"] == 0
+
+    summary = run.summary
+
+    assert summary["frames"] == 2
+    assert summary["tracks"] == 2
+    assert summary["unique_tracks"] == 2
+    assert run.timings["fps"] >= 0
+
+
+def test_boxmot_track_show_flag_displays_results(monkeypatch, tmp_path):
+    class _FakeResults:
+        def __init__(self):
+            self.totals = {
+                "det": 0.0,
+                "reid": 0.0,
+                "track": 0.0,
+                "total": 0.0,
+                "frames": 0,
+                "detections": 0,
+                "tracks": 0,
+            }
+            self.shown = False
+
+        def summary(self):
+            frames = int(self.totals["frames"])
+            avg_total = (self.totals["total"] / frames) if frames else 0.0
+            return {
+                "source": str(tmp_path),
+                "frames": frames,
+                "detections": int(self.totals["detections"]),
+                "tracks": int(self.totals["tracks"]),
+                "unique_tracks": 0,
+                "timings_ms": {
+                    "det": float(self.totals["det"]),
+                    "reid": float(self.totals["reid"]),
+                    "track": float(self.totals["track"]),
+                    "total": float(self.totals["total"]),
+                    "avg_total": float(avg_total),
+                },
+            }
+
+        def show(self):
+            self.shown = True
+            self.totals.update({
+                "det": 1.0,
+                "reid": 2.0,
+                "track": 3.0,
+                "total": 6.0,
+                "frames": 1,
+                "detections": 4,
+                "tracks": 5,
+            })
+
+        def save(self, output_path):
+            raise AssertionError("save should not be called when only show=True")
+
+        def stop(self, reason=None):
+            return None
+
+        def format_summary(self):
+            return ""
+
+        def print_summary(self):
+            return None
+
+    fake_results = _FakeResults()
+    monkeypatch.setattr(api_module, "track", lambda *args, **kwargs: fake_results)
+
+    model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
+    run = model.track(source=tmp_path, show=True)
+
+    assert fake_results.shown is True
+    assert run.summary["frames"] == 1
+    assert run.summary["tracks"] == 5
 
 
 def test_results_keyboard_interrupt_stops_live_tracking_cleanly(monkeypatch):
@@ -724,6 +827,51 @@ def test_validation_result_formats_sequence_and_combined_report():
     assert "69.44" in report or "69.45" in report
 
 
+def test_validation_result_str_renders_cli_style_report():
+    result = api_module.ValidationResult(
+        benchmark="mot17-ablation",
+        raw={
+            "HOTA": 69.445,
+            "MOTA": 78.243,
+            "IDF1": 81.937,
+            "AssA": 71.0,
+            "AssRe": 82.0,
+            "IDSW": 12,
+            "IDs": 123,
+            "per_sequence": {
+                "MOT17-02": {
+                    "HOTA": 70.1,
+                    "MOTA": 79.2,
+                    "IDF1": 82.3,
+                    "AssA": 72.0,
+                    "AssRe": 83.0,
+                    "IDSW": 3,
+                    "IDs": 40,
+                },
+                "MOT17-04": {
+                    "HOTA": 68.8,
+                    "MOTA": 77.9,
+                    "IDF1": 81.4,
+                    "AssA": 70.5,
+                    "AssRe": 81.0,
+                    "IDSW": 4,
+                    "IDs": 41,
+                },
+            },
+        },
+        summary_label="single_class",
+        summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
+        args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
+    )
+
+    rendered = str(result)
+
+    assert "📊 RESULTS SUMMARY" in rendered
+    assert "person" in rendered
+    assert "COMBINED (person)" in rendered
+    assert "ValidationResult(" in repr(result)
+
+
 def test_tune_result_formats_best_report():
     metrics = api_module.ValidationResult(
         benchmark="mot17-ablation",
@@ -795,7 +943,8 @@ def test_tune_results_expose_validation_like_accessors():
     assert trial.raw == metrics.raw
     assert trial.timings == metrics.timings
     assert trial.exp_dir == metrics.exp_dir
-    assert "TuneTrialResult(index=2" in str(trial)
+    assert "📊 RESULTS SUMMARY" in str(trial)
+    assert "TuneTrialResult(index=2" in repr(trial)
     assert trial.to_dict()["metrics"]["summary"] == metrics.summary
 
     assert tune.summary == metrics.summary
@@ -803,33 +952,113 @@ def test_tune_results_expose_validation_like_accessors():
     assert tune.timings == metrics.timings
     assert tune.exp_dir == metrics.exp_dir
     assert tune.format_report() == tune.format_best_report()
-    assert "TuneResult(benchmark='mot17-ablation'" in str(tune)
+    assert "📊 BEST TRIAL SUMMARY" in str(tune)
+    assert "TuneResult(benchmark='mot17-ablation'" in repr(tune)
     assert tune.to_dict()["summary"] == metrics.summary
     assert tune.to_dict(include_trials=True)["trials"][0]["metrics"]["summary"] == metrics.summary
 
 
-def test_validation_result_print_report_matches_cli_style(monkeypatch):
-    logs = []
-    complete_calls = []
+def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
+    class _TTYStdout:
+        def isatty(self):
+            return True
 
-    class _FakeLogger:
-        def opt(self, **kwargs):
-            return self
+    monkeypatch.setattr(api_module.sys, "stdout", _TTYStdout())
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
 
-        def info(self, message=""):
-            logs.append(message)
+    baseline_metrics = api_module.ValidationResult(
+        benchmark="mot17-ablation",
+        raw={
+            "HOTA": 66.0,
+            "MOTA": 77.0,
+            "IDF1": 78.0,
+            "AssA": 68.0,
+            "AssRe": 74.0,
+            "IDSW": 200,
+            "IDs": 400,
+            "per_sequence": {
+                "MOT17-02": {
+                    "HOTA": 45.0,
+                    "MOTA": 54.0,
+                    "IDF1": 56.0,
+                    "AssA": 44.0,
+                    "AssRe": 50.0,
+                    "IDSW": 70,
+                    "IDs": 80,
+                },
+                "MOT17-04": {
+                    "HOTA": 78.0,
+                    "MOTA": 88.0,
+                    "IDF1": 90.0,
+                    "AssA": 80.0,
+                    "AssRe": 84.0,
+                    "IDSW": 20,
+                    "IDs": 90,
+                },
+            },
+        },
+        summary_label="single_class",
+        summary={"HOTA": 66.0, "MOTA": 77.0, "IDF1": 78.0},
+        args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
+    )
+    best_metrics = api_module.ValidationResult(
+        benchmark="mot17-ablation",
+        raw={
+            "HOTA": 67.5,
+            "MOTA": 78.2,
+            "IDF1": 80.0,
+            "AssA": 69.4,
+            "AssRe": 75.1,
+            "IDSW": 185,
+            "IDs": 383,
+            "per_sequence": {
+                "MOT17-02": {
+                    "HOTA": 47.0,
+                    "MOTA": 55.5,
+                    "IDF1": 58.0,
+                    "AssA": 46.0,
+                    "AssRe": 52.0,
+                    "IDSW": 63,
+                    "IDs": 64,
+                },
+                "MOT17-04": {
+                    "HOTA": 79.6,
+                    "MOTA": 89.4,
+                    "IDF1": 91.9,
+                    "AssA": 81.3,
+                    "AssRe": 85.4,
+                    "IDSW": 19,
+                    "IDs": 91,
+                },
+            },
+        },
+        summary_label="single_class",
+        summary={"HOTA": 67.5, "MOTA": 78.2, "IDF1": 80.0},
+        args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
+    )
+    baseline_trial = api_module.TuneTrialResult(index=1, config={"track_buffer": 30}, metrics=baseline_metrics, score=(66.0,))
+    best_trial = api_module.TuneTrialResult(index=2, config={"track_buffer": 40}, metrics=best_metrics, score=(67.5,))
+    tune = api_module.TuneResult(
+        benchmark="mot17-ablation",
+        tracker="bytetrack",
+        trials=[baseline_trial, best_trial],
+        best=best_trial,
+        best_config={"track_buffer": 40},
+        best_yaml=Path("best.yaml"),
+    )
 
-        def complete(self):
-            complete_calls.append(True)
+    rendered = str(tune)
 
-    fake_logger = _FakeLogger()
-    results_utils_module = importlib.import_module("boxmot.utils.evaluation.results")
-    timing_module = importlib.import_module("boxmot.utils.timing")
+    assert "📊 BEST TRIAL SUMMARY" in rendered
+    assert "67.50 \x1b[32m(+1.50)\x1b[0m" in rendered
+    assert "185 \x1b[32m(-15)\x1b[0m" in rendered
+    assert "47.00 \x1b[32m(+2.00)\x1b[0m" in rendered
+    assert "63 \x1b[32m(-7)\x1b[0m" in rendered
+    assert "91 \x1b[31m(+1)\x1b[0m" in rendered
 
-    monkeypatch.setattr(api_module, "LOGGER", fake_logger)
-    monkeypatch.setattr(results_utils_module, "LOGGER", fake_logger)
-    monkeypatch.setattr(timing_module, "LOGGER", fake_logger)
 
+def test_validation_result_print_report_matches_cli_style(capsys):
     result = api_module.ValidationResult(
         benchmark="mot17-ablation",
         raw={
@@ -880,12 +1109,64 @@ def test_validation_result_print_report_matches_cli_style(monkeypatch):
 
     result.print_report()
 
-    combined = "\n".join(str(entry) for entry in logs)
+    combined = capsys.readouterr().out
     assert "📊 RESULTS SUMMARY" in combined
     assert "person" in combined
     assert "COMBINED (person)" in combined
+    assert "📊 TIMING SUMMARY" not in combined
+
+    result.print_report(include_timings=True)
+    combined = capsys.readouterr().out
     assert "📊 TIMING SUMMARY" in combined
-    assert complete_calls == [True]
+
+
+def test_track_run_result_str_and_print_summary_use_plain_stdout(monkeypatch, capsys, tmp_path):
+    class _FakeResults:
+        def __init__(self):
+            self.summary_calls = 0
+
+        def summary(self):
+            self.summary_calls += 1
+            return {
+                "source": str(tmp_path),
+                "frames": 1,
+                "detections": 2,
+                "tracks": 1,
+                "unique_tracks": 1,
+                "timings_ms": {
+                    "det": 1.0,
+                    "reid": 2.0,
+                    "track": 3.0,
+                    "total": 6.0,
+                    "avg_total": 6.0,
+                },
+            }
+
+        def format_summary(self):
+            return "TRACKING SUMMARY\nTotal"
+
+        def print_summary(self):
+            raise AssertionError("TrackRunResult.print_summary should render via plain stdout")
+
+        def show(self):
+            return None
+
+        def stop(self, reason=None):
+            return None
+
+    run = api_module.TrackRunResult(
+        source=tmp_path,
+        results=_FakeResults(),
+        video_path=None,
+        text_path=None,
+    )
+
+    assert "TRACKING SUMMARY" in str(run)
+    assert "TrackRunResult(" in repr(run)
+
+    run.print_summary()
+    out = capsys.readouterr().out
+    assert "TRACKING SUMMARY" in out
 
 
 def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):

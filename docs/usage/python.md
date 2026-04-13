@@ -11,14 +11,16 @@ from boxmot.api import Boxmot
 
 boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 run = boxmot.track(source="video.mp4", save=True)
-print(run.summary)
+print(run)
 
 metrics = boxmot.val(benchmark="mot17-mini")
-print(metrics.summary)
+print(metrics)
 
 tuned = boxmot.tune(benchmark="mot17-mini", n_trials=2)
-print(tuned.summary)
+print(tuned)
 ```
+
+Use `.summary` or `.to_dict()` when you need structured data instead of the human-readable report.
 
 The same facade also exposes `val(...)`, `tune(...)`, and `export(...)`.
 

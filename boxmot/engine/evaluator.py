@@ -213,7 +213,6 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     final_results = list(parsed_results.values())[0] if single_class_mode and parsed_results else parsed_results
 
     if verbose:
-        LOGGER.info("")
         primary_keys, aggregate_keys = _summary_sort_keys(parsed_results, args, cfg)
         single_sequence = len(seq_info) == 1
 
@@ -354,7 +353,7 @@ def main(args):
     LOGGER.opt(colors=True).info("<cyan>[4/4]</cyan> Evaluating results...")
     results = run_trackeval(args)
 
-    if timing_stats.frames > 0:
+    if getattr(args, "show_timing", False) and timing_stats.frames > 0:
         timing_stats.print_summary()
 
     plot_class, metrics_data = _select_plot_metrics_data(results)

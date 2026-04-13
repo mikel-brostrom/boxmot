@@ -90,7 +90,7 @@ run = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort").t
     source="video.mp4",
     save=True,
 )
-print(run.summary)
+print(run)
 ```
 
 ## Contributing
