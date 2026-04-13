@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from boxmot.data.benchmark import (
+    COCO_CLASSES,
     _ordered_benchmark_eval_class_names,
+    load_benchmark_cfg_from_args,
     resolve_eval_box_type,
     resolve_obb_classes_to_eval,
 )
@@ -313,15 +315,77 @@ def _display_summary_name(name: str) -> str:
     return SUMMARY_AGGREGATE_LABELS.get(name, name)
 
 
+def _is_numeric_metric(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _combined_summary_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        column: metrics[column]
+        for column in SUMMARY_COLUMNS
+        if column in metrics and _is_numeric_metric(metrics[column])
+    }
+
+
+def _load_report_cfg_from_args(args: Any) -> dict[str, Any]:
+    if args is None:
+        return {}
+    try:
+        return load_benchmark_cfg_from_args(args) or {}
+    except Exception:
+        return {}
+
+
+def _infer_single_class_report_name(args: Any, cfg: Optional[dict[str, Any]] = None) -> str:
+    if args is not None:
+        remapped = getattr(args, "remapped_class_names", None)
+        if remapped:
+            return str(remapped[0])
+
+        translated = getattr(args, "translated_benchmark_class_names", None)
+        if translated:
+            return str(translated[0])
+
+        cfg = cfg or _load_report_cfg_from_args(args)
+        bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
+        eval_classes = bench_cfg.get("eval_classes")
+        if isinstance(eval_classes, dict) and len(eval_classes) == 1:
+            return str(next(iter(eval_classes.values())))
+        if isinstance(eval_classes, (list, tuple)) and len(eval_classes) == 1:
+            return str(eval_classes[0])
+
+        class_indices = getattr(args, "classes", None)
+        if class_indices is not None:
+            indices = class_indices if isinstance(class_indices, list) else [class_indices]
+            if len(indices) == 1:
+                return str(COCO_CLASSES[int(indices[0])])
+
+    return "results"
+
+
+def normalize_report_results(
+    raw: dict[str, Any],
+    args: Any = None,
+    cfg: Optional[dict[str, Any]] = None,
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict) or not raw:
+        return {}
+
+    if _combined_summary_metrics(raw):
+        return {_infer_single_class_report_name(args, cfg): raw}
+
+    normalized: dict[str, dict[str, Any]] = {}
+    for name, metrics in raw.items():
+        if isinstance(metrics, dict):
+            normalized[str(name)] = metrics
+    return normalized
+
+
 def _select_plot_metrics_data(results: dict) -> tuple[str, dict]:
     if not results:
         return "", {}
 
-    flat_summary = {
-        key: results[key]
-        for key in SUMMARY_COLUMNS
-        if isinstance(results.get(key), (int, float))
-    }
+    flat_summary = _combined_summary_metrics(results)
     if flat_summary:
         return "single_class", flat_summary
 
@@ -343,14 +407,50 @@ def _select_plot_metrics_data(results: dict) -> tuple[str, dict]:
 
 
 def _format_summary_values(metrics: dict) -> list[str]:
-    values: list[str] = []
-    for key in SUMMARY_COLUMNS:
-        value = metrics.get(key, 0)
-        if key in SUMMARY_INT_COLUMNS:
-            values.append(f"{int(value):>10}")
-        else:
-            values.append(f"{float(value):>10.2f}")
-    return values
+    return [_format_summary_cell(key, metrics.get(key, 0)) for key in SUMMARY_COLUMNS]
+
+
+def _format_summary_cell(column: str, value: Any) -> str:
+    if column in SUMMARY_INT_COLUMNS:
+        return f"{int(value or 0):>10}"
+    return f"{float(value or 0):>10.2f}"
+
+
+def _colorize_delta(text: str, column: str, delta: float, *, colorize: bool) -> str:
+    if not colorize or delta == 0:
+        return text
+
+    positive_is_better = column not in SUMMARY_INT_COLUMNS
+    is_improvement = delta > 0 if positive_is_better else delta < 0
+    color_code = "32" if is_improvement else "31"
+    return f"\033[{color_code}m{text}\033[0m"
+
+
+def _format_summary_delta_only_cell(
+    column: str,
+    value: Any,
+    baseline_value: Any | None = None,
+    *,
+    width: int,
+    colorize: bool,
+) -> str:
+    if baseline_value is None:
+        return " " * width
+
+    if column in SUMMARY_INT_COLUMNS:
+        current = int(value or 0)
+        baseline = int(baseline_value or 0)
+        delta = current - baseline
+        delta_text = f"({delta:+d})"
+        padded = f"{delta_text:>{width}}"
+        return padded.replace(delta_text, _colorize_delta(delta_text, column, float(delta), colorize=colorize), 1)
+
+    current = float(value or 0.0)
+    baseline = float(baseline_value or 0.0)
+    delta = current - baseline
+    delta_text = f"({delta:+.2f})"
+    padded = f"{delta_text:>{width}}"
+    return padded.replace(delta_text, _colorize_delta(delta_text, column, delta, colorize=colorize), 1)
 
 
 def _summary_sort_keys(parsed_results: dict, args: argparse.Namespace, cfg: dict) -> tuple[list[str], list[str]]:
@@ -399,6 +499,197 @@ def _known_trackeval_class_names(args: argparse.Namespace, cfg: dict) -> list[st
     return deduped
 
 
+def _render_summary_table(
+    title: str,
+    name_header: str,
+    rows: list[tuple[str, dict[str, Any], dict[str, Any] | None]],
+    *,
+    total_width: int,
+    name_width: int,
+    colorize: bool,
+) -> str:
+    if not rows:
+        return ""
+
+    header_values = [name_header, *SUMMARY_COLUMNS]
+    header_fmt = f"{{:<{name_width}}} " + " ".join(["{:>10}"] * len(SUMMARY_COLUMNS))
+    compare_enabled = any(compare_metrics is not None for _, _, compare_metrics in rows)
+
+    lines = [
+        "=" * total_width,
+        f"{title:^{total_width}}",
+        "=" * total_width,
+        header_fmt.format(*header_values),
+        "-" * total_width,
+    ]
+    for row_name, metrics, compare_metrics in rows:
+        lines.append(f"{row_name:<{name_width}} " + " ".join(_format_summary_values(metrics)))
+        if compare_enabled and compare_metrics is not None:
+            delta_vals = " ".join(
+                _format_summary_delta_only_cell(
+                    column,
+                    metrics.get(column, 0),
+                    compare_metrics.get(column),
+                    width=10,
+                    colorize=colorize,
+                )
+                for column in SUMMARY_COLUMNS
+            )
+            lines.append(f"{'':<{name_width}} {delta_vals}")
+    lines.append("=" * total_width)
+    return "\n".join(lines)
+
+
+def render_trackeval_report(
+    parsed_results: dict[str, dict[str, Any]],
+    args: Any = None,
+    cfg: Optional[dict[str, Any]] = None,
+    *,
+    title: str = "📊 RESULTS SUMMARY",
+    include_sequences: bool = True,
+    always_include_combined: bool = False,
+    compare_results: Optional[dict[str, dict[str, Any]]] = None,
+    colorize: bool = False,
+) -> str:
+    if not parsed_results:
+        return ""
+
+    cfg = cfg or _load_report_cfg_from_args(args)
+    compare_results = compare_results or {}
+
+    primary_keys, aggregate_keys = _summary_sort_keys(parsed_results, args or object(), cfg)
+    if not primary_keys and not aggregate_keys:
+        primary_keys = list(parsed_results.keys())
+
+    single_sequence = all(
+        len(metrics.get("per_sequence", {})) <= 1
+        for metrics in parsed_results.values()
+        if isinstance(metrics, dict)
+    )
+
+    all_names = [_display_summary_name(name) for name in [*primary_keys, *aggregate_keys]]
+    for class_metrics in parsed_results.values():
+        all_names.extend(class_metrics.get("per_sequence", {}).keys())
+    all_names.extend([f"COMBINED ({_display_summary_name(name)})" for name in primary_keys])
+
+    name_width = max(18, max((len(name) for name in all_names), default=18) + 2)
+    total_width = name_width + 1 + (10 * len(SUMMARY_COLUMNS)) + (len(SUMMARY_COLUMNS) - 1)
+
+    blocks = [
+        "\n".join([
+            "=" * total_width,
+            f"{title:^{total_width}}",
+            "=" * total_width,
+        ])
+    ]
+
+    if len(primary_keys) > 1:
+        class_rows = [
+            (_display_summary_name(name), parsed_results[name], compare_results.get(name))
+            for name in primary_keys
+        ]
+        blocks.append(
+            _render_summary_table(
+                "Per-Class Combined Metrics",
+                "Class",
+                class_rows,
+                total_width=total_width,
+                name_width=name_width,
+                colorize=colorize,
+            )
+        )
+
+        if aggregate_keys:
+            aggregate_rows = [
+                (_display_summary_name(name), parsed_results[name], compare_results.get(name))
+                for name in aggregate_keys
+            ]
+            blocks.append(
+                _render_summary_table(
+                    "Aggregate Groups",
+                    "Group",
+                    aggregate_rows,
+                    total_width=total_width,
+                    name_width=name_width,
+                    colorize=colorize,
+                )
+            )
+
+        if include_sequences and (always_include_combined or not single_sequence):
+            for class_name in primary_keys:
+                compare_class_metrics = compare_results.get(class_name)
+                per_sequence_rows = [
+                    (
+                        seq_name,
+                        seq_metrics,
+                        compare_class_metrics.get("per_sequence", {}).get(seq_name)
+                        if isinstance(compare_class_metrics, dict)
+                        else None,
+                    )
+                    for seq_name, seq_metrics in sorted(parsed_results[class_name].get("per_sequence", {}).items())
+                ]
+                per_sequence_rows.append(
+                    (
+                        f"COMBINED ({_display_summary_name(class_name)})",
+                        parsed_results[class_name],
+                        compare_class_metrics if isinstance(compare_class_metrics, dict) and compare_class_metrics else None,
+                    )
+                )
+                blocks.append(
+                    _render_summary_table(
+                        f"Per-Sequence Details: {_display_summary_name(class_name)}",
+                        "Sequence",
+                        per_sequence_rows,
+                        total_width=total_width,
+                        name_width=name_width,
+                        colorize=colorize,
+                    )
+                )
+    else:
+        detail_keys = primary_keys or aggregate_keys or list(parsed_results.keys())
+        for class_name in detail_keys:
+            compare_class_metrics = compare_results.get(class_name)
+            per_sequence_rows = [
+                (
+                    seq_name,
+                    seq_metrics,
+                    compare_class_metrics.get("per_sequence", {}).get(seq_name)
+                    if isinstance(compare_class_metrics, dict)
+                    else None,
+                )
+                for seq_name, seq_metrics in sorted(parsed_results[class_name].get("per_sequence", {}).items())
+            ]
+            if not include_sequences:
+                per_sequence_rows = []
+            if always_include_combined or not single_sequence or not per_sequence_rows:
+                per_sequence_rows.append(
+                    (
+                        f"COMBINED ({_display_summary_name(class_name)})",
+                        parsed_results[class_name],
+                        compare_class_metrics if isinstance(compare_class_metrics, dict) and compare_class_metrics else None,
+                    )
+                )
+            blocks.append(
+                _render_summary_table(
+                    _display_summary_name(class_name),
+                    "Sequence",
+                    per_sequence_rows,
+                    total_width=total_width,
+                    name_width=name_width,
+                    colorize=colorize,
+                )
+            )
+
+    return "\n".join(block for block in blocks if block)
+
+
+def log_trackeval_report(report: str) -> None:
+    if not report:
+        return
+    for line in report.splitlines():
+        LOGGER.info(line)
+
+
 def _print_summary_table(
     title: str,
     name_header: str,
@@ -406,35 +697,29 @@ def _print_summary_table(
     total_w: int,
     name_w: int,
 ) -> None:
-    if not rows:
-        return
-
-    header_values = [name_header, *SUMMARY_COLUMNS]
-    header_fmt = f"{{:<{name_w}}} " + " ".join(["{:>10}"] * len(SUMMARY_COLUMNS))
-    LOGGER.opt(colors=True).info("<blue>" + "=" * total_w + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold><cyan>{title:^{total_w}}</cyan></bold>")
-    LOGGER.opt(colors=True).info("<blue>" + "=" * total_w + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>{header_fmt.format(*header_values)}</bold>")
-    LOGGER.opt(colors=True).info("<blue>" + "-" * total_w + "</blue>")
-
-    for row_name, metrics, highlight in rows:
-        name_col = f"{row_name:<{name_w}}"
-        vals_str = " ".join(_format_summary_values(metrics))
-        if highlight:
-            LOGGER.opt(colors=True).info(f"<bold>{name_col} <cyan>{vals_str}</cyan></bold>")
-        else:
-            LOGGER.opt(colors=True).info(f"{name_col} <blue>{vals_str}</blue>")
-
-    LOGGER.opt(colors=True).info("<blue>" + "=" * total_w + "</blue>")
+    report = _render_summary_table(
+        title,
+        name_header,
+        [(row_name, metrics, None) for row_name, metrics, _highlight in rows],
+        total_width=total_w,
+        name_width=name_w,
+        colorize=False,
+    )
+    log_trackeval_report(report)
 
 
 __all__ = [
+    "_combined_summary_metrics",
     "_display_summary_name",
     "build_trackeval_feedback",
     "_filter_obb_trackeval_results",
     "_known_trackeval_class_names",
     "_print_summary_table",
+    "_load_report_cfg_from_args",
     "_select_plot_metrics_data",
     "_summary_sort_keys",
+    "log_trackeval_report",
+    "normalize_report_results",
     "parse_mot_results",
+    "render_trackeval_report",
 ]

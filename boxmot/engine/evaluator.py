@@ -45,13 +45,12 @@ from boxmot.utils.benchmark_config import (
 )
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.evaluation.results import (
-    _display_summary_name,
     _filter_obb_trackeval_results,
     _known_trackeval_class_names,
-    _print_summary_table,
     _select_plot_metrics_data,
-    _summary_sort_keys,
+    log_trackeval_report,
     parse_mot_results,
+    render_trackeval_report,
 )
 from boxmot.utils.evaluation.trackeval import (
     _load_obb_gt_matrix,
@@ -213,63 +212,16 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     final_results = list(parsed_results.values())[0] if single_class_mode and parsed_results else parsed_results
 
     if verbose:
-        primary_keys, aggregate_keys = _summary_sort_keys(parsed_results, args, cfg)
-        single_sequence = len(seq_info) == 1
-
-        all_names = [_display_summary_name(name) for name in [*primary_keys, *aggregate_keys]]
-        for class_metrics in parsed_results.values():
-            all_names.extend(class_metrics.get("per_sequence", {}).keys())
-        all_names.extend([f"COMBINED ({_display_summary_name(name)})" for name in primary_keys])
-
-        name_width = max(18, max((len(name) for name in all_names), default=18) + 2)
-        total_width = name_width + 1 + 76
-
-        LOGGER.opt(colors=True).info("<blue>" + "=" * total_width + "</blue>")
-        LOGGER.opt(colors=True).info(f"<bold><cyan>{'📊 RESULTS SUMMARY':^{total_width}}</cyan></bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "=" * total_width + "</blue>")
-
-        if len(primary_keys) > 1:
-            class_rows = [(_display_summary_name(name), parsed_results[name], False) for name in primary_keys]
-            _print_summary_table("Per-Class Combined Metrics", "Class", class_rows, total_width, name_width)
-
-            if aggregate_keys:
-                aggregate_rows = [(_display_summary_name(name), parsed_results[name], False) for name in aggregate_keys]
-                _print_summary_table("Aggregate Groups", "Group", aggregate_rows, total_width, name_width)
-
-            if not single_sequence:
-                for class_name in primary_keys:
-                    per_sequence_rows = [
-                        (seq_name, seq_metrics, False)
-                        for seq_name, seq_metrics in sorted(parsed_results[class_name].get("per_sequence", {}).items())
-                    ]
-                    per_sequence_rows.append(
-                        (f"COMBINED ({_display_summary_name(class_name)})", parsed_results[class_name], True)
-                    )
-                    _print_summary_table(
-                        f"Per-Sequence Details: {_display_summary_name(class_name)}",
-                        "Sequence",
-                        per_sequence_rows,
-                        total_width,
-                        name_width,
-                    )
-        else:
-            detail_keys = primary_keys or aggregate_keys or list(parsed_results.keys())
-            for class_name in detail_keys:
-                per_sequence_rows = [
-                    (seq_name, seq_metrics, False)
-                    for seq_name, seq_metrics in sorted(parsed_results[class_name].get("per_sequence", {}).items())
-                ]
-                if not single_sequence or not per_sequence_rows:
-                    per_sequence_rows.append(
-                        (f"COMBINED ({_display_summary_name(class_name)})", parsed_results[class_name], True)
-                    )
-                _print_summary_table(
-                    _display_summary_name(class_name),
-                    "Sequence",
-                    per_sequence_rows,
-                    total_width,
-                    name_width,
-                )
+        log_trackeval_report(
+            render_trackeval_report(
+                parsed_results,
+                args,
+                cfg,
+                title="📊 RESULTS SUMMARY",
+                include_sequences=True,
+                colorize=False,
+            )
+        )
 
     if getattr(args, "ci", False):
         with open(args.tracker + "_output.json", "w") as outfile:

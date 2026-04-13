@@ -1,11 +1,16 @@
 from .results import (
+    _combined_summary_metrics,
     _display_summary_name,
     _filter_obb_trackeval_results,
     _known_trackeval_class_names,
+    _load_report_cfg_from_args,
     _print_summary_table,
     _select_plot_metrics_data,
     _summary_sort_keys,
+    log_trackeval_report,
+    normalize_report_results,
     parse_mot_results,
+    render_trackeval_report,
 )
 from .trackeval import (
     _load_obb_gt_matrix,
@@ -17,16 +22,21 @@ from .trackeval import (
 )
 
 __all__ = [
+    "_combined_summary_metrics",
     "_display_summary_name",
     "_filter_obb_trackeval_results",
     "_known_trackeval_class_names",
     "_load_obb_gt_matrix",
     "_prepare_obb_eval_bridge",
+    "_load_report_cfg_from_args",
     "_print_summary_table",
     "_select_plot_metrics_data",
     "_summary_sort_keys",
     "build_dataset_eval_settings",
+    "log_trackeval_report",
+    "normalize_report_results",
     "parse_mot_results",
+    "render_trackeval_report",
     "trackeval",
     "trackeval_aabb",
     "trackeval_obb",
