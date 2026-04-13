@@ -571,9 +571,9 @@ def _display_summary_name(name: str) -> str:
 
 def _combined_summary_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     return {
-        column: metrics.get(column, 0)
+        column: metrics[column]
         for column in SUMMARY_COLUMNS
-        if _is_numeric_metric(metrics.get(column, 0)) or column in metrics
+        if column in metrics and _is_numeric_metric(metrics[column])
     }
 
 

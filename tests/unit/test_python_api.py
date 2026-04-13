@@ -873,6 +873,81 @@ def test_validation_result_str_renders_cli_style_report():
     assert "ValidationResult(" in repr(result)
 
 
+def test_validation_result_str_keeps_multiclass_obb_sections():
+    result = api_module.ValidationResult(
+        benchmark="dota8-mot",
+        raw={
+            "plane": {
+                "HOTA": 59.546,
+                "MOTA": 0.0,
+                "IDF1": 66.667,
+                "AssA": 84.211,
+                "AssRe": 84.211,
+                "IDSW": 0,
+                "IDs": 2,
+                "per_sequence": {
+                    "P1053__1024__0___90": {
+                        "HOTA": 0.0,
+                        "MOTA": 0.0,
+                        "IDF1": 0.0,
+                        "AssA": 0.0,
+                        "AssRe": 0.0,
+                        "IDSW": 0,
+                        "IDs": 0,
+                    },
+                    "P1142__1024__0___824": {
+                        "HOTA": 59.546,
+                        "MOTA": 0.0,
+                        "IDF1": 66.667,
+                        "AssA": 84.211,
+                        "AssRe": 84.211,
+                        "IDSW": 0,
+                        "IDs": 2,
+                    },
+                },
+            },
+            "tennis court": {
+                "HOTA": 90.805,
+                "MOTA": 87.5,
+                "IDF1": 94.118,
+                "AssA": 96.431,
+                "AssRe": 97.295,
+                "IDSW": 0,
+                "IDs": 9,
+                "per_sequence": {},
+            },
+            "cls_comb_det_av": {
+                "HOTA": 83.617,
+                "MOTA": 78.571,
+                "IDF1": 90.323,
+                "AssA": 96.14,
+                "AssRe": 97.098,
+                "IDSW": 0,
+                "IDs": 17,
+                "per_sequence": {},
+            },
+        },
+        summary_label="cls_comb_det_av",
+        summary={"HOTA": 83.617, "MOTA": 78.571, "IDF1": 90.323},
+        args=SimpleNamespace(
+            remapped_class_names=None,
+            translated_benchmark_class_names=None,
+            eval_box_type="obb",
+            classes=None,
+            benchmark="dota8-mot",
+        ),
+    )
+
+    rendered = str(result)
+
+    assert "Per-Class Combined Metrics" in rendered
+    assert "plane" in rendered
+    assert "tennis court" in rendered
+    assert "Class Avg (Det)" in rendered
+    assert "COMBINED (plane)" in rendered
+    assert "COMBINED (results)" not in rendered
+
+
 def test_tune_result_formats_best_report():
     metrics = api_module.ValidationResult(
         benchmark="mot17-ablation",
