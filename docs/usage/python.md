@@ -13,6 +13,9 @@ boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 run = boxmot.track(source="video.mp4", save=True)
 print(run)
 
+cache = Boxmot().generate(benchmark="mot17-mini")
+print(cache.cache_dir)
+
 metrics = boxmot.val(benchmark="mot17-mini")
 print(metrics)
 
@@ -20,9 +23,11 @@ tuned = boxmot.tune(benchmark="mot17-mini", n_trials=2)
 print(tuned)
 ```
 
-Use `.summary` or `.to_dict()` when you need structured data instead of the human-readable report.
+The same facade also exposes `research(...)` for GEPA-backed benchmark optimization and `export(...)` for ReID conversion workflows.
 
-The same facade also exposes `val(...)`, `tune(...)`, and `export(...)`.
+Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` when you need structured data instead of the human-readable report.
+
+`generate(...)` and `research(...)` return `GenerateResult` and `ResearchResult`.
 
 ## Composable runtime
 
@@ -44,7 +49,7 @@ print(results.summary())
 
 ## Result objects
 
-Tracking and evaluation calls return structured result types such as `TrackRunResult`, `ValidationResult`, and `TuneResult` rather than raw terminal text.
+High-level workflows return structured result types such as `TrackRunResult`, `GenerateResult`, `ValidationResult`, `TuneResult`, and `ResearchResult` rather than raw terminal text.
 
 ## Detailed API pages
 

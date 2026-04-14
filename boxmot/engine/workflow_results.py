@@ -314,6 +314,54 @@ class TuneResult:
 
 
 @dataclass(**dataclass_slots_kwargs())
+class GenerateResult:
+    benchmark: str | None
+    source: Any
+    cache_dir: Path
+    detectors: tuple[Path, ...]
+    reid_models: tuple[Path, ...]
+    timings: dict[str, Any] = field(default_factory=dict)
+    args: Any = None
+
+    def __str__(self) -> str:
+        return self.render()
+
+    def __repr__(self) -> str:
+        return (
+            f"GenerateResult(benchmark={self.benchmark!r}, source={self.source!r}, "
+            f"cache_dir={self.cache_dir!r}, detectors={self.detectors!r}, reid_models={self.reid_models!r})"
+        )
+
+    def render(self) -> str:
+        timing_stats = reporting.timing_stats_from_snapshot(self.timings)
+        if timing_stats is not None:
+            summary = timing_stats.format_summary()
+            if summary:
+                return summary
+
+        target = self.benchmark or self.source
+        lines = ["GENERATE SUMMARY"]
+        if target is not None:
+            label = "Benchmark" if self.benchmark else "Source"
+            lines.append(f"{label}: {target}")
+        lines.append(f"Cache dir: {self.cache_dir}")
+        return "\n".join(lines)
+
+    def print_summary(self) -> None:
+        print(self.render())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "benchmark": self.benchmark,
+            "source": None if self.source is None else str(self.source),
+            "cache_dir": str(self.cache_dir),
+            "detectors": [str(path) for path in self.detectors],
+            "reid_models": [str(path) for path in self.reid_models],
+            "timings": dict(self.timings),
+        }
+
+
+@dataclass(**dataclass_slots_kwargs())
 class ExportResult:
     weights: Path
     files: dict[str, Any]
@@ -383,6 +431,7 @@ class TrackRunResult:
 
 __all__ = (
     "ExportResult",
+    "GenerateResult",
     "TrackRunResult",
     "TuneResult",
     "TuneTrialResult",
