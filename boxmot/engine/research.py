@@ -1566,6 +1566,10 @@ class TrackerResearcher:
 
 
 def main(args: argparse.Namespace) -> ResearchResult:
+    return run_research(args)
+
+
+def run_research(args: argparse.Namespace) -> ResearchResult:
     config = args if isinstance(args, ResearchConfig) else ResearchConfig.from_namespace(args)
     return TrackerResearcher(config).run()
 
@@ -1578,4 +1582,5 @@ __all__ = [
     "ResearchResult",
     "TrackerResearcher",
     "main",
+    "run_research",
 ]

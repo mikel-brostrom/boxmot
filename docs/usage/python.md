@@ -1,13 +1,13 @@
 # Python
 
-Use explicit public modules for Python integration: `boxmot.api` for workflows and result types, `boxmot.reid` for ReID, `boxmot.trackers` for tracker classes, and `boxmot.trackers.tracker_zoo` for tracker factory helpers. The package root stays minimal.
+Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.api`, `boxmot.reid`, `boxmot.trackers`, and `boxmot.trackers.tracker_zoo` when you want lower-level control.
 
 ## High-level facade
 
 Use `Boxmot` when you want the Python equivalent of the CLI with minimal boilerplate:
 
 ```python
-from boxmot.api import Boxmot
+from boxmot import Boxmot
 
 boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 run = boxmot.track(source="video.mp4", save=True)

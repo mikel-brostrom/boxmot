@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import sys
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +11,12 @@ import torch
 
 import boxmot
 import boxmot.api as api_module
+from boxmot.engine import evaluator as evaluator_module
+from boxmot.engine import export as export_module
+from boxmot.engine import tracker as tracker_module
+from boxmot.engine import tuner as tuner_module
+from boxmot.engine import workflow_reporting as reporting_module
+from boxmot.engine import workflow_support as workflow_support_module
 import boxmot.engine.results as results_module
 from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
 from boxmot.detectors import Detector
@@ -22,9 +27,13 @@ from boxmot.reid import ReID
 _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)
 
 
-def test_package_root_only_exports_metadata():
-    assert boxmot.__all__ == ("__version__",)
-    assert not hasattr(boxmot, "Boxmot")
+def test_package_root_lazily_reexports_python_api():
+    assert "__version__" in boxmot.__all__
+    assert "Boxmot" in boxmot.__all__
+    assert "track" in boxmot.__all__
+    assert boxmot.Boxmot is api_module.Boxmot
+    assert boxmot.track is api_module.track
+    assert boxmot.ValidationResult is api_module.ValidationResult
 
 
 def test_boxmot_defaults_follow_shared_configs():
@@ -315,7 +324,7 @@ def test_boxmot_track_returns_paths_and_timings(tmp_path, monkeypatch):
         def release(self):
             Path(self.path).touch()
 
-    monkeypatch.setattr(api_module.cv2, "VideoWriter", _FakeVideoWriter)
+    monkeypatch.setattr(workflow_support_module.cv2, "VideoWriter", _FakeVideoWriter)
 
     model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
     run = model.track(source=tmp_path, save=True, save_txt=True)
@@ -366,14 +375,14 @@ def test_boxmot_track_reuses_tracker_reid_backend_and_suppresses_setup_logs(monk
 
     fake_tracker = _FakeTracker()
 
-    monkeypatch.setattr(api_module, "_suppress_boxmot_logs", fake_suppress)
-    monkeypatch.setattr(api_module.Boxmot, "_build_detector", lambda self, **kwargs: _FakeDetector())
-    monkeypatch.setattr(api_module.Boxmot, "_build_tracker", lambda self, **kwargs: fake_tracker)
+    monkeypatch.setattr(tracker_module, "suppress_boxmot_logs", fake_suppress)
+    monkeypatch.setattr(tracker_module, "build_detector_from_spec", lambda *args, **kwargs: _FakeDetector())
+    monkeypatch.setattr(tracker_module, "build_tracker_from_spec", lambda *args, **kwargs: fake_tracker)
 
-    def fail_build_reid(self, **kwargs):
+    def fail_build_track_reid(*args, **kwargs):
         raise AssertionError("track() should reuse the tracker ReID backend for built-in ReID trackers")
 
-    monkeypatch.setattr(api_module.Boxmot, "_build_reid", fail_build_reid)
+    monkeypatch.setattr(workflow_support_module, "build_reid_from_spec", fail_build_track_reid)
 
     model = api_module.Boxmot(
         detector="yolov8n",
@@ -436,7 +445,7 @@ def test_boxmot_track_keeps_live_sources_lazy(monkeypatch, tmp_path):
             return None
 
     fake_results = _FakeResults()
-    monkeypatch.setattr(api_module, "track", lambda *args, **kwargs: fake_results)
+    monkeypatch.setattr(tracker_module, "Results", lambda *args, **kwargs: fake_results)
 
     model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source="0")
@@ -524,7 +533,7 @@ def test_results_live_sources_do_not_cache_frames(monkeypatch):
     assert results._cache == []
 
 
-def test_boxmot_track_keeps_finite_sources_lazy_without_save(monkeypatch, tmp_path):
+def test_boxmot_track_eagerly_consumes_finite_sources_for_uniform_cli_behavior(monkeypatch, tmp_path):
     class _FakeResults:
         def __init__(self):
             self.totals = {
@@ -536,11 +545,23 @@ def test_boxmot_track_keeps_finite_sources_lazy_without_save(monkeypatch, tmp_pa
                 "detections": 0,
                 "tracks": 0,
             }
-            self.materialized = False
+            self.iterated = False
 
-        def materialize(self):
-            self.materialized = True
-            raise AssertionError("finite sources should stay lazy until save/show/summary needs them")
+        def __iter__(self):
+            def _gen():
+                self.iterated = True
+                self.totals.update({
+                    "det": 1.0,
+                    "reid": 2.0,
+                    "track": 3.0,
+                    "total": 6.0,
+                    "frames": 1,
+                    "detections": 4,
+                    "tracks": 5,
+                })
+                yield SimpleNamespace(frame_idx=1, num_tracks=5, render=lambda: _DUMMY_IMG)
+
+            return _gen()
 
         def save(self, output_path):
             raise AssertionError("save should not be called when save_txt is disabled")
@@ -558,16 +579,17 @@ def test_boxmot_track_keeps_finite_sources_lazy_without_save(monkeypatch, tmp_pa
             return None
 
     fake_results = _FakeResults()
-    monkeypatch.setattr(api_module, "track", lambda *args, **kwargs: fake_results)
+    monkeypatch.setattr(tracker_module, "Results", lambda *args, **kwargs: fake_results)
 
     model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source=tmp_path)
 
-    assert fake_results.materialized is False
-    assert fake_results.totals["frames"] == 0
+    assert fake_results.iterated is True
+    assert run.summary["frames"] == 1
+    assert run.summary["tracks"] == 5
 
 
-def test_boxmot_track_summary_materializes_finite_sources(tmp_path):
+def test_boxmot_track_returns_summary_for_eagerly_consumed_finite_sources(tmp_path):
     for index in range(2):
         cv2.imwrite(str(tmp_path / f"{index + 1:06d}.jpg"), _DUMMY_IMG)
 
@@ -592,8 +614,6 @@ def test_boxmot_track_summary_materializes_finite_sources(tmp_path):
 
     model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
     run = model.track(source=tmp_path)
-
-    assert run.results.totals["frames"] == 0
 
     summary = run.summary
 
@@ -660,7 +680,7 @@ def test_boxmot_track_show_flag_displays_results(monkeypatch, tmp_path):
             return None
 
     fake_results = _FakeResults()
-    monkeypatch.setattr(api_module, "track", lambda *args, **kwargs: fake_results)
+    monkeypatch.setattr(tracker_module, "Results", lambda *args, **kwargs: fake_results)
 
     model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source=tmp_path, show=True)
@@ -1039,7 +1059,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
         def isatty(self):
             return True
 
-    monkeypatch.setattr(api_module.sys, "stdout", _TTYStdout())
+    monkeypatch.setattr(reporting_module.sys, "stdout", _TTYStdout())
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.delenv("NO_COLOR", raising=False)
 
@@ -1248,165 +1268,130 @@ def test_track_run_result_str_and_print_summary_use_plain_stdout(monkeypatch, ca
 
 
 def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
-    state = {"last_config": None}
-    evaluator_calls = []
-    replay_calls = []
+    calls = {}
 
-    def fake_eval_setup(args):
-        args.source = tmp_path / "benchmark" / "train"
-        args.project = tmp_path / "runs"
-        args.project.mkdir(parents=True, exist_ok=True)
+    def fake_run_eval(args, *, evolve_config=None, **kwargs):
+        calls["eval"] = (args, evolve_config, kwargs)
+        return api_module.ValidationResult(
+            benchmark=str(args.benchmark),
+            raw={"all": {"HOTA": 50.0, "MOTA": 45.0, "IDF1": 40.0}},
+            summary_label="all",
+            summary={"HOTA": 50.0, "MOTA": 45.0, "IDF1": 40.0},
+            exp_dir=tmp_path / "eval",
+            timings={"frames": 2},
+            args=args,
+        )
 
-    def fake_run_generate_dets_embs(args, timing_stats=None):
-        evaluator_calls.append(("generate", args.data, args.detector[0].name, args.reid[0].name, args.classes))
-        if timing_stats is not None:
-            timing_stats.frames = 2
-            timing_stats.totals["inference"] = 12.0
-            timing_stats.totals["reid"] = 4.0
-            timing_stats.totals["total"] = 20.0
+    def fake_run_tune(args, *, baseline_config=None):
+        calls["tune"] = (args, baseline_config)
+        metrics = api_module.ValidationResult(
+            benchmark=str(args.benchmark),
+            raw={"all": {"HOTA": 53.0, "MOTA": 48.0, "IDF1": 43.0}},
+            summary_label="all",
+            summary={"HOTA": 53.0, "MOTA": 48.0, "IDF1": 43.0},
+            exp_dir=tmp_path / "tune",
+            timings={},
+            args=args,
+        )
+        best_trial = api_module.TuneTrialResult(
+            index=1,
+            config={"track_buffer": 40},
+            metrics=metrics,
+            score=(53.0,),
+        )
+        return api_module.TuneResult(
+            benchmark=str(args.benchmark),
+            tracker=args.tracker,
+            trials=[best_trial],
+            best=best_trial,
+            best_config={"track_buffer": 40},
+            best_yaml=tmp_path / "best.yaml",
+        )
 
-    def fake_run_generate_mot_results(args, evolve_config=None, timing_stats=None, quiet=False):
-        state["last_config"] = evolve_config or {}
-        replay_calls.append(("track", quiet, state["last_config"], getattr(args, "show_progress", None)))
-        args.exp_dir = tmp_path / f"exp_{len([call for call in evaluator_calls if call[0] == 'track'])}"
-        args.exp_dir.mkdir(parents=True, exist_ok=True)
-        if timing_stats is not None:
-            timing_stats.totals["track"] = 6.0 + float(state["last_config"].get("trial_score", 0.0))
+    def fake_run_export(args):
+        calls["export"] = args
+        return api_module.ExportResult(weights=Path(args.weights), files={"onnx": tmp_path / "exported.onnx"})
 
-    def fake_run_trackeval(args, verbose=False):
-        hota = 50.0 + float(state["last_config"].get("trial_score", 0.0))
-        return {"all": {"HOTA": hota, "MOTA": hota - 5.0, "IDF1": hota - 10.0}}
-
-    fake_evaluator = SimpleNamespace(
-        eval_setup=fake_eval_setup,
-        run_generate_dets_embs=fake_run_generate_dets_embs,
-        run_trackeval=fake_run_trackeval,
-    )
-    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", fake_evaluator)
-    monkeypatch.setitem(sys.modules, "boxmot.engine.replay", SimpleNamespace(run_generate_mot_results=fake_run_generate_mot_results))
-
-    def fake_setup_model(args):
-        args.weights = Path(args.weights)
-        return object(), object()
-
-    def fake_create_export_tasks(args, model, dummy_input):
-        return {"onnx": (True, object, ())}
-
-    def fake_perform_exports(export_tasks):
-        return {"onnx": tmp_path / "exported.onnx"}
-
-    fake_export = SimpleNamespace(
-        setup_model=fake_setup_model,
-        create_export_tasks=fake_create_export_tasks,
-        perform_exports=fake_perform_exports,
-    )
-    monkeypatch.setitem(sys.modules, "boxmot.engine.export", fake_export)
+    monkeypatch.setattr(evaluator_module, "run_eval", fake_run_eval)
+    monkeypatch.setattr(tuner_module, "run_tune", fake_run_tune)
+    monkeypatch.setattr(export_module, "run_export", fake_run_export)
 
     model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", classes=[0, 1], project=tmp_path / "runs")
 
     metrics = model.val(benchmark="mot17-mini", device="cpu")
 
     assert metrics.summary["HOTA"] == 50.0
-    assert evaluator_calls[0] == ("generate", "mot17-mini", "yolov8n.pt", "lmbn_n_duke.pt", [0, 1])
-    assert replay_calls[0] == ("track", False, {}, True)
-
-    monkeypatch.setattr(
-        api_module.Boxmot,
-        "_iter_tune_configs",
-        lambda self, n_trials, rng: iter([
-            {"trial_score": 1.0},
-            {"trial_score": 3.0},
-            {"trial_score": 2.0},
-        ]),
-    )
+    eval_args, eval_config, eval_kwargs = calls["eval"]
+    assert eval_args.data == "mot17-mini"
+    assert eval_args.detector[0].name == "yolov8n.pt"
+    assert eval_args.reid[0].name == "lmbn_n_duke.pt"
+    assert eval_args.classes == [0, 1]
+    assert eval_args.show_progress is True
+    assert eval_config is None
+    assert eval_kwargs == {}
 
     tune_results = model.tune(benchmark="mot17-mini", n_trials=3, device="cpu")
 
-    assert tune_results.best_config["trial_score"] == 3.0
+    assert tune_results.best_config["track_buffer"] == 40
     assert tune_results.best.metrics.summary["HOTA"] == 53.0
-    assert tune_results.best_yaml.exists()
-    assert replay_calls[1:] == [
-        ("track", True, {"trial_score": 1.0}, False),
-        ("track", True, {"trial_score": 3.0}, False),
-        ("track", True, {"trial_score": 2.0}, False),
-    ]
+    tune_args, tune_baseline = calls["tune"]
+    assert tune_args.data == "mot17-mini"
+    assert tune_args.n_trials == 3
+    assert tune_args.seed == 0
+    assert tune_baseline is None
 
     export_results = model.export(include=("onnx",), device="cpu")
 
+    export_args = calls["export"]
     assert export_results.weights.name == "lmbn_n_duke.pt"
     assert export_results.files["onnx"] == tmp_path / "exported.onnx"
+    assert export_args.include == ("onnx",)
+    assert export_args.weights.name == "lmbn_n_duke.pt"
 
 
-def test_boxmot_tune_logs_trial_progress(monkeypatch, tmp_path):
-    writes = []
-    suppress_calls = []
+def test_boxmot_tune_forwards_optimization_targets_and_seed(monkeypatch, tmp_path):
+    captured = {}
 
-    def fake_suppress(enabled, level="WARNING"):
-        suppress_calls.append((enabled, level))
-        return nullcontext()
-
-    monkeypatch.setattr(api_module, "_suppress_boxmot_logs", fake_suppress)
-    monkeypatch.setattr(
-        api_module,
-        "_write_progress_line",
-        lambda message, previous_width, stream=None, final=False: writes.append((message, final)) or max(previous_width, len(message)),
-    )
-    perf_counter_values = iter([100.0, 101.2, 101.2, 103.6])
-    monkeypatch.setattr(api_module.time, "perf_counter", lambda: next(perf_counter_values))
-
-    model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", project=tmp_path / "runs")
-
-    monkeypatch.setattr(
-        api_module.Boxmot,
-        "_iter_tune_configs",
-        lambda self, n_trials, rng: iter([
-            {"trial_score": 1.0},
-            {"trial_score": 3.0},
-        ]),
-    )
-
-    def fake_run_validation_pipeline(self, **kwargs):
-        score = float(kwargs["evolve_config"]["trial_score"])
-        assert kwargs["verbose"] is False
-        assert kwargs["show_progress"] is False
-        return api_module.ValidationResult(
-            benchmark=str(kwargs["benchmark"]),
+    def fake_run_tune(args, *, baseline_config=None):
+        captured["args"] = args
+        captured["baseline_config"] = baseline_config
+        metrics = api_module.ValidationResult(
+            benchmark=str(args.benchmark),
             raw={},
             summary_label="all",
-            summary={"HOTA": 50.0 + score, "MOTA": 45.0 + score, "IDF1": 40.0 + score},
+            summary={"HOTA": 51.0, "MOTA": 46.0, "IDF1": 41.0},
             exp_dir=None,
             timings={},
-            args=None,
+            args=args,
+        )
+        trial = api_module.TuneTrialResult(index=1, config={}, metrics=metrics, score=(51.0, -0.2))
+        return api_module.TuneResult(
+            benchmark=str(args.benchmark),
+            tracker=args.tracker,
+            trials=[trial],
+            best=trial,
+            best_config={},
+            best_yaml=tmp_path / "best.yaml",
         )
 
-    monkeypatch.setattr(api_module.Boxmot, "_run_validation_pipeline", fake_run_validation_pipeline)
+    monkeypatch.setattr(tuner_module, "run_tune", fake_run_tune)
+    model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", project=tmp_path / "runs")
 
-    tuned = model.tune(benchmark="mot17-mini", n_trials=2, device="cpu")
+    tuned = model.tune(
+        benchmark="mot17-mini",
+        n_trials=2,
+        device="cpu",
+        maximize=("HOTA", "IDF1"),
+        minimize=("IDSW_rate",),
+        seed=7,
+    )
 
-    assert tuned.best.index == 2
-    assert len(writes) == 4
-    assert suppress_calls == [(True, "WARNING"), (True, "WARNING")]
-    assert writes[0][0].startswith("  Tune")
-    assert "0%  (0/2)" in writes[0][0]
-    assert "running trial 1/2" in writes[0][0]
-    assert writes[0][0].endswith("remaining --:--")
-    assert "50%  (1/2)" in writes[1][0]
-    assert "HOTA=51.000" in writes[1][0]
-    assert "best" in writes[1][0]
-    assert writes[1][0].endswith("remaining 00:02")
-    assert writes[2][0].startswith("  Tune")
-    assert "50%  (1/2)" in writes[2][0]
-    assert "running trial 2/2" in writes[2][0]
-    assert "last HOTA=51.000" in writes[2][0]
-    assert "best" in writes[2][0]
-    assert writes[2][0].endswith("remaining 00:02")
-    assert "100%  (2/2)" in writes[3][0]
-    assert "HOTA=53.000" in writes[3][0]
-    assert writes[3][0].endswith("remaining 00:00")
-    assert writes[0][1] is False
-    assert writes[1][1] is False
-    assert writes[2][1] is False
-    assert writes[3][1] is True
+    assert tuned.best.index == 1
+    assert captured["args"].n_trials == 2
+    assert captured["args"].maximize == ("HOTA", "IDF1")
+    assert captured["args"].minimize == ("IDSW_rate",)
+    assert captured["args"].seed == 7
+    assert captured["baseline_config"] is None
 
 
 def test_extract_summary_handles_single_class_results_with_per_sequence_first():
@@ -1418,7 +1403,7 @@ def test_extract_summary_handles_single_class_results_with_per_sequence_first():
         "AssA": 61.0,
     }
 
-    label, summary = api_module._extract_summary(raw)
+    label, summary = reporting_module.extract_summary(raw)
 
     assert label == "single_class"
     assert summary["HOTA"] == 62.5
