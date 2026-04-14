@@ -13,6 +13,7 @@ import torch
 import boxmot
 import boxmot.api as api_module
 import boxmot.engine.results as results_module
+from boxmot.api import _facade as facade_module, _reporting as reporting_module, _runtime as runtime_module
 from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
 from boxmot.detectors import Detector
 from boxmot.detectors.base import Detections
@@ -315,7 +316,7 @@ def test_boxmot_track_returns_paths_and_timings(tmp_path, monkeypatch):
         def release(self):
             Path(self.path).touch()
 
-    monkeypatch.setattr(api_module.cv2, "VideoWriter", _FakeVideoWriter)
+    monkeypatch.setattr(facade_module.cv2, "VideoWriter", _FakeVideoWriter)
 
     model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
     run = model.track(source=tmp_path, save=True, save_txt=True)
@@ -366,7 +367,7 @@ def test_boxmot_track_reuses_tracker_reid_backend_and_suppresses_setup_logs(monk
 
     fake_tracker = _FakeTracker()
 
-    monkeypatch.setattr(api_module, "_suppress_boxmot_logs", fake_suppress)
+    monkeypatch.setattr(runtime_module, "suppress_boxmot_logs", fake_suppress)
     monkeypatch.setattr(api_module.Boxmot, "_build_detector", lambda self, **kwargs: _FakeDetector())
     monkeypatch.setattr(api_module.Boxmot, "_build_tracker", lambda self, **kwargs: fake_tracker)
 
@@ -436,7 +437,7 @@ def test_boxmot_track_keeps_live_sources_lazy(monkeypatch, tmp_path):
             return None
 
     fake_results = _FakeResults()
-    monkeypatch.setattr(api_module, "track", lambda *args, **kwargs: fake_results)
+    monkeypatch.setattr(facade_module, "track", lambda *args, **kwargs: fake_results)
 
     model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source="0")
@@ -558,7 +559,7 @@ def test_boxmot_track_keeps_finite_sources_lazy_without_save(monkeypatch, tmp_pa
             return None
 
     fake_results = _FakeResults()
-    monkeypatch.setattr(api_module, "track", lambda *args, **kwargs: fake_results)
+    monkeypatch.setattr(facade_module, "track", lambda *args, **kwargs: fake_results)
 
     model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source=tmp_path)
@@ -660,7 +661,7 @@ def test_boxmot_track_show_flag_displays_results(monkeypatch, tmp_path):
             return None
 
     fake_results = _FakeResults()
-    monkeypatch.setattr(api_module, "track", lambda *args, **kwargs: fake_results)
+    monkeypatch.setattr(facade_module, "track", lambda *args, **kwargs: fake_results)
 
     model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source=tmp_path, show=True)
@@ -1039,7 +1040,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
         def isatty(self):
             return True
 
-    monkeypatch.setattr(api_module.sys, "stdout", _TTYStdout())
+    monkeypatch.setattr(reporting_module.sys, "stdout", _TTYStdout())
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.delenv("NO_COLOR", raising=False)
 
@@ -1345,14 +1346,14 @@ def test_boxmot_tune_logs_trial_progress(monkeypatch, tmp_path):
         suppress_calls.append((enabled, level))
         return nullcontext()
 
-    monkeypatch.setattr(api_module, "_suppress_boxmot_logs", fake_suppress)
+    monkeypatch.setattr(runtime_module, "suppress_boxmot_logs", fake_suppress)
     monkeypatch.setattr(
-        api_module,
-        "_write_progress_line",
-        lambda message, previous_width, stream=None, final=False: writes.append((message, final)) or max(previous_width, len(message)),
+        reporting_module,
+        "write_progress_line",
+        lambda message, previous_width, stream=None, final=False, sys_module=reporting_module.sys: writes.append((message, final)) or max(previous_width, len(message)),
     )
     perf_counter_values = iter([100.0, 101.2, 101.2, 103.6])
-    monkeypatch.setattr(api_module.time, "perf_counter", lambda: next(perf_counter_values))
+    monkeypatch.setattr(facade_module.time, "perf_counter", lambda: next(perf_counter_values))
 
     model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", project=tmp_path / "runs")
 
@@ -1418,7 +1419,7 @@ def test_extract_summary_handles_single_class_results_with_per_sequence_first():
         "AssA": 61.0,
     }
 
-    label, summary = api_module._extract_summary(raw)
+    label, summary = reporting_module.extract_summary(raw)
 
     assert label == "single_class"
     assert summary["HOTA"] == 62.5
