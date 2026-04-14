@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 Hyperparameter tuning for multi-object trackers using Ray Tune + Optuna.
 
