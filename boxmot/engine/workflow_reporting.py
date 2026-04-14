@@ -258,26 +258,14 @@ def format_tune_progress(
             detail=f"running trial {running}/{total}  remaining {remaining}",
         )
 
-    summary_prefix = "last " if current_trial is not None and completed < total else ""
-    summary_text = f"{summary_prefix}{format_core_summary(summary)}"
-    status = "  best" if is_new_best else ""
-    if current_trial is not None and completed < total:
-        return format_named_progress(
-            "Tune",
-            completed,
-            total,
-            detail=(
-                f"running trial {current_trial}/{total}  "
-                f"{summary_text}{status}  remaining {remaining}"
-            ),
-        )
+    core = format_core_summary(summary)
+    suffix = "  best" if is_new_best else ""
+    if current_trial is not None and current_trial > completed:
+        detail = f"running trial {current_trial}/{total}  last {core}{suffix}  remaining {remaining}"
+        return format_named_progress("Tune", completed, total, detail=detail)
 
-    return format_named_progress(
-        "Tune",
-        completed,
-        total,
-        detail=f"{summary_text}{status}  remaining {remaining}",
-    )
+    detail = f"{core}{suffix}  remaining {remaining}"
+    return format_named_progress("Tune", completed, total, detail=detail)
 
 
 def write_progress_line(
@@ -288,14 +276,36 @@ def write_progress_line(
     final: bool = False,
     sys_module=sys,
 ) -> int:
-    output = sys_module.stderr if stream is None else stream
+    output = sys_module.stdout if stream is None else stream
     width = max(previous_width, len(message))
-    is_tty = hasattr(output, "isatty") and output.isatty()
-    rendered = f"\033[36m{message}\033[0m" if is_tty else message
-    prefix = "\r\033[2K" if is_tty else "\r"
-    output.write(prefix + rendered + (" " * (width - len(message))))
+    padded = message.ljust(width)
+    output.write(f"\r{padded}")
     if final:
         output.write("\n")
     output.flush()
     return width
 
+
+__all__ = (
+    "CLI_RESULTS_SUMMARY_TITLE",
+    "CLI_TUNE_BEST_SUMMARY_TITLE",
+    "CORE_SUMMARY_COLUMNS",
+    "DEFAULT_TUNE_BEST_REPORT_TITLE",
+    "DEFAULT_VALIDATION_REPORT_TITLE",
+    "SUMMARY_COLUMNS",
+    "core_summary_metrics",
+    "estimate_tune_remaining",
+    "extract_summary",
+    "format_core_summary",
+    "format_named_progress",
+    "format_progress_bar",
+    "format_remaining_time",
+    "format_tune_progress",
+    "format_validation_report",
+    "print_validation_cli_report",
+    "render_validation_cli_report",
+    "supports_ansi_color",
+    "timing_stats_from_snapshot",
+    "timing_summary_from_stats",
+    "write_progress_line",
+)

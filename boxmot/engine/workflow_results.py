@@ -7,7 +7,7 @@ from typing import Any, Iterator
 from boxmot.engine.results import Results, Tracks
 from boxmot.utils.compat import dataclass_slots_kwargs
 
-from . import _reporting as reporting
+from . import workflow_reporting as reporting
 
 
 def _results_summary_snapshot(results: Results, source: Any) -> dict[str, Any]:
@@ -380,3 +380,11 @@ class TrackRunResult:
             self._summary = _results_summary_snapshot(self.results, self.source)
         self._timings = _track_timings_from_summary(self._summary)
 
+
+__all__ = (
+    "ExportResult",
+    "TrackRunResult",
+    "TuneResult",
+    "TuneTrialResult",
+    "ValidationResult",
+)

@@ -32,6 +32,8 @@ from boxmot.data.cache import (
 from boxmot.detectors import get_runtime_detector_cfg
 from boxmot.engine.cache import generate_dets_embs_batched, run_generate_dets_embs
 from boxmot.engine.replay import process_sequence, run_generate_mot_results
+from boxmot.engine.workflow_reporting import extract_summary, timing_stats_from_snapshot, timing_summary_from_stats
+from boxmot.engine.workflow_results import ValidationResult
 from boxmot.utils import (
     BENCHMARK_CONFIGS,
     logger as LOGGER,
@@ -85,6 +87,7 @@ __all__ = [
     "main",
     "parse_mot_results",
     "process_sequence",
+    "run_eval",
     "run_generate_dets_embs",
     "run_generate_mot_results",
     "run_trackeval",
@@ -275,14 +278,57 @@ def apply_class_remap(args, det_cfg: dict) -> None:
         args.remapped_class_names = [name.lower() for name in new_class_names]
 
 
-def main(args):
-    _ensure_eval_dependencies()
+def _normalize_eval_models(args: argparse.Namespace) -> None:
     args.detector = [resolve_model_path(model) for model in args.detector]
     args.reid = [resolve_model_path(model) for model in args.reid]
 
-    LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
-    eval_setup(args)
 
+def run_eval(
+    args: argparse.Namespace,
+    *,
+    evolve_config: dict | None = None,
+    setup: bool = True,
+    prepare_cache: bool = True,
+    verbose: bool | None = None,
+    show_progress: bool | None = None,
+) -> ValidationResult:
+    _ensure_eval_dependencies()
+    _normalize_eval_models(args)
+    if verbose is None:
+        verbose = bool(getattr(args, "verbose", False))
+    if show_progress is None:
+        show_progress = bool(getattr(args, "show_progress", True))
+    args.show_progress = bool(show_progress)
+
+    timing_stats = TimingStats()
+    if setup:
+        eval_setup(args)
+    if prepare_cache:
+        run_generate_dets_embs(args, timing_stats=timing_stats)
+    run_generate_mot_results(
+        args,
+        evolve_config=evolve_config,
+        timing_stats=timing_stats,
+        quiet=not bool(show_progress),
+    )
+    raw_results = run_trackeval(args, verbose=bool(verbose))
+    summary_label, summary = extract_summary(raw_results)
+
+    return ValidationResult(
+        benchmark=str(getattr(args, "benchmark", getattr(args, "data", ""))),
+        raw=raw_results,
+        summary_label=summary_label,
+        summary=summary,
+        exp_dir=getattr(args, "exp_dir", None),
+        timings=timing_summary_from_stats(timing_stats),
+        args=args,
+    )
+
+
+def main(args):
+    _normalize_eval_models(args)
+
+    LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
     LOGGER.info("")
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
     LOGGER.opt(colors=True).info("<bold><cyan>🚀 BoxMOT Evaluation Pipeline</cyan></bold>")
@@ -294,23 +340,19 @@ def main(args):
     LOGGER.opt(colors=True).info(f"<bold>Image size:</bold> <cyan>{getattr(args, 'imgsz', None)}</cyan>")
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
 
-    timing_stats = TimingStats()
-
     LOGGER.opt(colors=True).info("<cyan>[2/4]</cyan> Generating detections and embeddings...")
-    run_generate_dets_embs(args, timing_stats=timing_stats)
-
     LOGGER.opt(colors=True).info("<cyan>[3/4]</cyan> Running tracker...")
-    run_generate_mot_results(args, timing_stats=timing_stats)
-
     LOGGER.opt(colors=True).info("<cyan>[4/4]</cyan> Evaluating results...")
-    results = run_trackeval(args)
+    result = run_eval(args)
 
-    if getattr(args, "show_timing", False) and timing_stats.frames > 0:
-        timing_stats.print_summary()
+    if getattr(args, "show_timing", False):
+        timing_stats = timing_stats_from_snapshot(result.timings)
+        if timing_stats is not None and timing_stats.frames > 0:
+            timing_stats.print_summary()
 
-    plot_class, metrics_data = _select_plot_metrics_data(results)
+    plot_class, metrics_data = _select_plot_metrics_data(result.raw)
     if metrics_data:
-        plotter = MetricsPlotter(args.exp_dir)
+        plotter = MetricsPlotter(result.exp_dir)
         plot_metrics = ["HOTA", "MOTA", "IDF1"]
         plot_values = [metrics_data.get(metric, 0) for metric in plot_metrics]
 
@@ -322,6 +364,7 @@ def main(args):
             yticks=[20, 40, 60, 80, 100],
             ytick_labels=["20", "40", "60", "80", "100"],
         )
+    return result
 
 
 if __name__ == "__main__":

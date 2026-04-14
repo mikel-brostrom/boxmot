@@ -3,15 +3,21 @@
 """Public BoxMOT Python API."""
 
 from boxmot.engine.results import Results, Tracks
-
-from ._facade import Boxmot, evaluate, track
-from ._reporting import (
+from boxmot.engine.workflow_reporting import (
     CLI_RESULTS_SUMMARY_TITLE,
     CLI_TUNE_BEST_SUMMARY_TITLE,
     DEFAULT_TUNE_BEST_REPORT_TITLE,
     DEFAULT_VALIDATION_REPORT_TITLE,
 )
-from ._results import ExportResult, TrackRunResult, TuneResult, TuneTrialResult, ValidationResult
+from boxmot.engine.workflow_results import (
+    ExportResult,
+    TrackRunResult,
+    TuneResult,
+    TuneTrialResult,
+    ValidationResult,
+)
+
+from ._facade import Boxmot, evaluate, track
 
 __all__ = (
     "Boxmot",
@@ -29,4 +35,3 @@ __all__ = (
     "evaluate",
     "track",
 )
-
