@@ -19,4 +19,4 @@ print(tuned)
 
 The same facade also exposes `research(...)` for GEPA-backed benchmark optimization and `export(...)` for ReID model conversion.
 
-::: boxmot.api.Boxmot
+::: boxmot.Boxmot

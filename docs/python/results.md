@@ -2,19 +2,19 @@
 
 The public API returns structured result objects rather than raw tuples or terminal-only output.
 
-::: boxmot.api.TrackRunResult
+::: boxmot.TrackRunResult
 
-::: boxmot.api.GenerateResult
+::: boxmot.GenerateResult
 
-::: boxmot.api.ValidationResult
+::: boxmot.ValidationResult
 
-::: boxmot.api.TuneResult
+::: boxmot.TuneResult
 
-::: boxmot.api.TuneTrialResult
+::: boxmot.TuneTrialResult
 
-::: boxmot.api.ResearchResult
+::: boxmot.ResearchResult
 
-::: boxmot.api.ExportResult
+::: boxmot.ExportResult
 
 ::: boxmot.engine.results.Results
 

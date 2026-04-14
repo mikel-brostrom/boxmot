@@ -44,7 +44,7 @@
         print(metrics)
         ```
 
-The high-level Python API is available directly from `boxmot`, with implementation living under `boxmot.api`. Shared CLI and Python defaults still come from `boxmot/configs/modes.yaml` so detector, ReID, tracker, and runtime defaults stay aligned across both entry points.
+The high-level Python API is available directly from `boxmot`. Shared CLI and Python defaults still come from `boxmot/configs/modes.yaml` so detector, ReID, tracker, and runtime defaults stay aligned across both entry points.
 
 Next steps:
 

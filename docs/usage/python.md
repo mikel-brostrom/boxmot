@@ -1,6 +1,6 @@
 # Python
 
-Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.api`, `boxmot.reid`, `boxmot.trackers`, and `boxmot.trackers.tracker_zoo` when you want lower-level control.
+Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.reid`, `boxmot.trackers`, and `boxmot.trackers.tracker_zoo` when you want lower-level control.
 
 ## High-level facade
 
@@ -34,7 +34,7 @@ Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` when you need stru
 If you need more control, compose the detector, ReID runtime, and tracker explicitly:
 
 ```python
-from boxmot.api import track
+from boxmot import track
 from boxmot.reid import ReID
 from boxmot.trackers import StrongSort
 from boxmot.detectors import Detector
