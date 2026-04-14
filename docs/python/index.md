@@ -1,6 +1,6 @@
 # Python API
 
-Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.api`, `boxmot.reid`, `boxmot.trackers`, and `boxmot.trackers.tracker_zoo` for lower-level access.
+Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.reid`, `boxmot.trackers`, and `boxmot.trackers.tracker_zoo` for lower-level access.
 
 For a getting-started view, see [Python Usage](../usage/python.md).
 

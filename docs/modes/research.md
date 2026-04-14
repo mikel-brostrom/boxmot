@@ -2,6 +2,11 @@
 
 Use `research` when you want GEPA to propose code changes to tracker source files and score them on a benchmark.
 
+Reference material:
+
+- [GEPA repository](https://github.com/gepa-ai/gepa)
+- [Paper: GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning](https://arxiv.org/abs/2507.19457)
+
 ## Examples
 
 !!! example
