@@ -384,7 +384,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo,evolve,onnx,openvino,tflite]" --group dev --group test --group docs
+          # The dedicated export job installs and smoke-tests export runtimes.
+          # The unit suite only needs the runtime/test stacks it imports directly.
+          bash .github/scripts/uv_ci_install.sh ".[yolo,evolve]" --group test
       - name: Pytest tests  # after tracking options as this does not download models
         env:
           # directory of PyPi package to be tested
