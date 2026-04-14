@@ -25,9 +25,18 @@ Use `generate` to precompute detections and embeddings that can be reused by lat
 
     === "Python"
 
-        BoxMOT does not expose a first-class public `generate(...)` workflow on the high-level Python facade.
+        ```python
+        from boxmot import Boxmot
 
-        Use the CLI for cache generation, then use Python APIs such as `Boxmot.val(...)`, `Boxmot.tune(...)`, or `Boxmot.track(...)` to consume benchmark configs and tracking results.
+        benchmark_cache = Boxmot().generate(benchmark="mot17-ablation")
+        print(benchmark_cache.cache_dir)
+
+        direct_cache = Boxmot(
+            detector="yolov8n",
+            reid="osnet_x0_25_msmt17",
+        ).generate(source="path/to/dataset")
+        print(direct_cache.timings["frames"])
+        ```
 
 ## Why generate first
 

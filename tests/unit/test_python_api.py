@@ -7,12 +7,15 @@ from types import SimpleNamespace
 
 import cv2
 import numpy as np
+import pytest
 import torch
 
 import boxmot
 import boxmot.api as api_module
+from boxmot.engine import cache as cache_module
 from boxmot.engine import evaluator as evaluator_module
 from boxmot.engine import export as export_module
+from boxmot.engine import research as research_engine_module
 from boxmot.engine import tracker as tracker_module
 from boxmot.engine import tuner as tuner_module
 from boxmot.engine import workflow_reporting as reporting_module
@@ -22,6 +25,7 @@ from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_
 from boxmot.detectors import Detector
 from boxmot.detectors.base import Detections
 from boxmot.reid import ReID
+from boxmot.utils.timing import TimingStats
 
 
 _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)
@@ -30,8 +34,12 @@ _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)
 def test_package_root_lazily_reexports_python_api():
     assert "__version__" in boxmot.__all__
     assert "Boxmot" in boxmot.__all__
+    assert "GenerateResult" in boxmot.__all__
+    assert "ResearchResult" in boxmot.__all__
     assert "track" in boxmot.__all__
     assert boxmot.Boxmot is api_module.Boxmot
+    assert boxmot.GenerateResult is api_module.GenerateResult
+    assert boxmot.ResearchResult is api_module.ResearchResult
     assert boxmot.track is api_module.track
     assert boxmot.ValidationResult is api_module.ValidationResult
 
@@ -1347,6 +1355,84 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     assert export_results.files["onnx"] == tmp_path / "exported.onnx"
     assert export_args.include == ("onnx",)
     assert export_args.weights.name == "lmbn_n_duke.pt"
+
+
+def test_boxmot_generate_and_research_facades(monkeypatch, tmp_path):
+    calls = {}
+
+    def fake_run_generate(args):
+        calls["generate"] = args
+        timing_stats = TimingStats()
+        timing_stats.frames = 4
+        timing_stats.totals["inference"] = 20.0
+        timing_stats.totals["reid"] = 12.0
+        timing_stats.totals["total"] = 40.0
+        args.benchmark = "mot17-mini"
+        args.source = tmp_path / "datasets" / "mot17-mini" / "train"
+        return timing_stats
+
+    def fake_run_research(args):
+        calls["research"] = args
+        return research_engine_module.ResearchResult(
+            tracker=args.tracker,
+            benchmark=str(args.data),
+            proposal_model=args.proposal_model,
+            run_dir=tmp_path / "runs" / "research" / "bytetrack_mot17_mini",
+            best_candidate_dir=tmp_path / "runs" / "research" / "best",
+            editable_files=("boxmot/trackers/bytetrack/bytetrack.py",),
+            train_sequences=("MOT17-02",),
+            val_sequences=("MOT17-04",),
+            baseline_summary={"HOTA": 60.0, "IDF1": 70.0, "MOTA": 80.0},
+            best_summary={"HOTA": 61.5, "IDF1": 71.0, "MOTA": 80.2},
+            delta_summary={"HOTA": 1.5, "IDF1": 1.0, "MOTA": 0.2},
+        )
+
+    monkeypatch.setattr(cache_module, "run_generate", fake_run_generate)
+    monkeypatch.setattr(research_engine_module, "run_research", fake_run_research)
+
+    model = api_module.Boxmot(tracker="bytetrack", project=tmp_path / "runs")
+
+    generated = model.generate(benchmark="mot17-mini", device="cpu", batch_size=8, resume=False)
+
+    generate_args = calls["generate"]
+    assert generated.benchmark == "mot17-mini"
+    assert generated.source == tmp_path / "datasets" / "mot17-mini" / "train"
+    assert generated.cache_dir == tmp_path / "runs" / "dets_n_embs" / "mot17-mini"
+    assert generated.timings["frames"] == 4
+    assert generated.detectors[0].name == "yolov8n.pt"
+    assert generated.reid_models[0].name == "osnet_x0_25_msmt17.pt"
+    assert generate_args.data == "mot17-mini"
+    assert generate_args.benchmark == "mot17-mini"
+    assert generate_args.batch_size == 8
+    assert generate_args.resume is False
+    assert "TIMING SUMMARY" in str(generated)
+
+    researched = model.research(
+        benchmark="mot17-mini",
+        proposal_model="openai/gpt-5.4",
+        max_metric_calls=6,
+        keep_workspace=True,
+        idf1_penalty=2.0,
+    )
+
+    research_args = calls["research"]
+    assert researched.delta_summary["HOTA"] == 1.5
+    assert research_args.data == "mot17-mini"
+    assert research_args.proposal_model == "openai/gpt-5.4"
+    assert research_args.max_metric_calls == 6
+    assert research_args.keep_workspace is True
+    assert research_args.idf1_penalty == 2.0
+    assert "RESEARCH SUMMARY" in str(researched)
+
+
+def test_boxmot_generate_requires_exactly_one_input(tmp_path):
+    model = api_module.Boxmot(project=tmp_path / "runs")
+
+    with pytest.raises(ValueError, match="exactly one of benchmark=... or source=..."):
+        model.generate()
+
+    with pytest.raises(ValueError, match="exactly one of benchmark=... or source=..."):
+        model.generate(benchmark="mot17-mini", source=tmp_path / "dataset")
 
 
 def test_boxmot_tune_forwards_optimization_targets_and_seed(monkeypatch, tmp_path):

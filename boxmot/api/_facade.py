@@ -4,13 +4,22 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from boxmot.configs import BOXMOT_DEFAULTS
+from boxmot.engine import cache as cache_module
 from boxmot.engine import evaluator as evaluator_module
 from boxmot.engine import export as export_module
+from boxmot.engine import research as research_module
 from boxmot.engine import tracker as tracker_module
 from boxmot.engine import tuner as tuner_module
 from boxmot.engine import workflow_support as support
 from boxmot.engine.results import Results
-from boxmot.engine.workflow_results import ExportResult, TrackRunResult, TuneResult, ValidationResult
+from boxmot.engine.workflow_reporting import timing_summary_from_stats
+from boxmot.engine.workflow_results import (
+    ExportResult,
+    GenerateResult,
+    TrackRunResult,
+    TuneResult,
+    ValidationResult,
+)
 
 from . import _adapters as adapters
 
@@ -64,6 +73,22 @@ def _coerce_results(
         raise ValueError("A tracking function is required when evaluating raw sources.")
 
     return [track_fn(source, detector, reid, tracker, verbose=verbose) for source in _expand_sources(data)]
+
+
+def _cache_dir_from_args(args) -> Path:
+    cache_project = Path(getattr(args, "cache_project", getattr(args, "project", "runs")))
+    cache_dir = cache_project / "dets_n_embs"
+    benchmark = getattr(args, "benchmark", None)
+    if benchmark:
+        cache_dir = cache_dir / str(benchmark)
+    return cache_dir
+
+
+def _validate_generate_inputs(*, benchmark: str | Path | None, source: str | Path | None) -> None:
+    has_benchmark = benchmark is not None and str(benchmark) != ""
+    has_source = source is not None and str(source) != ""
+    if has_benchmark == has_source:
+        raise ValueError("Provide exactly one of benchmark=... or source=... when calling Boxmot.generate().")
 
 
 def track(source, detector, reid=None, tracker=None, *, verbose: bool = True, drawer=None) -> Results:
@@ -224,6 +249,51 @@ class Boxmot:
             drawer=drawer,
         )
 
+    def generate(
+        self,
+        *,
+        benchmark: str | Path | None = None,
+        source: str | Path | None = None,
+        imgsz=None,
+        conf=None,
+        iou: float = BOXMOT_DEFAULTS.generate.iou,
+        device: str = BOXMOT_DEFAULTS.generate.device,
+        half: bool = BOXMOT_DEFAULTS.generate.half,
+        project: str | Path | None = None,
+        verbose: bool = BOXMOT_DEFAULTS.generate.verbose,
+        batch_size: int = BOXMOT_DEFAULTS.generate.batch_size,
+        auto_batch: bool = BOXMOT_DEFAULTS.generate.auto_batch,
+        resume: bool = BOXMOT_DEFAULTS.generate.resume,
+        n_threads: int = BOXMOT_DEFAULTS.generate.n_threads,
+    ) -> GenerateResult:
+        _validate_generate_inputs(benchmark=benchmark, source=source)
+        args = adapters.build_generate_args(
+            self,
+            benchmark=benchmark,
+            source=source,
+            imgsz=imgsz,
+            conf=conf,
+            iou=iou,
+            device=device,
+            half=half,
+            project=project,
+            verbose=verbose,
+            batch_size=batch_size,
+            auto_batch=auto_batch,
+            resume=resume,
+            n_threads=n_threads,
+        )
+        timing_stats = cache_module.run_generate(args)
+        return GenerateResult(
+            benchmark=str(getattr(args, "benchmark", None) or getattr(args, "data", None) or "") or None,
+            source=Path(args.source) if getattr(args, "source", None) else None,
+            cache_dir=_cache_dir_from_args(args),
+            detectors=tuple(Path(detector) for detector in args.detector),
+            reid_models=tuple(Path(reid_model) for reid_model in args.reid),
+            timings=timing_summary_from_stats(timing_stats),
+            args=args,
+        )
+
     def val(
         self,
         *,
@@ -289,6 +359,41 @@ class Boxmot:
             args,
             baseline_config=self._tracker_config_from_spec(),
         )
+
+    def research(
+        self,
+        *,
+        benchmark: str | Path,
+        project: str | Path | None = None,
+        verbose: bool = BOXMOT_DEFAULTS.research.verbose,
+        proposal_model: str = BOXMOT_DEFAULTS.research.proposal_model,
+        proposal_api_key: str | None = BOXMOT_DEFAULTS.research.proposal_api_key,
+        proposal_api_key_env: str | None = BOXMOT_DEFAULTS.research.proposal_api_key_env,
+        max_metric_calls: int = BOXMOT_DEFAULTS.research.max_metric_calls,
+        eval_timeout: float = BOXMOT_DEFAULTS.research.eval_timeout,
+        keep_workspace: bool = BOXMOT_DEFAULTS.research.keep_workspace,
+        idf1_penalty: float = BOXMOT_DEFAULTS.research.idf1_penalty,
+        mota_penalty: float = BOXMOT_DEFAULTS.research.mota_penalty,
+        idf1_tolerance: float = BOXMOT_DEFAULTS.research.idf1_tolerance,
+        mota_tolerance: float = BOXMOT_DEFAULTS.research.mota_tolerance,
+    ) -> research_module.ResearchResult:
+        args = adapters.build_research_args(
+            self,
+            benchmark,
+            project=project,
+            verbose=verbose,
+            proposal_model=proposal_model,
+            proposal_api_key=proposal_api_key,
+            proposal_api_key_env=proposal_api_key_env,
+            max_metric_calls=max_metric_calls,
+            eval_timeout=eval_timeout,
+            keep_workspace=keep_workspace,
+            idf1_penalty=idf1_penalty,
+            mota_penalty=mota_penalty,
+            idf1_tolerance=idf1_tolerance,
+            mota_tolerance=mota_tolerance,
+        )
+        return research_module.run_research(args)
 
     def export(
         self,

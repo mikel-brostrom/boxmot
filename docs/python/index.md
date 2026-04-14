@@ -6,12 +6,12 @@ For a getting-started view, see [Python Usage](../usage/python.md).
 
 ## Main entry points
 
-- `Boxmot` for high-level workflow orchestration
+- `Boxmot` for high-level workflow orchestration across `track`, `generate`, `val`, `tune`, `research`, and `export`
 - `track(...)` for composable detector + ReID + tracker execution
 - `evaluate(...)` for runtime summaries
 - `Detector` for public detector wrapping
 - `ReID` for the unified ReID runtime
-- result types such as `TrackRunResult`, `ValidationResult`, and `TuneResult`
+- result types such as `TrackRunResult`, `GenerateResult`, `ValidationResult`, `TuneResult`, and `ResearchResult`
 
 ## Minimal example
 

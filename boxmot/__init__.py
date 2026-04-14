@@ -14,6 +14,8 @@ __version__ = "17.0.0"
 _API_EXPORTS = (
     "Boxmot",
     "ExportResult",
+    "GenerateResult",
+    "ResearchResult",
     "TrackRunResult",
     "TuneResult",
     "TuneTrialResult",
@@ -29,6 +31,8 @@ if TYPE_CHECKING:
     from boxmot.api import (
         Boxmot,
         ExportResult,
+        GenerateResult,
+        ResearchResult,
         TrackRunResult,
         TuneResult,
         TuneTrialResult,

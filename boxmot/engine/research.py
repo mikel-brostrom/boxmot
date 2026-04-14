@@ -930,6 +930,36 @@ class ResearchResult:
     delta_summary: dict[str, float]
     workspace_dir: Path | None = None
 
+    def __str__(self) -> str:
+        return self.render()
+
+    def render(self) -> str:
+        def _format_metrics(metrics: Mapping[str, int | float], *, signed: bool = False) -> str:
+            parts = []
+            for metric in RESEARCH_METRICS:
+                value = metrics.get(metric)
+                if isinstance(value, (int, float)):
+                    fmt = f"{float(value):+.3f}" if signed else f"{float(value):.3f}"
+                    parts.append(f"{metric}={fmt}")
+            return " ".join(parts) if parts else "n/a"
+
+        lines = [
+            "RESEARCH SUMMARY",
+            f"Tracker: {self.tracker}",
+            f"Benchmark: {self.benchmark}",
+            f"Proposal model: {self.proposal_model}",
+            f"Baseline: {_format_metrics(self.baseline_summary)}",
+            f"Best: {_format_metrics(self.best_summary)}",
+            f"Delta: {_format_metrics(self.delta_summary, signed=True)}",
+            f"Best candidate dir: {self.best_candidate_dir}",
+        ]
+        if self.workspace_dir is not None:
+            lines.append(f"Workspace: {self.workspace_dir}")
+        return "\n".join(lines)
+
+    def print_summary(self) -> None:
+        print(self.render())
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "tracker": self.tracker,
