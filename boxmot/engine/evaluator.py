@@ -152,6 +152,9 @@ def generate_dets_embs_batched(
     dets_folder = dets_base / y.stem / "dets"
     embs_root = dets_base / y.stem / "embs"
 
+    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+    preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
+
     mot_folder_paths = sorted([path for path in Path(source_root).iterdir() if path.is_dir()])
 
     seq_states = {}
@@ -176,7 +179,7 @@ def generate_dets_embs_batched(
         cached_emb_paths = {}
         any_emb_cached = False
         for reid_model in args.reid_model:
-            emb_path = embs_root / reid_model.stem / f"{seq_name}.npy"
+            emb_path = embs_root / reid_model.stem / preprocess_name / f"{seq_name}.npy"
             emb_paths[reid_model.stem] = emb_path
             cached_emb_path = _existing_embedding_cache_path(emb_path)
             cached_emb_paths[reid_model.stem] = cached_emb_path
@@ -321,6 +324,7 @@ def generate_dets_embs_batched(
         imgsz=args.imgsz,
         half=args.half,
         reid_half=getattr(args, "reid_half", args.half),
+        reid_preprocess=getattr(args, "reid_preprocess", None),
         timing_stats=timing_stats,
     )
     pipeline.warmup()
@@ -505,6 +509,7 @@ def process_sequence(
     dataset_name: Optional[str] = None,
     conf_threshold: float = 0.0,
     progress_queue=None,
+    reid_preprocess: Optional[str] = None,
 ):
     """
     Process a single sequence: run tracker on pre-computed detections/embeddings.
@@ -530,6 +535,7 @@ def process_sequence(
         det_emb_root=str(det_emb_root),
         model_name=model_name,
         reid_name=reid_name,
+        reid_preprocess=reid_preprocess,
         target_fps=target_fps,
     )
     sequence = dataset.get_sequence(seq_name, show_progress=False,
@@ -650,6 +656,7 @@ def run_generate_mot_results(
     manager = mp.Manager()
     progress_queue = manager.Queue()
 
+    reid_preprocess = getattr(args, "reid_preprocess", None)
     task_args = [
         (
             seq_name,
@@ -665,6 +672,7 @@ def run_generate_mot_results(
             dataset_name,
             conf_threshold,
             progress_queue,
+            reid_preprocess,
         )
         for seq_name in sequence_names
     ]

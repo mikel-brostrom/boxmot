@@ -5,7 +5,6 @@ import numpy as np
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xyhr import KalmanFilterXYHR
-from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.boosttrack.assoc import (MhDist_similarity, associate,
                                               iou_batch, shape_similarity,
@@ -123,8 +122,7 @@ class BoostTrack(BaseTracker):
 
     Parameters:
     - reid_weights (Path): Path to the re-identification model weights.
-    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
-    - half (bool): Whether to use half-precision (fp16) for faster inference.
+    - reid_model: Pre-built ReID backend model (from ``ReidAutoBackend(...).model``). Required when ``with_reid=True``.
     - det_thresh (float): Detection threshold for considering detections.
     - max_age (int): Maximum age (in frames) of a track before it is considered lost.
     - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
@@ -162,9 +160,7 @@ class BoostTrack(BaseTracker):
 
     def __init__(
         self,
-        reid_weights=None,
-        device='cpu',
-        half: bool = False,
+        reid_model=None,
         # BoostTrack-specific parameters
         use_ecc: bool = True,
         min_box_area: int = 10,
@@ -181,7 +177,6 @@ class BoostTrack(BaseTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         with_reid: bool = False,
-        reid=None,
         **kwargs  # BaseTracker parameters
     ):
         # Capture all init params for logging
@@ -210,15 +205,8 @@ class BoostTrack(BaseTracker):
         self.use_sb = use_sb
         self.use_vt = use_vt
 
-        self.with_reid = with_reid
-        
-        if reid is not None:
-             self.reid_model = reid
-             self.with_reid = True
-        elif self.with_reid and reid_weights is not None:
-             self.reid_model = ReidAutoBackend(weights=reid_weights, device=device, half=half).model
-        else:
-             self.reid_model = None
+        self.with_reid = with_reid and reid_model is not None
+        self.reid_model = reid_model if self.with_reid else None
 
         if self.use_ecc:
             self.cmc = get_cmc_method(cmc_method)()

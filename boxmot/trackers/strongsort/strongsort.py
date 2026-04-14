@@ -1,12 +1,8 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-from pathlib import Path
-
 import numpy as np
-from torch import device
 
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.linear_assignment import \
@@ -20,9 +16,7 @@ class StrongSort(BaseTracker):
     Initialize the StrongSort tracker with various parameters.
 
     Parameters:
-    - reid_weights (Path): Path to the re-identification model weights.
-    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
-    - half (bool): Whether to use half-precision (fp16) for faster inference.
+    - reid_model: Pre-built ReID backend model (from ``ReidAutoBackend(...).model``).
     - det_thresh (float): Detection threshold for considering detections.
     - max_age (int): Maximum age (in frames) of a track before it is considered lost.
     - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
@@ -50,9 +44,7 @@ class StrongSort(BaseTracker):
 
     def __init__(
         self,
-        reid_weights: Path,
-        device: device,
-        half: bool,
+        reid_model=None,
         # StrongSort-specific parameters
         min_conf: float = 0.1,
         max_cos_dist: float = 0.2,
@@ -66,14 +58,12 @@ class StrongSort(BaseTracker):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
         super().__init__(**init_args, _tracker_name='StrongSort', **kwargs)
-        
+
         # Store StrongSort-specific parameters
         self.min_conf = min_conf
-        
-        # Initialize ReID model
-        self.model = ReidAutoBackend(
-            weights=reid_weights, device=device, half=half
-        ).model
+
+        # ReID model
+        self.model = reid_model
 
         # Initialize StrongSort tracker
         self.tracker = Tracker(

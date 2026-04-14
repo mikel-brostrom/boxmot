@@ -8,9 +8,9 @@ from boxmot.utils import logger as LOGGER
 
 
 class TensorRTBackend(BaseModelBackend):
-    def __init__(self, weights, device, half):
+    def __init__(self, weights, device, half, preprocess=None):
         self.is_trt10 = False
-        super().__init__(weights, device, half)
+        super().__init__(weights, device, half, preprocess=preprocess)
         self.nhwc = False
         self.half = half
         self.device = device

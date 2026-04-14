@@ -21,6 +21,7 @@ class ReidAutoBackend:
         weights: Path = WEIGHTS / "osnet_x0_25_msmt17.pt",
         device: torch.device = torch.device("cpu"),
         half: bool = False,
+        preprocess: str | None = None,
     ) -> None:
         """
         Initializes the ReidAutoBackend instance with specified weights, device, and precision mode.
@@ -29,6 +30,7 @@ class ReidAutoBackend:
             weights (Union[str, List[str]]): Path to the model weights. Can be a string or a list of strings; if a list, the first element is used.
             device (torch.device): The device to run the model on, e.g., CPU or GPU.
             half (bool): Whether to use half precision for model inference.
+            preprocess (str | None): Name of preprocessing function from the registry. None uses default.
         """
         super().__init__()
         w = weights[0] if isinstance(weights, list) else weights
@@ -44,6 +46,7 @@ class ReidAutoBackend:
         self.weights = weights
         self.device = select_device(device)
         self.half = half
+        self.preprocess = preprocess
         self.model = self.get_backend()
 
     def get_backend(
@@ -79,7 +82,7 @@ class ReidAutoBackend:
         # Iterate through the mapping and return the first matching backend
         for condition, backend_class in backend_map.items():
             if condition:
-                return backend_class(self.weights, self.device, self.half)
+                return backend_class(self.weights, self.device, self.half, preprocess=self.preprocess)
 
         # If no condition is met, log an error and exit
         LOGGER.error("This model framework is not supported yet!")

@@ -71,7 +71,7 @@ def simple_sequence(tmp_path):
     det_emb_root = tmp_path / "runs"
     model = det_emb_root / "model"
     det_dir = model / "dets"
-    emb_dir = model / "embs" / "reid"
+    emb_dir = model / "embs" / "reid" / "resize"
     det_dir.mkdir(parents=True)
     emb_dir.mkdir(parents=True)
 
@@ -130,6 +130,7 @@ def test_mismatched_dets_embs_raise(tmp_path, simple_sequence):
         / "model"
         / "embs"
         / "reid"
+        / "resize"
         / "SEQ.npy"
     )
     one_emb = np.arange(128)
@@ -171,7 +172,7 @@ def test_fps_downsampling_keeps_dataset_side_effect_free(tmp_path):
     # create dets/embs with both frames
     det_emb_root = tmp_path / "R"
     det_dir = det_emb_root / "M" / "dets"
-    emb_dir = det_emb_root / "M" / "embs" / "R"
+    emb_dir = det_emb_root / "M" / "embs" / "R" / "resize"
     det_dir.mkdir(parents=True)
     emb_dir.mkdir(parents=True)
     dets = np.array([[1, 0, 0, 1, 1, 0.5], [2, 0, 0, 1, 1, 0.4]])
@@ -206,6 +207,7 @@ def test_dataset_falls_back_to_legacy_txt_caches(simple_sequence):
         / simple_sequence["model_name"]
         / "embs"
         / simple_sequence["reid_name"]
+        / "resize"
         / "SEQ.npy"
     )
     dets = np.load(det_file)

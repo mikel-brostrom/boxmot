@@ -382,8 +382,17 @@ def resolve_required_reid_half(cfg: dict[str, Any]) -> bool | None:
     return bool(reid_cfg["half"])
 
 
+def resolve_required_reid_preprocess(cfg: dict[str, Any]) -> str | None:
+    """Return the ReID preprocess method configured for the active dataset/model bundle."""
+    reid_cfg = get_benchmark_reid_cfg(cfg)
+    preprocess = reid_cfg.get("preprocess")
+    if preprocess is None:
+        return None
+    return str(preprocess).strip() or None
+
+
 def apply_reid_runtime_defaults(args: Any, cfg: dict[str, Any], use_config: bool = True) -> None:
-    """Populate ``args.reid_device`` and ``args.reid_half`` from config when CLI did not override them."""
+    """Populate ``args.reid_device``, ``args.reid_half``, and ``args.reid_preprocess`` from config when CLI did not override them."""
     fallback_device = getattr(args, "device", "")
     fallback_half = bool(getattr(args, "half", False))
 
@@ -401,6 +410,15 @@ def apply_reid_runtime_defaults(args: Any, cfg: dict[str, Any], use_config: bool
 
     args.reid_device = reid_device
     args.reid_half = reid_half
+
+    if not getattr(args, "reid_preprocess", None):
+        from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+        reid_preprocess = DEFAULT_PREPROCESS
+        if use_config:
+            configured_preprocess = resolve_required_reid_preprocess(cfg)
+            if configured_preprocess is not None:
+                reid_preprocess = configured_preprocess
+        args.reid_preprocess = reid_preprocess
 
 
 def ensure_benchmark_detector_model(cfg: dict[str, Any], overwrite: bool = False) -> Path | None:

@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from filelock import SoftFileLock
 
+from boxmot.reid.core.preprocessing import get_preprocess_fn
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.utils import WEIGHTS, logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
@@ -15,7 +16,7 @@ from boxmot.utils.misc import resolve_model_path
 
 
 class BaseModelBackend:
-    def __init__(self, weights, device, half):
+    def __init__(self, weights, device, half, preprocess=None):
         self.weights = weights[0] if isinstance(weights, list) else weights
         if isinstance(self.weights, str):
             self.weights = Path(self.weights)
@@ -37,6 +38,7 @@ class BaseModelBackend:
             use_gpu=device,
         )
         self.checker = RequirementsChecker()
+        self.preprocess_fn = get_preprocess_fn(preprocess)
         self.load_model(self.weights)
 
         self.mean_array = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
@@ -134,7 +136,6 @@ class BaseModelBackend:
 
     def get_crops(self, xyxys, img):
         h, w = img.shape[:2]
-        interpolation_method = cv2.INTER_LINEAR
         xyxys = np.asarray(xyxys, dtype=np.float32)
         if xyxys.size == 0:
             xyxys = xyxys.reshape(0, 4)
@@ -164,12 +165,8 @@ class BaseModelBackend:
                     # Box is entirely outside the image — use a blank crop
                     crop = np.zeros((self.input_shape[0], self.input_shape[1], 3), dtype=np.uint8)
 
-            # Resize and convert color in one step
-            crop = cv2.resize(
-                crop,
-                (self.input_shape[1], self.input_shape[0]),
-                interpolation=interpolation_method,
-            )
+            # Preprocess (resize / resize_pad / etc.)
+            crop = self.preprocess_fn(crop, self.input_shape)
             crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
 
             # Convert to tensor and normalize (convert to [0, 1] by dividing by 255 in batch later)

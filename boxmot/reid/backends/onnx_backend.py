@@ -3,8 +3,8 @@ from boxmot.reid.backends.base_backend import BaseModelBackend
 
 class ONNXBackend(BaseModelBackend):
 
-    def __init__(self, weights, device, half):
-        super().__init__(weights, device, half)
+    def __init__(self, weights, device, half, preprocess=None):
+        super().__init__(weights, device, half, preprocess=preprocess)
         self.nhwc = False
         self.half = half
 

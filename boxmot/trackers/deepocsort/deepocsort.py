@@ -1,14 +1,11 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from collections import deque
-from pathlib import Path
 
 import numpy as np
-import torch
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xysr import KalmanFilterXYSR
-from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.ops import xyxy2xysr
@@ -238,9 +235,7 @@ class DeepOcSort(BaseTracker):
     Initialize the DeepOcSort tracker with various parameters.
 
     Parameters:
-    - reid_weights (Path): Path to the re-identification model weights.
-    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
-    - half (bool): Whether to use half-precision (fp16) for faster inference.
+    - reid_model: Pre-built ReID backend model (from ``ReidAutoBackend(...).model``).
     - det_thresh (float): Detection threshold for considering detections.
     - max_age (int): Maximum age (in frames) of a track before it is considered lost.
     - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
@@ -273,9 +268,7 @@ class DeepOcSort(BaseTracker):
 
     def __init__(
         self,
-        reid_weights: Path,
-        device: torch.device,
-        half: bool,
+        reid_model=None,
         # DeepOcSort-specific parameters
         delta_t: int = 3,
         inertia: float = 0.2,
@@ -305,9 +298,7 @@ class DeepOcSort(BaseTracker):
         self.Q_s_scaling = Q_s_scaling
         KalmanBoxTracker.count = 1
 
-        self.model = ReidAutoBackend(
-            weights=reid_weights, device=device, half=half
-        ).model
+        self.model = reid_model
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = get_cmc_method("sof")()
         self.embedding_off = embedding_off

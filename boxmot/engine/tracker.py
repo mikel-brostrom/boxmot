@@ -106,6 +106,7 @@ def on_predict_start(predictor, args, timing_stats=None):
             getattr(args, "reid_device", predictor.device),
             getattr(args, "reid_half", args.half),
             args.per_class,
+            reid_preprocess=getattr(args, "reid_preprocess", None),
         )
         # set target_id if user passed it
         if args.target_id is not None:

@@ -20,7 +20,7 @@ class TFLiteBackend(BaseModelBackend):
         current_allocated_batch_size (int): The current batch size allocated in the interpreter.
     """
 
-    def __init__(self, weights: Path, device: str, half: bool):
+    def __init__(self, weights: Path, device: str, half: bool, preprocess: str | None = None):
         """
         Initializes the TFLiteBackend with given weights, device, and precision flag.
 
@@ -28,8 +28,9 @@ class TFLiteBackend(BaseModelBackend):
             weights (Path): Path to the TFLite model file.
             device (str): Device type (e.g., 'cpu', 'gpu').
             half (bool): Flag to indicate if half precision is used.
+            preprocess (str | None): Name of preprocessing function from the registry.
         """
-        super().__init__(weights, device, half)
+        super().__init__(weights, device, half, preprocess=preprocess)
         self.nhwc = True
         self.half = False
         # self.interpreter: tf.lite.Interpreter = None

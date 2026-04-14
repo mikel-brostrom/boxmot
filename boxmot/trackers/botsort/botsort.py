@@ -1,13 +1,9 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-from pathlib import Path
-
 import numpy as np
-import torch
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
-from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.trackers.botsort.botsort_track import STrack
@@ -25,9 +21,7 @@ class BotSort(BaseTracker):
     Initialize the BotSort tracker with various parameters.
 
     Parameters:
-    - reid_weights (Path): Path to the re-identification model weights.
-    - device (torch.device): Device to run the model on (e.g., 'cpu', 'cuda').
-    - half (bool): Whether to use half-precision (fp16) for faster inference.
+    - reid_model: Pre-built ReID backend model (from ``ReidAutoBackend(...).model``). Required when ``with_reid=True``.
     - det_thresh (float): Detection threshold for considering detections.
     - max_age (int): Maximum age (in frames) of a track before it is considered lost.
     - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
@@ -63,9 +57,7 @@ class BotSort(BaseTracker):
 
     def __init__(
         self,
-        reid_weights: Path,
-        device: torch.device,
-        half: bool,
+        reid_model=None,
         # BotSort-specific parameters
         track_high_thresh: float = 0.5,
         track_low_thresh: float = 0.1,
@@ -101,10 +93,7 @@ class BotSort(BaseTracker):
         self.proximity_thresh = proximity_thresh
         self.appearance_thresh = appearance_thresh
         self.with_reid = with_reid
-        if self.with_reid:
-            self.model = ReidAutoBackend(
-                weights=reid_weights, device=device, half=half
-            ).model
+        self.model = reid_model if self.with_reid else None
 
         cmc_cls = get_cmc_method(cmc_method)
         self.cmc = cmc_cls() if cmc_cls is not None else None
