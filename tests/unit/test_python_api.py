@@ -27,9 +27,13 @@ from boxmot.reid import ReID
 _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)
 
 
-def test_package_root_only_exports_metadata():
-    assert boxmot.__all__ == ("__version__",)
-    assert not hasattr(boxmot, "Boxmot")
+def test_package_root_lazily_reexports_python_api():
+    assert "__version__" in boxmot.__all__
+    assert "Boxmot" in boxmot.__all__
+    assert "track" in boxmot.__all__
+    assert boxmot.Boxmot is api_module.Boxmot
+    assert boxmot.track is api_module.track
+    assert boxmot.ValidationResult is api_module.ValidationResult
 
 
 def test_boxmot_defaults_follow_shared_configs():
