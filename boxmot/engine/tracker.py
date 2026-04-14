@@ -12,6 +12,7 @@ from boxmot.engine.workflow_results import TrackRunResult
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
+from boxmot.utils.torch_utils import select_device
 from boxmot.engine.workflow_support import (
     build_detector_from_spec,
     build_tracker_from_spec,
@@ -36,6 +37,13 @@ def _is_live_source(source: Any) -> bool:
     if isinstance(source, str):
         return source.isdigit() or "://" in source
     return False
+
+
+def Boxmot(*args, **kwargs):
+    """Lazy compatibility loader for the public Boxmot facade."""
+    from boxmot import Boxmot as PublicBoxmot
+
+    return PublicBoxmot(*args, **kwargs)
 
 
 class TrackerRuntime:
@@ -170,6 +178,78 @@ def _consume_run(result: TrackRunResult) -> None:
     finally:
         result.results._cache_results = previous_cache_results
     result.refresh()
+
+
+class TrackingSession:
+    """Compatibility wrapper around the public Python API tracking facade."""
+
+    def __init__(self, args):
+        self.args = args
+
+    def _should_consume_result(self) -> bool:
+        return _should_consume_result(self.args)
+
+    def _resolve_output_stem(self) -> str:
+        from boxmot.engine.workflow_support import resolve_output_stem
+
+        return resolve_output_stem(getattr(self.args, "source", ""))
+
+    def _resolve_output_fps(self) -> int:
+        fps = getattr(self.args, "fps", None)
+        if fps is not None:
+            return int(fps)
+        return int(resolve_output_fps(getattr(self.args, "source", None)))
+
+    @staticmethod
+    def initialize_trackers(predictor, args):
+        tracker_name = str(getattr(args, "tracker", "")).lower()
+        if tracker_name not in TRACKER_MAPPING:
+            available = ", ".join(sorted(TRACKER_MAPPING))
+            raise ValueError(f"'{tracker_name}' is not supported. Supported ones are {available}")
+
+        reid_weights = _primary_model_ref(getattr(args, "reid", None))
+        if reid_weights is not None:
+            reid_weights = Path(reid_weights)
+
+        batch_size = int(getattr(getattr(predictor, "dataset", None), "bs", 1) or 1)
+        predictor.trackers = [
+            TrackerRuntime.create(
+                tracker_name=tracker_name,
+                reid_weights=reid_weights,
+                device=select_device(getattr(predictor, "device", "cpu")),
+                half=bool(getattr(args, "half", False)),
+                per_class=bool(getattr(args, "per_class", False)),
+                target_id=getattr(args, "target_id", None),
+            )
+            for _ in range(batch_size)
+        ]
+        return predictor.trackers
+
+    def run(self):
+        boxmot = Boxmot(
+            detector=_primary_model_ref(getattr(self.args, "detector", None)),
+            reid=_primary_model_ref(getattr(self.args, "reid", None)),
+            tracker=getattr(self.args, "tracker", get_mode_default("track", "tracker")),
+            classes=getattr(self.args, "classes", None),
+            project=getattr(self.args, "project", get_mode_default("track", "project")),
+        )
+        result = boxmot.track(
+            source=getattr(self.args, "source", get_mode_default("track", "source")),
+            imgsz=getattr(self.args, "imgsz", None),
+            conf=getattr(self.args, "conf", None),
+            iou=float(getattr(self.args, "iou", get_mode_default("track", "iou"))),
+            device=getattr(self.args, "device", get_mode_default("track", "device")),
+            half=bool(getattr(self.args, "half", get_mode_default("track", "half"))),
+            save=bool(getattr(self.args, "save", False)),
+            save_txt=bool(getattr(self.args, "save_txt", False)),
+            show=bool(getattr(self.args, "show", False)),
+            verbose=bool(getattr(self.args, "verbose", False)),
+        )
+        if getattr(self.args, "show", False):
+            result.show()
+        elif self._should_consume_result():
+            _consume_run(result)
+        return result
 
 
 def _build_detector(args, detector_spec: Any, classes: list[int] | None):

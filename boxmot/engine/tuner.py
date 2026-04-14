@@ -454,11 +454,11 @@ def _validation_result_from_trial(trial_data: dict, args) -> ValidationResult:
     )
 
 
-def run_tune(
+def _execute_tune_search(
     args,
     *,
     baseline_config: dict | None = None,
-) -> TuneResult:
+):
     from boxmot.utils.checks import RequirementsChecker
     checker = RequirementsChecker()
     checker.sync_extra(extra="evolve")
@@ -478,8 +478,10 @@ def run_tune(
     optuna_kwargs = {
         "metric": opt_metrics[0] if len(opt_metrics) == 1 else opt_metrics,
         "mode": opt_modes[0] if len(opt_modes) == 1 else opt_modes,
-        "seed": getattr(args, "seed", None),
     }
+    seed = getattr(args, "seed", None)
+    if seed is not None:
+        optuna_kwargs["seed"] = seed
     if baseline_config:
         optuna_kwargs["points_to_evaluate"] = [baseline_config]
 
@@ -548,10 +550,24 @@ def run_tune(
         )
 
     result_grid = tuner.fit()
+    if result_grid is None and hasattr(tuner, "get_results"):
+        result_grid = tuner.get_results()
 
     # Post-processing: per-trial configs, CSV, best config, summary
     tune_dir = results_dir / tune_name
     _save_all_results(tune_dir, result_grid, yaml_cfg, args.tracker, maximize, minimize, args)
+    return result_grid, tune_dir, maximize, minimize
+
+
+def run_tune(
+    args,
+    *,
+    baseline_config: dict | None = None,
+) -> TuneResult:
+    result_grid, tune_dir, maximize, minimize = _execute_tune_search(
+        args,
+        baseline_config=baseline_config,
+    )
     trial_data = _collect_trial_data(result_grid)
     if not trial_data:
         raise RuntimeError("No successful tuning trials were produced.")
@@ -586,7 +602,8 @@ def run_tune(
 
 
 def main(args):
-    return run_tune(args)
+    _execute_tune_search(args)
+    return None
 
 
 if __name__ == "__main__":
