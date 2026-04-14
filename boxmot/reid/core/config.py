@@ -11,6 +11,7 @@ MODEL_TYPES = [
     "osnet_x0_25",
     "osnet_ibn_x1_0",
     "osnet_ain_x1_0",
+    "lmbn_ain_n",
     "lmbn_n",
     "clip",
 ]
