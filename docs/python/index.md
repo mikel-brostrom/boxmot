@@ -1,6 +1,6 @@
 # Python API
 
-Use the explicit public modules: `boxmot.api`, `boxmot.reid`, `boxmot.trackers`, and `boxmot.trackers.tracker_zoo`. The package root is intentionally limited to metadata.
+Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.api`, `boxmot.reid`, `boxmot.trackers`, and `boxmot.trackers.tracker_zoo` for lower-level access.
 
 For a getting-started view, see [Python Usage](../usage/python.md).
 
@@ -16,7 +16,7 @@ For a getting-started view, see [Python Usage](../usage/python.md).
 ## Minimal example
 
 ```python
-from boxmot.api import Boxmot
+from boxmot import Boxmot
 
 boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 run = boxmot.track(source="video.mp4", save=True)
