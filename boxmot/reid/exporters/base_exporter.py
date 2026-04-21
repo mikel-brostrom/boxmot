@@ -16,13 +16,14 @@ def export_decorator(export_func):
                 if extra and self.group:
                     raise ValueError("Provide only one of `group` or `extra` in exporter.")
                 if self.group:
-                    self.checker.sync_extra(extra=self.group, extra_args=extra_args)
+                    self.checker.sync_extra(extra=self.group, extra_args=extra_args, verbose=self.verbose)
                 elif extra:
-                    self.checker.sync_extra(extra=extra, extra_args=extra_args)
+                    self.checker.sync_extra(extra=extra, extra_args=extra_args, verbose=self.verbose)
 
-            LOGGER.info(f"\nStarting {self.file} export with {self.__class__.__name__}...")
+            if self.verbose:
+                LOGGER.info(f"\nStarting {self.file} export with {self.__class__.__name__}...")
             result = export_func(self, *args, **kwargs)
-            if result:
+            if result and self.verbose:
                 LOGGER.info(
                     f"Export success, saved as {result} ({self.file_size(result):.1f} MB)"
                 )
@@ -35,7 +36,7 @@ def export_decorator(export_func):
 
 
 class BaseExporter:
-    def __init__(self, model, im, file, optimize=True, dynamic=True, half=True, simplify=True):
+    def __init__(self, model, im, file, optimize=True, dynamic=True, half=True, simplify=True, verbose=True):
         self.model = model
         self.im = im
         self.file = Path(file)
@@ -43,6 +44,7 @@ class BaseExporter:
         self.dynamic = dynamic
         self.half = half
         self.simplify = simplify
+        self.verbose = bool(verbose)
         self.checker = RequirementsChecker()
         self.workspace = 4
 

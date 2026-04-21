@@ -1,16 +1,27 @@
+from __future__ import annotations
+
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 import re
 from pathlib import Path
-from typing import Tuple, Union
+from typing import Any, Tuple
 
 import numpy as np
 import pandas as pd
 import torch
-from ultralytics.engine.results import Results
-from ultralytics.utils import ops
 
 from boxmot.utils import logger as LOGGER
+
+
+def _xyxy_to_ltwh(boxes: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
+    """Convert ``[x1, y1, x2, y2]`` boxes to ``[x1, y1, w, h]``."""
+    if isinstance(boxes, torch.Tensor):
+        converted = boxes.clone()
+    else:
+        converted = np.array(boxes, copy=True)
+    converted[..., 2] = converted[..., 2] - converted[..., 0]
+    converted[..., 3] = converted[..., 3] - converted[..., 1]
+    return converted
 
 
 def xywha_to_corners(boxes: np.ndarray) -> np.ndarray:
@@ -111,9 +122,7 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path,
     return dst_fldr, new_benchmark_name
 
 
-def convert_to_mot_format(
-    results: Union[Results, np.ndarray], frame_idx: int
-) -> np.ndarray:
+def convert_to_mot_format(results: Any | np.ndarray, frame_idx: int) -> np.ndarray:
     """
     Converts tracking results for a single frame into MOT challenge format.
 
@@ -130,42 +139,48 @@ def convert_to_mot_format(
     - np.ndarray: An array containing the MOT formatted results for the frame.
     """
 
-    # Check if results are not empty
-    if results.size != 0:
-        if isinstance(results, np.ndarray):
-            # Convert numpy array results to MOT format
-            tlwh = ops.xyxy2ltwh(results[:, 0:4])
-            frame_idx_column = np.full((results.shape[0], 1), frame_idx, dtype=np.int32)
-            det_ind = (
-                results[:, 7:8].astype(np.int32)
-                if results.shape[1] > 7
-                else -np.ones((results.shape[0], 1), dtype=np.int32)
-            )
-            mot_results = np.column_stack((
-                frame_idx_column,  # frame index
-                results[:, 4].astype(np.int32),  # track id
-                tlwh.round().astype(np.int32),  # top,left,width,height
-                results[:, 5],  # confidence (float)
-                results[:, 6].astype(np.int32) + 1,  # class
-                det_ind,  # detection index
-            ))
-            return mot_results
-        else:
-            # Convert ultralytics results to MOT format
-            num_detections = len(results.boxes)
-            frame_indices = torch.full((num_detections, 1), frame_idx + 1, dtype=torch.int32)
-            det_inds = torch.full((num_detections, 1), -1, dtype=torch.int32)
+    if isinstance(results, np.ndarray):
+        if results.size == 0:
+            return np.empty((0, 9), dtype=np.float32)
 
-            mot_results = torch.cat([
-                frame_indices,  # frame index
-                results.boxes.id.unsqueeze(1).astype(np.int32),  # track id
-                ops.xyxy2ltwh(results.boxes.xyxy).astype(np.int32),  # top,left,width,height
-                results.boxes.conf.unsqueeze(1).astype(np.float32),  # confidence (float)
-                results.boxes.cls.unsqueeze(1).astype(np.int32) + 1,  # class
-                det_inds,  # detection index
-            ], dim=1)
+        tlwh = _xyxy_to_ltwh(results[:, 0:4])
+        frame_idx_column = np.full((results.shape[0], 1), frame_idx, dtype=np.int32)
+        det_ind = (
+            results[:, 7:8].astype(np.int32)
+            if results.shape[1] > 7
+            else -np.ones((results.shape[0], 1), dtype=np.int32)
+        )
+        return np.column_stack((
+            frame_idx_column,  # frame index
+            results[:, 4].astype(np.int32),  # track id
+            tlwh.round().astype(np.int32),  # top,left,width,height
+            results[:, 5],  # confidence (float)
+            results[:, 6].astype(np.int32) + 1,  # class
+            det_ind,  # detection index
+        ))
 
-            return mot_results.numpy()
+    boxes = getattr(results, "boxes", None)
+    if boxes is None or len(boxes) == 0:
+        return np.empty((0, 9), dtype=np.float32)
+
+    num_detections = len(boxes)
+    frame_indices = torch.full((num_detections, 1), frame_idx + 1, dtype=torch.int32)
+    det_inds = torch.full((num_detections, 1), -1, dtype=torch.int32)
+
+    track_ids = torch.as_tensor(boxes.id).reshape(-1, 1).to(dtype=torch.int32)
+    tlwh = _xyxy_to_ltwh(torch.as_tensor(boxes.xyxy)).to(dtype=torch.int32)
+    conf = torch.as_tensor(boxes.conf).reshape(-1, 1).to(dtype=torch.float32)
+    cls = torch.as_tensor(boxes.cls).reshape(-1, 1).to(dtype=torch.int32) + 1
+    mot_results = torch.cat([
+        frame_indices,  # frame index
+        track_ids,  # track id
+        tlwh,  # top,left,width,height
+        conf,  # confidence (float)
+        cls,  # class
+        det_inds,  # detection index
+    ], dim=1)
+
+    return mot_results.numpy()
 
 
 def convert_to_mmot_obb_format(results: np.ndarray, frame_idx: int) -> np.ndarray:

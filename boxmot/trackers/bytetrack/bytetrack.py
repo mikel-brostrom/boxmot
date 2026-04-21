@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from collections import deque
+from typing import Any
 
 import cv2
 import numpy as np
@@ -195,38 +196,32 @@ class STrack(BaseTrack):
 
 
 class ByteTrack(BaseTracker):
-    supports_obb = True
+    """Initialize the ByteTrack tracker.
 
-    """
-    Initialize the ByteTrack tracker with various parameters.
+    Args:
+        min_conf (float): Minimum confidence used for the low-score association
+            stage. Detections below this value are discarded.
+        track_thresh (float): Confidence threshold for detections that enter the
+            first association pass.
+        match_thresh (float): Matching threshold used during association.
+        track_buffer (int): Number of frames to keep unmatched tracks alive.
+        frame_rate (int): Frame rate used to scale the internal track buffer.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
+            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
+            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
+            and ``is_obb``.
 
-    Parameters:
-    - det_thresh (float): Detection threshold for considering detections.
-    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
-    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
-    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
-    - per_class (bool): Enables class-separated tracking.
-    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
-    - asso_func (str): Algorithm name used for data association between detections and tracks.
-    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
-    ByteTrack-specific parameters:
-    - min_conf (float): Threshold for detection confidence. Detections below this threshold are discarded.
-    - track_thresh (float): Threshold for detection confidence. Detections above this threshold are considered for tracking in the first association round.
-    - match_thresh (float): Threshold for the matching step in data association. Controls the maximum distance allowed between tracklets and detections for a match.
-    - track_buffer (int): Number of frames to keep a track alive after it was last detected.
-    - frame_rate (int): Frame rate of the video being processed. Used to scale the track buffer size.
-    
     Attributes:
-    - frame_count (int): Counter for the frames processed.
-    - active_tracks (list): List to hold active tracks.
-    - lost_stracks (list[STrack]): List of lost tracks.
-    - removed_stracks (list[STrack]): List of removed tracks.
-    - buffer_size (int): Size of the track buffer based on frame rate.
-    - max_time_lost (int): Maximum time a track can be lost.
-    - kalman_filter (KalmanFilterXYAH): Kalman filter for motion prediction.
+        frame_count (int): Number of processed frames.
+        active_tracks (list[STrack]): Currently active tracks.
+        lost_stracks (list[STrack]): Tracks kept in the lost state.
+        removed_stracks (list[STrack]): Tracks removed from the tracker state.
+        buffer_size (int): Track buffer size after frame-rate scaling.
+        max_time_lost (int): Maximum number of frames a track may stay lost.
+        kalman_filter (KalmanFilterXYAH): Motion model used for prediction.
     """
+
+    supports_obb = True
 
     def __init__(
         self,
@@ -236,7 +231,7 @@ class ByteTrack(BaseTracker):
         match_thresh: float = 0.8,
         track_buffer: int = 25,
         frame_rate: int = 30,
-        **kwargs  # BaseTracker parameters
+        **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}

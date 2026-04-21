@@ -8,11 +8,11 @@ import torch
 from PIL import Image
 from transformers import RTDetrImageProcessor, RTDetrV2ForObjectDetection
 
-from boxmot.detectors.detector import Detections, Detector
+from boxmot.detectors.base import BaseDetectorBackend, Detections
 from boxmot.utils import logger as LOGGER
 
 
-class RTDetrDetector(Detector):
+class RTDetrDetector(BaseDetectorBackend):
 
     pt = False
     stride = 32

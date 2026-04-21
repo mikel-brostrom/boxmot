@@ -1,6 +1,4 @@
-import shutil
 import subprocess
-import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
@@ -22,7 +20,6 @@ class RequirementsChecker:
       - Read and install from a requirements.txt
       - Install a uv dependency *group* (requires uv)
       - Install a project *extra* (PEP 621 optional-dependencies) via uv
-      - Backward-compatible alias: `cmds` == `extra_args`
     """
 
     def __init__(
@@ -41,18 +38,13 @@ class RequirementsChecker:
         self,
         requirements: Iterable[str],
         extra_args: Optional[Sequence[str]] = None,
-        cmds: Optional[Sequence[str]] = None,  # legacy alias
     ):
         """
         Check & install packages specified by requirement strings.
 
         :param requirements: iterable of requirement specifiers as strings
         :param extra_args: extra args for the installer (e.g. ["--upgrade"])
-        :param cmds: legacy alias for extra_args
         """
-        if extra_args is None and cmds is not None:
-            extra_args = list(cmds)
-
         missing = self._missing_packages(requirements)
         if missing:
             self._install_packages(missing, extra_args)
@@ -61,6 +53,7 @@ class RequirementsChecker:
         self,
         extra: str,
         extra_args: Optional[Sequence[str]] = None,
+        verbose: bool = True,
     ):
         """
         Install a project *extra* (PEP 621 optional-dependencies).
@@ -90,7 +83,8 @@ class RequirementsChecker:
             except Exception:
                 pass  # can't parse pyproject — fall through to install
 
-        LOGGER.warning(f"Installing extra '{extra}'...")
+        if verbose:
+            LOGGER.warning(f"Installing extra '{extra}'...")
 
         cmd: list[str]
 
@@ -109,8 +103,12 @@ class RequirementsChecker:
             cmd.extend(extra_args)
 
         try:
-            subprocess.check_call(cmd)
-            LOGGER.info(f"Extra '{extra}' installed successfully.")
+            if verbose:
+                subprocess.check_call(cmd)
+            else:
+                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if verbose:
+                LOGGER.info(f"Extra '{extra}' installed successfully.")
         except subprocess.CalledProcessError as e:
             LOGGER.error(f"Failed to install extra '{extra}': {e}")
             raise RuntimeError(f"Failed to install extra '{extra}': {e}")

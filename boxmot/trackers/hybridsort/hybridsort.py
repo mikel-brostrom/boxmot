@@ -7,7 +7,7 @@
 # - Safe with COCO 80 classes; preserves det_ind; guards out-of-range indices
 
 from collections import deque
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 
@@ -351,14 +351,48 @@ ASSO_FUNCS = {
 
 
 class HybridSort(BaseTracker):
-    """
-    Hybrid SORT + ReID with ECC CMC
+    """Initialize the HybridSort tracker.
 
-    - Explicit configuration only (no self.args)
-    - ReID model and ECC setup like BotSort
-    - BaseTracker API: update(dets, img, embs=None) -> np.ndarray [[x1,y1,x2,y2,track_id,conf,cls,det_ind], ...]
-    - Now outputs real cls & det_ind and guards det_ind bounds
-    - Assumes detection input is [x1,y1,x2,y2,conf,cls]
+    Args:
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
+        cmc_method (str): Camera-motion compensation method.
+        with_reid (bool): Whether to enable appearance features.
+        low_thresh (float): Low-confidence threshold for second-pass matching.
+        delta_t (int): Time window used for motion estimation.
+        inertia (float): Motion-consistency weight.
+        use_byte (bool): Whether to enable ByteTrack-style second association.
+        use_custom_kf (bool): Whether to use the HybridSort custom Kalman
+            filter.
+        longterm_bank_length (int): Number of appearance features to keep in
+            the long-term bank.
+        alpha (float): Feature update coefficient.
+        adapfs (bool): Whether to enable adaptive feature smoothing.
+        track_thresh (float): High-confidence threshold for the first
+            association pass.
+        EG_weight_high_score (float): Embedding-guided association weight for
+            high-score detections.
+        EG_weight_low_score (float): Embedding-guided association weight for
+            low-score detections.
+        TCM_first_step (bool): Whether to enable TCM in the first step.
+        TCM_byte_step (bool): Whether to enable TCM in the Byte step.
+        TCM_byte_step_weight (float): TCM weight in the Byte step.
+        high_score_matching_thresh (float): Threshold for high-score matching.
+        with_longterm_reid (bool): Whether to enable long-term ReID features.
+        longterm_reid_weight (float): Weight applied to long-term ReID scores.
+        with_longterm_reid_correction (bool): Whether to enable long-term ReID
+            correction.
+        longterm_reid_correction_thresh (float): Correction threshold for
+            regular detections.
+        longterm_reid_correction_thresh_low (float): Correction threshold for
+            low-score detections.
+        dataset (str): Dataset hint used by the association logic.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`.
+
+    Attributes:
+        with_reid (bool): Whether appearance features are enabled.
+        model: ReID model used for appearance extraction when enabled.
+        cmc: Camera-motion compensation method.
+        active_tracks (list[KalmanBoxTracker]): Currently active tracks.
     """
 
     def __init__(
@@ -400,7 +434,7 @@ class HybridSort(BaseTracker):
 
         # misc
         dataset: str = "",
-        **kwargs,  # BaseTracker parameters
+        **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}

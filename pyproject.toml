@@ -6,6 +6,10 @@
 # UV-specific Overrides #
 #########################
 
+[tool.uv]
+preview = true
+extra-build-dependencies = { yolox = ["setuptools", "torch<3.0.0,>=2.2.1"] }
+
 # Override yolox's outdated dependencies
 [[tool.uv.dependency-metadata]]
 name          = "yolox"
@@ -17,12 +21,6 @@ requires-dist = [
   "tabulate",
 ]
 
-############
-# Flake8   #
-############
-
-[tool.uv.extra-build-dependencies]
-yolox = ["setuptools", "torch<3.0.0,>=2.2.1"]
 [tool.ruff]
 line-length = 120
 exclude = [".tox", "*.egg", "build", "temp"]
@@ -32,7 +30,7 @@ select = ["E", "W", "F", "I"]
 ignore = ["E731", "F405", "E402", "W504", "W605", "E741"]
 
 [tool.pytest.ini_options]
-norecursedirs = ["boxmot/engine/trackeval/tests"]
+norecursedirs = ["boxmot/engine/trackeval/tests", "runs"]
 
 ##############
 # Build System #
@@ -123,7 +121,7 @@ test = ["pytest>=8.0.2,<10.0.0", "pytest-cov>=6.0.0,<7.0.0"]
 docs = [
   "mkdocs>=1.6.1", "mkdocs-click>=0.9.0",
   "mkdocs-include-markdown-plugin>=7.1.6",
-  "mkdocs-material>=9.6.15",
+  "mkdocs-material==9.6.15",
   "mkdocstrings>=0.30.0", "mkdocstrings-python>=1.16.12",
 ]
 
@@ -142,7 +140,11 @@ evolve = [
   "plotly==5.19.0",
   "bayesian-optimization==2.0.4",
   "optuna==3.5.0",
-  "pydantic==2.7.2"
+  "pydantic>=2.12.5,<3.0.0"
+]
+
+research = [
+  "gepa[full]>=0.1.1 ; python_version >= '3.10'",
 ]
 
 onnx = [

@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from typing import Any
+
 import numpy as np
 
 from boxmot.motion.cmc import get_cmc_method
@@ -12,40 +14,31 @@ from boxmot.utils.ops import xyxy2tlwh
 
 
 class StrongSort(BaseTracker):
-    """
-    Initialize the StrongSort tracker with various parameters.
+    """Initialize the StrongSort tracker.
 
-    Parameters:
-    - reid_model: Pre-built ReID backend model (from ``ReidAutoBackend(...).model``).
-    - det_thresh (float): Detection threshold for considering detections.
-    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
-    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
-    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
-    - per_class (bool): Enables class-separated tracking.
-    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
-    - asso_func (str): Algorithm name used for data association between detections and tracks.
-    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
-    StrongSort-specific parameters:
-    - min_conf (float): Minimum confidence threshold for detections.
-    - max_cos_dist (float): Maximum cosine distance for ReID feature matching in Nearest Neighbor Distance Metric.
-    - max_iou_dist (float): Maximum IoU distance for data association.
-    - n_init (int): Number of consecutive frames required to confirm a track.
-    - nn_budget (int): Maximum size of the feature library for Nearest Neighbor Distance Metric.
-    - mc_lambda (float): Weight for motion consistency in the track state estimation.
-    - ema_alpha (float): Alpha value for exponential moving average (EMA) update of appearance features.
-    
+    Args:
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
+        min_conf (float): Minimum confidence threshold for detections.
+        max_cos_dist (float): Maximum cosine distance accepted by the
+            nearest-neighbor metric.
+        max_iou_dist (float): Maximum IoU distance used during association.
+        n_init (int): Number of consecutive hits required to confirm a track.
+        nn_budget (int): Maximum number of appearance features stored per
+            track.
+        mc_lambda (float): Motion-consistency weight used by StrongSORT.
+        ema_alpha (float): Exponential moving average coefficient for
+            appearance features.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`.
+
     Attributes:
-    - model: ReID model for appearance feature extraction.
-    - tracker: StrongSort tracker instance.
-    - cmc: Camera motion compensation object.
+        model: ReID model used for appearance extraction.
+        tracker (Tracker): Internal StrongSORT tracker instance.
+        cmc: Camera-motion compensation method.
     """
 
     def __init__(
         self,
         reid_model=None,
-        # StrongSort-specific parameters
         min_conf: float = 0.1,
         max_cos_dist: float = 0.2,
         max_iou_dist: float = 0.7,
@@ -53,19 +46,14 @@ class StrongSort(BaseTracker):
         nn_budget: int = 100,
         mc_lambda: float = 0.98,
         ema_alpha: float = 0.9,
-        **kwargs  # BaseTracker parameters
+        **kwargs: Any,
     ):
-        # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
         super().__init__(**init_args, _tracker_name='StrongSort', **kwargs)
 
-        # Store StrongSort-specific parameters
         self.min_conf = min_conf
-
-        # ReID model
         self.model = reid_model
 
-        # Initialize StrongSort tracker
         self.tracker = Tracker(
             metric=NearestNeighborDistanceMetric("cosine", max_cos_dist, nn_budget),
             max_iou_dist=max_iou_dist,
@@ -74,46 +62,29 @@ class StrongSort(BaseTracker):
             mc_lambda=mc_lambda,
             ema_alpha=ema_alpha,
         )
-        
-        # Initialize camera motion compensation
+
         self.cmc = get_cmc_method("ecc")()
-        
+
+    @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
     ) -> np.ndarray:
-        assert isinstance(
-            dets, np.ndarray
-        ), f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
-        assert isinstance(
-            img, np.ndarray
-        ), f"Unsupported 'img' input format '{type(img)}', valid format is np.ndarray"
-        assert (
-            len(dets.shape) == 2
-        ), "Unsupported 'dets' dimensions, valid number of dimensions is two"
-        assert (
-            dets.shape[1] == 6
-        ), "Unsupported 'dets' 2nd dimension lenght, valid lenghts is 6"
-        if embs is not None:
-            assert (
-                dets.shape[0] == embs.shape[0]
-            ), "Missmatch between detections and embeddings sizes"
-
-        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
-        remain_inds = dets[:, 4] >= self.min_conf
+        self.check_inputs(dets, img, embs)
+        dets = self.detection_layout.with_detection_indices(dets)
+        remain_inds = self.detection_layout.confidences(dets) >= self.min_conf
         dets = dets[remain_inds]
 
-        xyxy = dets[:, 0:4]
-        confs = dets[:, 4]
-        clss = dets[:, 5]
-        det_ind = dets[:, 6]
+        xyxy = self.detection_layout.boxes(dets)
+        confs = self.detection_layout.confidences(dets)
+        clss = self.detection_layout.classes(dets)
+        det_ind = dets[:, self.detection_layout.det_cols]
 
         if len(self.tracker.tracks) >= 1:
             warp_matrix = self.cmc.apply(img, xyxy)
             for track in self.tracker.tracks:
                 track.camera_update(warp_matrix)
 
-        # extract appearance information for each detection
         if embs is not None:
             features = embs[remain_inds]
         else:
@@ -127,11 +98,9 @@ class StrongSort(BaseTracker):
             )
         ]
 
-        # update tracker
         self.tracker.predict()
         self.tracker.update(detections)
 
-        # output bbox identities
         outputs = []
         for track in self.tracker.tracks:
             if not track.is_confirmed() or track.time_since_update >= 1:
@@ -151,7 +120,7 @@ class StrongSort(BaseTracker):
             )
         if len(outputs) > 0:
             return np.concatenate(outputs)
-        return np.array([])
+        return self.empty_output()
 
     def reset(self):
         pass

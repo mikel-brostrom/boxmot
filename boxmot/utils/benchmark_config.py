@@ -465,7 +465,7 @@ def should_use_benchmark_detector(args: Any, cfg: dict[str, Any]) -> bool:
     if benchmark_model is None:
         return False
 
-    current_model = getattr(args, "yolo_model", None)
+    current_model = getattr(args, "detector", None)
     if current_model is None:
         return False
 
@@ -486,7 +486,7 @@ def should_use_benchmark_detector(args: Any, cfg: dict[str, Any]) -> bool:
     ):
         return True
 
-    if getattr(args, "yolo_model_explicit", None) is True:
+    if getattr(args, "detector_explicit", None) is True:
         return False
 
     default_name = (WEIGHTS / "yolov8n.pt").name.lower()
@@ -499,7 +499,7 @@ def should_use_benchmark_reid(args: Any, cfg: dict[str, Any]) -> bool:
     if benchmark_model is None:
         return False
 
-    current_model = getattr(args, "reid_model", None)
+    current_model = getattr(args, "reid", None)
     if current_model is None:
         return False
 
@@ -515,7 +515,7 @@ def should_use_benchmark_reid(args: Any, cfg: dict[str, Any]) -> bool:
     if Path(current_model).name.lower() == Path(benchmark_model).name.lower():
         return True
 
-    if getattr(args, "reid_model_explicit", None) is True:
+    if getattr(args, "reid_explicit", None) is True:
         return False
 
     default_name = (WEIGHTS / "osnet_x0_25_msmt17.pt").name.lower()

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
+import io
+import sys
 import time
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 
 import torch
 
-from boxmot.reid.core import export_formats
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID, export_formats
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.utils import WEIGHTS
-from boxmot.utils import logger as LOGGER
+from boxmot.utils import configure_logging as _configure_boxmot_logging, logger as LOGGER
 from boxmot.utils.torch_utils import select_device
 
 
@@ -23,14 +25,38 @@ def validate_export_formats(include):
     return tuple(flags)
 
 
+@contextmanager
+def _suppress_export_noise(enabled: bool):
+    if not enabled:
+        yield
+        return
+
+    original_stderr = io.StringIO()
+    LOGGER.remove()
+    LOGGER.add(
+        sys.stderr,
+        level="ERROR",
+        colorize=True,
+        backtrace=True,
+        diagnose=True,
+        enqueue=True,
+        format="<level>{level: <8}</level> | <level>{message}</level>",
+    )
+    try:
+        with redirect_stdout(io.StringIO()), redirect_stderr(original_stderr):
+            yield
+    finally:
+        _configure_boxmot_logging(main_only=True)
+
+
 def setup_model(args):
     args.device = select_device(args.device)
     if args.half and args.device.type == "cpu":
         raise AssertionError("--half only compatible with GPU export, use --device 0 for GPU")
 
-    auto_backend = ReidAutoBackend(weights=args.weights, device=args.device, half=args.half)
+    reid = ReID(weights=args.weights, device=args.device, half=args.half)
     model_name = ReIDModelRegistry.get_model_name(args.weights)
-    model = auto_backend.model.model.eval()
+    model = reid.model.model.eval()
 
     if args.optimize and args.device.type != "cpu":
         raise AssertionError("--optimize not compatible with CUDA devices, use --device cpu")
@@ -85,7 +111,7 @@ def create_export_tasks(args, model, dummy_input):
         tasks["onnx"] = (
             True,
             ONNXExporter,
-            (model, dummy_input, args.weights, args.opset, args.dynamic, args.half, args.simplify),
+            (model, dummy_input, args.weights, args.opset, args.dynamic, args.half, args.simplify, args.verbose),
         )
 
     if engine_flag:
@@ -134,36 +160,39 @@ def main(args):
     WEIGHTS.mkdir(parents=True, exist_ok=True)
     args.weights = WEIGHTS / args.weights.name
     
-    # Print header
-    LOGGER.info("")
-    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-    LOGGER.opt(colors=True).info("<bold><cyan>🚀 BoxMOT ReID Export</cyan></bold>")
-    LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>Weights:</bold>    <cyan>{args.weights}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Formats:</bold>    <cyan>{', '.join(args.include)}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Device:</bold>     <cyan>{args.device}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Half:</bold>       <cyan>{args.half}</cyan>")
-    LOGGER.opt(colors=True).info("<blue>" + "-"*60 + "</blue>")
+    if args.verbose:
+        LOGGER.info("")
+        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info("<bold><cyan>🚀 BoxMOT ReID Export</cyan></bold>")
+        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+        LOGGER.opt(colors=True).info(f"<bold>Weights:</bold>    <cyan>{args.weights}</cyan>")
+        LOGGER.opt(colors=True).info(f"<bold>Formats:</bold>    <cyan>{', '.join(args.include)}</cyan>")
+        LOGGER.opt(colors=True).info(f"<bold>Device:</bold>     <cyan>{args.device}</cyan>")
+        LOGGER.opt(colors=True).info(f"<bold>Half:</bold>       <cyan>{args.half}</cyan>")
+        LOGGER.opt(colors=True).info("<blue>" + "-"*60 + "</blue>")
+        LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up model...")
 
-    LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up model...")
-    model, dummy_input = setup_model(args)
+    with _suppress_export_noise(not args.verbose):
+        model, dummy_input = setup_model(args)
 
     output = model(dummy_input)
     output_tensor = output[0] if isinstance(output, tuple) else output
     output_shape = tuple(output_tensor.shape)
-    LOGGER.opt(colors=True).info(
-        f"<bold>Input shape:</bold>  <cyan>{tuple(dummy_input.shape)}</cyan>"
-    )
-    LOGGER.opt(colors=True).info(
-        f"<bold>Output shape:</bold> <cyan>{output_shape}</cyan> "
-        f"({BaseExporter.file_size(args.weights):.1f} MB)"
-    )
+    if args.verbose:
+        LOGGER.opt(colors=True).info(
+            f"<bold>Input shape:</bold>  <cyan>{tuple(dummy_input.shape)}</cyan>"
+        )
+        LOGGER.opt(colors=True).info(
+            f"<bold>Output shape:</bold> <cyan>{output_shape}</cyan> "
+            f"({BaseExporter.file_size(args.weights):.1f} MB)"
+        )
+        LOGGER.opt(colors=True).info("<cyan>[2/3]</cyan> Exporting to formats...")
 
-    LOGGER.opt(colors=True).info("<cyan>[2/3]</cyan> Exporting to formats...")
     export_tasks = create_export_tasks(args, model, dummy_input)
-    exported_files = perform_exports(export_tasks)
+    with _suppress_export_noise(not args.verbose):
+        exported_files = perform_exports(export_tasks)
 
-    if exported_files:
+    if exported_files and args.verbose:
         elapsed_time = time.time() - start_time
         LOGGER.opt(colors=True).info("<cyan>[3/3]</cyan> Export complete!")
         LOGGER.info("")

@@ -1,12 +1,23 @@
-site_name: ""
+site_name: "BoxMOT"
+repo_url: https://github.com/mikel-brostrom/boxmot
+repo_name: mikel-brostrom/boxmot
 theme:
   name: material
   logo: logo/logo.png
+  icon:
+    repo: fontawesome/brands/github
   features:
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.expand
+    - content.tabs.link
+
+extra_css:
+  - stylesheets/extra.css
 
 markdown_extensions:
+  - admonition
   - mkdocs-click
   - md_in_html
   - pymdownx.highlight:
@@ -16,6 +27,8 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
 
 plugins:
   - search
@@ -24,25 +37,69 @@ plugins:
       handlers:
         python:
           options:
-            selection:
-              members: "__all__"
-              filters:
-                - "!^update$"
+            docstring_style: google
+            members_order:
+              - "__all__"
+              - alphabetical
+            filters:
+              - "!^_[^_]"
+              - "!^update$"
 
 nav:
-  - Home: index.md
-  - Quickstart: quickstart.md
-  - CLI:
-      - Track:        modes/track.md
-      - Generate:     modes/generate.md
-      - Evaluate:     modes/eval.md
-      - Tune:         modes/tune.md
+  - Quickstart: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Choose a Mode: getting-started/workflows.md
+  - Modes:
+      - Overview: modes/index.md
+      - Track: modes/track.md
+      - Generate: modes/generate.md
+      - Evaluate: modes/eval.md
+      - Tune: modes/tune.md
+      - Research: modes/research.md
+      - Export: modes/export.md
+  - Configuration:
+      - Config System Overview: config/index.md
+      - Mode Defaults: config/modes.md
+      - Benchmarks: config/benchmarks.md
+      - Datasets: config/datasets.md
+      - Detectors: config/detectors.md
+      - ReID Profiles: config/reid.md
+      - Tracker YAMLs: config/trackers.md
   - Trackers:
+      - Tracker Overview: trackers/index.md
       - ByteTrack:    trackers/bytetrack.md
       - BotSort:      trackers/botsort.md
       - SFSORT:       trackers/sfsort.md
       - StrongSort:   trackers/strongsort.md
       - OcSort:       trackers/ocsort.md
       - DeepOcSort:   trackers/deepocsort.md
-      # - HybridSort:   api/trackers/hybridsort.md
+      - HybridSort:   trackers/hybridsort.md
       - BoostTrack:   trackers/boosttrack.md
+  - Usage:
+      - Overview: usage/index.md
+      - CLI: usage/cli.md
+      - Python: usage/python.md
+      - Configuration: usage/configuration.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - Detection Layouts: concepts/detection-layouts.md
+  - Guides:
+      - Evaluation and Postprocessing: guides/evaluation.md
+      - Benchmark Workflows: guides/benchmarks.md
+      - Results and Artifacts: guides/results.md
+  - API Reference:
+      - Overview: python/index.md
+      - Boxmot Facade: python/boxmot.md
+      - track(...) and evaluate(...): python/functions.md
+      - Detector: python/detector.md
+      - ReID: python/reid.md
+      - Results Objects: python/results.md
+      - Tracker Factory: python/tracker-zoo.md
+  - Contributing:
+      - Contributing Guide: contributing/index.md
+      - Add a Tracker: contributing/add-tracker.md
+      - Add OBB Support: contributing/obb-support.md
+      - Add Configs and Benchmarks: contributing/configs.md
+      - Testing: contributing/testing.md
+      - CI and Benchmarks: contributing/ci.md

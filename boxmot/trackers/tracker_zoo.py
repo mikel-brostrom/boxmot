@@ -3,7 +3,7 @@
 import importlib
 import yaml
 
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
 from boxmot.utils import TRACKER_CONFIGS
 
 REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack"]
@@ -49,7 +49,7 @@ def create_tracker(
     - per_class: Boolean for class-specific tracking (optional).
     - evolve_param_dict: A dictionary of parameters for evolving the tracker.
     - reid_preprocess: Preprocessing method for the ReID backend (only used when building from ``reid_weights``).
-    - reid_model: Pre-built ReID backend (e.g., ``ReidAutoBackend(...).model``). Takes
+    - reid_model: Pre-built ReID backend (e.g., ``ReID(...).model``). Takes
         precedence over ``reid_weights`` and lets callers share a single backend across trackers.
 
     Returns:
@@ -81,11 +81,11 @@ def create_tracker(
 
     if tracker_type in REID_TRACKERS:
         if reid_model is None and reid_weights is not None:
-            reid_model = ReidAutoBackend(
+            reid_model = ReID(
                 weights=reid_weights,
                 device=device,
                 half=half,
-                preprocess=reid_preprocess,
+                preprocess_name=reid_preprocess,
             ).model
         tracker_args["reid_model"] = reid_model
 

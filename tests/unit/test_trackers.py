@@ -3,13 +3,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from boxmot import (
+from boxmot.trackers import (
     DeepOcSort,
     OcSort,
-    create_tracker,
-    get_tracker_config,
+    StrongSort,
 )
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.deepocsort.deepocsort import (
     KalmanBoxTracker as DeepOCSortKalmanBoxTracker,
 )
@@ -18,7 +18,8 @@ from boxmot.trackers.botsort.botsort_track import STrack as BotSortTrack
 from boxmot.trackers.bytetrack.bytetrack import ByteTrack, STrack as ByteTrackTrack
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.sfsort.sfsort import SFSORT
-from boxmot.reid.core.auto_backend import ReidAutoBackend
+from boxmot.reid.core import ReID
+from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
 from boxmot.utils import WEIGHTS
 from boxmot.utils.matching import iou_distance
 from tests.test_config import (
@@ -49,7 +50,7 @@ class DummyCMC:
 
 @pytest.mark.parametrize("Tracker", MOTION_N_APPEARANCE_TRACKING_METHODS)
 def test_motion_n_appearance_trackers_instantiation(Tracker):
-    reid_model = ReidAutoBackend(
+    reid_model = ReID(
         weights=Path(WEIGHTS / "osnet_x0_25_msmt17.pt"),
         device="cpu",
         half=True,
@@ -122,7 +123,7 @@ TRACKER_CREATORS = {
         (
             DeepOcSort,
             {
-                "reid_model": ReidAutoBackend(
+                "reid_model": ReID(
                     weights=Path(WEIGHTS / "osnet_x0_25_msmt17.pt"),
                     device="cpu",
                     half=True,
@@ -193,6 +194,17 @@ def test_per_class_tracker_active_tracks(tracker_type):
     tracker.update(det, rgb, embs)
     assert tracker.per_class_active_tracks[0], "No active tracks for class 0"
     assert tracker.per_class_active_tracks[65], "No active tracks for class 65"
+
+
+def test_strongsort_rejects_obb_with_shared_error_message():
+    tracker = StrongSort.__new__(StrongSort)
+    BaseTracker.__init__(tracker, asso_func="iou")
+
+    rgb = np.random.randint(255, size=(64, 64, 3), dtype=np.uint8)
+    det = np.array([[32, 32, 20, 10, 0.15, 0.95, 0]], dtype=np.float32)
+
+    with pytest.raises(AssertionError, match="StrongSort does not support OBB detections"):
+        tracker.update(det, rgb)
 
 
 def test_botsort_supports_obb_without_reid():

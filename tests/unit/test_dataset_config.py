@@ -146,25 +146,25 @@ def test_mot17_dataset_exposes_default_reid():
 
 def test_dataset_detector_is_used_for_default_model_selection():
     cfg = load_benchmark_cfg("MOT17-ablation")
-    args = SimpleNamespace(yolo_model=[Path("models/yolov8n.pt")], yolo_model_explicit=False)
+    args = SimpleNamespace(detector=[Path("models/yolov8n.pt")], detector_explicit=False)
     assert should_use_benchmark_detector(args, cfg) is True
 
 
 def test_dataset_reid_is_used_for_default_model_selection():
     cfg = load_benchmark_cfg("MOT17-ablation")
-    args = SimpleNamespace(reid_model=[Path("models/osnet_x0_25_msmt17.pt")], reid_model_explicit=False)
+    args = SimpleNamespace(reid=[Path("models/osnet_x0_25_msmt17.pt")], reid_explicit=False)
     assert should_use_benchmark_reid(args, cfg) is True
 
 
 def test_dataset_detector_is_used_when_same_model_is_explicit():
     cfg = load_benchmark_cfg("MMOT-OBB")
-    args = SimpleNamespace(yolo_model=[Path("models/yolo11l-3ch.pt")], yolo_model_explicit=True)
+    args = SimpleNamespace(detector=[Path("models/yolo11l-3ch.pt")], detector_explicit=True)
     assert should_use_benchmark_detector(args, cfg) is True
 
 
 def test_dataset_reid_is_not_used_for_other_explicit_models():
     cfg = load_benchmark_cfg("MOT17-ablation")
-    args = SimpleNamespace(reid_model=[Path("models/mobilenetv2_x1_4_dukemtmcreid.pt")], reid_model_explicit=True)
+    args = SimpleNamespace(reid=[Path("models/mobilenetv2_x1_4_dukemtmcreid.pt")], reid_explicit=True)
     assert should_use_benchmark_reid(args, cfg) is False
 
 
@@ -206,7 +206,7 @@ def test_mot17_detector_exposes_download_url():
 
 def test_dataset_detector_is_not_used_for_other_explicit_models():
     cfg = load_benchmark_cfg("visdrone-ablation")
-    args = SimpleNamespace(yolo_model=[Path("models/yolov8x.pt")], yolo_model_explicit=True)
+    args = SimpleNamespace(detector=[Path("models/yolov8x.pt")], detector_explicit=True)
     assert should_use_benchmark_detector(args, cfg) is False
 
 
@@ -253,9 +253,18 @@ def test_find_dataset_cfg_for_nested_source_path():
 def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
     calls = {}
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: calls.update(kwargs))
+    source = "boxmot/engine/trackeval/data/MMOT-OBB/train/data44-3/img1"
+    real_exists = Path.exists
+
+    def fake_exists(self):
+        if self == Path(source):
+            return False
+        return real_exists(self)
+
+    monkeypatch.setattr(benchmark_config.Path, "exists", fake_exists)
 
     args = SimpleNamespace(
-        source="boxmot/engine/trackeval/data/MMOT-OBB/train/data44-3/img1",
+        source=source,
         eval_box_type=None,
     )
 

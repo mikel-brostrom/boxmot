@@ -4,14 +4,16 @@ from pathlib import Path
 
 import numpy as np
 from ultralytics import YOLO
+from ultralytics.utils.downloads import attempt_download_asset
 
-from boxmot.detectors import get_detector_url
-from boxmot.detectors.detector import Detections, Detector
+from boxmot.detectors.base import BaseDetectorBackend, Detections
+from boxmot.detectors.registry import get_detector_url, is_ultralytics_model
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.download import download_file
+from boxmot.utils.misc import resolve_model_path
 
 
-class UltralyticsDetector(Detector):
+class UltralyticsDetector(BaseDetectorBackend):
     """
     Detector wrapper for Ultralytics YOLO models (YOLOv8, YOLO11, etc.).
 
@@ -20,18 +22,38 @@ class UltralyticsDetector(Detector):
     """
 
     def __init__(self, model, device, imgsz=None):
-        model_path = Path(model)
+        model_path = resolve_model_path(model)
         detector_url = get_detector_url(model_path)
         if detector_url and not model_path.exists():
             LOGGER.info("Downloading detector weights...")
             download_file(url=detector_url, dest=model_path, overwrite=False)
+        elif is_ultralytics_model(model_path.name) and not model_path.exists():
+            LOGGER.info("Downloading detector weights...")
+            attempt_download_asset(model_path, release="latest")
 
         self.device = device
         self.imgsz = imgsz  # passed through to YOLO.predict
-        self._yolo = YOLO(str(model_path))
+        self._yolo = self._load_yolo(model_path)
         self.names = self._yolo.names or {}
         self.pt = True
         self.stride = 32
+
+    @staticmethod
+    def _is_corrupt_weights_error(exc: Exception) -> bool:
+        message = str(exc)
+        return "PytorchStreamReader failed reading zip archive" in message or "failed finding central directory" in message
+
+    def _load_yolo(self, model_path: Path):
+        try:
+            return YOLO(str(model_path))
+        except RuntimeError as exc:
+            if not (model_path.exists() and is_ultralytics_model(model_path.name) and self._is_corrupt_weights_error(exc)):
+                raise
+
+            LOGGER.warning(f"Detector weights appear corrupted, removing and re-downloading {model_path}")
+            model_path.unlink(missing_ok=True)
+            attempt_download_asset(model_path, release="latest")
+            return YOLO(str(model_path))
 
     def preprocess(self, images):
         raise NotImplementedError("Use __call__ directly for UltralyticsDetector")

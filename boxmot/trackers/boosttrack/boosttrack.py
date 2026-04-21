@@ -1,5 +1,5 @@
 from collections import deque
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 
@@ -117,45 +117,34 @@ class KalmanBoxTracker:
 
 
 class BoostTrack(BaseTracker):
-    """
-    Initialize the BoostTrack tracker with various parameters.
+    """Initialize the BoostTrack tracker.
 
-    Parameters:
-    - reid_weights (Path): Path to the re-identification model weights.
-    - reid_model: Pre-built ReID backend model (from ``ReidAutoBackend(...).model``). Required when ``with_reid=True``.
-    - det_thresh (float): Detection threshold for considering detections.
-    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
-    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
-    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
-    - per_class (bool): Enables class-separated tracking.
-    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
-    - asso_func (str): Algorithm name used for data association between detections and tracks.
-    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
-    BoostTrack-specific parameters:
-    - use_ecc (bool): Whether to use ECC for camera motion compensation.
-    - min_box_area (int): Minimum box area for detections.
-    - aspect_ratio_thresh (float): Aspect ratio threshold for detections.
-    - cmc_method (str): Method for camera motion compensation.
-    - lambda_iou (float): Weight for IoU-based association.
-    - lambda_mhd (float): Weight for Mahalanobis distance-based association.
-    - lambda_shape (float): Weight for shape-based association.
-    - use_dlo_boost (bool): Whether to use DLO boost for confidence adjustment.
-    - use_duo_boost (bool): Whether to use DUO boost for confidence adjustment.
-    - dlo_boost_coef (float): Coefficient for DLO boost.
-    - s_sim_corr (bool): Whether to use shape similarity correction.
-    - use_rich_s (bool): Whether to use rich shape features.
-    - use_sb (bool): Whether to use soft-BIoU.
-    - use_vt (bool): Whether to use visual tracking.
-    - with_reid (bool): Whether to use re-identification.
-    
+    Args:
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
+        use_ecc (bool): Whether to enable camera-motion compensation.
+        min_box_area (int): Minimum detection area.
+        aspect_ratio_thresh (float): Maximum accepted aspect ratio.
+        cmc_method (str): Camera-motion compensation method.
+        lambda_iou (float): Weight applied to IoU association.
+        lambda_mhd (float): Weight applied to Mahalanobis association.
+        lambda_shape (float): Weight applied to shape similarity.
+        use_dlo_boost (bool): Whether to enable DLO boosting.
+        use_duo_boost (bool): Whether to enable DUO boosting.
+        dlo_boost_coef (float): Coefficient used by DLO boosting.
+        s_sim_corr (bool): Whether to enable shape-similarity correction.
+        use_rich_s (bool): Whether to enable rich shape features.
+        use_sb (bool): Whether to enable soft-BIoU.
+        use_vt (bool): Whether to enable visual tracking cues.
+        with_reid (bool): Whether to enable ReID features.
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`.
+
     Attributes:
-    - frame_count (int): Counter for the frames processed.
-    - active_tracks (list): List to hold active tracks.
-    - trackers (List[KalmanBoxTracker]): List of active Kalman filter trackers.
-    - cmc: Camera motion compensation object.
-    - reid_model: Re-identification model instance (if with_reid=True).
+        frame_count (int): Number of processed frames.
+        active_tracks (list): Currently active tracks.
+        trackers (list[KalmanBoxTracker]): Internal Kalman trackers.
+        cmc: Camera-motion compensation method when enabled.
+        reid_model: ReID model used for appearance extraction when enabled.
     """
 
     def __init__(
@@ -177,7 +166,7 @@ class BoostTrack(BaseTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         with_reid: bool = False,
-        **kwargs  # BaseTracker parameters
+        **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
@@ -440,8 +429,6 @@ class BoostTrack(BaseTracker):
         if self.use_vt:
             threshold_s = 0.95
             threshold_e = 0.8
-            n_steps = 20
-            # alpha = (threshold_s - threshold_e) / n_steps # todo alpha is not being used probably a bug
             tmp = (S > np.maximum(
                 threshold_s - np.array([trk.time_since_update - 1 for trk in self.trackers]),
                                     threshold_e)).max(1)

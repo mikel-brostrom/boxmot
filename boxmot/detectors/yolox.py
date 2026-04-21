@@ -11,7 +11,7 @@ from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
-from boxmot.detectors.detector import Detections, Detector
+from boxmot.detectors.base import BaseDetectorBackend, Detections
 from boxmot.utils import DETECTOR_CONFIGS, logger as LOGGER
 
 # default model weights for generic YOLOX model names
@@ -98,7 +98,7 @@ def _patch_yolox_head_decode_outputs_for_mps() -> None:
 _patch_yolox_head_decode_outputs_for_mps()
 
 
-class YoloXDetector(Detector):
+class YoloXDetector(BaseDetectorBackend):
     """YOLOX detector with standalone preprocess/process/postprocess pipeline."""
 
     pt = False

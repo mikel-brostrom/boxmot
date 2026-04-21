@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from collections import deque
+from typing import Any
 
 import numpy as np
 
@@ -231,39 +232,30 @@ class KalmanBoxTracker:
 
 
 class DeepOcSort(BaseTracker):
-    """
-    Initialize the DeepOcSort tracker with various parameters.
+    """Initialize the DeepOcSort tracker.
 
-    Parameters:
-    - reid_model: Pre-built ReID backend model (from ``ReidAutoBackend(...).model``).
-    - det_thresh (float): Detection threshold for considering detections.
-    - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-    - max_obs (int): Maximum number of historical observations stored for each track. Always greater than max_age by minimum 5.
-    - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
-    - iou_threshold (float): IOU threshold for determining match between detection and tracks.
-    - per_class (bool): Enables class-separated tracking.
-    - nr_classes (int): Total number of object classes that the tracker will handle (for per_class=True).
-    - asso_func (str): Algorithm name used for data association between detections and tracks.
-    - is_obb (bool): Work with Oriented Bounding Boxes (OBB) instead of standard axis-aligned bounding boxes.
-    
-    DeepOcSort-specific parameters:
-    - delta_t (int): Time window size for motion estimation.
-    - inertia (float): Motion model weight, higher values favor motion consistency.
-    - w_association_emb (float): Weight for embedding association in the matching cost.
-    - alpha_fixed_emb (float): Fixed update rate for embeddings.
-    - aw_param (float): Adaptive weight parameter for cost function.
-    - embedding_off (bool): Whether to disable appearance embedding for tracking.
-    - cmc_off (bool): Whether to disable camera motion compensation.
-    - aw_off (bool): Whether to disable adaptive weights for appearance/motion balance.
-    - Q_xy_scaling (float): Scaling factor for process noise in position coordinates.
-    - Q_s_scaling (float): Scaling factor for process noise in scale coordinates.
-    
+    Args:
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
+        delta_t (int): Time window used for motion estimation.
+        inertia (float): Motion-consistency weight.
+        w_association_emb (float): Weight applied to appearance distance during
+            matching.
+        alpha_fixed_emb (float): Fixed update rate for track embeddings.
+        aw_param (float): Adaptive-weighting parameter for motion versus
+            appearance.
+        embedding_off (bool): Whether to disable appearance embeddings.
+        cmc_off (bool): Whether to disable camera-motion compensation.
+        aw_off (bool): Whether to disable adaptive appearance weighting.
+        Q_xy_scaling (float): Process-noise scaling for position coordinates.
+        Q_s_scaling (float): Process-noise scaling for scale coordinates.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
+            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
+            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
+            and ``is_obb``.
+
     Attributes:
-    - frame_count (int): Counter for the frames processed.
-    - active_tracks (list): List to hold active tracks.
-    - model: ReID model for appearance feature extraction.
-    - cmc: Camera motion compensation object.
-    - kalman_filter: Kalman filter for motion estimation.
+        model: ReID model used for appearance extraction.
+        cmc: Camera-motion compensation method.
     """
 
     def __init__(
@@ -280,7 +272,7 @@ class DeepOcSort(BaseTracker):
         aw_off: bool = False,
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001,
-        **kwargs  # BaseTracker parameters
+        **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
@@ -310,13 +302,22 @@ class DeepOcSort(BaseTracker):
     def update(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
     ) -> np.ndarray:
-        """
-        Params:
-          dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
-        Requires: this method must be called once for each frame even with empty detections
-        (use np.empty((0, 5)) for frames without detections).
-        Returns the a similar array, where the last column is the object ID.
-        NOTE: The number of objects returned may differ from the number of detections provided.
+        """Update tracks for one frame.
+
+        Args:
+            dets: Detection array for the current frame in the active BoxMOT
+                layout.
+            img: Current image frame.
+            embs: Optional appearance embeddings aligned with ``dets``.
+
+        Returns:
+            Array of active tracks with the object ID in the last column.
+
+        Notes:
+            Call this once per frame, including frames with no detections.
+            Pass an empty detection array with the matching layout when a frame
+            has no detections. The number of returned tracks may differ from the
+            number of detections provided.
         """
         # dets, s, c = dets.data
         # print(dets, s, c)
