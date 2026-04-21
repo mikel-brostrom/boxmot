@@ -619,7 +619,7 @@ def test_reid_runtime_returns_named_feature_sets(monkeypatch):
             return np.full((len(xyxys), 4), float(img.shape[0]), dtype=np.float32)
 
     class _FakeBackend:
-        def __init__(self, weights, device, half):
+        def __init__(self, weights, device, half, **kwargs):
             _ = (weights, device, half)
             self.model = _FakeReIDModel()
 
@@ -665,7 +665,7 @@ def test_pipeline_delegates_to_detector_backend_and_reid_models(monkeypatch):
             return np.ones((len(xyxys), 2), dtype=np.float32)
 
     class _FakeBackend:
-        def __init__(self, weights, device, half):
+        def __init__(self, weights, device, half, **kwargs):
             _ = (weights, device, half)
             self.model = _FakeReIDModel()
 

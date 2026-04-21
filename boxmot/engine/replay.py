@@ -96,8 +96,8 @@ def _build_task_args(
             evolve_config,
             getattr(args, "benchmark", None),
             conf_threshold,
-            progress_queue,
             preprocess_name,
+            progress_queue,
         )
         for seq_name in sequence_names
     ]
@@ -115,8 +115,8 @@ def process_sequence(
     cfg_dict: dict | None = None,
     dataset_name: Optional[str] = None,
     conf_threshold: float = 0.0,
-    progress_queue=None,
     preprocess_name: Optional[str] = None,
+    progress_queue=None,
 ):
     """Run a tracker over cached detections and embeddings for one sequence."""
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
