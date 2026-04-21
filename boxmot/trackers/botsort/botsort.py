@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from __future__ import annotations
+
 from typing import Any
 
 import numpy as np
@@ -56,7 +58,7 @@ class BotSort(BaseTracker):
 
     def __init__(
         self,
-        reid_model=None,
+        reid_model: Any | None = None,
         # BotSort-specific parameters
         track_high_thresh: float = 0.5,
         track_low_thresh: float = 0.1,

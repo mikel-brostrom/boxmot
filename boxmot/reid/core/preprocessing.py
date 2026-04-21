@@ -1,8 +1,12 @@
+from __future__ import annotations
+
+from typing import Callable, Dict, Optional, Tuple
+
 import cv2
 import numpy as np
 
 
-def resize(crop: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:
+def resize(crop: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
     """Simple resize to target (H, W). Default preprocessing."""
     return cv2.resize(
         crop,
@@ -11,7 +15,7 @@ def resize(crop: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:
     )
 
 
-def resize_pad(crop: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:
+def resize_pad(crop: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
     """Resize preserving aspect ratio with padding."""
     target_h, target_w = target_shape
     h, w = crop.shape[:2]
@@ -34,7 +38,7 @@ def resize_pad(crop: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:
     return padded
 
 
-PREPROCESS_REGISTRY: dict[str, callable] = {
+PREPROCESS_REGISTRY: Dict[str, Callable] = {
     "resize": resize,
     "resize_pad": resize_pad,
 }
@@ -42,7 +46,7 @@ PREPROCESS_REGISTRY: dict[str, callable] = {
 DEFAULT_PREPROCESS = "resize"
 
 
-def get_preprocess_fn(name: str | None = None) -> callable:
+def get_preprocess_fn(name: Optional[str] = None) -> Callable:
     """Get preprocessing function by name. Returns default if name is None."""
     if name is None:
         name = DEFAULT_PREPROCESS

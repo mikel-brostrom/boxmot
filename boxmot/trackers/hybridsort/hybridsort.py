@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # Hybrid-SORT-ReID with ECC + ReID (explicit config, BaseTracker-style)
 # - Assumes detection input is M x [x1, y1, x2, y2, conf, cls]
 # - ECC via get_cmc_method(...).apply(img, dets)
@@ -398,7 +400,7 @@ class HybridSort(BaseTracker):
     def __init__(
         self,
         # ReID & CMC
-        reid_model=None,
+        reid_model: Any | None = None,
         cmc_method: str = "ecc",
         with_reid: bool = True,
 

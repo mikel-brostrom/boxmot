@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections import deque
 from typing import Any, List, Optional
 
@@ -149,7 +151,7 @@ class BoostTrack(BaseTracker):
 
     def __init__(
         self,
-        reid_model=None,
+        reid_model: Any | None = None,
         # BoostTrack-specific parameters
         use_ecc: bool = True,
         min_box_area: int = 10,

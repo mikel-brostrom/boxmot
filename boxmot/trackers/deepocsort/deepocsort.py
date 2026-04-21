@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from __future__ import annotations
+
 from collections import deque
 from typing import Any
 
@@ -260,7 +262,7 @@ class DeepOcSort(BaseTracker):
 
     def __init__(
         self,
-        reid_model=None,
+        reid_model: Any | None = None,
         # DeepOcSort-specific parameters
         delta_t: int = 3,
         inertia: float = 0.2,

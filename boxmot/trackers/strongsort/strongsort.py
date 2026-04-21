@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from __future__ import annotations
+
 from typing import Any
 
 import numpy as np
@@ -38,7 +40,7 @@ class StrongSort(BaseTracker):
 
     def __init__(
         self,
-        reid_model=None,
+        reid_model: Any | None = None,
         min_conf: float = 0.1,
         max_cos_dist: float = 0.2,
         max_iou_dist: float = 0.7,
