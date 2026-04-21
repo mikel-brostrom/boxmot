@@ -84,7 +84,7 @@ boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --so
 Python:
 
 ```python
-from boxmot.api import Boxmot
+from boxmot import Boxmot
 
 run = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort").track(
     source="video.mp4",

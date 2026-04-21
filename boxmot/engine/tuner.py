@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 Hyperparameter tuning for multi-object trackers using Ray Tune + Optuna.
 
@@ -19,11 +21,12 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from boxmot.engine.evaluator import eval_setup, run_generate_dets_embs, run_trackeval
-from boxmot.engine.replay import run_generate_mot_results
+from boxmot.engine.evaluator import eval_setup, run_eval, run_generate_dets_embs
+from boxmot.engine.workflow_reporting import SUMMARY_COLUMNS
+from boxmot.engine.workflow_results import TuneResult, TuneTrialResult, ValidationResult
+from boxmot.engine.workflow_support import score_summary
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.evaluation.results import SUMMARY_COLUMNS
 
 # Metrics that must be summed across classes (not averaged), because they are counts
 METRIC_SUM = frozenset({"IDSW", "IDs"})
@@ -158,11 +161,13 @@ def _collect_trial_data(results) -> list:
         if result.error or not result.metrics:
             continue
         trial_id = result.metrics.get("trial_id", "unknown")
+        validation = result.metrics.get("_validation", {})
         trial_data.append({
             "trial_id": trial_id,
             "trial_dir": Path(result.path),
             "config": result.config,
             "metrics": {k: result.metrics.get(k, 0.0) for k in ALL_TUNE_METRICS},
+            "validation": validation if isinstance(validation, dict) else {},
         })
     return trial_data
 
@@ -400,23 +405,60 @@ class TrackerObjective:
         self.opt = opt
 
     def objective_function(self, config: dict) -> dict:
-        run_generate_mot_results(self.opt, config, quiet=True)
-        results = run_trackeval(self.opt)
+        result = run_eval(
+            self.opt,
+            evolve_config=config,
+            setup=False,
+            prepare_cache=False,
+            verbose=False,
+            show_progress=False,
+        )
 
-        if not results:
+        if not result.raw:
             return {k: 0.0 for k in ALL_TUNE_METRICS}
 
-        if isinstance(results, dict) and "per_sequence" in results:
-            results = {k: v for k, v in results.items() if k != "per_sequence"}
-
-        return _aggregate_results(results)
+        payload = _aggregate_results(result.raw)
+        payload["_validation"] = {
+            "benchmark": result.benchmark,
+            "raw": result.raw,
+            "summary_label": result.summary_label,
+            "summary": result.summary,
+            "timings": result.timings,
+            "exp_dir": None if result.exp_dir is None else str(result.exp_dir),
+        }
+        return payload
 
 
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def main(args):
+def _validation_result_from_trial(trial_data: dict, args) -> ValidationResult:
+    validation_payload = trial_data.get("validation", {})
+    raw = validation_payload.get("raw")
+    summary = validation_payload.get("summary")
+    if not isinstance(summary, dict):
+        summary = {
+            key: float(trial_data["metrics"].get(key, 0.0))
+            for key in SUMMARY_COLUMNS
+            if key in trial_data["metrics"]
+        }
+    return ValidationResult(
+        benchmark=str(validation_payload.get("benchmark", getattr(args, "benchmark", getattr(args, "data", "")))),
+        raw=raw if isinstance(raw, dict) else dict(summary),
+        summary_label=str(validation_payload.get("summary_label", "all")),
+        summary=dict(summary),
+        exp_dir=Path(validation_payload["exp_dir"]) if validation_payload.get("exp_dir") else None,
+        timings=dict(validation_payload.get("timings", {})),
+        args=args,
+    )
+
+
+def _execute_tune_search(
+    args,
+    *,
+    baseline_config: dict | None = None,
+):
     from boxmot.utils.checks import RequirementsChecker
     checker = RequirementsChecker()
     checker.sync_extra(extra="evolve")
@@ -433,11 +475,17 @@ def main(args):
     minimize = list(args.minimize)
     opt_metrics = maximize + minimize
     opt_modes   = ["max"] * len(maximize) + ["min"] * len(minimize)
+    optuna_kwargs = {
+        "metric": opt_metrics[0] if len(opt_metrics) == 1 else opt_metrics,
+        "mode": opt_modes[0] if len(opt_modes) == 1 else opt_modes,
+    }
+    seed = getattr(args, "seed", None)
+    if seed is not None:
+        optuna_kwargs["seed"] = seed
+    if baseline_config:
+        optuna_kwargs["points_to_evaluate"] = [baseline_config]
 
-    if len(opt_metrics) == 1:
-        optuna_search = OptunaSearch(metric=opt_metrics[0], mode=opt_modes[0])
-    else:
-        optuna_search = OptunaSearch(metric=opt_metrics, mode=opt_modes)
+    optuna_search = OptunaSearch(**optuna_kwargs)
 
     yaml_cfg = load_yaml_config(args.tracker)
     search_space = yaml_to_search_space(yaml_cfg, tune)
@@ -501,12 +549,61 @@ def main(args):
             ),
         )
 
-    tuner.fit()
+    result_grid = tuner.fit()
+    if result_grid is None and hasattr(tuner, "get_results"):
+        result_grid = tuner.get_results()
 
     # Post-processing: per-trial configs, CSV, best config, summary
     tune_dir = results_dir / tune_name
-    _save_all_results(tune_dir, tuner.get_results(), yaml_cfg,
-                      args.tracker, maximize, minimize, args)
+    _save_all_results(tune_dir, result_grid, yaml_cfg, args.tracker, maximize, minimize, args)
+    return result_grid, tune_dir, maximize, minimize
+
+
+def run_tune(
+    args,
+    *,
+    baseline_config: dict | None = None,
+) -> TuneResult:
+    result_grid, tune_dir, maximize, minimize = _execute_tune_search(
+        args,
+        baseline_config=baseline_config,
+    )
+    trial_data = _collect_trial_data(result_grid)
+    if not trial_data:
+        raise RuntimeError("No successful tuning trials were produced.")
+
+    trials: list[TuneTrialResult] = []
+    best: TuneTrialResult | None = None
+    for index, trial in enumerate(trial_data, start=1):
+        metrics = _validation_result_from_trial(trial, args)
+        score = score_summary(metrics.summary, maximize=maximize, minimize=minimize)
+        trial_result = TuneTrialResult(
+            index=index,
+            config=dict(trial["config"]),
+            metrics=metrics,
+            score=score,
+        )
+        trials.append(trial_result)
+        if best is None or trial_result.score > best.score:
+            best = trial_result
+
+    if best is None:
+        raise RuntimeError("No successful tuning trials were produced.")
+
+    best_yaml = tune_dir / f"best_{args.tracker}.yaml"
+    return TuneResult(
+        benchmark=str(getattr(args, "benchmark", getattr(args, "data", ""))),
+        tracker=str(args.tracker),
+        trials=trials,
+        best=best,
+        best_config=dict(best.config),
+        best_yaml=best_yaml,
+    )
+
+
+def main(args):
+    _execute_tune_search(args)
+    return None
 
 
 if __name__ == "__main__":

@@ -2,6 +2,11 @@
 
 Use `research` when you want GEPA to propose code changes to tracker source files and score them on a benchmark.
 
+Reference material:
+
+- [GEPA repository](https://github.com/gepa-ai/gepa)
+- [Paper: GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning](https://arxiv.org/abs/2507.19457)
+
 ## Examples
 
 !!! example
@@ -18,9 +23,16 @@ Use `research` when you want GEPA to propose code changes to tracker source file
 
     === "Python"
 
-        BoxMOT does not expose a first-class public `research(...)` workflow on the high-level Python facade.
+        ```python
+        from boxmot import Boxmot
 
-        Use the CLI for the GEPA optimization loop. Use the Python API for surrounding tasks such as tracking, validation, tuning, and exporting.
+        result = Boxmot(tracker="bytetrack").research(
+            benchmark="mot17-ablation",
+            proposal_model="openai/gpt-5.4",
+            max_metric_calls=24,
+        )
+        print(result.delta_summary)
+        ```
 
 ## Prerequisites
 

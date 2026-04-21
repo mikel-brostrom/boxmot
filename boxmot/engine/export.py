@@ -3,9 +3,11 @@ import io
 import sys
 import time
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from pathlib import Path
 
 import torch
 
+from boxmot.engine.workflow_results import ExportResult
 from boxmot.reid.core import ReID, export_formats
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.base_exporter import BaseExporter
@@ -154,11 +156,30 @@ def perform_exports(export_tasks):
     return exported_files
 
 
+def _prepare_export(args):
+    WEIGHTS.mkdir(parents=True, exist_ok=True)
+    args.weights = WEIGHTS / Path(args.weights).name
+
+    with _suppress_export_noise(not args.verbose):
+        model, dummy_input = setup_model(args)
+    return model, dummy_input
+
+
+def _execute_export(args, model, dummy_input):
+    export_tasks = create_export_tasks(args, model, dummy_input)
+    with _suppress_export_noise(not args.verbose):
+        exported_files = perform_exports(export_tasks)
+    return exported_files
+
+
+def run_export(args) -> ExportResult:
+    model, dummy_input = _prepare_export(args)
+    exported_files = _execute_export(args, model, dummy_input)
+    return ExportResult(weights=args.weights, files=exported_files)
+
+
 def main(args):
     start_time = time.time()
-
-    WEIGHTS.mkdir(parents=True, exist_ok=True)
-    args.weights = WEIGHTS / args.weights.name
     
     if args.verbose:
         LOGGER.info("")
@@ -172,8 +193,7 @@ def main(args):
         LOGGER.opt(colors=True).info("<blue>" + "-"*60 + "</blue>")
         LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up model...")
 
-    with _suppress_export_noise(not args.verbose):
-        model, dummy_input = setup_model(args)
+    model, dummy_input = _prepare_export(args)
 
     output = model(dummy_input)
     output_tensor = output[0] if isinstance(output, tuple) else output
@@ -188,11 +208,10 @@ def main(args):
         )
         LOGGER.opt(colors=True).info("<cyan>[2/3]</cyan> Exporting to formats...")
 
-    export_tasks = create_export_tasks(args, model, dummy_input)
-    with _suppress_export_noise(not args.verbose):
-        exported_files = perform_exports(export_tasks)
+    exported_files = _execute_export(args, model, dummy_input)
+    result = ExportResult(weights=args.weights, files=exported_files)
 
-    if exported_files and args.verbose:
+    if result.files and args.verbose:
         elapsed_time = time.time() - start_time
         LOGGER.opt(colors=True).info("<cyan>[3/3]</cyan> Export complete!")
         LOGGER.info("")
@@ -201,10 +220,11 @@ def main(args):
         LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
         LOGGER.opt(colors=True).info(f"<bold>Time:</bold>       <cyan>{elapsed_time:.1f}s</cyan>")
         LOGGER.opt(colors=True).info(f"<bold>Saved to:</bold>   <cyan>{args.weights.parent.resolve()}</cyan>")
-        for fmt, fpath in exported_files.items():
+        for fmt, fpath in result.files.items():
             LOGGER.opt(colors=True).info(f"<bold>  • {fmt}:</bold> <cyan>{fpath}</cyan>")
         LOGGER.opt(colors=True).info("<bold>Visualize:</bold>  <cyan>https://netron.app</cyan>")
         LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
+    return result
 
 
 if __name__ == "__main__":

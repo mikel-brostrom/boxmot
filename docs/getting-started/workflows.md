@@ -42,4 +42,4 @@ In this path, the benchmark config resolves the dataset, detector profile, and R
 
 ## Python API path
 
-If you want the same modes in Python, start with [Python API Overview](../python/index.md). The public facade is `boxmot.api.Boxmot`.
+If you want the same modes in Python, start with [Python API Overview](../python/index.md). The public facade is `boxmot.Boxmot`.

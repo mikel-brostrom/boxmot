@@ -42,6 +42,7 @@ from boxmot.utils.timing import TimingStats
 __all__ = (
     "generate_dets_embs_batched",
     "main",
+    "run_generate",
     "run_generate_dets_embs",
 )
 
@@ -462,8 +463,14 @@ def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[Timi
         generate_dets_embs_batched(args, detector, source_root, timing_stats=timing_stats)
 
 
-def main(args: argparse.Namespace) -> None:
+def run_generate(args: argparse.Namespace) -> TimingStats:
     timing_stats = TimingStats()
     run_generate_dets_embs(args, timing_stats=timing_stats)
+    return timing_stats
+
+
+def main(args: argparse.Namespace) -> TimingStats:
+    timing_stats = run_generate(args)
     if timing_stats.frames > 0:
         timing_stats.print_summary()
+    return timing_stats

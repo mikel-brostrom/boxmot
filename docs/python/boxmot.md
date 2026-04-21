@@ -3,16 +3,20 @@
 Use `Boxmot` when you want the Python equivalent of the CLI with minimal boilerplate.
 
 ```python
-from boxmot.api import Boxmot
+from boxmot import Boxmot
 
 boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 run = boxmot.track(source="video.mp4", save=True)
+cache = Boxmot().generate(benchmark="mot17-mini")
 metrics = boxmot.val(benchmark="mot17-mini")
 tuned = boxmot.tune(benchmark="mot17-mini", n_trials=2)
 
 print(run)
+print(cache.cache_dir)
 print(metrics)
 print(tuned)
 ```
 
-::: boxmot.api.Boxmot
+The same facade also exposes `research(...)` for GEPA-backed benchmark optimization and `export(...)` for ReID model conversion.
+
+::: boxmot.Boxmot
