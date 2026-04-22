@@ -327,6 +327,14 @@ def run_eval(
 
 def main(args):
     _normalize_eval_models(args)
+    dataset = (
+        getattr(args, "data", None)
+        or getattr(args, "benchmark", None)
+        or getattr(args, "dataset_id", None)
+        or getattr(args, "benchmark_id", None)
+        or getattr(args, "source", None)
+    )
+    imgsz = getattr(args, "imgsz", None)
 
     LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
     LOGGER.info("")
@@ -336,19 +344,17 @@ def main(args):
     LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>  <cyan>{args.detector[0]}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>      <cyan>{args.reid[0]}</cyan>")
     LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>   <cyan>{args.tracker}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Benchmark:</bold> <cyan>{args.source}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Image size:</bold> <cyan>{getattr(args, 'imgsz', None)}</cyan>")
+    LOGGER.opt(colors=True).info(f"<bold>Dataset:</bold>   <cyan>{dataset}</cyan>")
+    if imgsz is not None:
+        LOGGER.opt(colors=True).info(f"<bold>Image size:</bold> <cyan>{imgsz}</cyan>")
     LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
 
     LOGGER.opt(colors=True).info("<cyan>[2/4]</cyan> Generating detections and embeddings...")
     LOGGER.opt(colors=True).info("<cyan>[3/4]</cyan> Running tracker...")
     LOGGER.opt(colors=True).info("<cyan>[4/4]</cyan> Evaluating results...")
-    result = run_eval(args)
+    result = run_eval(args, verbose=False)
 
-    if getattr(args, "show_timing", False):
-        timing_stats = timing_stats_from_snapshot(result.timings)
-        if timing_stats is not None and timing_stats.frames > 0:
-            timing_stats.print_summary()
+    result.print_report(include_timings=bool(getattr(args, "show_timing", False)))
 
     plot_class, metrics_data = _select_plot_metrics_data(result.raw)
     if metrics_data:

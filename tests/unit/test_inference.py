@@ -1019,6 +1019,96 @@ def test_evaluator_dependency_check_is_lazy(monkeypatch):
     assert calls == [("ultralytics",)]
 
 
+def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tmp_path, capsys):
+    result = evaluator_module.ValidationResult(
+        benchmark="mot17-ablation",
+        raw={
+            "HOTA": 69.445,
+            "MOTA": 78.243,
+            "IDF1": 81.937,
+            "AssA": 72.34,
+            "AssRe": 77.58,
+            "IDSW": 137,
+            "IDs": 367,
+            "per_sequence": {
+                "MOT17-02": {
+                    "HOTA": 49.23,
+                    "MOTA": 54.55,
+                    "IDF1": 58.94,
+                    "AssA": 50.56,
+                    "AssRe": 55.79,
+                    "IDSW": 63,
+                    "IDs": 72,
+                },
+                "MOT17-04": {
+                    "HOTA": 80.37,
+                    "MOTA": 89.75,
+                    "IDF1": 92.51,
+                    "AssA": 82.85,
+                    "AssRe": 86.41,
+                    "IDSW": 22,
+                    "IDs": 82,
+                },
+            },
+        },
+        summary_label="single_class",
+        summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
+        exp_dir=tmp_path,
+        timings={},
+        args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
+    )
+    calls = []
+
+    def fake_run_eval(args, **kwargs):
+        calls.append(kwargs)
+        return result
+
+    class _FakePlotter:
+        def __init__(self, exp_dir):
+            self.exp_dir = exp_dir
+
+        def plot_radar_chart(self, *args, **kwargs):
+            return None
+
+    messages = []
+
+    class _FakeLogger:
+        def opt(self, **kwargs):
+            return self
+
+        def info(self, message):
+            messages.append(str(message))
+
+    monkeypatch.setattr(evaluator_module, "run_eval", fake_run_eval)
+    monkeypatch.setattr(evaluator_module, "MetricsPlotter", _FakePlotter)
+    monkeypatch.setattr(evaluator_module, "LOGGER", _FakeLogger())
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "detector.pt"],
+        reid=[tmp_path / "reid.pt"],
+        tracker="bytetrack",
+        data="mot17-ablation",
+        benchmark="mot17-ablation",
+        source=None,
+        imgsz=None,
+        show_timing=False,
+        verbose=False,
+    )
+
+    evaluator_module.main(args)
+
+    captured = capsys.readouterr()
+    assert "📊 RESULTS SUMMARY" in captured.out
+    assert "COMBINED (person)" in captured.out
+    assert "MOT17-02" in captured.out
+    joined_messages = "\n".join(messages)
+    assert "Dataset:" in joined_messages
+    assert "mot17-ablation" in joined_messages
+    assert "Benchmark:" not in joined_messages
+    assert "Image size:" not in joined_messages
+    assert calls == [{"verbose": False}]
+
+
 def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, monkeypatch):
     source = tmp_path / "train"
     for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
