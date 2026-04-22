@@ -1,13 +1,12 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-from pathlib import Path
+from __future__ import annotations
+
 from typing import Any
 
 import numpy as np
-from torch import device
 
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.strongsort.sort.detection import Detection
 from boxmot.trackers.strongsort.sort.linear_assignment import \
@@ -20,9 +19,7 @@ class StrongSort(BaseTracker):
     """Initialize the StrongSort tracker.
 
     Args:
-        reid_weights (Path): Path to the ReID model weights.
-        device (torch.device): Device used for ReID inference.
-        half (bool): Whether to use half precision for ReID inference.
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
         min_conf (float): Minimum confidence threshold for detections.
         max_cos_dist (float): Maximum cosine distance accepted by the
             nearest-neighbor metric.
@@ -33,10 +30,7 @@ class StrongSort(BaseTracker):
         mc_lambda (float): Motion-consistency weight used by StrongSORT.
         ema_alpha (float): Exponential moving average coefficient for
             appearance features.
-        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
-            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
-            and ``is_obb``.
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`.
 
     Attributes:
         model: ReID model used for appearance extraction.
@@ -46,10 +40,7 @@ class StrongSort(BaseTracker):
 
     def __init__(
         self,
-        reid_weights: Path,
-        device: device,
-        half: bool,
-        # StrongSort-specific parameters
+        reid_model: Any | None = None,
         min_conf: float = 0.1,
         max_cos_dist: float = 0.2,
         max_iou_dist: float = 0.7,
@@ -57,21 +48,14 @@ class StrongSort(BaseTracker):
         nn_budget: int = 100,
         mc_lambda: float = 0.98,
         ema_alpha: float = 0.9,
-        **kwargs: Any,  # BaseTracker parameters
+        **kwargs: Any,
     ):
-        # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
         super().__init__(**init_args, _tracker_name='StrongSort', **kwargs)
-        
-        # Store StrongSort-specific parameters
-        self.min_conf = min_conf
-        
-        # Initialize ReID model
-        self.model = ReID(
-            weights=reid_weights, device=device, half=half
-        ).model
 
-        # Initialize StrongSort tracker
+        self.min_conf = min_conf
+        self.model = reid_model
+
         self.tracker = Tracker(
             metric=NearestNeighborDistanceMetric("cosine", max_cos_dist, nn_budget),
             max_iou_dist=max_iou_dist,
@@ -80,10 +64,9 @@ class StrongSort(BaseTracker):
             mc_lambda=mc_lambda,
             ema_alpha=ema_alpha,
         )
-        
-        # Initialize camera motion compensation
+
         self.cmc = get_cmc_method("ecc")()
-        
+
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(
@@ -104,7 +87,6 @@ class StrongSort(BaseTracker):
             for track in self.tracker.tracks:
                 track.camera_update(warp_matrix)
 
-        # extract appearance information for each detection
         if embs is not None:
             features = embs[remain_inds]
         else:
@@ -118,11 +100,9 @@ class StrongSort(BaseTracker):
             )
         ]
 
-        # update tracker
         self.tracker.predict()
         self.tracker.update(detections)
 
-        # output bbox identities
         outputs = []
         for track in self.tracker.tracks:
             if not track.is_confirmed() or track.time_since_update >= 1:

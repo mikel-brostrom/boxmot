@@ -3,3 +3,4 @@ model: "models/lmbn_n_duke.pt"
 url: "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"
 device: ""
 half: true
+preprocess: resize

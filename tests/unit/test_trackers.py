@@ -18,6 +18,7 @@ from boxmot.trackers.botsort.botsort_track import STrack as BotSortTrack
 from boxmot.trackers.bytetrack.bytetrack import ByteTrack, STrack as ByteTrackTrack
 from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.sfsort.sfsort import SFSORT
+from boxmot.reid.core import ReID
 from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
 from boxmot.utils import WEIGHTS
 from boxmot.utils.matching import iou_distance
@@ -49,11 +50,12 @@ class DummyCMC:
 
 @pytest.mark.parametrize("Tracker", MOTION_N_APPEARANCE_TRACKING_METHODS)
 def test_motion_n_appearance_trackers_instantiation(Tracker):
-    Tracker(
-        reid_weights=Path(WEIGHTS / "osnet_x0_25_msmt17.pt"),
+    reid_model = ReID(
+        weights=Path(WEIGHTS / "osnet_x0_25_msmt17.pt"),
         device="cpu",
         half=True,
-    )
+    ).model
+    Tracker(reid_model=reid_model)
 
 
 @pytest.mark.parametrize("Tracker", MOTION_ONLY_TRACKING_METHODS)
@@ -121,9 +123,11 @@ TRACKER_CREATORS = {
         (
             DeepOcSort,
             {
-                "reid_weights": Path(WEIGHTS / "osnet_x0_25_msmt17.pt"),
-                "device": "cpu",
-                "half": True,
+                "reid_model": ReID(
+                    weights=Path(WEIGHTS / "osnet_x0_25_msmt17.pt"),
+                    device="cpu",
+                    half=True,
+                ).model,
             },
         ),
     ],
@@ -205,9 +209,7 @@ def test_strongsort_rejects_obb_with_shared_error_message():
 
 def test_botsort_supports_obb_without_reid():
     tracker = BotSort(
-        reid_weights=WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt",
-        device="cpu",
-        half=False,
+        reid_model=None,
         with_reid=False,
     )
 
@@ -235,9 +237,7 @@ def test_botsort_obb_matching_uses_oriented_geometry():
 
 def test_botsort_obb_cmc_uses_enclosing_aabb_boxes():
     tracker = BotSort(
-        reid_weights=WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt",
-        device="cpu",
-        half=False,
+        reid_model=None,
         with_reid=False,
     )
     tracker.cmc = DummyCMC()
@@ -274,9 +274,7 @@ def test_botsort_obb_cmc_warps_track_state():
 
 def test_botsort_obb_state_history_follows_rotation_without_flips():
     tracker = BotSort(
-        reid_weights=WEIGHTS / "mobilenetv2_x1_4_dukemtmcreid.pt",
-        device="cpu",
-        half=False,
+        reid_model=None,
         with_reid=False,
     )
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)

@@ -103,6 +103,8 @@ def generate_dets_embs_batched(
         dets_base = dets_base / benchmark
     dets_folder = dets_base / y.stem / "dets"
     embs_root = dets_base / y.stem / "embs"
+    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+    preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
 
     mot_folder_paths = sorted([path for path in Path(source_root).iterdir() if path.is_dir()])
 
@@ -128,7 +130,7 @@ def generate_dets_embs_batched(
         cached_emb_paths = {}
         any_emb_cached = False
         for reid_model in args.reid:
-            emb_path = embs_root / reid_model.stem / f"{seq_name}.npy"
+            emb_path = embs_root / reid_model.stem / preprocess_name / f"{seq_name}.npy"
             emb_paths[reid_model.stem] = emb_path
             cached_emb_path = _existing_embedding_cache_path(emb_path)
             cached_emb_paths[reid_model.stem] = cached_emb_path
@@ -281,6 +283,7 @@ def generate_dets_embs_batched(
         imgsz=args.imgsz,
         half=args.half,
         reid_half=getattr(args, "reid_half", args.half),
+        reid_preprocess=getattr(args, "reid_preprocess", None),
         timing_stats=timing_stats,
     )
     pipeline.warmup()

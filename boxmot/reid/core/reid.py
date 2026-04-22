@@ -31,6 +31,7 @@ class ReID:
         weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
         device: str | torch.device = "cpu",
         half: bool = False,
+        preprocess_name: str | None = None,
     ) -> None:
         model_ref = path if path is not None else weights
         if model_ref is None:
@@ -41,6 +42,7 @@ class ReID:
         self.weights = model_ref
         self.device = device if isinstance(device, torch.device) else select_device(device)
         self.half = bool(half)
+        self.preprocess_name = preprocess_name
         (
             self.pt,
             self.jit,
@@ -67,7 +69,9 @@ class ReID:
 
         for enabled, backend_class in backend_map:
             if enabled:
-                self._backend_model = backend_class(self.weights, self.device, self.half)
+                self._backend_model = backend_class(
+                    self.weights, self.device, self.half, preprocess=self.preprocess_name
+                )
                 return self._backend_model
 
         LOGGER.error("This model framework is not supported yet!")

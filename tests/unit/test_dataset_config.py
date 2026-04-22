@@ -137,6 +137,7 @@ def test_mot17_dataset_exposes_default_reid():
         "url": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth",
         "device": "",
         "half": True,
+        "preprocess": "resize",
     }
     assert resolve_required_reid_model(cfg) == Path("models/lmbn_n_duke.pt")
     assert resolve_required_reid_device(cfg) is None

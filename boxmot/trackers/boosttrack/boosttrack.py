@@ -1,13 +1,12 @@
+from __future__ import annotations
+
 from collections import deque
-from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional
 
 import numpy as np
-import torch
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xyhr import KalmanFilterXYHR
-from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.boosttrack.assoc import (MhDist_similarity, associate,
                                               iou_batch, shape_similarity,
@@ -123,9 +122,7 @@ class BoostTrack(BaseTracker):
     """Initialize the BoostTrack tracker.
 
     Args:
-        reid_weights: Path to the ReID model weights.
-        device: Device used for ReID inference.
-        half (bool): Whether to use half precision for ReID inference.
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
         use_ecc (bool): Whether to enable camera-motion compensation.
         min_box_area (int): Minimum detection area.
         aspect_ratio_thresh (float): Maximum accepted aspect ratio.
@@ -141,11 +138,8 @@ class BoostTrack(BaseTracker):
         use_sb (bool): Whether to enable soft-BIoU.
         use_vt (bool): Whether to enable visual tracking cues.
         with_reid (bool): Whether to enable ReID features.
-        reid: Optional prebuilt ReID runtime.
-        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
-            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
-            and ``is_obb``.
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
+        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`.
 
     Attributes:
         frame_count (int): Number of processed frames.
@@ -157,9 +151,7 @@ class BoostTrack(BaseTracker):
 
     def __init__(
         self,
-        reid_weights: Optional[Union[Path, str]] = None,
-        device: Union[torch.device, str] = 'cpu',
-        half: bool = False,
+        reid_model: Any | None = None,
         # BoostTrack-specific parameters
         use_ecc: bool = True,
         min_box_area: int = 10,
@@ -176,7 +168,6 @@ class BoostTrack(BaseTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         with_reid: bool = False,
-        reid: Optional[ReID] = None,
         **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
@@ -205,15 +196,8 @@ class BoostTrack(BaseTracker):
         self.use_sb = use_sb
         self.use_vt = use_vt
 
-        self.with_reid = with_reid
-        
-        if reid is not None:
-            self.reid_model = reid
-            self.with_reid = True
-        elif self.with_reid and reid_weights is not None:
-            self.reid_model = ReID(weights=reid_weights, device=device, half=half).model
-        else:
-            self.reid_model = None
+        self.with_reid = with_reid and reid_model is not None
+        self.reid_model = reid_model if self.with_reid else None
 
         if self.use_ecc:
             self.cmc = get_cmc_method(cmc_method)()

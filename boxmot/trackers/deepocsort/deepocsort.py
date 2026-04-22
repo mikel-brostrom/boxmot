@@ -1,15 +1,14 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from __future__ import annotations
+
 from collections import deque
-from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xysr import KalmanFilterXYSR
-from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.utils.association import associate, linear_assignment
 from boxmot.utils.ops import xyxy2xysr
@@ -238,9 +237,7 @@ class DeepOcSort(BaseTracker):
     """Initialize the DeepOcSort tracker.
 
     Args:
-        reid_weights (Path): Path to the ReID model weights.
-        device (torch.device): Device used for ReID inference.
-        half (bool): Whether to use half precision for ReID inference.
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
         delta_t (int): Time window used for motion estimation.
         inertia (float): Motion-consistency weight.
         w_association_emb (float): Weight applied to appearance distance during
@@ -265,9 +262,7 @@ class DeepOcSort(BaseTracker):
 
     def __init__(
         self,
-        reid_weights: Path,
-        device: torch.device,
-        half: bool,
+        reid_model: Any | None = None,
         # DeepOcSort-specific parameters
         delta_t: int = 3,
         inertia: float = 0.2,
@@ -297,9 +292,7 @@ class DeepOcSort(BaseTracker):
         self.Q_s_scaling = Q_s_scaling
         KalmanBoxTracker.count = 1
 
-        self.model = ReID(
-            weights=reid_weights, device=device, half=half
-        ).model
+        self.model = reid_model
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = get_cmc_method("sof")()
         self.embedding_off = embedding_off

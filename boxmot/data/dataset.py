@@ -139,6 +139,7 @@ class MOTDataset:
         det_emb_root: Optional[str] = None,
         model_name: Optional[str] = None,
         reid_name: Optional[str] = None,
+        reid_preprocess: Optional[str] = None,
         target_fps: Optional[int] = None,
     ):
         self.root = Path(mot_root)
@@ -146,9 +147,11 @@ class MOTDataset:
         self.seqs: Dict[str, Dict] = {}
 
         if det_emb_root and model_name and reid_name:
+            from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+            preprocess_name = reid_preprocess or DEFAULT_PREPROCESS
             base = Path(det_emb_root) / model_name
             self.dets_dir = base / "dets"
-            self.embs_dir = base / "embs" / reid_name
+            self.embs_dir = base / "embs" / reid_name / preprocess_name
         else:
             self.dets_dir = self.embs_dir = None
 

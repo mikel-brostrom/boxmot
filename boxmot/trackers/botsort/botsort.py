@@ -1,14 +1,13 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-from pathlib import Path
+from __future__ import annotations
+
 from typing import Any
 
 import numpy as np
-import torch
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
-from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
 from boxmot.trackers.botsort.botsort_track import STrack
@@ -23,9 +22,8 @@ class BotSort(BaseTracker):
     """Initialize the BotSort tracker.
 
     Args:
-        reid_weights (Path): Path to the ReID model weights.
-        device (torch.device): Device used for ReID inference.
-        half (bool): Whether to use half precision for ReID inference.
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
+            Required when ``with_reid=True``.
         track_high_thresh (float): Confidence threshold for the first
             association pass.
         track_low_thresh (float): Lower confidence bound for candidate
@@ -60,9 +58,7 @@ class BotSort(BaseTracker):
 
     def __init__(
         self,
-        reid_weights: Path,
-        device: torch.device,
-        half: bool,
+        reid_model: Any | None = None,
         # BotSort-specific parameters
         track_high_thresh: float = 0.5,
         track_low_thresh: float = 0.1,
@@ -98,10 +94,7 @@ class BotSort(BaseTracker):
         self.proximity_thresh = proximity_thresh
         self.appearance_thresh = appearance_thresh
         self.with_reid = with_reid
-        if self.with_reid:
-            self.model = ReID(
-                weights=reid_weights, device=device, half=half
-            ).model
+        self.model = reid_model if self.with_reid else None
 
         cmc_cls = get_cmc_method(cmc_method)
         self.cmc = cmc_cls() if cmc_cls is not None else None

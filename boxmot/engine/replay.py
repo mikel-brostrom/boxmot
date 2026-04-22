@@ -81,6 +81,8 @@ def _build_task_args(
     cache_project_root: str,
     progress_queue,
 ) -> list[tuple]:
+    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+    preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
     return [
         (
             seq_name,
@@ -94,6 +96,7 @@ def _build_task_args(
             evolve_config,
             getattr(args, "benchmark", None),
             conf_threshold,
+            preprocess_name,
             progress_queue,
         )
         for seq_name in sequence_names
@@ -112,6 +115,7 @@ def process_sequence(
     cfg_dict: dict | None = None,
     dataset_name: Optional[str] = None,
     conf_threshold: float = 0.0,
+    preprocess_name: Optional[str] = None,
     progress_queue=None,
 ):
     """Run a tracker over cached detections and embeddings for one sequence."""
@@ -139,6 +143,7 @@ def process_sequence(
         model_name=detector_key,
         reid_name=reid_key,
         target_fps=target_fps,
+        reid_preprocess=preprocess_name,
     )
     sequence = dataset.get_sequence(
         seq_name,

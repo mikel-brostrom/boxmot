@@ -1,20 +1,19 @@
+from __future__ import annotations
+
 # Hybrid-SORT-ReID with ECC + ReID (explicit config, BaseTracker-style)
 # - Assumes detection input is M x [x1, y1, x2, y2, conf, cls]
 # - ECC via get_cmc_method(...).apply(img, dets)
-# - ReID via ReID(weights, device, half).model.get_features(...)
+# - ReID via pre-built backend passed as ``reid_model``
 # - update(dets, img, embs=None) signature compatible with BoxMOT trackers
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
 # - Safe with COCO 80 classes; preserves det_ind; guards out-of-range indices
 
 from collections import deque
-from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional
 
 import numpy as np
-import torch
 
 from boxmot.motion.cmc import get_cmc_method
-from boxmot.reid.core import ReID
 from boxmot.trackers.basetracker import BaseTracker
 # Keep your original association functions:
 from boxmot.trackers.hybridsort.association import (
@@ -357,9 +356,7 @@ class HybridSort(BaseTracker):
     """Initialize the HybridSort tracker.
 
     Args:
-        reid_weights (Path | str | None): Path to the ReID model weights.
-        device (torch.device): Device used for ReID inference.
-        half (bool): Whether to use half precision for ReID inference.
+        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
         cmc_method (str): Camera-motion compensation method.
         with_reid (bool): Whether to enable appearance features.
         low_thresh (float): Low-confidence threshold for second-pass matching.
@@ -403,9 +400,7 @@ class HybridSort(BaseTracker):
     def __init__(
         self,
         # ReID & CMC
-        reid_weights: Optional[Union[Path, str]],
-        device: torch.device,
-        half: bool,
+        reid_model: Any | None = None,
         cmc_method: str = "ecc",
         with_reid: bool = True,
 
@@ -475,9 +470,7 @@ class HybridSort(BaseTracker):
 
         # ReID module (BotSort-style)
         self.with_reid = bool(with_reid)
-        self.model = None
-        if self.with_reid and reid_weights is not None:
-            self.model = ReID(weights=reid_weights, device=device, half=half).model
+        self.model = reid_model if self.with_reid else None
 
         # ECC CMC (BotSort-style)
         self.cmc = get_cmc_method(cmc_method)()

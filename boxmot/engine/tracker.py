@@ -64,6 +64,7 @@ class TrackerRuntime:
         evolve_param_dict: dict | None = None,
         target_id: int | None = None,
         timing_stats: TimingStats | None = None,
+        reid_preprocess: str | None = None,
     ) -> "TrackerRuntime":
         normalized_tracker = str(tracker_name).lower()
         if normalized_tracker not in TRACKER_MAPPING:
@@ -78,6 +79,7 @@ class TrackerRuntime:
             half=half,
             per_class=per_class,
             evolve_param_dict=evolve_param_dict,
+            reid_preprocess=reid_preprocess,
         )
         if target_id is not None:
             tracker.target_id = target_id
@@ -220,6 +222,7 @@ class TrackingSession:
                 half=bool(getattr(args, "half", False)),
                 per_class=bool(getattr(args, "per_class", False)),
                 target_id=getattr(args, "target_id", None),
+                reid_preprocess=getattr(args, "reid_preprocess", None),
             )
             for _ in range(batch_size)
         ]

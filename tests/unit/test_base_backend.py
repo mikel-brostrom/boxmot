@@ -9,12 +9,14 @@ from boxmot.reid.core.registry import ReIDModelRegistry
 
 class DummyBackend(BaseModelBackend):
     def __init__(self):
+        from boxmot.reid.core.preprocessing import get_preprocess_fn
         self.device = torch.device("cpu")
         self.half = False
         self.input_shape = (16, 8)
         self.mean_array = torch.zeros((1, 3, 1, 1), device=self.device)
         self.std_array = torch.ones((1, 3, 1, 1), device=self.device)
         self.nhwc = False
+        self.preprocess_fn = get_preprocess_fn(None)
 
     def forward(self, im_batch):
         return im_batch
