@@ -318,16 +318,23 @@ def test_native_botsort_tracker_marks_native_onnx_reid_provider():
         def update(self, handle, dets, img, embs):
             return dets
 
-    tracker = native_module.NativeBotSortTracker(
-        {"with_reid": True},
-        reid_weights="models/lmbn_n_duke.onnx",
-        library=_FakeLibrary(),
-    )
+    expected_path = Path("models/lmbn_n_duke.onnx")
 
-    assert tracker.provides_reid is True
-    assert tracker.cfg["reid_model_path"] == "models/lmbn_n_duke_opencv.onnx"
-    assert tracker.cfg["reid_preprocess"] == "resize_pad"
-    tracker.close()
+    original_resolver = native_module._ensure_native_reid_model_path
+    native_module._ensure_native_reid_model_path = lambda _weights: expected_path
+    try:
+        tracker = native_module.NativeBotSortTracker(
+            {"with_reid": True},
+            reid_weights="models/lmbn_n_duke.onnx",
+            library=_FakeLibrary(),
+        )
+
+        assert tracker.provides_reid is True
+        assert tracker.cfg["reid_model_path"] == str(expected_path)
+        assert tracker.cfg["reid_preprocess"] == "resize_pad"
+        tracker.close()
+    finally:
+        native_module._ensure_native_reid_model_path = original_resolver
 
 
 def test_native_botsort_tracker_auto_exports_pt_reid_provider(monkeypatch):

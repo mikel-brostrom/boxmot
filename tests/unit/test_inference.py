@@ -1798,5 +1798,5 @@ def test_initialize_trackers_rejects_unknown_tracker():
     predictor = SimpleNamespace(dataset=SimpleNamespace(bs=1), device="cpu")
     args = SimpleNamespace(tracker="unknown", reid=Path("reid.pt"), half=False, per_class=False, target_id=None)
 
-    with pytest.raises(ValueError, match="not supported"):
+    with pytest.raises(ValueError, match="registered tracker name"):
         tracker_module.TrackingSession.initialize_trackers(predictor, args)

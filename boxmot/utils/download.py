@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+
 """
 Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
