@@ -545,6 +545,20 @@ def _configure_tune_warning_filters() -> None:
     )
 
 
+def _is_ray_pickle_safe(value: Any) -> bool:
+    """Return True when Ray's cloudpickle can serialize ``value`` safely."""
+    try:
+        import cloudpickle
+    except Exception:
+        return True
+
+    try:
+        cloudpickle.dumps(value)
+    except Exception:
+        return False
+    return True
+
+
 def _resolve_tune_dir(args, *, resume: bool = False) -> Path:
     results_dir = Path(args.project).resolve() / "ray"
     base_dir = results_dir / f"{args.tracker}_tune"
@@ -793,7 +807,13 @@ def _execute_tune_search(
         }
         run_config_signature = inspect.signature(RunConfig)
         if "callbacks" in run_config_signature.parameters:
-            run_config_kwargs["callbacks"] = [tune_callback]
+            if _is_ray_pickle_safe(tune_callback):
+                run_config_kwargs["callbacks"] = [tune_callback]
+            else:
+                LOGGER.debug(
+                    "Skipping Ray Tune workflow callback because the current workflow progress object is not "
+                    "cloudpickle-safe."
+                )
         if "verbose" in run_config_signature.parameters:
             run_config_kwargs["verbose"] = 0
         if "progress_reporter" in run_config_signature.parameters:
