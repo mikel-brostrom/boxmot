@@ -52,26 +52,27 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
 <div align="center" markdown="1">
 
 <!-- START TRACKER TABLE -->
-| Tracker | Status  | OBB | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
-| :-----: | :-----: | :-: | :---: | :---: | :---: | :---: |
-| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | ✅ | 69.418 | 78.232 | 81.812 | 12 |
-| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | ❌ | 69.253 | 75.914 | 83.206 | 13 |
-| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | ❌ | 68.05 | 76.185 | 80.763 | 11 |
-| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | ❌ | 67.796 | 75.868 | 80.514 | 12 |
-| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | ✅ | 67.68 | 78.039 | 79.157 | 720 |
-| [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | ❌ | 67.39 | 74.127 | 79.105 | 25 |
-| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | ✅ | 66.441 | 74.548 | 77.899 | 890 |
-| [sfsort](https://arxiv.org/pdf/2404.07553) | ✅ | ✅ | 62.653 | 76.87 | 69.184 | 6000 |
+| Tracker | OBB `py/cpp` | Python | C++ |
+| :-----: | :----------: | :----- | :-- |
+| [botsort](https://arxiv.org/abs/2206.14651) | ✅ / ✅ | HOTA `69.44`<br>MOTA `78.24`<br>IDF1 `81.94`<br>FPS `12` | HOTA `69.433`<br>MOTA `78.259`<br>IDF1 `82.005`<br>FPS `-` |
+| [boosttrack](https://arxiv.org/abs/2408.13003) | ❌ / — | HOTA `69.253`<br>MOTA `75.914`<br>IDF1 `83.206`<br>FPS `13` | — |
+| [strongsort](https://arxiv.org/abs/2202.13514) | ❌ / — | HOTA `68.05`<br>MOTA `76.185`<br>IDF1 `80.763`<br>FPS `11` | — |
+| [deepocsort](https://arxiv.org/abs/2302.11813) | ❌ / — | HOTA `67.796`<br>MOTA `75.868`<br>IDF1 `80.514`<br>FPS `12` | — |
+| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ / ✅ | HOTA `67.68`<br>MOTA `78.039`<br>IDF1 `79.157`<br>FPS `720` | HOTA `67.748`<br>MOTA `78.033`<br>IDF1 `79.381`<br>FPS `-` |
+| [hybridsort](https://arxiv.org/abs/2308.00783) | ❌ / — | HOTA `67.39`<br>MOTA `74.127`<br>IDF1 `79.105`<br>FPS `25` | — |
+| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ / ✅ | HOTA `66.441`<br>MOTA `74.548`<br>IDF1 `77.899`<br>FPS `890` | HOTA `66.441`<br>MOTA `74.548`<br>IDF1 `77.899`<br>FPS `-` |
+| [sfsort](https://arxiv.org/pdf/2404.07553) | ✅ / ✅ | HOTA `62.653`<br>MOTA `76.87`<br>IDF1 `69.184`<br>FPS `6000` | HOTA `62.658`<br>MOTA `76.740`<br>IDF1 `69.178`<br>FPS `-` |
 <!-- END TRACKER TABLE -->
 
-<sub>Evaluation was run on the second half of the MOT17 training set because the validation split is not public and the ablation detector was trained on the first half. Results used [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip) with each tracker configured from its default repository settings.</sub>
+<sub>Evaluation was run on the second half of the MOT17 training set because the validation split is not public and the ablation detector was trained on the first half. Results used [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip) with each tracker configured from its default repository settings. Native `cpp` cells use `boxmot eval --tracker-backend cpp` for the implemented replay backends. `—` means no native replay backend is implemented for that tracker. `FPS` is currently only published for the Python benchmark entries, so native replay cells show `-` there.</sub>
 
 </div>
 
-Reproduction details and evaluation semantics live in:
+Related guides:
 
 - [Evaluation and Postprocessing](docs/guides/evaluation.md)
 - [Benchmark Workflows](docs/guides/benchmarks.md)
+- [Native C++ Integration](docs/guides/native-cpp.md)
 
 ## Minimal Usage
 
