@@ -582,9 +582,107 @@ def _ray_safe_namespace(args: Any) -> SimpleNamespace:
     return SimpleNamespace(**safe_values)
 
 
-def _workflow_has_live_handle(workflow: Any) -> bool:
-    """Return True when a workflow owns an active Rich Live handle."""
-    return getattr(workflow, "_live", None) is not None
+_TUNE_PROGRESS_WORKFLOW: ui.WorkflowProgress | None = None
+
+
+def _set_tune_progress_workflow(workflow: ui.WorkflowProgress | None) -> None:
+    """Register the driver-local workflow used by Ray Tune callbacks."""
+    global _TUNE_PROGRESS_WORKFLOW
+    _TUNE_PROGRESS_WORKFLOW = workflow
+
+
+def _set_tune_progress_detail(detail: str) -> None:
+    workflow = _TUNE_PROGRESS_WORKFLOW
+    if workflow is not None:
+        workflow.set_detail(TUNE_OPTIMIZE_STEP, detail)
+
+
+class _TuneSilentReporter:
+    def setup(self, *args, **kwargs) -> None:
+        return None
+
+    def should_report(self, trials, done: bool = False) -> bool:
+        return False
+
+    def report(self, trials, done: bool, *sys_info) -> None:
+        return None
+
+
+class _TuneWorkflowCallback:
+    """Serializable Ray callback that keeps Rich workflow state driver-local."""
+
+    def __init__(self, *, total: int, maximize: list[str], minimize: list[str]) -> None:
+        self.total = int(total)
+        self.maximize = list(maximize)
+        self.minimize = list(minimize)
+        self.completed = 0
+        self.trial_durations: list[float] = []
+        self.trial_indices: dict[str, int] = {}
+        self.active_trials: set[str] = set()
+        self.best_score: tuple[float, ...] | None = None
+
+    def _trial_id(self, trial) -> str:
+        return str(getattr(trial, "trial_id", getattr(trial, "trial_name", trial)))
+
+    def _trial_index(self, trial) -> int:
+        trial_id = self._trial_id(trial)
+        if trial_id not in self.trial_indices:
+            self.trial_indices[trial_id] = len(self.trial_indices) + 1
+        return self.trial_indices[trial_id]
+
+    def _running_index(self) -> int | None:
+        if self.active_trials:
+            return min(self.trial_indices[trial_id] for trial_id in self.active_trials)
+        if self.completed < self.total:
+            return min(self.completed + 1, self.total)
+        return None
+
+    def _remaining_seconds(self) -> float | None:
+        remaining_trials = max(self.total - self.completed, 0)
+        return estimate_tune_remaining(self.trial_durations, remaining_trials)
+
+    def _set_progress(self, summary: dict[str, Any] | None = None, *, is_new_best: bool = False) -> None:
+        _set_tune_progress_detail(
+            format_tune_progress(
+                self.completed,
+                self.total,
+                summary,
+                current_trial=self._running_index(),
+                is_new_best=is_new_best,
+                remaining_seconds=self._remaining_seconds(),
+            )
+        )
+
+    def on_trial_start(self, iteration, trials, trial, **info):
+        trial_id = self._trial_id(trial)
+        self._trial_index(trial)
+        self.active_trials.add(trial_id)
+        self._set_progress()
+
+    def on_trial_complete(self, iteration, trials, trial, **info):
+        trial_id = self._trial_id(trial)
+        self.active_trials.discard(trial_id)
+        self.completed += 1
+        result = getattr(trial, "last_result", {}) or {}
+        duration = result.get("time_total_s")
+        if duration is not None:
+            self.trial_durations.append(float(duration))
+        summary = {
+            key: float(result.get(key, 0.0))
+            for key in SUMMARY_COLUMNS
+            if key in result
+        }
+        score = score_summary(summary, maximize=self.maximize, minimize=self.minimize) if summary else None
+        is_new_best = score is not None and (self.best_score is None or score > self.best_score)
+        if is_new_best and score is not None:
+            self.best_score = score
+        self._set_progress(summary if summary else None, is_new_best=is_new_best)
+
+    def on_trial_error(self, iteration, trials, trial, **info):
+        trial_id = self._trial_id(trial)
+        self.active_trials.discard(trial_id)
+        self.completed += 1
+        self._set_progress()
 
 
 def _resolve_tune_dir(args, *, resume: bool = False) -> Path:
@@ -700,92 +798,7 @@ def _execute_tune_search(
             nonlocal setup_status_message
             setup_status_message = str(message)
 
-    callback_base = getattr(tune, "Callback", object)
-
-    class _TuneSilentReporter:
-        def setup(self, *args, **kwargs) -> None:
-            return None
-
-        def should_report(self, trials, done: bool = False) -> bool:
-            return False
-
-        def report(self, trials, done: bool, *sys_info) -> None:
-            return None
-
-    class _TuneWorkflowCallback(callback_base):
-        def __init__(self) -> None:
-            self.total = int(args.n_trials)
-            self.completed = 0
-            self.trial_durations: list[float] = []
-            self.trial_indices: dict[str, int] = {}
-            self.active_trials: set[str] = set()
-            self.best_score: tuple[float, ...] | None = None
-
-        def _trial_id(self, trial) -> str:
-            return str(getattr(trial, "trial_id", getattr(trial, "trial_name", trial)))
-
-        def _trial_index(self, trial) -> int:
-            trial_id = self._trial_id(trial)
-            if trial_id not in self.trial_indices:
-                self.trial_indices[trial_id] = len(self.trial_indices) + 1
-            return self.trial_indices[trial_id]
-
-        def _running_index(self) -> int | None:
-            if self.active_trials:
-                return min(self.trial_indices[trial_id] for trial_id in self.active_trials)
-            if self.completed < self.total:
-                return min(self.completed + 1, self.total)
-            return None
-
-        def _remaining_seconds(self) -> float | None:
-            remaining_trials = max(self.total - self.completed, 0)
-            return estimate_tune_remaining(self.trial_durations, remaining_trials)
-
-        def _set_progress(self, summary: dict[str, Any] | None = None, *, is_new_best: bool = False) -> None:
-            workflow.set_detail(
-                TUNE_OPTIMIZE_STEP,
-                format_tune_progress(
-                    self.completed,
-                    self.total,
-                    summary,
-                    current_trial=self._running_index(),
-                    is_new_best=is_new_best,
-                    remaining_seconds=self._remaining_seconds(),
-                ),
-            )
-
-        def on_trial_start(self, iteration, trials, trial, **info):
-            trial_id = self._trial_id(trial)
-            self._trial_index(trial)
-            self.active_trials.add(trial_id)
-            self._set_progress()
-
-        def on_trial_complete(self, iteration, trials, trial, **info):
-            trial_id = self._trial_id(trial)
-            self.active_trials.discard(trial_id)
-            self.completed += 1
-            result = getattr(trial, "last_result", {}) or {}
-            duration = result.get("time_total_s")
-            if duration is not None:
-                self.trial_durations.append(float(duration))
-            summary = {
-                key: float(result.get(key, 0.0))
-                for key in SUMMARY_COLUMNS
-                if key in result
-            }
-            score = score_summary(summary, maximize=maximize, minimize=minimize) if summary else None
-            is_new_best = score is not None and (self.best_score is None or score > self.best_score)
-            if is_new_best and score is not None:
-                self.best_score = score
-            self._set_progress(summary if summary else None, is_new_best=is_new_best)
-
-        def on_trial_error(self, iteration, trials, trial, **info):
-            trial_id = self._trial_id(trial)
-            self.active_trials.discard(trial_id)
-            self.completed += 1
-            self._set_progress()
-
-    tune_callback = _TuneWorkflowCallback()
+    tune_callback = _TuneWorkflowCallback(total=int(args.n_trials), maximize=maximize, minimize=minimize)
 
     with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
         eval_setup(args, workflow=_TuneSetupStatus())
@@ -837,12 +850,11 @@ def _execute_tune_search(
         }
         run_config_signature = inspect.signature(RunConfig)
         if "callbacks" in run_config_signature.parameters:
-            if not _workflow_has_live_handle(workflow) and _is_ray_pickle_safe(tune_callback):
+            if _is_ray_pickle_safe(tune_callback):
                 run_config_kwargs["callbacks"] = [tune_callback]
             else:
                 LOGGER.debug(
-                    "Skipping Ray Tune workflow callback because the current workflow progress object is not "
-                    "cloudpickle-safe."
+                    "Skipping Ray Tune workflow callback because it is not cloudpickle-safe."
                 )
         if "verbose" in run_config_signature.parameters:
             run_config_kwargs["verbose"] = 0
@@ -860,6 +872,7 @@ def _execute_tune_search(
         )
 
     try:
+        _set_tune_progress_workflow(workflow)
         result_grid = tuner.fit()
         if result_grid is None and hasattr(tuner, "get_results"):
             result_grid = tuner.get_results()
@@ -904,11 +917,10 @@ def _execute_tune_search(
             workflow.set_detail_renderable("Results", artifacts_renderable, render=False)
         else:
             workflow.set_detail(TUNE_OPTIMIZE_STEP, "No successful trials were produced.", render=False)
-        workflow.stop()
         return result_grid, tune_dir, maximize, minimize
     finally:
-        if workflow._started:
-            workflow.stop()
+        _set_tune_progress_workflow(None)
+        workflow.stop()
 
 
 def run_tune(

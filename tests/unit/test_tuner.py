@@ -30,7 +30,6 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
         "_log_tune_pipeline_intro",
         lambda *args, **kwargs: SimpleNamespace(
             _started=True,
-            _live=object(),
             start=lambda: None,
             complete=lambda *a, **k: None,
             activate=lambda *a, **k: None,
@@ -133,7 +132,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     assert Path(captured["storage_path"]) == (tmp_path / "runs" / "ray").resolve()
     assert captured["run_name"] == "strongsort_tune_2"
     assert captured["verbose"] == 0
-    assert captured["callbacks"] is None
+    assert len(captured["callbacks"]) == 1
     assert captured["ray_init_kwargs"]["include_dashboard"] is False
     assert captured["ray_init_kwargs"]["logging_level"] == logging.ERROR
     assert captured["ray_init_kwargs"]["log_to_driver"] is False
@@ -142,7 +141,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     assert workflow_state["stopped"] is True
 
 
-def test_tuner_skips_unpicklable_workflow_callbacks(monkeypatch, tmp_path):
+def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
     captured = {}
 
     class _FakeRequirementsChecker:
@@ -204,6 +203,10 @@ def test_tuner_skips_unpicklable_workflow_callbacks(monkeypatch, tmp_path):
             )
             captured["driver_lock_in_trainable_args"] = hasattr(objective.opt, "driver_lock")
             captured["callbacks"] = run_config.callbacks
+            captured["callback_pickle_safe"] = all(
+                tuner_module._is_ray_pickle_safe(callback)
+                for callback in run_config.callbacks or []
+            )
             captured["verbose"] = run_config.verbose
 
         def fit(self):
@@ -252,9 +255,30 @@ def test_tuner_skips_unpicklable_workflow_callbacks(monkeypatch, tmp_path):
 
     assert captured["extra"] == "evolve"
     assert captured["driver_lock_in_trainable_args"] is False
-    assert captured["callbacks"] is None
+    assert len(captured["callbacks"]) == 1
+    assert captured["callback_pickle_safe"] is True
     assert captured["verbose"] == 0
     assert captured["fit"] is True
+
+
+def test_tune_workflow_callback_is_pickle_safe_with_active_workflow() -> None:
+    updates: list[tuple[str, str]] = []
+    workflow = SimpleNamespace(
+        _lock=threading.RLock(),
+        set_detail=lambda title, detail: updates.append((title, detail)),
+    )
+    callback = tuner_module._TuneWorkflowCallback(total=1, maximize=["HOTA"], minimize=[])
+
+    tuner_module._set_tune_progress_workflow(workflow)
+    try:
+        assert tuner_module._is_ray_pickle_safe(callback)
+        trial = SimpleNamespace(trial_id="trial_001", last_result={"HOTA": 50.0})
+        callback.on_trial_start(0, [], trial)
+        callback.on_trial_complete(0, [], trial)
+    finally:
+        tuner_module._set_tune_progress_workflow(None)
+
+    assert any(title == tuner_module.TUNE_OPTIMIZE_STEP for title, _ in updates)
 
 
 def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
