@@ -273,8 +273,19 @@ def test_tune_workflow_callback_is_pickle_safe_with_active_workflow() -> None:
     try:
         assert tuner_module._is_ray_pickle_safe(callback)
         trial = SimpleNamespace(trial_id="trial_001", last_result={"HOTA": 50.0})
+        callback.setup(stop=None, num_samples=1, total_num_samples=1)
+        callback.on_step_begin(0, [])
         callback.on_trial_start(0, [], trial)
+        callback.on_trial_result(0, [], trial, {"HOTA": 25.0})
+        callback.on_trial_save(0, [], trial)
+        callback.on_trial_restore(0, [], trial)
         callback.on_trial_complete(0, [], trial)
+        callback.on_trial_recover(0, [], trial)
+        callback.on_checkpoint(0, [], trial, checkpoint=None)
+        callback.on_step_end(1, [])
+        callback.on_experiment_end([])
+        assert callback.get_state() is None
+        callback.set_state({})
     finally:
         tuner_module._set_tune_progress_workflow(None)
 

@@ -621,6 +621,15 @@ class _TuneWorkflowCallback:
         self.active_trials: set[str] = set()
         self.best_score: tuple[float, ...] | None = None
 
+    def setup(self, **info) -> None:
+        return None
+
+    def on_step_begin(self, iteration: int, trials: list, **info) -> None:
+        return None
+
+    def on_step_end(self, iteration: int, trials: list, **info) -> None:
+        return None
+
     def _trial_id(self, trial) -> str:
         return str(getattr(trial, "trial_id", getattr(trial, "trial_name", trial)))
 
@@ -659,6 +668,15 @@ class _TuneWorkflowCallback:
         self.active_trials.add(trial_id)
         self._set_progress()
 
+    def on_trial_restore(self, iteration, trials, trial, **info) -> None:
+        return None
+
+    def on_trial_save(self, iteration, trials, trial, **info) -> None:
+        return None
+
+    def on_trial_result(self, iteration, trials, trial, result: dict, **info) -> None:
+        return None
+
     def on_trial_complete(self, iteration, trials, trial, **info):
         trial_id = self._trial_id(trial)
         self.active_trials.discard(trial_id)
@@ -683,6 +701,21 @@ class _TuneWorkflowCallback:
         self.active_trials.discard(trial_id)
         self.completed += 1
         self._set_progress()
+
+    def on_trial_recover(self, iteration, trials, trial, **info) -> None:
+        return None
+
+    def on_checkpoint(self, iteration, trials, trial, checkpoint, **info) -> None:
+        return None
+
+    def on_experiment_end(self, trials: list, **info) -> None:
+        return None
+
+    def get_state(self) -> None:
+        return None
+
+    def set_state(self, state: dict) -> None:
+        return None
 
 
 def _resolve_tune_dir(args, *, resume: bool = False) -> Path:
