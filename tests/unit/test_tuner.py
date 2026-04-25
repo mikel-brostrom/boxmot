@@ -196,6 +196,8 @@ def test_tuner_skips_unpicklable_workflow_callbacks(monkeypatch, tmp_path):
             return False
 
         def __init__(self, trainable, param_space, tune_config, run_config):
+            assert tuner_module._is_ray_pickle_safe(trainable)
+            captured["trainable_pickle_safe"] = True
             captured["callbacks"] = run_config.callbacks
             captured["verbose"] = run_config.verbose
 
@@ -238,11 +240,13 @@ def test_tuner_skips_unpicklable_workflow_callbacks(monkeypatch, tmp_path):
         n_trials=3,
         project=Path("runs"),
         verbose=False,
+        driver_lock=threading.RLock(),
     )
 
     tuner_module.main(args)
 
     assert captured["extra"] == "evolve"
+    assert captured["trainable_pickle_safe"] is True
     assert captured["callbacks"] is None
     assert captured["verbose"] == 0
     assert captured["fit"] is True

@@ -20,6 +20,7 @@ os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"   # keep CWD constant for all trials
 
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -548,15 +549,42 @@ def _configure_tune_warning_filters() -> None:
 def _is_ray_pickle_safe(value: Any) -> bool:
     """Return True when Ray's cloudpickle can serialize ``value`` safely."""
     try:
-        import cloudpickle
+        from ray import cloudpickle
     except Exception:
-        return True
+        try:
+            import cloudpickle
+        except Exception:
+            return False
 
     try:
         cloudpickle.dumps(value)
     except Exception:
         return False
     return True
+
+
+def _ray_safe_namespace(args: Any) -> SimpleNamespace:
+    """Return an args namespace containing only fields Ray can serialize."""
+    safe_values: dict[str, Any] = {}
+    skipped: list[str] = []
+    for key, value in vars(args).items():
+        if _is_ray_pickle_safe(value):
+            safe_values[key] = value
+        else:
+            skipped.append(key)
+
+    if skipped:
+        LOGGER.debug(
+            "Skipping non-serializable tuning args before Ray trial dispatch: "
+            + ", ".join(sorted(skipped))
+        )
+
+    return SimpleNamespace(**safe_values)
+
+
+def _workflow_has_live_handle(workflow: Any) -> bool:
+    """Return True when a workflow owns an active Rich Live handle."""
+    return getattr(workflow, "_live", None) is not None
 
 
 def _resolve_tune_dir(args, *, resume: bool = False) -> Path:
@@ -660,15 +688,10 @@ def _execute_tune_search(
 
     yaml_cfg = load_yaml_config(args.tracker)
     search_space = yaml_to_search_space(yaml_cfg, tune)
-    tracker_objective = TrackerObjective(args)
 
     workflow = _log_tune_pipeline_intro(args, maximize=maximize, minimize=minimize)
 
-    def tune_wrapper(cfg):
-        return tracker_objective.objective_function(cfg)
-
     n_threads = int(args.n_threads)
-    trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
     setup_status_message: str | None = None
 
     class _TuneSetupStatus:
@@ -794,6 +817,13 @@ def _execute_tune_search(
         render=True,
     )
 
+    tracker_objective = TrackerObjective(_ray_safe_namespace(args))
+
+    def tune_wrapper(cfg):
+        return tracker_objective.objective_function(cfg)
+
+    trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
+
     if resume_tune and tune.Tuner.can_restore(restore_path_str):
         tuner = tune.Tuner.restore(
             restore_path_str,
@@ -807,7 +837,7 @@ def _execute_tune_search(
         }
         run_config_signature = inspect.signature(RunConfig)
         if "callbacks" in run_config_signature.parameters:
-            if _is_ray_pickle_safe(tune_callback):
+            if not _workflow_has_live_handle(workflow) and _is_ray_pickle_safe(tune_callback):
                 run_config_kwargs["callbacks"] = [tune_callback]
             else:
                 LOGGER.debug(
