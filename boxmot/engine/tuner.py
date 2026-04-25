@@ -883,12 +883,7 @@ def _execute_tune_search(
         }
         run_config_signature = inspect.signature(RunConfig)
         if "callbacks" in run_config_signature.parameters:
-            if _is_ray_pickle_safe(tune_callback):
-                run_config_kwargs["callbacks"] = [tune_callback]
-            else:
-                LOGGER.debug(
-                    "Skipping Ray Tune workflow callback because it is not cloudpickle-safe."
-                )
+            run_config_kwargs["callbacks"] = [tune_callback]
         if "verbose" in run_config_signature.parameters:
             run_config_kwargs["verbose"] = 0
         if "progress_reporter" in run_config_signature.parameters:
