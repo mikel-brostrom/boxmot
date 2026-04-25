@@ -30,6 +30,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
         "_log_tune_pipeline_intro",
         lambda *args, **kwargs: SimpleNamespace(
             _started=True,
+            _live=object(),
             start=lambda: None,
             complete=lambda *a, **k: None,
             activate=lambda *a, **k: None,
@@ -132,7 +133,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     assert Path(captured["storage_path"]) == (tmp_path / "runs" / "ray").resolve()
     assert captured["run_name"] == "strongsort_tune_2"
     assert captured["verbose"] == 0
-    assert len(captured["callbacks"]) == 1
+    assert captured["callbacks"] is None
     assert captured["ray_init_kwargs"]["include_dashboard"] is False
     assert captured["ray_init_kwargs"]["logging_level"] == logging.ERROR
     assert captured["ray_init_kwargs"]["log_to_driver"] is False
@@ -196,8 +197,12 @@ def test_tuner_skips_unpicklable_workflow_callbacks(monkeypatch, tmp_path):
             return False
 
         def __init__(self, trainable, param_space, tune_config, run_config):
-            assert tuner_module._is_ray_pickle_safe(trainable)
-            captured["trainable_pickle_safe"] = True
+            objective = next(
+                cell.cell_contents
+                for cell in trainable.__closure__ or ()
+                if isinstance(cell.cell_contents, tuner_module.TrackerObjective)
+            )
+            captured["driver_lock_in_trainable_args"] = hasattr(objective.opt, "driver_lock")
             captured["callbacks"] = run_config.callbacks
             captured["verbose"] = run_config.verbose
 
@@ -246,7 +251,7 @@ def test_tuner_skips_unpicklable_workflow_callbacks(monkeypatch, tmp_path):
     tuner_module.main(args)
 
     assert captured["extra"] == "evolve"
-    assert captured["trainable_pickle_safe"] is True
+    assert captured["driver_lock_in_trainable_args"] is False
     assert captured["callbacks"] is None
     assert captured["verbose"] == 0
     assert captured["fit"] is True
