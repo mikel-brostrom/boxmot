@@ -12,6 +12,7 @@ from boxmot.data import iter_source
 from boxmot.detectors.base import Detections
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
+from boxmot.utils.ui import print_text
 
 
 try:
@@ -144,7 +145,16 @@ class Tracks:
 
 
 class Results:
-    def __init__(self, source, detector: Any, reid: Any, tracker: Any, verbose: bool = True, drawer: Drawer | None = None) -> None:
+    def __init__(
+        self,
+        source,
+        detector: Any,
+        reid: Any,
+        tracker: Any,
+        verbose: bool = True,
+        drawer: Drawer | None = None,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> None:
         if detector is None:
             raise ValueError("A detector instance is required.")
         if tracker is None:
@@ -156,6 +166,7 @@ class Results:
         self.tracker = tracker
         self.verbose = bool(verbose)
         self.drawer = drawer
+        self._progress_callback = progress_callback
         self._generator: Iterator[Tracks] | None = None
         self._cache: list[Tracks] = []
         self._cache_results = not _is_live_source(source)
@@ -226,14 +237,29 @@ class Results:
 
     def _log_frame_timings(self, frame_idx: int, det_ms: float, reid_ms: float, track_ms: float) -> None:
         total_ms = det_ms + reid_ms + track_ms
-        if self.reid is None:
-            LOGGER.info(
-                f"Frame {frame_idx} | Det: {det_ms:.1f}ms | Track: {track_ms:.1f}ms | Total: {total_ms:.1f}ms"
-            )
+        if self.reid is None and reid_ms <= 0.0:
+            message = f"Frame {frame_idx} | Det: {det_ms:.1f}ms | Track: {track_ms:.1f}ms | Total: {total_ms:.1f}ms"
+            if self._progress_callback is not None:
+                self._progress_callback(message)
+            else:
+                LOGGER.info(message)
             return
-        LOGGER.info(
-            f"Frame {frame_idx} | Det: {det_ms:.1f}ms | ReID: {reid_ms:.1f}ms | Track: {track_ms:.1f}ms | Total: {total_ms:.1f}ms"
+        message = (
+            f"Frame {frame_idx} | Det: {det_ms:.1f}ms | ReID: {reid_ms:.1f}ms | "
+            f"Track: {track_ms:.1f}ms | Total: {total_ms:.1f}ms"
         )
+        if self._progress_callback is not None:
+            self._progress_callback(message)
+        else:
+            LOGGER.info(message)
+
+    def _tracker_reid_time_ms(self) -> float:
+        getter = getattr(self.tracker, "get_last_reid_time_ms", None)
+        value = getter() if callable(getter) else getattr(self.tracker, "last_reid_time_ms", 0.0)
+        try:
+            return max(float(value), 0.0)
+        except (TypeError, ValueError):
+            return 0.0
 
     def _log_summary(self) -> None:
         self.print_summary()
@@ -290,7 +316,10 @@ class Results:
 
         self._interrupted = True
         if reason:
-            LOGGER.info(reason)
+            if self._progress_callback is not None:
+                self._progress_callback(reason)
+            else:
+                LOGGER.info(reason)
 
         generator = self._generator
         self._generator = None
@@ -334,16 +363,7 @@ class Results:
         frames = int(self.totals["frames"])
         if frames == 0:
             return
-
-        for index, line in enumerate(self.format_summary().splitlines()):
-            if line and set(line) == {"="}:
-                LOGGER.opt(colors=True).info(f"<blue>{line}</blue>")
-            elif line and set(line) == {"-"}:
-                LOGGER.opt(colors=True).info(f"<blue>{line}</blue>")
-            elif index == 1:
-                LOGGER.opt(colors=True).info(f"<bold><cyan>{line}</cyan></bold>")
-            else:
-                LOGGER.info(line)
+        print_text(self.format_summary())
 
     def _process(self):
         if hasattr(self.tracker, "reset"):
@@ -367,6 +387,10 @@ class Results:
                 track_started = time.perf_counter()
                 tracks = self._run_tracker(dets, frame, features)
                 track_ms = (time.perf_counter() - track_started) * 1000
+                if self.reid is None:
+                    tracker_reid_ms = min(self._tracker_reid_time_ms(), track_ms)
+                    reid_ms += tracker_reid_ms
+                    track_ms = max(track_ms - tracker_reid_ms, 0.0)
 
                 total_ms = det_ms + reid_ms + track_ms
                 self.totals["det"] += det_ms
@@ -378,7 +402,7 @@ class Results:
                 self.totals["tracks"] += int(tracks.shape[0])
                 self._track_ids_seen.update(self._extract_track_ids(tracks))
 
-                if self.verbose:
+                if self.verbose or self._progress_callback is not None:
                     self._log_frame_timings(frame_idx, det_ms, reid_ms, track_ms)
 
                 yield Tracks(
@@ -392,7 +416,10 @@ class Results:
                 )
         except KeyboardInterrupt:
             self._interrupted = True
-            LOGGER.info("Tracking interrupted by user.")
+            if self._progress_callback is not None:
+                self._progress_callback("Tracking interrupted by user.")
+            else:
+                LOGGER.info("Tracking interrupted by user.")
             return
         finally:
             self._exhausted = True

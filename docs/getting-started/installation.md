@@ -35,6 +35,26 @@ pip install "boxmot[yolo,evolve,research]"
 
 `boxmot export --include engine` requires NVIDIA TensorRT to be available in the environment. It is not provided as a BoxMOT extra.
 
+## Native C++ backends
+
+Native C++ tracker backends are built lazily the first time you select `--tracker-backend cpp`. They are currently available for `botsort`, `bytetrack`, `ocsort`, and `sfsort`.
+
+Install the native build tools before using them:
+
+- C++17 compiler
+- CMake 3.16+
+- OpenCV 4.x
+- Eigen3 3.3+
+
+Example:
+
+```bash
+boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
+boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+```
+
+The generated build files are kept under `build/native/<tracker>/`.
+
 ## Verify the install
 
 !!! example "Verify"

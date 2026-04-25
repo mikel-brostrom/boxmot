@@ -27,6 +27,16 @@ Use `tune` to search tracker hyperparameters against one or more objective metri
 
 Tracker search spaces come from the selected tracker YAML in `boxmot/configs/trackers`. Runtime defaults use each parameter's `default` value, while tuning uses its `type`, `range`, and `options`.
 
+## Native C++ trials
+
+Use `--tracker-backend cpp` when you want each trial to score the native C++ tracker backend instead of the Python backend:
+
+```bash
+boxmot tune --benchmark mot17-ablation --tracker sfsort --tracker-backend cpp --n-trials 10
+```
+
+Native tuning uses the same search space YAML as the Python tracker and swaps only the tracker implementation used during cached replay. Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, and `sfsort`.
+
 ## Objective configuration
 
 !!! example

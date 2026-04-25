@@ -4,8 +4,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
+from rich.console import Group, RenderableType
+from rich.rule import Rule
+from rich.table import Table
+from rich.text import Text
+
 from boxmot.engine.results import Results, Tracks
 from boxmot.utils.compat import dataclass_slots_kwargs
+from boxmot.utils.ui import (
+    STYLE_ACCENT,
+    STYLE_RULE,
+    STYLE_TABLE_HEADER,
+    STYLE_TEXT,
+    STYLE_TEXT_STRONG,
+    print_text,
+)
 
 from . import workflow_reporting as reporting
 
@@ -36,6 +49,77 @@ def _track_timings_from_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return timings
 
 
+def _timing_fps(total_ms: float, frames: int) -> float:
+    avg_ms = (float(total_ms) / frames) if frames else 0.0
+    return (1000.0 / avg_ms) if avg_ms else 0.0
+
+
+def _build_tracking_summary_stats_table(summary: dict[str, Any]) -> Table:
+    table = Table.grid(expand=False, padding=(0, 1))
+    table.add_column(style=STYLE_ACCENT, no_wrap=True)
+    table.add_column(style=STYLE_TEXT)
+
+    rows = (
+        ("Frames", int(summary.get("frames", 0) or 0)),
+        ("Detections", int(summary.get("detections", 0) or 0)),
+        ("Track rows", int(summary.get("tracks", 0) or 0)),
+        ("Unique IDs", int(summary.get("unique_tracks", 0) or 0)),
+    )
+    for label, value in rows:
+        table.add_row(Text(label, style=STYLE_ACCENT), Text(str(value), style=STYLE_TEXT))
+    return table
+
+
+def _build_tracking_summary_timing_table(summary: dict[str, Any]) -> Table:
+    timings = dict(summary.get("timings_ms", {}))
+    frames = int(summary.get("frames", 0) or 0)
+
+    table = Table(
+        expand=True,
+        box=None,
+        show_header=True,
+        header_style=STYLE_TABLE_HEADER,
+        row_styles=["", ""],
+        pad_edge=False,
+        show_edge=False,
+        padding=(0, 2),
+        collapse_padding=False,
+    )
+    table.add_column("Component", style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
+    table.add_column("Total (ms)", justify="right", no_wrap=True, ratio=1)
+    table.add_column("Avg (ms)", justify="right", no_wrap=True, ratio=1)
+    table.add_column("FPS", justify="right", no_wrap=True, ratio=1)
+
+    components = (
+        ("Detection", "det"),
+        ("ReID", "reid"),
+        ("Tracking", "track"),
+        ("Total", "total"),
+    )
+    for label, key in components:
+        total_ms = float(timings.get(key, 0.0) or 0.0)
+        avg_ms = float(timings.get("avg_total", 0.0) or 0.0) if key == "total" else (total_ms / frames if frames else 0.0)
+        row_style = STYLE_TEXT_STRONG if key == "total" else None
+        table.add_row(
+            label,
+            f"{total_ms:.1f}",
+            f"{avg_ms:.2f}",
+            f"{_timing_fps(total_ms, frames):.1f}",
+            style=row_style,
+        )
+
+    return table
+
+
+def _build_tracking_summary_renderable(summary: dict[str, Any]) -> RenderableType:
+    return Group(
+        Rule("TRACKING SUMMARY", style=STYLE_RULE),
+        _build_tracking_summary_stats_table(summary),
+        Rule(style=STYLE_RULE),
+        _build_tracking_summary_timing_table(summary),
+    )
+
+
 @dataclass(**dataclass_slots_kwargs())
 class ValidationResult:
     benchmark: str
@@ -45,8 +129,11 @@ class ValidationResult:
     exp_dir: Path | None = None
     timings: dict[str, Any] = field(default_factory=dict)
     args: Any = None
+    workflow_rendered: bool = False
 
     def __str__(self) -> str:
+        if self.workflow_rendered:
+            return ""
         return self.render()
 
     def __repr__(self) -> str:
@@ -71,6 +158,26 @@ class ValidationResult:
             include_timings=include_timings,
         )
 
+    def renderable(
+        self,
+        *,
+        title: str | None = None,
+        include_sequences: bool = True,
+        include_timings: bool = False,
+        compare_raw: dict[str, Any] | None = None,
+        compare_args: Any = None,
+    ) -> RenderableType:
+        return reporting.build_validation_cli_renderable(
+            self.raw,
+            args=self.args,
+            timings=self.timings,
+            title=title,
+            include_sequences=include_sequences,
+            include_timings=include_timings,
+            compare_raw=compare_raw,
+            compare_args=compare_args,
+        )
+
     def format_report(self, *, title: str | None = None, include_sequences: bool = True) -> str:
         report_title = reporting.DEFAULT_VALIDATION_REPORT_TITLE if title is None else title
         return reporting.format_validation_report(
@@ -87,12 +194,13 @@ class ValidationResult:
         include_sequences: bool = True,
         include_timings: bool = False,
     ) -> None:
-        print(
-            self.render(
-                title=title,
-                include_sequences=include_sequences,
-                include_timings=include_timings,
-            )
+        reporting.print_validation_cli_report(
+            self.raw,
+            args=self.args,
+            timings=self.timings,
+            title=reporting.CLI_RESULTS_SUMMARY_TITLE if title is None else title,
+            include_sequences=include_sequences,
+            include_timings=include_timings,
         )
 
     def to_dict(self, *, include_raw: bool = False) -> dict[str, Any]:
@@ -175,12 +283,10 @@ class TuneTrialResult:
         include_sequences: bool = True,
         include_timings: bool = False,
     ) -> None:
-        print(
-            self.render(
-                title=title,
-                include_sequences=include_sequences,
-                include_timings=include_timings,
-            )
+        self.metrics.print_report(
+            title=title,
+            include_sequences=include_sequences,
+            include_timings=include_timings,
         )
 
     def to_dict(self, *, include_raw: bool = False) -> dict[str, Any]:
@@ -200,6 +306,7 @@ class TuneResult:
     best: TuneTrialResult
     best_config: dict[str, Any]
     best_yaml: Path
+    workflow_rendered: bool = False
 
     @property
     def summary_label(self) -> str:
@@ -230,6 +337,8 @@ class TuneResult:
         return self.trials[0]
 
     def __str__(self) -> str:
+        if self.workflow_rendered:
+            return ""
         return self.render()
 
     def __repr__(self) -> str:
@@ -266,7 +375,7 @@ class TuneResult:
         include_sequences: bool = True,
         include_timings: bool = False,
     ) -> None:
-        print(
+        print_text(
             self.render(
                 title=title,
                 include_sequences=include_sequences,
@@ -290,7 +399,7 @@ class TuneResult:
         include_sequences: bool = True,
         include_timings: bool = False,
     ) -> None:
-        print(
+        print_text(
             self.render(
                 title=title,
                 include_sequences=include_sequences,
@@ -348,7 +457,7 @@ class GenerateResult:
         return "\n".join(lines)
 
     def print_summary(self) -> None:
-        print(self.render())
+        print_text(self.render())
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -417,8 +526,12 @@ class TrackRunResult:
     def render(self) -> str:
         return self.format_summary()
 
+    def renderable(self) -> RenderableType:
+        self.refresh()
+        return _build_tracking_summary_renderable(self._summary)
+
     def print_summary(self) -> None:
-        print(self.render())
+        print_text(self.render())
 
     def refresh(self) -> None:
         summary_fn = getattr(self.results, "summary", None)

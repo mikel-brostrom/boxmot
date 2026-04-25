@@ -3,6 +3,7 @@
 import time
 
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.ui import print_text
 
 
 class TimingStats:
@@ -218,16 +219,7 @@ class TimingStats:
         summary = self.format_summary()
         if not summary:
             return
-
-        for index, line in enumerate(summary.splitlines()):
-            if line and set(line) == {"="}:
-                LOGGER.opt(colors=True).info(f"<blue>{line}</blue>")
-            elif line and set(line) == {"-"}:
-                LOGGER.opt(colors=True).info(f"<blue>{line}</blue>")
-            elif index == 1:
-                LOGGER.opt(colors=True).info(f"<bold><cyan>{line}</cyan></bold>")
-            else:
-                LOGGER.info(line)
+        print_text(summary)
 
 
 class TimedReIDWrapper:

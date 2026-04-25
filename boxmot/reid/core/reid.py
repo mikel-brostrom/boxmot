@@ -42,7 +42,7 @@ class ReID:
         self.weights = model_ref
         self.device = device if isinstance(device, torch.device) else select_device(device)
         self.half = bool(half)
-        self.preprocess_name = preprocess_name
+        self.preprocess_name = "resize_pad"
         (
             self.pt,
             self.jit,

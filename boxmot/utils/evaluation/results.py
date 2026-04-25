@@ -12,6 +12,7 @@ from boxmot.data.benchmark import (
     resolve_obb_classes_to_eval,
 )
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.ui import print_text
 
 
 SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
@@ -416,6 +417,12 @@ def _format_summary_cell(column: str, value: Any) -> str:
     return f"{float(value or 0):>10.2f}"
 
 
+def _ansi_wrap(text: str, *codes: str, colorize: bool) -> str:
+    if not colorize or not text:
+        return text
+    return f"\033[{';'.join(codes)}m{text}\033[0m"
+
+
 def _colorize_delta(text: str, column: str, delta: float, *, colorize: bool) -> str:
     if not colorize or delta == 0:
         return text
@@ -516,14 +523,17 @@ def _render_summary_table(
     compare_enabled = any(compare_metrics is not None for _, _, compare_metrics in rows)
 
     lines = [
-        "=" * total_width,
-        f"{title:^{total_width}}",
-        "=" * total_width,
-        header_fmt.format(*header_values),
-        "-" * total_width,
+        _ansi_wrap("=" * total_width, "36", colorize=colorize),
+        _ansi_wrap(f"{title:^{total_width}}", "1", "36", colorize=colorize),
+        _ansi_wrap("=" * total_width, "36", colorize=colorize),
+        _ansi_wrap(header_fmt.format(*header_values), "1", "34", colorize=colorize),
+        _ansi_wrap("-" * total_width, "36", colorize=colorize),
     ]
     for row_name, metrics, compare_metrics in rows:
-        lines.append(f"{row_name:<{name_width}} " + " ".join(_format_summary_values(metrics)))
+        row_line = f"{row_name:<{name_width}} " + " ".join(_format_summary_values(metrics))
+        if row_name.startswith("COMBINED"):
+            row_line = _ansi_wrap(row_line, "1", "33", colorize=colorize)
+        lines.append(row_line)
         if compare_enabled and compare_metrics is not None:
             delta_vals = " ".join(
                 _format_summary_delta_only_cell(
@@ -536,7 +546,7 @@ def _render_summary_table(
                 for column in SUMMARY_COLUMNS
             )
             lines.append(f"{'':<{name_width}} {delta_vals}")
-    lines.append("=" * total_width)
+    lines.append(_ansi_wrap("=" * total_width, "36", colorize=colorize))
     return "\n".join(lines)
 
 
@@ -577,9 +587,9 @@ def render_trackeval_report(
 
     blocks = [
         "\n".join([
-            "=" * total_width,
-            f"{title:^{total_width}}",
-            "=" * total_width,
+            _ansi_wrap("=" * total_width, "36", colorize=colorize),
+            _ansi_wrap(f"{title:^{total_width}}", "1", "36", colorize=colorize),
+            _ansi_wrap("=" * total_width, "36", colorize=colorize),
         ])
     ]
 
@@ -686,8 +696,7 @@ def render_trackeval_report(
 def log_trackeval_report(report: str) -> None:
     if not report:
         return
-    for line in report.splitlines():
-        LOGGER.info(line)
+    print_text(report)
 
 
 def _print_summary_table(

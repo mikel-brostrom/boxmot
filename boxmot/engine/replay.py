@@ -9,18 +9,21 @@ import queue
 import sys
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
 from boxmot.data import MOTDataset
 from boxmot.detectors import default_conf
 from boxmot.engine.tracker import TrackerRuntime
+from boxmot.native import get_native_replay_backend, process_sequence_cpp
+from boxmot.trackers.specs import normalize_tracker_backend
 from boxmot.utils import configure_logging as _base_configure_logging, logger as LOGGER
 from boxmot.utils.misc import increment_path
 from boxmot.utils.timing import TimingStats
 from boxmot.utils.mot_utils import write_mot_results
 from boxmot.utils.torch_utils import select_device
+from boxmot.utils.ui import print_text
 
 __all__ = (
     "process_sequence",
@@ -58,7 +61,8 @@ def _format_seq_progress(sequence_names: list[str], seq_progress: dict) -> str:
             pct = min(max(current / total, 0.0), 1.0)
         filled = int(bar_width * pct)
         bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
-        lines.append(f"  {name:<{name_width}s} {bar} {pct:>5.0%}  ({current}/{total})")
+        suffix = "(done)" if total > 0 and current >= total else f"({current}/{total})"
+        lines.append(f"  {name:<{name_width}s} {bar} {pct:>5.0%}  {suffix}")
     return "\n".join(lines)
 
 
@@ -193,11 +197,34 @@ def process_sequence(
     return seq_name, kept_frame_ids, timing_dict
 
 
+def _resolve_backend_selection(args: argparse.Namespace) -> tuple[str, str]:
+    tracking_backend = str(getattr(args, "tracking_backend", "process")).strip().lower() or "process"
+    explicit_tracker_backend = getattr(args, "tracker_backend", None)
+
+    if tracking_backend == "cpp":
+        if explicit_tracker_backend not in {None, ""}:
+            normalized_tracker_backend = normalize_tracker_backend(explicit_tracker_backend)
+            if normalized_tracker_backend != "cpp":
+                raise ValueError(
+                    "tracking_backend='cpp' conflicts with tracker_backend='python'. "
+                    "Use tracking_backend='thread' or 'process' when tracker_backend='python'."
+                )
+        return "cpp", "thread"
+
+    if tracking_backend not in {"process", "thread"}:
+        raise ValueError(
+            f"Unsupported tracking backend '{tracking_backend}'. Expected 'process', 'thread', or 'cpp'."
+        )
+
+    return normalize_tracker_backend(explicit_tracker_backend, default="python"), tracking_backend
+
+
 def _run_tracking_tasks(
     args: argparse.Namespace,
     task_args: list[tuple],
     *,
     quiet: bool,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[dict[str, list[int]], float, int]:
     n_seqs = len(task_args)
     seq_frame_nums: dict[str, list[int]] = {}
@@ -208,11 +235,17 @@ def _run_tracking_tasks(
     prev_display_lines = 0
     last_progress_message = None
     sequence_names = [task[0] for task in task_args]
-    tracking_backend = str(getattr(args, "tracking_backend", "process")).strip().lower() or "process"
+    tracker_backend, tracking_backend = _resolve_backend_selection(args)
 
-    if tracking_backend not in {"process", "thread"}:
-        raise ValueError(
-            f"Unsupported tracking backend '{tracking_backend}'. Expected 'process' or 'thread'."
+    if tracker_backend == "cpp":
+        native_backend = get_native_replay_backend(getattr(args, "tracker", ""))
+        return _run_cpp_tracking_tasks(
+            args,
+            task_args,
+            quiet=quiet,
+            sequence_names=sequence_names,
+            native_backend=native_backend,
+            progress_callback=progress_callback,
         )
 
     def _log_progress(progress_queue) -> None:
@@ -223,10 +256,14 @@ def _run_tracking_tasks(
         message = "\n".join([header] + ([seq_display] if seq_display else []))
         if message == last_progress_message:
             return
+        if progress_callback is not None:
+            progress_callback(message)
+            last_progress_message = message
+            return
         if prev_display_lines > 0:
             sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
             sys.stderr.flush()
-        LOGGER.opt(colors=True).info(f"<cyan>{message}</cyan>")
+        print_text(message, stderr=True)
         prev_display_lines = message.count("\n") + 1
         last_progress_message = message
 
@@ -293,13 +330,109 @@ def _run_tracking_tasks(
 
     if progress_queue is not None and prev_display_lines > 0:
         _drain_progress_queue(progress_queue, seq_progress)
-        sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
-        sys.stderr.flush()
         final_display = _format_seq_progress(sequence_names, seq_progress)
         final_message = "\n".join(
             [f"Tracking: {n_seqs}/{n_seqs} sequences done"] + ([final_display] if final_display else [])
         )
-        LOGGER.opt(colors=True).info(f"<cyan>{final_message}</cyan>")
+        if progress_callback is not None:
+            progress_callback(final_message)
+        else:
+            sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
+            sys.stderr.flush()
+            print_text(final_message, stderr=True)
+
+    return seq_frame_nums, total_track_time_ms, total_track_frames
+
+
+def _run_cpp_tracking_tasks(
+    args: argparse.Namespace,
+    task_args: list[tuple],
+    *,
+    quiet: bool,
+    sequence_names: list[str],
+    native_backend,
+    progress_callback: Callable[[str], None] | None = None,
+) -> tuple[dict[str, list[int]], float, int]:
+    n_seqs = len(task_args)
+    seq_frame_nums: dict[str, list[int]] = {}
+    total_track_time_ms = 0.0
+    total_track_frames = 0
+    done_count = 0
+    seq_progress: dict[str, tuple[int, int]] = {}
+    prev_display_lines = 0
+    last_progress_message = None
+
+    progress_queue = None if quiet else queue.Queue()
+    bound_task_args = (
+        task_args
+        if progress_queue is None
+        else [task[:-1] + (progress_queue,) for task in task_args]
+    )
+
+    def _log_progress() -> None:
+        nonlocal prev_display_lines, last_progress_message
+        if progress_queue is not None:
+            _drain_progress_queue(progress_queue, seq_progress)
+        header = f"Tracking: {done_count}/{n_seqs} sequences done"
+        seq_display = _format_seq_progress(sequence_names, seq_progress)
+        message = "\n".join([header] + ([seq_display] if seq_display else []))
+        if message == last_progress_message:
+            return
+        if progress_callback is not None:
+            progress_callback(message)
+            last_progress_message = message
+            return
+        if prev_display_lines > 0:
+            sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
+            sys.stderr.flush()
+        print_text(message, stderr=True)
+        prev_display_lines = message.count("\n") + 1
+        last_progress_message = message
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.n_threads) as executor:
+        futures = {
+            executor.submit(native_backend.process_sequence, *task_arg): task_arg[0]
+            for task_arg in bound_task_args
+        }
+        pending = set(futures)
+
+        while pending:
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=0.3,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+
+            for future in done:
+                seq_name = futures[future]
+                try:
+                    sequence_name, kept_ids, timing_dict = future.result()
+                    seq_frame_nums[sequence_name] = kept_ids
+                    total_track_time_ms += timing_dict.get("track_time_ms", 0.0)
+                    total_track_frames += timing_dict.get("num_frames", 0)
+                    num_frames = int(timing_dict.get("num_frames", len(kept_ids)))
+                    seq_progress[sequence_name] = (num_frames, num_frames)
+                    done_count += 1
+                except Exception:
+                    done_count += 1
+                    LOGGER.exception(f"Error processing {seq_name}")
+
+            if not quiet:
+                _log_progress()
+
+    if not quiet and prev_display_lines > 0:
+        if progress_queue is not None:
+            _drain_progress_queue(progress_queue, seq_progress)
+        final_display = _format_seq_progress(sequence_names, seq_progress)
+        final_message = "\n".join(
+            [f"Tracking: {n_seqs}/{n_seqs} sequences done"] + ([final_display] if final_display else [])
+        )
+        if progress_callback is not None:
+            progress_callback(final_message)
+        else:
+            sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
+            sys.stderr.flush()
+            print_text(final_message, stderr=True)
 
     return seq_frame_nums, total_track_time_ms, total_track_frames
 
@@ -309,6 +442,7 @@ def run_generate_mot_results(
     evolve_config: dict | None = None,
     timing_stats: Optional[TimingStats] = None,
     quiet: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> None:
     """Run trackers over cached detections/embeddings and write MOT result files."""
     args.project = Path(args.project)
@@ -336,7 +470,12 @@ def run_generate_mot_results(
         str(cache_project),
         None,
     )
-    seq_frame_nums, total_track_time_ms, total_track_frames = _run_tracking_tasks(args, task_args, quiet=quiet)
+    seq_frame_nums, total_track_time_ms, total_track_frames = _run_tracking_tasks(
+        args,
+        task_args,
+        quiet=quiet,
+        progress_callback=progress_callback,
+    )
     args.seq_frame_nums = seq_frame_nums
 
     if timing_stats is not None:

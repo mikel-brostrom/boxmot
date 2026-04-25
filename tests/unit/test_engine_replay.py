@@ -193,6 +193,220 @@ def test_replay_nonquiet_uses_manager_queue_for_progress(tmp_path, monkeypatch):
     assert queue_types == ["Queue"]
 
 
+def test_replay_cpp_backend_uses_native_runner(tmp_path, monkeypatch):
+    source = tmp_path / "train"
+    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
+        img_dir = source / seq_name / "img1"
+        img_dir.mkdir(parents=True)
+        (img_dir / "000001.jpg").write_bytes(b"")
+
+    args = SimpleNamespace(
+        project=tmp_path,
+        cache_project=tmp_path / "shared-runs",
+        benchmark="mot17-mini",
+        source=source,
+        detector=[Path("det.pt")],
+        reid=[Path("/tmp/reid.pt")],
+        tracker="botsort",
+        fps=None,
+        device="cpu",
+        n_threads=2,
+        tracker_backend="cpp",
+        tracking_backend="thread",
+        postprocessing="none",
+        conf=0.25,
+    )
+
+    class FakeFuture:
+        def __init__(self, value):
+            self._value = value
+
+        def result(self):
+            return self._value
+
+    class FakeThreadPoolExecutor:
+        def __init__(self, *args, **kwargs):
+            assert kwargs["max_workers"] == 2
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, fn, *task_arg):
+            assert fn is replay_module.process_sequence_cpp
+            seq_name = task_arg[0]
+            return FakeFuture((seq_name, [1], {"track_time_ms": 7.5, "num_frames": 1}))
+
+    monkeypatch.setattr(
+        replay_module,
+        "get_native_replay_backend",
+        lambda tracker_name: SimpleNamespace(process_sequence=replay_module.process_sequence_cpp),
+    )
+    monkeypatch.setattr(replay_module.concurrent.futures, "ThreadPoolExecutor", FakeThreadPoolExecutor)
+    monkeypatch.setattr(
+        replay_module.concurrent.futures,
+        "wait",
+        lambda pending, timeout, return_when: (set(pending), set()),
+    )
+
+    replay_module.run_generate_mot_results(args, quiet=True)
+
+    assert args.seq_frame_nums == {
+        "MOT17-02-FRCNN": [1],
+        "MOT17-04-FRCNN": [1],
+    }
+
+
+def test_replay_cpp_backend_rejects_unsupported_tracker(tmp_path):
+    source = tmp_path / "train"
+    img_dir = source / "MOT17-02-FRCNN" / "img1"
+    img_dir.mkdir(parents=True)
+    (img_dir / "000001.jpg").write_bytes(b"")
+
+    args = SimpleNamespace(
+        project=tmp_path,
+        benchmark="mot17-mini",
+        source=source,
+        detector=[Path("det.pt")],
+        reid=[Path("/tmp/reid.pt")],
+        tracker="deepocsort",
+        fps=None,
+        device="cpu",
+        n_threads=1,
+        tracker_backend="cpp",
+        tracking_backend="thread",
+        postprocessing="none",
+        conf=0.25,
+    )
+
+    try:
+        replay_module.run_generate_mot_results(args, quiet=True)
+    except ValueError as exc:
+        assert "tracker_backend='cpp' is not available" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for unsupported native replay tracker")
+
+
+def test_replay_cpp_tracking_backend_alias_uses_native_runner(tmp_path, monkeypatch):
+    source = tmp_path / "train"
+    img_dir = source / "MOT17-02-FRCNN" / "img1"
+    img_dir.mkdir(parents=True)
+    (img_dir / "000001.jpg").write_bytes(b"")
+
+    args = SimpleNamespace(
+        project=tmp_path,
+        benchmark="mot17-mini",
+        source=source,
+        detector=[Path("det.pt")],
+        reid=[Path("/tmp/reid.pt")],
+        tracker="botsort",
+        fps=None,
+        device="cpu",
+        n_threads=1,
+        tracking_backend="cpp",
+        postprocessing="none",
+        conf=0.25,
+    )
+
+    monkeypatch.setattr(
+        replay_module,
+        "get_native_replay_backend",
+        lambda tracker_name: SimpleNamespace(process_sequence=lambda *task_arg: (task_arg[0], [1], {"track_time_ms": 1.0, "num_frames": 1})),
+    )
+
+    replay_module.run_generate_mot_results(args, quiet=True)
+
+    assert args.seq_frame_nums == {"MOT17-02-FRCNN": [1]}
+
+
+def test_replay_cpp_backend_reports_incremental_progress(tmp_path, monkeypatch):
+    source = tmp_path / "train"
+    img_dir = source / "MOT17-02-FRCNN" / "img1"
+    img_dir.mkdir(parents=True)
+    (img_dir / "000001.jpg").write_bytes(b"")
+
+    args = SimpleNamespace(
+        project=tmp_path,
+        benchmark="mot17-mini",
+        source=source,
+        detector=[Path("det.pt")],
+        reid=[Path("/tmp/reid.pt")],
+        tracker="botsort",
+        fps=None,
+        device="cpu",
+        n_threads=1,
+        tracker_backend="cpp",
+        tracking_backend="thread",
+        postprocessing="none",
+        conf=0.25,
+    )
+
+    class FakeFuture:
+        def __init__(self, value):
+            self._value = value
+
+        def result(self):
+            return self._value
+
+    state = {"progress_queue": None, "calls": 0}
+
+    class FakeThreadPoolExecutor:
+        def __init__(self, *args, **kwargs):
+            assert kwargs["max_workers"] == 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, fn, *task_arg):
+            assert fn is replay_module.process_sequence_cpp
+            state["progress_queue"] = task_arg[-1]
+            return FakeFuture(("MOT17-02-FRCNN", [1, 2, 3], {"track_time_ms": 7.5, "num_frames": 3}))
+
+    messages = []
+    monkeypatch.setattr(
+        replay_module,
+        "get_native_replay_backend",
+        lambda tracker_name: SimpleNamespace(process_sequence=replay_module.process_sequence_cpp),
+    )
+    monkeypatch.setattr(replay_module.concurrent.futures, "ThreadPoolExecutor", FakeThreadPoolExecutor)
+    monkeypatch.setattr(
+        replay_module.concurrent.futures,
+        "wait",
+        lambda pending, timeout, return_when: (
+            (
+                state["progress_queue"].put_nowait(("MOT17-02-FRCNN", 1, 3)),
+                state.__setitem__("calls", state["calls"] + 1),
+                set(),
+                set(pending),
+            )[-2:]
+            if state["calls"] == 0
+            else (
+                state["progress_queue"].put_nowait(("MOT17-02-FRCNN", 2, 3)),
+                state.__setitem__("calls", state["calls"] + 1),
+                set(),
+                set(pending),
+            )[-2:]
+            if state["calls"] == 1
+            else (
+                state["progress_queue"].put_nowait(("MOT17-02-FRCNN", 3, 3)),
+                state.__setitem__("calls", state["calls"] + 1),
+                set(pending),
+                set(),
+            )[-2:]
+        ),
+    )
+
+    replay_module.run_generate_mot_results(args, quiet=False, progress_callback=messages.append)
+
+    assert any("(2/3)" in message for message in messages)
+    assert messages[-1].startswith("Tracking: 1/1 sequences done")
+
+
 def test_evaluator_reexports_replay_helpers():
     assert evaluator_module.process_sequence is replay_module.process_sequence
     assert evaluator_module.run_generate_mot_results is replay_module.run_generate_mot_results
@@ -214,5 +428,5 @@ def test_format_seq_progress_shows_all_sequences_in_order():
     assert "MOT17-04" in lines[1]
     assert "MOT17-05" in lines[2]
     assert "(10/20)" in lines[0]
-    assert "(20/20)" in lines[1]
+    assert "(done)" in lines[1]
     assert "(pending)" in lines[2]

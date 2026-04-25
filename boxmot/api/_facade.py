@@ -181,6 +181,9 @@ class Boxmot:
     def _tracker_name(self, required: bool = True) -> str | None:
         return support.tracker_name_from_spec(self.tracker, required=required)
 
+    def _tracker_backend(self, required: bool = True) -> str | None:
+        return support.tracker_backend_from_spec(self.tracker, required=required)
+
     def _tracker_config_from_spec(self) -> dict[str, Any] | None:
         return support.tracker_config_from_spec(self.tracker)
 
@@ -197,6 +200,8 @@ class Boxmot:
         verbose: bool = BOXMOT_DEFAULTS.eval.verbose,
         show_progress: bool = True,
         postprocessing: str = BOXMOT_DEFAULTS.eval.postprocessing,
+        tracker_backend: str | None = None,
+        tracking_backend: str = "thread",
     ):
         return adapters.build_eval_args(
             self,
@@ -210,6 +215,8 @@ class Boxmot:
             verbose=verbose,
             show_progress=show_progress,
             postprocessing=postprocessing,
+            tracker_backend=tracker_backend,
+            tracking_backend=tracking_backend,
         )
 
     def track(
@@ -226,6 +233,7 @@ class Boxmot:
         show: bool = BOXMOT_DEFAULTS.track.show,
         drawer=None,
         verbose: bool = BOXMOT_DEFAULTS.track.verbose,
+        tracker_backend: str | None = None,
     ) -> TrackRunResult:
         args = adapters.build_track_args(
             self,
@@ -239,6 +247,7 @@ class Boxmot:
             save_txt=save_txt,
             show=show,
             verbose=verbose,
+            tracker_backend=tracker_backend,
         )
         return tracker_module.run_track(
             args,
@@ -306,6 +315,8 @@ class Boxmot:
         project: str | Path | None = None,
         verbose: bool = BOXMOT_DEFAULTS.eval.verbose,
         postprocessing: str = BOXMOT_DEFAULTS.eval.postprocessing,
+        tracker_backend: str | None = None,
+        tracking_backend: str = "thread",
     ) -> ValidationResult:
         args = self._base_eval_args(
             benchmark,
@@ -318,11 +329,20 @@ class Boxmot:
             verbose=verbose,
             show_progress=True,
             postprocessing=postprocessing,
+            tracker_backend=tracker_backend,
+            tracking_backend=tracking_backend,
         )
-        return evaluator_module.run_eval(
-            args,
-            evolve_config=self._tracker_config_from_spec(),
-        )
+        workflow = evaluator_module.log_eval_pipeline_intro(args)
+        try:
+            metrics = evaluator_module.run_eval(
+                args,
+                evolve_config=self._tracker_config_from_spec(),
+                workflow=workflow,
+            )
+            metrics.workflow_rendered = True
+            return metrics
+        finally:
+            workflow.stop()
 
     def tune(
         self,
@@ -338,6 +358,8 @@ class Boxmot:
         maximize: Sequence[str] = BOXMOT_DEFAULTS.tune.maximize,
         minimize: Sequence[str] = BOXMOT_DEFAULTS.tune.minimize,
         verbose: bool = BOXMOT_DEFAULTS.eval.verbose,
+        tracker_backend: str | None = None,
+        tracking_backend: str = "thread",
         seed: int = 0,
     ) -> TuneResult:
         args = adapters.build_tune_args(
@@ -353,12 +375,17 @@ class Boxmot:
             maximize=maximize,
             minimize=minimize,
             verbose=verbose,
+            tracker_backend=tracker_backend,
+            tracking_backend=tracking_backend,
             seed=seed,
         )
-        return tuner_module.run_tune(
+        args.compare_to_first_trial = True
+        tune_results = tuner_module.run_tune(
             args,
             baseline_config=self._tracker_config_from_spec(),
         )
+        tune_results.workflow_rendered = True
+        return tune_results
 
     def research(
         self,
@@ -376,6 +403,8 @@ class Boxmot:
         mota_penalty: float = BOXMOT_DEFAULTS.research.mota_penalty,
         idf1_tolerance: float = BOXMOT_DEFAULTS.research.idf1_tolerance,
         mota_tolerance: float = BOXMOT_DEFAULTS.research.mota_tolerance,
+        tracker_backend: str | None = None,
+        tracking_backend: str = "thread",
     ) -> research_module.ResearchResult:
         args = adapters.build_research_args(
             self,
@@ -392,6 +421,8 @@ class Boxmot:
             mota_penalty=mota_penalty,
             idf1_tolerance=idf1_tolerance,
             mota_tolerance=mota_tolerance,
+            tracker_backend=tracker_backend,
+            tracking_backend=tracking_backend,
         )
         return research_module.run_research(args)
 

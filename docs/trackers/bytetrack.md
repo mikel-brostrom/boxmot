@@ -11,4 +11,28 @@ ByteTrack's main idea is simple: do not throw away low-confidence detections too
 - Supports both AABB and OBB detections in BoxMOT.
 - Good default when you want a fast, strong baseline and already trust the detector.
 
+## Native C++ Backend
+
+BoxMOT also ships a native C++17 ByteTrack implementation under `native/trackers/bytetrack/`. It supports:
+
+- cached replay for `eval`, `tune`, and `research`
+- live `track` through `--tracker-backend cpp`
+- both AABB and OBB detection layouts in the native tracker path
+
+Requirements:
+
+- C++17 compiler
+- CMake 3.16+
+- OpenCV 4.x
+- Eigen3 3.3+
+
+Example:
+
+```bash
+boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+boxmot track --tracker bytetrack --tracker-backend cpp --source 0
+```
+
+`--tracking-backend cpp` remains available as a compatibility alias for existing benchmark scripts.
+
 ::: boxmot.trackers.bytetrack.bytetrack.ByteTrack

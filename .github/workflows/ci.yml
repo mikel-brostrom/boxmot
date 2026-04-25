@@ -50,6 +50,27 @@ jobs:
           for tracker in $TRACKERS; do
             boxmot track --detector yolov10n.pt --reid osnet_x0_25_msmt17.pt --imgsz 320 --tracker $tracker --source $IMG --verbose
           done
+
+  native_build:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libopencv-dev libeigen3-dev
+      - name: Configure native trackers
+        shell: bash
+        run: |
+          cmake -S native/trackers -B build/native/trackers -DCMAKE_BUILD_TYPE=Release
+      - name: Build native trackers
+        shell: bash
+        run: |
+          cmake --build build/native/trackers --config Release --parallel
   tune:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -425,6 +446,7 @@ jobs:
   check-failures:
     needs:
       - trackers
+      - native_build
       - metrics
       - obb
       - tune
@@ -439,6 +461,7 @@ jobs:
       - name: Prepare environment variables
         run: |
           echo "trackers_STATUS=${{ needs.trackers.result }}" >> $GITHUB_ENV
+          echo "native_build_STATUS=${{ needs.native_build.result }}" >> $GITHUB_ENV
           echo "metrics_STATUS=${{ needs.metrics.result }}" >> $GITHUB_ENV
           echo "obb_STATUS=${{ needs.obb.result }}" >> $GITHUB_ENV
           echo "tune_STATUS=${{ needs.tune.result }}" >> $GITHUB_ENV

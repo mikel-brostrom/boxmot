@@ -9,6 +9,7 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 
+from boxmot.trackers.specs import parse_tracker_spec
 from boxmot.utils import WEIGHTS
 from boxmot.utils.compat import dataclass_slots_kwargs
 from boxmot.utils.misc import resolve_model_path
@@ -121,7 +122,12 @@ def build_mode_namespace(
             values.get("reid", [DEFAULT_REID] if multiple_models else DEFAULT_REID),
             multiple=multiple_models,
         )
-        values["tracker"] = str(values.get("tracker") or get_mode_default(normalized_mode, "tracker"))
+        tracker_spec = parse_tracker_spec(
+            values.get("tracker") or get_mode_default(normalized_mode, "tracker"),
+            default_backend=str(values.get("tracker_backend", "python")),
+        )
+        values["tracker"] = tracker_spec.name
+        values["tracker_backend"] = tracker_spec.backend
         values["classes"] = _normalize_classes(values.get("classes"))
         values["project"] = Path(values.get("project") or "runs")
         values.setdefault("detector_explicit", "detector" in explicit)
@@ -162,6 +168,7 @@ def _runtime_mode_kwargs(values: Mapping[str, Any]) -> dict[str, Any]:
         "vid_stride": int(values.get("vid_stride", 1)),
         "ci": bool(values.get("ci", False)),
         "tracker": str(values.get("tracker", "bytetrack")),
+        "tracker_backend": str(values.get("tracker_backend", "python")),
         "verbose": bool(values.get("verbose", False)),
         "show_timing": bool(values.get("show_timing", False)),
         "agnostic_nms": bool(values.get("agnostic_nms", False)),
@@ -204,6 +211,7 @@ class RuntimeModeDefaults:
     vid_stride: int
     ci: bool
     tracker: str
+    tracker_backend: str
     verbose: bool
     show_timing: bool
     agnostic_nms: bool

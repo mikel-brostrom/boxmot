@@ -32,6 +32,7 @@ from boxmot.utils.benchmark_config import (
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.compat import dataclass_slots_kwargs
 from boxmot.utils.misc import resolve_model_path
+from boxmot.utils.ui import print_text
 
 RESEARCH_EXTRA = "research"
 RESEARCH_METRICS = ("HOTA", "IDF1", "MOTA")
@@ -958,7 +959,7 @@ class ResearchResult:
         return "\n".join(lines)
 
     def print_summary(self) -> None:
-        print(self.render())
+        print_text(self.render())
 
     def to_dict(self) -> dict[str, Any]:
         return {

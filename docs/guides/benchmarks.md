@@ -27,6 +27,17 @@ boxmot tune --benchmark mot17-ablation --tracker bytetrack
 boxmot research --benchmark mot17-ablation --tracker bytetrack --proposal-model openai/gpt-5.4
 ```
 
+## Native C++ replay
+
+Use `--tracker-backend cpp` in benchmark modes to keep the same cached detections and TrackEval scoring while swapping the tracker implementation:
+
+```bash
+boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+boxmot tune --benchmark mot17-ablation --tracker sfsort --tracker-backend cpp
+```
+
+Native replay is registered for `botsort`, `bytetrack`, `ocsort`, and `sfsort`. See [Evaluation and Postprocessing](evaluation.md#native-c-tracker-backends) for build requirements and backend notes.
+
 ## Overrides
 
 You can override detector and ReID selections explicitly:

@@ -46,6 +46,52 @@ def test_eval_accepts_tracker_option(monkeypatch):
     assert captured["args"].tracker == "boosttrack"
 
 
+def test_eval_accepts_tracker_backend_option(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        ["eval", "--benchmark", "mot17-ablation", "--tracker", "botsort", "--tracker-backend", "cpp"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["args"].tracker == "botsort"
+    assert captured["args"].tracker_backend == "cpp"
+
+
+def test_track_accepts_inline_tracker_backend(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tracker", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["track", "--source", "0", "--tracker", "botsort:cpp"])
+    assert result.exit_code == 0, result.output
+    assert captured["args"].tracker == "botsort"
+    assert captured["args"].tracker_backend == "cpp"
+    assert captured["args"].show is True
+
+
+def test_track_live_source_keeps_show_false_when_save_is_explicit(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tracker", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["track", "--source", "0", "--tracker", "botsort", "--save"])
+    assert result.exit_code == 0, result.output
+    assert captured["args"].save is True
+    assert captured["args"].show is False
+
+
 def test_eval_passes_show_timing_flag(monkeypatch):
     captured = {}
 

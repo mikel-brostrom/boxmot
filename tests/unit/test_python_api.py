@@ -26,6 +26,7 @@ from boxmot.detectors import Detector
 from boxmot.detectors.base import Detections
 from boxmot.reid import ReID
 from boxmot.utils.timing import TimingStats
+import boxmot.utils.ui as ui_module
 
 
 _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)
@@ -71,6 +72,7 @@ def test_boxmot_eval_namespace_treats_inherited_defaults_as_non_explicit():
     assert args.tracker_explicit is False
     assert args.device_explicit is False
     assert args.half_explicit is False
+    assert args.tracker_backend == "python"
     assert args.tracking_backend == "thread"
 
 
@@ -82,6 +84,15 @@ def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
     assert args.detector_explicit is True
     assert args.reid_explicit is True
     assert args.tracker_explicit is True
+
+
+def test_boxmot_eval_namespace_normalizes_inline_tracker_backend():
+    model = api_module.Boxmot(tracker="botsort:cpp")
+
+    args = model._base_eval_args("mot17-ablation")
+
+    assert args.tracker == "botsort"
+    assert args.tracker_backend == "cpp"
 
 
 def test_boxmot_eval_namespace_allows_benchmark_runtime_to_override_inherited_defaults(monkeypatch):
@@ -808,6 +819,76 @@ def test_track_run_result_formats_summary_block(tmp_path, monkeypatch):
     assert "Unique IDs" in summary_text
 
 
+def test_track_run_result_renderable_uses_rich_summary_layout(tmp_path, monkeypatch):
+    for index in range(2):
+        cv2.imwrite(str(tmp_path / f"{index + 1:06d}.jpg"), _DUMMY_IMG)
+
+    class _FakeDetector:
+        def __call__(self, frame):
+            return np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32)
+
+    class _FakeReID:
+        def __call__(self, frame, boxes=None):
+            return np.ones((len(boxes), 4), dtype=np.float32)
+
+    class _FakeTracker:
+        def __init__(self):
+            self.count = 0
+
+        def reset(self):
+            self.count = 0
+
+        def update(self, dets, frame, embs=None):
+            self.count += 1
+            return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
+
+    model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
+    run = model.track(source=tmp_path)
+
+    rendered = ui_module.capture_renderable(run.renderable(), width=120)
+
+    assert "TRACKING SUMMARY" in rendered
+    assert "Track rows" in rendered
+    assert "Unique IDs" in rendered
+    assert "Component" in rendered
+    assert "Detection" in rendered
+    assert "ReID" in rendered
+    assert "Tracking" in rendered
+    assert "Total (ms)" in rendered
+    assert "Source" not in rendered
+
+
+def test_results_summary_splits_tracker_owned_reid_time(tmp_path, monkeypatch):
+    cv2.imwrite(str(tmp_path / "000001.jpg"), _DUMMY_IMG)
+
+    class _FakeDetector:
+        def __call__(self, frame):
+            return np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32)
+
+    class _FakeNativeTracker:
+        def reset(self):
+            self.last_reid_time_ms = 0.0
+
+        def update(self, dets, frame, embs=None):
+            self.last_reid_time_ms = 4.0
+            return np.array([[1, 2, 10, 12, 1, 0.9, 0, 0]], dtype=np.float32)
+
+        def get_last_reid_time_ms(self):
+            return self.last_reid_time_ms
+
+    perf_counter_values = iter([0.0, 0.010, 0.010, 0.020])
+    monkeypatch.setattr(results_module.time, "perf_counter", lambda: next(perf_counter_values))
+
+    results = api_module.track(tmp_path, _FakeDetector(), None, _FakeNativeTracker(), verbose=False)
+    summary = results.summary()
+
+    assert summary["frames"] == 1
+    assert summary["timings_ms"]["det"] == pytest.approx(10.0, abs=1e-6)
+    assert summary["timings_ms"]["reid"] == pytest.approx(4.0, abs=1e-6)
+    assert summary["timings_ms"]["track"] == pytest.approx(6.0, abs=1e-6)
+    assert summary["timings_ms"]["total"] == pytest.approx(20.0, abs=1e-6)
+
+
 def test_validation_result_formats_sequence_and_combined_report():
     raw = {
         "HOTA": 69.445,
@@ -1164,6 +1245,132 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
     assert "\x1b[31m(+1)\x1b[0m" in rendered
 
 
+def test_validation_result_renderable_shows_delta_vs_baseline() -> None:
+    baseline_metrics = api_module.ValidationResult(
+        benchmark="mot17-ablation",
+        raw={
+            "person": {
+                "HOTA": 66.0,
+                "MOTA": 78.0,
+                "IDF1": 79.0,
+                "AssA": 68.0,
+                "AssRe": 74.0,
+                "IDSW": 230,
+                "IDs": 435,
+                "per_sequence": {
+                    "MOT17-02": {
+                        "HOTA": 46.0,
+                        "MOTA": 55.0,
+                        "IDF1": 57.0,
+                        "AssA": 45.0,
+                        "AssRe": 50.0,
+                        "IDSW": 80,
+                        "IDs": 90,
+                    }
+                },
+            },
+        },
+        summary_label="single_class",
+        summary={"HOTA": 66.0, "MOTA": 78.0, "IDF1": 79.0},
+        args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
+    )
+    best_metrics = api_module.ValidationResult(
+        benchmark="mot17-ablation",
+        raw={
+            "person": {
+                "HOTA": 67.5,
+                "MOTA": 78.2,
+                "IDF1": 80.0,
+                "AssA": 70.0,
+                "AssRe": 75.0,
+                "IDSW": 215,
+                "IDs": 428,
+                "per_sequence": {
+                    "MOT17-02": {
+                        "HOTA": 47.5,
+                        "MOTA": 55.5,
+                        "IDF1": 57.2,
+                        "AssA": 47.0,
+                        "AssRe": 51.0,
+                        "IDSW": 65,
+                        "IDs": 77,
+                    }
+                },
+            },
+        },
+        summary_label="single_class",
+        summary={"HOTA": 67.5, "MOTA": 78.2, "IDF1": 80.0},
+        args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
+    )
+
+    rendered = ui_module.capture_renderable(
+        best_metrics.renderable(
+            title=reporting_module.CLI_TUNE_BEST_SUMMARY_TITLE,
+            compare_raw=baseline_metrics.raw,
+            compare_args=baseline_metrics.args,
+        ),
+        width=140,
+    )
+
+    assert "📊 BEST TRIAL SUMMARY" in rendered
+    assert "(+1.50)" in rendered
+    assert "(-15)" in rendered
+    assert "(-7)" in rendered
+
+
+def test_validation_result_str_colorizes_base_table_when_tty(monkeypatch):
+    class _TTYStdout:
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(reporting_module.sys, "stdout", _TTYStdout())
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    result = api_module.ValidationResult(
+        benchmark="mot17-ablation",
+        raw={
+            "HOTA": 69.445,
+            "MOTA": 78.243,
+            "IDF1": 81.937,
+            "AssA": 72.34,
+            "AssRe": 77.58,
+            "IDSW": 137,
+            "IDs": 367,
+            "per_sequence": {
+                "MOT17-02": {
+                    "HOTA": 49.23,
+                    "MOTA": 54.55,
+                    "IDF1": 58.94,
+                    "AssA": 50.56,
+                    "AssRe": 55.79,
+                    "IDSW": 63,
+                    "IDs": 72,
+                },
+                "MOT17-04": {
+                    "HOTA": 80.37,
+                    "MOTA": 89.75,
+                    "IDF1": 92.51,
+                    "AssA": 82.85,
+                    "AssRe": 86.41,
+                    "IDSW": 22,
+                    "IDs": 82,
+                },
+            },
+        },
+        summary_label="single_class",
+        summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
+        args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
+    )
+
+    rendered = str(result)
+
+    assert "\x1b[1;36m" in rendered
+    assert "\x1b[1;34mSequence" in rendered
+    assert "\x1b[1;33m" in rendered
+    assert "COMBINED (person)" in rendered
+
+
 def test_validation_result_print_report_matches_cli_style(capsys):
     result = api_module.ValidationResult(
         benchmark="mot17-ablation",
@@ -1336,16 +1543,20 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     assert eval_args.classes == [0, 1]
     assert eval_args.show_progress is True
     assert eval_config is None
-    assert eval_kwargs == {}
+    assert "workflow" in eval_kwargs
+    assert eval_kwargs["workflow"] is not None
 
     tune_results = model.tune(benchmark="mot17-mini", n_trials=3, device="cpu")
 
     assert tune_results.best_config["track_buffer"] == 40
     assert tune_results.best.metrics.summary["HOTA"] == 53.0
+    assert tune_results.workflow_rendered is True
+    assert str(tune_results) == ""
     tune_args, tune_baseline = calls["tune"]
     assert tune_args.data == "mot17-mini"
     assert tune_args.n_trials == 3
     assert tune_args.seed == 0
+    assert tune_args.compare_to_first_trial is True
     assert tune_baseline is None
 
     export_results = model.export(include=("onnx",), device="cpu")
@@ -1355,6 +1566,76 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     assert export_results.files["onnx"] == tmp_path / "exported.onnx"
     assert export_args.include == ("onnx",)
     assert export_args.weights.name == "lmbn_n_duke.pt"
+
+
+def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp_path, capsys):
+    workflows = []
+
+    class _FakeWorkflow:
+        def __init__(self, title, fields, steps, stderr=False, transient=False):
+            self.title = title
+            self.fields = list(fields)
+            self.steps = list(steps)
+            self.stderr = stderr
+            self.transient = transient
+            self.started = False
+            self.stopped = False
+
+        def start(self):
+            self.started = True
+            return self
+
+        def stop(self):
+            self.stopped = True
+
+        def activate(self, label):
+            self.steps = [
+                (step_label, "active" if step_label == label else ("todo" if step_state == "active" else step_state))
+                for step_label, step_state in self.steps
+            ]
+
+        def complete(self, label):
+            self.steps = [
+                (step_label, "done" if step_label == label else step_state)
+                for step_label, step_state in self.steps
+            ]
+
+    def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
+        workflow = _FakeWorkflow(title, fields, steps, stderr=stderr, transient=transient)
+        workflows.append(workflow)
+        return workflow
+
+    def fake_run_eval(args, *, evolve_config=None, **kwargs):
+        return api_module.ValidationResult(
+            benchmark=str(args.benchmark),
+            raw={"all": {"HOTA": 50.0, "MOTA": 45.0, "IDF1": 40.0}},
+            summary_label="all",
+            summary={"HOTA": 50.0, "MOTA": 45.0, "IDF1": 40.0},
+            exp_dir=tmp_path / "eval",
+            timings={"frames": 2},
+            args=args,
+        )
+
+    monkeypatch.setattr(evaluator_module.ui, "create_workflow_progress", fake_create_workflow_progress)
+    monkeypatch.setattr(evaluator_module, "run_eval", fake_run_eval)
+
+    model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="botsort", project=tmp_path / "runs")
+
+    metrics = model.val(benchmark="mot17-mini", device="cpu")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert len(workflows) == 1
+    workflow = workflows[0]
+    assert workflow.title == "Evaluation"
+    assert workflow.started is True
+    assert workflow.stopped is True
+    assert ("Tracker", "botsort") in workflow.fields
+    assert ("Dataset", "mot17-mini") in workflow.fields
+    assert (evaluator_module.EVAL_GENERATE_STEP, "active") in workflow.steps
+    assert metrics.summary["HOTA"] == 50.0
+    assert metrics.workflow_rendered is True
+    assert str(metrics) == ""
 
 
 def test_boxmot_generate_and_research_facades(monkeypatch, tmp_path):

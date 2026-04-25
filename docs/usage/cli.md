@@ -12,6 +12,7 @@ boxmot MODE [OPTIONS] [DETECTOR] [REID] [TRACKER]
 - `--detector` selects the detector backend or profile.
 - `--reid` selects the appearance model or profile.
 - `--tracker` selects the tracker implementation and its YAML config.
+- `--tracker-backend cpp` selects a native C++ tracker implementation when one is registered.
 
 Legacy aliases such as `--yolo-model`, `--reid-model`, and `--tracking-method` are not part of the current CLI.
 
@@ -27,6 +28,13 @@ Evaluate a tracker on a benchmark:
 
 ```bash
 boxmot eval --benchmark mot17-ablation --tracker boosttrack --verbose
+```
+
+Run a native C++ tracker backend:
+
+```bash
+boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
+boxmot eval --benchmark mot17-ablation --tracker bytetrack:cpp
 ```
 
 Export a ReID model:

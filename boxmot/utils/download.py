@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 from zipfile import BadZipFile, ZipFile
 
 import gdown
@@ -19,6 +19,7 @@ from tqdm import tqdm
 from urllib3.util.retry import Retry
 
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.ui import print_text
 
 
 def _patch_trackeval_numpy_aliases(dest: Path) -> None:
@@ -287,6 +288,7 @@ def download_eval_data(
     dataset_dest: Path,
     overwrite: bool = False,
     runs_check_path: Optional[Path] = None,
+    status_fn: Callable[[str], None] | None = None,
 ) -> None:
     """
     Download & extract TrackEval evaluation data.
@@ -294,7 +296,11 @@ def download_eval_data(
     If `runs_check_path` exists, skips the runs download entirely.
     Always downloads+unzips the benchmark data.
     """
-    LOGGER.info("Setting up evaluation data...")
+    message = "Setting up evaluation data..."
+    if status_fn is not None:
+        status_fn(message)
+    else:
+        print_text(message, stderr=True)
 
     # Optional runs data — skip if user already has their own dets/embs
     if runs_url:

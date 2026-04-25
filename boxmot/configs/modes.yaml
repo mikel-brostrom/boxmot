@@ -19,6 +19,7 @@ runtime:
   vid_stride: 1
   ci: false
   tracker: bytetrack
+  tracker_backend: python
   verbose: false
   show_timing: false
   agnostic_nms: false

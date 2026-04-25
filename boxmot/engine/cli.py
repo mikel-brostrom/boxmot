@@ -126,6 +126,34 @@ def data_option(func):
     )(func)
 
 
+def replay_backend_option(func):
+    """Attach the cached-tracking backend option for eval-like workflows."""
+    return click.option(
+        '--tracking-backend',
+        type=click.Choice(["process", "thread", "cpp"], case_sensitive=False),
+        default="process",
+        show_default=True,
+        help=(
+            "Cached replay executor for eval/tune/research. "
+            "Use 'cpp' as a compatibility alias for '--tracker-backend cpp'."
+        ),
+    )(func)
+
+
+def tracker_backend_option(func):
+    """Attach the tracker implementation backend option."""
+    return click.option(
+        '--tracker-backend',
+        type=click.Choice(["python", "cpp"], case_sensitive=False),
+        default=RUNTIME_DEFAULTS.tracker_backend,
+        show_default=True,
+        help=(
+            "Tracker implementation backend. Native 'cpp' is available for "
+            "botsort, bytetrack, ocsort, and sfsort."
+        ),
+    )(func)
+
+
 def _is_option_explicit(ctx: click.Context, option_name: str) -> bool:
     """Return True when a Click option came from the command line instead of defaults."""
     return ctx.get_parameter_source(option_name) != ParameterSource.DEFAULT
@@ -167,6 +195,24 @@ def _resolve_source_context(source: Optional[str]) -> Tuple[Optional[str], str, 
 
     source_path = Path(source)
     return source, source_path.parent.name, source_path.name
+
+
+def _is_live_source_value(source: Optional[str]) -> bool:
+    if source is None:
+        return False
+    return str(source).isdigit() or "://" in str(source)
+
+
+def _apply_track_cli_defaults(ctx: click.Context, payload: dict) -> dict:
+    resolved = dict(payload)
+    source = resolved.get("source")
+    has_explicit_output = any(
+        _is_option_explicit(ctx, option_name)
+        for option_name in ("show", "save", "save_txt")
+    )
+    if _is_live_source_value(source) and not has_explicit_output:
+        resolved["show"] = True
+    return resolved
 
 
 def _require_generate_input(data: Optional[str], source: Optional[str], command_name: str) -> None:
@@ -430,6 +476,7 @@ def boxmot(ctx):
 
 @boxmot.command(help='Run tracking only')
 @source_option(default=TRACK_DEFAULTS.source, help_text='file/dir/URL/glob, 0 for webcam')
+@tracker_backend_option
 @core_options
 @singular_model_options
 @click.pass_context
@@ -439,7 +486,7 @@ def track(ctx, detector, reid, classes, **kwargs):
         ctx,
         "track",
         "boxmot.engine.tracker",
-        {
+        _apply_track_cli_defaults(ctx, {
             **kwargs,
             "detector": detector,
             "reid": reid,
@@ -447,7 +494,7 @@ def track(ctx, detector, reid, classes, **kwargs):
             "source": src,
             "benchmark": bench,
             "split": split,
-        },
+        }),
     )
     
 @boxmot.command(help='Generate detections and embeddings')
@@ -479,6 +526,8 @@ def generate(ctx, data, detector, reid, classes, **kwargs):
 
 @boxmot.command(help='Evaluate tracking performance')
 @data_option
+@replay_backend_option
+@tracker_backend_option
 @core_options
 @plural_model_options
 @click.pass_context
@@ -503,6 +552,8 @@ def eval(ctx, data, detector, reid, classes, **kwargs):
 
 @boxmot.command(help='Tune models via evolutionary algorithms')
 @data_option
+@replay_backend_option
+@tracker_backend_option
 @core_options
 @tune_options
 @plural_model_options
@@ -528,6 +579,8 @@ def tune(ctx, data, detector, reid, classes, **kwargs):
 
 @boxmot.command(help='Research tracker code changes with GEPA')
 @data_option
+@replay_backend_option
+@tracker_backend_option
 @core_options
 @research_options
 @plural_model_options
