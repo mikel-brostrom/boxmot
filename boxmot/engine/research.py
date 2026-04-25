@@ -30,9 +30,8 @@ from boxmot.utils.benchmark_config import (
     resolve_required_yolo_model,
 )
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.compat import dataclass_slots_kwargs
-from boxmot.utils.misc import resolve_model_path
-from boxmot.utils.ui import print_text
+from boxmot.utils.misc import dataclass_slots_kwargs, resolve_model_path
+from boxmot.utils.rich.ui import print_text
 
 RESEARCH_EXTRA = "research"
 RESEARCH_METRICS = ("HOTA", "IDF1", "MOTA")

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from boxmot.utils.compat import dataclass_slots_kwargs
+from boxmot.utils.misc import dataclass_slots_kwargs
 
 
 @dataclass(frozen=True, **dataclass_slots_kwargs())

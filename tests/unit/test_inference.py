@@ -24,7 +24,7 @@ import boxmot.engine.tracker as tracker_module
 import boxmot.engine.tracker as tracker_runtime_module
 import boxmot.engine.workflow_reporting as workflow_reporting_module
 import boxmot.reid.core as reid_core_module
-import boxmot.utils.ui as ui_module
+import boxmot.utils.rich.ui as ui_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
 from boxmot.engine.inference import prepare_detections
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb

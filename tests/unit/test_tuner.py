@@ -4,7 +4,9 @@ import threading
 from types import SimpleNamespace
 
 import boxmot.engine.tuner as tuner_module
-import boxmot.utils.ui as ui_module
+import boxmot.utils.rich.reporting as rich_reporting
+import boxmot.utils.rich.tune_reporting as tune_reporting
+import boxmot.utils.rich.ui as ui_module
 
 
 def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
@@ -27,7 +29,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         tuner_module,
-        "_log_tune_pipeline_intro",
+        "log_tune_pipeline_intro",
         lambda *args, **kwargs: SimpleNamespace(
             _started=True,
             start=lambda: None,
@@ -136,7 +138,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     assert captured["ray_init_kwargs"]["include_dashboard"] is False
     assert captured["ray_init_kwargs"]["logging_level"] == logging.ERROR
     assert captured["ray_init_kwargs"]["log_to_driver"] is False
-    assert any(title == tuner_module.TUNE_OPTIMIZE_STEP for title, _ in detail_updates)
+    assert any(title == tune_reporting.TUNE_OPTIMIZE_STEP for title, _ in detail_updates)
     assert captured["fit"] is True
     assert workflow_state["stopped"] is True
 
@@ -158,7 +160,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         tuner_module,
-        "_log_tune_pipeline_intro",
+        "log_tune_pipeline_intro",
         lambda *args, **kwargs: SimpleNamespace(
             _started=True,
             _lock=threading.RLock(),
@@ -267,9 +269,12 @@ def test_tune_workflow_callback_is_pickle_safe_with_active_workflow() -> None:
         _lock=threading.RLock(),
         set_detail=lambda title, detail: updates.append((title, detail)),
     )
-    callback = tuner_module._TuneWorkflowCallback(total=1, maximize=["HOTA"], minimize=[])
+    callback = tune_reporting.TuneWorkflowCallback(total=1, maximize=["HOTA"], minimize=[])
 
-    tuner_module._set_tune_progress_workflow(workflow)
+    assert isinstance(callback, rich_reporting.RichWorkflowCallback)
+    assert isinstance(tune_reporting.TuneSilentReporter(), rich_reporting.SilentProgressReporter)
+
+    tune_reporting.set_tune_progress_workflow(workflow)
     try:
         assert tuner_module._is_ray_pickle_safe(callback)
         trial = SimpleNamespace(trial_id="trial_001", last_result={"HOTA": 50.0})
@@ -287,9 +292,9 @@ def test_tune_workflow_callback_is_pickle_safe_with_active_workflow() -> None:
         assert callback.get_state() is None
         callback.set_state({})
     finally:
-        tuner_module._set_tune_progress_workflow(None)
+        tune_reporting.set_tune_progress_workflow(None)
 
-    assert any(title == tuner_module.TUNE_OPTIMIZE_STEP for title, _ in updates)
+    assert any(title == tune_reporting.TUNE_OPTIMIZE_STEP for title, _ in updates)
 
 
 def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
@@ -309,7 +314,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         tuner_module,
-        "_log_tune_pipeline_intro",
+        "log_tune_pipeline_intro",
         lambda *args, **kwargs: SimpleNamespace(
             _started=True,
             start=lambda: None,
@@ -409,7 +414,7 @@ def test_build_tune_workflow_fields_uses_benchmark_data() -> None:
         n_trials=3,
     )
 
-    fields = dict(tuner_module._build_tune_workflow_fields(args, maximize=["HOTA"], minimize=[]))
+    fields = dict(tune_reporting.build_tune_workflow_fields(args, maximize=["HOTA"], minimize=[]))
 
     assert fields["Dataset"] == "mot17-ablation"
 
@@ -423,7 +428,7 @@ def test_build_tune_artifacts_renderable_lists_paths() -> None:
     }
 
     rendered = ui_module.capture_renderable(
-        tuner_module._build_tune_artifacts_renderable(saved_artifacts),
+        tune_reporting.build_tune_artifacts_renderable(saved_artifacts),
         width=140,
     )
 

@@ -10,8 +10,8 @@ from rich.table import Table
 from rich.text import Text
 
 from boxmot.engine.results import Results, Tracks
-from boxmot.utils.compat import dataclass_slots_kwargs
-from boxmot.utils.ui import (
+from boxmot.utils.misc import dataclass_slots_kwargs
+from boxmot.utils.rich.ui import (
     STYLE_ACCENT,
     STYLE_RULE,
     STYLE_TABLE_HEADER,

@@ -3,7 +3,7 @@
 import time
 
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.ui import print_text
+from boxmot.utils.rich.ui import print_text
 
 
 class TimingStats:

@@ -23,7 +23,7 @@ from boxmot.utils.misc import increment_path
 from boxmot.utils.timing import TimingStats
 from boxmot.utils.mot_utils import write_mot_results
 from boxmot.utils.torch_utils import select_device
-from boxmot.utils.ui import print_text
+from boxmot.utils.rich.ui import print_text
 
 __all__ = (
     "process_sequence",

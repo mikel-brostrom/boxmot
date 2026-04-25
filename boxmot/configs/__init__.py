@@ -11,8 +11,7 @@ import yaml
 
 from boxmot.trackers.specs import parse_tracker_spec
 from boxmot.utils import WEIGHTS
-from boxmot.utils.compat import dataclass_slots_kwargs
-from boxmot.utils.misc import resolve_model_path
+from boxmot.utils.misc import dataclass_slots_kwargs, resolve_model_path
 
 RUNTIME_MODES = frozenset({"track", "generate", "eval", "tune", "research"})
 MODE_DEFAULTS_PATH = Path(__file__).resolve().parent / "modes.yaml"

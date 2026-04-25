@@ -25,23 +25,29 @@ from typing import Any
 
 import numpy as np
 import yaml
-from rich.console import Group, RenderableType
-from rich.table import Table
-from rich.text import Text
 
 from boxmot.engine.evaluator import eval_setup, run_eval, run_generate_dets_embs
+from boxmot.utils.rich.tune_reporting import (
+    TUNE_GENERATE_STEP,
+    TUNE_OPTIMIZE_STEP,
+    TUNE_SETUP_STEP,
+    TuneSilentReporter,
+    TuneWorkflowCallback,
+    build_tune_artifacts_renderable,
+    combine_tune_result_renderables,
+    format_initial_tune_progress,
+    log_tune_pipeline_intro,
+    set_tune_progress_workflow,
+)
 from boxmot.engine.workflow_reporting import (
     CLI_TUNE_BEST_SUMMARY_TITLE,
     SUMMARY_COLUMNS,
-    estimate_tune_remaining,
-    format_tune_progress,
 )
 from boxmot.engine.workflow_results import TuneResult, TuneTrialResult, ValidationResult
 from boxmot.engine.workflow_support import score_summary, suppress_boxmot_logs
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.misc import increment_path
-import boxmot.utils.ui as ui
 
 # Metrics that must be summed across classes (not averaged), because they are counts
 METRIC_SUM = frozenset({"IDSW", "IDs"})
@@ -49,10 +55,6 @@ METRIC_SUM = frozenset({"IDSW", "IDs"})
 # All metrics returned from each trial (SUMMARY_COLUMNS + derived)
 ALL_TUNE_METRICS = (*SUMMARY_COLUMNS, "IDSW_rate")
 _TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"
-
-TUNE_SETUP_STEP = "Setup evaluation environment"
-TUNE_GENERATE_STEP = "Generate detections and embeddings"
-TUNE_OPTIMIZE_STEP = "Optimize trials"
 
 
 # ---------------------------------------------------------------------------
@@ -512,22 +514,6 @@ def _validation_result_from_trial(trial_data: dict, args) -> ValidationResult:
     )
 
 
-def _build_tune_artifacts_renderable(saved_artifacts: dict[str, Any]) -> RenderableType:
-    artifact_table = Table.grid(expand=True, padding=(0, 1))
-    artifact_table.add_column(style=ui.STYLE_ACCENT, no_wrap=True)
-    artifact_table.add_column(style=ui.STYLE_TEXT, ratio=1)
-    artifact_table.add_row("Results CSV", str(saved_artifacts["csv_path"]))
-    artifact_table.add_row(
-        f"Best config ({saved_artifacts['best_trial_id']})",
-        str(saved_artifacts["best_yaml_path"]),
-    )
-    artifact_table.add_row("Summary", str(saved_artifacts["summary_path"]))
-    return Group(
-        Text("Saved Artifacts", style=ui.STYLE_TITLE),
-        artifact_table,
-    )
-
-
 def _configure_tune_warning_filters() -> None:
     existing = os.environ.get("PYTHONWARNINGS", "")
     if _TUNE_WARNING_FILTER not in existing.split(","):
@@ -582,142 +568,6 @@ def _ray_safe_namespace(args: Any) -> SimpleNamespace:
     return SimpleNamespace(**safe_values)
 
 
-_TUNE_PROGRESS_WORKFLOW: ui.WorkflowProgress | None = None
-
-
-def _set_tune_progress_workflow(workflow: ui.WorkflowProgress | None) -> None:
-    """Register the driver-local workflow used by Ray Tune callbacks."""
-    global _TUNE_PROGRESS_WORKFLOW
-    _TUNE_PROGRESS_WORKFLOW = workflow
-
-
-def _set_tune_progress_detail(detail: str) -> None:
-    workflow = _TUNE_PROGRESS_WORKFLOW
-    if workflow is not None:
-        workflow.set_detail(TUNE_OPTIMIZE_STEP, detail)
-
-
-class _TuneSilentReporter:
-    def setup(self, *args, **kwargs) -> None:
-        return None
-
-    def should_report(self, trials, done: bool = False) -> bool:
-        return False
-
-    def report(self, trials, done: bool, *sys_info) -> None:
-        return None
-
-
-class _TuneWorkflowCallback:
-    """Serializable Ray callback that keeps Rich workflow state driver-local."""
-
-    def __init__(self, *, total: int, maximize: list[str], minimize: list[str]) -> None:
-        self.total = int(total)
-        self.maximize = list(maximize)
-        self.minimize = list(minimize)
-        self.completed = 0
-        self.trial_durations: list[float] = []
-        self.trial_indices: dict[str, int] = {}
-        self.active_trials: set[str] = set()
-        self.best_score: tuple[float, ...] | None = None
-
-    def setup(self, **info) -> None:
-        return None
-
-    def on_step_begin(self, iteration: int, trials: list, **info) -> None:
-        return None
-
-    def on_step_end(self, iteration: int, trials: list, **info) -> None:
-        return None
-
-    def _trial_id(self, trial) -> str:
-        return str(getattr(trial, "trial_id", getattr(trial, "trial_name", trial)))
-
-    def _trial_index(self, trial) -> int:
-        trial_id = self._trial_id(trial)
-        if trial_id not in self.trial_indices:
-            self.trial_indices[trial_id] = len(self.trial_indices) + 1
-        return self.trial_indices[trial_id]
-
-    def _running_index(self) -> int | None:
-        if self.active_trials:
-            return min(self.trial_indices[trial_id] for trial_id in self.active_trials)
-        if self.completed < self.total:
-            return min(self.completed + 1, self.total)
-        return None
-
-    def _remaining_seconds(self) -> float | None:
-        remaining_trials = max(self.total - self.completed, 0)
-        return estimate_tune_remaining(self.trial_durations, remaining_trials)
-
-    def _set_progress(self, summary: dict[str, Any] | None = None, *, is_new_best: bool = False) -> None:
-        _set_tune_progress_detail(
-            format_tune_progress(
-                self.completed,
-                self.total,
-                summary,
-                current_trial=self._running_index(),
-                is_new_best=is_new_best,
-                remaining_seconds=self._remaining_seconds(),
-            )
-        )
-
-    def on_trial_start(self, iteration, trials, trial, **info):
-        trial_id = self._trial_id(trial)
-        self._trial_index(trial)
-        self.active_trials.add(trial_id)
-        self._set_progress()
-
-    def on_trial_restore(self, iteration, trials, trial, **info) -> None:
-        return None
-
-    def on_trial_save(self, iteration, trials, trial, **info) -> None:
-        return None
-
-    def on_trial_result(self, iteration, trials, trial, result: dict, **info) -> None:
-        return None
-
-    def on_trial_complete(self, iteration, trials, trial, **info):
-        trial_id = self._trial_id(trial)
-        self.active_trials.discard(trial_id)
-        self.completed += 1
-        result = getattr(trial, "last_result", {}) or {}
-        duration = result.get("time_total_s")
-        if duration is not None:
-            self.trial_durations.append(float(duration))
-        summary = {
-            key: float(result.get(key, 0.0))
-            for key in SUMMARY_COLUMNS
-            if key in result
-        }
-        score = score_summary(summary, maximize=self.maximize, minimize=self.minimize) if summary else None
-        is_new_best = score is not None and (self.best_score is None or score > self.best_score)
-        if is_new_best and score is not None:
-            self.best_score = score
-        self._set_progress(summary if summary else None, is_new_best=is_new_best)
-
-    def on_trial_error(self, iteration, trials, trial, **info):
-        trial_id = self._trial_id(trial)
-        self.active_trials.discard(trial_id)
-        self.completed += 1
-        self._set_progress()
-
-    def on_trial_recover(self, iteration, trials, trial, **info) -> None:
-        return None
-
-    def on_checkpoint(self, iteration, trials, trial, checkpoint, **info) -> None:
-        return None
-
-    def on_experiment_end(self, trials: list, **info) -> None:
-        return None
-
-    def get_state(self) -> None:
-        return None
-
-    def set_state(self, state: dict) -> None:
-        return None
-
-
 def _resolve_tune_dir(args, *, resume: bool = False) -> Path:
     results_dir = Path(args.project).resolve() / "ray"
     base_dir = results_dir / f"{args.tracker}_tune"
@@ -740,36 +590,6 @@ def _ensure_ray_initialized(*, verbose: bool) -> None:
         init_kwargs["log_to_driver"] = False
 
     ray.init(**init_kwargs)
-
-
-def _build_tune_workflow_fields(args, *, maximize: list[str], minimize: list[str]) -> list[tuple[str, object]]:
-    mode = "Pareto" if minimize else "Single-objective"
-    fields: list[tuple[str, object]] = [
-        ("Tracker", getattr(args, "tracker", None)),
-        ("Detector", getattr(args, "detector", [None])[0]),
-        ("ReID", getattr(args, "reid", [None])[0]),
-        ("Dataset", getattr(args, "data", getattr(args, "benchmark", None))),
-        ("Trials", getattr(args, "n_trials", None)),
-        ("Mode", mode),
-    ]
-    if maximize:
-        fields.append(("Maximize", ", ".join(maximize)))
-    if minimize:
-        fields.append(("Minimize", ", ".join(minimize)))
-    return fields
-
-
-def _log_tune_pipeline_intro(args, *, maximize: list[str], minimize: list[str]) -> ui.WorkflowProgress:
-    return ui.create_workflow_progress(
-        "Tuning",
-        _build_tune_workflow_fields(args, maximize=maximize, minimize=minimize),
-        steps=(
-            (TUNE_SETUP_STEP, "active"),
-            (TUNE_GENERATE_STEP, "todo"),
-            (TUNE_OPTIMIZE_STEP, "todo"),
-        ),
-        stderr=True,
-    )
 
 
 def _execute_tune_search(
@@ -820,7 +640,7 @@ def _execute_tune_search(
     yaml_cfg = load_yaml_config(args.tracker)
     search_space = yaml_to_search_space(yaml_cfg, tune)
 
-    workflow = _log_tune_pipeline_intro(args, maximize=maximize, minimize=minimize)
+    workflow = log_tune_pipeline_intro(args, maximize=maximize, minimize=minimize)
 
     n_threads = int(args.n_threads)
     setup_status_message: str | None = None
@@ -831,7 +651,7 @@ def _execute_tune_search(
             nonlocal setup_status_message
             setup_status_message = str(message)
 
-    tune_callback = _TuneWorkflowCallback(total=int(args.n_trials), maximize=maximize, minimize=minimize)
+    tune_callback = TuneWorkflowCallback(total=int(args.n_trials), maximize=maximize, minimize=minimize)
 
     with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
         eval_setup(args, workflow=_TuneSetupStatus())
@@ -859,7 +679,7 @@ def _execute_tune_search(
     workflow.activate(TUNE_OPTIMIZE_STEP, render=False)
     workflow.set_detail(
         TUNE_OPTIMIZE_STEP,
-        format_tune_progress(0, int(args.n_trials), current_trial=1),
+        format_initial_tune_progress(int(args.n_trials)),
         render=True,
     )
 
@@ -887,7 +707,7 @@ def _execute_tune_search(
         if "verbose" in run_config_signature.parameters:
             run_config_kwargs["verbose"] = 0
         if "progress_reporter" in run_config_signature.parameters:
-            run_config_kwargs["progress_reporter"] = _TuneSilentReporter()
+            run_config_kwargs["progress_reporter"] = TuneSilentReporter()
         tuner = tune.Tuner(
             trainable,
             param_space=search_space,
@@ -900,7 +720,7 @@ def _execute_tune_search(
         )
 
     try:
-        _set_tune_progress_workflow(workflow)
+        set_tune_progress_workflow(workflow)
         result_grid = tuner.fit()
         if result_grid is None and hasattr(tuner, "get_results"):
             result_grid = tuner.get_results()
@@ -917,7 +737,7 @@ def _execute_tune_search(
         )
 
         workflow.complete(TUNE_OPTIMIZE_STEP, render=False)
-        artifacts_renderable = _build_tune_artifacts_renderable(saved_artifacts) if saved_artifacts else None
+        artifacts_renderable = build_tune_artifacts_renderable(saved_artifacts) if saved_artifacts else None
         baseline_raw = None
         compare_to_first_trial = bool(getattr(args, "compare_to_first_trial", False))
         if (baseline_config is not None or compare_to_first_trial) and saved_artifacts and saved_artifacts.get("trial_data"):
@@ -933,10 +753,7 @@ def _execute_tune_search(
                 )
                 workflow.set_detail_renderable(
                     "Results",
-                    Group(
-                        best_renderable,
-                        artifacts_renderable,
-                    ) if artifacts_renderable is not None else best_renderable,
+                    combine_tune_result_renderables(best_renderable, artifacts_renderable),
                     render=False,
                 )
             elif artifacts_renderable is not None:
@@ -947,7 +764,7 @@ def _execute_tune_search(
             workflow.set_detail(TUNE_OPTIMIZE_STEP, "No successful trials were produced.", render=False)
         return result_grid, tune_dir, maximize, minimize
     finally:
-        _set_tune_progress_workflow(None)
+        set_tune_progress_workflow(None)
         workflow.stop()
 
 

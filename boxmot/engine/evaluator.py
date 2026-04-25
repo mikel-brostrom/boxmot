@@ -65,8 +65,9 @@ from boxmot.utils.evaluation.trackeval import (
 )
 from boxmot.utils.misc import resolve_model_path
 from boxmot.utils.plots import MetricsPlotter
+from boxmot.utils.rich.reporting import RichWorkflowReporter, WorkflowDetailCallback
 from boxmot.utils.timing import TimingStats
-import boxmot.utils.ui as ui
+import boxmot.utils.rich.ui as ui
 
 _EVAL_DEPENDENCIES_READY = False
 EVAL_GENERATE_STEP = "Generate detections and embeddings"
@@ -248,7 +249,7 @@ def eval_setup(args, workflow: ui.WorkflowProgress | None = None) -> None:
     _ensure_eval_dependencies()
     status_fn = None
     if workflow is not None:
-        status_fn = lambda message: workflow.set_detail(EVAL_GENERATE_STEP, message)
+        status_fn = WorkflowDetailCallback(workflow, EVAL_GENERATE_STEP)
     eval_init(args, status_fn=status_fn)
     _, _, dataset_detector_cfg = _configure_benchmark_runtime(args)
     det_cfg = get_runtime_detector_cfg(args.detector[0], dataset_detector_cfg)
@@ -454,20 +455,21 @@ def _refresh_eval_pipeline_intro(
         workflow.fields = updated_fields
 
 
+class EvalWorkflowReporter(RichWorkflowReporter):
+    title = "Evaluation"
+    steps = (
+        (EVAL_GENERATE_STEP, "active"),
+        (EVAL_TRACK_STEP, "todo"),
+        (EVAL_EVALUATE_STEP, "todo"),
+    )
+
+    def fields(self) -> list[tuple[str, object]]:
+        return _build_eval_workflow_fields(self.args)
+
+
 def log_eval_pipeline_intro(args: argparse.Namespace) -> ui.WorkflowProgress:
     _normalize_eval_models(args)
-    workflow = ui.create_workflow_progress(
-        "Evaluation",
-        _build_eval_workflow_fields(args),
-        steps=(
-            (EVAL_GENERATE_STEP, "active"),
-            (EVAL_TRACK_STEP, "todo"),
-            (EVAL_EVALUATE_STEP, "todo"),
-        ),
-        stderr=True,
-    )
-    workflow.start()
-    return workflow
+    return EvalWorkflowReporter(args).create()
 
 
 def run_eval(
@@ -506,7 +508,7 @@ def run_eval(
             workflow.set_detail(EVAL_TRACK_STEP, "Starting tracker...")
     progress_callback = None
     if workflow is not None and bool(show_progress):
-        progress_callback = lambda message: workflow.set_detail(EVAL_TRACK_STEP, message)
+        progress_callback = WorkflowDetailCallback(workflow, EVAL_TRACK_STEP)
     run_generate_mot_results(
         args,
         evolve_config=evolve_config,

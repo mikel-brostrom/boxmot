@@ -12,7 +12,7 @@ from boxmot.data.benchmark import (
     resolve_obb_classes_to_eval,
 )
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.ui import print_text
+from boxmot.utils.rich.ui import print_text
 
 
 SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")

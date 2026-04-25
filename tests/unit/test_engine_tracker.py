@@ -6,7 +6,7 @@ import pytest
 
 from boxmot.engine import workflow_support as workflow_support_module
 import boxmot.engine.tracker as tracker_module
-import boxmot.utils.ui as ui_module
+import boxmot.utils.rich.ui as ui_module
 
 
 def test_tracking_session_consumes_finite_track_runs_without_show_or_save(monkeypatch):

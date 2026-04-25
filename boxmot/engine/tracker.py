@@ -12,9 +12,10 @@ from boxmot.engine.results import Results
 from boxmot.engine.workflow_results import TrackRunResult
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format
+from boxmot.utils.rich.reporting import RichWorkflowReporter, WorkflowDetailCallback
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 from boxmot.utils.torch_utils import select_device
-from boxmot.utils import ui
+import boxmot.utils.rich.ui as ui
 from boxmot.engine.workflow_support import (
     build_detector_from_spec,
     build_tracker_from_spec,
@@ -283,15 +284,16 @@ def _build_track_workflow_fields(args) -> list[tuple[str, object]]:
     return fields
 
 
+class TrackWorkflowReporter(RichWorkflowReporter):
+    title = "Tracking"
+    steps = ((TRACK_RUN_STEP, "active"),)
+
+    def fields(self) -> list[tuple[str, object]]:
+        return _build_track_workflow_fields(self.args)
+
+
 def log_track_pipeline_intro(args) -> ui.WorkflowProgress:
-    workflow = ui.create_workflow_progress(
-        "Tracking",
-        _build_track_workflow_fields(args),
-        steps=((TRACK_RUN_STEP, "active"),),
-        stderr=True,
-    )
-    workflow.start()
-    return workflow
+    return TrackWorkflowReporter(args).create()
 
 
 class TrackingSession:
@@ -438,7 +440,7 @@ def run_track(
         tracker_runtime,
         verbose=verbose and workflow is None,
         drawer=drawer,
-        progress_callback=(lambda message: workflow.set_detail(TRACK_RUN_STEP, message)) if workflow is not None else None,
+        progress_callback=WorkflowDetailCallback(workflow, TRACK_RUN_STEP) if workflow is not None else None,
     )
 
     output_dir = resolve_track_output_dir(Path(getattr(args, "project", "runs")), source)

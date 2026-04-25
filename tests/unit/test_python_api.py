@@ -26,7 +26,7 @@ from boxmot.detectors import Detector
 from boxmot.detectors.base import Detections
 from boxmot.reid import ReID
 from boxmot.utils.timing import TimingStats
-import boxmot.utils.ui as ui_module
+import boxmot.utils.rich.ui as ui_module
 
 
 _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)

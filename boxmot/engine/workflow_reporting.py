@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from boxmot.utils.timing import TimingStats
-from boxmot.utils.ui import (
+from boxmot.utils.rich.ui import (
     STYLE_ACCENT,
     STYLE_COMBINED_ROW,
     STYLE_MUTED,

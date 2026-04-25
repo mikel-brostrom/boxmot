@@ -21,7 +21,7 @@ from tqdm import tqdm
 from urllib3.util.retry import Retry
 
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.ui import print_text
+from boxmot.utils.rich.ui import print_text
 
 
 def _patch_trackeval_numpy_aliases(dest: Path) -> None:

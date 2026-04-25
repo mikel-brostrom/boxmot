@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from boxmot.utils.compat import dataclass_slots_kwargs
+from boxmot.utils.misc import dataclass_slots_kwargs
 
 TRACKER_BACKENDS = frozenset({"python", "cpp"})
 _TRACKER_BACKEND_ALIASES = {
