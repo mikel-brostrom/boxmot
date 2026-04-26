@@ -398,9 +398,10 @@ class WorkflowProgress:
         if not self._started:
             return
 
-        if self._last_rendered_state != self._state_snapshot():
-            self._render_snapshot()
         if self._live is not None:
+            if self._last_rendered_state != self._state_snapshot():
+                self._live.update(self.renderable(), refresh=False)
+                self._last_rendered_state = self._state_snapshot()
             self._live.stop()
             self._live = None
         self._started = False

@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from rich.console import Group, RenderableType
+from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
@@ -75,6 +77,99 @@ def build_tune_workflow_fields(args: Any, *, maximize: list[str], minimize: list
     return fields
 
 
+def _compact_tune_value(label: str, value: object) -> str:
+    text = str(value)
+    if label.lower() in {"detector", "reid"}:
+        return text.replace("\\", "/").rsplit("/", 1)[-1]
+    return text
+
+
+def _compact_tune_objective(field_map: dict[str, object]) -> str:
+    mode = str(field_map.get("Mode", "Single-objective"))
+    maximize = str(field_map.get("Maximize", "")).strip()
+    minimize = str(field_map.get("Minimize", "")).strip()
+    parts = [f"max {maximize}"] if maximize else []
+    if minimize:
+        parts.append(f"min {minimize}")
+    objective = " / ".join(parts)
+    return f"{mode}: {objective}" if objective else mode
+
+
+def _build_compact_tune_setup(fields: Sequence[tuple[str, object]]) -> Table:
+    field_map = {str(label): value for label, value in fields}
+    rows = [
+        (("Tracker", field_map.get("Tracker", "")), ("Detector", field_map.get("Detector", ""))),
+        (("ReID", field_map.get("ReID", "")), ("Dataset", field_map.get("Dataset", ""))),
+        (("Trials", field_map.get("Trials", "")), ("Objective", _compact_tune_objective(field_map))),
+    ]
+
+    table = Table.grid(expand=True, padding=(0, 1))
+    table.add_column(style=ui.STYLE_ACCENT, no_wrap=True)
+    table.add_column(style=ui.STYLE_MUTED, no_wrap=True)
+    table.add_column(style=ui.STYLE_TEXT, ratio=1)
+    table.add_column(style=ui.STYLE_MUTED, no_wrap=True)
+    table.add_column(style=ui.STYLE_TEXT, ratio=2)
+
+    for index, (left, right) in enumerate(rows):
+        left_label, left_value = left
+        right_label, right_value = right
+        table.add_row(
+            Text("SETUP", style=ui.STYLE_ACCENT) if index == 0 else Text(""),
+            Text(left_label.upper(), style=ui.STYLE_LABEL),
+            Text(_compact_tune_value(left_label, left_value), style=ui.STYLE_TEXT),
+            Text(right_label.upper(), style=ui.STYLE_LABEL),
+            Text(_compact_tune_value(right_label, right_value), style=ui.STYLE_TEXT),
+        )
+    return table
+
+
+def _decode_tune_detail(text: str | None) -> Text:
+    rendered = Text.from_ansi(text or "")
+    rendered.no_wrap = True
+    rendered.overflow = "ignore"
+    return rendered
+
+
+def build_compact_tune_workflow_intro(
+    fields: Sequence[tuple[str, object]],
+    *,
+    steps: Sequence[tuple[str, ui.StepState]],
+    detail_title: str | None = None,
+    detail_text: str | None = None,
+    detail_renderable: RenderableType | None = None,
+) -> Panel:
+    renderables: list[RenderableType] = [
+        _build_compact_tune_setup(fields),
+        Rule(Text("Pipeline", style=ui.STYLE_TITLE), style=ui.STYLE_BORDER),
+        ui.build_checklist(steps),
+    ]
+    if detail_renderable is not None or detail_text:
+        renderables.extend(
+            [
+                Rule(Text(detail_title or "Live Detail", style=ui.STYLE_TITLE), style=ui.STYLE_BORDER_DETAIL),
+                detail_renderable if detail_renderable is not None else _decode_tune_detail(detail_text),
+            ]
+        )
+
+    return Panel(
+        Group(*renderables),
+        title=Text("Tuning", style=ui.STYLE_TITLE_MAIN),
+        border_style=ui.STYLE_BORDER_OUTER,
+        padding=(0, 1),
+    )
+
+
+class TuneWorkflowProgress(ui.WorkflowProgress):
+    def renderable(self) -> Panel:
+        return build_compact_tune_workflow_intro(
+            self.fields,
+            steps=self.steps,
+            detail_title=self.detail_title,
+            detail_text=self.detail_text,
+            detail_renderable=self.detail_renderable,
+        )
+
+
 class TuneWorkflowReporter(RichWorkflowReporter):
     title = "Tuning"
     steps = (
@@ -91,6 +186,18 @@ class TuneWorkflowReporter(RichWorkflowReporter):
 
     def fields(self) -> list[tuple[str, object]]:
         return build_tune_workflow_fields(self.args, maximize=self.maximize, minimize=self.minimize)
+
+    def create(self) -> ui.WorkflowProgress:
+        workflow = TuneWorkflowProgress(
+            self.title,
+            self.fields(),
+            steps=list(self.steps),
+            stderr=self.stderr,
+            transient=self.transient,
+        )
+        if self.start_on_create:
+            workflow.start()
+        return workflow
 
 
 def log_tune_pipeline_intro(args: Any, *, maximize: list[str], minimize: list[str]) -> ui.WorkflowProgress:

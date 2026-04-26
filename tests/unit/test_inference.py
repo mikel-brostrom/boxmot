@@ -1414,6 +1414,40 @@ def test_workflow_progress_preserves_rich_styles_on_terminal(monkeypatch):
     assert re.search(r"\x1b\[\d+F\x1b\[J", rendered) is None
 
 
+def test_workflow_progress_uses_full_live_overflow(monkeypatch):
+    captured = {}
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            captured["renderable"] = renderable
+            captured["vertical_overflow"] = kwargs.get("vertical_overflow")
+
+        def start(self, *, refresh=True):
+            captured["start_refresh"] = refresh
+
+        def update(self, renderable, *, refresh=True):
+            captured["updated"] = (renderable, refresh)
+
+        def stop(self):
+            captured["stopped"] = True
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "bytetrack")],
+        steps=((evaluator_module.EVAL_EVALUATE_STEP, "active"),),
+        stderr=True,
+    )
+
+    workflow.start()
+    workflow.stop()
+
+    assert captured["vertical_overflow"] == "visible"
+    assert captured["start_refresh"] is True
+    assert captured["stopped"] is True
+
+
 def test_build_checklist_uses_semantic_state_colors():
     rendered = ui_module._capture_renderable(
         ui_module.build_checklist(

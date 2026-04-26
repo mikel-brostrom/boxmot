@@ -25,12 +25,16 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+        lambda args, workflow=None: (
+            setattr(args, "project", (tmp_path / "runs").resolve()),
+            setattr(args, "detector", [tmp_path / "yolox_x_mot17_ablation.pt"]),
+            setattr(args, "reid", [tmp_path / "lmbn_n_duke.pt"]),
+        ),
     )
-    monkeypatch.setattr(
-        tuner_module,
-        "log_tune_pipeline_intro",
-        lambda *args, **kwargs: SimpleNamespace(
+    def _fake_tune_intro(args, **kwargs):
+        captured["intro_detector"] = args.detector[0]
+        captured["intro_reid"] = args.reid[0]
+        return SimpleNamespace(
             _started=True,
             start=lambda: None,
             complete=lambda *a, **k: None,
@@ -39,8 +43,9 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
             clear_detail=lambda *a, **k: None,
             set_detail_renderable=lambda *a, **k: None,
             stop=lambda: workflow_state.update(stopped=True),
-        ),
-    )
+        )
+
+    monkeypatch.setattr(tuner_module, "log_tune_pipeline_intro", _fake_tune_intro)
 
     class _FakeOptunaSearch:
         def __init__(self, metric, mode):
@@ -133,6 +138,8 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     assert Path(captured["storage_path"]).is_absolute()
     assert Path(captured["storage_path"]) == (tmp_path / "runs" / "ray").resolve()
     assert captured["run_name"] == "strongsort_tune_2"
+    assert Path(captured["intro_detector"]).name == "yolox_x_mot17_ablation.pt"
+    assert Path(captured["intro_reid"]).name == "lmbn_n_duke.pt"
     assert captured["verbose"] == 0
     assert len(captured["callbacks"]) == 1
     assert captured["ray_init_kwargs"]["include_dashboard"] is False
@@ -404,6 +411,155 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
     assert captured["run_name"] == "strongsort_tune"
 
 
+def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch, tmp_path):
+    captured = {}
+    tune_dir = tmp_path / "runs" / "ray" / "bytetrack_tune"
+    baseline_dir = tune_dir / "trial_baseline"
+    best_dir = tune_dir / "trial_best"
+    baseline_dir.mkdir(parents=True)
+    best_dir.mkdir(parents=True)
+
+    yaml_cfg = {
+        "track_thresh": {"type": "uniform", "default": 0.6, "range": [0.3, 0.7]},
+        "track_buffer": {"type": "qrandint", "default": 30, "range": [10, 61, 10]},
+    }
+
+    class _FakeRequirementsChecker:
+        def sync_extra(self, extra, verbose=True):
+            captured["extra"] = extra
+
+    def _metrics(trial_id, hota, mota, idsw, config, path):
+        row = {
+            "HOTA": hota,
+            "MOTA": mota,
+            "IDF1": 70.0,
+            "AssA": 60.0,
+            "AssRe": 65.0,
+            "IDSW": idsw,
+            "IDs": 20,
+        }
+        raw = {"person": {**row, "per_sequence": {"MOT17-02": row}}}
+        return SimpleNamespace(
+            error=None,
+            path=str(path),
+            config=config,
+            metrics={
+                "trial_id": trial_id,
+                **row,
+                "IDSW_rate": idsw / 20,
+                "_validation": {
+                    "benchmark": "mot17-ablation",
+                    "raw": raw,
+                    "summary_label": "single_class",
+                    "summary": row,
+                    "timings": {},
+                },
+            },
+        )
+
+    monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: yaml_cfg)
+    monkeypatch.setattr(tuner_module, "_resolve_tune_dir", lambda args, resume=False: tune_dir)
+    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: None)
+    monkeypatch.setattr(
+        tuner_module,
+        "eval_setup",
+        lambda args, workflow=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+    )
+
+    def _set_detail_renderable(title, renderable, **kwargs):
+        captured["detail_title"] = title
+        captured["detail_rendered"] = ui_module.capture_renderable(renderable, width=150)
+
+    monkeypatch.setattr(
+        tuner_module,
+        "log_tune_pipeline_intro",
+        lambda *args, **kwargs: SimpleNamespace(
+            start=lambda: None,
+            complete=lambda *a, **k: None,
+            activate=lambda *a, **k: None,
+            set_detail=lambda *a, **k: None,
+            set_detail_renderable=_set_detail_renderable,
+            stop=lambda: None,
+        ),
+    )
+
+    class _FakeOptunaSearch:
+        def __init__(self, **kwargs):
+            captured["optuna_kwargs"] = kwargs
+
+    class _FakeRunConfig:
+        def __init__(self, storage_path, name, callbacks=None, verbose=None, progress_reporter=None):
+            self.storage_path = storage_path
+            self.name = name
+            self.callbacks = callbacks
+            self.verbose = verbose
+            self.progress_reporter = progress_reporter
+
+    class _FakeTuneConfig:
+        def __init__(self, num_samples, search_alg, trial_dirname_creator):
+            self.num_samples = num_samples
+            self.search_alg = search_alg
+            self.trial_dirname_creator = trial_dirname_creator
+
+    class _FakeTuner:
+        @staticmethod
+        def can_restore(path):
+            return False
+
+        def __init__(self, trainable, param_space, tune_config, run_config):
+            captured["param_space"] = param_space
+
+        def fit(self):
+            return [
+                _metrics("baseline", 50.0, 60.0, 10, {"track_thresh": 0.6, "track_buffer": 30}, baseline_dir),
+                _metrics("best", 52.0, 61.0, 7, {"track_thresh": 0.65, "track_buffer": 40}, best_dir),
+            ]
+
+    fake_tune = SimpleNamespace(
+        Tuner=_FakeTuner,
+        TuneConfig=_FakeTuneConfig,
+        with_resources=lambda fn, resources: fn,
+        uniform=lambda *args: ("uniform", args),
+        qrandint=lambda *args: ("qrandint", args),
+        Callback=object,
+    )
+    fake_ray = SimpleNamespace(
+        tune=fake_tune,
+        is_initialized=lambda: False,
+        init=lambda **kwargs: captured.setdefault("ray_init_kwargs", kwargs),
+    )
+
+    import sys
+
+    monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
+    monkeypatch.setitem(sys.modules, "ray", fake_ray)
+    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(RunConfig=_FakeRunConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "yolov8n.pt"],
+        reid=[tmp_path / "osnet_x0_25_msmt17.pt"],
+        tracker="bytetrack",
+        data="mot17-ablation",
+        maximize=("HOTA",),
+        minimize=(),
+        objectives=("HOTA",),
+        n_threads=1,
+        n_trials=2,
+        project=Path("runs"),
+        verbose=False,
+    )
+
+    tuner_module.main(args)
+
+    assert captured["optuna_kwargs"]["points_to_evaluate"] == [{"track_thresh": 0.6, "track_buffer": 30}]
+    assert captured["detail_title"] == "Results"
+    assert "MOT17-02" in captured["detail_rendered"]
+    assert "(+2.00)" in captured["detail_rendered"]
+    assert "(+1.00)" in captured["detail_rendered"]
+    assert "(-3)" in captured["detail_rendered"]
+
+
 def test_build_tune_workflow_fields_uses_benchmark_data() -> None:
     args = SimpleNamespace(
         tracker="bytetrack",
@@ -417,6 +573,33 @@ def test_build_tune_workflow_fields_uses_benchmark_data() -> None:
     fields = dict(tune_reporting.build_tune_workflow_fields(args, maximize=["HOTA"], minimize=[]))
 
     assert fields["Dataset"] == "mot17-ablation"
+
+
+def test_tune_workflow_renderable_is_compact_and_complete() -> None:
+    args = SimpleNamespace(
+        tracker="botsort",
+        detector=[Path("yolov8n.pt")],
+        reid=[Path("osnet_x0_25_msmt17.pt")],
+        data="mot17-ablation",
+        benchmark="mot17-ablation",
+        n_trials=3,
+    )
+    workflow = tune_reporting.log_tune_pipeline_intro(args, maximize=["HOTA"], minimize=[])
+    workflow.complete(tune_reporting.TUNE_SETUP_STEP, render=False)
+    workflow.complete(tune_reporting.TUNE_GENERATE_STEP, render=False)
+    workflow.activate(tune_reporting.TUNE_OPTIMIZE_STEP, render=False)
+    workflow.set_detail(
+        tune_reporting.TUNE_OPTIMIZE_STEP,
+        "Tune     33%  (1/3)  running trial 2/3  remaining 00:34",
+        render=False,
+    )
+
+    rendered = ui_module.capture_renderable(workflow.renderable(), width=140)
+
+    assert rendered.count("\n") + 1 <= 12
+    assert "Single-objective: max HOTA" in rendered
+    assert "[>] Optimize trials" in rendered
+    assert "Tune     33%  (1/3)  running trial 2/3  remaining 00:34" in rendered
 
 
 def test_build_tune_artifacts_renderable_lists_paths() -> None:
@@ -439,3 +622,46 @@ def test_build_tune_artifacts_renderable_lists_paths() -> None:
     assert str(saved_artifacts["best_yaml_path"]) in rendered
     assert "Summary" in rendered
     assert str(saved_artifacts["summary_path"]) in rendered
+
+
+def test_generate_summary_handles_categorical_choice_params(tmp_path) -> None:
+    trial_data = [
+        {
+            "trial_id": "trial_1",
+            "metrics": {"HOTA": 68.0, "MOTA": 77.0, "IDF1": 79.0},
+            "config": {"track_high_thresh": 0.5, "cmc_method": "ecc"},
+        },
+        {
+            "trial_id": "trial_2",
+            "metrics": {"HOTA": 65.0, "MOTA": 75.0, "IDF1": 76.0},
+            "config": {"track_high_thresh": 0.4, "cmc_method": "sof"},
+        },
+        {
+            "trial_id": "trial_3",
+            "metrics": {"HOTA": 64.0, "MOTA": 74.0, "IDF1": 75.0},
+            "config": {"track_high_thresh": 0.6, "cmc_method": "ecc"},
+        },
+    ]
+    yaml_cfg = {
+        "track_high_thresh": {"type": "uniform", "default": 0.45, "range": [0.3, 0.7]},
+        "cmc_method": {"type": "choice", "default": "sof", "options": ["sof", "ecc"]},
+    }
+    args = SimpleNamespace(
+        detector=[Path("yolov8n.pt")],
+        benchmark="mot17-ablation",
+        data="mot17-ablation",
+    )
+
+    summary_path = tuner_module._generate_summary(
+        tmp_path,
+        trial_data,
+        yaml_cfg,
+        "botsort",
+        ["HOTA"],
+        [],
+        args,
+        emit_logs=False,
+    )
+
+    rendered = summary_path.read_text()
+    assert "| cmc_method | ['sof', 'ecc'] | ecc: 2, sof: 1 | — | categorical |" in rendered

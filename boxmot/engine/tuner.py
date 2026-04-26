@@ -86,6 +86,15 @@ def yaml_to_search_space(config: dict, tune) -> dict:
     return space
 
 
+def _default_tune_config(yaml_cfg: dict, search_space: dict) -> dict[str, Any]:
+    """Return default values for parameters included in the Ray search space."""
+    return {
+        param: yaml_cfg[param]["default"]
+        for param in search_space
+        if param in yaml_cfg and "default" in yaml_cfg[param]
+    }
+
+
 def _format_yaml_value(v):
     """Format a value for YAML output, preserving Python-style bools and flow-style lists."""
     if isinstance(v, bool):
@@ -256,6 +265,27 @@ def _convergence_label(search_range, top10_vals):
     return label
 
 
+def _as_float_values(values: list[Any]) -> list[float] | None:
+    try:
+        return [float(v) for v in values]
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_markdown_value(value: Any) -> str:
+    return str(value).replace("|", r"\|")
+
+
+def _format_value_counts(values: list[Any]) -> str:
+    from collections import Counter
+
+    counts = Counter(values)
+    return ", ".join(
+        f"{_format_markdown_value(value)}: {count}"
+        for value, count in sorted(counts.items(), key=lambda item: str(item[0]))
+    )
+
+
 def _generate_summary(
     tune_dir: Path,
     trial_data: list,
@@ -352,13 +382,16 @@ def _generate_summary(
                 continue
 
             if isinstance(top_vals[0], bool):
-                from collections import Counter
-                dist = dict(Counter(top_vals))
-                search_opts = details.get("options", [])
-                lines.append(f"| {param} | {search_opts} | {dist} | — | — |")
+                search_opts = details.get("options", details.get("choices", []))
+                lines.append(f"| {param} | {search_opts} | {_format_value_counts(top_vals)} | — | — |")
             else:
                 search_range = details.get("range", details.get("options", []))
-                top_vals_f = [float(v) for v in top_vals]
+                top_vals_f = _as_float_values(top_vals)
+                if top_vals_f is None:
+                    lines.append(
+                        f"| {param} | {search_range} | {_format_value_counts(top_vals)} | — | categorical |"
+                    )
+                    continue
                 t_lo, t_hi = min(top_vals_f), max(top_vals_f)
                 t_mean = np.mean(top_vals_f)
                 label = _convergence_label(search_range, top_vals_f)
@@ -632,15 +665,15 @@ def _execute_tune_search(
     seed = getattr(args, "seed", None)
     if seed is not None:
         optuna_kwargs["seed"] = seed
+
+    yaml_cfg = load_yaml_config(args.tracker)
+    search_space = yaml_to_search_space(yaml_cfg, tune)
+    if baseline_config is None:
+        baseline_config = _default_tune_config(yaml_cfg, search_space) or None
     if baseline_config:
         optuna_kwargs["points_to_evaluate"] = [baseline_config]
 
     optuna_search = OptunaSearch(**optuna_kwargs)
-
-    yaml_cfg = load_yaml_config(args.tracker)
-    search_space = yaml_to_search_space(yaml_cfg, tune)
-
-    workflow = log_tune_pipeline_intro(args, maximize=maximize, minimize=minimize)
 
     n_threads = int(args.n_threads)
     setup_status_message: str | None = None
@@ -655,6 +688,8 @@ def _execute_tune_search(
 
     with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
         eval_setup(args, workflow=_TuneSetupStatus())
+
+    workflow = log_tune_pipeline_intro(args, maximize=maximize, minimize=minimize)
 
     tune_dir = _resolve_tune_dir(args, resume=resume_tune)
     tune_name = tune_dir.name
