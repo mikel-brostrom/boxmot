@@ -30,12 +30,60 @@ RESEARCH_DEFAULTS = BOXMOT_DEFAULTS.research
 EXPORT_DEFAULTS = BOXMOT_DEFAULTS.export
 SHARED_DEFAULTS = BOXMOT_DEFAULTS.shared
 
+_TUNE_METRIC_OPTIONS = {"--objectives", "--maximize", "--minimize"}
+
 
 def _click_imgsz_default(value):
     """Normalize configured image sizes into a Click-friendly default value."""
     if isinstance(value, (list, tuple)):
         return ",".join(str(part) for part in value)
     return value
+
+
+def _normalize_tune_metric_cli_args(args: list[str]) -> list[str]:
+    """Fold space-separated tune metric values into Click option values."""
+    if "tune" not in args:
+        return args
+
+    tune_index = args.index("tune")
+    prefix = args[: tune_index + 1]
+    tokens = args[tune_index + 1 :]
+    normalized: list[str] = []
+    index = 0
+
+    while index < len(tokens):
+        token = tokens[index]
+        option = None
+        inline_value = None
+
+        if token in _TUNE_METRIC_OPTIONS:
+            option = token
+        else:
+            for candidate in _TUNE_METRIC_OPTIONS:
+                prefix_text = f"{candidate}="
+                if token.startswith(prefix_text):
+                    option = candidate
+                    inline_value = token[len(prefix_text):]
+                    break
+
+        if option is None:
+            normalized.append(token)
+            index += 1
+            continue
+
+        values: list[str] = []
+        if inline_value not in {None, ""}:
+            values.append(inline_value)
+        index += 1
+        while index < len(tokens) and not tokens[index].startswith("-"):
+            values.append(tokens[index])
+            index += 1
+
+        normalized.append(option)
+        if values:
+            normalized.append(",".join(values))
+
+    return prefix + normalized
 
 
 # Shared command options (excluding model, classes, and input selection)
@@ -335,11 +383,11 @@ def tune_options(func):
                      help='number of trials for evolutionary tuning'),
         click.option('--objectives', type=str, multiple=True,
                      default=TUNE_DEFAULTS.objectives,
-                     help='metrics to track and return from each trial'),
+                     help='metrics to track and return from each trial; accepts repeated, comma-separated, or space-separated values'),
         click.option('--maximize', type=str, multiple=True, default=TUNE_DEFAULTS.maximize,
-                     help='metrics to maximize; defaults to first --objectives value (e.g. HOTA)'),
+                     help='metrics to maximize; accepts repeated, comma-separated, or space-separated values; defaults to first --objectives value (e.g. HOTA)'),
         click.option('--minimize', type=str, multiple=True, default=TUNE_DEFAULTS.minimize,
-                     help='metrics to minimize for Pareto search (e.g. IDSW_rate); '
+                     help='metrics to minimize for Pareto search; accepts repeated, comma-separated, or space-separated values (e.g. IDSW_rate); '
                           'triggers multi-objective mode when set'),
     ]
     for opt in reversed(options):
@@ -384,6 +432,10 @@ def research_options(func):
 
 class CommandFirstGroup(click.Group):
     """Custom Click Group with improved help formatting - Ultralytics-style."""
+
+    def parse_args(self, ctx, args):
+        """Normalize tune metric lists before Click validates subcommand args."""
+        return super().parse_args(ctx, _normalize_tune_metric_cli_args(list(args)))
     
     def format_help(self, _ctx, formatter):
         """Override to show custom help with Ultralytics-style formatting."""

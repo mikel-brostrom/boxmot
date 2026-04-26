@@ -162,6 +162,38 @@ def test_tune_rejects_source_option():
     assert "No such option: --source" in result.output
 
 
+def test_tune_accepts_space_separated_metric_lists(monkeypatch):
+    captured = {}
+
+    def fake_tune(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tuner", SimpleNamespace(main=fake_tune))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "tune",
+            "--benchmark",
+            "mot17-ablation",
+            "--tracker",
+            "botsort",
+            "--n-trials",
+            "100",
+            "--maximize",
+            "HOTA",
+            "MOTA",
+            "IDF1",
+            "--minimize",
+            "IDSW_rate",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].maximize == ("HOTA,MOTA,IDF1",)
+    assert captured["args"].minimize == ("IDSW_rate",)
+
+
 def test_research_requires_benchmark():
     result = CliRunner().invoke(boxmot, ["research"])
     assert result.exit_code != 0

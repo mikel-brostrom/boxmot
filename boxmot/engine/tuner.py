@@ -86,6 +86,24 @@ def yaml_to_search_space(config: dict, tune) -> dict:
     return space
 
 
+def _normalize_metric_names(values: Any) -> list[str]:
+    """Normalize repeated and comma-separated metric CLI values."""
+    if values is None:
+        return []
+    if isinstance(values, str):
+        raw_values = [values]
+    else:
+        raw_values = list(values)
+
+    metrics: list[str] = []
+    for value in raw_values:
+        for part in str(value).split(","):
+            metric = part.strip()
+            if metric:
+                metrics.append(metric)
+    return metrics
+
+
 def _default_tune_config(yaml_cfg: dict, search_space: dict) -> dict[str, Any]:
     """Return default values for parameters included in the Ray search space."""
     return {
@@ -654,8 +672,12 @@ def _execute_tune_search(
     _ensure_ray_initialized(verbose=bool(getattr(args, "verbose", False)))
 
     # Resolve optimize targets
-    maximize = list(args.maximize) if args.maximize else [args.objectives[0]]
-    minimize = list(args.minimize)
+    objectives = _normalize_metric_names(getattr(args, "objectives", ()))
+    maximize = _normalize_metric_names(getattr(args, "maximize", ())) or [objectives[0] if objectives else "HOTA"]
+    minimize = _normalize_metric_names(getattr(args, "minimize", ()))
+    args.objectives = tuple(objectives)
+    args.maximize = tuple(maximize)
+    args.minimize = tuple(minimize)
     opt_metrics = maximize + minimize
     opt_modes   = ["max"] * len(maximize) + ["min"] * len(minimize)
     optuna_kwargs = {

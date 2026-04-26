@@ -411,6 +411,106 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
     assert captured["run_name"] == "strongsort_tune"
 
 
+def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path):
+    captured = {}
+
+    class _FakeRequirementsChecker:
+        def sync_extra(self, extra, verbose=True):
+            captured["extra"] = extra
+
+    monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
+    monkeypatch.setattr(tuner_module, "_save_all_results", lambda *args, **kwargs: None)
+    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: None)
+    monkeypatch.setattr(
+        tuner_module,
+        "eval_setup",
+        lambda args, workflow=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+    )
+    monkeypatch.setattr(
+        tuner_module,
+        "log_tune_pipeline_intro",
+        lambda *args, **kwargs: SimpleNamespace(
+            start=lambda: None,
+            complete=lambda *a, **k: None,
+            activate=lambda *a, **k: None,
+            set_detail=lambda *a, **k: None,
+            set_detail_renderable=lambda *a, **k: None,
+            stop=lambda: None,
+        ),
+    )
+
+    class _FakeOptunaSearch:
+        def __init__(self, **kwargs):
+            captured["optuna_kwargs"] = kwargs
+
+    class _FakeRunConfig:
+        def __init__(self, storage_path, name, callbacks=None, verbose=None):
+            self.storage_path = storage_path
+            self.name = name
+            self.callbacks = callbacks
+            self.verbose = verbose
+
+    class _FakeTuneConfig:
+        def __init__(self, num_samples, search_alg, trial_dirname_creator):
+            self.num_samples = num_samples
+            self.search_alg = search_alg
+            self.trial_dirname_creator = trial_dirname_creator
+
+    class _FakeTuner:
+        @staticmethod
+        def can_restore(path):
+            return False
+
+        def __init__(self, trainable, param_space, tune_config, run_config):
+            captured["callbacks"] = run_config.callbacks
+
+        def fit(self):
+            return []
+
+        def get_results(self):
+            return []
+
+    fake_tune = SimpleNamespace(
+        Tuner=_FakeTuner,
+        TuneConfig=_FakeTuneConfig,
+        with_resources=lambda fn, resources: fn,
+        Callback=object,
+    )
+    fake_ray = SimpleNamespace(
+        tune=fake_tune,
+        is_initialized=lambda: False,
+        init=lambda **kwargs: captured.setdefault("ray_init_kwargs", kwargs),
+    )
+
+    import sys
+
+    monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
+    monkeypatch.setitem(sys.modules, "ray", fake_ray)
+    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(RunConfig=_FakeRunConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "yolox_x_MOT17_ablation.pt"],
+        reid=[tmp_path / "lmbn_n_duke.pt"],
+        tracker="botsort",
+        data="mot17-ablation",
+        maximize=("HOTA,MOTA,IDF1",),
+        minimize=("IDSW_rate",),
+        objectives=("HOTA",),
+        n_threads=1,
+        n_trials=100,
+        project=Path("runs"),
+        verbose=False,
+    )
+
+    tuner_module.main(args)
+
+    assert captured["optuna_kwargs"]["metric"] == ["HOTA", "MOTA", "IDF1", "IDSW_rate"]
+    assert captured["optuna_kwargs"]["mode"] == ["max", "max", "max", "min"]
+    assert args.maximize == ("HOTA", "MOTA", "IDF1")
+    assert args.minimize == ("IDSW_rate",)
+
+
 def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch, tmp_path):
     captured = {}
     tune_dir = tmp_path / "runs" / "ray" / "bytetrack_tune"
