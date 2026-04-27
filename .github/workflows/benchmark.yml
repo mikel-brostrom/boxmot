@@ -217,25 +217,39 @@ jobs:
           declare -A seen_tracker
           declare -A py_obb
           declare -A cpp_obb
-          declare -A py_cell
-          declare -A cpp_cell
+          declare -A py_hota
+          declare -A py_mota
+          declare -A py_idf1
+          declare -A py_fps
+          declare -A py_status
+          declare -A cpp_hota
+          declare -A cpp_mota
+          declare -A cpp_idf1
+          declare -A cpp_fps
+          declare -A cpp_status
           trackers=()
 
-          format_backend_cell() {
-            local status="$1"
-            local hota="$2"
-            local mota="$3"
-            local idf1="$4"
-            local fps="$5"
-            if [ -z "$status" ]; then
+          fmt_metric() {
+            local value="$1"
+            if [ -z "$value" ] || [ "$value" = "-" ] || [ "$value" = "—" ]; then
               printf -- "—"
               return
             fi
-            if [ "$status" != "✅" ]; then
-              printf -- "%s" "$status"
+            # Round to 2 decimals when numeric, otherwise pass through.
+            if printf "%f" "$value" >/dev/null 2>&1; then
+              printf "%.2f" "$value"
+            else
+              printf -- "%s" "$value"
+            fi
+          }
+
+          fmt_fps() {
+            local value="$1"
+            if [ -z "$value" ] || [ "$value" = "-" ] || [ "$value" = "—" ]; then
+              printf -- "—"
               return
             fi
-            printf -- "HOTA \`%s\`<br>MOTA \`%s\`<br>IDF1 \`%s\`<br>FPS \`%s\`" "$hota" "$mota" "$idf1" "${fps:--}"
+            printf -- "%s" "$value"
           }
 
           while IFS=, read -r sort_key tracker backend status obb hota mota idf1 fps; do
@@ -243,24 +257,81 @@ jobs:
               trackers+=("$tracker")
               seen_tracker[$tracker]=1
             fi
-            cell=$(format_backend_cell "$status" "$hota" "$mota" "$idf1" "$fps")
             if [ "$backend" = "py" ]; then
               py_obb[$tracker]="$obb"
-              py_cell[$tracker]="$cell"
+              py_status[$tracker]="$status"
+              py_hota[$tracker]="$hota"
+              py_mota[$tracker]="$mota"
+              py_idf1[$tracker]="$idf1"
+              py_fps[$tracker]="$fps"
             elif [ "$backend" = "cpp" ]; then
               cpp_obb[$tracker]="$obb"
-              cpp_cell[$tracker]="$cell"
+              cpp_status[$tracker]="$status"
+              cpp_hota[$tracker]="$hota"
+              cpp_mota[$tracker]="$mota"
+              cpp_idf1[$tracker]="$idf1"
+              cpp_fps[$tracker]="$fps"
             fi
           done < "$RESULTS_FILE"
 
-          new_table="| Tracker | OBB \`py/cpp\` | Python | C++ |\n"
-          new_table+="| :-----: | :----------: | :----- | :-- |\n"
+          new_table="<table>\n"
+          new_table+="  <thead>\n"
+          new_table+="    <tr>\n"
+          new_table+="      <th rowspan=\"2\" align=\"left\">Tracker</th>\n"
+          new_table+="      <th rowspan=\"2\" align=\"center\">│</th>\n"
+          new_table+="      <th colspan=\"5\" align=\"center\">Python</th>\n"
+          new_table+="      <th rowspan=\"2\" align=\"center\">│</th>\n"
+          new_table+="      <th colspan=\"5\" align=\"center\">C++</th>\n"
+          new_table+="    </tr>\n"
+          new_table+="    <tr>\n"
+          new_table+="      <th align=\"right\">HOTA</th>\n"
+          new_table+="      <th align=\"right\">MOTA</th>\n"
+          new_table+="      <th align=\"right\">IDF1</th>\n"
+          new_table+="      <th align=\"right\">FPS</th>\n"
+          new_table+="      <th align=\"center\">OBB</th>\n"
+          new_table+="      <th align=\"right\">HOTA</th>\n"
+          new_table+="      <th align=\"right\">MOTA</th>\n"
+          new_table+="      <th align=\"right\">IDF1</th>\n"
+          new_table+="      <th align=\"right\">FPS</th>\n"
+          new_table+="      <th align=\"center\">OBB</th>\n"
+          new_table+="    </tr>\n"
+          new_table+="  </thead>\n"
+          new_table+="  <tbody>\n"
 
           for tracker in "${trackers[@]}"; do
-            paper_url=${paper_links[$tracker]}
-            tracker_link="[$tracker](${paper_url:-#})"
-            new_table+="| $tracker_link | ${py_obb[$tracker]:-—} / ${cpp_obb[$tracker]:-—} | ${py_cell[$tracker]:-—} | ${cpp_cell[$tracker]:-—} |\n"
+            paper_url=${paper_links[$tracker]:-#}
+
+            py_h=$(fmt_metric "${py_hota[$tracker]}")
+            py_m=$(fmt_metric "${py_mota[$tracker]}")
+            py_i=$(fmt_metric "${py_idf1[$tracker]}")
+            py_f=$(fmt_fps "${py_fps[$tracker]}")
+            py_o=${py_obb[$tracker]:-—}
+
+            cpp_h=$(fmt_metric "${cpp_hota[$tracker]}")
+            cpp_m=$(fmt_metric "${cpp_mota[$tracker]}")
+            cpp_i=$(fmt_metric "${cpp_idf1[$tracker]}")
+            cpp_f=$(fmt_fps "${cpp_fps[$tracker]}")
+            cpp_o=${cpp_obb[$tracker]:-—}
+
+            new_table+="    <tr>\n"
+            new_table+="      <td align=\"left\"><a href=\"$paper_url\">$tracker</a></td>\n"
+            new_table+="      <td align=\"center\">│</td>\n"
+            new_table+="      <td align=\"right\">$py_h</td>\n"
+            new_table+="      <td align=\"right\">$py_m</td>\n"
+            new_table+="      <td align=\"right\">$py_i</td>\n"
+            new_table+="      <td align=\"right\">$py_f</td>\n"
+            new_table+="      <td align=\"center\">$py_o</td>\n"
+            new_table+="      <td align=\"center\">│</td>\n"
+            new_table+="      <td align=\"right\">$cpp_h</td>\n"
+            new_table+="      <td align=\"right\">$cpp_m</td>\n"
+            new_table+="      <td align=\"right\">$cpp_i</td>\n"
+            new_table+="      <td align=\"right\">$cpp_f</td>\n"
+            new_table+="      <td align=\"center\">$cpp_o</td>\n"
+            new_table+="    </tr>\n"
           done
+
+          new_table+="  </tbody>\n"
+          new_table+="</table>"
 
           start_marker="<!-- START TRACKER TABLE -->"
           end_marker="<!-- END TRACKER TABLE -->"
