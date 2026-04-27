@@ -1448,6 +1448,219 @@ def test_workflow_progress_uses_full_live_overflow(monkeypatch):
     assert captured["stopped"] is True
 
 
+def test_workflow_progress_uses_alt_screen_when_oversized(monkeypatch):
+    init_calls: list[dict] = []
+    update_calls: list[tuple[object, bool]] = []
+    stop_calls: list[bool] = []
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            init_calls.append(kwargs)
+            self.renderable = renderable
+
+        def start(self, *, refresh=True):
+            return None
+
+        def update(self, renderable, *, refresh=True):
+            update_calls.append((renderable, refresh))
+
+        def stop(self):
+            stop_calls.append(True)
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "hybridsort")],
+        steps=(
+            (evaluator_module.EVAL_GENERATE_STEP, "active"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+        ),
+        stderr=True,
+    )
+
+    monkeypatch.setattr(
+        ui_module.WorkflowProgress,
+        "_renderable_exceeds_console",
+        lambda self, renderable: True,
+    )
+
+    workflow.start()
+    workflow.set_detail(evaluator_module.EVAL_GENERATE_STEP, "step 1")
+    workflow.set_detail(evaluator_module.EVAL_GENERATE_STEP, "step 2")
+    workflow.stop()
+
+    # Live must be created on the alternate screen so in-place refreshes
+    # don't pollute scrollback. Mid-flight updates ARE allowed there because
+    # the alt buffer doesn't scroll the regular history.
+    assert init_calls[0].get("screen") is True
+    assert init_calls[0].get("vertical_overflow") == "visible"
+    assert len(update_calls) >= 2
+    assert stop_calls == [True]
+
+
+def test_workflow_progress_prefers_alt_screen_from_first_render(monkeypatch):
+    init_calls: list[dict] = []
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            init_calls.append(kwargs)
+
+        def start(self, *, refresh=True):
+            return None
+
+        def update(self, renderable, *, refresh=True):
+            return None
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "deepocsort")],
+        steps=((evaluator_module.EVAL_TRACK_STEP, "active"),),
+        stderr=True,
+    )
+    workflow.prefer_alt_screen = True
+
+    monkeypatch.setattr(
+        ui_module.WorkflowProgress,
+        "_renderable_exceeds_console",
+        lambda self, renderable: False,
+    )
+
+    workflow.start()
+
+    assert init_calls[0].get("screen") is True
+    assert init_calls[0].get("vertical_overflow") == "visible"
+
+
+def test_workflow_progress_stays_on_normal_screen_when_compact_live_fits(monkeypatch):
+    init_calls: list[dict] = []
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            init_calls.append(kwargs)
+
+        def start(self, *, refresh=True):
+            return None
+
+        def update(self, renderable, *, refresh=True):
+            return None
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "hybridsort")],
+        steps=((evaluator_module.EVAL_TRACK_STEP, "active"),),
+        stderr=True,
+    )
+
+    full_renderable = object()
+    compact_renderable = object()
+
+    workflow.renderable = lambda *, compact=False: compact_renderable if compact else full_renderable
+    workflow._live_renderable = lambda: compact_renderable
+
+    monkeypatch.setattr(
+        ui_module.WorkflowProgress,
+        "_renderable_exceeds_console",
+        lambda self, renderable: renderable is full_renderable,
+    )
+
+    workflow.start()
+
+    assert init_calls[0].get("screen") is False
+    assert init_calls[0].get("vertical_overflow") == "visible"
+
+
+def test_workflow_progress_keeps_compact_layout_for_final_render(monkeypatch):
+    update_calls: list[tuple[object, bool]] = []
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            self.renderable = renderable
+
+        def start(self, *, refresh=True):
+            return None
+
+        def update(self, renderable, *, refresh=True):
+            update_calls.append((renderable, refresh))
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "hybridsort")],
+        steps=((evaluator_module.EVAL_TRACK_STEP, "active"),),
+        stderr=True,
+    )
+
+    full_renderable = object()
+    compact_renderable = object()
+    workflow.renderable = lambda *, compact=False: compact_renderable if compact else full_renderable
+
+    monkeypatch.setattr(
+        ui_module.WorkflowProgress,
+        "_renderable_exceeds_console",
+        lambda self, renderable: renderable is full_renderable,
+    )
+
+    workflow.start()
+    workflow.set_detail(evaluator_module.EVAL_TRACK_STEP, "step 1")
+    workflow.set_detail(evaluator_module.EVAL_EVALUATE_STEP, "done", render=False)
+    workflow.stop()
+
+    assert workflow._compact_layout is True
+    assert update_calls[-1][0] is compact_renderable
+    assert update_calls[-1][1] is False
+
+
+def test_workflow_progress_prefers_compact_layout_from_first_render(monkeypatch):
+    init_renderables: list[object] = []
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            init_renderables.append(renderable)
+
+        def start(self, *, refresh=True):
+            return None
+
+        def update(self, renderable, *, refresh=True):
+            return None
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "deepocsort")],
+        steps=((evaluator_module.EVAL_TRACK_STEP, "active"),),
+        stderr=True,
+    )
+    workflow.prefer_compact_layout = True
+
+    full_renderable = object()
+    compact_renderable = object()
+    workflow.renderable = lambda *, compact=False: compact_renderable if compact else full_renderable
+
+    workflow.start()
+
+    assert workflow._compact_layout is True
+    assert init_renderables[0] is compact_renderable
+
+
 def test_build_checklist_uses_semantic_state_colors():
     rendered = ui_module._capture_renderable(
         ui_module.build_checklist(
@@ -1532,6 +1745,85 @@ def test_build_workflow_intro_uses_compact_setup_panel_and_completed_pipeline_su
     assert "models/lmbn_n_duke.pt" not in rendered
     assert "Generate / Track / Evaluate" in rendered
     assert "[x] Evaluate results" not in rendered
+
+
+def test_build_workflow_intro_compact_live_layout_shows_all_progress_rows():
+    fields = [
+        ("Detector", Path("models/yolox_x_MOT17_ablation.pt")),
+        ("ReID", Path("models/lmbn_n_duke.pt")),
+        ("Tracker", "hybridsort"),
+        ("Dataset", "mot17-ablation"),
+        (
+            "__panel__:Tracker Parameters",
+            [
+                ("Low Thresh", 0.1),
+                ("Delta T", 3),
+                ("Inertia", 0.05),
+                ("Use Byte", True),
+                ("Use Custom KF", True),
+                ("Longterm Bank Length", 30),
+                ("Alpha", 0.9),
+                ("Adapfs", False),
+                ("Track Thresh", 0.5),
+                ("EG Weight High Score", 4.6),
+                ("EG Weight Low Score", 1.3),
+                ("TCM First Step", True),
+                ("TCM Byte Step", True),
+                ("TCM Byte Step Weight", 1.0),
+                ("High Score Matching Thresh", 0.7),
+                ("With Longterm ReID", True),
+                ("Longterm ReID Weight", 0.0),
+                ("With Longterm ReID Correction", True),
+                ("Longterm ReID Correction Thresh", 0.4),
+                ("Longterm ReID Correction Thresh Low", 0.4),
+            ],
+        ),
+        (
+            "__panel__:Pipeline Parameters",
+            [
+                ("Tracker backend", "python"),
+                ("Replay backend", "process"),
+                ("Device", "cpu"),
+                ("Precision", "fp32"),
+                ("Image size", "[800, 1440]"),
+                ("Confidence", 0.01),
+                ("Threads", 8),
+                ("Postprocessing", "none"),
+            ],
+        ),
+    ]
+    progress_detail = "\n".join(
+        [
+            "Tracking: 2/7 sequences done",
+            "  MOT17-02 ██████████████░░░░░░   73%  (217/299)",
+            "  MOT17-04 ██████░░░░░░░░░░░░░░   33%  (172/524)",
+            "  MOT17-05 ████████████████████  100%  (done)",
+            "  MOT17-09 ████████████████████  100%  (done)",
+            "  MOT17-10 ██████████████░░░░░░   75%  (243/326)",
+            "  MOT17-11 ████████████░░░░░░░░   62%  (277/449)",
+            "  MOT17-13 ███████████░░░░░░░░░   56%  (210/374)",
+        ]
+    )
+
+    rendered = ui_module.capture_renderable(
+        ui_module.build_workflow_intro(
+            "Evaluation",
+            fields,
+            steps=(
+                (evaluator_module.EVAL_GENERATE_STEP, "done"),
+                (evaluator_module.EVAL_TRACK_STEP, "active"),
+                (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+            ),
+            detail_title=evaluator_module.EVAL_TRACK_STEP,
+            detail_text=progress_detail,
+            compact=True,
+        ),
+        width=80,
+    )
+
+    assert rendered.count("MOT17-") == 7
+    assert rendered.count("\n") + 1 <= 30
+    assert "[>] Track" in rendered
 
 
 def test_workflow_progress_supports_renderable_detail(monkeypatch):

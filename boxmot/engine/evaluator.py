@@ -457,6 +457,7 @@ def _refresh_eval_pipeline_intro(
 
 class EvalWorkflowReporter(RichWorkflowReporter):
     title = "Evaluation"
+    prefer_compact_layout = True
     steps = (
         (EVAL_GENERATE_STEP, "active"),
         (EVAL_TRACK_STEP, "todo"),

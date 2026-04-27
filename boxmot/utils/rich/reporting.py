@@ -13,6 +13,8 @@ class RichWorkflowReporter:
     stderr: ClassVar[bool] = True
     transient: ClassVar[bool] = False
     start_on_create: ClassVar[bool] = True
+    prefer_alt_screen: ClassVar[bool] = False
+    prefer_compact_layout: ClassVar[bool] = False
 
     def __init__(self, args: Any) -> None:
         self.args = args
@@ -28,6 +30,8 @@ class RichWorkflowReporter:
             stderr=self.stderr,
             transient=self.transient,
         )
+        workflow.prefer_alt_screen = self.prefer_alt_screen
+        workflow.prefer_compact_layout = self.prefer_compact_layout
         if self.start_on_create:
             workflow.start()
         return workflow

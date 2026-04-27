@@ -33,6 +33,37 @@ STYLE_TABLE_HEADER = "boxmot.table.header"
 STYLE_COMBINED_ROW = "boxmot.row.combined"
 STYLE_RULE = "boxmot.rule"
 
+_STEP_LABELS = {
+    "Generate detections and embeddings": "Generate",
+    "Run tracker": "Track",
+    "Evaluate results": "Evaluate",
+}
+
+_SETUP_WORD_ABBREVIATIONS = {
+    "PARAMETERS": "PARAMS",
+    "PARAMETER": "PARAM",
+    "THRESHOLD": "THR",
+    "THRESH": "THR",
+    "MATCHING": "MATCH",
+    "CORRECTION": "CORR",
+    "LONGTERM": "LT",
+    "ASSOCIATION": "ASSOC",
+    "WEIGHT": "WT",
+    "LENGTH": "LEN",
+    "CUSTOM": "CUST",
+    "PRECISION": "PREC",
+    "CONFIDENCE": "CONF",
+    "POSTPROCESSING": "POST",
+    "EMBEDDING": "EMB",
+    "BACKEND": "BACKEND",
+}
+
+_SECTION_TITLE_ABBREVIATIONS = {
+    "CONFIGURATION": "CONFIG",
+    "TRACKER PARAMETERS": "TRACKER",
+    "PIPELINE PARAMETERS": "PIPELINE",
+}
+
 BOXMOT_THEME_STYLES = {
     STYLE_TEXT: "#d8dee9",
     STYLE_TEXT_STRONG: "bold #eceff4",
@@ -161,17 +192,41 @@ def build_checklist(steps: Sequence[tuple[str, StepState]]) -> Table:
     return table
 
 
+def _compact_step_label(label: str) -> str:
+    return _STEP_LABELS.get(label, label)
+
+
+def _build_active_steps_summary(steps: Sequence[tuple[str, StepState]]) -> Table:
+    table = Table.grid(expand=True, padding=(0, 1))
+    table.add_column(ratio=1)
+
+    markers = {
+        "done": ("[x]", STYLE_STATUS_DONE),
+        "active": ("[>]", STYLE_STATUS_ACTIVE),
+        "todo": ("[ ]", STYLE_STATUS_TODO),
+    }
+
+    row = Text()
+    for index, (label, state) in enumerate(steps):
+        marker, marker_style = markers.get(state, ("[ ]", STYLE_STATUS_TODO))
+        row.append(f"{marker} ", style=marker_style)
+        row.append(
+            _compact_step_label(label),
+            style=STYLE_TEXT_STRONG if state == "active" else STYLE_TEXT,
+        )
+        if index != len(steps) - 1:
+            row.append(" / ", style=STYLE_MUTED)
+
+    table.add_row(row)
+    return table
+
+
 def _build_completed_steps_summary(steps: Sequence[tuple[str, StepState]]) -> Table:
     table = Table.grid(expand=True, padding=(0, 1))
     table.add_column(ratio=1)
     table.add_column(justify="right", no_wrap=True)
 
-    labels = {
-        "Generate detections and embeddings": "Generate",
-        "Run tracker": "Track",
-        "Evaluate results": "Evaluate",
-    }
-    summary = " / ".join(labels.get(label, label) for label, _ in steps)
+    summary = " / ".join(_compact_step_label(label) for label, _ in steps)
 
     row = Text()
     row.append("[x] ", style=STYLE_STATUS_DONE)
@@ -228,55 +283,100 @@ def _format_setup_value(label: str, value: object) -> str:
     return text
 
 
+def _compact_setup_label(label: str) -> str:
+    words = str(label).upper().replace("_", " ").split()
+    compact = " ".join(_SETUP_WORD_ABBREVIATIONS.get(word, word) for word in words)
+    return compact
+
+
+def _compact_section_title(title: str) -> str:
+    return _SECTION_TITLE_ABBREVIATIONS.get(title.upper(), title.upper())
+
+
+def _build_setup_section_table(
+    section_title: str,
+    fields: Sequence[tuple[str, object]],
+    *,
+    compact: bool = False,
+) -> Table:
+    pair_count = 3 if compact else 2
+    table = Table.grid(expand=True, padding=(0, 1))
+
+    if compact and pair_count == 3:
+        table.add_column(style=STYLE_ACCENT, no_wrap=True, width=8, overflow="ellipsis")
+        for _ in range(pair_count):
+            table.add_column(style=STYLE_MUTED, no_wrap=True, width=10, overflow="ellipsis")
+            table.add_column(style=STYLE_TEXT, no_wrap=True, width=7, overflow="ellipsis")
+    else:
+        table.add_column(style=STYLE_ACCENT, no_wrap=True)
+        for offset in range(pair_count):
+            if offset == pair_count - 1:
+                table.add_column(style=STYLE_MUTED, no_wrap=True)
+                table.add_column(style=STYLE_TEXT, ratio=1)
+            else:
+                table.add_column(style=STYLE_MUTED, no_wrap=True)
+                table.add_column(style=STYLE_TEXT, ratio=1)
+
+    title_text = _compact_section_title(section_title) if compact else section_title.upper()
+
+    for index in range(0, len(fields), pair_count):
+        row: list[RenderableType] = [
+            Text(title_text, style=STYLE_ACCENT, no_wrap=True, overflow="ellipsis")
+            if index == 0
+            else Text("")
+        ]
+        for offset in range(pair_count):
+            item_index = index + offset
+            if item_index < len(fields):
+                label, value = fields[item_index]
+                label_text = (
+                    _compact_setup_label(str(label)) if compact and pair_count == 3 else str(label).upper()
+                )
+                row.extend(
+                    [
+                        Text(label_text, style=STYLE_LABEL, no_wrap=True, overflow="ellipsis"),
+                        Text(
+                            _format_setup_value(str(label), value),
+                            style=STYLE_TEXT,
+                            no_wrap=True,
+                            overflow="ellipsis",
+                        ),
+                    ]
+                )
+            else:
+                row.extend([Text(""), Text("")])
+        table.add_row(*row)
+
+    return table
+
+
 def _build_setup_panel(
     primary_fields: Sequence[tuple[str, object]],
     extra_panels: Sequence[tuple[str, list[tuple[str, object]]]],
+    *,
+    compact: bool = False,
 ) -> Panel | None:
     sections = [("Configuration", list(primary_fields)), *[(title, list(fields)) for title, fields in extra_panels]]
     sections = [(title, fields) for title, fields in sections if fields]
     if not sections:
         return None
 
-    table = Table.grid(expand=True, padding=(0, 1))
-    table.add_column(style=STYLE_ACCENT, no_wrap=True)
-    table.add_column(style=STYLE_MUTED, no_wrap=True)
-    table.add_column(style=STYLE_TEXT, ratio=1)
-    table.add_column(style=STYLE_MUTED, no_wrap=True)
-    table.add_column(style=STYLE_TEXT, ratio=1)
-
-    for section_title, fields in sections:
-        for index in range(0, len(fields), 2):
-            row: list[RenderableType] = [
-                Text(section_title.upper(), style=STYLE_ACCENT) if index == 0 else Text(""),
-            ]
-            for offset in range(2):
-                item_index = index + offset
-                if item_index < len(fields):
-                    label, value = fields[item_index]
-                    row.extend(
-                        [
-                            Text(str(label).upper(), style=STYLE_LABEL),
-                            Text(_format_setup_value(str(label), value), style=STYLE_TEXT),
-                        ]
-                    )
-                else:
-                    row.extend([Text(""), Text("")])
-            table.add_row(*row)
-
     return Panel(
-        table,
+        Group(*[_build_setup_section_table(title, fields, compact=compact) for title, fields in sections]),
         title=Text("Setup", style=STYLE_TITLE),
         border_style=STYLE_BORDER_OUTER,
         padding=(0, 1),
     )
 
 
-def _build_steps_panel(steps: Sequence[tuple[str, StepState]]) -> Panel | None:
+def _build_steps_panel(steps: Sequence[tuple[str, StepState]], *, compact: bool = False) -> Panel | None:
     if not steps:
         return None
     body: RenderableType
     if all(step_state == "done" for _, step_state in steps):
         body = _build_completed_steps_summary(steps)
+    elif compact:
+        body = _build_active_steps_summary(steps)
     else:
         body = build_checklist(steps)
     return Panel(
@@ -313,16 +413,21 @@ def build_workflow_intro(
     detail_title: str | None = None,
     detail_text: str | None = None,
     detail_renderable: RenderableType | None = None,
+    include_setup: bool = True,
+    include_steps: bool = True,
+    compact: bool = False,
 ) -> Panel:
-    primary_fields, extra_panels = _split_workflow_fields(fields)
     renderables: list[RenderableType] = []
-    setup_panel = _build_setup_panel(primary_fields, extra_panels)
-    if setup_panel is not None:
-        renderables.append(setup_panel)
+    if include_setup:
+        primary_fields, extra_panels = _split_workflow_fields(fields)
+        setup_panel = _build_setup_panel(primary_fields, extra_panels, compact=compact)
+        if setup_panel is not None:
+            renderables.append(setup_panel)
 
-    steps_panel = _build_steps_panel(steps)
-    if steps_panel is not None:
-        renderables.append(steps_panel)
+    if include_steps:
+        steps_panel = _build_steps_panel(steps, compact=compact)
+        if steps_panel is not None:
+            renderables.append(steps_panel)
 
     detail_panel = _build_detail_panel(detail_title, detail_text, detail_renderable)
     if detail_panel is not None:
@@ -346,8 +451,13 @@ class WorkflowProgress:
     detail_renderable: RenderableType | None = None
     stderr: bool = False
     transient: bool = False
+    prefer_alt_screen: bool = False
+    prefer_compact_layout: bool = False
     _started: bool = field(default=False, init=False, repr=False)
     _live: Live | None = field(default=None, init=False, repr=False)
+    _oversized: bool = field(default=False, init=False, repr=False)
+    _uses_alt_screen: bool = field(default=False, init=False, repr=False)
+    _compact_layout: bool = field(default=False, init=False, repr=False)
     _last_rendered_state: tuple[
         tuple[tuple[str, StepState], ...],
         str | None,
@@ -355,7 +465,7 @@ class WorkflowProgress:
         RenderableType | None,
     ] | None = field(default=None, init=False, repr=False)
 
-    def renderable(self) -> Panel:
+    def renderable(self, *, compact: bool = False) -> Panel:
         return build_workflow_intro(
             self.title,
             self.fields,
@@ -363,7 +473,18 @@ class WorkflowProgress:
             detail_title=self.detail_title,
             detail_text=self.detail_text,
             detail_renderable=self.detail_renderable,
+            compact=compact,
         )
+
+    def _live_renderable(self) -> Panel:
+        full = self.renderable(compact=False)
+        if self.prefer_compact_layout:
+            self._compact_layout = True
+            return self.renderable(compact=True)
+        if self._compact_layout or self._renderable_exceeds_console(full):
+            self._compact_layout = True
+            return self.renderable(compact=True)
+        return full
 
     def _state_snapshot(
         self,
@@ -371,26 +492,49 @@ class WorkflowProgress:
         return tuple(self.steps), self.detail_title, self.detail_text, self.detail_renderable
 
     def _render_snapshot(self) -> None:
-        renderable = self.renderable()
+        renderable = self._live_renderable()
         if self._live is not None:
             self._live.update(renderable, refresh=True)
         else:
             print_renderable(renderable, stderr=self.stderr)
         self._last_rendered_state = self._state_snapshot()
 
+    def _renderable_exceeds_console(self, renderable: RenderableType) -> bool:
+        console = get_console(stderr=self.stderr)
+        height = getattr(console.size, "height", 0) or 0
+        if height <= 0:
+            return False
+        try:
+            lines = console.render_lines(renderable, pad=False)
+        except Exception:
+            return False
+        # Leave a small margin so a refresh that fits exactly is still allowed
+        # to repaint in place.
+        return len(lines) > max(1, height - 1)
+
+    def _start_live(self, *, screen: bool) -> None:
+        self._live = Live(
+            self._live_renderable(),
+            console=get_console(stderr=self.stderr),
+            transient=self.transient,
+            auto_refresh=False,
+            vertical_overflow="visible",
+            screen=screen,
+        )
+        self._live.start(refresh=True)
+        self._uses_alt_screen = screen
+
     def start(self) -> WorkflowProgress:
         if self._started:
             return self
 
         self._started = True
-        self._live = Live(
-            self.renderable(),
-            console=get_console(stderr=self.stderr),
-            transient=self.transient,
-            auto_refresh=False,
-            vertical_overflow="visible",
-        )
-        self._live.start(refresh=True)
+        self._compact_layout = False
+        self._oversized = self._renderable_exceeds_console(self._live_renderable())
+        # Use the alternate screen only when the live renderable itself still
+        # doesn't fit. If the compact live layout fits, stay on the normal
+        # screen so scrollback remains available while the command runs.
+        self._start_live(screen=self.prefer_alt_screen or self._oversized)
         self._last_rendered_state = self._state_snapshot()
         return self
 
@@ -398,17 +542,46 @@ class WorkflowProgress:
         if not self._started:
             return
 
+        used_alt_screen = self._uses_alt_screen
+        final_renderable = self._live_renderable()
         if self._live is not None:
             if self._last_rendered_state != self._state_snapshot():
-                self._live.update(self.renderable(), refresh=False)
+                self._live.update(final_renderable, refresh=False)
                 self._last_rendered_state = self._state_snapshot()
             self._live.stop()
             self._live = None
         self._started = False
+        self._uses_alt_screen = False
+
+        # The alternate screen buffer is restored on ``Live.stop``; print the
+        # final renderable into the regular scrollback so the user keeps a
+        # static copy of the completed workflow.
+        if used_alt_screen and not self.transient:
+            print_renderable(final_renderable, stderr=self.stderr)
 
     def _update_live(self, *, render: bool = True) -> None:
-        if render and self._started and self._last_rendered_state != self._state_snapshot():
-            self._render_snapshot()
+        if not (render and self._started):
+            return
+        if self._last_rendered_state == self._state_snapshot():
+            return
+        renderable = self._live_renderable()
+        oversized = self._renderable_exceeds_console(renderable)
+
+        # If the compact live renderable still doesn't fit, switch to the
+        # alternate screen so in-place updates don't pollute scrollback.
+        if oversized and not self._uses_alt_screen and self._live is not None:
+            self._live.stop()
+            self._live = None
+            self._start_live(screen=True)
+            self._last_rendered_state = self._state_snapshot()
+            return
+
+        self._oversized = oversized
+        if self._live is not None:
+            self._live.update(renderable, refresh=True)
+        else:
+            print_renderable(renderable, stderr=self.stderr)
+        self._last_rendered_state = self._state_snapshot()
 
     def activate(self, label: str, *, render: bool = True) -> None:
         updated: list[tuple[str, StepState]] = []

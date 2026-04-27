@@ -424,9 +424,12 @@ class BaseKalmanFilter:
         measurement = self._reshape_measurement(z, self.dim_z)
         projected_mean, projected_cov = self.project_state(H=H, R=R)
 
-        chol_factor, lower = scipy.linalg.cho_factor(
-            projected_cov, lower=True, check_finite=False
-        )
+        # Symmetrize the projected covariance to compensate for floating-point
+        # drift accumulated through repeated predict/update cycles before
+        # factorization.
+        projected_cov = 0.5 * (projected_cov + projected_cov.T)
+
+        chol_factor, lower = self._safe_cho_factor(projected_cov)
         self.K = scipy.linalg.cho_solve(
             (chol_factor, lower),
             np.dot(self.P, H.T).T,
@@ -439,11 +442,58 @@ class BaseKalmanFilter:
         )
 
         self.x = self.x + np.dot(self.K, self.y)
-        self.P = self.P - np.linalg.multi_dot((self.K, projected_cov, self.K.T))
+        # Joseph form keeps P symmetric and positive semi-definite under
+        # numerical noise; the simple ``P - K S K^T`` form does not.
+        I_KH = self._I - np.dot(self.K, H)
+        self.P = np.linalg.multi_dot((I_KH, self.P, I_KH.T)) + np.linalg.multi_dot(
+            (self.K, R, self.K.T)
+        )
+        self.P = 0.5 * (self.P + self.P.T)
         self.z = measurement.copy()
         self.x_post = self.x.copy()
         self.P_post = self.P.copy()
         return self.x, self.P
+
+    @staticmethod
+    def _safe_cho_factor(matrix: np.ndarray) -> Tuple[np.ndarray, bool]:
+        """Cholesky factorize ``matrix`` with adaptive jitter on failure.
+
+        Repeated predict/update cycles can drive ``H P H^T + R`` slightly
+        non-positive-definite due to floating-point noise. Add a tiny ridge
+        to the diagonal and retry; if that still fails, fall back to clipping
+        negative eigenvalues so the filter can recover instead of crashing
+        the whole tracking sequence.
+        """
+        try:
+            return scipy.linalg.cho_factor(matrix, lower=True, check_finite=False)
+        except scipy.linalg.LinAlgError:
+            pass
+
+        n = matrix.shape[0]
+        diag = np.diagonal(matrix)
+        scale = float(np.max(np.abs(diag))) if diag.size else 1.0
+        if not np.isfinite(scale) or scale <= 0.0:
+            scale = 1.0
+        eye = np.eye(n)
+        for exponent in range(-12, 4):
+            jitter = scale * (10.0 ** exponent)
+            try:
+                return scipy.linalg.cho_factor(
+                    matrix + jitter * eye, lower=True, check_finite=False
+                )
+            except scipy.linalg.LinAlgError:
+                continue
+
+        # Last resort: project ``matrix`` onto the nearest PSD matrix by
+        # clipping negative eigenvalues, then add a tiny ridge to ensure
+        # strict positive definiteness for cho_factor.
+        symmetric = 0.5 * (matrix + matrix.T)
+        eigvals, eigvecs = np.linalg.eigh(symmetric)
+        floor = max(scale * 1e-6, 1e-12)
+        eigvals = np.clip(eigvals, floor, None)
+        repaired = (eigvecs * eigvals) @ eigvecs.T
+        repaired = 0.5 * (repaired + repaired.T)
+        return scipy.linalg.cho_factor(repaired, lower=True, check_finite=False)
 
     def mahalanobis_distance(
         self,
