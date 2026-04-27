@@ -73,6 +73,7 @@ def _build_tracking_summary_stats_table(summary: dict[str, Any]) -> Table:
 def _build_tracking_summary_timing_table(summary: dict[str, Any]) -> Table:
     timings = dict(summary.get("timings_ms", {}))
     frames = int(summary.get("frames", 0) or 0)
+    breakdown = reporting.derive_timing_breakdown(timings, frames, total_time_ms=timings.get("total"))
 
     table = Table(
         expand=True,
@@ -93,11 +94,19 @@ def _build_tracking_summary_timing_table(summary: dict[str, Any]) -> Table:
     components = (
         ("Detection", "det"),
         ("ReID", "reid"),
-        ("Tracking", "track"),
+        ("Tracker rest", "tracker_rest"),
+        ("Tracker total", "tracker_total"),
         ("Total", "total"),
     )
     for label, key in components:
-        total_ms = float(timings.get(key, 0.0) or 0.0)
+        if key == "tracker_rest":
+            total_ms = float(breakdown["tracker_rest_total"])
+        elif key == "tracker_total":
+            total_ms = float(breakdown["tracker_total"])
+        elif key == "total":
+            total_ms = float(breakdown["total_total"])
+        else:
+            total_ms = float(timings.get(key, 0.0) or 0.0)
         avg_ms = float(timings.get("avg_total", 0.0) or 0.0) if key == "total" else (total_ms / frames if frames else 0.0)
         row_style = STYLE_TEXT_STRONG if key == "total" else None
         table.add_row(

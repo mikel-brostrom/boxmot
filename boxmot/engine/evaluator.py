@@ -36,6 +36,7 @@ from boxmot.engine.cache import generate_dets_embs_batched, run_generate_dets_em
 from boxmot.engine.replay import process_sequence, run_generate_mot_results
 from boxmot.engine.workflow_reporting import extract_summary, timing_summary_from_stats
 from boxmot.engine.workflow_results import ValidationResult
+from boxmot.engine.workflow_support import suppress_boxmot_logs
 from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.trackers.tracker_zoo import get_tracker_config
 from boxmot.utils import (
@@ -502,7 +503,18 @@ def run_eval(
         workflow.activate(EVAL_TRACK_STEP, render=False)
         workflow.set_detail(EVAL_TRACK_STEP, "Starting tracker...")
     if prepare_cache:
-        run_generate_dets_embs(args, timing_stats=timing_stats)
+        generate_progress_callback = None
+        if workflow is not None and bool(show_progress):
+            generate_progress_callback = WorkflowDetailCallback(workflow, EVAL_GENERATE_STEP)
+        with suppress_boxmot_logs((not verbose) or workflow is not None, level="WARNING"):
+            if generate_progress_callback is None:
+                run_generate_dets_embs(args, timing_stats=timing_stats)
+            else:
+                run_generate_dets_embs(
+                    args,
+                    timing_stats=timing_stats,
+                    progress_callback=generate_progress_callback,
+                )
         if workflow is not None:
             workflow.complete(EVAL_GENERATE_STEP, render=False)
             workflow.activate(EVAL_TRACK_STEP, render=False)
@@ -510,13 +522,14 @@ def run_eval(
     progress_callback = None
     if workflow is not None and bool(show_progress):
         progress_callback = WorkflowDetailCallback(workflow, EVAL_TRACK_STEP)
-    run_generate_mot_results(
-        args,
-        evolve_config=evolve_config,
-        timing_stats=timing_stats,
-        quiet=not bool(show_progress),
-        progress_callback=progress_callback,
-    )
+    with suppress_boxmot_logs((not verbose) or workflow is not None, level="WARNING"):
+        run_generate_mot_results(
+            args,
+            evolve_config=evolve_config,
+            timing_stats=timing_stats,
+            quiet=not bool(show_progress),
+            progress_callback=progress_callback,
+        )
     if workflow is not None:
         workflow.complete(EVAL_TRACK_STEP, render=False)
         workflow.activate(EVAL_EVALUATE_STEP, render=False)

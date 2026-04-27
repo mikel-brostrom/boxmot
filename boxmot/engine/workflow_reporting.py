@@ -11,7 +11,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from boxmot.utils.timing import TimingStats
+from boxmot.utils.timing import TimingStats, derive_timing_breakdown, fps_from_avg_ms
 from boxmot.utils.rich.ui import (
     STYLE_ACCENT,
     STYLE_COMBINED_ROW,
@@ -145,24 +145,68 @@ def _build_sequence_table(
 def _build_timing_renderable(timings: dict[str, Any] | None) -> RenderableType | None:
     if not isinstance(timings, dict):
         return None
+    totals_ms = timings.get("totals_ms")
     avg_ms = timings.get("avg_ms")
-    if not isinstance(avg_ms, dict) or not avg_ms:
+    if not isinstance(avg_ms, dict) or not avg_ms or not isinstance(totals_ms, dict):
         return None
 
-    table = Table.grid(expand=True)
-    for _ in range(4):
-        table.add_column(justify="center")
-
     frames = int(timings.get("frames", 0) or 0)
-    fps = float(timings.get("fps", 0.0) or 0.0)
+    breakdown = derive_timing_breakdown(totals_ms, frames, total_time_ms=totals_ms.get("total"))
+
+    table = Table(
+        expand=True,
+        box=None,
+        show_header=True,
+        header_style=STYLE_TABLE_HEADER,
+        row_styles=["", STYLE_MUTED],
+        pad_edge=False,
+        show_edge=False,
+        padding=(0, 2),
+        collapse_padding=False,
+    )
+    table.add_column("Timing", style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
+    table.add_column("Total (ms)", justify="right", no_wrap=True, ratio=1)
+    table.add_column("Avg (ms)", justify="right", no_wrap=True, ratio=1)
+    table.add_column("FPS", justify="right", no_wrap=True, ratio=1)
+
+    rows = (
+        ("ReID", float(breakdown["reid_total"]), float(avg_ms.get("reid", 0.0) or 0.0), None),
+        (
+            "Tracker rest",
+            float(breakdown["tracker_rest_total"]),
+            (float(breakdown["tracker_rest_total"]) / frames) if frames else 0.0,
+            None,
+        ),
+        (
+            "Tracker total",
+            float(breakdown["tracker_total"]),
+            (float(breakdown["tracker_total"]) / frames) if frames else 0.0,
+            None,
+        ),
+        (
+            "Total",
+            float(breakdown["total_total"]),
+            float(avg_ms.get("total", 0.0) or 0.0),
+            float(timings.get("fps", 0.0) or 0.0),
+        ),
+    )
+    for label, total_ms, avg_row_ms, fps in rows:
+        row_style = STYLE_TEXT_STRONG if label == "Total" else None
+        table.add_row(
+            label,
+            f"{total_ms:.1f}",
+            f"{avg_row_ms:.2f}",
+            f"{(fps if fps is not None else fps_from_avg_ms(avg_row_ms)):.1f}",
+            style=row_style,
+        )
+
     cells = [
         Text.assemble(Text("Frames", style=STYLE_ACCENT), "  ", Text(str(frames), style=STYLE_TEXT)),
-        Text.assemble(Text("FPS", style=STYLE_ACCENT), "  ", Text(f"{fps:.1f}", style=STYLE_TEXT)),
-        Text.assemble(Text("Avg total", style=STYLE_ACCENT), "  ", Text(f"{float(avg_ms.get('total', 0.0) or 0.0):.2f} ms", style=STYLE_TEXT)),
-        Text.assemble(Text("Assoc", style=STYLE_ACCENT), "  ", Text(f"{float(avg_ms.get('track', 0.0) or 0.0):.2f} ms", style=STYLE_TEXT)),
     ]
-    table.add_row(*cells)
-    return table
+    meta = Table.grid(expand=True)
+    meta.add_column(justify="left")
+    meta.add_row(*cells)
+    return Group(meta, table)
 
 
 def build_validation_cli_renderable(

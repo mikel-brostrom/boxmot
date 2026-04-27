@@ -33,6 +33,8 @@ STYLE_TABLE_HEADER = "boxmot.table.header"
 STYLE_COMBINED_ROW = "boxmot.row.combined"
 STYLE_RULE = "boxmot.rule"
 
+STEP_DONE_MARKER = "[✓]"
+
 _STEP_LABELS = {
     "Generate detections and embeddings": "Generate",
     "Run tracker": "Track",
@@ -173,7 +175,7 @@ def build_checklist(steps: Sequence[tuple[str, StepState]]) -> Table:
     table.add_column(justify="right", no_wrap=True)
 
     markers = {
-        "done": ("[x]", STYLE_STATUS_DONE, "DONE", STYLE_STATUS_DONE),
+        "done": (STEP_DONE_MARKER, STYLE_STATUS_DONE, "DONE", STYLE_STATUS_DONE),
         "active": ("[>]", STYLE_STATUS_ACTIVE, "ACTIVE", STYLE_STATUS_ACTIVE),
         "todo": ("[ ]", STYLE_STATUS_TODO, "QUEUED", STYLE_STATUS_TODO),
     }
@@ -201,7 +203,7 @@ def _build_active_steps_summary(steps: Sequence[tuple[str, StepState]]) -> Table
     table.add_column(ratio=1)
 
     markers = {
-        "done": ("[x]", STYLE_STATUS_DONE),
+        "done": (STEP_DONE_MARKER, STYLE_STATUS_DONE),
         "active": ("[>]", STYLE_STATUS_ACTIVE),
         "todo": ("[ ]", STYLE_STATUS_TODO),
     }
@@ -229,7 +231,7 @@ def _build_completed_steps_summary(steps: Sequence[tuple[str, StepState]]) -> Ta
     summary = " / ".join(_compact_step_label(label) for label, _ in steps)
 
     row = Text()
-    row.append("[x] ", style=STYLE_STATUS_DONE)
+    row.append(f"{STEP_DONE_MARKER} ", style=STYLE_STATUS_DONE)
     row.append(summary, style=STYLE_TEXT_STRONG)
     table.add_row(row, Text("DONE", style=STYLE_STATUS_DONE))
     return table

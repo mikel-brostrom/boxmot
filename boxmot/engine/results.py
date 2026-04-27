@@ -333,6 +333,7 @@ class Results:
         timings = summary["timings_ms"]
         frames = max(int(summary["frames"]), 1)
         width = 86
+        tracker_total = float(timings["reid"]) + float(timings["track"])
 
         def _fps(total_ms: float) -> float:
             avg_ms = float(total_ms) / frames if frames else 0.0
@@ -352,7 +353,8 @@ class Results:
             "-" * width,
             f"{'Detection':<14} {timings['det']:>12.1f} {(timings['det'] / frames if frames else 0.0):>12.2f} {_fps(timings['det']):>10.1f}",
             f"{'ReID':<14} {timings['reid']:>12.1f} {(timings['reid'] / frames if frames else 0.0):>12.2f} {_fps(timings['reid']):>10.1f}",
-            f"{'Tracking':<14} {timings['track']:>12.1f} {(timings['track'] / frames if frames else 0.0):>12.2f} {_fps(timings['track']):>10.1f}",
+            f"{'Tracker rest':<14} {timings['track']:>12.1f} {(timings['track'] / frames if frames else 0.0):>12.2f} {_fps(timings['track']):>10.1f}",
+            f"{'Tracker total':<14} {tracker_total:>12.1f} {(tracker_total / frames if frames else 0.0):>12.2f} {_fps(tracker_total):>10.1f}",
             "-" * width,
             f"{'Total':<14} {timings['total']:>12.1f} {timings['avg_total']:>12.2f} {_fps(timings['total']):>10.1f}",
             "=" * width,

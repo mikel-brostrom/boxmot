@@ -1,6 +1,7 @@
 import importlib
 from io import StringIO
 import queue
+from contextlib import nullcontext
 from pathlib import Path
 import re
 from types import SimpleNamespace
@@ -1169,7 +1170,14 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
             "Setting up evaluation data...",
         ) if workflow else None,
     )
-    monkeypatch.setattr(evaluator_module, "run_generate_dets_embs", lambda args, timing_stats=None: None)
+    monkeypatch.setattr(
+        evaluator_module,
+        "run_generate_dets_embs",
+        lambda args, timing_stats=None, progress_callback=None: progress_callback(
+            "Generating detections and embeddings: 2/2 frames\n"
+            "  MOT17-02-FRCNN ████████████████████  100%  (done)"
+        ) if progress_callback else None,
+    )
     monkeypatch.setattr(
         evaluator_module,
         "run_generate_mot_results",
@@ -1202,6 +1210,12 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
     assert actions[:10] == [
         ("detail", evaluator_module.EVAL_GENERATE_STEP, "Setting up evaluation data..."),
         ("active", evaluator_module.EVAL_GENERATE_STEP),
+        (
+            "detail",
+            evaluator_module.EVAL_GENERATE_STEP,
+            "Generating detections and embeddings: 2/2 frames\n"
+            "  MOT17-02-FRCNN ████████████████████  100%  (done)",
+        ),
         ("done", evaluator_module.EVAL_GENERATE_STEP),
         ("active", evaluator_module.EVAL_TRACK_STEP),
         ("detail", evaluator_module.EVAL_TRACK_STEP, "Starting tracker..."),
@@ -1209,13 +1223,60 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
         ("done", evaluator_module.EVAL_TRACK_STEP),
         ("active", evaluator_module.EVAL_EVALUATE_STEP),
         ("detail", evaluator_module.EVAL_EVALUATE_STEP, "Computing metrics..."),
-        ("done", evaluator_module.EVAL_EVALUATE_STEP),
     ]
-    assert actions[10][0] == "detail"
-    assert actions[10][1] == evaluator_module.EVAL_EVALUATE_STEP
-    assert "📊 RESULTS SUMMARY" in actions[10][2]
-    assert "HOTA" in actions[10][2]
-    assert "1.00" in actions[10][2]
+    assert actions[10] == ("done", evaluator_module.EVAL_EVALUATE_STEP)
+    assert actions[11][0] == "detail"
+    assert actions[11][1] == evaluator_module.EVAL_EVALUATE_STEP
+    assert "📊 RESULTS SUMMARY" in actions[11][2]
+    assert "HOTA" in actions[11][2]
+    assert "1.00" in actions[11][2]
+
+
+def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp_path):
+    suppress_calls = []
+
+    def fake_suppress(enabled, level="WARNING"):
+        suppress_calls.append((enabled, level))
+        return nullcontext()
+
+    class _FakeWorkflow:
+        def activate(self, label, *, render=True):
+            return None
+
+        def complete(self, label, *, render=True):
+            return None
+
+        def set_detail(self, title, text, *, render=True):
+            return None
+
+        def set_detail_renderable(self, title, renderable, *, render=True):
+            return None
+
+    monkeypatch.setattr(evaluator_module, "suppress_boxmot_logs", fake_suppress)
+    monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
+    monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
+    monkeypatch.setattr(evaluator_module, "eval_setup", lambda args, workflow=None: None)
+    monkeypatch.setattr(
+        evaluator_module,
+        "run_generate_dets_embs",
+        lambda args, timing_stats=None, progress_callback=None: None,
+    )
+    monkeypatch.setattr(evaluator_module, "run_generate_mot_results", lambda *args, **kwargs: None)
+    monkeypatch.setattr(evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
+    monkeypatch.setattr(evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}))
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "detector.pt"],
+        reid=[tmp_path / "reid.pt"],
+        benchmark="mot17-mini",
+        data="mot17-mini",
+        show_progress=True,
+        verbose=False,
+    )
+
+    evaluator_module.run_eval(args, verbose=False, workflow=_FakeWorkflow())
+
+    assert suppress_calls == [(True, "WARNING"), (True, "WARNING")]
 
 
 def test_build_eval_workflow_fields_reports_effective_cpp_backend(tmp_path):
@@ -1362,7 +1423,7 @@ def test_workflow_progress_renders_single_stateful_block(monkeypatch):
 
     rendered = buffer.getvalue()
 
-    assert "[x] Generate / Track / Evaluate" in rendered
+    assert "[✓] Generate / Track / Evaluate" in rendered
     assert "[x] Evaluate results" not in rendered
     assert "[>] Generate detections and embeddings" not in rendered
     assert "Setting up evaluation data..." not in rendered
@@ -1675,7 +1736,7 @@ def test_build_checklist_uses_semantic_state_colors():
         color_system="truecolor",
     )
 
-    assert "\x1b[1;38;2;63;185;80m[x] " in rendered
+    assert "\x1b[1;38;2;63;185;80m[✓] " in rendered
     assert "\x1b[1;38;2;227;179;65m[>] " in rendered or "\x1b[1;93m[>] " in rendered
     assert "\x1b[1;38;2;139;148;158m[ ] " in rendered
 
@@ -1824,6 +1885,44 @@ def test_build_workflow_intro_compact_live_layout_shows_all_progress_rows():
     assert rendered.count("MOT17-") == 7
     assert rendered.count("\n") + 1 <= 30
     assert "[>] Track" in rendered
+
+
+def test_build_timing_renderable_shows_reid_tracker_breakdown():
+    timings = {
+        "frames": 100,
+        "fps": 111.1,
+        "totals_ms": {
+            "preprocess": 0.0,
+            "inference": 120.0,
+            "postprocess": 0.0,
+            "reid": 200.0,
+            "track": 600.0,
+            "plot": 0.0,
+            "total": 900.0,
+        },
+        "avg_ms": {
+            "preprocess": 0.0,
+            "inference": 1.2,
+            "postprocess": 0.0,
+            "reid": 2.0,
+            "track": 6.0,
+            "plot": 0.0,
+            "total": 9.0,
+        },
+    }
+
+    rendered = ui_module.capture_renderable(
+        workflow_reporting_module._build_timing_renderable(timings),
+        width=120,
+    )
+
+    assert "Frames" in rendered
+    assert "ReID" in rendered
+    assert "Tracker rest" in rendered
+    assert "Tracker total" in rendered
+    assert "Total" in rendered
+    assert "800.0" in rendered
+    assert "111.1" in rendered
 
 
 def test_workflow_progress_supports_renderable_detail(monkeypatch):

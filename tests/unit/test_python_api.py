@@ -814,6 +814,7 @@ def test_track_run_result_formats_summary_block(tmp_path, monkeypatch):
 
     assert "TRACKING SUMMARY" in summary_text
     assert "Detection" in summary_text
+    assert "Tracker total" in summary_text
     assert "Total" in summary_text
     assert "Track rows" in summary_text
     assert "Unique IDs" in summary_text
@@ -853,7 +854,7 @@ def test_track_run_result_renderable_uses_rich_summary_layout(tmp_path, monkeypa
     assert "Component" in rendered
     assert "Detection" in rendered
     assert "ReID" in rendered
-    assert "Tracking" in rendered
+    assert "Tracker total" in rendered
     assert "Total (ms)" in rendered
     assert "Source" not in rendered
 
@@ -1431,6 +1432,8 @@ def test_validation_result_print_report_matches_cli_style(capsys):
     result.print_report(include_timings=True)
     combined = capsys.readouterr().out
     assert "📊 TIMING SUMMARY" in combined
+    assert "Tracker rest" in combined
+    assert "Tracker total" in combined
 
 
 def test_track_run_result_str_and_print_summary_use_plain_stdout(monkeypatch, capsys, tmp_path):

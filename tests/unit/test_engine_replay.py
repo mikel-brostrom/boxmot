@@ -4,6 +4,8 @@ import queue
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
+
 import boxmot.engine.evaluator as evaluator_module
 import boxmot.engine.replay as replay_module
 
@@ -191,6 +193,118 @@ def test_replay_nonquiet_uses_manager_queue_for_progress(tmp_path, monkeypatch):
 
     assert manager_calls == [True]
     assert queue_types == ["Queue"]
+
+
+def test_process_sequence_reports_separate_reid_and_tracker_rest_time(tmp_path, monkeypatch):
+    source = tmp_path / "train"
+    exp_dir = tmp_path / "runs"
+    exp_dir.mkdir()
+
+    created = {}
+
+    class FakeTrackerRuntime:
+        def update(self, dets, img, embs):
+            created["timing_stats"].add_reid_time(3.0)
+            return np.array([[1, 2, 10, 12, 1, 0.9, 0, 0]], dtype=np.float32), 10.0
+
+    def fake_create(**kwargs):
+        created["timing_stats"] = kwargs["timing_stats"]
+        return FakeTrackerRuntime()
+
+    monkeypatch.setattr(replay_module.TrackerRuntime, "create", fake_create)
+    monkeypatch.setattr(
+        replay_module,
+        "MOTDataset",
+        lambda **kwargs: SimpleNamespace(
+            get_sequence=lambda *args, **kw: [
+                {
+                    "frame_id": 1,
+                    "dets": np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32),
+                    "embs": np.array([[0.1, 0.2, 0.3]], dtype=np.float32),
+                    "img": np.zeros((4, 4, 3), dtype=np.uint8),
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(replay_module, "write_mot_results", lambda path, arr: None)
+
+    seq_name, kept_ids, timing = replay_module.process_sequence(
+        seq_name="MOT17-02-FRCNN",
+        mot_root=str(source),
+        project_root=str(tmp_path),
+        detector_name="det.pt",
+        reid_name="reid.pt",
+        tracker_name="deepocsort",
+        exp_folder=str(exp_dir),
+        target_fps=None,
+    )
+
+    assert seq_name == "MOT17-02-FRCNN"
+    assert kept_ids == [1]
+    assert timing == {"track_time_ms": 7.0, "reid_time_ms": 3.0, "num_frames": 1}
+
+
+def test_run_generate_mot_results_accumulates_worker_reid_timings(tmp_path, monkeypatch):
+    source = tmp_path / "train"
+    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
+        img_dir = source / seq_name / "img1"
+        img_dir.mkdir(parents=True)
+        (img_dir / "000001.jpg").write_bytes(b"")
+
+    args = SimpleNamespace(
+        project=tmp_path,
+        cache_project=tmp_path / "shared-runs",
+        benchmark="mot17-mini",
+        source=source,
+        detector=[Path("det.pt")],
+        reid=[Path("/tmp/reid.pt")],
+        tracker="deepocsort",
+        fps=None,
+        device="cpu",
+        n_threads=2,
+        postprocessing="none",
+        conf=0.25,
+    )
+
+    class FakeFuture:
+        def __init__(self, value):
+            self._value = value
+
+        def result(self):
+            return self._value
+
+    class FakeProcessPoolExecutor:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, _func, *task_arg):
+            seq_name = task_arg[0]
+            return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "reid_time_ms": 2.5, "num_frames": 1}))
+
+    class FakeSpawnContext:
+        def Manager(self):
+            raise AssertionError("quiet replay should not create a manager")
+
+    monkeypatch.setattr(replay_module.mp, "get_context", lambda method: FakeSpawnContext())
+    monkeypatch.setattr(replay_module.concurrent.futures, "ProcessPoolExecutor", FakeProcessPoolExecutor)
+    monkeypatch.setattr(
+        replay_module.concurrent.futures,
+        "wait",
+        lambda pending, timeout, return_when: (set(pending), set()),
+    )
+
+    timing_stats = replay_module.TimingStats()
+    replay_module.run_generate_mot_results(args, timing_stats=timing_stats, quiet=True)
+
+    assert timing_stats.totals["track"] == 10.0
+    assert timing_stats.totals["reid"] == 5.0
+    assert timing_stats.frames == 2
 
 
 def test_replay_cpp_backend_uses_native_runner(tmp_path, monkeypatch):

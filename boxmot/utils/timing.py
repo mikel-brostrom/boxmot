@@ -6,6 +6,58 @@ from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.ui import print_text
 
 
+def fps_from_avg_ms(avg_ms: float) -> float:
+    """Convert an average per-frame latency in milliseconds to FPS."""
+    avg_ms = float(avg_ms or 0.0)
+    return (1000.0 / avg_ms) if avg_ms > 0.0 else 0.0
+
+
+def derive_timing_breakdown(
+    totals: dict[str, float],
+    frames: int,
+    *,
+    total_time_ms: float | None = None,
+) -> dict[str, float | bool]:
+    """Derive consistent timing buckets across tracking / eval renderers.
+
+    ``track`` may either include ReID time (online tracking) or represent only
+    non-ReID tracker work (cached benchmark replay). Reuse the existing batch
+    heuristic so all timing reports label the same buckets consistently.
+    """
+    normalized = {
+        key: float(totals.get(key, 0.0) or 0.0)
+        for key in ("preprocess", "inference", "postprocess", "reid", "track", "plot", "total")
+    }
+
+    det_total = normalized["preprocess"] + normalized["inference"] + normalized["postprocess"]
+    reid_total = normalized["reid"]
+    track_total = normalized["track"]
+    plot_total = normalized["plot"]
+
+    total_total = float(total_time_ms if total_time_ms not in {None, 0.0} else normalized["total"])
+    if total_total == 0.0:
+        total_total = det_total + reid_total + track_total + plot_total
+
+    is_batch_mode = int(frames or 0) == 0 or (reid_total > 0.0 and det_total > 0.0)
+    tracker_rest_total = track_total if is_batch_mode else max(0.0, track_total - reid_total)
+    tracker_total = (reid_total + track_total) if is_batch_mode else track_total
+
+    accounted_total = det_total + reid_total + track_total + plot_total
+    overhead_total = max(0.0, total_total - accounted_total)
+
+    return {
+        "is_batch_mode": is_batch_mode,
+        "det_total": det_total,
+        "reid_total": reid_total,
+        "track_total": track_total,
+        "tracker_rest_total": tracker_rest_total,
+        "tracker_total": tracker_total,
+        "plot_total": plot_total,
+        "total_total": total_total,
+        "overhead_total": overhead_total,
+    }
+
+
 class TimingStats:
     """Track timing statistics for detection, ReID, and tracking phases."""
     
@@ -98,48 +150,18 @@ class TimingStats:
 
         frames = self.frames if self.frames > 0 else 1  # Avoid division by zero
 
-        # Calculate detection total
-        det_total = self.totals['preprocess'] + self.totals['inference'] + self.totals['postprocess']
-        total_time = self.totals['total']
-        plot_time = self.totals['plot']
-        reid_total = self.totals['reid']
-        track_total = self.totals['track']
-
-        # Determine workflow mode based on what was recorded
-        # - Real-time tracking: tracking done frame-by-frame with ReID embedded (assoc = track - reid)
-        # - Batch evaluation: ReID + tracking both recorded separately (assoc = track only since ReID is standalone)
-        #
-        # In batch mode, ReID is done *before* tracking with pre-computed embeddings,
-        # so track_total is pure association time. In real-time, ReID is inside track.
-        # We can detect batch mode if frames==0 (timing was aggregated from subprocess)
-        # or by looking for a flag. For now, use heuristic: if reid_total > 0 but frames==0, batch mode.
-
-        is_batch_mode = self.frames == 0 or (reid_total > 0 and det_total > 0)
-
-        # In batch mode: track_total is pure association (ReID was separate)
-        # In real-time mode: association = track - reid
-        if is_batch_mode:
-            assoc_time = track_total  # Track is association-only when ReID is pre-computed
-        else:
-            assoc_time = max(0, track_total - reid_total)
-
-        # Calculate overhead (unaccounted time) - only meaningful if total was recorded
-        accounted = det_total + reid_total + track_total + plot_time
-
-        # If no total time recorded, estimate from components
-        if total_time == 0:
-            total_time = accounted
-
-        # For batch mode, track time doesn't overlap with det+reid
-        overhead = max(0, total_time - accounted)
+        breakdown = derive_timing_breakdown(self.totals, self.frames, total_time_ms=self.totals['total'])
+        det_total = float(breakdown['det_total'])
+        total_time = float(breakdown['total_total'])
+        plot_time = float(breakdown['plot_total'])
+        reid_total = float(breakdown['reid_total'])
+        tracker_rest_total = float(breakdown['tracker_rest_total'])
+        tracker_total = float(breakdown['tracker_total'])
+        overhead = float(breakdown['overhead_total'])
 
         # Helper to calculate percentage
         def pct(value):
             return (value / total_time * 100) if total_time > 0 else 0
-
-        # Helper to calculate FPS from avg ms
-        def fps_from_avg(avg_ms):
-            return 1000 / avg_ms if avg_ms > 0 else 0
 
         lines = [
             "=" * 105,
@@ -153,13 +175,13 @@ class TimingStats:
         for key in ['preprocess', 'inference', 'postprocess']:
             total = self.totals[key]
             avg = total / frames
-            fps = fps_from_avg(avg)
+            fps = fps_from_avg_ms(avg)
             lines.append(
                 f"{key.capitalize():<20} | {total:<12.1f} | {avg:<12.2f} | {fps:<10.1f} | {pct(total):<12.1f}"
             )
 
         det_avg = det_total / frames
-        det_fps = fps_from_avg(det_avg)
+        det_fps = fps_from_avg_ms(det_avg)
         lines.append(
             f"{'Detection (total)':<20} | {det_total:<12.1f} | {det_avg:<12.2f} | {det_fps:<10.1f} | {pct(det_total):<12.1f}"
         )
@@ -168,25 +190,23 @@ class TimingStats:
 
         # ReID / Tracking section - display depends on workflow mode
         reid_avg = reid_total / frames if frames > 0 else 0
-        reid_fps = fps_from_avg(reid_avg)
+        reid_fps = fps_from_avg_ms(reid_avg)
         lines.append(
             f"{'ReID':<20} | {reid_total:<12.1f} | {reid_avg:<12.2f} | {reid_fps:<10.1f} | {pct(reid_total):<12.1f}"
         )
 
-        # Show association/track in both modes
-        if track_total > 0:
-            assoc_avg = assoc_time / frames if frames > 0 else 0
-            assoc_fps = fps_from_avg(assoc_avg)
+        if tracker_rest_total > 0 or tracker_total > 0:
+            tracker_rest_avg = tracker_rest_total / frames if frames > 0 else 0
+            tracker_rest_fps = fps_from_avg_ms(tracker_rest_avg)
             lines.append(
-                f"{'Association':<20} | {assoc_time:<12.1f} | {assoc_avg:<12.2f} | {assoc_fps:<10.1f} | {pct(assoc_time):<12.1f}"
+                f"{'Tracker rest':<20} | {tracker_rest_total:<12.1f} | {tracker_rest_avg:<12.2f} | {tracker_rest_fps:<10.1f} | {pct(tracker_rest_total):<12.1f}"
             )
 
-            tracking_total = track_total if not is_batch_mode else (reid_total + track_total)
-            tracking_avg = tracking_total / frames if frames > 0 else 0
-            tracking_fps = fps_from_avg(tracking_avg)
+            tracker_total_avg = tracker_total / frames if frames > 0 else 0
+            tracker_total_fps = fps_from_avg_ms(tracker_total_avg)
             lines.append(
-                f"{'Tracking (total)':<20} | {tracking_total:<12.1f} | "
-                f"{tracking_avg:<12.2f} | {tracking_fps:<10.1f} | {pct(tracking_total):<12.1f}"
+                f"{'Tracker total':<20} | {tracker_total:<12.1f} | "
+                f"{tracker_total_avg:<12.2f} | {tracker_total_fps:<10.1f} | {pct(tracker_total):<12.1f}"
             )
 
         lines.append("-" * 105)
@@ -194,21 +214,21 @@ class TimingStats:
         # Plotting and overhead
         if plot_time > 0:
             plot_avg = plot_time / frames
-            plot_fps = fps_from_avg(plot_avg)
+            plot_fps = fps_from_avg_ms(plot_avg)
             lines.append(
                 f"{'Plotting':<20} | {plot_time:<12.1f} | {plot_avg:<12.2f} | {plot_fps:<10.1f} | {pct(plot_time):<12.1f}"
             )
 
         if overhead > 0:
             overhead_avg = overhead / frames
-            overhead_fps = fps_from_avg(overhead_avg)
+            overhead_fps = fps_from_avg_ms(overhead_avg)
             lines.append(
                 f"{'Other (I/O, etc)':<20} | {overhead:<12.1f} | {overhead_avg:<12.2f} | {overhead_fps:<10.1f} | {pct(overhead):<12.1f}"
             )
 
         lines.append("-" * 105)
         avg_total = total_time / frames
-        total_fps = fps_from_avg(avg_total)
+        total_fps = fps_from_avg_ms(avg_total)
         lines.append(f"{'Total':<20} | {total_time:<12.1f} | {avg_total:<12.2f} | {total_fps:<10.1f} | {100.0:<12.1f}")
         lines.append(f"{'Frames':<20} | {frames:<12}")
         lines.append("=" * 105)

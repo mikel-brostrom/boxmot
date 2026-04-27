@@ -129,6 +129,8 @@ def process_sequence(
     if not reid_weights.suffix:
         reid_weights = reid_weights.with_suffix(".pt")
 
+    timing_stats = TimingStats()
+
     tracker_runtime = TrackerRuntime.create(
         tracker_name=tracker_name,
         reid_weights=reid_weights,
@@ -136,6 +138,7 @@ def process_sequence(
         half=False,
         per_class=False,
         evolve_param_dict=cfg_dict,
+        timing_stats=timing_stats,
     )
 
     det_emb_root = Path(project_root) / "dets_n_embs"
@@ -158,6 +161,7 @@ def process_sequence(
     all_tracks = []
     kept_frame_ids = []
     total_track_time_ms = 0.0
+    total_reid_time_ms = 0.0
     num_frames = 0
 
     for frame in sequence:
@@ -185,7 +189,9 @@ def process_sequence(
                 raise ValueError(message)
 
             tracks, elapsed_ms = tracker_runtime.update(dets, img, embs)
-            total_track_time_ms += elapsed_ms
+            frame_reid_time_ms = min(timing_stats.get_last_reid_time(), elapsed_ms)
+            total_reid_time_ms += frame_reid_time_ms
+            total_track_time_ms += max(elapsed_ms - frame_reid_time_ms, 0.0)
 
             if tracks.size:
                 all_tracks.append(TrackerRuntime.format_for_mot(tracks, frame_id))
@@ -193,7 +199,11 @@ def process_sequence(
     out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
     write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
 
-    timing_dict = {"track_time_ms": total_track_time_ms, "num_frames": num_frames}
+    timing_dict = {
+        "track_time_ms": total_track_time_ms,
+        "reid_time_ms": total_reid_time_ms,
+        "num_frames": num_frames,
+    }
     return seq_name, kept_frame_ids, timing_dict
 
 
@@ -225,10 +235,11 @@ def _run_tracking_tasks(
     *,
     quiet: bool,
     progress_callback: Callable[[str], None] | None = None,
-) -> tuple[dict[str, list[int]], float, int]:
+) -> tuple[dict[str, list[int]], float, float, int]:
     n_seqs = len(task_args)
     seq_frame_nums: dict[str, list[int]] = {}
     total_track_time_ms = 0.0
+    total_reid_time_ms = 0.0
     total_track_frames = 0
     done_count = 0
     seq_progress: dict = {}
@@ -270,7 +281,7 @@ def _run_tracking_tasks(
     _configure_logging(main_thread_only=True)
 
     def _run_executor(executor, progress_queue) -> None:
-        nonlocal total_track_time_ms, total_track_frames, done_count
+        nonlocal total_track_time_ms, total_reid_time_ms, total_track_frames, done_count
 
         futures = {executor.submit(process_sequence, *task_arg): task_arg[0] for task_arg in bound_task_args}
         pending = set(futures)
@@ -288,6 +299,7 @@ def _run_tracking_tasks(
                     sequence_name, kept_ids, timing_dict = future.result()
                     seq_frame_nums[sequence_name] = kept_ids
                     total_track_time_ms += timing_dict.get("track_time_ms", 0.0)
+                    total_reid_time_ms += timing_dict.get("reid_time_ms", 0.0)
                     total_track_frames += timing_dict.get("num_frames", 0)
                     num_frames = int(timing_dict.get("num_frames", 0))
                     seq_progress[sequence_name] = (num_frames, num_frames)
@@ -341,7 +353,7 @@ def _run_tracking_tasks(
             sys.stderr.flush()
             print_text(final_message, stderr=True)
 
-    return seq_frame_nums, total_track_time_ms, total_track_frames
+    return seq_frame_nums, total_track_time_ms, total_reid_time_ms, total_track_frames
 
 
 def _run_cpp_tracking_tasks(
@@ -352,10 +364,11 @@ def _run_cpp_tracking_tasks(
     sequence_names: list[str],
     native_backend,
     progress_callback: Callable[[str], None] | None = None,
-) -> tuple[dict[str, list[int]], float, int]:
+) -> tuple[dict[str, list[int]], float, float, int]:
     n_seqs = len(task_args)
     seq_frame_nums: dict[str, list[int]] = {}
     total_track_time_ms = 0.0
+    total_reid_time_ms = 0.0
     total_track_frames = 0
     done_count = 0
     seq_progress: dict[str, tuple[int, int]] = {}
@@ -409,6 +422,7 @@ def _run_cpp_tracking_tasks(
                     sequence_name, kept_ids, timing_dict = future.result()
                     seq_frame_nums[sequence_name] = kept_ids
                     total_track_time_ms += timing_dict.get("track_time_ms", 0.0)
+                    total_reid_time_ms += timing_dict.get("reid_time_ms", 0.0)
                     total_track_frames += timing_dict.get("num_frames", 0)
                     num_frames = int(timing_dict.get("num_frames", len(kept_ids)))
                     seq_progress[sequence_name] = (num_frames, num_frames)
@@ -434,7 +448,7 @@ def _run_cpp_tracking_tasks(
             sys.stderr.flush()
             print_text(final_message, stderr=True)
 
-    return seq_frame_nums, total_track_time_ms, total_track_frames
+    return seq_frame_nums, total_track_time_ms, total_reid_time_ms, total_track_frames
 
 
 def run_generate_mot_results(
@@ -470,7 +484,7 @@ def run_generate_mot_results(
         str(cache_project),
         None,
     )
-    seq_frame_nums, total_track_time_ms, total_track_frames = _run_tracking_tasks(
+    seq_frame_nums, total_track_time_ms, total_reid_time_ms, total_track_frames = _run_tracking_tasks(
         args,
         task_args,
         quiet=quiet,
@@ -480,6 +494,7 @@ def run_generate_mot_results(
 
     if timing_stats is not None:
         timing_stats.totals["track"] += total_track_time_ms
+        timing_stats.totals["reid"] += total_reid_time_ms
         if timing_stats.frames == 0 and total_track_frames > 0:
             timing_stats.frames = total_track_frames
         if verbose and total_track_frames > 0:
