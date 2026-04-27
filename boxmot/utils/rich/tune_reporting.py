@@ -160,7 +160,8 @@ def build_compact_tune_workflow_intro(
 
 
 class TuneWorkflowProgress(ui.WorkflowProgress):
-    def renderable(self) -> Panel:
+    def renderable(self, *, compact: bool = False) -> Panel:
+        del compact
         return build_compact_tune_workflow_intro(
             self.fields,
             steps=self.steps,

@@ -694,7 +694,7 @@ def test_tune_workflow_renderable_is_compact_and_complete() -> None:
         render=False,
     )
 
-    rendered = ui_module.capture_renderable(workflow.renderable(), width=140)
+    rendered = ui_module.capture_renderable(workflow.renderable(compact=False), width=140)
 
     assert rendered.count("\n") + 1 <= 12
     assert "Single-objective: max HOTA" in rendered
