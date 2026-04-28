@@ -701,6 +701,77 @@ def test_pipeline_delegates_to_detector_backend_and_reid_models(monkeypatch):
     assert reid_calls == [(1, 64), (1, 64)]
 
 
+def test_pipeline_records_detector_and_reid_phase_timings(monkeypatch):
+    class _FakeDetector:
+        def __init__(self, model, device, imgsz):
+            _ = (model, device, imgsz)
+
+        def preprocess(self, images):
+            return [image + 1 for image in images]
+
+        def process(self, preprocessed, conf, iou, classes, agnostic_nms):
+            _ = (conf, iou, classes, agnostic_nms)
+            return preprocessed
+
+        def postprocess(self, detections):
+            return [Detections(dets=np.empty((0, 6), dtype=np.float32), orig_img=image, path="") for image in detections]
+
+    class _FakeReIDModel:
+        def get_crops(self, xyxys, img):
+            _ = (xyxys, img)
+            return [np.ones((4, 4, 3), dtype=np.uint8)]
+
+        def inference_preprocess(self, crops):
+            return np.stack(crops).astype(np.float32)
+
+        def forward(self, crops):
+            _ = crops
+            return np.array([[3.0, 4.0]], dtype=np.float32)
+
+        def inference_postprocess(self, features):
+            return features
+
+    class _FakeBackend:
+        def __init__(self, weights, device, half, **kwargs):
+            _ = (weights, device, half, kwargs)
+            self.model = _FakeReIDModel()
+
+    monkeypatch.setattr(pipeline_module, "get_detector_class", lambda _path: _FakeDetector)
+    monkeypatch.setattr(pipeline_module, "select_device", lambda device: device)
+    monkeypatch.setattr(reid_core_module, "ReID", _FakeBackend)
+
+    pipeline = pipeline_module.DetectorReIDPipeline("det.pt", reid_paths=["alpha.pt"], device="cpu", imgsz=[64, 64])
+
+    pipeline.predict_batch([_DUMMY_IMG], conf=0.25, iou=0.7, agnostic_nms=False, classes=None)
+    features = pipeline.get_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG)
+
+    assert features.shape == (1, 2)
+    assert pipeline.timing_stats.totals["detector_preprocess"] > 0.0
+    assert pipeline.timing_stats.totals["detector_process"] > 0.0
+    assert pipeline.timing_stats.totals["detector_postprocess"] > 0.0
+    assert pipeline.timing_stats.totals["reid_preprocess"] > 0.0
+    assert pipeline.timing_stats.totals["reid_process"] > 0.0
+    assert pipeline.timing_stats.totals["reid_postprocess"] > 0.0
+    assert pipeline.timing_stats.totals["preprocess"] == pytest.approx(
+        pipeline.timing_stats.totals["detector_preprocess"],
+        abs=1e-6,
+    )
+    assert pipeline.timing_stats.totals["inference"] == pytest.approx(
+        pipeline.timing_stats.totals["detector_process"],
+        abs=1e-6,
+    )
+    assert pipeline.timing_stats.totals["postprocess"] == pytest.approx(
+        pipeline.timing_stats.totals["detector_postprocess"],
+        abs=1e-6,
+    )
+    assert pipeline.timing_stats.totals["reid"] == pytest.approx(
+        pipeline.timing_stats.totals["reid_preprocess"]
+        + pipeline.timing_stats.totals["reid_process"]
+        + pipeline.timing_stats.totals["reid_postprocess"],
+        rel=1e-6,
+    )
+
+
 def test_aabb_text_output_uses_conf_class_det_ind_columns(tmp_path):
     tracks = np.array([[10, 20, 30, 45, 7, 0.85, 3, 11]], dtype=np.float32)
 
@@ -1887,27 +1958,33 @@ def test_build_workflow_intro_compact_live_layout_shows_all_progress_rows():
     assert "[>] Track" in rendered
 
 
-def test_build_timing_renderable_shows_reid_tracker_breakdown():
+def test_build_timing_renderable_shows_detector_reid_tracker_breakdown():
     timings = {
         "frames": 100,
         "fps": 111.1,
         "totals_ms": {
-            "preprocess": 0.0,
+            "preprocess": 100.0,
             "inference": 120.0,
-            "postprocess": 0.0,
+            "postprocess": 30.0,
+            "detector_preprocess": 100.0,
+            "detector_process": 120.0,
+            "detector_postprocess": 30.0,
             "reid": 200.0,
+            "reid_preprocess": 40.0,
+            "reid_process": 150.0,
+            "reid_postprocess": 10.0,
             "track": 600.0,
             "plot": 0.0,
-            "total": 900.0,
+            "total": 1050.0,
         },
         "avg_ms": {
-            "preprocess": 0.0,
+            "preprocess": 1.0,
             "inference": 1.2,
-            "postprocess": 0.0,
+            "postprocess": 0.3,
             "reid": 2.0,
             "track": 6.0,
             "plot": 0.0,
-            "total": 9.0,
+            "total": 10.5,
         },
     }
 
@@ -1917,11 +1994,21 @@ def test_build_timing_renderable_shows_reid_tracker_breakdown():
     )
 
     assert "Frames" in rendered
-    assert "ReID" in rendered
-    assert "Tracker rest" in rendered
-    assert "Tracker total" in rendered
-    assert "Total" in rendered
+    assert "Stage" in rendered
+    assert "Detector" in rendered
+    assert "Tracker" in rendered
+    assert "  preprocess" in rendered
+    assert "  process" in rendered
+    assert "  postprocess" in rendered
+    assert "ReID preprocess" in rendered
+    assert "ReID process" in rendered
+    assert "ReID postprocess" in rendered
+    assert "association/update" in rendered
+    assert "Overall total" in rendered
+    assert "120.0" in rendered
+    assert "250.0" in rendered
     assert "800.0" in rendered
+    assert "1050.0" in rendered
     assert "111.1" in rendered
 
 

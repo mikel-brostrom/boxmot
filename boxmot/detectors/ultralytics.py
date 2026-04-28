@@ -56,13 +56,32 @@ class UltralyticsDetector(BaseDetectorBackend):
             return YOLO(str(model_path))
 
     def preprocess(self, images):
-        raise NotImplementedError("Use __call__ directly for UltralyticsDetector")
+        return images
 
-    def process(self, preprocessed):
-        raise NotImplementedError("Use __call__ directly for UltralyticsDetector")
+    def process(self, preprocessed, conf, iou, classes, agnostic_nms):
+        return self._yolo.predict(
+            source=preprocessed,
+            conf=conf,
+            iou=iou,
+            classes=classes,
+            agnostic_nms=agnostic_nms,
+            device=self.device,
+            imgsz=self.imgsz,
+            verbose=False,
+            stream=False,
+        )
 
     def postprocess(self, detections):
-        raise NotImplementedError("Use __call__ directly for UltralyticsDetector")
+        processed = []
+        for result in detections:
+            dets = self._extract_dets(result)
+            processed.append(Detections(
+                dets=dets,
+                orig_img=result.orig_img,
+                path=result.path or "",
+                names=result.names or self.names,
+            ))
+        return processed
 
     @staticmethod
     def _as_numpy(values) -> np.ndarray:
@@ -92,24 +111,12 @@ class UltralyticsDetector(BaseDetectorBackend):
         return np.empty((0, 6), dtype=np.float32)
 
     def __call__(self, images: list, conf, iou, classes, agnostic_nms) -> list:
-        yolo_results = self._yolo.predict(
-            source=images,
+        preprocessed = self.preprocess(images)
+        yolo_results = self.process(
+            preprocessed,
             conf=conf,
             iou=iou,
             classes=classes,
             agnostic_nms=agnostic_nms,
-            device=self.device,
-            imgsz=self.imgsz,
-            verbose=False,
-            stream=False,
         )
-        detections = []
-        for r in yolo_results:
-            dets = self._extract_dets(r)
-            detections.append(Detections(
-                dets=dets,
-                orig_img=r.orig_img,
-                path=r.path or "",
-                names=r.names or self.names,
-            ))
-        return detections
+        return self.postprocess(yolo_results)

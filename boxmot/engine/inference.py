@@ -11,6 +11,7 @@ inside the individual detector classes.
 
 import time
 import types
+import inspect
 from pathlib import Path
 from typing import Callable, Generator, List, Optional, Union
 import numpy as np
@@ -20,7 +21,7 @@ from boxmot.data import iter_source
 from boxmot.detectors import default_imgsz, get_detector_class
 from boxmot.detectors.base import Detections
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.timing import TimingStats
+from boxmot.utils.timing import TimingStats, timed_reid_get_features
 from boxmot.utils.torch_utils import select_device
 
 
@@ -36,12 +37,9 @@ class TimedReIDModel:
         self._timing_stats = timing_stats
 
     def get_features(self, xyxys: np.ndarray, img: np.ndarray) -> np.ndarray:
-        t0 = time.perf_counter()
-        features = self._model.get_features(xyxys, img)
-        elapsed_ms = (time.perf_counter() - t0) * 1000
-        if self._timing_stats is not None:
-            self._timing_stats.add_reid_time(elapsed_ms)
-        return features
+        if self._timing_stats is None:
+            return self._model.get_features(xyxys, img)
+        return timed_reid_get_features(self._model, self._timing_stats, xyxys, img)
 
     def __getattr__(self, name):
         return getattr(self._model, name)
@@ -158,6 +156,83 @@ class DetectorReIDPipeline:
         for cb in self._callbacks[event]:
             cb(proxy)
 
+    @staticmethod
+    def _call_with_supported_kwargs(func: Callable, *args, **kwargs):
+        """Call a detector stage with only the kwargs its signature accepts."""
+        try:
+            signature = inspect.signature(func)
+        except (TypeError, ValueError):
+            return func(*args, **kwargs)
+
+        if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()):
+            return func(*args, **kwargs)
+
+        supported_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in signature.parameters
+        }
+        return func(*args, **supported_kwargs)
+
+    def _predict_detector(
+        self,
+        images: list[np.ndarray],
+        *,
+        conf: float,
+        iou: float,
+        agnostic_nms: bool,
+        classes: Optional[List[int]],
+    ) -> list[Detections]:
+        if all(hasattr(self.detector, attr) for attr in ("preprocess", "process", "postprocess")):
+            preprocess_started = time.perf_counter()
+            try:
+                preprocessed = self.detector.preprocess(images)
+                self.timing_stats.add_detector_phase_time(
+                    "preprocess", (time.perf_counter() - preprocess_started) * 1000
+                )
+
+                process_started = time.perf_counter()
+                predictions = self._call_with_supported_kwargs(
+                    self.detector.process,
+                    preprocessed,
+                    conf=conf,
+                    iou=iou,
+                    classes=classes,
+                    agnostic_nms=agnostic_nms,
+                )
+                self.timing_stats.add_detector_phase_time(
+                    "process", (time.perf_counter() - process_started) * 1000
+                )
+
+                postprocess_started = time.perf_counter()
+                results = self._call_with_supported_kwargs(
+                    self.detector.postprocess,
+                    predictions,
+                    conf=conf,
+                    iou=iou,
+                    classes=classes,
+                    agnostic_nms=agnostic_nms,
+                )
+                self.timing_stats.add_detector_phase_time(
+                    "postprocess", (time.perf_counter() - postprocess_started) * 1000
+                )
+                return results
+            except NotImplementedError:
+                pass
+
+        fallback_started = time.perf_counter()
+        results = self.detector(
+            images,
+            conf=conf,
+            iou=iou,
+            classes=classes,
+            agnostic_nms=agnostic_nms,
+        )
+        self.timing_stats.add_detector_phase_time(
+            "process", (time.perf_counter() - fallback_started) * 1000
+        )
+        return results
+
     # ------------------------------------------------------------------
     # Inference
     # ------------------------------------------------------------------
@@ -177,12 +252,13 @@ class DetectorReIDPipeline:
 
         for frame_idx, (path, frame) in enumerate(iter_source(source, vid_stride=vid_stride), start=1):
             self.timing_stats.start_frame()
-            t0 = time.perf_counter()
-            results = self.detector(
-                [frame], conf=conf, iou=iou,
-                classes=classes, agnostic_nms=agnostic_nms,
+            results = self._predict_detector(
+                [frame],
+                conf=conf,
+                iou=iou,
+                classes=classes,
+                agnostic_nms=agnostic_nms,
             )
-            self.timing_stats.totals["inference"] += (time.perf_counter() - t0) * 1000
             for result in results:
                 if not result.path:
                     result.path = path
@@ -205,12 +281,13 @@ class DetectorReIDPipeline:
         classes: Optional[List[int]],
     ) -> list:
         """Run batch detection and return a list of Detection objects."""
-        t0 = time.perf_counter()
-        results = self.detector(
-            images, conf=conf, iou=iou,
-            classes=classes, agnostic_nms=agnostic_nms,
+        results = self._predict_detector(
+            images,
+            conf=conf,
+            iou=iou,
+            classes=classes,
+            agnostic_nms=agnostic_nms,
         )
-        self.timing_stats.totals["inference"] += (time.perf_counter() - t0) * 1000
         return results
 
     # ------------------------------------------------------------------

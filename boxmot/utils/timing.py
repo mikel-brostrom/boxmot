@@ -4,14 +4,80 @@ from __future__ import annotations
 
 import time
 
+import numpy as np
+
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.ui import print_text
+
+
+DETECTOR_PHASES = ("preprocess", "process", "postprocess")
+REID_PHASES = ("preprocess", "process", "postprocess")
+
+_DETECTOR_PHASE_KEYS = {
+    "preprocess": "detector_preprocess",
+    "process": "detector_process",
+    "postprocess": "detector_postprocess",
+}
+_LEGACY_DETECTOR_KEYS = {
+    "preprocess": "preprocess",
+    "process": "inference",
+    "postprocess": "postprocess",
+}
+_REID_PHASE_KEYS = {
+    "preprocess": "reid_preprocess",
+    "process": "reid_process",
+    "postprocess": "reid_postprocess",
+}
 
 
 def fps_from_avg_ms(avg_ms: float) -> float:
     """Convert an average per-frame latency in milliseconds to FPS."""
     avg_ms = float(avg_ms or 0.0)
     return (1000.0 / avg_ms) if avg_ms > 0.0 else 0.0
+
+
+def timed_reid_get_features(model, timing_stats: "TimingStats", *args, **kwargs):
+    """Time ReID feature extraction at preprocess/process/postprocess granularity when possible."""
+    if not all(
+        hasattr(model, attr)
+        for attr in ("get_crops", "inference_preprocess", "forward", "inference_postprocess")
+    ):
+        t0 = time.perf_counter()
+        result = model.get_features(*args, **kwargs)
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        timing_stats.add_reid_phase_time("process", elapsed_ms)
+        return result
+
+    if len(args) < 2:
+        t0 = time.perf_counter()
+        result = model.get_features(*args, **kwargs)
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        timing_stats.add_reid_phase_time("process", elapsed_ms)
+        return result
+
+    xyxys, img = args[0], args[1]
+    boxes = np.asarray(xyxys)
+    if boxes.size == 0:
+        return np.array([])
+
+    preprocess_started = time.perf_counter()
+    crops = model.get_crops(boxes, img)
+    crops = model.inference_preprocess(crops)
+    timing_stats.add_reid_phase_time("preprocess", (time.perf_counter() - preprocess_started) * 1000)
+
+    process_started = time.perf_counter()
+    features = model.forward(crops)
+    timing_stats.add_reid_phase_time("process", (time.perf_counter() - process_started) * 1000)
+
+    postprocess_started = time.perf_counter()
+    features = model.inference_postprocess(features)
+    features = np.asarray(features, dtype=np.float32)
+    if features.size != 0:
+        norms = np.linalg.norm(features, axis=-1, keepdims=True)
+        norms[norms == 0] = 1.0
+        features = features / norms
+    timing_stats.add_reid_phase_time("postprocess", (time.perf_counter() - postprocess_started) * 1000)
+    return features
 
 
 def derive_timing_breakdown(
@@ -28,11 +94,51 @@ def derive_timing_breakdown(
     """
     normalized = {
         key: float(totals.get(key, 0.0) or 0.0)
-        for key in ("preprocess", "inference", "postprocess", "reid", "track", "plot", "total")
+        for key in (
+            "preprocess",
+            "inference",
+            "postprocess",
+            "det",
+            "reid",
+            "track",
+            "plot",
+            "total",
+            "detector_preprocess",
+            "detector_process",
+            "detector_postprocess",
+            "reid_preprocess",
+            "reid_process",
+            "reid_postprocess",
+        )
     }
 
-    det_total = normalized["preprocess"] + normalized["inference"] + normalized["postprocess"]
-    reid_total = normalized["reid"]
+    detector_has_split = any(normalized[_DETECTOR_PHASE_KEYS[phase]] > 0.0 for phase in DETECTOR_PHASES)
+    detector_has_legacy = any(normalized[key] > 0.0 for key in ("preprocess", "inference", "postprocess"))
+    if detector_has_split:
+        detector_preprocess_total = normalized["detector_preprocess"]
+        detector_process_total = normalized["detector_process"]
+        detector_postprocess_total = normalized["detector_postprocess"]
+    elif detector_has_legacy:
+        detector_preprocess_total = normalized["preprocess"]
+        detector_process_total = normalized["inference"]
+        detector_postprocess_total = normalized["postprocess"]
+    else:
+        detector_preprocess_total = 0.0
+        detector_process_total = normalized["det"]
+        detector_postprocess_total = 0.0
+
+    reid_has_split = any(normalized[_REID_PHASE_KEYS[phase]] > 0.0 for phase in REID_PHASES)
+    if reid_has_split:
+        reid_preprocess_total = normalized["reid_preprocess"]
+        reid_process_total = normalized["reid_process"]
+        reid_postprocess_total = normalized["reid_postprocess"]
+    else:
+        reid_preprocess_total = 0.0
+        reid_process_total = normalized["reid"]
+        reid_postprocess_total = 0.0
+
+    det_total = detector_preprocess_total + detector_process_total + detector_postprocess_total
+    reid_total = reid_preprocess_total + reid_process_total + reid_postprocess_total
     track_total = normalized["track"]
     plot_total = normalized["plot"]
 
@@ -49,7 +155,13 @@ def derive_timing_breakdown(
 
     return {
         "is_batch_mode": is_batch_mode,
+        "detector_preprocess_total": detector_preprocess_total,
+        "detector_process_total": detector_process_total,
+        "detector_postprocess_total": detector_postprocess_total,
         "det_total": det_total,
+        "reid_preprocess_total": reid_preprocess_total,
+        "reid_process_total": reid_process_total,
+        "reid_postprocess_total": reid_postprocess_total,
         "reid_total": reid_total,
         "track_total": track_total,
         "tracker_rest_total": tracker_rest_total,
@@ -58,6 +170,58 @@ def derive_timing_breakdown(
         "total_total": total_total,
         "overhead_total": overhead_total,
     }
+
+
+def build_timing_display_rows(
+    breakdown: dict[str, float | bool],
+    frames: int,
+    *,
+    overall_avg_ms: float | None = None,
+    overall_fps: float | None = None,
+) -> list[dict[str, object]]:
+    """Build grouped detector/tracker timing rows for UI summaries."""
+    frame_count = int(frames or 0)
+
+    def _row(
+        label: str,
+        total_ms: float,
+        *,
+        strong: bool = False,
+        avg_ms: float | None = None,
+        fps: float | None = None,
+    ) -> dict[str, object]:
+        total_value = float(total_ms or 0.0)
+        avg_value = float(avg_ms if avg_ms is not None else (total_value / frame_count if frame_count else 0.0))
+        fps_value = float(fps if fps is not None else fps_from_avg_ms(avg_value))
+        return {
+            "kind": "row",
+            "label": label,
+            "total": total_value,
+            "avg": avg_value,
+            "fps": fps_value,
+            "strong": strong,
+        }
+
+    return [
+        {"kind": "group", "label": "Detector"},
+        _row("  preprocess", float(breakdown["detector_preprocess_total"])),
+        _row("  process", float(breakdown["detector_process_total"])),
+        _row("  postprocess", float(breakdown["detector_postprocess_total"])),
+        _row("  Detector total", float(breakdown["det_total"]), strong=True),
+        {"kind": "group", "label": "Tracker"},
+        _row("  ReID preprocess", float(breakdown["reid_preprocess_total"])),
+        _row("  ReID process", float(breakdown["reid_process_total"])),
+        _row("  ReID postprocess", float(breakdown["reid_postprocess_total"])),
+        _row("  association/update", float(breakdown["tracker_rest_total"])),
+        _row("  Tracker total", float(breakdown["tracker_total"]), strong=True),
+        _row(
+            "Overall total",
+            float(breakdown["total_total"]),
+            strong=True,
+            avg_ms=overall_avg_ms,
+            fps=overall_fps,
+        ),
+    ]
 
 
 class TimingStats:
@@ -71,7 +235,13 @@ class TimingStats:
             'preprocess': 0.0,
             'inference': 0.0,
             'postprocess': 0.0,
+            'detector_preprocess': 0.0,
+            'detector_process': 0.0,
+            'detector_postprocess': 0.0,
             'reid': 0.0,
+            'reid_preprocess': 0.0,
+            'reid_process': 0.0,
+            'reid_postprocess': 0.0,
             'track': 0.0,
             'plot': 0.0,
             'total': 0.0,
@@ -124,6 +294,23 @@ class TimingStats:
         self.totals['reid'] += time_ms
         # Also accumulate for per-frame tracking
         self._last_reid_time = getattr(self, '_last_reid_time', 0) + time_ms
+
+    def add_detector_phase_time(self, phase: str, time_ms: float) -> None:
+        """Record detector phase timing while keeping legacy aggregate buckets updated."""
+        phase_key = str(phase).strip().lower()
+        specific_key = _DETECTOR_PHASE_KEYS[phase_key]
+        legacy_key = _LEGACY_DETECTOR_KEYS[phase_key]
+        elapsed_ms = float(time_ms or 0.0)
+        self.totals[specific_key] += elapsed_ms
+        self.totals[legacy_key] += elapsed_ms
+
+    def add_reid_phase_time(self, phase: str, time_ms: float) -> None:
+        """Record ReID phase timing and total per-frame ReID time."""
+        phase_key = str(phase).strip().lower()
+        specific_key = _REID_PHASE_KEYS[phase_key]
+        elapsed_ms = float(time_ms or 0.0)
+        self.totals[specific_key] += elapsed_ms
+        self.add_reid_time(elapsed_ms)
     
     def record_ultralytics_times(self, predictor):
         """Record timing from Ultralytics results."""
@@ -132,9 +319,9 @@ class TimingStats:
         if hasattr(predictor, 'results') and predictor.results:
             for result in predictor.results:
                 if hasattr(result, 'speed') and result.speed:
-                    self.totals['preprocess'] += result.speed.get('preprocess', 0) or 0
-                    self.totals['inference'] += result.speed.get('inference', 0) or 0
-                    self.totals['postprocess'] += result.speed.get('postprocess', 0) or 0
+                    self.add_detector_phase_time('preprocess', result.speed.get('preprocess', 0) or 0)
+                    self.add_detector_phase_time('process', result.speed.get('inference', 0) or 0)
+                    self.add_detector_phase_time('postprocess', result.speed.get('postprocess', 0) or 0)
     
     def end_frame(self):
         """Mark the end of frame processing."""
@@ -153,12 +340,8 @@ class TimingStats:
         frames = self.frames if self.frames > 0 else 1  # Avoid division by zero
 
         breakdown = derive_timing_breakdown(self.totals, self.frames, total_time_ms=self.totals['total'])
-        det_total = float(breakdown['det_total'])
         total_time = float(breakdown['total_total'])
         plot_time = float(breakdown['plot_total'])
-        reid_total = float(breakdown['reid_total'])
-        tracker_rest_total = float(breakdown['tracker_rest_total'])
-        tracker_total = float(breakdown['tracker_total'])
         overhead = float(breakdown['overhead_total'])
 
         # Helper to calculate percentage
@@ -169,49 +352,25 @@ class TimingStats:
             "=" * 105,
             f"{'📊 TIMING SUMMARY':^105}",
             "=" * 105,
-            f"{'Component':<20} | {'Total (ms)':<12} | {'Avg (ms)':<12} | {'FPS':<10} | {'% of Total':<12}",
+            f"{'Stage':<20} | {'Total (ms)':<12} | {'Avg (ms)':<12} | {'FPS':<10} | {'% of Total':<12}",
             "-" * 105,
         ]
 
-        # Detection pipeline
-        for key in ['preprocess', 'inference', 'postprocess']:
-            total = self.totals[key]
-            avg = total / frames
-            fps = fps_from_avg_ms(avg)
+        for entry in build_timing_display_rows(
+            breakdown,
+            frames,
+            overall_avg_ms=(total_time / frames if frames else 0.0),
+            overall_fps=fps_from_avg_ms(total_time / frames if frames else 0.0),
+        ):
+            if entry["kind"] == "group":
+                lines.append(str(entry["label"]))
+                continue
+            total = float(entry["total"])
+            avg = float(entry["avg"])
+            fps = float(entry["fps"])
             lines.append(
-                f"{key.capitalize():<20} | {total:<12.1f} | {avg:<12.2f} | {fps:<10.1f} | {pct(total):<12.1f}"
+                f"{str(entry['label']):<20} | {total:<12.1f} | {avg:<12.2f} | {fps:<10.1f} | {pct(total):<12.1f}"
             )
-
-        det_avg = det_total / frames
-        det_fps = fps_from_avg_ms(det_avg)
-        lines.append(
-            f"{'Detection (total)':<20} | {det_total:<12.1f} | {det_avg:<12.2f} | {det_fps:<10.1f} | {pct(det_total):<12.1f}"
-        )
-
-        lines.append("-" * 105)
-
-        # ReID / Tracking section - display depends on workflow mode
-        reid_avg = reid_total / frames if frames > 0 else 0
-        reid_fps = fps_from_avg_ms(reid_avg)
-        lines.append(
-            f"{'ReID':<20} | {reid_total:<12.1f} | {reid_avg:<12.2f} | {reid_fps:<10.1f} | {pct(reid_total):<12.1f}"
-        )
-
-        if tracker_rest_total > 0 or tracker_total > 0:
-            tracker_rest_avg = tracker_rest_total / frames if frames > 0 else 0
-            tracker_rest_fps = fps_from_avg_ms(tracker_rest_avg)
-            lines.append(
-                f"{'Tracker rest':<20} | {tracker_rest_total:<12.1f} | {tracker_rest_avg:<12.2f} | {tracker_rest_fps:<10.1f} | {pct(tracker_rest_total):<12.1f}"
-            )
-
-            tracker_total_avg = tracker_total / frames if frames > 0 else 0
-            tracker_total_fps = fps_from_avg_ms(tracker_total_avg)
-            lines.append(
-                f"{'Tracker total':<20} | {tracker_total:<12.1f} | "
-                f"{tracker_total_avg:<12.2f} | {tracker_total_fps:<10.1f} | {pct(tracker_total):<12.1f}"
-            )
-
-        lines.append("-" * 105)
 
         # Plotting and overhead
         if plot_time > 0:
@@ -228,10 +387,6 @@ class TimingStats:
                 f"{'Other (I/O, etc)':<20} | {overhead:<12.1f} | {overhead_avg:<12.2f} | {overhead_fps:<10.1f} | {pct(overhead):<12.1f}"
             )
 
-        lines.append("-" * 105)
-        avg_total = total_time / frames
-        total_fps = fps_from_avg_ms(avg_total)
-        lines.append(f"{'Total':<20} | {total_time:<12.1f} | {avg_total:<12.2f} | {total_fps:<10.1f} | {100.0:<12.1f}")
         lines.append(f"{'Frames':<20} | {frames:<12}")
         lines.append("=" * 105)
         return "\n".join(lines)
@@ -253,11 +408,7 @@ class TimedReIDWrapper:
     
     def get_features(self, *args, **kwargs):
         """Wrap get_features to measure timing."""
-        t0 = time.perf_counter()
-        result = self._model.get_features(*args, **kwargs)
-        elapsed_ms = (time.perf_counter() - t0) * 1000
-        self._timing_stats.add_reid_time(elapsed_ms)
-        return result
+        return timed_reid_get_features(self._model, self._timing_stats, *args, **kwargs)
     
     def __getattr__(self, name):
         """Forward all other attributes to the wrapped model."""

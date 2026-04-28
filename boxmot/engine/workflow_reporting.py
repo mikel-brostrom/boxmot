@@ -11,7 +11,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from boxmot.utils.timing import TimingStats, derive_timing_breakdown, fps_from_avg_ms
+from boxmot.utils.timing import TimingStats, build_timing_display_rows, derive_timing_breakdown
 from boxmot.utils.rich.ui import (
     STYLE_ACCENT,
     STYLE_COMBINED_ROW,
@@ -164,39 +164,27 @@ def _build_timing_renderable(timings: dict[str, Any] | None) -> RenderableType |
         padding=(0, 2),
         collapse_padding=False,
     )
-    table.add_column("Timing", style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
+    table.add_column("Stage", style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
     table.add_column("Total (ms)", justify="right", no_wrap=True, ratio=1)
     table.add_column("Avg (ms)", justify="right", no_wrap=True, ratio=1)
     table.add_column("FPS", justify="right", no_wrap=True, ratio=1)
 
-    rows = (
-        ("ReID", float(breakdown["reid_total"]), float(avg_ms.get("reid", 0.0) or 0.0), None),
-        (
-            "Tracker rest",
-            float(breakdown["tracker_rest_total"]),
-            (float(breakdown["tracker_rest_total"]) / frames) if frames else 0.0,
-            None,
-        ),
-        (
-            "Tracker total",
-            float(breakdown["tracker_total"]),
-            (float(breakdown["tracker_total"]) / frames) if frames else 0.0,
-            None,
-        ),
-        (
-            "Total",
-            float(breakdown["total_total"]),
-            float(avg_ms.get("total", 0.0) or 0.0),
-            float(timings.get("fps", 0.0) or 0.0),
-        ),
-    )
-    for label, total_ms, avg_row_ms, fps in rows:
-        row_style = STYLE_TEXT_STRONG if label == "Total" else None
+    for entry in build_timing_display_rows(
+        breakdown,
+        frames,
+        overall_avg_ms=float(avg_ms.get("total", 0.0) or 0.0),
+        overall_fps=float(timings.get("fps", 0.0) or 0.0),
+    ):
+        if entry["kind"] == "group":
+            table.add_row(Text(str(entry["label"]), style=STYLE_ACCENT), "", "", "")
+            continue
+
+        row_style = STYLE_TEXT_STRONG if bool(entry["strong"]) else None
         table.add_row(
-            label,
-            f"{total_ms:.1f}",
-            f"{avg_row_ms:.2f}",
-            f"{(fps if fps is not None else fps_from_avg_ms(avg_row_ms)):.1f}",
+            str(entry["label"]),
+            f"{float(entry['total']):.1f}",
+            f"{float(entry['avg']):.2f}",
+            f"{float(entry['fps']):.1f}",
             style=row_style,
         )
 

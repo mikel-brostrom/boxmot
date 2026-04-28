@@ -34,7 +34,13 @@ def _results_summary_snapshot(results: Results, source: Any) -> dict[str, Any]:
         "unique_tracks": len(getattr(results, "_track_ids_seen", set())),
         "timings_ms": {
             "det": float(results.totals["det"]),
+            "detector_preprocess": float(results.totals.get("detector_preprocess", 0.0)),
+            "detector_process": float(results.totals.get("detector_process", 0.0)),
+            "detector_postprocess": float(results.totals.get("detector_postprocess", 0.0)),
             "reid": float(results.totals["reid"]),
+            "reid_preprocess": float(results.totals.get("reid_preprocess", 0.0)),
+            "reid_process": float(results.totals.get("reid_process", 0.0)),
+            "reid_postprocess": float(results.totals.get("reid_postprocess", 0.0)),
             "track": float(results.totals["track"]),
             "total": float(results.totals["total"]),
             "avg_total": float(avg_total),
@@ -86,34 +92,26 @@ def _build_tracking_summary_timing_table(summary: dict[str, Any]) -> Table:
         padding=(0, 2),
         collapse_padding=False,
     )
-    table.add_column("Component", style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
+    table.add_column("Stage", style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
     table.add_column("Total (ms)", justify="right", no_wrap=True, ratio=1)
     table.add_column("Avg (ms)", justify="right", no_wrap=True, ratio=1)
     table.add_column("FPS", justify="right", no_wrap=True, ratio=1)
 
-    components = (
-        ("Detection", "det"),
-        ("ReID", "reid"),
-        ("Tracker rest", "tracker_rest"),
-        ("Tracker total", "tracker_total"),
-        ("Total", "total"),
-    )
-    for label, key in components:
-        if key == "tracker_rest":
-            total_ms = float(breakdown["tracker_rest_total"])
-        elif key == "tracker_total":
-            total_ms = float(breakdown["tracker_total"])
-        elif key == "total":
-            total_ms = float(breakdown["total_total"])
-        else:
-            total_ms = float(timings.get(key, 0.0) or 0.0)
-        avg_ms = float(timings.get("avg_total", 0.0) or 0.0) if key == "total" else (total_ms / frames if frames else 0.0)
-        row_style = STYLE_TEXT_STRONG if key == "total" else None
+    for entry in reporting.build_timing_display_rows(
+        breakdown,
+        frames,
+        overall_avg_ms=float(timings.get("avg_total", 0.0) or 0.0),
+    ):
+        if entry["kind"] == "group":
+            table.add_row(Text(str(entry["label"]), style=STYLE_ACCENT), "", "", "")
+            continue
+
+        row_style = STYLE_TEXT_STRONG if bool(entry["strong"]) else None
         table.add_row(
-            label,
-            f"{total_ms:.1f}",
-            f"{avg_ms:.2f}",
-            f"{_timing_fps(total_ms, frames):.1f}",
+            str(entry["label"]),
+            f"{float(entry['total']):.1f}",
+            f"{float(entry['avg']):.2f}",
+            f"{float(entry['fps']):.1f}",
             style=row_style,
         )
 
