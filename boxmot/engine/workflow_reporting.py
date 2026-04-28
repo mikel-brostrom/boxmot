@@ -67,6 +67,7 @@ def timing_summary_from_stats(timing_stats: TimingStats) -> dict[str, Any]:
         "totals_ms": {**{key: float(value) for key, value in totals.items()}, "total": total_ms},
         "avg_ms": {**avg_ms, "total": avg_total_ms},
         "fps": fps,
+        "metadata": dict(getattr(timing_stats, "metadata", {})),
     }
 
 
@@ -152,6 +153,7 @@ def _build_timing_renderable(timings: dict[str, Any] | None) -> RenderableType |
 
     frames = int(timings.get("frames", 0) or 0)
     breakdown = derive_timing_breakdown(totals_ms, frames, total_time_ms=totals_ms.get("total"))
+    metadata = timings.get("metadata") if isinstance(timings.get("metadata"), dict) else {}
 
     table = Table(
         expand=True,
@@ -172,11 +174,15 @@ def _build_timing_renderable(timings: dict[str, Any] | None) -> RenderableType |
     for entry in build_timing_display_rows(
         breakdown,
         frames,
+        metadata=metadata,
         overall_avg_ms=float(avg_ms.get("total", 0.0) or 0.0),
         overall_fps=float(timings.get("fps", 0.0) or 0.0),
     ):
         if entry["kind"] == "group":
             table.add_row(Text(str(entry["label"]), style=STYLE_ACCENT), "", "", "")
+            continue
+        if entry["kind"] == "note":
+            table.add_row(Text(str(entry["label"]), style=STYLE_MUTED), "", "", "")
             continue
 
         row_style = STYLE_TEXT_STRONG if bool(entry["strong"]) else None
@@ -372,6 +378,8 @@ def timing_stats_from_snapshot(timings: dict[str, Any] | None) -> TimingStats | 
     timing_stats = TimingStats()
     for key in timing_stats.totals:
         timing_stats.totals[key] = float(totals_ms.get(key, 0.0) or 0.0)
+    if isinstance(timings.get("metadata"), dict):
+        timing_stats.metadata = dict(timings["metadata"])
     timing_stats.frames = int(timings.get("frames", 0) or 0)
     return timing_stats
 

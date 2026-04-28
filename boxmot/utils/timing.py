@@ -176,11 +176,13 @@ def build_timing_display_rows(
     breakdown: dict[str, float | bool],
     frames: int,
     *,
+    metadata: dict[str, object] | None = None,
     overall_avg_ms: float | None = None,
     overall_fps: float | None = None,
 ) -> list[dict[str, object]]:
     """Build grouped detector/tracker timing rows for UI summaries."""
     frame_count = int(frames or 0)
+    metadata = metadata or {}
 
     def _row(
         label: str,
@@ -202,18 +204,43 @@ def build_timing_display_rows(
             "strong": strong,
         }
 
-    return [
-        {"kind": "group", "label": "Detector"},
-        _row("  preprocess", float(breakdown["detector_preprocess_total"])),
-        _row("  process", float(breakdown["detector_process_total"])),
-        _row("  postprocess", float(breakdown["detector_postprocess_total"])),
-        _row("  Detector total", float(breakdown["det_total"]), strong=True),
-        {"kind": "group", "label": "Tracker"},
-        _row("  ReID preprocess", float(breakdown["reid_preprocess_total"])),
-        _row("  ReID process", float(breakdown["reid_process_total"])),
-        _row("  ReID postprocess", float(breakdown["reid_postprocess_total"])),
+    def _note(label: str) -> dict[str, object]:
+        return {
+            "kind": "note",
+            "label": label,
+        }
+
+    detector_cached = bool(metadata.get("detector_from_cache")) and float(breakdown["det_total"]) == 0.0
+    reid_cached = bool(metadata.get("reid_from_cache")) and float(breakdown["reid_total"]) == 0.0
+
+    detector_rows: list[dict[str, object]] = [{"kind": "group", "label": "Detector"}]
+    if detector_cached:
+        detector_rows.append(_note("  detections loaded from cache"))
+    else:
+        detector_rows.extend([
+            _row("  preprocess", float(breakdown["detector_preprocess_total"])),
+            _row("  process", float(breakdown["detector_process_total"])),
+            _row("  postprocess", float(breakdown["detector_postprocess_total"])),
+        ])
+    detector_rows.append(_row("  Detector total", float(breakdown["det_total"]), strong=True))
+
+    tracker_rows: list[dict[str, object]] = [{"kind": "group", "label": "Tracker"}]
+    if reid_cached:
+        tracker_rows.append(_note("  embeddings loaded from cache"))
+    else:
+        tracker_rows.extend([
+            _row("  ReID preprocess", float(breakdown["reid_preprocess_total"])),
+            _row("  ReID process", float(breakdown["reid_process_total"])),
+            _row("  ReID postprocess", float(breakdown["reid_postprocess_total"])),
+        ])
+    tracker_rows.extend([
         _row("  association/update", float(breakdown["tracker_rest_total"])),
         _row("  Tracker total", float(breakdown["tracker_total"]), strong=True),
+    ])
+
+    return [
+        *detector_rows,
+        *tracker_rows,
         _row(
             "Overall total",
             float(breakdown["total_total"]),
@@ -246,6 +273,7 @@ class TimingStats:
             'plot': 0.0,
             'total': 0.0,
         }
+        self.metadata = {}
         self.frames = 0
         self._frame_start = None
         self._track_start = None
@@ -359,10 +387,14 @@ class TimingStats:
         for entry in build_timing_display_rows(
             breakdown,
             frames,
+            metadata=dict(getattr(self, "metadata", {})),
             overall_avg_ms=(total_time / frames if frames else 0.0),
             overall_fps=fps_from_avg_ms(total_time / frames if frames else 0.0),
         ):
             if entry["kind"] == "group":
+                lines.append(str(entry["label"]))
+                continue
+            if entry["kind"] == "note":
                 lines.append(str(entry["label"]))
                 continue
             total = float(entry["total"])

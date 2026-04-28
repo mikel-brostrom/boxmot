@@ -2012,6 +2012,55 @@ def test_build_timing_renderable_shows_detector_reid_tracker_breakdown():
     assert "111.1" in rendered
 
 
+def test_build_timing_renderable_marks_cached_detector_and_embeddings():
+    timings = {
+        "frames": 12,
+        "fps": 59405.9,
+        "metadata": {
+            "detector_from_cache": True,
+            "reid_from_cache": True,
+        },
+        "totals_ms": {
+            "preprocess": 0.0,
+            "inference": 0.0,
+            "postprocess": 0.0,
+            "detector_preprocess": 0.0,
+            "detector_process": 0.0,
+            "detector_postprocess": 0.0,
+            "reid": 0.0,
+            "reid_preprocess": 0.0,
+            "reid_process": 0.0,
+            "reid_postprocess": 0.0,
+            "track": 0.2,
+            "plot": 0.0,
+            "total": 0.2,
+        },
+        "avg_ms": {
+            "preprocess": 0.0,
+            "inference": 0.0,
+            "postprocess": 0.0,
+            "reid": 0.0,
+            "track": 0.02,
+            "plot": 0.0,
+            "total": 0.02,
+        },
+    }
+
+    rendered = ui_module.capture_renderable(
+        workflow_reporting_module._build_timing_renderable(timings),
+        width=120,
+    )
+
+    assert "detections loaded from cache" in rendered
+    assert "embeddings loaded from cache" in rendered
+    assert "association/update" in rendered
+    assert "Detector total" in rendered
+    assert "Tracker total" in rendered
+    assert "Overall total" in rendered
+    assert "  preprocess" not in rendered
+    assert "ReID preprocess" not in rendered
+
+
 def test_workflow_progress_supports_renderable_detail(monkeypatch):
     buffer = StringIO()
     console = Console(

@@ -493,6 +493,8 @@ def run_generate_mot_results(
     args.seq_frame_nums = seq_frame_nums
 
     if timing_stats is not None:
+        timing_stats.metadata["detector_from_cache"] = True
+        timing_stats.metadata["reid_from_cache"] = True
         timing_stats.totals["track"] += total_track_time_ms
         timing_stats.totals["reid"] += total_reid_time_ms
         if timing_stats.frames == 0 and total_track_frames > 0:

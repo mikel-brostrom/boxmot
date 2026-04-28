@@ -445,9 +445,13 @@ class Results:
         for entry in build_timing_display_rows(
             breakdown,
             frames,
+            metadata=dict(getattr(self, "timing_metadata", {})),
             overall_avg_ms=float(timings["avg_total"]),
         ):
             if entry["kind"] == "group":
+                lines.append(str(entry["label"]))
+                continue
+            if entry["kind"] == "note":
                 lines.append(str(entry["label"]))
                 continue
             lines.append(

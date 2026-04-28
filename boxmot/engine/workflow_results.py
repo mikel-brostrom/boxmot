@@ -32,6 +32,7 @@ def _results_summary_snapshot(results: Results, source: Any) -> dict[str, Any]:
         "detections": int(results.totals["detections"]),
         "tracks": int(results.totals["tracks"]),
         "unique_tracks": len(getattr(results, "_track_ids_seen", set())),
+        "timing_metadata": dict(getattr(results, "timing_metadata", {})),
         "timings_ms": {
             "det": float(results.totals["det"]),
             "detector_preprocess": float(results.totals.get("detector_preprocess", 0.0)),
@@ -80,6 +81,7 @@ def _build_tracking_summary_timing_table(summary: dict[str, Any]) -> Table:
     timings = dict(summary.get("timings_ms", {}))
     frames = int(summary.get("frames", 0) or 0)
     breakdown = reporting.derive_timing_breakdown(timings, frames, total_time_ms=timings.get("total"))
+    metadata = summary.get("timing_metadata") if isinstance(summary.get("timing_metadata"), dict) else {}
 
     table = Table(
         expand=True,
@@ -100,10 +102,14 @@ def _build_tracking_summary_timing_table(summary: dict[str, Any]) -> Table:
     for entry in reporting.build_timing_display_rows(
         breakdown,
         frames,
+        metadata=metadata,
         overall_avg_ms=float(timings.get("avg_total", 0.0) or 0.0),
     ):
         if entry["kind"] == "group":
             table.add_row(Text(str(entry["label"]), style=STYLE_ACCENT), "", "", "")
+            continue
+        if entry["kind"] == "note":
+            table.add_row(Text(str(entry["label"]), style=STYLE_TEXT), "", "", "")
             continue
 
         row_style = STYLE_TEXT_STRONG if bool(entry["strong"]) else None
