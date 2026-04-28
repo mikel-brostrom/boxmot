@@ -9,45 +9,33 @@
 
 namespace occluboost {
 
-namespace {
-
-using boxmot::trackers::base::FilterRowsByFrame;
-using boxmot::trackers::base::LoadDetectionSequence;
-using boxmot::trackers::base::LoadNumericMatrix;
-using boxmot::trackers::base::ResolveCacheFile;
-
-}  // namespace
-
 LoadedSequence LoadSequence(const ReplayOptions& options) {
-    boxmot::trackers::base::LoadedDetectionSequence base_sequence = LoadDetectionSequence(
-        options.mot_root,
-        options.det_emb_root,
-        options.detector_name,
-        options.sequence,
-        options.target_fps,
-        "OccluBoost"
-    );
+    boxmot::trackers::base::LoadedDetectionSequence base_sequence =
+        boxmot::trackers::base::LoadDetectionSequence(
+            options.mot_root,
+            options.det_emb_root,
+            options.detector_name,
+            options.sequence,
+            options.target_fps,
+            "OccluBoost"
+        );
 
     if (base_sequence.is_obb) {
         throw std::runtime_error("Native OccluBoost only supports AABB detections, sequence has OBB cache.");
     }
 
-    const fs::path base_dir = options.det_emb_root / options.detector_name;
-    const fs::path emb_path = ResolveCacheFile(
-        base_dir / "embs" / options.reid_name / options.reid_preprocess / (options.sequence + ".npy")
+    const bool can_infer_embeddings =
+        !options.reid_model_path.empty() && options.reid_model_path.extension() == ".onnx";
+    Eigen::MatrixXf embeddings = boxmot::trackers::base::LoadEmbeddingsCache(
+        options.det_emb_root,
+        options.detector_name,
+        options.reid_name,
+        options.reid_preprocess,
+        options.sequence,
+        base_sequence.keep_frames,
+        static_cast<int>(base_sequence.detections.rows()),
+        can_infer_embeddings
     );
-    const bool can_infer_embeddings = !options.reid_model_path.empty() && options.reid_model_path.extension() == ".onnx";
-    if (emb_path.empty() && !can_infer_embeddings) {
-        throw std::runtime_error("Missing embedding cache for sequence: " + options.sequence);
-    }
-
-    Eigen::MatrixXf embeddings = emb_path.empty() ? Eigen::MatrixXf(0, 0) : LoadNumericMatrix(emb_path);
-    if (embeddings.rows() > 0 && !base_sequence.keep_frames.empty()) {
-        embeddings = FilterRowsByFrame(embeddings, base_sequence.keep_frames);
-    }
-    if (embeddings.rows() > 0 && base_sequence.detections.rows() != embeddings.rows()) {
-        throw std::runtime_error("Detection and embedding row counts do not match for sequence: " + options.sequence);
-    }
 
     LoadedSequence sequence;
     sequence.name = std::move(base_sequence.name);

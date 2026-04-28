@@ -352,7 +352,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
         }
         if (needs_embeddings) {
             const auto reid_started = std::chrono::steady_clock::now();
-            const std::vector<Eigen::VectorXf> features = reid_model_->GetFeatures(working_detections, image);
+            const std::vector<Eigen::VectorXf> features = GetReIdFeatures(*reid_model_, working_detections, image);
             const auto reid_finished = std::chrono::steady_clock::now();
             last_reid_time_ms_ = std::chrono::duration<double, std::milli>(reid_finished - reid_started).count();
             if (features.size() != working_detections.size()) {

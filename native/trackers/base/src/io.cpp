@@ -354,6 +354,39 @@ LoadedDetectionSequence LoadDetectionSequence(
     return sequence;
 }
 
+Eigen::MatrixXf LoadEmbeddingsCache(
+    const fs::path& det_emb_root,
+    const std::string& detector_name,
+    const std::string& reid_name,
+    const std::string& reid_preprocess,
+    const std::string& sequence_name,
+    const std::unordered_set<int>& keep_frames,
+    const int detection_rows,
+    const bool can_infer_embeddings
+) {
+    const fs::path base_dir = det_emb_root / detector_name;
+    const fs::path emb_path = ResolveCacheFile(
+        base_dir / "embs" / reid_name / reid_preprocess / (sequence_name + ".npy")
+    );
+    if (emb_path.empty()) {
+        if (!can_infer_embeddings) {
+            throw std::runtime_error("Missing embedding cache for sequence: " + sequence_name);
+        }
+        return Eigen::MatrixXf(0, 0);
+    }
+
+    Eigen::MatrixXf embeddings = LoadNumericMatrix(emb_path);
+    if (embeddings.rows() > 0 && !keep_frames.empty()) {
+        embeddings = FilterRowsByFrame(embeddings, keep_frames);
+    }
+    if (embeddings.rows() > 0 && detection_rows != embeddings.rows()) {
+        throw std::runtime_error(
+            "Detection and embedding row counts do not match for sequence: " + sequence_name
+        );
+    }
+    return embeddings;
+}
+
 std::array<cv::Point2f, 4> CanonicalObbCorners(const Eigen::Matrix<double, 5, 1>& box) {
     const float cx = static_cast<float>(box[0]);
     const float cy = static_cast<float>(box[1]);
