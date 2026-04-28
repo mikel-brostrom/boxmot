@@ -86,7 +86,7 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="center">│</td>
       <td align="right">69.43</td>
       <td align="right">78.26</td>
-      <td align="right">82.01</td>
+      <td align="right">82.00</td>
       <td align="right">—</td>
       <td align="center">✅</td>
     </tr>
@@ -95,7 +95,7 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="center">│</td>
       <td align="right">69.25</td>
       <td align="right">75.91</td>
-      <td align="right">83.21</td>
+      <td align="right">83.20</td>
       <td align="right">13</td>
       <td align="center">❌</td>
       <td align="center">│</td>
@@ -123,9 +123,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2302.11813">deepocsort</a></td>
       <td align="center">│</td>
-      <td align="right">67.80</td>
-      <td align="right">75.87</td>
-      <td align="right">80.51</td>
+      <td align="right">67.95</td>
+      <td align="right">75.83</td>
+      <td align="right">80.54</td>
       <td align="right">12</td>
       <td align="center">❌</td>
       <td align="center">│</td>
@@ -153,9 +153,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2308.00783">hybridsort</a></td>
       <td align="center">│</td>
-      <td align="right">67.39</td>
-      <td align="right">74.13</td>
-      <td align="right">79.11</td>
+      <td align="right">67.31</td>
+      <td align="right">74.09</td>
+      <td align="right">78.87</td>
       <td align="right">25</td>
       <td align="center">❌</td>
       <td align="center">│</td>

@@ -61,6 +61,10 @@ jobs:
             backend: py
             sort_key: 70
             fps: "890"
+          - tracker: ocsort
+            backend: cpp
+            sort_key: 71
+            fps: "-"
           - tracker: sfsort
             backend: py
             sort_key: 80
