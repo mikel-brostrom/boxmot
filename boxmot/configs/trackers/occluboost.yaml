@@ -192,8 +192,3 @@ ams_shrink_ratio:
   type: uniform
   default: 0.75
   range: [0.5, 1.0]
-
-swap_max_age:
-  type: randint
-  default: 3
-  range: [0, 30]
