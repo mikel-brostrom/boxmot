@@ -11,10 +11,13 @@ Supports single-objective (default) and multi-objective Pareto search:
 """
 
 import csv
+from difflib import get_close_matches
 import inspect
 import logging
 import os
 import warnings
+
+import click
 
 os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"   # keep CWD constant for all trials
 
@@ -51,6 +54,8 @@ from boxmot.utils.misc import increment_path
 
 # Metrics that must be summed across classes (not averaged), because they are counts
 METRIC_SUM = frozenset({"IDSW", "IDs"})
+MAXIMIZE_TUNE_METRICS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe")
+MINIMIZE_TUNE_METRICS = ("IDSW", "IDs", "IDSW_rate")
 
 # All metrics returned from each trial (SUMMARY_COLUMNS + derived)
 ALL_TUNE_METRICS = (*SUMMARY_COLUMNS, "IDSW_rate")
@@ -102,6 +107,51 @@ def _normalize_metric_names(values: Any) -> list[str]:
             if metric:
                 metrics.append(metric)
     return metrics
+
+
+def _format_supported_tune_metrics() -> str:
+    return (
+        f"Available maximize metrics: {', '.join(MAXIMIZE_TUNE_METRICS)}\n"
+        f"Available minimize metrics: {', '.join(MINIMIZE_TUNE_METRICS)}"
+    )
+
+
+def _suggest_tune_metrics(metric: str, allowed_metrics: tuple[str, ...]) -> str:
+    metric_prefix = metric.lower().rstrip("s")
+    prefix_matches = [candidate for candidate in allowed_metrics if candidate.lower().startswith(metric_prefix)]
+    suggestions = prefix_matches[:2] or get_close_matches(metric, allowed_metrics, n=2, cutoff=0.5)
+    if not suggestions:
+        return ""
+    return f" (did you mean {', '.join(suggestions)}?)"
+
+
+def _validate_tune_metrics(option_name: str, metrics: list[str], allowed_metrics: tuple[str, ...]) -> None:
+    invalid = [metric for metric in metrics if metric not in allowed_metrics]
+    if not invalid:
+        return
+
+    invalid_message = ", ".join(
+        f"{metric}{_suggest_tune_metrics(metric, allowed_metrics)}"
+        for metric in invalid
+    )
+    raise click.UsageError(
+        f"Invalid value for {option_name}: {invalid_message}\n{_format_supported_tune_metrics()}"
+    )
+
+
+def _resolve_tune_metric_targets(args: Any) -> tuple[list[str], list[str], list[str]]:
+    objectives = _normalize_metric_names(getattr(args, "objectives", ()))
+    maximize = _normalize_metric_names(getattr(args, "maximize", ())) or [objectives[0] if objectives else "HOTA"]
+    minimize = _normalize_metric_names(getattr(args, "minimize", ()))
+
+    _validate_tune_metrics("--objectives", objectives, ALL_TUNE_METRICS)
+    _validate_tune_metrics("--maximize", maximize, MAXIMIZE_TUNE_METRICS)
+    _validate_tune_metrics("--minimize", minimize, MINIMIZE_TUNE_METRICS)
+
+    args.objectives = tuple(objectives)
+    args.maximize = tuple(maximize)
+    args.minimize = tuple(minimize)
+    return objectives, maximize, minimize
 
 
 def _default_tune_config(yaml_cfg: dict, search_space: dict) -> dict[str, Any]:
@@ -648,6 +698,8 @@ def _execute_tune_search(
     *,
     baseline_config: dict | None = None,
 ):
+    objectives, maximize, minimize = _resolve_tune_metric_targets(args)
+
     import ray
     from boxmot.utils.checks import RequirementsChecker
     checker = RequirementsChecker()
@@ -670,14 +722,6 @@ def _execute_tune_search(
     args.show_progress = False
     resume_tune = bool(getattr(args, "resume_tune", False))
     _ensure_ray_initialized(verbose=bool(getattr(args, "verbose", False)))
-
-    # Resolve optimize targets
-    objectives = _normalize_metric_names(getattr(args, "objectives", ()))
-    maximize = _normalize_metric_names(getattr(args, "maximize", ())) or [objectives[0] if objectives else "HOTA"]
-    minimize = _normalize_metric_names(getattr(args, "minimize", ()))
-    args.objectives = tuple(objectives)
-    args.maximize = tuple(maximize)
-    args.minimize = tuple(minimize)
     opt_metrics = maximize + minimize
     opt_modes   = ["max"] * len(maximize) + ["min"] * len(minimize)
     optuna_kwargs = {

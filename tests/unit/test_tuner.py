@@ -3,6 +3,9 @@ from pathlib import Path
 import threading
 from types import SimpleNamespace
 
+import click
+import pytest
+
 import boxmot.engine.tuner as tuner_module
 import boxmot.utils.rich.reporting as rich_reporting
 import boxmot.utils.rich.tune_reporting as tune_reporting
@@ -509,6 +512,23 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
     assert captured["optuna_kwargs"]["mode"] == ["max", "max", "max", "min"]
     assert args.maximize == ("HOTA", "MOTA", "IDF1")
     assert args.minimize == ("IDSW_rate",)
+
+
+def test_tuner_rejects_invalid_metric_names_before_ray_setup() -> None:
+    args = SimpleNamespace(
+        maximize=("HOTA", "MOTA"),
+        minimize=("IDSWs",),
+        objectives=(),
+    )
+
+    with pytest.raises(click.UsageError) as exc_info:
+        tuner_module.main(args)
+
+    message = str(exc_info.value)
+    assert "Invalid value for --minimize: IDSWs" in message
+    assert "(did you mean IDSW, IDSW_rate?)" in message
+    assert "Available maximize metrics: HOTA, MOTA, IDF1, AssA, AssRe" in message
+    assert "Available minimize metrics: IDSW, IDs, IDSW_rate" in message
 
 
 def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch, tmp_path):
