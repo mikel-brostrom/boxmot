@@ -361,6 +361,9 @@ def build_tracker_with_reid_spec(
     half: bool = BOXMOT_DEFAULTS.track.half,
 ):
     tracker_name = tracker_name_from_spec(tracker_spec, required=False)
+    if tracker_name not in REID_TRACKERS:
+        return None
+
     if tracker_name in REID_TRACKERS:
         if hasattr(tracker, "with_reid") and not bool(getattr(tracker, "with_reid")):
             return None

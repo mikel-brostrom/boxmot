@@ -216,6 +216,26 @@ def test_build_tracker_with_reid_spec_skips_python_reid_when_native_tracker_prov
     assert calls == []
 
 
+def test_build_tracker_with_reid_spec_skips_reid_for_nonreid_tracker(monkeypatch):
+    calls = []
+
+    def fake_build_reid(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "python-reid"
+
+    tracker = SimpleNamespace()
+    monkeypatch.setattr(workflow_support_module, "build_reid_from_spec", fake_build_reid)
+
+    reid = workflow_support_module.build_tracker_with_reid_spec(
+        "bytetrack",
+        tracker,
+        "models/osnet_x0_25_msmt17.onnx",
+    )
+
+    assert reid is None
+    assert calls == []
+
+
 def test_initialize_trackers_uses_cpp_live_tracker_backend(monkeypatch):
     predictor = SimpleNamespace(dataset=SimpleNamespace(bs=1), device="cpu")
     args = SimpleNamespace(tracker="botsort:cpp", tracker_backend=None, reid=None, half=False, target_id=7)

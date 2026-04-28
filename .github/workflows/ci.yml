@@ -29,6 +29,7 @@ jobs:
         python-version: ['3.12']
     env:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort sfsort"
+      REID_TRACKERS: "botsort deepocsort strongsort boosttrack hybridsort"
       IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
 
     # Timeout: https://stackoverflow.com/a/59076067/4521646
@@ -48,7 +49,11 @@ jobs:
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
-            boxmot track --detector yolov10n.pt --reid osnet_x0_25_msmt17.pt --imgsz 320 --tracker $tracker --source $IMG --verbose
+            track_args=(boxmot track --detector yolov10n.pt --imgsz 320 --tracker "$tracker" --source "$IMG" --verbose)
+            if echo " $REID_TRACKERS " | grep -q " $tracker "; then
+              track_args+=(--reid osnet_x0_25_msmt17.pt)
+            fi
+            "${track_args[@]}"
           done
 
   native_build:
@@ -174,6 +179,7 @@ jobs:
       status: ${{ job.status }}
     env:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort sfsort"
+      REID_TRACKERS: "botsort deepocsort strongsort boosttrack hybridsort"
       EXPECTED_OBB_TRACKERS: "ocsort bytetrack botsort sfsort"
       SMOKE_SOURCE: ./assets/DOTA8-MOT/train/P1142__1024__0___824/img1
 
@@ -198,7 +204,11 @@ jobs:
           set +e
           for tracker in $TRACKERS; do
             log_file="${tracker}_obb.log"
-            boxmot track --detector yolo11s-obb.pt --reid lmbn_n_duke.pt --tracker "$tracker" --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok >"$log_file" 2>&1
+            track_args=(boxmot track --detector yolo11s-obb.pt --tracker "$tracker" --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok)
+            if echo " $REID_TRACKERS " | grep -q " $tracker "; then
+              track_args+=(--reid lmbn_n_duke.pt)
+            fi
+            "${track_args[@]}" >"$log_file" 2>&1
             tracker_exit=$?
             if [ "$tracker_exit" -eq 0 ]; then
               OBB_STATUS="✅"
@@ -345,7 +355,7 @@ jobs:
 
             if [ -n "$model_path" ] && [ -e "$model_path" ]; then
               export_status="✅"
-              if boxmot track --reid "$model_path" --imgsz 320 --source "$IMG"; then
+              if boxmot track --tracker strongsort --reid "$model_path" --imgsz 320 --source "$IMG"; then
                 inference_status="✅"
               else
                 failed=1
