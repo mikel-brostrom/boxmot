@@ -71,7 +71,8 @@ def build_tune_workflow_fields(args: Any, *, maximize: list[str], minimize: list
 
 
 def _format_tune_objective(*, maximize: Sequence[str], minimize: Sequence[str]) -> str:
-    mode = "Pareto" if minimize else "Single-objective"
+    objective_count = len(maximize) + len(minimize)
+    mode = "Pareto" if objective_count > 1 else "Single-objective"
     parts = [f"max {', '.join(str(metric) for metric in maximize)}"] if maximize else []
     if minimize:
         parts.append(f"min {', '.join(str(metric) for metric in minimize)}")

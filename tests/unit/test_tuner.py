@@ -675,22 +675,47 @@ def test_build_tune_workflow_fields_uses_benchmark_data() -> None:
     assert fields["Dataset"] == "mot17-ablation"
 
 
+def test_build_tune_workflow_fields_show_pareto_objectives() -> None:
+    args = SimpleNamespace(
+        tracker="ocsort",
+        detector=[Path("yolo11s-obb.pt")],
+        reid=[Path("lmbn_n_duke.pt")],
+        data="dota8-mot",
+        benchmark="dota8-mot",
+        n_trials=10,
+    )
+
+    fields = dict(
+        tune_reporting.build_tune_workflow_fields(
+            args,
+            maximize=["HOTA", "MOTA"],
+            minimize=["IDSW_rate"],
+        )
+    )
+
+    assert fields["Objective"] == "Pareto: max HOTA, MOTA / min IDSW_rate"
+
+
 def test_tune_workflow_renderable_is_compact_and_complete() -> None:
     args = SimpleNamespace(
-        tracker="botsort",
-        detector=[Path("yolov8n.pt")],
-        reid=[Path("osnet_x0_25_msmt17.pt")],
-        data="mot17-ablation",
-        benchmark="mot17-ablation",
-        n_trials=3,
+        tracker="ocsort",
+        detector=[Path("yolo11s-obb.pt")],
+        reid=[Path("lmbn_n_duke.pt")],
+        data="dota8-mot",
+        benchmark="dota8-mot",
+        n_trials=10,
     )
-    workflow = tune_reporting.log_tune_pipeline_intro(args, maximize=["HOTA"], minimize=[])
+    workflow = tune_reporting.log_tune_pipeline_intro(
+        args,
+        maximize=["HOTA", "MOTA"],
+        minimize=["IDSW_rate"],
+    )
     workflow.complete(tune_reporting.TUNE_SETUP_STEP, render=False)
     workflow.complete(tune_reporting.TUNE_GENERATE_STEP, render=False)
     workflow.activate(tune_reporting.TUNE_OPTIMIZE_STEP, render=False)
     workflow.set_detail(
         tune_reporting.TUNE_OPTIMIZE_STEP,
-        "Tune     33%  (1/3)  running trial 2/3  remaining 00:34",
+        "Tune     20%  (2/10)  running trial 3/10  remaining 00:34",
         render=False,
     )
 
@@ -700,9 +725,9 @@ def test_tune_workflow_renderable_is_compact_and_complete() -> None:
     assert "Setup" in rendered
     assert "Pipeline" in rendered
     assert "OBJECTIVE" in rendered
-    assert "Single-objective:" in rendered
+    assert "Pareto: max HOTA, MOTA / min IDSW_rate" in rendered
     assert "[✓] Setup / [✓] Generate / [>] Optimize" in rendered
-    assert "Tune     33%  (1/3)  running trial 2/3  remaining 00:34" in rendered
+    assert "Tune     20%  (2/10)  running trial 3/10  remaining 00:34" in rendered
 
 
 def test_build_tune_artifacts_renderable_lists_paths() -> None:

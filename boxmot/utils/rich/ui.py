@@ -308,9 +308,14 @@ def _build_setup_section_table(
 
     if compact and pair_count == 3:
         table.add_column(style=STYLE_ACCENT, no_wrap=True, width=8, overflow="ellipsis")
-        for _ in range(pair_count):
+        for offset in range(pair_count):
             table.add_column(style=STYLE_MUTED, no_wrap=True, width=10, overflow="ellipsis")
-            table.add_column(style=STYLE_TEXT, no_wrap=True, width=7, overflow="ellipsis")
+            table.add_column(
+                style=STYLE_TEXT,
+                no_wrap=True,
+                ratio=2 if offset == pair_count - 1 else 1,
+                overflow="ellipsis",
+            )
     else:
         table.add_column(style=STYLE_ACCENT, no_wrap=True)
         for offset in range(pair_count):
