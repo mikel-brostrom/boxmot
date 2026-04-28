@@ -44,6 +44,7 @@ def build_track_args(
     save_txt: bool = BOXMOT_DEFAULTS.track.save_txt,
     show: bool = BOXMOT_DEFAULTS.track.show,
     verbose: bool = BOXMOT_DEFAULTS.track.verbose,
+    tracker_backend: str | None = None,
 ):
     return build_mode_namespace(
         "track",
@@ -54,6 +55,11 @@ def build_track_args(
             "detector": api._detector_path(required=False) or BOXMOT_DEFAULTS.shared.detector,
             "reid": api._reid_path(required=False) or BOXMOT_DEFAULTS.shared.reid,
             "tracker": api._tracker_name(required=False) or BOXMOT_DEFAULTS.track.tracker,
+            "tracker_backend": (
+                tracker_backend
+                if tracker_backend is not None
+                else (api._tracker_backend(required=False) or BOXMOT_DEFAULTS.track.tracker_backend)
+            ),
             "imgsz": imgsz,
             "conf": conf,
             "iou": float(iou),
@@ -83,6 +89,8 @@ def build_eval_args(
     verbose: bool = BOXMOT_DEFAULTS.eval.verbose,
     show_progress: bool = True,
     postprocessing: str = BOXMOT_DEFAULTS.eval.postprocessing,
+    tracker_backend: str | None = None,
+    tracking_backend: str = "thread",
     mode: str = "eval",
     extra: dict[str, Any] | None = None,
 ):
@@ -110,6 +118,7 @@ def build_eval_args(
             "exist_ok": True,
             "ci": True,
             "tracker": api._tracker_name(required=True),
+            "tracker_backend": tracker_backend if tracker_backend is not None else api._tracker_backend(required=False),
             "verbose": bool(verbose),
             "show_progress": bool(show_progress),
             "postprocessing": postprocessing,
@@ -123,7 +132,7 @@ def build_eval_args(
             "per_class": per_class,
             "target_id": None,
             "vid_stride": BOXMOT_DEFAULTS.eval.vid_stride,
-            "tracking_backend": "thread",
+            "tracking_backend": str(tracking_backend),
             **(extra or {}),
         },
         explicit_keys=_explicit_api_keys(api, device=device, half=half, defaults=BOXMOT_DEFAULTS.eval),
@@ -154,6 +163,8 @@ def build_tune_args(
     maximize=BOXMOT_DEFAULTS.tune.maximize,
     minimize=BOXMOT_DEFAULTS.tune.minimize,
     verbose: bool = BOXMOT_DEFAULTS.eval.verbose,
+    tracker_backend: str | None = None,
+    tracking_backend: str = "thread",
     seed: int | None = None,
 ):
     return build_eval_args(
@@ -168,6 +179,8 @@ def build_tune_args(
         verbose=verbose,
         show_progress=False,
         postprocessing=BOXMOT_DEFAULTS.eval.postprocessing,
+        tracker_backend=tracker_backend,
+        tracking_backend=tracking_backend,
         mode="tune",
         extra={
             "n_trials": int(n_trials),
@@ -243,6 +256,8 @@ def build_research_args(
     mota_penalty: float = BOXMOT_DEFAULTS.research.mota_penalty,
     idf1_tolerance: float = BOXMOT_DEFAULTS.research.idf1_tolerance,
     mota_tolerance: float = BOXMOT_DEFAULTS.research.mota_tolerance,
+    tracker_backend: str | None = None,
+    tracking_backend: str = "thread",
 ):
     return build_mode_namespace(
         "research",
@@ -254,6 +269,7 @@ def build_research_args(
             "detector": [api._detector_path(required=False) or BOXMOT_DEFAULTS.shared.detector],
             "reid": [api._reid_path(required=False) or BOXMOT_DEFAULTS.shared.reid],
             "tracker": api._tracker_name(required=True),
+            "tracker_backend": tracker_backend if tracker_backend is not None else api._tracker_backend(required=False),
             "classes": api.classes,
             "project": Path(project or api.project),
             "name": "python_api",
@@ -270,6 +286,7 @@ def build_research_args(
             "mota_penalty": float(mota_penalty),
             "idf1_tolerance": float(idf1_tolerance),
             "mota_tolerance": float(mota_tolerance),
+            "tracking_backend": str(tracking_backend),
         },
         explicit_keys=_explicit_api_keys(
             api,

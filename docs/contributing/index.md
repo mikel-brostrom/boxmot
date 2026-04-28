@@ -3,6 +3,7 @@
 The repo has three main extension surfaces:
 
 - trackers under `boxmot/trackers`
+- native tracker backends under `native/trackers` and `boxmot/native`
 - configs under `boxmot/configs`
 - workflow and public API code under `boxmot/engine` and `boxmot/api.py`
 

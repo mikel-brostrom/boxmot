@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Optional
 
+import yaml
+
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     _ordered_benchmark_eval_class_names,
@@ -32,8 +34,11 @@ from boxmot.data.cache import (
 from boxmot.detectors import get_runtime_detector_cfg
 from boxmot.engine.cache import generate_dets_embs_batched, run_generate_dets_embs
 from boxmot.engine.replay import process_sequence, run_generate_mot_results
-from boxmot.engine.workflow_reporting import extract_summary, timing_stats_from_snapshot, timing_summary_from_stats
+from boxmot.engine.workflow_reporting import extract_summary, timing_summary_from_stats
 from boxmot.engine.workflow_results import ValidationResult
+from boxmot.engine.workflow_support import suppress_boxmot_logs
+from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
+from boxmot.trackers.tracker_zoo import get_tracker_config
 from boxmot.utils import (
     BENCHMARK_CONFIGS,
     logger as LOGGER,
@@ -61,9 +66,14 @@ from boxmot.utils.evaluation.trackeval import (
 )
 from boxmot.utils.misc import resolve_model_path
 from boxmot.utils.plots import MetricsPlotter
+from boxmot.utils.rich.reporting import RichWorkflowReporter, WorkflowDetailCallback
 from boxmot.utils.timing import TimingStats
+import boxmot.utils.rich.ui as ui
 
 _EVAL_DEPENDENCIES_READY = False
+EVAL_GENERATE_STEP = "Generate detections and embeddings"
+EVAL_TRACK_STEP = "Run tracker"
+EVAL_EVALUATE_STEP = "Evaluate results"
 
 __all__ = [
     "AppendableNpyWriter",
@@ -233,12 +243,15 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     return final_results
 
 
-def eval_setup(args) -> None:
+def eval_setup(args, workflow: ui.WorkflowProgress | None = None) -> None:
     """
     Common setup for eval and tune pipelines.
     """
     _ensure_eval_dependencies()
-    eval_init(args)
+    status_fn = None
+    if workflow is not None:
+        status_fn = WorkflowDetailCallback(workflow, EVAL_GENERATE_STEP)
+    eval_init(args, status_fn=status_fn)
     _, _, dataset_detector_cfg = _configure_benchmark_runtime(args)
     det_cfg = get_runtime_detector_cfg(args.detector[0], dataset_detector_cfg)
     apply_class_remap(args, det_cfg)
@@ -283,6 +296,184 @@ def _normalize_eval_models(args: argparse.Namespace) -> None:
     args.reid = [resolve_model_path(model) for model in args.reid]
 
 
+def _effective_eval_tracker_backend(args: argparse.Namespace) -> str | None:
+    tracking_backend = str(getattr(args, "tracking_backend", "") or "").strip().lower()
+    if tracking_backend == "cpp":
+        return "cpp"
+
+    raw_tracker_backend = getattr(args, "tracker_backend", None)
+    if raw_tracker_backend in {None, ""}:
+        return None
+
+    return normalize_tracker_backend(raw_tracker_backend, default="python")
+
+
+def _build_eval_workflow_fields(args: argparse.Namespace) -> list[tuple[str, object]]:
+    dataset = (
+        getattr(args, "data", None)
+        or getattr(args, "benchmark", None)
+        or getattr(args, "dataset_id", None)
+        or getattr(args, "benchmark_id", None)
+        or getattr(args, "source", None)
+    )
+
+    fields: list[tuple[str, object]] = []
+
+    detector = getattr(args, "detector", None)
+    if detector:
+        fields.append(("Detector", detector[0]))
+
+    reid = getattr(args, "reid", None)
+    if reid:
+        fields.append(("ReID", reid[0]))
+
+    tracker = getattr(args, "tracker", None)
+    if tracker not in {None, ""}:
+        fields.append(("Tracker", tracker))
+
+    tracker_backend = _effective_eval_tracker_backend(args)
+    if tracker_backend:
+        fields.append(("Tracker backend", tracker_backend))
+
+    replay_backend = str(getattr(args, "tracking_backend", "") or "").strip().lower()
+    if replay_backend not in {"", "cpp", "process"}:
+        fields.append(("Replay backend", replay_backend))
+
+    fields.append(("Dataset", dataset))
+
+    imgsz = getattr(args, "imgsz", None)
+    if imgsz is not None:
+        fields.append(("Image size", imgsz))
+
+    tracker_params = _build_eval_tracker_parameter_fields(args)
+    if tracker_params:
+        fields.append(("__panel__:Tracker Parameters", tracker_params))
+
+    pipeline_params = _build_eval_pipeline_parameter_fields(args, tracker_backend=tracker_backend, replay_backend=replay_backend)
+    if pipeline_params:
+        fields.append(("__panel__:Pipeline Parameters", pipeline_params))
+
+    return fields
+
+
+def _format_eval_param_label(name: str) -> str:
+    label = str(name).replace("_", " ").title()
+    replacements = {
+        "Id": "ID",
+        "Idsw": "IDSW",
+        "Reid": "ReID",
+        "Cmc": "CMC",
+        "Fps": "FPS",
+        "Imgsz": "Image Size",
+    }
+    for source, target in replacements.items():
+        label = label.replace(source, target)
+    return label
+
+
+def _read_yaml_mapping(cfg_path: Path | None) -> dict[str, object]:
+    if cfg_path is None:
+        return {}
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as handle:
+            raw = yaml.safe_load(handle) or {}
+    except Exception:
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _build_eval_tracker_parameter_fields(args: argparse.Namespace) -> list[tuple[str, object]]:
+    try:
+        tracker_name = parse_tracker_spec(getattr(args, "tracker", "")).name
+    except Exception:
+        return []
+
+    try:
+        with open(get_tracker_config(tracker_name), "r", encoding="utf-8") as handle:
+            raw = yaml.safe_load(handle) or {}
+    except Exception:
+        return []
+
+    params: list[tuple[str, object]] = []
+    for param_name, details in raw.items():
+        value = getattr(args, param_name, details.get("default"))
+        if value is None:
+            value = details.get("default")
+        params.append((_format_eval_param_label(param_name), value))
+    return params
+
+
+def _build_eval_pipeline_parameter_fields(
+    args: argparse.Namespace,
+    *,
+    tracker_backend: str | None,
+    replay_backend: str,
+) -> list[tuple[str, object]]:
+    items: list[tuple[str, object]] = []
+    if tracker_backend:
+        items.append(("Tracker backend", tracker_backend))
+    if replay_backend not in {"", None}:
+        items.append(("Replay backend", replay_backend))
+
+    device = getattr(args, "device", None)
+    if device not in {None, ""}:
+        items.append(("Device", device))
+
+    items.append(("Precision", "fp16" if bool(getattr(args, "half", False)) else "fp32"))
+
+    imgsz = getattr(args, "imgsz", None)
+    if imgsz is not None:
+        items.append(("Image size", imgsz))
+
+    conf = getattr(args, "conf", None)
+    if conf is not None:
+        items.append(("Confidence", conf))
+
+    n_threads = getattr(args, "n_threads", None)
+    if n_threads is not None:
+        items.append(("Threads", n_threads))
+
+    postprocessing = getattr(args, "postprocessing", None)
+    if postprocessing not in {None, ""}:
+        items.append(("Postprocessing", postprocessing))
+
+    return items
+
+
+def _refresh_eval_pipeline_intro(
+    workflow: ui.WorkflowProgress | None,
+    args: argparse.Namespace,
+) -> None:
+    if workflow is None:
+        return
+
+    updated_fields = _build_eval_workflow_fields(args)
+    if hasattr(workflow, "set_fields"):
+        workflow.set_fields(updated_fields)
+        return
+
+    if hasattr(workflow, "fields"):
+        workflow.fields = updated_fields
+
+
+class EvalWorkflowReporter(RichWorkflowReporter):
+    title = "Evaluation"
+    prefer_compact_layout = True
+    steps = (
+        (EVAL_GENERATE_STEP, "active"),
+        (EVAL_TRACK_STEP, "todo"),
+        (EVAL_EVALUATE_STEP, "todo"),
+    )
+
+    def fields(self) -> list[tuple[str, object]]:
+        return _build_eval_workflow_fields(self.args)
+
+
+def log_eval_pipeline_intro(args: argparse.Namespace) -> ui.WorkflowProgress:
+    _normalize_eval_models(args)
+    return EvalWorkflowReporter(args).create()
+
+
 def run_eval(
     args: argparse.Namespace,
     *,
@@ -291,6 +482,7 @@ def run_eval(
     prepare_cache: bool = True,
     verbose: bool | None = None,
     show_progress: bool | None = None,
+    workflow: ui.WorkflowProgress | None = None,
 ) -> ValidationResult:
     _ensure_eval_dependencies()
     _normalize_eval_models(args)
@@ -302,19 +494,49 @@ def run_eval(
 
     timing_stats = TimingStats()
     if setup:
-        eval_setup(args)
+        eval_setup(args, workflow=workflow)
+        _refresh_eval_pipeline_intro(workflow, args)
+    if workflow is not None and prepare_cache:
+        workflow.activate(EVAL_GENERATE_STEP)
+    if workflow is not None and not prepare_cache:
+        workflow.complete(EVAL_GENERATE_STEP, render=False)
+        workflow.activate(EVAL_TRACK_STEP, render=False)
+        workflow.set_detail(EVAL_TRACK_STEP, "Starting tracker...")
     if prepare_cache:
-        run_generate_dets_embs(args, timing_stats=timing_stats)
-    run_generate_mot_results(
-        args,
-        evolve_config=evolve_config,
-        timing_stats=timing_stats,
-        quiet=not bool(show_progress),
-    )
-    raw_results = run_trackeval(args, verbose=bool(verbose))
+        generate_progress_callback = None
+        if workflow is not None and bool(show_progress):
+            generate_progress_callback = WorkflowDetailCallback(workflow, EVAL_GENERATE_STEP)
+        with suppress_boxmot_logs((not verbose) or workflow is not None, level="WARNING"):
+            if generate_progress_callback is None:
+                run_generate_dets_embs(args, timing_stats=timing_stats)
+            else:
+                run_generate_dets_embs(
+                    args,
+                    timing_stats=timing_stats,
+                    progress_callback=generate_progress_callback,
+                )
+        if workflow is not None:
+            workflow.complete(EVAL_GENERATE_STEP, render=False)
+            workflow.activate(EVAL_TRACK_STEP, render=False)
+            workflow.set_detail(EVAL_TRACK_STEP, "Starting tracker...")
+    progress_callback = None
+    if workflow is not None and bool(show_progress):
+        progress_callback = WorkflowDetailCallback(workflow, EVAL_TRACK_STEP)
+    with suppress_boxmot_logs((not verbose) or workflow is not None, level="WARNING"):
+        run_generate_mot_results(
+            args,
+            evolve_config=evolve_config,
+            timing_stats=timing_stats,
+            quiet=not bool(show_progress),
+            progress_callback=progress_callback,
+        )
+    if workflow is not None:
+        workflow.complete(EVAL_TRACK_STEP, render=False)
+        workflow.activate(EVAL_EVALUATE_STEP, render=False)
+        workflow.set_detail(EVAL_EVALUATE_STEP, "Computing metrics...")
+    raw_results = run_trackeval(args, verbose=bool(verbose) and workflow is None)
     summary_label, summary = extract_summary(raw_results)
-
-    return ValidationResult(
+    result = ValidationResult(
         benchmark=str(getattr(args, "benchmark", getattr(args, "data", ""))),
         raw=raw_results,
         summary_label=summary_label,
@@ -322,39 +544,32 @@ def run_eval(
         exp_dir=getattr(args, "exp_dir", None),
         timings=timing_summary_from_stats(timing_stats),
         args=args,
+        workflow_rendered=workflow is not None,
     )
+    if workflow is not None:
+        workflow.complete(EVAL_EVALUATE_STEP, render=False)
+        if hasattr(workflow, "set_detail_renderable"):
+            workflow.set_detail_renderable(
+                EVAL_EVALUATE_STEP,
+                result.renderable(include_timings=bool(getattr(args, "show_timing", False))),
+                render=False,
+            )
+        else:
+            workflow.set_detail(
+                EVAL_EVALUATE_STEP,
+                result.render(include_timings=bool(getattr(args, "show_timing", False))),
+                render=False,
+            )
+
+    return result
 
 
 def main(args):
-    _normalize_eval_models(args)
-    dataset = (
-        getattr(args, "data", None)
-        or getattr(args, "benchmark", None)
-        or getattr(args, "dataset_id", None)
-        or getattr(args, "benchmark_id", None)
-        or getattr(args, "source", None)
-    )
-    imgsz = getattr(args, "imgsz", None)
-
-    LOGGER.opt(colors=True).info("<cyan>[1/4]</cyan> Setting up TrackEval...")
-    LOGGER.info("")
-    LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
-    LOGGER.opt(colors=True).info("<bold><cyan>🚀 BoxMOT Evaluation Pipeline</cyan></bold>")
-    LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>  <cyan>{args.detector[0]}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>      <cyan>{args.reid[0]}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>   <cyan>{args.tracker}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Dataset:</bold>   <cyan>{dataset}</cyan>")
-    if imgsz is not None:
-        LOGGER.opt(colors=True).info(f"<bold>Image size:</bold> <cyan>{imgsz}</cyan>")
-    LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
-
-    LOGGER.opt(colors=True).info("<cyan>[2/4]</cyan> Generating detections and embeddings...")
-    LOGGER.opt(colors=True).info("<cyan>[3/4]</cyan> Running tracker...")
-    LOGGER.opt(colors=True).info("<cyan>[4/4]</cyan> Evaluating results...")
-    result = run_eval(args, verbose=False)
-
-    result.print_report(include_timings=bool(getattr(args, "show_timing", False)))
+    workflow = log_eval_pipeline_intro(args)
+    try:
+        result = run_eval(args, verbose=False, workflow=workflow)
+    finally:
+        workflow.stop()
 
     plot_class, metrics_data = _select_plot_metrics_data(result.raw)
     if metrics_data:

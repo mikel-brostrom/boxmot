@@ -45,6 +45,10 @@ plugins:
               - "!^_[^_]"
               - "!^update$"
 
+watch:
+  - README.md
+  - boxmot
+
 nav:
   - Quickstart: index.md
   - Getting Started:
@@ -87,6 +91,7 @@ nav:
   - Guides:
       - Evaluation and Postprocessing: guides/evaluation.md
       - Benchmark Workflows: guides/benchmarks.md
+      - Native C++ Integration: guides/native-cpp.md
       - Results and Artifacts: guides/results.md
   - API Reference:
       - Overview: python/index.md

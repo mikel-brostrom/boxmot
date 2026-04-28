@@ -11,28 +11,55 @@ Supports single-objective (default) and multi-objective Pareto search:
 """
 
 import csv
+from difflib import get_close_matches
+import inspect
+import logging
 import os
+import warnings
+
+import click
 
 os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"   # keep CWD constant for all trials
 
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import yaml
 
 from boxmot.engine.evaluator import eval_setup, run_eval, run_generate_dets_embs
-from boxmot.engine.workflow_reporting import SUMMARY_COLUMNS
+from boxmot.utils.rich.tune_reporting import (
+    TUNE_GENERATE_STEP,
+    TUNE_OPTIMIZE_STEP,
+    TUNE_SETUP_STEP,
+    TuneSilentReporter,
+    TuneWorkflowCallback,
+    build_tune_artifacts_renderable,
+    combine_tune_result_renderables,
+    format_initial_tune_progress,
+    log_tune_pipeline_intro,
+    set_tune_progress_workflow,
+)
+from boxmot.engine.workflow_reporting import (
+    CLI_TUNE_BEST_SUMMARY_TITLE,
+    SUMMARY_COLUMNS,
+)
 from boxmot.engine.workflow_results import TuneResult, TuneTrialResult, ValidationResult
-from boxmot.engine.workflow_support import score_summary
+from boxmot.engine.workflow_support import score_summary, suppress_boxmot_logs
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.misc import increment_path
 
 # Metrics that must be summed across classes (not averaged), because they are counts
 METRIC_SUM = frozenset({"IDSW", "IDs"})
+MAXIMIZE_TUNE_METRICS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe")
+MINIMIZE_TUNE_METRICS = ("IDSW", "IDs", "IDSW_rate")
 
 # All metrics returned from each trial (SUMMARY_COLUMNS + derived)
 ALL_TUNE_METRICS = (*SUMMARY_COLUMNS, "IDSW_rate")
+_TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +89,78 @@ def yaml_to_search_space(config: dict, tune) -> dict:
         elif t == "loguniform":
             space[param] = tune.loguniform(*details["range"])
     return space
+
+
+def _normalize_metric_names(values: Any) -> list[str]:
+    """Normalize repeated and comma-separated metric CLI values."""
+    if values is None:
+        return []
+    if isinstance(values, str):
+        raw_values = [values]
+    else:
+        raw_values = list(values)
+
+    metrics: list[str] = []
+    for value in raw_values:
+        for part in str(value).split(","):
+            metric = part.strip()
+            if metric:
+                metrics.append(metric)
+    return metrics
+
+
+def _format_supported_tune_metrics() -> str:
+    return (
+        f"Available maximize metrics: {', '.join(MAXIMIZE_TUNE_METRICS)}\n"
+        f"Available minimize metrics: {', '.join(MINIMIZE_TUNE_METRICS)}"
+    )
+
+
+def _suggest_tune_metrics(metric: str, allowed_metrics: tuple[str, ...]) -> str:
+    metric_prefix = metric.lower().rstrip("s")
+    prefix_matches = [candidate for candidate in allowed_metrics if candidate.lower().startswith(metric_prefix)]
+    suggestions = prefix_matches[:2] or get_close_matches(metric, allowed_metrics, n=2, cutoff=0.5)
+    if not suggestions:
+        return ""
+    return f" (did you mean {', '.join(suggestions)}?)"
+
+
+def _validate_tune_metrics(option_name: str, metrics: list[str], allowed_metrics: tuple[str, ...]) -> None:
+    invalid = [metric for metric in metrics if metric not in allowed_metrics]
+    if not invalid:
+        return
+
+    invalid_message = ", ".join(
+        f"{metric}{_suggest_tune_metrics(metric, allowed_metrics)}"
+        for metric in invalid
+    )
+    raise click.UsageError(
+        f"Invalid value for {option_name}: {invalid_message}\n{_format_supported_tune_metrics()}"
+    )
+
+
+def _resolve_tune_metric_targets(args: Any) -> tuple[list[str], list[str], list[str]]:
+    objectives = _normalize_metric_names(getattr(args, "objectives", ()))
+    maximize = _normalize_metric_names(getattr(args, "maximize", ())) or [objectives[0] if objectives else "HOTA"]
+    minimize = _normalize_metric_names(getattr(args, "minimize", ()))
+
+    _validate_tune_metrics("--objectives", objectives, ALL_TUNE_METRICS)
+    _validate_tune_metrics("--maximize", maximize, MAXIMIZE_TUNE_METRICS)
+    _validate_tune_metrics("--minimize", minimize, MINIMIZE_TUNE_METRICS)
+
+    args.objectives = tuple(objectives)
+    args.maximize = tuple(maximize)
+    args.minimize = tuple(minimize)
+    return objectives, maximize, minimize
+
+
+def _default_tune_config(yaml_cfg: dict, search_space: dict) -> dict[str, Any]:
+    """Return default values for parameters included in the Ray search space."""
+    return {
+        param: yaml_cfg[param]["default"]
+        for param in search_space
+        if param in yaml_cfg and "default" in yaml_cfg[param]
+    }
 
 
 def _format_yaml_value(v):
@@ -190,6 +289,17 @@ def _save_results_csv(csv_path: Path, trial_data: list):
             writer.writerow(row)
 
 
+def _best_trial_data(trial_data: list, *, maximize: list[str], minimize: list[str]) -> dict | None:
+    best_trial: dict | None = None
+    best_score: tuple[float, ...] | None = None
+    for trial in trial_data:
+        score = score_summary(trial["metrics"], maximize=maximize, minimize=minimize)
+        if best_score is None or score > best_score:
+            best_trial = trial
+            best_score = score
+    return best_trial
+
+
 def _convergence_label(search_range, top10_vals):
     """Determine whether a parameter converged based on top-10 values vs search range."""
     if not isinstance(search_range, list) or len(search_range) < 2:
@@ -223,6 +333,27 @@ def _convergence_label(search_range, top10_vals):
     return label
 
 
+def _as_float_values(values: list[Any]) -> list[float] | None:
+    try:
+        return [float(v) for v in values]
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_markdown_value(value: Any) -> str:
+    return str(value).replace("|", r"\|")
+
+
+def _format_value_counts(values: list[Any]) -> str:
+    from collections import Counter
+
+    counts = Counter(values)
+    return ", ".join(
+        f"{_format_markdown_value(value)}: {count}"
+        for value, count in sorted(counts.items(), key=lambda item: str(item[0]))
+    )
+
+
 def _generate_summary(
     tune_dir: Path,
     trial_data: list,
@@ -231,6 +362,8 @@ def _generate_summary(
     maximize: list,
     minimize: list,
     args,
+    *,
+    emit_logs: bool = True,
 ):
     """Generate ``summary.md`` in *tune_dir*."""
     primary = maximize[0]
@@ -317,13 +450,16 @@ def _generate_summary(
                 continue
 
             if isinstance(top_vals[0], bool):
-                from collections import Counter
-                dist = dict(Counter(top_vals))
-                search_opts = details.get("options", [])
-                lines.append(f"| {param} | {search_opts} | {dist} | — | — |")
+                search_opts = details.get("options", details.get("choices", []))
+                lines.append(f"| {param} | {search_opts} | {_format_value_counts(top_vals)} | — | — |")
             else:
                 search_range = details.get("range", details.get("options", []))
-                top_vals_f = [float(v) for v in top_vals]
+                top_vals_f = _as_float_values(top_vals)
+                if top_vals_f is None:
+                    lines.append(
+                        f"| {param} | {search_range} | {_format_value_counts(top_vals)} | — | categorical |"
+                    )
+                    continue
                 t_lo, t_hi = min(top_vals_f), max(top_vals_f)
                 t_mean = np.mean(top_vals_f)
                 label = _convergence_label(search_range, top_vals_f)
@@ -344,10 +480,13 @@ def _generate_summary(
     )
     lines.append("")
 
-    (tune_dir / "summary.md").write_text("\n".join(lines))
-    LOGGER.opt(colors=True).info(
-        f"<bold>Summary saved to:</bold> <cyan>{tune_dir / 'summary.md'}</cyan>"
-    )
+    summary_path = tune_dir / "summary.md"
+    summary_path.write_text("\n".join(lines))
+    if emit_logs:
+        LOGGER.opt(colors=True).info(
+            f"<bold>Summary saved to:</bold> <cyan>{summary_path}</cyan>"
+        )
+    return summary_path
 
 
 def _save_all_results(
@@ -358,6 +497,8 @@ def _save_all_results(
     maximize: list,
     minimize: list,
     args,
+    *,
+    emit_logs: bool = True,
 ):
     """
     Post-processing after tuner.fit():
@@ -369,7 +510,7 @@ def _save_all_results(
     trial_data = _collect_trial_data(results)
     if not trial_data:
         LOGGER.warning("No successful trials found.")
-        return
+        return None
 
     # 1. Per-trial YAML configs
     for td in trial_data:
@@ -381,19 +522,38 @@ def _save_all_results(
     # 2. results.csv
     csv_path = tune_dir / "results.csv"
     _save_results_csv(csv_path, trial_data)
-    LOGGER.opt(colors=True).info(f"<bold>Results CSV:</bold> <cyan>{csv_path}</cyan>")
+    if emit_logs:
+        LOGGER.opt(colors=True).info(f"<bold>Results CSV:</bold> <cyan>{csv_path}</cyan>")
 
     # 3. Best config → tune root
-    primary = maximize[0]
-    best = max(trial_data, key=lambda t: t["metrics"].get(primary, 0))
+    best = _best_trial_data(trial_data, maximize=maximize, minimize=minimize)
+    if best is None:
+        return None
     best_yaml_path = tune_dir / f"best_{tracker_name}.yaml"
     _write_trial_yaml(yaml_cfg, best["config"], best_yaml_path)
-    LOGGER.opt(colors=True).info(
-        f"<bold>Best config ({best['trial_id']}):</bold> <cyan>{best_yaml_path}</cyan>"
-    )
+    if emit_logs:
+        LOGGER.opt(colors=True).info(
+            f"<bold>Best config ({best['trial_id']}):</bold> <cyan>{best_yaml_path}</cyan>"
+        )
 
     # 4. summary.md
-    _generate_summary(tune_dir, trial_data, yaml_cfg, tracker_name, maximize, minimize, args)
+    summary_path = _generate_summary(
+        tune_dir,
+        trial_data,
+        yaml_cfg,
+        tracker_name,
+        maximize,
+        minimize,
+        args,
+        emit_logs=emit_logs,
+    )
+    return {
+        "trial_data": trial_data,
+        "csv_path": csv_path,
+        "best_yaml_path": best_yaml_path,
+        "summary_path": summary_path,
+        "best_trial_id": best["trial_id"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -405,14 +565,15 @@ class TrackerObjective:
         self.opt = opt
 
     def objective_function(self, config: dict) -> dict:
-        result = run_eval(
-            self.opt,
-            evolve_config=config,
-            setup=False,
-            prepare_cache=False,
-            verbose=False,
-            show_progress=False,
-        )
+        with suppress_boxmot_logs(enabled=not bool(getattr(self.opt, "verbose", False)), level="ERROR"):
+            result = run_eval(
+                self.opt,
+                evolve_config=config,
+                setup=False,
+                prepare_cache=False,
+                verbose=False,
+                show_progress=False,
+            )
 
         if not result.raw:
             return {k: 0.0 for k in ALL_TUNE_METRICS}
@@ -454,25 +615,113 @@ def _validation_result_from_trial(trial_data: dict, args) -> ValidationResult:
     )
 
 
+def _configure_tune_warning_filters() -> None:
+    existing = os.environ.get("PYTHONWARNINGS", "")
+    if _TUNE_WARNING_FILTER not in existing.split(","):
+        os.environ["PYTHONWARNINGS"] = ",".join(filter(None, [existing, _TUNE_WARNING_FILTER]))
+    os.environ.setdefault("RAY_AIR_NEW_OUTPUT", "0")
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var.*",
+        category=FutureWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"The distribution is specified by .* and step=.*",
+        category=UserWarning,
+        module=r"optuna\.distributions",
+    )
+
+
+def _is_ray_pickle_safe(value: Any) -> bool:
+    """Return True when Ray's cloudpickle can serialize ``value`` safely."""
+    try:
+        from ray import cloudpickle
+    except Exception:
+        try:
+            import cloudpickle
+        except Exception:
+            return False
+
+    try:
+        cloudpickle.dumps(value)
+    except Exception:
+        return False
+    return True
+
+
+def _ray_safe_namespace(args: Any) -> SimpleNamespace:
+    """Return an args namespace containing only fields Ray can serialize."""
+    safe_values: dict[str, Any] = {}
+    skipped: list[str] = []
+    for key, value in vars(args).items():
+        if _is_ray_pickle_safe(value):
+            safe_values[key] = value
+        else:
+            skipped.append(key)
+
+    if skipped:
+        LOGGER.debug(
+            "Skipping non-serializable tuning args before Ray trial dispatch: "
+            + ", ".join(sorted(skipped))
+        )
+
+    return SimpleNamespace(**safe_values)
+
+
+def _resolve_tune_dir(args, *, resume: bool = False) -> Path:
+    results_dir = Path(args.project).resolve() / "ray"
+    base_dir = results_dir / f"{args.tracker}_tune"
+    if resume:
+        return base_dir
+    return increment_path(base_dir, sep="_", exist_ok=False)
+
+
+def _ensure_ray_initialized(*, verbose: bool) -> None:
+    import ray
+
+    if ray.is_initialized():
+        return
+
+    init_kwargs: dict[str, Any] = {
+        "include_dashboard": False,
+    }
+    if not verbose:
+        init_kwargs["logging_level"] = logging.ERROR
+        init_kwargs["log_to_driver"] = False
+
+    ray.init(**init_kwargs)
+
+
 def _execute_tune_search(
     args,
     *,
     baseline_config: dict | None = None,
 ):
+    objectives, maximize, minimize = _resolve_tune_metric_targets(args)
+
+    import ray
     from boxmot.utils.checks import RequirementsChecker
     checker = RequirementsChecker()
-    checker.sync_extra(extra="evolve")
+    checker.sync_extra(extra="evolve", verbose=bool(getattr(args, "verbose", False)))
 
     from ray import tune
     from ray.tune import RunConfig
     from ray.tune.search.optuna import OptunaSearch
 
+    _configure_tune_warning_filters()
+    try:
+        import optuna.logging as optuna_logging
+
+        optuna_logging.set_verbosity(optuna_logging.INFO if bool(getattr(args, "verbose", False)) else optuna_logging.WARNING)
+    except Exception:
+        pass
+
     args.detector = [Path(y).resolve() for y in args.detector]
     args.reid = [Path(r).resolve() for r in args.reid]
-
-    # Resolve optimize targets
-    maximize = list(args.maximize) if args.maximize else [args.objectives[0]]
-    minimize = list(args.minimize)
+    args.show_progress = False
+    resume_tune = bool(getattr(args, "resume_tune", False))
+    _ensure_ray_initialized(verbose=bool(getattr(args, "verbose", False)))
     opt_metrics = maximize + minimize
     opt_modes   = ["max"] * len(maximize) + ["min"] * len(minimize)
     optuna_kwargs = {
@@ -482,59 +731,84 @@ def _execute_tune_search(
     seed = getattr(args, "seed", None)
     if seed is not None:
         optuna_kwargs["seed"] = seed
+
+    yaml_cfg = load_yaml_config(args.tracker)
+    search_space = yaml_to_search_space(yaml_cfg, tune)
+    if baseline_config is None:
+        baseline_config = _default_tune_config(yaml_cfg, search_space) or None
     if baseline_config:
         optuna_kwargs["points_to_evaluate"] = [baseline_config]
 
     optuna_search = OptunaSearch(**optuna_kwargs)
 
-    yaml_cfg = load_yaml_config(args.tracker)
-    search_space = yaml_to_search_space(yaml_cfg, tune)
-    tracker_objective = TrackerObjective(args)
+    n_threads = int(args.n_threads)
+    setup_status_message: str | None = None
+
+    class _TuneSetupStatus:
+        def set_detail(self, _label: str, message: str, *, render: bool = True) -> None:
+            del render
+            nonlocal setup_status_message
+            setup_status_message = str(message)
+
+    tune_callback = TuneWorkflowCallback(total=int(args.n_trials), maximize=maximize, minimize=minimize)
+
+    with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
+        eval_setup(args, workflow=_TuneSetupStatus())
+
+    workflow = log_tune_pipeline_intro(args, maximize=maximize, minimize=minimize)
+
+    tune_dir = _resolve_tune_dir(args, resume=resume_tune)
+    tune_name = tune_dir.name
+
+    workflow.complete(TUNE_SETUP_STEP, render=False)
+    workflow.activate(TUNE_GENERATE_STEP, render=False)
+    workflow.set_detail(
+        TUNE_GENERATE_STEP,
+        setup_status_message or "Preparing benchmark cache...",
+        render=False,
+    )
+    workflow.start()
+
+    results_dir = tune_dir.parent
+    restore_path = tune_dir
+    restore_path_str = str(restore_path)
+    results_dir_str = str(results_dir)
+
+    with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
+        run_generate_dets_embs(args)
+    workflow.complete(TUNE_GENERATE_STEP, render=False)
+    workflow.activate(TUNE_OPTIMIZE_STEP, render=False)
+    workflow.set_detail(
+        TUNE_OPTIMIZE_STEP,
+        format_initial_tune_progress(int(args.n_trials)),
+        render=True,
+    )
+
+    tracker_objective = TrackerObjective(_ray_safe_namespace(args))
 
     def tune_wrapper(cfg):
         return tracker_objective.objective_function(cfg)
 
-    tune_name = f"{args.tracker}_tune"
-
-    n_threads = int(args.n_threads)
     trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
 
-    LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up evaluation environment...")
-    eval_setup(args)
-
-    results_dir = Path(args.project).resolve() / "ray"
-    restore_path = results_dir / tune_name
-    restore_path_str = str(restore_path)
-    results_dir_str = str(results_dir)
-
-    LOGGER.info("")
-    LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
-    LOGGER.opt(colors=True).info("<bold><cyan>BoxMOT Hyperparameter Tuning</cyan></bold>")
-    LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
-    LOGGER.opt(colors=True).info(f"<bold>Tracker:</bold>    <cyan>{args.tracker}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Detector:</bold>   <cyan>{args.detector[0]}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>ReID:</bold>       <cyan>{args.reid[0]}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Trials:</bold>     <cyan>{args.n_trials}</cyan>")
-    LOGGER.opt(colors=True).info(f"<bold>Maximize:</bold>   <cyan>{', '.join(maximize)}</cyan>")
-    if minimize:
-        LOGGER.opt(colors=True).info(f"<bold>Minimize:</bold>   <cyan>{', '.join(minimize)}</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>Mode:</bold>       <cyan>Pareto (multi-objective)</cyan>")
-    else:
-        LOGGER.opt(colors=True).info(f"<bold>Mode:</bold>       <cyan>Single-objective</cyan>")
-    LOGGER.opt(colors=True).info("<blue>" + "=" * 60 + "</blue>")
-
-    LOGGER.opt(colors=True).info("<cyan>[2/3]</cyan> Generating detections and embeddings...")
-    run_generate_dets_embs(args)
-
-    LOGGER.opt(colors=True).info("<cyan>[3/3]</cyan> Running hyperparameter optimization...")
-    if tune.Tuner.can_restore(restore_path_str):
-        LOGGER.opt(colors=True).info(f"<bold>Resuming tuning from:</bold> <cyan>{restore_path}</cyan>")
+    if resume_tune and tune.Tuner.can_restore(restore_path_str):
         tuner = tune.Tuner.restore(
             restore_path_str,
             trainable=trainable,
             resume_errored=True,
         )
     else:
+        run_config_kwargs = {
+            "storage_path": results_dir_str,
+            "name": tune_name,
+        }
+        run_config_signature = inspect.signature(RunConfig)
+        if "callbacks" in run_config_signature.parameters:
+            run_config_kwargs["callbacks"] = [tune_callback]
+        if "verbose" in run_config_signature.parameters:
+            run_config_kwargs["verbose"] = 0
+        if "progress_reporter" in run_config_signature.parameters:
+            run_config_kwargs["progress_reporter"] = TuneSilentReporter()
         tuner = tune.Tuner(
             trainable,
             param_space=search_space,
@@ -543,20 +817,56 @@ def _execute_tune_search(
                 search_alg=optuna_search,
                 trial_dirname_creator=lambda trial: f"trial_{trial.trial_id}",
             ),
-            run_config=RunConfig(
-                storage_path=results_dir_str,
-                name=tune_name,
-            ),
+            run_config=RunConfig(**run_config_kwargs),
         )
 
-    result_grid = tuner.fit()
-    if result_grid is None and hasattr(tuner, "get_results"):
-        result_grid = tuner.get_results()
+    try:
+        set_tune_progress_workflow(workflow)
+        result_grid = tuner.fit()
+        if result_grid is None and hasattr(tuner, "get_results"):
+            result_grid = tuner.get_results()
 
-    # Post-processing: per-trial configs, CSV, best config, summary
-    tune_dir = results_dir / tune_name
-    _save_all_results(tune_dir, result_grid, yaml_cfg, args.tracker, maximize, minimize, args)
-    return result_grid, tune_dir, maximize, minimize
+        saved_artifacts = _save_all_results(
+            tune_dir,
+            result_grid,
+            yaml_cfg,
+            args.tracker,
+            maximize,
+            minimize,
+            args,
+            emit_logs=False,
+        )
+
+        workflow.complete(TUNE_OPTIMIZE_STEP, render=False)
+        artifacts_renderable = build_tune_artifacts_renderable(saved_artifacts) if saved_artifacts else None
+        baseline_raw = None
+        compare_to_first_trial = bool(getattr(args, "compare_to_first_trial", False))
+        if (baseline_config is not None or compare_to_first_trial) and saved_artifacts and saved_artifacts.get("trial_data"):
+            baseline_raw = (saved_artifacts["trial_data"][0].get("validation") or {}).get("raw")
+        if saved_artifacts and saved_artifacts.get("trial_data"):
+            best_trial = _best_trial_data(saved_artifacts["trial_data"], maximize=maximize, minimize=minimize)
+            if best_trial is not None:
+                best_metrics = _validation_result_from_trial(best_trial, args)
+                best_renderable = best_metrics.renderable(
+                    title=CLI_TUNE_BEST_SUMMARY_TITLE,
+                    compare_raw=baseline_raw,
+                    compare_args=args if baseline_raw else None,
+                )
+                workflow.set_detail_renderable(
+                    "Results",
+                    combine_tune_result_renderables(best_renderable, artifacts_renderable),
+                    render=False,
+                )
+            elif artifacts_renderable is not None:
+                workflow.set_detail_renderable("Results", artifacts_renderable, render=False)
+        elif artifacts_renderable is not None:
+            workflow.set_detail_renderable("Results", artifacts_renderable, render=False)
+        else:
+            workflow.set_detail(TUNE_OPTIMIZE_STEP, "No successful trials were produced.", render=False)
+        return result_grid, tune_dir, maximize, minimize
+    finally:
+        set_tune_progress_workflow(None)
+        workflow.stop()
 
 
 def run_tune(

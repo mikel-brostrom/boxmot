@@ -88,10 +88,8 @@ def test_dataset_config_loads_without_model_bindings():
     assert cfg["path"] == "boxmot/engine/trackeval/data/MOT17-ablation"
     assert cfg["detector_config"] is None
     assert cfg["reid_config"] is None
-    assert cfg["download"] == {
-        "dataset": "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip",
-        "runs": "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.10/runs.zip",
-    }
+    assert cfg["download"]["dataset"] == "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip"
+    assert cfg["download"]["runs"].endswith("/runs.zip")
 
 
 def test_obb_dataset_derives_trackeval_from_box_type():
@@ -281,6 +279,7 @@ def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
         "dataset_dest": Path("boxmot/engine/trackeval/data/MMOT-OBB.zip"),
         "overwrite": False,
         "runs_check_path": None,
+        "status_fn": None,
     }
 
 

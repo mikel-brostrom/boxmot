@@ -24,6 +24,7 @@ def test_build_mode_namespace_uses_shared_runtime_defaults():
     assert args.detector == [DEFAULT_DETECTOR]
     assert args.reid == [DEFAULT_REID]
     assert args.tracker == get_mode_default("eval", "tracker")
+    assert args.tracker_backend == "python"
     assert args.detector_explicit is False
     assert args.reid_explicit is False
     assert args.project == Path(get_mode_default("eval", "project"))
@@ -46,6 +47,7 @@ def test_boxmot_defaults_bundle_exposes_typed_mode_defaults():
     assert BOXMOT_DEFAULTS.shared.detector == DEFAULT_DETECTOR
     assert BOXMOT_DEFAULTS.shared.reid == DEFAULT_REID
     assert BOXMOT_DEFAULTS.track.tracker == get_mode_default("track", "tracker")
+    assert BOXMOT_DEFAULTS.track.tracker_backend == "python"
     assert BOXMOT_DEFAULTS.eval.project == Path(get_mode_default("eval", "project"))
     assert BOXMOT_DEFAULTS.export.include == tuple(get_mode_default("export", "include"))
 
@@ -56,5 +58,13 @@ def test_build_mode_namespace_normalizes_track_and_export_models():
 
     assert track_args.detector == DEFAULT_DETECTOR
     assert track_args.reid == DEFAULT_REID
+    assert track_args.tracker_backend == "python"
     assert export_args.weights == WEIGHTS / "osnet_x0_25_msmt17.pt"
     assert export_args.include == ("onnx",)
+
+
+def test_build_mode_namespace_normalizes_inline_tracker_backend():
+    args = build_mode_namespace("eval", {"data": "mot17-mini", "tracker": "botsort:cpp"}, explicit_keys={"tracker"})
+
+    assert args.tracker == "botsort"
+    assert args.tracker_backend == "cpp"

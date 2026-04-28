@@ -12,6 +12,8 @@ from boxmot.data import iter_source
 from boxmot.detectors.base import Detections
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
+from boxmot.utils.rich.ui import print_text
+from boxmot.utils.timing import build_timing_display_rows, derive_timing_breakdown
 
 
 try:
@@ -144,7 +146,16 @@ class Tracks:
 
 
 class Results:
-    def __init__(self, source, detector: Any, reid: Any, tracker: Any, verbose: bool = True, drawer: Drawer | None = None) -> None:
+    def __init__(
+        self,
+        source,
+        detector: Any,
+        reid: Any,
+        tracker: Any,
+        verbose: bool = True,
+        drawer: Drawer | None = None,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> None:
         if detector is None:
             raise ValueError("A detector instance is required.")
         if tracker is None:
@@ -156,6 +167,7 @@ class Results:
         self.tracker = tracker
         self.verbose = bool(verbose)
         self.drawer = drawer
+        self._progress_callback = progress_callback
         self._generator: Iterator[Tracks] | None = None
         self._cache: list[Tracks] = []
         self._cache_results = not _is_live_source(source)
@@ -164,7 +176,13 @@ class Results:
         self._track_ids_seen: set[int] = set()
         self.totals = {
             "det": 0.0,
+            "detector_preprocess": 0.0,
+            "detector_process": 0.0,
+            "detector_postprocess": 0.0,
             "reid": 0.0,
+            "reid_preprocess": 0.0,
+            "reid_process": 0.0,
+            "reid_postprocess": 0.0,
             "track": 0.0,
             "total": 0.0,
             "frames": 0,
@@ -226,14 +244,29 @@ class Results:
 
     def _log_frame_timings(self, frame_idx: int, det_ms: float, reid_ms: float, track_ms: float) -> None:
         total_ms = det_ms + reid_ms + track_ms
-        if self.reid is None:
-            LOGGER.info(
-                f"Frame {frame_idx} | Det: {det_ms:.1f}ms | Track: {track_ms:.1f}ms | Total: {total_ms:.1f}ms"
-            )
+        if self.reid is None and reid_ms <= 0.0:
+            message = f"Frame {frame_idx} | Det: {det_ms:.1f}ms | Track: {track_ms:.1f}ms | Total: {total_ms:.1f}ms"
+            if self._progress_callback is not None:
+                self._progress_callback(message)
+            else:
+                LOGGER.info(message)
             return
-        LOGGER.info(
-            f"Frame {frame_idx} | Det: {det_ms:.1f}ms | ReID: {reid_ms:.1f}ms | Track: {track_ms:.1f}ms | Total: {total_ms:.1f}ms"
+        message = (
+            f"Frame {frame_idx} | Det: {det_ms:.1f}ms | ReID: {reid_ms:.1f}ms | "
+            f"Track: {track_ms:.1f}ms | Total: {total_ms:.1f}ms"
         )
+        if self._progress_callback is not None:
+            self._progress_callback(message)
+        else:
+            LOGGER.info(message)
+
+    def _tracker_reid_time_ms(self) -> float:
+        getter = getattr(self.tracker, "get_last_reid_time_ms", None)
+        value = getter() if callable(getter) else getattr(self.tracker, "last_reid_time_ms", 0.0)
+        try:
+            return max(float(value), 0.0)
+        except (TypeError, ValueError):
+            return 0.0
 
     def _log_summary(self) -> None:
         self.print_summary()
@@ -245,6 +278,87 @@ class Results:
             return self.reid(frame, boxes=dets)
         except TypeError:
             return self.reid(frame, dets)
+
+    def _add_detector_phase_time(self, phase: str, time_ms: float) -> None:
+        phase_key = f"detector_{phase}"
+        elapsed_ms = float(time_ms or 0.0)
+        self.totals[phase_key] += elapsed_ms
+        self.totals["det"] += elapsed_ms
+
+    def _add_reid_phase_time(self, phase: str, time_ms: float) -> None:
+        phase_key = f"reid_{phase}"
+        elapsed_ms = float(time_ms or 0.0)
+        self.totals[phase_key] += elapsed_ms
+        self.totals["reid"] += elapsed_ms
+
+    def _run_detector_timed(self, frame: np.ndarray) -> tuple[np.ndarray, float]:
+        if all(hasattr(self.detector, attr) for attr in ("preprocess", "process", "postprocess")):
+            try:
+                preprocess_started = time.perf_counter()
+                preprocessed = self.detector.preprocess(frame)
+                preprocess_ms = (time.perf_counter() - preprocess_started) * 1000
+                self._add_detector_phase_time("preprocess", preprocess_ms)
+
+                process_started = time.perf_counter()
+                raw_output = self.detector.process(preprocessed)
+                process_ms = (time.perf_counter() - process_started) * 1000
+                self._add_detector_phase_time("process", process_ms)
+
+                postprocess_started = time.perf_counter()
+                detector_output = self.detector.postprocess(raw_output)
+                postprocess_ms = (time.perf_counter() - postprocess_started) * 1000
+                self._add_detector_phase_time("postprocess", postprocess_ms)
+
+                dets = self._extract_detections(detector_output)
+                return dets, preprocess_ms + process_ms + postprocess_ms
+            except NotImplementedError:
+                pass
+
+        det_started = time.perf_counter()
+        detector_output = self.detector(frame)
+        det_ms = (time.perf_counter() - det_started) * 1000
+        self._add_detector_phase_time("process", det_ms)
+        dets = self._extract_detections(detector_output)
+        return dets, det_ms
+
+    def _run_reid_timed(self, frame: np.ndarray, dets: np.ndarray) -> tuple[np.ndarray | None, float]:
+        if self.reid is None:
+            return None, 0.0
+
+        if all(hasattr(self.reid, attr) for attr in ("preprocess", "process", "postprocess")):
+            try:
+                preprocess_started = time.perf_counter()
+                try:
+                    payload = self.reid.preprocess(frame, boxes=dets)
+                except TypeError:
+                    payload = self.reid.preprocess(frame, dets)
+                preprocess_ms = (time.perf_counter() - preprocess_started) * 1000
+                self._add_reid_phase_time("preprocess", preprocess_ms)
+
+                process_started = time.perf_counter()
+                try:
+                    features = self.reid.process(payload, boxes=dets)
+                except TypeError:
+                    features = self.reid.process(payload, dets)
+                process_ms = (time.perf_counter() - process_started) * 1000
+                self._add_reid_phase_time("process", process_ms)
+
+                postprocess_started = time.perf_counter()
+                try:
+                    features = self.reid.postprocess(features, boxes=dets)
+                except TypeError:
+                    features = self.reid.postprocess(features, dets)
+                postprocess_ms = (time.perf_counter() - postprocess_started) * 1000
+                self._add_reid_phase_time("postprocess", postprocess_ms)
+                return features, preprocess_ms + process_ms + postprocess_ms
+            except NotImplementedError:
+                pass
+
+        reid_started = time.perf_counter()
+        features = self._run_reid(frame, dets)
+        reid_ms = (time.perf_counter() - reid_started) * 1000
+        self._add_reid_phase_time("process", reid_ms)
+        return features, reid_ms
 
     def _run_tracker(self, dets: np.ndarray, frame: np.ndarray, features: np.ndarray | None) -> np.ndarray:
         if features is None:
@@ -277,7 +391,13 @@ class Results:
             "unique_tracks": len(self._track_ids_seen),
             "timings_ms": {
                 "det": float(self.totals["det"]),
+                "detector_preprocess": float(self.totals["detector_preprocess"]),
+                "detector_process": float(self.totals["detector_process"]),
+                "detector_postprocess": float(self.totals["detector_postprocess"]),
                 "reid": float(self.totals["reid"]),
+                "reid_preprocess": float(self.totals["reid_preprocess"]),
+                "reid_process": float(self.totals["reid_process"]),
+                "reid_postprocess": float(self.totals["reid_postprocess"]),
                 "track": float(self.totals["track"]),
                 "total": float(self.totals["total"]),
                 "avg_total": float(avg_total),
@@ -290,7 +410,10 @@ class Results:
 
         self._interrupted = True
         if reason:
-            LOGGER.info(reason)
+            if self._progress_callback is not None:
+                self._progress_callback(reason)
+            else:
+                LOGGER.info(reason)
 
         generator = self._generator
         self._generator = None
@@ -304,10 +427,7 @@ class Results:
         timings = summary["timings_ms"]
         frames = max(int(summary["frames"]), 1)
         width = 86
-
-        def _fps(total_ms: float) -> float:
-            avg_ms = float(total_ms) / frames if frames else 0.0
-            return (1000.0 / avg_ms) if avg_ms else 0.0
+        breakdown = derive_timing_breakdown(timings, frames, total_time_ms=timings["total"])
 
         lines = [
             "=" * width,
@@ -319,31 +439,32 @@ class Results:
             f"Track rows:  {summary['tracks']}",
             f"Unique IDs:  {summary.get('unique_tracks', 0)}",
             "-" * width,
-            f"{'Component':<14} {'Total (ms)':>12} {'Avg (ms)':>12} {'FPS':>10}",
+            f"{'Stage':<20} {'Total (ms)':>12} {'Avg (ms)':>12} {'FPS':>10}",
             "-" * width,
-            f"{'Detection':<14} {timings['det']:>12.1f} {(timings['det'] / frames if frames else 0.0):>12.2f} {_fps(timings['det']):>10.1f}",
-            f"{'ReID':<14} {timings['reid']:>12.1f} {(timings['reid'] / frames if frames else 0.0):>12.2f} {_fps(timings['reid']):>10.1f}",
-            f"{'Tracking':<14} {timings['track']:>12.1f} {(timings['track'] / frames if frames else 0.0):>12.2f} {_fps(timings['track']):>10.1f}",
-            "-" * width,
-            f"{'Total':<14} {timings['total']:>12.1f} {timings['avg_total']:>12.2f} {_fps(timings['total']):>10.1f}",
-            "=" * width,
         ]
+        for entry in build_timing_display_rows(
+            breakdown,
+            frames,
+            metadata=dict(getattr(self, "timing_metadata", {})),
+            overall_avg_ms=float(timings["avg_total"]),
+        ):
+            if entry["kind"] == "group":
+                lines.append(str(entry["label"]))
+                continue
+            if entry["kind"] == "note":
+                lines.append(str(entry["label"]))
+                continue
+            lines.append(
+                f"{str(entry['label']):<20} {float(entry['total']):>12.1f} {float(entry['avg']):>12.2f} {float(entry['fps']):>10.1f}"
+            )
+        lines.append("=" * width)
         return "\n".join(lines)
 
     def print_summary(self) -> None:
         frames = int(self.totals["frames"])
         if frames == 0:
             return
-
-        for index, line in enumerate(self.format_summary().splitlines()):
-            if line and set(line) == {"="}:
-                LOGGER.opt(colors=True).info(f"<blue>{line}</blue>")
-            elif line and set(line) == {"-"}:
-                LOGGER.opt(colors=True).info(f"<blue>{line}</blue>")
-            elif index == 1:
-                LOGGER.opt(colors=True).info(f"<bold><cyan>{line}</cyan></bold>")
-            else:
-                LOGGER.info(line)
+        print_text(self.format_summary())
 
     def _process(self):
         if hasattr(self.tracker, "reset"):
@@ -351,26 +472,19 @@ class Results:
 
         try:
             for frame_idx, (path, frame) in enumerate(self._iter_frames(), start=1):
-                det_started = time.perf_counter()
-                detector_output = self.detector(frame)
-                dets = self._extract_detections(detector_output)
-                det_ms = (time.perf_counter() - det_started) * 1000
-
-                reid_ms = 0.0
-                if self.reid is not None:
-                    reid_started = time.perf_counter()
-                    features = self._run_reid(frame, dets)
-                    reid_ms = (time.perf_counter() - reid_started) * 1000
-                else:
-                    features = None
+                dets, det_ms = self._run_detector_timed(frame)
+                features, reid_ms = self._run_reid_timed(frame, dets)
 
                 track_started = time.perf_counter()
                 tracks = self._run_tracker(dets, frame, features)
                 track_ms = (time.perf_counter() - track_started) * 1000
+                if self.reid is None:
+                    tracker_reid_ms = min(self._tracker_reid_time_ms(), track_ms)
+                    reid_ms += tracker_reid_ms
+                    self._add_reid_phase_time("process", tracker_reid_ms)
+                    track_ms = max(track_ms - tracker_reid_ms, 0.0)
 
                 total_ms = det_ms + reid_ms + track_ms
-                self.totals["det"] += det_ms
-                self.totals["reid"] += reid_ms
                 self.totals["track"] += track_ms
                 self.totals["total"] += total_ms
                 self.totals["frames"] += 1
@@ -378,7 +492,7 @@ class Results:
                 self.totals["tracks"] += int(tracks.shape[0])
                 self._track_ids_seen.update(self._extract_track_ids(tracks))
 
-                if self.verbose:
+                if self.verbose or self._progress_callback is not None:
                     self._log_frame_timings(frame_idx, det_ms, reid_ms, track_ms)
 
                 yield Tracks(
@@ -392,7 +506,10 @@ class Results:
                 )
         except KeyboardInterrupt:
             self._interrupted = True
-            LOGGER.info("Tracking interrupted by user.")
+            if self._progress_callback is not None:
+                self._progress_callback("Tracking interrupted by user.")
+            else:
+                LOGGER.info("Tracking interrupted by user.")
             return
         finally:
             self._exhausted = True

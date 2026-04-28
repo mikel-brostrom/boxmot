@@ -24,6 +24,25 @@ def _xyxy_to_ltwh(boxes: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor
     return converted
 
 
+def _order_corners(corners: np.ndarray) -> np.ndarray:
+    """Return corners in top-left, top-right, bottom-right, bottom-left order."""
+    arr = np.asarray(corners, dtype=np.float32)
+    single = arr.ndim == 2
+    if single:
+        arr = arr.reshape(1, 4, 2)
+
+    ordered = np.empty_like(arr)
+    rows = np.arange(arr.shape[0])
+    sums = arr.sum(axis=2)
+    diffs = np.diff(arr, axis=2).reshape(arr.shape[0], 4)
+
+    ordered[:, 0] = arr[rows, np.argmin(sums, axis=1)]
+    ordered[:, 2] = arr[rows, np.argmax(sums, axis=1)]
+    ordered[:, 1] = arr[rows, np.argmin(diffs, axis=1)]
+    ordered[:, 3] = arr[rows, np.argmax(diffs, axis=1)]
+    return ordered[0] if single else ordered
+
+
 def xywha_to_corners(boxes: np.ndarray) -> np.ndarray:
     """Convert one or more ``[cx, cy, w, h, angle]`` boxes to 4 corner points."""
     arr = np.asarray(boxes, dtype=np.float32)
@@ -42,6 +61,7 @@ def xywha_to_corners(boxes: np.ndarray) -> np.ndarray:
         )
         corners[i] = rect @ rot.T + np.array([cx, cy], dtype=np.float32)
 
+    corners = _order_corners(corners)
     flattened = corners.reshape(arr.shape[0], 8)
     return flattened[0] if single else flattened
 

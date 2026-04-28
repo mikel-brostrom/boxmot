@@ -10,4 +10,28 @@ OC-SORT focuses on a specific failure mode in Kalman-filter trackers: error accu
 - Supports both AABB and OBB detections in BoxMOT.
 - A strong choice when you want a fast motion-only tracker but expect more non-linear motion or occlusion than ByteTrack handles comfortably.
 
+## Native C++ Backend
+
+BoxMOT ships a native C++17 OCSORT implementation under `native/trackers/ocsort/`. It supports:
+
+- cached replay for `eval`, `tune`, and `research`
+- live `track` through `--tracker-backend cpp`
+- both AABB and OBB detection layouts in the native tracker path
+
+Requirements:
+
+- C++17 compiler
+- CMake 3.16+
+- OpenCV 4.x
+- Eigen3 3.3+
+
+Example:
+
+```bash
+boxmot eval --benchmark mot17-ablation --tracker ocsort --tracker-backend cpp
+boxmot track --tracker ocsort --tracker-backend cpp --source 0
+```
+
+The native backend currently supports `asso_func=iou`. Use the Python backend if you need the other OCSORT association functions from `boxmot/configs/trackers/ocsort.yaml`.
+
 ::: boxmot.trackers.ocsort.ocsort.OcSort

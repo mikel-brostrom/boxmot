@@ -24,7 +24,55 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ['3.12']
-        tracker: ["ocsort", "bytetrack", "botsort", "deepocsort", "hybridsort", "strongsort", "boosttrack", "sfsort"]
+        include:
+          - tracker: botsort
+            backend: py
+            sort_key: 10
+            fps: "12"
+          - tracker: botsort
+            backend: cpp
+            sort_key: 11
+            fps: "-"
+          - tracker: boosttrack
+            backend: py
+            sort_key: 20
+            fps: "13"
+          - tracker: strongsort
+            backend: py
+            sort_key: 30
+            fps: "11"
+          - tracker: deepocsort
+            backend: py
+            sort_key: 40
+            fps: "12"
+          - tracker: bytetrack
+            backend: py
+            sort_key: 50
+            fps: "720"
+          - tracker: bytetrack
+            backend: cpp
+            sort_key: 51
+            fps: "-"
+          - tracker: hybridsort
+            backend: py
+            sort_key: 60
+            fps: "25"
+          - tracker: ocsort
+            backend: py
+            sort_key: 70
+            fps: "890"
+          - tracker: ocsort
+            backend: cpp
+            sort_key: 71
+            fps: "-"
+          - tracker: sfsort
+            backend: py
+            sort_key: 80
+            fps: "6000"
+          - tracker: sfsort
+            backend: cpp
+            sort_key: 81
+            fps: "-"
     timeout-minutes: 50
     env:
       SMOKE_SOURCE: assets/DOTA8-MOT/train/P0861__1024__0___1648/img1
@@ -41,7 +89,7 @@ jobs:
       - name: Install requirements
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq curl unzip
+          sudo apt-get install -y jq curl unzip cmake g++ libopencv-dev libeigen3-dev
           bash .github/scripts/uv_ci_install.sh ".[yolo]"
 
       - name: Restore MOT17 dataset cache
@@ -62,8 +110,12 @@ jobs:
         id: obb_smoke
         run: |
           source .venv/bin/activate
+          TRACKER_BACKEND_ARGS=()
+          if [ "${{ matrix.backend }}" = "cpp" ]; then
+            TRACKER_BACKEND_ARGS+=(--tracker-backend cpp)
+          fi
 
-          if boxmot track --detector yolo11n-obb.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} --source "$SMOKE_SOURCE" --project runs/benchmark_ci --name ${{ matrix.tracker }} --exist-ok; then
+          if boxmot track --detector yolo11n-obb.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} "${TRACKER_BACKEND_ARGS[@]}" --source "$SMOKE_SOURCE" --project runs/benchmark_ci --name ${{ matrix.tracker }}_${{ matrix.backend }} --exist-ok; then
             echo "obb_status=✅" >> $GITHUB_OUTPUT
           else
             echo "obb_status=❌" >> $GITHUB_OUTPUT
@@ -74,8 +126,12 @@ jobs:
           source .venv/bin/activate
 
           OBB_STATUS="${{ steps.obb_smoke.outputs.obb_status }}"
+          TRACKER_BACKEND_ARGS=()
+          if [ "${{ matrix.backend }}" = "cpp" ]; then
+            TRACKER_BACKEND_ARGS+=(--tracker-backend cpp)
+          fi
 
-          if boxmot eval --classes 0 --detector yolox_x_MOT17_ablation.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} --ci --verbose --benchmark mot17-ablation; then
+          if boxmot eval --classes 0 --detector yolox_x_MOT17_ablation.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} "${TRACKER_BACKEND_ARGS[@]}" --ci --verbose --benchmark mot17-ablation; then
             STATUS="✅"
           else
             STATUS="❌"
@@ -97,28 +153,19 @@ jobs:
           if [ "$STATUS" = "❌" ]; then
             fps=""
           else
-            declare -A tracker_fps
-            tracker_fps["deepocsort"]=12
-            tracker_fps["bytetrack"]=720
-            tracker_fps["ocsort"]=890
-            tracker_fps["strongsort"]=11
-            tracker_fps["botsort"]=12
-            tracker_fps["hybridsort"]=25
-            tracker_fps["boosttrack"]=13
-            tracker_fps["sfsort"]="6000"
-            fps=${tracker_fps[$TRACKER_NAME]}
+            fps="${{ matrix.fps }}"
           fi
 
-          echo "$TRACKER_NAME,$STATUS,$OBB_STATUS,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}.txt
+          echo "${{ matrix.sort_key }},$TRACKER_NAME,${{ matrix.backend }},$STATUS,$OBB_STATUS,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}_${{ matrix.backend }}.txt
 
       - name: Show Results
-        run: cat results/${{ matrix.tracker }}.txt
+        run: cat results/${{ matrix.tracker }}_${{ matrix.backend }}.txt
 
       - name: Upload Results
         uses: actions/upload-artifact@v4
         with:
-          name: results-${{ github.run_id }}-${{ matrix.tracker }}
-          path: results/${{ matrix.tracker }}.txt
+          name: results-${{ github.run_id }}-${{ matrix.tracker }}-${{ matrix.backend }}
+          path: results/${{ matrix.tracker }}_${{ matrix.backend }}.txt
 
   combine-results:
     runs-on: ubuntu-latest
@@ -145,7 +192,7 @@ jobs:
             fi
           done
 
-          sort -t, -k4 -nr combined_results.csv > sorted_results.csv
+          sort -t, -k1,1n combined_results.csv > sorted_results.csv
 
       - name: Show Combined Results
         run: cat sorted_results.csv
@@ -171,14 +218,124 @@ jobs:
           paper_links["hybridsort"]="https://arxiv.org/abs/2308.00783"
           paper_links["sfsort"]="https://arxiv.org/pdf/2404.07553"
 
-            new_table="| Tracker | Status | OBB | HOTA↑ | MOTA↑ | IDF1↑ | FPS |\n"
-            new_table+="| :-----: | :----: | :---: | :---: | :---: | :---: | :---: |\n"
+          declare -A seen_tracker
+          declare -A py_obb
+          declare -A cpp_obb
+          declare -A py_hota
+          declare -A py_mota
+          declare -A py_idf1
+          declare -A py_fps
+          declare -A py_status
+          declare -A cpp_hota
+          declare -A cpp_mota
+          declare -A cpp_idf1
+          declare -A cpp_fps
+          declare -A cpp_status
+          trackers=()
 
-            while IFS=, read -r tracker status obb hota mota idf1 fps; do
-              paper_url=${paper_links[$tracker]}
-              tracker_link="[$tracker](${paper_url:-#})"
-              new_table+="| $tracker_link | $status | $obb | $hota | $mota | $idf1 | $fps |\n"
+          fmt_metric() {
+            local value="$1"
+            if [ -z "$value" ] || [ "$value" = "-" ] || [ "$value" = "—" ]; then
+              printf -- "—"
+              return
+            fi
+            # Round to 2 decimals when numeric, otherwise pass through.
+            if printf "%f" "$value" >/dev/null 2>&1; then
+              printf "%.2f" "$value"
+            else
+              printf -- "%s" "$value"
+            fi
+          }
+
+          fmt_fps() {
+            local value="$1"
+            if [ -z "$value" ] || [ "$value" = "-" ] || [ "$value" = "—" ]; then
+              printf -- "—"
+              return
+            fi
+            printf -- "%s" "$value"
+          }
+
+          while IFS=, read -r sort_key tracker backend status obb hota mota idf1 fps; do
+            if [ -z "${seen_tracker[$tracker]}" ]; then
+              trackers+=("$tracker")
+              seen_tracker[$tracker]=1
+            fi
+            if [ "$backend" = "py" ]; then
+              py_obb[$tracker]="$obb"
+              py_status[$tracker]="$status"
+              py_hota[$tracker]="$hota"
+              py_mota[$tracker]="$mota"
+              py_idf1[$tracker]="$idf1"
+              py_fps[$tracker]="$fps"
+            elif [ "$backend" = "cpp" ]; then
+              cpp_obb[$tracker]="$obb"
+              cpp_status[$tracker]="$status"
+              cpp_hota[$tracker]="$hota"
+              cpp_mota[$tracker]="$mota"
+              cpp_idf1[$tracker]="$idf1"
+              cpp_fps[$tracker]="$fps"
+            fi
           done < "$RESULTS_FILE"
+
+          new_table="<table>\n"
+          new_table+="  <thead>\n"
+          new_table+="    <tr>\n"
+          new_table+="      <th rowspan=\"2\" align=\"left\">Tracker</th>\n"
+          new_table+="      <th rowspan=\"2\" align=\"center\">│</th>\n"
+          new_table+="      <th colspan=\"5\" align=\"center\">Python</th>\n"
+          new_table+="      <th rowspan=\"2\" align=\"center\">│</th>\n"
+          new_table+="      <th colspan=\"5\" align=\"center\">C++</th>\n"
+          new_table+="    </tr>\n"
+          new_table+="    <tr>\n"
+          new_table+="      <th align=\"right\">HOTA</th>\n"
+          new_table+="      <th align=\"right\">MOTA</th>\n"
+          new_table+="      <th align=\"right\">IDF1</th>\n"
+          new_table+="      <th align=\"right\">FPS</th>\n"
+          new_table+="      <th align=\"center\">OBB</th>\n"
+          new_table+="      <th align=\"right\">HOTA</th>\n"
+          new_table+="      <th align=\"right\">MOTA</th>\n"
+          new_table+="      <th align=\"right\">IDF1</th>\n"
+          new_table+="      <th align=\"right\">FPS</th>\n"
+          new_table+="      <th align=\"center\">OBB</th>\n"
+          new_table+="    </tr>\n"
+          new_table+="  </thead>\n"
+          new_table+="  <tbody>\n"
+
+          for tracker in "${trackers[@]}"; do
+            paper_url=${paper_links[$tracker]:-#}
+
+            py_h=$(fmt_metric "${py_hota[$tracker]}")
+            py_m=$(fmt_metric "${py_mota[$tracker]}")
+            py_i=$(fmt_metric "${py_idf1[$tracker]}")
+            py_f=$(fmt_fps "${py_fps[$tracker]}")
+            py_o=${py_obb[$tracker]:-—}
+
+            cpp_h=$(fmt_metric "${cpp_hota[$tracker]}")
+            cpp_m=$(fmt_metric "${cpp_mota[$tracker]}")
+            cpp_i=$(fmt_metric "${cpp_idf1[$tracker]}")
+            cpp_f=$(fmt_fps "${cpp_fps[$tracker]}")
+            cpp_o=${cpp_obb[$tracker]:-—}
+
+            new_table+="    <tr>\n"
+            new_table+="      <td align=\"left\"><a href=\"$paper_url\">$tracker</a></td>\n"
+            new_table+="      <td align=\"center\">│</td>\n"
+            new_table+="      <td align=\"right\">$py_h</td>\n"
+            new_table+="      <td align=\"right\">$py_m</td>\n"
+            new_table+="      <td align=\"right\">$py_i</td>\n"
+            new_table+="      <td align=\"right\">$py_f</td>\n"
+            new_table+="      <td align=\"center\">$py_o</td>\n"
+            new_table+="      <td align=\"center\">│</td>\n"
+            new_table+="      <td align=\"right\">$cpp_h</td>\n"
+            new_table+="      <td align=\"right\">$cpp_m</td>\n"
+            new_table+="      <td align=\"right\">$cpp_i</td>\n"
+            new_table+="      <td align=\"right\">$cpp_f</td>\n"
+            new_table+="      <td align=\"center\">$cpp_o</td>\n"
+            new_table+="    </tr>\n"
+          done
+
+          new_table+="  </tbody>\n"
+          new_table+="</table>"
 
           start_marker="<!-- START TRACKER TABLE -->"
           end_marker="<!-- END TRACKER TABLE -->"

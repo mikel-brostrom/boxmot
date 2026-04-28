@@ -66,6 +66,17 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
 
 See [Evaluation and Postprocessing](../guides/evaluation.md).
 
+## Native C++ replay
+
+Use `--tracker-backend cpp` to run the cached replay stage through a native tracker implementation:
+
+```bash
+boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval --benchmark mot17-ablation --tracker ocsort:cpp
+```
+
+Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, and `sfsort`. `--tracking-backend cpp` is still accepted as a compatibility alias, but `--tracker-backend cpp` is the canonical selector.
+
 ## Main outputs
 
 - combined benchmark metrics such as `HOTA`, `MOTA`, and `IDF1`

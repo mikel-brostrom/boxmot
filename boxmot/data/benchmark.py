@@ -449,10 +449,11 @@ def eval_init(
     trackeval_dest: Path = TRACKEVAL,
     branch: str = "main",
     overwrite: bool = False,
+    status_fn: Callable[[str], None] | None = None,
 ) -> None:
     """Common initialization: download TrackEval and benchmark data, then canonicalize paths."""
     download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
-    apply_benchmark_config(args, overwrite=overwrite)
+    apply_benchmark_config(args, overwrite=overwrite, status_fn=status_fn)
 
     args.source = Path(args.source).resolve()
     args.project = Path(args.project).resolve()

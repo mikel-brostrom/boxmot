@@ -1,0 +1,684 @@
+from __future__ import annotations
+
+import ctypes
+import inspect
+import json
+import os
+import queue
+import subprocess
+import sys
+import threading
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import numpy as np
+import yaml
+
+from boxmot.trackers.tracker_zoo import get_tracker_config
+from boxmot.utils.misc import resolve_model_path
+
+_BUILD_LOCK = threading.Lock()
+_EXPORT_LOCK = threading.Lock()
+_LIVE_LIBRARY_LOCK = threading.Lock()
+_LIVE_LIBRARY = None
+_PROGRESS_PREFIX = "BOXMOT_PROGRESS\t"
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _source_dir() -> Path:
+    return _repo_root() / "native" / "trackers" / "botsort"
+
+
+def _build_dir() -> Path:
+    return _repo_root() / "build" / "native" / "botsort"
+
+
+def _executable_name() -> str:
+    return "botsort_replay.exe" if os.name == "nt" else "botsort_replay"
+
+
+def _candidate_executables() -> list[Path]:
+    build_dir = _build_dir()
+    return [
+        build_dir / _executable_name(),
+        build_dir / "Release" / _executable_name(),
+        build_dir / "Debug" / _executable_name(),
+    ]
+
+
+def _library_name() -> str:
+    if os.name == "nt":
+        return "botsort_capi.dll"
+    if sys.platform == "darwin":
+        return "botsort_capi.dylib"
+    return "botsort_capi.so"
+
+
+def _candidate_libraries() -> list[Path]:
+    build_dir = _build_dir()
+    return [
+        build_dir / _library_name(),
+        build_dir / "Release" / _library_name(),
+        build_dir / "Debug" / _library_name(),
+    ]
+
+
+def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
+    with open(get_tracker_config("botsort"), "r", encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    resolved = {name: spec["default"] for name, spec in raw.items()}
+    if cfg_dict is not None:
+        resolved.update(cfg_dict)
+
+    resolved.setdefault("fuse_first_associate", False)
+    resolved.setdefault("with_reid", True)
+    resolved.setdefault("frame_rate", 30)
+    return resolved
+
+
+def _resolve_reid_model_ref(reid_weights: str | Path | None) -> Path | None:
+    if reid_weights is None:
+        return None
+
+    path = Path(reid_weights)
+    if path.suffix.lower() == ".onnx" and not path.stem.endswith("_opencv"):
+        resolved_onnx = resolve_model_path(path)
+        opencv_candidate = resolved_onnx.with_name(f"{resolved_onnx.stem}_opencv.onnx")
+        if opencv_candidate.exists():
+            return opencv_candidate
+        return resolved_onnx
+
+    if path.suffix.lower() == ".pt":
+        resolved_pt = resolve_model_path(path)
+        opencv_candidate = _native_onnx_cache_path(resolved_pt)
+        if opencv_candidate.exists():
+            return opencv_candidate
+        return resolved_pt
+
+    if not path.suffix:
+        pt_candidate = resolve_model_path(path.with_suffix(".pt"))
+        opencv_candidate = _native_onnx_cache_path(pt_candidate)
+        if opencv_candidate.exists():
+            return opencv_candidate
+        onnx_candidate = resolve_model_path(path.with_suffix(".onnx"))
+        if onnx_candidate.exists():
+            if not onnx_candidate.stem.endswith("_opencv"):
+                sibling_opencv = onnx_candidate.with_name(f"{onnx_candidate.stem}_opencv.onnx")
+                if sibling_opencv.exists():
+                    return sibling_opencv
+            return onnx_candidate
+        return pt_candidate
+    return resolve_model_path(path)
+
+
+def _native_onnx_cache_path(weights: Path) -> Path:
+    return weights.with_name(f"{weights.stem}_opencv.onnx")
+
+
+def _infer_onnx_output_names(model, dummy_input) -> list[str]:
+    import torch
+
+    model.eval()
+    with torch.no_grad():
+        output = model(dummy_input)
+    if isinstance(output, (tuple, list)):
+        return [f"output{index}" for index in range(len(output))]
+    return ["output0"]
+
+
+def _export_reid_to_onnx(weights: Path) -> Path:
+    from boxmot.engine.export import setup_model
+    import torch
+
+    args = SimpleNamespace(
+        weights=weights,
+        device="cpu",
+        half=False,
+        optimize=False,
+        batch_size=1,
+        imgsz=None,
+    )
+    model, dummy_input = setup_model(args)
+
+    output_names = _infer_onnx_output_names(model, dummy_input)
+    onnx_path = _native_onnx_cache_path(weights)
+    export_kwargs = {
+        "opset_version": 17,
+        "input_names": ["images"],
+        "output_names": output_names,
+        "dynamic_axes": {
+            "images": {0: "batch"},
+            **{name: {0: "batch"} for name in output_names},
+        },
+    }
+    if "dynamo" in inspect.signature(torch.onnx.export).parameters:
+        export_kwargs["dynamo"] = False
+
+    torch.onnx.export(
+        model,
+        (dummy_input,),
+        str(onnx_path),
+        **export_kwargs,
+    )
+    if not onnx_path.exists():
+        raise RuntimeError(f"Failed to export native BoTSORT ReID model to ONNX: {weights}")
+    return onnx_path
+
+
+def _ensure_native_reid_model_path(reid_weights: str | Path | None) -> Path | None:
+    resolved = _resolve_reid_model_ref(reid_weights)
+    if resolved is None:
+        return None
+
+    suffix = resolved.suffix.lower()
+    if suffix == ".onnx":
+        return resolved
+    if suffix != ".pt":
+        raise RuntimeError(
+            "Native BoTSORT ReID supports ONNX directly and can auto-export PyTorch '.pt' weights only: "
+            f"{resolved}"
+        )
+    if not resolved.exists():
+        raise FileNotFoundError(f"Native BoTSORT ReID weights not found: {resolved}")
+
+    onnx_path = _native_onnx_cache_path(resolved)
+    if onnx_path.exists() and onnx_path.stat().st_mtime >= resolved.stat().st_mtime:
+        return onnx_path
+
+    with _EXPORT_LOCK:
+        if onnx_path.exists() and onnx_path.stat().st_mtime >= resolved.stat().st_mtime:
+            return onnx_path
+        return _export_reid_to_onnx(resolved)
+
+
+def _build_target(
+    *,
+    target: str,
+    candidates: list[Path],
+    force_rebuild: bool,
+    not_found_message: str,
+) -> Path:
+    with _BUILD_LOCK:
+        if not force_rebuild:
+            for candidate in candidates:
+                if candidate.exists():
+                    return candidate
+
+        source_dir = _source_dir()
+        build_dir = _build_dir()
+        build_dir.mkdir(parents=True, exist_ok=True)
+
+        configure_cmd = [
+            "cmake",
+            "-S",
+            str(source_dir),
+            "-B",
+            str(build_dir),
+            "-DCMAKE_BUILD_TYPE=Release",
+        ]
+        configure = subprocess.run(configure_cmd, capture_output=True, text=True, check=False)
+        if configure.returncode != 0:
+            raise RuntimeError(
+                "Failed to configure native BoTSORT.\n"
+                "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+.\n"
+                f"Command: {' '.join(configure_cmd)}\n"
+                f"{configure.stderr.strip()}"
+            )
+
+        build_cmd = [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--config",
+            "Release",
+            "--target",
+            target,
+        ]
+        build = subprocess.run(build_cmd, capture_output=True, text=True, check=False)
+        if build.returncode != 0:
+            raise RuntimeError(
+                "Failed to build native BoTSORT.\n"
+                "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+.\n"
+                f"Command: {' '.join(build_cmd)}\n"
+                f"{build.stderr.strip()}"
+            )
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+        raise RuntimeError(not_found_message)
+
+
+def ensure_botsort_cpp_executable(force_rebuild: bool = False) -> Path:
+    return _build_target(
+        target="botsort_replay",
+        candidates=_candidate_executables(),
+        force_rebuild=force_rebuild,
+        not_found_message="Native BoTSORT build succeeded but the botsort_replay executable was not found.",
+    )
+
+
+def ensure_botsort_cpp_library(force_rebuild: bool = False) -> Path:
+    return _build_target(
+        target="botsort_capi",
+        candidates=_candidate_libraries(),
+        force_rebuild=force_rebuild,
+        not_found_message="Native BoTSORT build succeeded but the botsort_capi shared library was not found.",
+    )
+
+
+class _BotSortCConfig(ctypes.Structure):
+    _fields_ = [
+        ("track_high_thresh", ctypes.c_float),
+        ("track_low_thresh", ctypes.c_float),
+        ("new_track_thresh", ctypes.c_float),
+        ("track_buffer", ctypes.c_int),
+        ("match_thresh", ctypes.c_float),
+        ("proximity_thresh", ctypes.c_float),
+        ("appearance_thresh", ctypes.c_float),
+        ("cmc_method", ctypes.c_char_p),
+        ("frame_rate", ctypes.c_int),
+        ("fuse_first_associate", ctypes.c_int),
+        ("with_reid", ctypes.c_int),
+        ("max_obs", ctypes.c_int),
+        ("reid_model_path", ctypes.c_char_p),
+        ("reid_preprocess", ctypes.c_char_p),
+    ]
+
+
+class _BotSortLiveLibrary:
+    def __init__(self, library_path: Path) -> None:
+        self.library_path = Path(library_path)
+        # Homebrew OpenCV can pull in OpenBLAS/libomp while PyTorch already ships libomp.
+        # Allow the native tracker library to coexist in-process on macOS.
+        if sys.platform == "darwin":
+            os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+        self._library = ctypes.CDLL(str(self.library_path))
+        self._configure_functions()
+
+    def _configure_functions(self) -> None:
+        self._library.boxmot_botsort_create.argtypes = [ctypes.POINTER(_BotSortCConfig)]
+        self._library.boxmot_botsort_create.restype = ctypes.c_void_p
+        self._library.boxmot_botsort_destroy.argtypes = [ctypes.c_void_p]
+        self._library.boxmot_botsort_destroy.restype = None
+        self._library.boxmot_botsort_reset.argtypes = [ctypes.c_void_p]
+        self._library.boxmot_botsort_reset.restype = ctypes.c_int
+        self._library.boxmot_botsort_update.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        self._library.boxmot_botsort_update.restype = ctypes.c_int
+        self._library.boxmot_botsort_last_reid_time_ms.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double)]
+        self._library.boxmot_botsort_last_reid_time_ms.restype = ctypes.c_int
+        self._library.boxmot_botsort_last_error.argtypes = []
+        self._library.boxmot_botsort_last_error.restype = ctypes.c_char_p
+
+    def _last_error(self) -> str:
+        raw = self._library.boxmot_botsort_last_error()
+        if raw is None:
+            return "Unknown native BoTSORT error."
+        return raw.decode("utf-8", errors="replace") or "Unknown native BoTSORT error."
+
+    def create(self, cfg: dict[str, Any]):
+        c_cfg = _BotSortCConfig(
+            track_high_thresh=float(cfg["track_high_thresh"]),
+            track_low_thresh=float(cfg["track_low_thresh"]),
+            new_track_thresh=float(cfg["new_track_thresh"]),
+            track_buffer=int(cfg["track_buffer"]),
+            match_thresh=float(cfg["match_thresh"]),
+            proximity_thresh=float(cfg["proximity_thresh"]),
+            appearance_thresh=float(cfg["appearance_thresh"]),
+            cmc_method=str(cfg.get("cmc_method", "ecc")).encode("utf-8"),
+            frame_rate=int(cfg.get("frame_rate", 30)),
+            fuse_first_associate=int(bool(cfg.get("fuse_first_associate", False))),
+            with_reid=int(bool(cfg.get("with_reid", True))),
+            max_obs=int(cfg.get("max_obs", 50)),
+            reid_model_path=str(cfg.get("reid_model_path", "")).encode("utf-8"),
+            reid_preprocess=str(cfg.get("reid_preprocess", "resize_pad")).encode("utf-8"),
+        )
+        handle = self._library.boxmot_botsort_create(ctypes.byref(c_cfg))
+        if not handle:
+            raise RuntimeError(self._last_error())
+        return handle
+
+    def destroy(self, handle) -> None:
+        if handle:
+            self._library.boxmot_botsort_destroy(handle)
+
+    def reset(self, handle) -> None:
+        if self._library.boxmot_botsort_reset(handle) == 0:
+            raise RuntimeError(self._last_error())
+
+    def update(self, handle, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
+        det_arr = np.asarray(dets, dtype=np.float32)
+        if det_arr.size == 0:
+            if det_arr.ndim == 2 and det_arr.shape[1] in {6, 7}:
+                det_arr = np.empty((0, det_arr.shape[1]), dtype=np.float32)
+            else:
+                det_arr = np.empty((0, 6), dtype=np.float32)
+        elif det_arr.ndim == 1:
+            det_arr = det_arr.reshape(1, -1)
+        if det_arr.ndim != 2:
+            raise ValueError("Detections must be a 2D array.")
+        if det_arr.shape[1] not in {6, 7}:
+            raise NotImplementedError(
+                "Native BoTSORT live tracking supports AABB detections with 6 columns or OBB detections with 7 columns."
+            )
+        det_arr = np.ascontiguousarray(det_arr, dtype=np.float32)
+
+        emb_arr = None
+        if embs is not None:
+            emb_arr = np.asarray(embs, dtype=np.float32)
+            if emb_arr.size == 0:
+                emb_arr = np.empty((0, 0), dtype=np.float32)
+            elif emb_arr.ndim == 1:
+                emb_arr = emb_arr.reshape(1, -1)
+            if emb_arr.ndim != 2:
+                raise ValueError("Embeddings must be a 2D array.")
+            if emb_arr.shape[0] != det_arr.shape[0]:
+                raise ValueError("Detections and embeddings must have the same number of rows.")
+            emb_arr = np.ascontiguousarray(emb_arr, dtype=np.float32)
+
+        img_arr = np.asarray(img)
+        if img_arr.dtype != np.uint8:
+            img_arr = img_arr.astype(np.uint8, copy=False)
+        if img_arr.ndim not in {2, 3}:
+            raise ValueError("Image must be a 2D or 3D uint8 array.")
+        img_arr = np.ascontiguousarray(img_arr)
+        img_channels = 1 if img_arr.ndim == 2 else int(img_arr.shape[2])
+
+        out_capacity = max(int(det_arr.shape[0]), 1)
+        out_arr = np.empty((out_capacity, 9), dtype=np.float32)
+        out_rows = ctypes.c_int(0)
+        out_is_obb = ctypes.c_int(0)
+        ok = self._library.boxmot_botsort_update(
+            handle,
+            None if det_arr.size == 0 else ctypes.c_void_p(det_arr.ctypes.data),
+            int(det_arr.shape[0]),
+            int(det_arr.shape[1]),
+            None if emb_arr is None or emb_arr.size == 0 else ctypes.c_void_p(emb_arr.ctypes.data),
+            0 if emb_arr is None else int(emb_arr.shape[0]),
+            0 if emb_arr is None else int(emb_arr.shape[1]),
+            ctypes.c_void_p(img_arr.ctypes.data),
+            int(img_arr.shape[0]),
+            int(img_arr.shape[1]),
+            img_channels,
+            ctypes.c_void_p(out_arr.ctypes.data),
+            int(out_arr.shape[0]),
+            int(out_arr.shape[1]),
+            ctypes.byref(out_rows),
+            ctypes.byref(out_is_obb),
+        )
+        if ok == 0:
+            raise RuntimeError(self._last_error())
+        rows = max(int(out_rows.value), 0)
+        cols = 9 if bool(out_is_obb.value) else 8
+        return out_arr[:rows, :cols].copy()
+
+    def get_last_reid_time_ms(self, handle) -> float:
+        out_value = ctypes.c_double(0.0)
+        ok = self._library.boxmot_botsort_last_reid_time_ms(handle, ctypes.byref(out_value))
+        if ok == 0:
+            raise RuntimeError(self._last_error())
+        return float(out_value.value)
+
+
+def _get_live_botsort_library() -> _BotSortLiveLibrary:
+    global _LIVE_LIBRARY
+    with _LIVE_LIBRARY_LOCK:
+        if _LIVE_LIBRARY is None:
+            _LIVE_LIBRARY = _BotSortLiveLibrary(ensure_botsort_cpp_library())
+        return _LIVE_LIBRARY
+
+
+class NativeBotSortTracker:
+    supports_obb = True
+    tracker_name = "botsort"
+    tracker_backend = "cpp"
+
+    def __init__(
+        self,
+        cfg_dict: dict[str, Any] | None = None,
+        *,
+        reid_weights: str | Path | None = None,
+        reid_preprocess: str | None = None,
+        library: _BotSortLiveLibrary | None = None,
+    ) -> None:
+        self.cfg = _resolve_tracker_cfg(cfg_dict)
+        native_reid_path = _ensure_native_reid_model_path(reid_weights)
+        self.reid_model_path = str(native_reid_path) if native_reid_path is not None else ""
+        self.reid_preprocess = str(reid_preprocess or "resize_pad")
+        self.cfg["reid_model_path"] = self.reid_model_path
+        self.cfg["reid_preprocess"] = self.reid_preprocess
+        self.with_reid = bool(self.cfg.get("with_reid", True))
+        self.provides_reid = bool(self.reid_model_path and Path(self.reid_model_path).suffix.lower() == ".onnx")
+        self._library = library if library is not None else _get_live_botsort_library()
+        self._handle = self._library.create(self.cfg)
+        self.last_reid_time_ms = 0.0
+        self._det_cols: int | None = None
+
+    def reset(self) -> None:
+        self._library.reset(self._handle)
+        self.last_reid_time_ms = 0.0
+        self._det_cols = None
+
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
+        det_arr = np.asarray(dets) if dets is not None else np.empty((0, 0), dtype=np.float32)
+        if det_arr.size and det_arr.ndim == 2 and det_arr.shape[1] in {6, 7}:
+            if self._det_cols is None:
+                self._det_cols = int(det_arr.shape[1])
+            elif int(det_arr.shape[1]) != self._det_cols:
+                raise ValueError("Native BoTSORT tracker cannot switch between AABB and OBB inputs after initialization.")
+        elif self._det_cols is not None and det_arr.size == 0:
+            det_arr = np.empty((0, self._det_cols), dtype=np.float32)
+
+        tracks = self._library.update(self._handle, det_arr, img, embs)
+        getter = getattr(self._library, "get_last_reid_time_ms", None)
+        self.last_reid_time_ms = float(getter(self._handle)) if callable(getter) else 0.0
+        return tracks
+
+    def get_last_reid_time_ms(self) -> float:
+        return float(getattr(self, "last_reid_time_ms", 0.0))
+
+    def close(self) -> None:
+        handle = getattr(self, "_handle", None)
+        if handle is None:
+            return
+        self._library.destroy(handle)
+        self._handle = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+def create_botsort_live_tracker(
+    cfg_dict: dict[str, Any] | None = None,
+    *,
+    reid_weights: str | Path | None = None,
+    reid_preprocess: str | None = None,
+) -> NativeBotSortTracker:
+    return NativeBotSortTracker(cfg_dict, reid_weights=reid_weights, reid_preprocess=reid_preprocess)
+
+
+def _parse_summary(stdout: str) -> dict[str, Any]:
+    text = stdout.strip()
+    if not text:
+        raise RuntimeError("Native BoTSORT runner produced no stdout.")
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            continue
+    raise RuntimeError(f"Failed to parse native BoTSORT summary JSON from stdout:\n{text}")
+
+
+def _parse_progress_line(line: str) -> tuple[str, int, int] | None:
+    text = str(line).strip()
+    if not text.startswith(_PROGRESS_PREFIX):
+        return None
+    parts = text.split("\t")
+    if len(parts) != 4:
+        return None
+    _, seq_name, current, total = parts
+    try:
+        return seq_name, int(current), int(total)
+    except ValueError:
+        return None
+
+
+def _drain_native_stderr(stderr_stream, progress_queue, stderr_lines: list[str]) -> None:
+    if stderr_stream is None:
+        return
+    for raw_line in stderr_stream:
+        progress = _parse_progress_line(raw_line)
+        if progress is not None:
+            if progress_queue is not None:
+                try:
+                    progress_queue.put_nowait(progress)
+                except (OSError, queue.Full):
+                    pass
+            continue
+        line = str(raw_line).strip()
+        if line:
+            stderr_lines.append(line)
+
+
+def process_sequence_cpp(
+    seq_name: str,
+    mot_root: str,
+    project_root: str,
+    detector_name: str,
+    reid_name: str,
+    tracker_name: str,
+    exp_folder: str,
+    target_fps: int | None,
+    cfg_dict: dict | None = None,
+    dataset_name: str | None = None,
+    conf_threshold: float = 0.0,
+    preprocess_name: str | None = None,
+    progress_queue=None,
+):
+    if str(tracker_name).lower() != "botsort":
+        raise ValueError("The native cpp replay backend currently supports tracker='botsort' only.")
+
+    executable = ensure_botsort_cpp_executable()
+    cfg = _resolve_tracker_cfg(cfg_dict)
+
+    detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
+    reid_key = Path(reid_name).stem if Path(reid_name).suffix else str(reid_name)
+    reid_model_path = _ensure_native_reid_model_path(reid_name)
+
+    det_emb_root = Path(project_root) / "dets_n_embs"
+    if dataset_name:
+        det_emb_root = det_emb_root / dataset_name
+
+    output_path = Path(exp_folder) / f"{seq_name}.txt"
+    cmd = [
+        str(executable),
+        "--mot-root",
+        str(mot_root),
+        "--det-emb-root",
+        str(det_emb_root),
+        "--detector-name",
+        detector_key,
+        "--reid-name",
+        reid_key,
+        "--reid-model",
+        "" if reid_model_path is None else str(reid_model_path),
+        "--reid-preprocess",
+        str(preprocess_name or "resize"),
+        "--sequence",
+        seq_name,
+        "--output",
+        str(output_path),
+        "--conf-threshold",
+        str(float(conf_threshold)),
+        "--target-fps",
+        str(int(target_fps or 0)),
+        "--track-high-thresh",
+        str(float(cfg["track_high_thresh"])),
+        "--track-low-thresh",
+        str(float(cfg["track_low_thresh"])),
+        "--new-track-thresh",
+        str(float(cfg["new_track_thresh"])),
+        "--track-buffer",
+        str(int(cfg["track_buffer"])),
+        "--match-thresh",
+        str(float(cfg["match_thresh"])),
+        "--proximity-thresh",
+        str(float(cfg["proximity_thresh"])),
+        "--appearance-thresh",
+        str(float(cfg["appearance_thresh"])),
+        "--cmc-method",
+        str(cfg.get("cmc_method", "ecc")),
+        "--frame-rate",
+        str(int(cfg.get("frame_rate", 30))),
+        "--fuse-first-associate",
+        "1" if bool(cfg.get("fuse_first_associate", False)) else "0",
+        "--with-reid",
+        "1" if bool(cfg.get("with_reid", True)) else "0",
+    ]
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    stderr_lines: list[str] = []
+    stderr_thread = threading.Thread(
+        target=_drain_native_stderr,
+        args=(process.stderr, progress_queue, stderr_lines),
+        daemon=True,
+    )
+    stderr_thread.start()
+
+    stdout_text = process.stdout.read() if process.stdout is not None else ""
+    returncode = process.wait()
+    stderr_thread.join()
+
+    if process.stdout is not None:
+        process.stdout.close()
+    if process.stderr is not None:
+        process.stderr.close()
+
+    stderr_text = "\n".join(stderr_lines).strip()
+    if returncode != 0:
+        raise RuntimeError(
+            "Native BoTSORT replay failed.\n"
+            f"Command: {' '.join(cmd)}\n"
+            f"{stderr_text or stdout_text.strip()}"
+        )
+
+    summary = _parse_summary(stdout_text)
+    kept_frame_ids = [int(value) for value in summary.get("kept_frame_ids", [])]
+    return seq_name, kept_frame_ids, {
+        "track_time_ms": float(summary.get("track_time_ms", 0.0)),
+        "num_frames": int(summary.get("num_frames", len(kept_frame_ids))),
+    }

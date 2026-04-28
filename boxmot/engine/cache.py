@@ -6,7 +6,7 @@ import argparse
 import os
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 import torch
@@ -74,17 +74,57 @@ def _normalize_generate_args(args: argparse.Namespace) -> None:
     args.reid = _ensure_model_list(args.reid)
 
 
+def _format_generate_seq_progress(sequence_names: list[str], seq_progress: dict[str, tuple[int, int]]) -> str:
+    """Format per-sequence cache generation progress in submission order."""
+    if not sequence_names:
+        return ""
+
+    name_width = max(len(name) for name in sequence_names)
+    lines = []
+    bar_width = 20
+    for name in sequence_names:
+        counts = seq_progress.get(name)
+        if counts is None:
+            bar = "\u2591" * bar_width
+            lines.append(f"  {name:<{name_width}s} {bar}    --  (pending)")
+            continue
+
+        current, total = counts
+        if total <= 0:
+            pct = 1.0 if current >= total else 0.0
+        else:
+            pct = min(max(current / total, 0.0), 1.0)
+        filled = int(bar_width * pct)
+        bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
+        suffix = "(done)" if total > 0 and current >= total else f"({current}/{total})"
+        lines.append(f"  {name:<{name_width}s} {bar} {pct:>5.0%}  {suffix}")
+    return "\n".join(lines)
+
+
+def _build_generate_progress_message(
+    sequence_names: list[str],
+    seq_progress: dict[str, tuple[int, int]],
+    processed_frames: int,
+    total_frames: int,
+) -> str:
+    header = f"Generating detections and embeddings: {processed_frames}/{total_frames} frames"
+    seq_display = _format_generate_seq_progress(sequence_names, seq_progress)
+    return "\n".join([header] + ([seq_display] if seq_display else []))
+
+
 @torch.inference_mode()
 def generate_dets_embs_batched(
     args: argparse.Namespace,
     y: Path,
     source_root: Path,
     timing_stats: Optional[TimingStats] = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> None:
     """Generate detections and embeddings in batches for evaluation caches."""
     WEIGHTS.mkdir(parents=True, exist_ok=True)
     verbose = bool(getattr(args, "verbose", False))
     show_progress = bool(getattr(args, "show_progress", True))
+    own_terminal_progress = progress_callback is None
 
     batch_size = int(getattr(args, "batch_size", 16))
     n_threads = int(args.n_threads)
@@ -271,9 +311,36 @@ def generate_dets_embs_batched(
         initial_done += processed
 
     if not seq_states:
+        if progress_callback is not None:
+            progress_callback("No sequences to process (all cached or no images).")
         if verbose:
             LOGGER.info("No sequences to process (all cached or no images).")
         return
+
+    sequence_names = list(seq_states.keys())
+    seq_progress = {
+        seq_name: (state["i"], len(state["frames"]))
+        for seq_name, state in seq_states.items()
+    }
+    processed_frames = sum(current for current, _ in seq_progress.values())
+    last_progress_message = None
+
+    def _report_progress() -> None:
+        nonlocal last_progress_message
+        if progress_callback is None:
+            return
+        message = _build_generate_progress_message(
+            sequence_names,
+            seq_progress,
+            processed_frames,
+            total_frames,
+        )
+        if message == last_progress_message:
+            return
+        progress_callback(message)
+        last_progress_message = message
+
+    _report_progress()
 
     pipeline = DetectorReIDPipeline(
         detector_path=y,
@@ -306,9 +373,15 @@ def generate_dets_embs_batched(
         total=total_frames,
         desc=f"Batched YOLO+ReID ({y.name}, bs={batch_size})",
         unit="frame",
-        disable=not show_progress,
+        disable=not (show_progress and own_terminal_progress),
     )
-    reid_pbar = tqdm(total=0, desc="ReID embeddings", unit="det", dynamic_ncols=True, disable=not show_progress)
+    reid_pbar = tqdm(
+        total=0,
+        desc="ReID embeddings",
+        unit="det",
+        dynamic_ncols=True,
+        disable=not (show_progress and own_terminal_progress),
+    )
     if initial_done:
         pbar.update(initial_done)
 
@@ -385,6 +458,8 @@ def generate_dets_embs_batched(
                     if len(dets) == 0:
                         if timing_stats:
                             timing_stats.frames += 1
+                        processed_frames += 1
+                        seq_progress[seq_name] = (seq_states[seq_name]["i"], len(seq_states[seq_name]["frames"]))
                         pbar.update(1)
                         continue
 
@@ -406,7 +481,11 @@ def generate_dets_embs_batched(
                     if timing_stats:
                         timing_stats.frames += 1
 
+                    processed_frames += 1
+                    seq_progress[seq_name] = (seq_states[seq_name]["i"], len(seq_states[seq_name]["frames"]))
                     pbar.update(1)
+
+                _report_progress()
 
                 if verbose:
                     if emb_dims:
@@ -436,7 +515,11 @@ def generate_dets_embs_batched(
                     LOGGER.warning(f"Failed to save embeddings for {seq_name}/{reid_name}: {exc}")
 
 
-def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[TimingStats] = None) -> None:
+def run_generate_dets_embs(
+    args: argparse.Namespace,
+    timing_stats: Optional[TimingStats] = None,
+    progress_callback: Callable[[str], None] | None = None,
+) -> None:
     """Generate detections and embeddings for all sequences."""
     _normalize_generate_args(args)
     verbose = bool(getattr(args, "verbose", False))
@@ -460,7 +543,21 @@ def run_generate_dets_embs(args: argparse.Namespace, timing_stats: Optional[Timi
     for detector in args.detector:
         if verbose:
             LOGGER.info(f"Generating dets+embs (batched single-process): {detector.name}")
-        generate_dets_embs_batched(args, detector, source_root, timing_stats=timing_stats)
+        if progress_callback is None:
+            generate_dets_embs_batched(
+                args,
+                detector,
+                source_root,
+                timing_stats=timing_stats,
+            )
+        else:
+            generate_dets_embs_batched(
+                args,
+                detector,
+                source_root,
+                timing_stats=timing_stats,
+                progress_callback=progress_callback,
+            )
 
 
 def run_generate(args: argparse.Namespace) -> TimingStats:

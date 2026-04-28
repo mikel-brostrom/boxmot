@@ -29,6 +29,22 @@ Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` when you need stru
 
 `generate(...)` and `research(...)` return `GenerateResult` and `ResearchResult`.
 
+## Native C++ backends
+
+Use `tracker_backend="cpp"` or an inline tracker spec such as `"bytetrack:cpp"` when the selected tracker has a native backend:
+
+```python
+from boxmot import Boxmot
+
+native_track = Boxmot(detector="yolov8n", tracker="bytetrack:cpp")
+run = native_track.track(source="video.mp4")
+
+native_eval = Boxmot(tracker="ocsort")
+metrics = native_eval.val(benchmark="mot17-ablation", tracker_backend="cpp")
+```
+
+Native C++ backends are currently registered for `botsort`, `bytetrack`, `ocsort`, and `sfsort`.
+
 ## Composable runtime
 
 If you need more control, compose the detector, ReID runtime, and tracker explicitly:

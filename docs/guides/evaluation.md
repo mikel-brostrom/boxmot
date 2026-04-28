@@ -26,12 +26,50 @@ For raw runtime summaries from the Python API, `evaluate(...)` aggregates counts
 - `gsi` for Gaussian-smoothed interpolation
 - `gbrc` for gradient-boosting-based reconnection and interpolation
 
+## Native C++ tracker backends
+
+`eval`, `tune`, and `research` can swap the cached tracking replay stage to a native C++ tracker runner:
+
+```bash
+boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+```
+
+This keeps the existing TrackEval scoring flow, but runs the tracker replay step through the C++ executable under `native/trackers/<tracker>`.
+
+Native replay and live tracking are currently registered for:
+
+| Tracker | `track` live backend | cached replay backend | Notes |
+| --- | --- | --- | --- |
+| `botsort` | Yes | Yes | Supports AABB/OBB and native ONNX ReID fallback. |
+| `bytetrack` | Yes | Yes | Supports AABB/OBB and does not require ReID. |
+| `ocsort` | Yes | Yes | Supports AABB/OBB; native backend currently uses `asso_func=iou`. |
+| `sfsort` | Yes | Yes | Supports AABB/OBB and does not require ReID. |
+
+`--tracking-backend cpp` still works as a compatibility alias, but `--tracker-backend cpp` is the preferred selector because it distinguishes tracker implementation from the process/thread executor used for cached replay.
+
+Build requirements for native backends:
+
+- C++17 compiler
+- CMake 3.16+
+- OpenCV 4.x
+- Eigen3 3.3+
+
+Native builds are lazy. The first `--tracker-backend cpp` run configures and builds the matching executable or shared library under `build/native/<tracker>/`.
+
+If you want to embed a native tracker in a standalone C++ application, see [Native C++ Integration](native-cpp.md).
+
+For BoTSORT, native ONNX ReID inference is used as a fallback when an embedding cache is missing. If the selected ReID model is a `.pt` file, BoxMOT exports it to a native OpenCV-compatible `*_opencv.onnx` cache file and reuses that export for later native runs.
+
+The native replay path accepts both AABB benchmark caches and OBB caches. OBB replay outputs are written in the MMOT corner format expected by the OBB evaluation flow.
+
 ## Common commands
 
 ```bash
 boxmot eval --benchmark mot17-ablation --tracker boosttrack
 boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gsi
 boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gbrc
+boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval --benchmark mot17-ablation --tracker botsort:cpp
 ```
 
 ## Main outputs

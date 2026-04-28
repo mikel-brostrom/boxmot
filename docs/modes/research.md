@@ -64,6 +64,16 @@ export ANTHROPIC_API_KEY=...
 - `max_metric_calls` limits how many benchmark evaluations GEPA can spend.
 - `eval_timeout` is per evaluation subprocess, not the total wall-clock runtime of the full research job.
 
+## Native C++ scoring
+
+Use `--tracker-backend cpp` to score candidate changes through a native C++ replay backend:
+
+```bash
+boxmot research --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+```
+
+This is only useful for trackers with registered native replay support: `botsort`, `bytetrack`, `ocsort`, and `sfsort`.
+
 ## Outputs
 
 `research` writes:

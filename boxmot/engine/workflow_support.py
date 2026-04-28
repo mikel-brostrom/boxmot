@@ -15,7 +15,9 @@ from boxmot.configs import BOXMOT_DEFAULTS
 from boxmot.data import VIDEO_EXTS
 from boxmot.detectors import Detector as PublicDetector
 from boxmot.engine.results import Results
+from boxmot.native import get_native_live_backend
 from boxmot.reid import ReID as PublicReID
+from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.utils import configure_logging as _configure_boxmot_logging, logger as LOGGER
 from boxmot.utils.misc import increment_path, resolve_model_path
@@ -161,16 +163,32 @@ def tracker_name_from_spec(spec: Any, *, required: bool = True) -> str | None:
         if required:
             raise ValueError("A tracker is required.")
         return None
-    if isinstance(spec, str):
-        name = spec.lower()
-        if name in TRACKER_MAPPING:
-            return name
-    class_name = spec.__class__.__name__.lower() if spec is not None else ""
-    if class_name in TRACKER_CLASS_TO_NAME:
-        return TRACKER_CLASS_TO_NAME[class_name]
+
+    try:
+        parsed = parse_tracker_spec(spec, class_to_name=TRACKER_CLASS_TO_NAME)
+    except ValueError:
+        parsed = None
+    if parsed is not None and parsed.name in TRACKER_MAPPING:
+        return parsed.name
+
     if required:
         raise ValueError("Could not infer a registered tracker name from the provided tracker spec.")
     return None
+
+
+def tracker_backend_from_spec(spec: Any, *, required: bool = True) -> str | None:
+    if spec is None:
+        if required:
+            raise ValueError("A tracker is required.")
+        return None
+
+    try:
+        parsed = parse_tracker_spec(spec, class_to_name=TRACKER_CLASS_TO_NAME)
+    except ValueError:
+        if required:
+            raise
+        return None
+    return parsed.backend
 
 
 def tracker_config_from_spec(spec: Any) -> dict[str, Any] | None:
@@ -302,12 +320,28 @@ def build_tracker_from_spec(
     *,
     device: str = BOXMOT_DEFAULTS.track.device,
     half: bool = BOXMOT_DEFAULTS.track.half,
+    tracker_backend: str | None = None,
     reid_weights=None,
+    reid_preprocess: str | None = None,
 ):
     if not isinstance(spec, str):
         return spec
 
     tracker_name = tracker_name_from_spec(spec, required=True)
+    resolved_backend = tracker_backend_from_spec(spec, required=False)
+    if tracker_backend is not None:
+        resolved_backend = normalize_tracker_backend(
+            tracker_backend,
+            default=resolved_backend or "python",
+        )
+    if resolved_backend == "cpp":
+        native_backend = get_native_live_backend(tracker_name)
+        return native_backend.create_tracker(
+            default_tracker_config(spec),
+            reid_weights=reid_weights,
+            reid_preprocess=reid_preprocess,
+        )
+
     return create_tracker(
         tracker_type=tracker_name,
         tracker_config=get_tracker_config(tracker_name),
@@ -327,8 +361,14 @@ def build_tracker_with_reid_spec(
     half: bool = BOXMOT_DEFAULTS.track.half,
 ):
     tracker_name = tracker_name_from_spec(tracker_spec, required=False)
+    if tracker_name not in REID_TRACKERS:
+        return None
+
     if tracker_name in REID_TRACKERS:
         if hasattr(tracker, "with_reid") and not bool(getattr(tracker, "with_reid")):
+            return None
+
+        if bool(getattr(tracker, "provides_reid", False)):
             return None
 
         tracker_backend = getattr(tracker, "reid_model", None) or getattr(tracker, "model", None)
@@ -397,6 +437,7 @@ __all__ = (
     "save_video",
     "score_summary",
     "suppress_boxmot_logs",
+    "tracker_backend_from_spec",
     "tracker_config_from_spec",
     "tracker_name_from_spec",
 )

@@ -1,10 +1,14 @@
 import importlib
+from io import StringIO
 import queue
+from contextlib import nullcontext
 from pathlib import Path
+import re
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from rich.console import Console
 import torch
 
 from boxmot.configs import ensure_model_extension
@@ -19,7 +23,9 @@ import boxmot.engine.inference as pipeline_module
 import boxmot.engine.replay as cached_tracking_module
 import boxmot.engine.tracker as tracker_module
 import boxmot.engine.tracker as tracker_runtime_module
+import boxmot.engine.workflow_reporting as workflow_reporting_module
 import boxmot.reid.core as reid_core_module
+import boxmot.utils.rich.ui as ui_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
 from boxmot.engine.inference import prepare_detections
 from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
@@ -695,6 +701,77 @@ def test_pipeline_delegates_to_detector_backend_and_reid_models(monkeypatch):
     assert reid_calls == [(1, 64), (1, 64)]
 
 
+def test_pipeline_records_detector_and_reid_phase_timings(monkeypatch):
+    class _FakeDetector:
+        def __init__(self, model, device, imgsz):
+            _ = (model, device, imgsz)
+
+        def preprocess(self, images):
+            return [image + 1 for image in images]
+
+        def process(self, preprocessed, conf, iou, classes, agnostic_nms):
+            _ = (conf, iou, classes, agnostic_nms)
+            return preprocessed
+
+        def postprocess(self, detections):
+            return [Detections(dets=np.empty((0, 6), dtype=np.float32), orig_img=image, path="") for image in detections]
+
+    class _FakeReIDModel:
+        def get_crops(self, xyxys, img):
+            _ = (xyxys, img)
+            return [np.ones((4, 4, 3), dtype=np.uint8)]
+
+        def inference_preprocess(self, crops):
+            return np.stack(crops).astype(np.float32)
+
+        def forward(self, crops):
+            _ = crops
+            return np.array([[3.0, 4.0]], dtype=np.float32)
+
+        def inference_postprocess(self, features):
+            return features
+
+    class _FakeBackend:
+        def __init__(self, weights, device, half, **kwargs):
+            _ = (weights, device, half, kwargs)
+            self.model = _FakeReIDModel()
+
+    monkeypatch.setattr(pipeline_module, "get_detector_class", lambda _path: _FakeDetector)
+    monkeypatch.setattr(pipeline_module, "select_device", lambda device: device)
+    monkeypatch.setattr(reid_core_module, "ReID", _FakeBackend)
+
+    pipeline = pipeline_module.DetectorReIDPipeline("det.pt", reid_paths=["alpha.pt"], device="cpu", imgsz=[64, 64])
+
+    pipeline.predict_batch([_DUMMY_IMG], conf=0.25, iou=0.7, agnostic_nms=False, classes=None)
+    features = pipeline.get_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG)
+
+    assert features.shape == (1, 2)
+    assert pipeline.timing_stats.totals["detector_preprocess"] > 0.0
+    assert pipeline.timing_stats.totals["detector_process"] > 0.0
+    assert pipeline.timing_stats.totals["detector_postprocess"] > 0.0
+    assert pipeline.timing_stats.totals["reid_preprocess"] > 0.0
+    assert pipeline.timing_stats.totals["reid_process"] > 0.0
+    assert pipeline.timing_stats.totals["reid_postprocess"] > 0.0
+    assert pipeline.timing_stats.totals["preprocess"] == pytest.approx(
+        pipeline.timing_stats.totals["detector_preprocess"],
+        abs=1e-6,
+    )
+    assert pipeline.timing_stats.totals["inference"] == pytest.approx(
+        pipeline.timing_stats.totals["detector_process"],
+        abs=1e-6,
+    )
+    assert pipeline.timing_stats.totals["postprocess"] == pytest.approx(
+        pipeline.timing_stats.totals["detector_postprocess"],
+        abs=1e-6,
+    )
+    assert pipeline.timing_stats.totals["reid"] == pytest.approx(
+        pipeline.timing_stats.totals["reid_preprocess"]
+        + pipeline.timing_stats.totals["reid_process"]
+        + pipeline.timing_stats.totals["reid_postprocess"],
+        rel=1e-6,
+    )
+
+
 def test_aabb_text_output_uses_conf_class_det_ind_columns(tmp_path):
     tracks = np.array([[10, 20, 30, 45, 7, 0.85, 3, 11]], dtype=np.float32)
 
@@ -1070,18 +1147,49 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
         def plot_radar_chart(self, *args, **kwargs):
             return None
 
-    messages = []
+    workflows = []
 
-    class _FakeLogger:
-        def opt(self, **kwargs):
+    class _FakeWorkflow:
+        def __init__(self, title, fields, steps, stderr=False, transient=False):
+            self.title = title
+            self.fields = list(fields)
+            self.steps = list(steps)
+            self.details = []
+            self.stderr = stderr
+            self.transient = transient
+            self.started = False
+            self.stopped = False
+
+        def start(self):
+            self.started = True
             return self
 
-        def info(self, message):
-            messages.append(str(message))
+        def stop(self):
+            self.stopped = True
+
+        def activate(self, label):
+            self.steps = [
+                (step_label, "active" if step_label == label else ("todo" if step_state == "active" else step_state))
+                for step_label, step_state in self.steps
+            ]
+
+        def complete(self, label):
+            self.steps = [
+                (step_label, "done" if step_label == label else step_state)
+                for step_label, step_state in self.steps
+            ]
+
+        def set_detail(self, title, text, *, render=True):
+            self.details.append((title, text, render))
+
+    def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
+        workflow = _FakeWorkflow(title, fields, steps, stderr=stderr, transient=transient)
+        workflows.append(workflow)
+        return workflow
 
     monkeypatch.setattr(evaluator_module, "run_eval", fake_run_eval)
     monkeypatch.setattr(evaluator_module, "MetricsPlotter", _FakePlotter)
-    monkeypatch.setattr(evaluator_module, "LOGGER", _FakeLogger())
+    monkeypatch.setattr(evaluator_module.ui, "create_workflow_progress", fake_create_workflow_progress)
 
     args = SimpleNamespace(
         detector=[tmp_path / "detector.pt"],
@@ -1098,15 +1206,1018 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
     evaluator_module.main(args)
 
     captured = capsys.readouterr()
-    assert "📊 RESULTS SUMMARY" in captured.out
-    assert "COMBINED (person)" in captured.out
-    assert "MOT17-02" in captured.out
-    joined_messages = "\n".join(messages)
-    assert "Dataset:" in joined_messages
-    assert "mot17-ablation" in joined_messages
-    assert "Benchmark:" not in joined_messages
-    assert "Image size:" not in joined_messages
-    assert calls == [{"verbose": False}]
+    assert captured.out == ""
+    assert len(workflows) == 1
+    workflow = workflows[0]
+    assert workflow.title == "Evaluation"
+    assert workflow.started is True
+    assert workflow.stopped is True
+    assert ("Dataset", "mot17-ablation") in workflow.fields
+    assert (evaluator_module.EVAL_GENERATE_STEP, "active") in workflow.steps
+    assert workflow.details == []
+    assert calls == [{"verbose": False, "workflow": workflow}]
+
+
+def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
+    actions = []
+
+    class _FakeWorkflow:
+        def activate(self, label, *, render=True):
+            actions.append(("active", label))
+
+        def complete(self, label, *, render=True):
+            actions.append(("done", label))
+
+        def set_detail(self, title, text, *, render=True):
+            actions.append(("detail", title, text))
+
+    monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
+    monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
+    monkeypatch.setattr(
+        evaluator_module,
+        "eval_setup",
+        lambda args, workflow=None: workflow.set_detail(
+            evaluator_module.EVAL_GENERATE_STEP,
+            "Setting up evaluation data...",
+        ) if workflow else None,
+    )
+    monkeypatch.setattr(
+        evaluator_module,
+        "run_generate_dets_embs",
+        lambda args, timing_stats=None, progress_callback=None: progress_callback(
+            "Generating detections and embeddings: 2/2 frames\n"
+            "  MOT17-02-FRCNN ████████████████████  100%  (done)"
+        ) if progress_callback else None,
+    )
+    monkeypatch.setattr(
+        evaluator_module,
+        "run_generate_mot_results",
+        lambda *args, progress_callback=None, **kwargs: progress_callback("Tracking: 1/1 sequences done")
+        if progress_callback
+        else None,
+    )
+    trackeval_calls = []
+
+    def fake_run_trackeval(args, verbose=True):
+        trackeval_calls.append(verbose)
+        return {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+
+    monkeypatch.setattr(evaluator_module, "run_trackeval", fake_run_trackeval)
+    monkeypatch.setattr(evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}))
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "detector.pt"],
+        reid=[tmp_path / "reid.pt"],
+        benchmark="mot17-ablation",
+        data="mot17-ablation",
+        show_progress=True,
+        verbose=False,
+    )
+
+    result = evaluator_module.run_eval(args, verbose=False, workflow=_FakeWorkflow())
+
+    assert result.summary == {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+    assert trackeval_calls == [False]
+    assert actions[:10] == [
+        ("detail", evaluator_module.EVAL_GENERATE_STEP, "Setting up evaluation data..."),
+        ("active", evaluator_module.EVAL_GENERATE_STEP),
+        (
+            "detail",
+            evaluator_module.EVAL_GENERATE_STEP,
+            "Generating detections and embeddings: 2/2 frames\n"
+            "  MOT17-02-FRCNN ████████████████████  100%  (done)",
+        ),
+        ("done", evaluator_module.EVAL_GENERATE_STEP),
+        ("active", evaluator_module.EVAL_TRACK_STEP),
+        ("detail", evaluator_module.EVAL_TRACK_STEP, "Starting tracker..."),
+        ("detail", evaluator_module.EVAL_TRACK_STEP, "Tracking: 1/1 sequences done"),
+        ("done", evaluator_module.EVAL_TRACK_STEP),
+        ("active", evaluator_module.EVAL_EVALUATE_STEP),
+        ("detail", evaluator_module.EVAL_EVALUATE_STEP, "Computing metrics..."),
+    ]
+    assert actions[10] == ("done", evaluator_module.EVAL_EVALUATE_STEP)
+    assert actions[11][0] == "detail"
+    assert actions[11][1] == evaluator_module.EVAL_EVALUATE_STEP
+    assert "📊 RESULTS SUMMARY" in actions[11][2]
+    assert "HOTA" in actions[11][2]
+    assert "1.00" in actions[11][2]
+
+
+def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp_path):
+    suppress_calls = []
+
+    def fake_suppress(enabled, level="WARNING"):
+        suppress_calls.append((enabled, level))
+        return nullcontext()
+
+    class _FakeWorkflow:
+        def activate(self, label, *, render=True):
+            return None
+
+        def complete(self, label, *, render=True):
+            return None
+
+        def set_detail(self, title, text, *, render=True):
+            return None
+
+        def set_detail_renderable(self, title, renderable, *, render=True):
+            return None
+
+    monkeypatch.setattr(evaluator_module, "suppress_boxmot_logs", fake_suppress)
+    monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
+    monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
+    monkeypatch.setattr(evaluator_module, "eval_setup", lambda args, workflow=None: None)
+    monkeypatch.setattr(
+        evaluator_module,
+        "run_generate_dets_embs",
+        lambda args, timing_stats=None, progress_callback=None: None,
+    )
+    monkeypatch.setattr(evaluator_module, "run_generate_mot_results", lambda *args, **kwargs: None)
+    monkeypatch.setattr(evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
+    monkeypatch.setattr(evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}))
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "detector.pt"],
+        reid=[tmp_path / "reid.pt"],
+        benchmark="mot17-mini",
+        data="mot17-mini",
+        show_progress=True,
+        verbose=False,
+    )
+
+    evaluator_module.run_eval(args, verbose=False, workflow=_FakeWorkflow())
+
+    assert suppress_calls == [(True, "WARNING"), (True, "WARNING")]
+
+
+def test_build_eval_workflow_fields_reports_effective_cpp_backend(tmp_path):
+    args = SimpleNamespace(
+        detector=[Path("models/yolox_x_MOT17_ablation.pt")],
+        reid=[Path("models/lmbn_n_duke.pt")],
+        tracker="botsort",
+        tracker_backend=None,
+        tracking_backend="cpp",
+        data="mot17-ablation",
+        benchmark="",
+        dataset_id="",
+        benchmark_id="",
+        source=None,
+        imgsz=[800, 1440],
+        device="cpu",
+        half=False,
+        conf=0.25,
+        n_threads=2,
+        postprocessing="none",
+        track_high_thresh=0.6,
+        track_low_thresh=0.1,
+        new_track_thresh=0.7,
+        track_buffer=30,
+        match_thresh=0.8,
+        proximity_thresh=0.5,
+        appearance_thresh=0.25,
+        cmc_method="ecc",
+    )
+
+    fields = dict(evaluator_module._build_eval_workflow_fields(args))
+
+    assert fields["Detector"] == Path("models/yolox_x_MOT17_ablation.pt")
+    assert fields["ReID"] == Path("models/lmbn_n_duke.pt")
+    assert fields["Tracker"] == "botsort"
+    assert fields["Tracker backend"] == "cpp"
+    assert fields["Dataset"] == "mot17-ablation"
+    assert "Replay backend" not in fields
+    assert "__panel__:Benchmark Parameters" not in fields
+    assert "__panel__:Dataset Parameters" not in fields
+    assert "__panel__:Detector Parameters" not in fields
+    assert "__panel__:ReID Parameters" not in fields
+    assert all(label != "Dataset" for label, _ in fields["__panel__:Pipeline Parameters"])
+    assert ("Image size", [800, 1440]) in fields["__panel__:Pipeline Parameters"]
+    assert ("Track High Thresh", 0.6) in fields["__panel__:Tracker Parameters"]
+
+
+def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
+    refreshed_fields = []
+
+    class _FakeWorkflow:
+        def set_fields(self, fields, *, render=True):
+            refreshed_fields.append(list(fields))
+
+        def activate(self, label, *, render=True):
+            return None
+
+        def complete(self, label, *, render=True):
+            return None
+
+        def set_detail(self, title, text, *, render=True):
+            return None
+
+    monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
+    monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
+
+    def fake_eval_setup(args, workflow=None):
+        args.detector = [tmp_path / "yolox_x.pt"]
+        args.reid = [tmp_path / "lmbn_n_duke.pt"]
+        args.benchmark = "mot17-ablation"
+        args.tracker_backend = "cpp"
+
+    monkeypatch.setattr(evaluator_module, "eval_setup", fake_eval_setup)
+    monkeypatch.setattr(evaluator_module, "run_generate_dets_embs", lambda args, timing_stats=None: None)
+    monkeypatch.setattr(evaluator_module, "run_generate_mot_results", lambda *args, **kwargs: None)
+    monkeypatch.setattr(evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
+    monkeypatch.setattr(evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}))
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "detector.pt"],
+        reid=[tmp_path / "reid.pt"],
+        tracker="botsort",
+        tracker_backend=None,
+        tracking_backend="process",
+        benchmark="",
+        data="mot17-ablation",
+        source=None,
+        imgsz=None,
+        show_progress=False,
+        verbose=False,
+    )
+
+    evaluator_module.run_eval(args, verbose=False, workflow=_FakeWorkflow())
+
+    assert refreshed_fields
+    refreshed = dict(refreshed_fields[-1])
+    assert refreshed["Detector"] == tmp_path / "yolox_x.pt"
+    assert refreshed["ReID"] == tmp_path / "lmbn_n_duke.pt"
+    assert refreshed["Tracker"] == "botsort"
+    assert refreshed["Tracker backend"] == "cpp"
+    assert refreshed["Dataset"] == "mot17-ablation"
+
+
+def test_workflow_progress_renders_single_stateful_block(monkeypatch):
+    buffer = StringIO()
+    console = Console(
+        file=buffer,
+        force_terminal=False,
+        width=120,
+        stderr=True,
+        highlight=False,
+        soft_wrap=False,
+        theme=ui_module.BOXMOT_THEME,
+        no_color=False,
+    )
+
+    monkeypatch.setattr(ui_module, "get_console", lambda *, stderr=False: console)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "bytetrack")],
+        steps=(
+            (evaluator_module.EVAL_GENERATE_STEP, "active"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+            (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+        ),
+        stderr=True,
+    )
+
+    workflow.start()
+    workflow.set_detail(evaluator_module.EVAL_GENERATE_STEP, "Setting up evaluation data...")
+    workflow.complete(evaluator_module.EVAL_GENERATE_STEP, render=False)
+    workflow.activate(evaluator_module.EVAL_TRACK_STEP, render=False)
+    workflow.set_detail(evaluator_module.EVAL_TRACK_STEP, "Tracking: 1/1 sequences done")
+    workflow.complete(evaluator_module.EVAL_TRACK_STEP, render=False)
+    workflow.activate(evaluator_module.EVAL_EVALUATE_STEP, render=False)
+    workflow.set_detail(
+        evaluator_module.EVAL_EVALUATE_STEP,
+        "📊 RESULTS SUMMARY\nCOMBINED (person) 50.00 45.00 40.00",
+        render=False,
+    )
+    workflow.complete(evaluator_module.EVAL_EVALUATE_STEP, render=False)
+    workflow.stop()
+
+    rendered = buffer.getvalue()
+
+    assert "[✓] Generate / Track / Evaluate" in rendered
+    assert "[x] Evaluate results" not in rendered
+    assert "[>] Generate detections and embeddings" not in rendered
+    assert "Setting up evaluation data..." not in rendered
+    assert "Tracking: 1/1 sequences done" not in rendered
+    assert "📊 RESULTS SUMMARY" in rendered
+    assert "COMBINED (person) 50.00 45.00 40.00" in rendered
+
+
+def test_workflow_progress_preserves_rich_styles_on_terminal(monkeypatch):
+    buffer = StringIO()
+    base_console = Console(
+        file=buffer,
+        force_terminal=True,
+        color_system="standard",
+        width=100,
+        stderr=True,
+        highlight=False,
+        soft_wrap=False,
+        theme=ui_module.BOXMOT_THEME,
+        no_color=False,
+    )
+
+    monkeypatch.setattr(
+        ui_module,
+        "get_console",
+        lambda *, stderr=False: base_console,
+    )
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "bytetrack")],
+        steps=((evaluator_module.EVAL_EVALUATE_STEP, "active"),),
+        stderr=True,
+    )
+
+    workflow.start()
+    workflow.set_detail(
+        evaluator_module.EVAL_EVALUATE_STEP,
+        "\x1b[1;33mCOMBINED (person)\x1b[0m 50.00 45.00 40.00",
+    )
+    workflow.stop()
+
+    rendered = buffer.getvalue()
+
+    assert "\x1b[36m" in rendered or "\x1b[1;36m" in rendered
+    assert "\x1b[1;33mCOMBINED (person)\x1b[0m" in rendered
+    assert "\x1b[?25l" in rendered
+    assert "\x1b[?25h" in rendered
+    assert re.search(r"\x1b\[\d+F\x1b\[J", rendered) is None
+
+
+def test_workflow_progress_uses_full_live_overflow(monkeypatch):
+    captured = {}
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            captured["renderable"] = renderable
+            captured["vertical_overflow"] = kwargs.get("vertical_overflow")
+
+        def start(self, *, refresh=True):
+            captured["start_refresh"] = refresh
+
+        def update(self, renderable, *, refresh=True):
+            captured["updated"] = (renderable, refresh)
+
+        def stop(self):
+            captured["stopped"] = True
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "bytetrack")],
+        steps=((evaluator_module.EVAL_EVALUATE_STEP, "active"),),
+        stderr=True,
+    )
+
+    workflow.start()
+    workflow.stop()
+
+    assert captured["vertical_overflow"] == "visible"
+    assert captured["start_refresh"] is True
+    assert captured["stopped"] is True
+
+
+def test_workflow_progress_uses_alt_screen_when_oversized(monkeypatch):
+    init_calls: list[dict] = []
+    update_calls: list[tuple[object, bool]] = []
+    stop_calls: list[bool] = []
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            init_calls.append(kwargs)
+            self.renderable = renderable
+
+        def start(self, *, refresh=True):
+            return None
+
+        def update(self, renderable, *, refresh=True):
+            update_calls.append((renderable, refresh))
+
+        def stop(self):
+            stop_calls.append(True)
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "hybridsort")],
+        steps=(
+            (evaluator_module.EVAL_GENERATE_STEP, "active"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+        ),
+        stderr=True,
+    )
+
+    monkeypatch.setattr(
+        ui_module.WorkflowProgress,
+        "_renderable_exceeds_console",
+        lambda self, renderable: True,
+    )
+
+    workflow.start()
+    workflow.set_detail(evaluator_module.EVAL_GENERATE_STEP, "step 1")
+    workflow.set_detail(evaluator_module.EVAL_GENERATE_STEP, "step 2")
+    workflow.stop()
+
+    # Live must be created on the alternate screen so in-place refreshes
+    # don't pollute scrollback. Mid-flight updates ARE allowed there because
+    # the alt buffer doesn't scroll the regular history.
+    assert init_calls[0].get("screen") is True
+    assert init_calls[0].get("vertical_overflow") == "visible"
+    assert len(update_calls) >= 2
+    assert stop_calls == [True]
+
+
+def test_workflow_progress_prefers_alt_screen_from_first_render(monkeypatch):
+    init_calls: list[dict] = []
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            init_calls.append(kwargs)
+
+        def start(self, *, refresh=True):
+            return None
+
+        def update(self, renderable, *, refresh=True):
+            return None
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "deepocsort")],
+        steps=((evaluator_module.EVAL_TRACK_STEP, "active"),),
+        stderr=True,
+    )
+    workflow.prefer_alt_screen = True
+
+    monkeypatch.setattr(
+        ui_module.WorkflowProgress,
+        "_renderable_exceeds_console",
+        lambda self, renderable: False,
+    )
+
+    workflow.start()
+
+    assert init_calls[0].get("screen") is True
+    assert init_calls[0].get("vertical_overflow") == "visible"
+
+
+def test_workflow_progress_stays_on_normal_screen_when_compact_live_fits(monkeypatch):
+    init_calls: list[dict] = []
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            init_calls.append(kwargs)
+
+        def start(self, *, refresh=True):
+            return None
+
+        def update(self, renderable, *, refresh=True):
+            return None
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "hybridsort")],
+        steps=((evaluator_module.EVAL_TRACK_STEP, "active"),),
+        stderr=True,
+    )
+
+    full_renderable = object()
+    compact_renderable = object()
+
+    workflow.renderable = lambda *, compact=False: compact_renderable if compact else full_renderable
+    workflow._live_renderable = lambda: compact_renderable
+
+    monkeypatch.setattr(
+        ui_module.WorkflowProgress,
+        "_renderable_exceeds_console",
+        lambda self, renderable: renderable is full_renderable,
+    )
+
+    workflow.start()
+
+    assert init_calls[0].get("screen") is False
+    assert init_calls[0].get("vertical_overflow") == "visible"
+
+
+def test_workflow_progress_keeps_compact_layout_for_final_render(monkeypatch):
+    update_calls: list[tuple[object, bool]] = []
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            self.renderable = renderable
+
+        def start(self, *, refresh=True):
+            return None
+
+        def update(self, renderable, *, refresh=True):
+            update_calls.append((renderable, refresh))
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "hybridsort")],
+        steps=((evaluator_module.EVAL_TRACK_STEP, "active"),),
+        stderr=True,
+    )
+
+    full_renderable = object()
+    compact_renderable = object()
+    workflow.renderable = lambda *, compact=False: compact_renderable if compact else full_renderable
+
+    monkeypatch.setattr(
+        ui_module.WorkflowProgress,
+        "_renderable_exceeds_console",
+        lambda self, renderable: renderable is full_renderable,
+    )
+
+    workflow.start()
+    workflow.set_detail(evaluator_module.EVAL_TRACK_STEP, "step 1")
+    workflow.set_detail(evaluator_module.EVAL_EVALUATE_STEP, "done", render=False)
+    workflow.stop()
+
+    assert workflow._compact_layout is True
+    assert update_calls[-1][0] is compact_renderable
+    assert update_calls[-1][1] is False
+
+
+def test_workflow_progress_prefers_compact_layout_from_first_render(monkeypatch):
+    init_renderables: list[object] = []
+
+    class _FakeLive:
+        def __init__(self, renderable, **kwargs):
+            init_renderables.append(renderable)
+
+        def start(self, *, refresh=True):
+            return None
+
+        def update(self, renderable, *, refresh=True):
+            return None
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(ui_module, "Live", _FakeLive)
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "deepocsort")],
+        steps=((evaluator_module.EVAL_TRACK_STEP, "active"),),
+        stderr=True,
+    )
+    workflow.prefer_compact_layout = True
+
+    full_renderable = object()
+    compact_renderable = object()
+    workflow.renderable = lambda *, compact=False: compact_renderable if compact else full_renderable
+
+    workflow.start()
+
+    assert workflow._compact_layout is True
+    assert init_renderables[0] is compact_renderable
+
+
+def test_build_checklist_uses_semantic_state_colors():
+    rendered = ui_module._capture_renderable(
+        ui_module.build_checklist(
+            (
+                ("Done step", "done"),
+                ("Active step", "active"),
+                ("Queued step", "todo"),
+            )
+        ),
+        width=80,
+        force_terminal=True,
+        color_system="truecolor",
+    )
+
+    assert "\x1b[1;38;2;63;185;80m[✓] " in rendered
+    assert "\x1b[1;38;2;227;179;65m[>] " in rendered or "\x1b[1;93m[>] " in rendered
+    assert "\x1b[1;38;2;139;148;158m[ ] " in rendered
+
+
+def test_hybridsort_eval_intro_fits_terminal_height():
+    args = SimpleNamespace(
+        detector=[Path("models/yolox_x_MOT17_ablation.pt")],
+        reid=[Path("models/lmbn_n_duke.pt")],
+        tracker="hybridsort",
+        tracker_backend=None,
+        tracking_backend="process",
+        data="mot17-ablation",
+        benchmark="mot17-ablation",
+        dataset_id="",
+        benchmark_id="",
+        source=None,
+        imgsz=[800, 1440],
+        device="cpu",
+        half=False,
+        conf=0.01,
+        n_threads=8,
+        postprocessing="none",
+    )
+
+    renderable = ui_module.build_workflow_intro(
+        "Evaluation",
+        evaluator_module._build_eval_workflow_fields(args),
+        steps=(
+            (evaluator_module.EVAL_GENERATE_STEP, "active"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+            (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+        ),
+    )
+    rendered = ui_module.capture_renderable(renderable, stderr=True, width=80)
+
+    assert rendered.count("\n") + 1 <= 30
+
+
+def test_build_workflow_intro_uses_compact_setup_panel_and_completed_pipeline_summary():
+    rendered = ui_module.capture_renderable(
+        ui_module.build_workflow_intro(
+            "Evaluation",
+            [
+                ("Detector", Path("models/yolox_x_MOT17_ablation.pt")),
+                ("ReID", Path("models/lmbn_n_duke.pt")),
+                ("Tracker", "bytetrack"),
+                ("Dataset", "mot17-ablation"),
+                ("__panel__:Tracker Parameters", [("Min Conf", 0.1), ("Track Thresh", 0.6)]),
+                ("__panel__:Pipeline Parameters", [("Tracker backend", "python"), ("Replay backend", "thread")]),
+            ],
+            steps=(
+                (evaluator_module.EVAL_GENERATE_STEP, "done"),
+                (evaluator_module.EVAL_TRACK_STEP, "done"),
+                (evaluator_module.EVAL_EVALUATE_STEP, "done"),
+            ),
+        ),
+        width=120,
+    )
+
+    assert "Setup" in rendered
+    assert "Configuration" not in rendered
+    assert "Tracker Parameters" not in rendered
+    assert "Pipeline Parameters" not in rendered
+    assert "yolox_x_MOT17_ablation.pt" in rendered
+    assert "lmbn_n_duke.pt" in rendered
+    assert "models/yolox_x_MOT17_ablation.pt" not in rendered
+    assert "models/lmbn_n_duke.pt" not in rendered
+    assert "Generate / Track / Evaluate" in rendered
+    assert "[x] Evaluate results" not in rendered
+
+
+def test_build_workflow_intro_compact_live_layout_shows_all_progress_rows():
+    fields = [
+        ("Detector", Path("models/yolox_x_MOT17_ablation.pt")),
+        ("ReID", Path("models/lmbn_n_duke.pt")),
+        ("Tracker", "hybridsort"),
+        ("Dataset", "mot17-ablation"),
+        (
+            "__panel__:Tracker Parameters",
+            [
+                ("Low Thresh", 0.1),
+                ("Delta T", 3),
+                ("Inertia", 0.05),
+                ("Use Byte", True),
+                ("Use Custom KF", True),
+                ("Longterm Bank Length", 30),
+                ("Alpha", 0.9),
+                ("Adapfs", False),
+                ("Track Thresh", 0.5),
+                ("EG Weight High Score", 4.6),
+                ("EG Weight Low Score", 1.3),
+                ("TCM First Step", True),
+                ("TCM Byte Step", True),
+                ("TCM Byte Step Weight", 1.0),
+                ("High Score Matching Thresh", 0.7),
+                ("With Longterm ReID", True),
+                ("Longterm ReID Weight", 0.0),
+                ("With Longterm ReID Correction", True),
+                ("Longterm ReID Correction Thresh", 0.4),
+                ("Longterm ReID Correction Thresh Low", 0.4),
+            ],
+        ),
+        (
+            "__panel__:Pipeline Parameters",
+            [
+                ("Tracker backend", "python"),
+                ("Replay backend", "process"),
+                ("Device", "cpu"),
+                ("Precision", "fp32"),
+                ("Image size", "[800, 1440]"),
+                ("Confidence", 0.01),
+                ("Threads", 8),
+                ("Postprocessing", "none"),
+            ],
+        ),
+    ]
+    progress_detail = "\n".join(
+        [
+            "Tracking: 2/7 sequences done",
+            "  MOT17-02 ██████████████░░░░░░   73%  (217/299)",
+            "  MOT17-04 ██████░░░░░░░░░░░░░░   33%  (172/524)",
+            "  MOT17-05 ████████████████████  100%  (done)",
+            "  MOT17-09 ████████████████████  100%  (done)",
+            "  MOT17-10 ██████████████░░░░░░   75%  (243/326)",
+            "  MOT17-11 ████████████░░░░░░░░   62%  (277/449)",
+            "  MOT17-13 ███████████░░░░░░░░░   56%  (210/374)",
+        ]
+    )
+
+    rendered = ui_module.capture_renderable(
+        ui_module.build_workflow_intro(
+            "Evaluation",
+            fields,
+            steps=(
+                (evaluator_module.EVAL_GENERATE_STEP, "done"),
+                (evaluator_module.EVAL_TRACK_STEP, "active"),
+                (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+            ),
+            detail_title=evaluator_module.EVAL_TRACK_STEP,
+            detail_text=progress_detail,
+            compact=True,
+        ),
+        width=80,
+    )
+
+    assert rendered.count("MOT17-") == 7
+    assert rendered.count("\n") + 1 <= 30
+    assert "[>] Track" in rendered
+
+
+def test_build_timing_renderable_shows_detector_reid_tracker_breakdown():
+    timings = {
+        "frames": 100,
+        "fps": 111.1,
+        "totals_ms": {
+            "preprocess": 100.0,
+            "inference": 120.0,
+            "postprocess": 30.0,
+            "detector_preprocess": 100.0,
+            "detector_process": 120.0,
+            "detector_postprocess": 30.0,
+            "reid": 200.0,
+            "reid_preprocess": 40.0,
+            "reid_process": 150.0,
+            "reid_postprocess": 10.0,
+            "track": 600.0,
+            "plot": 0.0,
+            "total": 1050.0,
+        },
+        "avg_ms": {
+            "preprocess": 1.0,
+            "inference": 1.2,
+            "postprocess": 0.3,
+            "reid": 2.0,
+            "track": 6.0,
+            "plot": 0.0,
+            "total": 10.5,
+        },
+    }
+
+    rendered = ui_module.capture_renderable(
+        workflow_reporting_module._build_timing_renderable(timings),
+        width=120,
+    )
+
+    assert "Frames" in rendered
+    assert "Stage" in rendered
+    assert "Detector" in rendered
+    assert "Tracker" in rendered
+    assert "  preprocess" in rendered
+    assert "  process" in rendered
+    assert "  postprocess" in rendered
+    assert "ReID preprocess" in rendered
+    assert "ReID process" in rendered
+    assert "ReID postprocess" in rendered
+    assert "association/update" in rendered
+    assert "Overall total" in rendered
+    assert "120.0" in rendered
+    assert "250.0" in rendered
+    assert "800.0" in rendered
+    assert "1050.0" in rendered
+    assert "111.1" in rendered
+
+
+def test_build_timing_renderable_marks_cached_detector_and_embeddings():
+    timings = {
+        "frames": 12,
+        "fps": 59405.9,
+        "metadata": {
+            "detector_from_cache": True,
+            "reid_from_cache": True,
+        },
+        "totals_ms": {
+            "preprocess": 0.0,
+            "inference": 0.0,
+            "postprocess": 0.0,
+            "detector_preprocess": 0.0,
+            "detector_process": 0.0,
+            "detector_postprocess": 0.0,
+            "reid": 0.0,
+            "reid_preprocess": 0.0,
+            "reid_process": 0.0,
+            "reid_postprocess": 0.0,
+            "track": 0.2,
+            "plot": 0.0,
+            "total": 0.2,
+        },
+        "avg_ms": {
+            "preprocess": 0.0,
+            "inference": 0.0,
+            "postprocess": 0.0,
+            "reid": 0.0,
+            "track": 0.02,
+            "plot": 0.0,
+            "total": 0.02,
+        },
+    }
+
+    rendered = ui_module.capture_renderable(
+        workflow_reporting_module._build_timing_renderable(timings),
+        width=120,
+    )
+
+    assert "detections loaded from cache" in rendered
+    assert "embeddings loaded from cache" in rendered
+    assert "association/update" in rendered
+    assert "Detector total" in rendered
+    assert "Tracker total" in rendered
+    assert "Overall total" in rendered
+    assert "  preprocess" not in rendered
+    assert "ReID preprocess" not in rendered
+
+
+def test_workflow_progress_supports_renderable_detail(monkeypatch):
+    buffer = StringIO()
+    console = Console(
+        file=buffer,
+        force_terminal=False,
+        width=120,
+        stderr=True,
+        highlight=False,
+        soft_wrap=False,
+        theme=ui_module.BOXMOT_THEME,
+    )
+
+    monkeypatch.setattr(ui_module, "get_console", lambda *, stderr=False: console)
+
+    detail = ui_module.Table.grid(expand=True)
+    detail.add_column()
+    detail.add_column(justify="right")
+    detail.add_row("HOTA", "50.00")
+
+    workflow = ui_module.create_workflow_progress(
+        "Evaluation",
+        [("Tracker", "bytetrack")],
+        steps=((evaluator_module.EVAL_EVALUATE_STEP, "active"),),
+        stderr=True,
+    )
+
+    workflow.start()
+    workflow.set_detail_renderable("Results", detail)
+    workflow.stop()
+
+    rendered = buffer.getvalue()
+
+    assert "Results" in rendered
+    assert "HOTA" in rendered
+    assert "50.00" in rendered
+
+
+def test_build_validation_cli_renderable_contains_sequence_table_without_metric_cards():
+    raw = {
+        "person": {
+            "HOTA": 69.43,
+            "MOTA": 78.26,
+            "IDF1": 82.00,
+            "AssA": 72.29,
+            "AssRe": 77.48,
+            "IDSW": 136,
+            "IDs": 367,
+            "per_sequence": {
+                "MOT17-02": {
+                    "HOTA": 49.84,
+                    "MOTA": 54.60,
+                    "IDF1": 60.20,
+                    "AssA": 51.80,
+                    "AssRe": 56.49,
+                    "IDSW": 61,
+                    "IDs": 72,
+                }
+            },
+        }
+    }
+
+    renderable = workflow_reporting_module.build_validation_cli_renderable(raw, title=None)
+    rendered = ui_module.capture_renderable(renderable, width=120)
+
+    assert "person" in rendered
+    assert "HOTA" in rendered
+    assert "MOTA" in rendered
+    assert "IDF1" in rendered
+    assert "AssA" in rendered
+    assert "AssRe" in rendered
+    assert "IDSW" in rendered
+    assert "IDs" in rendered
+    assert "MOT17-02" in rendered
+    assert "COMBINED (person)" in rendered
+    assert "•" in rendered
+    assert "╭───────╮" not in rendered
+
+    sequence_header = next(line for line in rendered.splitlines() if line.startswith("Sequence"))
+    first_sequence = next(line for line in rendered.splitlines() if line.startswith("MOT17-02"))
+    combined_index = next(i for i, line in enumerate(rendered.splitlines()) if line.startswith("COMBINED (person)"))
+    assert len(sequence_header) >= 100
+    assert len(first_sequence) >= 100
+    assert set(rendered.splitlines()[combined_index - 1].strip()) == {"─"}
+
+
+def test_build_validation_cli_renderable_keeps_multiclass_obb_sections():
+    raw = {
+        "plane": {
+            "HOTA": 59.546,
+            "MOTA": 0.0,
+            "IDF1": 66.667,
+            "AssA": 84.211,
+            "AssRe": 84.211,
+            "IDSW": 0,
+            "IDs": 2,
+            "per_sequence": {
+                "P1053__1024__0___90": {
+                    "HOTA": 0.0,
+                    "MOTA": 0.0,
+                    "IDF1": 0.0,
+                    "AssA": 0.0,
+                    "AssRe": 0.0,
+                    "IDSW": 0,
+                    "IDs": 0,
+                },
+                "P1142__1024__0___824": {
+                    "HOTA": 59.546,
+                    "MOTA": 0.0,
+                    "IDF1": 66.667,
+                    "AssA": 84.211,
+                    "AssRe": 84.211,
+                    "IDSW": 0,
+                    "IDs": 2,
+                },
+            },
+        },
+        "tennis court": {
+            "HOTA": 90.805,
+            "MOTA": 87.5,
+            "IDF1": 94.118,
+            "AssA": 96.431,
+            "AssRe": 97.295,
+            "IDSW": 0,
+            "IDs": 9,
+            "per_sequence": {},
+        },
+        "cls_comb_det_av": {
+            "HOTA": 83.617,
+            "MOTA": 78.571,
+            "IDF1": 90.323,
+            "AssA": 96.14,
+            "AssRe": 97.098,
+            "IDSW": 0,
+            "IDs": 17,
+            "per_sequence": {},
+        },
+    }
+
+    renderable = workflow_reporting_module.build_validation_cli_renderable(
+        raw,
+        title=None,
+        args=SimpleNamespace(
+            remapped_class_names=None,
+            translated_benchmark_class_names=None,
+            eval_box_type="obb",
+            classes=None,
+            benchmark="dota8-mot",
+        ),
+    )
+    rendered = ui_module.capture_renderable(renderable, width=140)
+
+    assert "Per-Class Combined Metrics" in rendered
+    assert "Aggregate Groups" in rendered
+    assert "plane" in rendered
+    assert "tennis court" in rendered
+    assert "Class Avg (Det)" in rendered
+    assert "COMBINED (plane)" in rendered
 
 
 def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, monkeypatch):
@@ -1248,5 +2359,5 @@ def test_initialize_trackers_rejects_unknown_tracker():
     predictor = SimpleNamespace(dataset=SimpleNamespace(bs=1), device="cpu")
     args = SimpleNamespace(tracker="unknown", reid=Path("reid.pt"), half=False, per_class=False, target_id=None)
 
-    with pytest.raises(ValueError, match="not supported"):
+    with pytest.raises(ValueError, match="registered tracker name"):
         tracker_module.TrackingSession.initialize_trackers(predictor, args)

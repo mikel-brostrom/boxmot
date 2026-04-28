@@ -7,6 +7,11 @@ import click
 from boxmot.utils import WEIGHTS, logger as LOGGER
 
 
+def dataclass_slots_kwargs() -> dict[str, bool]:
+    """Return dataclass keyword arguments supported by the running Python version."""
+    return {"slots": True} if sys.version_info >= (3, 10) else {}
+
+
 def parse_imgsz(ctx, param, value):
     """
     Parse the imgsz argument.

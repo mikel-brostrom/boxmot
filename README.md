@@ -52,26 +52,162 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
 <div align="center" markdown="1">
 
 <!-- START TRACKER TABLE -->
-| Tracker | Status  | OBB | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
-| :-----: | :-----: | :-: | :---: | :---: | :---: | :---: |
-| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | ✅ | 69.418 | 78.232 | 81.812 | 12 |
-| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | ❌ | 69.253 | 75.914 | 83.206 | 13 |
-| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | ❌ | 68.05 | 76.185 | 80.763 | 11 |
-| [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | ❌ | 67.796 | 75.868 | 80.514 | 12 |
-| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | ✅ | 67.68 | 78.039 | 79.157 | 720 |
-| [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | ❌ | 67.39 | 74.127 | 79.105 | 25 |
-| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | ✅ | 66.441 | 74.548 | 77.899 | 890 |
-| [sfsort](https://arxiv.org/pdf/2404.07553) | ✅ | ✅ | 62.653 | 76.87 | 69.184 | 6000 |
+<table>
+  <thead>
+    <tr>
+      <th rowspan="2" align="left">Tracker</th>
+      <th rowspan="2" align="center">│</th>
+      <th colspan="5" align="center">Python</th>
+      <th rowspan="2" align="center">│</th>
+      <th colspan="5" align="center">C++</th>
+    </tr>
+    <tr>
+      <th align="right">HOTA</th>
+      <th align="right">MOTA</th>
+      <th align="right">IDF1</th>
+      <th align="right">FPS</th>
+      <th align="center">OBB</th>
+      <th align="right">HOTA</th>
+      <th align="right">MOTA</th>
+      <th align="right">IDF1</th>
+      <th align="right">FPS</th>
+      <th align="center">OBB</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td align="left"><a href="https://arxiv.org/abs/2206.14651">botsort</a></td>
+      <td align="center">│</td>
+      <td align="right">69.44</td>
+      <td align="right">78.24</td>
+      <td align="right">81.94</td>
+      <td align="right">12</td>
+      <td align="center">✅</td>
+      <td align="center">│</td>
+      <td align="right">69.43</td>
+      <td align="right">78.26</td>
+      <td align="right">82.00</td>
+      <td align="right">—</td>
+      <td align="center">✅</td>
+    </tr>
+    <tr>
+      <td align="left"><a href="https://arxiv.org/abs/2408.13003">boosttrack</a></td>
+      <td align="center">│</td>
+      <td align="right">69.25</td>
+      <td align="right">75.91</td>
+      <td align="right">83.20</td>
+      <td align="right">13</td>
+      <td align="center">❌</td>
+      <td align="center">│</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="center">—</td>
+    </tr>
+    <tr>
+      <td align="left"><a href="https://arxiv.org/abs/2202.13514">strongsort</a></td>
+      <td align="center">│</td>
+      <td align="right">68.05</td>
+      <td align="right">76.19</td>
+      <td align="right">80.76</td>
+      <td align="right">11</td>
+      <td align="center">❌</td>
+      <td align="center">│</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="center">—</td>
+    </tr>
+    <tr>
+      <td align="left"><a href="https://arxiv.org/abs/2302.11813">deepocsort</a></td>
+      <td align="center">│</td>
+      <td align="right">67.95</td>
+      <td align="right">75.83</td>
+      <td align="right">80.54</td>
+      <td align="right">12</td>
+      <td align="center">❌</td>
+      <td align="center">│</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="center">—</td>
+    </tr>
+    <tr>
+      <td align="left"><a href="https://arxiv.org/abs/2110.06864">bytetrack</a></td>
+      <td align="center">│</td>
+      <td align="right">67.68</td>
+      <td align="right">78.04</td>
+      <td align="right">79.16</td>
+      <td align="right">720</td>
+      <td align="center">✅</td>
+      <td align="center">│</td>
+      <td align="right">67.75</td>
+      <td align="right">78.03</td>
+      <td align="right">79.38</td>
+      <td align="right">—</td>
+      <td align="center">✅</td>
+    </tr>
+    <tr>
+      <td align="left"><a href="https://arxiv.org/abs/2308.00783">hybridsort</a></td>
+      <td align="center">│</td>
+      <td align="right">67.31</td>
+      <td align="right">74.09</td>
+      <td align="right">78.87</td>
+      <td align="right">25</td>
+      <td align="center">❌</td>
+      <td align="center">│</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="center">—</td>
+    </tr>
+    <tr>
+      <td align="left"><a href="https://arxiv.org/abs/2203.14360">ocsort</a></td>
+      <td align="center">│</td>
+      <td align="right">66.44</td>
+      <td align="right">74.55</td>
+      <td align="right">77.90</td>
+      <td align="right">890</td>
+      <td align="center">✅</td>
+      <td align="center">│</td>
+      <td align="right">66.44</td>
+      <td align="right">74.55</td>
+      <td align="right">77.90</td>
+      <td align="right">—</td>
+      <td align="center">✅</td>
+    </tr>
+    <tr>
+      <td align="left"><a href="https://arxiv.org/pdf/2404.07553">sfsort</a></td>
+      <td align="center">│</td>
+      <td align="right">62.65</td>
+      <td align="right">76.87</td>
+      <td align="right">69.18</td>
+      <td align="right">6000</td>
+      <td align="center">✅</td>
+      <td align="center">│</td>
+      <td align="right">62.66</td>
+      <td align="right">76.74</td>
+      <td align="right">69.18</td>
+      <td align="right">—</td>
+      <td align="center">✅</td>
+    </tr>
+  </tbody>
+</table>
 <!-- END TRACKER TABLE -->
 
-<sub>Evaluation was run on the second half of the MOT17 training set because the validation split is not public and the ablation detector was trained on the first half. Results used [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip) with each tracker configured from its default repository settings.</sub>
+<sub>Evaluation was run on the second half of the MOT17 training set because the validation split is not public and the ablation detector was trained on the first half. Results used [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip) with each tracker configured from its default repository settings. Native `cpp` cells use `boxmot eval --tracker-backend cpp` for the implemented replay backends. `—` means no native replay backend is implemented for that tracker. `FPS` is currently only published for the Python benchmark entries, so native replay cells show `-` there.</sub>
 
 </div>
 
-Reproduction details and evaluation semantics live in:
+Related guides:
 
 - [Evaluation and Postprocessing](docs/guides/evaluation.md)
 - [Benchmark Workflows](docs/guides/benchmarks.md)
+- [Native C++ Integration](docs/guides/native-cpp.md)
 
 ## Minimal Usage
 

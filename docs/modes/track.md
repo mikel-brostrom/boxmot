@@ -89,6 +89,17 @@ Depending on flags, `track` can produce:
 
 See [Results and Artifacts](../guides/results.md).
 
+## Native C++ tracking
+
+Use `--tracker-backend cpp` when you want the in-process native C++ tracker implementation instead of the Python implementation:
+
+```bash
+boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort:cpp --source 0
+```
+
+Native live tracking is currently registered for `botsort`, `bytetrack`, `ocsort`, and `sfsort`. The first run builds the matching shared library under `build/native/<tracker>/`, so the environment needs the native build requirements from [Installation](../getting-started/installation.md#native-c-backends).
+
 ## Detection geometry
 
 `track` accepts either AABB or OBB detections, and BoxMOT switches automatically based on tensor shape. See [Detection Layouts](../concepts/detection-layouts.md).

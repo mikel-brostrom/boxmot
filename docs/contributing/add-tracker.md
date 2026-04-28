@@ -10,6 +10,18 @@ To integrate a new tracker cleanly:
 6. Add a tracker doc page and wire it into `mkdocs.yml`.
 7. Extend tests and CI matrices where needed.
 
+## Optional native C++ backend
+
+If the tracker also gets a native backend:
+
+1. Add native sources under `native/trackers/<name>/`.
+2. Add Python wrapper code under `boxmot/native/<name>_cpp.py`.
+3. Register live and replay backends in `boxmot/native/registry.py`.
+4. Document `--tracker-backend cpp` support on the tracker page.
+5. Add native wrapper tests under `tests/unit/test_native_<name>.py`.
+
+Native tracker sources should follow the existing CMake layout: a replay executable for cached benchmark modes and a shared library for live `track`.
+
 ## Minimum checklist
 
 - tracker implementation
@@ -18,3 +30,4 @@ To integrate a new tracker cleanly:
 - docs page
 - tests
 - workflow matrices if benchmarked in CI
+- native C++ registration and tests if a native backend is added

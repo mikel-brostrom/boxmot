@@ -5,14 +5,17 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import yaml
 
 from boxmot.configs import get_mode_default
 from boxmot.engine.results import Results
 from boxmot.engine.workflow_results import TrackRunResult
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format
+from boxmot.utils.rich.reporting import RichWorkflowReporter, WorkflowDetailCallback
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 from boxmot.utils.torch_utils import select_device
+import boxmot.utils.rich.ui as ui
 from boxmot.engine.workflow_support import (
     build_detector_from_spec,
     build_tracker_from_spec,
@@ -22,7 +25,10 @@ from boxmot.engine.workflow_support import (
     resolve_track_output_dir,
     save_video,
     suppress_boxmot_logs,
+    tracker_name_from_spec,
 )
+
+TRACK_RUN_STEP = "Run tracker"
 
 
 def _primary_model_ref(value):
@@ -182,6 +188,114 @@ def _consume_run(result: TrackRunResult) -> None:
     result.refresh()
 
 
+def _format_track_param_label(name: str) -> str:
+    label = str(name).replace("_", " ").title()
+    replacements = {
+        "Id": "ID",
+        "Ids": "IDs",
+        "Reid": "ReID",
+        "Cmc": "CMC",
+        "Fps": "FPS",
+        "Imgsz": "Image Size",
+    }
+    for source, target in replacements.items():
+        label = label.replace(source, target)
+    return label
+
+
+def _build_track_tracker_parameter_fields(args) -> list[tuple[str, object]]:
+    tracker_name = tracker_name_from_spec(getattr(args, "tracker", None), required=False)
+    if tracker_name is None:
+        return []
+
+    try:
+        with open(get_tracker_config(tracker_name), "r", encoding="utf-8") as handle:
+            raw = yaml.safe_load(handle) or {}
+    except Exception:
+        return []
+
+    params: list[tuple[str, object]] = []
+    for param_name, details in raw.items():
+        value = getattr(args, param_name, details.get("default"))
+        if value is None:
+            value = details.get("default")
+        params.append((_format_track_param_label(param_name), value))
+    return params
+
+
+def _build_track_pipeline_parameter_fields(args) -> list[tuple[str, object]]:
+    items: list[tuple[str, object]] = []
+    device = getattr(args, "device", None)
+    if device not in {None, ""}:
+        items.append(("Device", device))
+
+    items.append(("Precision", "fp16" if bool(getattr(args, "half", False)) else "fp32"))
+
+    tracker_backend = getattr(args, "tracker_backend", None)
+    if tracker_backend not in {None, ""}:
+        items.append(("Tracker backend", tracker_backend))
+
+    imgsz = getattr(args, "imgsz", None)
+    if imgsz is not None:
+        items.append(("Image size", imgsz))
+
+    conf = getattr(args, "conf", None)
+    if conf is not None:
+        items.append(("Confidence", conf))
+
+    iou = getattr(args, "iou", None)
+    if iou is not None:
+        items.append(("IoU", iou))
+
+    items.append(("Show", bool(getattr(args, "show", False))))
+    items.append(("Save video", bool(getattr(args, "save", False))))
+    items.append(("Save txt", bool(getattr(args, "save_txt", False))))
+
+    return items
+
+
+def _build_track_workflow_fields(args) -> list[tuple[str, object]]:
+    fields: list[tuple[str, object]] = []
+
+    detector = _primary_model_ref(getattr(args, "detector", None))
+    if detector is not None:
+        fields.append(("Detector", detector))
+
+    reid = _primary_model_ref(getattr(args, "reid", None))
+    if reid is not None:
+        fields.append(("ReID", reid))
+
+    tracker = getattr(args, "tracker", None)
+    if tracker not in {None, ""}:
+        fields.append(("Tracker", tracker_name_from_spec(tracker, required=False) or tracker))
+
+    source = getattr(args, "source", None)
+    if source not in {None, ""}:
+        fields.append(("Source", source))
+
+    tracker_params = _build_track_tracker_parameter_fields(args)
+    if tracker_params:
+        fields.append(("__panel__:Tracker Parameters", tracker_params))
+
+    pipeline_params = _build_track_pipeline_parameter_fields(args)
+    if pipeline_params:
+        fields.append(("__panel__:Pipeline Parameters", pipeline_params))
+
+    return fields
+
+
+class TrackWorkflowReporter(RichWorkflowReporter):
+    title = "Tracking"
+    steps = ((TRACK_RUN_STEP, "active"),)
+
+    def fields(self) -> list[tuple[str, object]]:
+        return _build_track_workflow_fields(self.args)
+
+
+def log_track_pipeline_intro(args) -> ui.WorkflowProgress:
+    return TrackWorkflowReporter(args).create()
+
+
 class TrackingSession:
     """Compatibility wrapper around the public Python API tracking facade."""
 
@@ -204,7 +318,8 @@ class TrackingSession:
 
     @staticmethod
     def initialize_trackers(predictor, args):
-        tracker_name = str(getattr(args, "tracker", "")).lower()
+        tracker_spec = getattr(args, "tracker", "")
+        tracker_name = tracker_name_from_spec(tracker_spec, required=True)
         if tracker_name not in TRACKER_MAPPING:
             available = ", ".join(sorted(TRACKER_MAPPING))
             raise ValueError(f"'{tracker_name}' is not supported. Supported ones are {available}")
@@ -215,17 +330,20 @@ class TrackingSession:
 
         batch_size = int(getattr(getattr(predictor, "dataset", None), "bs", 1) or 1)
         predictor.trackers = [
-            TrackerRuntime.create(
-                tracker_name=tracker_name,
-                reid_weights=reid_weights,
-                device=select_device(getattr(predictor, "device", "cpu")),
+            build_tracker_from_spec(
+                tracker_spec,
+                device=getattr(predictor, "device", "cpu"),
                 half=bool(getattr(args, "half", False)),
-                per_class=bool(getattr(args, "per_class", False)),
-                target_id=getattr(args, "target_id", None),
+                tracker_backend=getattr(args, "tracker_backend", None),
+                reid_weights=reid_weights,
                 reid_preprocess=getattr(args, "reid_preprocess", None),
             )
             for _ in range(batch_size)
         ]
+        target_id = getattr(args, "target_id", None)
+        if target_id is not None:
+            for tracker in predictor.trackers:
+                setattr(tracker, "target_id", target_id)
         return predictor.trackers
 
     def run(self):
@@ -247,6 +365,7 @@ class TrackingSession:
             save_txt=bool(getattr(self.args, "save_txt", False)),
             show=bool(getattr(self.args, "show", False)),
             verbose=bool(getattr(self.args, "verbose", False)),
+            tracker_backend=getattr(self.args, "tracker_backend", None),
         )
         if getattr(self.args, "show", False):
             result.show()
@@ -274,7 +393,9 @@ def _build_tracker(args, tracker_spec: Any):
         spec,
         device=getattr(args, "device", get_mode_default("track", "device")),
         half=bool(getattr(args, "half", get_mode_default("track", "half"))),
+        tracker_backend=getattr(args, "tracker_backend", None),
         reid_weights=reid_weights,
+        reid_preprocess=getattr(args, "reid_preprocess", None),
     )
 
 
@@ -299,16 +420,28 @@ def run_track(
     tracker_spec: Any = None,
     classes: list[int] | None = None,
     drawer=None,
+    workflow: ui.WorkflowProgress | None = None,
 ) -> TrackRunResult:
     source = getattr(args, "source", get_mode_default("track", "source"))
     verbose = bool(getattr(args, "verbose", get_mode_default("track", "verbose")))
 
-    with suppress_boxmot_logs(not verbose, level="WARNING"):
+    with suppress_boxmot_logs((not verbose) or workflow is not None, level="WARNING"):
         detector_runtime = detector if detector is not None else _build_detector(args, detector_spec, classes)
         tracker_runtime = tracker if tracker is not None else _build_tracker(args, tracker_spec)
         reid_runtime = reid if reid is not None else _build_reid(args, tracker_runtime, reid_spec, tracker_spec)
 
-    run = Results(source, detector_runtime, reid_runtime, tracker_runtime, verbose=verbose, drawer=drawer)
+    if workflow is not None:
+        workflow.set_detail(TRACK_RUN_STEP, "Starting tracker...", render=False)
+
+    run = Results(
+        source,
+        detector_runtime,
+        reid_runtime,
+        tracker_runtime,
+        verbose=verbose and workflow is None,
+        drawer=drawer,
+        progress_callback=WorkflowDetailCallback(workflow, TRACK_RUN_STEP) if workflow is not None else None,
+    )
 
     output_dir = resolve_track_output_dir(Path(getattr(args, "project", "runs")), source)
     text_path = output_dir / "tracks.txt" if bool(getattr(args, "save_txt", False)) else None
@@ -329,14 +462,29 @@ def run_track(
         result.show()
     elif _should_consume_result(args):
         _consume_run(result)
+    if workflow is not None:
+        result.refresh()
+        workflow.complete(TRACK_RUN_STEP, render=False)
+        if int(result.summary.get("frames", 0)) > 0:
+            if hasattr(workflow, "set_detail_renderable"):
+                workflow.set_detail_renderable("Summary", result.renderable(), render=False)
+            else:
+                workflow.set_detail("Summary", result.render(), render=False)
+        else:
+            workflow.set_detail(TRACK_RUN_STEP, "No frames processed.", render=False)
     return result
 
 
 def main(args):
-    return run_track(
-        args,
-        detector_spec=_primary_model_ref(getattr(args, "detector", None)),
-        reid_spec=_primary_model_ref(getattr(args, "reid", None)),
-        tracker_spec=getattr(args, "tracker", None),
-        classes=getattr(args, "classes", None),
-    )
+    workflow = log_track_pipeline_intro(args)
+    try:
+        return run_track(
+            args,
+            detector_spec=_primary_model_ref(getattr(args, "detector", None)),
+            reid_spec=_primary_model_ref(getattr(args, "reid", None)),
+            tracker_spec=getattr(args, "tracker", None),
+            classes=getattr(args, "classes", None),
+            workflow=workflow,
+        )
+    finally:
+        workflow.stop()
