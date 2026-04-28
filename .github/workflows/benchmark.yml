@@ -37,6 +37,10 @@ jobs:
             backend: py
             sort_key: 20
             fps: "13"
+          - tracker: occluboost
+            backend: py
+            sort_key: 25
+            fps: "13"
           - tracker: strongsort
             backend: py
             sort_key: 30
@@ -210,6 +214,7 @@ jobs:
 
           declare -A paper_links
           paper_links["boosttrack"]="https://arxiv.org/abs/2408.13003"
+          paper_links["occluboost"]=""
           paper_links["deepocsort"]="https://arxiv.org/abs/2302.11813"
           paper_links["bytetrack"]="https://arxiv.org/abs/2110.06864"
           paper_links["ocsort"]="https://arxiv.org/abs/2203.14360"

@@ -42,6 +42,7 @@ jobs:
 
               // individual tracker labels
               'boosttrack'     : /\bboosttrack\b/i,
+              'occluboost'      : /\boccluboost\b/i,
               'botsort'        : /\bbotsort\b/i,
               'bytetrack'      : /\bbytetrack\b/i,
               'deepocsort'     : /\bdeepocsort\b/i,

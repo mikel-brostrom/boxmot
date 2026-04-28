@@ -6,7 +6,7 @@ import yaml
 from boxmot.reid.core import ReID
 from boxmot.utils import TRACKER_CONFIGS
 
-REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack"]
+REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack", "occluboost"]
 
 TRACKER_MAPPING = {
     "strongsort": "boxmot.trackers.strongsort.strongsort.StrongSort",
@@ -17,6 +17,7 @@ TRACKER_MAPPING = {
     "deepocsort": "boxmot.trackers.deepocsort.deepocsort.DeepOcSort",
     "hybridsort": "boxmot.trackers.hybridsort.hybridsort.HybridSort",
     "boosttrack": "boxmot.trackers.boosttrack.boosttrack.BoostTrack",
+    "occluboost" : "boxmot.trackers.occluboost.occluboost.OccluBoost",
 }
 
 

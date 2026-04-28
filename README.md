@@ -74,6 +74,19 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
   </thead>
   <tbody>
     <tr>
+      <td align="left">occluboost</td>
+      <td align="right">70.47</td>
+      <td align="right">78.32</td>
+      <td align="right">84.14</td>
+      <td align="right">13</td>
+      <td align="center">❌</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+      <td align="center">—</td>
+    </tr>
+    <tr>
       <td align="left"><a href="https://arxiv.org/abs/2206.14651">botsort</a></td>
       <td align="right">69.44</td>
       <td align="right">78.24</td>

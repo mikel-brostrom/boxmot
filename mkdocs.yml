@@ -80,6 +80,7 @@ nav:
       - DeepOcSort:   trackers/deepocsort.md
       - HybridSort:   trackers/hybridsort.md
       - BoostTrack:   trackers/boosttrack.md
+      - OccluBoost:    trackers/occluboost.md
   - Usage:
       - Overview: usage/index.md
       - CLI: usage/cli.md

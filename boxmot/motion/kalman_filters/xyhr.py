@@ -208,7 +208,17 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         )
         return projected_mean, projected_cov + innovation_cov
 
-    def update(self, z: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def update(
+        self, z: np.ndarray, alpha: float = 1.0
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Standard KF correction with optional Kalman-gain suppression.
+
+        ``alpha`` in (0, 1] scales the Kalman gain applied to the mean update
+        (OccluTrack's Abnormal Motion Suppression). The covariance update is
+        left unchanged so uncertainty still shrinks normally — only the mean
+        trusts the (potentially abnormal) observation less. ``alpha=1.0``
+        reproduces the standard update.
+        """
         measurement = self._reshape_measurement_vector(z)
         if self._is_obb:
             reference_theta = float(self.x[4])
@@ -227,7 +237,7 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         ).T
 
         innovation = measurement - projected_mean
-        self.x = self.x + np.dot(innovation, kalman_gain.T)
+        self.x = self.x + alpha * np.dot(innovation, kalman_gain.T)
         self.covariance = self.covariance - np.linalg.multi_dot(
             (kalman_gain, projected_cov, kalman_gain.T)
         )
