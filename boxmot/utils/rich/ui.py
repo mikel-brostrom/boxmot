@@ -36,9 +36,11 @@ STYLE_RULE = "boxmot.rule"
 STEP_DONE_MARKER = "[✓]"
 
 _STEP_LABELS = {
+    "Setup evaluation environment": "Setup",
     "Generate detections and embeddings": "Generate",
     "Run tracker": "Track",
     "Evaluate results": "Evaluate",
+    "Optimize trials": "Optimize",
 }
 
 _SETUP_WORD_ABBREVIATIONS = {

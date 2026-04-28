@@ -694,11 +694,14 @@ def test_tune_workflow_renderable_is_compact_and_complete() -> None:
         render=False,
     )
 
-    rendered = ui_module.capture_renderable(workflow.renderable(compact=False), width=140)
+    rendered = ui_module.capture_renderable(workflow.renderable(compact=True), width=180)
 
     assert rendered.count("\n") + 1 <= 12
-    assert "Single-objective: max HOTA" in rendered
-    assert "[>] Optimize trials" in rendered
+    assert "Setup" in rendered
+    assert "Pipeline" in rendered
+    assert "OBJECTIVE" in rendered
+    assert "Single-objective:" in rendered
+    assert "[✓] Setup / [✓] Generate / [>] Optimize" in rendered
     assert "Tune     33%  (1/3)  running trial 2/3  remaining 00:34" in rendered
 
 
