@@ -93,6 +93,28 @@ def _load_sfsort_live_backend() -> NativeLiveBackend:
     )
 
 
+def _load_occluboost_backend() -> NativeReplayBackend:
+    from boxmot.native.occluboost_cpp import ensure_occluboost_cpp_executable, process_sequence_cpp
+
+    return NativeReplayBackend(
+        tracker_name="occluboost",
+        process_sequence=process_sequence_cpp,
+        ensure_built=ensure_occluboost_cpp_executable,
+        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "occluboost",
+    )
+
+
+def _load_occluboost_live_backend() -> NativeLiveBackend:
+    from boxmot.native.occluboost_cpp import create_occluboost_live_tracker, ensure_occluboost_cpp_library
+
+    return NativeLiveBackend(
+        tracker_name="occluboost",
+        create_tracker=create_occluboost_live_tracker,
+        ensure_built=ensure_occluboost_cpp_library,
+        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "occluboost",
+    )
+
+
 def _load_ocsort_backend() -> NativeReplayBackend:
     from boxmot.native.ocsort_cpp import ensure_ocsort_cpp_executable, process_sequence_cpp
 
@@ -118,6 +140,7 @@ def _load_ocsort_live_backend() -> NativeLiveBackend:
 _NATIVE_REPLAY_BACKENDS = {
     "botsort": _load_botsort_backend,
     "bytetrack": _load_bytetrack_backend,
+    "occluboost": _load_occluboost_backend,
     "ocsort": _load_ocsort_backend,
     "sfsort": _load_sfsort_backend,
 }
@@ -125,6 +148,7 @@ _NATIVE_REPLAY_BACKENDS = {
 _NATIVE_LIVE_BACKENDS = {
     "botsort": _load_botsort_live_backend,
     "bytetrack": _load_bytetrack_live_backend,
+    "occluboost": _load_occluboost_live_backend,
     "ocsort": _load_ocsort_live_backend,
     "sfsort": _load_sfsort_live_backend,
 }
