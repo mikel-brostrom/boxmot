@@ -331,7 +331,7 @@ def test_run_track_routes_progress_into_workflow(monkeypatch, tmp_path):
     assert len(workflow.renderable_details) == 1
     assert workflow.renderable_details[0][0] == "Summary"
     assert "TRACKING SUMMARY" in workflow.renderable_details[0][1]
-    assert "Component" in workflow.renderable_details[0][1]
+    assert "Stage" in workflow.renderable_details[0][1]
     assert workflow.renderable_details[0][2] is False
     assert workflow.completed == [(tracker_module.TRACK_RUN_STEP, False)]
     assert result.summary["frames"] == 1
