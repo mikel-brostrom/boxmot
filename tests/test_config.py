@@ -1,4 +1,5 @@
 from boxmot.trackers import (
+    OccluBoost,
     BoostTrack,
     BotSort,
     ByteTrack,
@@ -14,11 +15,12 @@ MOTION_N_APPEARANCE_TRACKING_NAMES = [
     "deepocsort",
     "strongsort",
     "boosttrack",
+    "occluboost",
     "hybridsort",
 ]
 MOTION_ONLY_TRACKING_NAMES = ["ocsort", "bytetrack", "sfsort"]
 
-MOTION_N_APPEARANCE_TRACKING_METHODS = [StrongSort, BotSort, DeepOcSort, BoostTrack, HybridSort]
+MOTION_N_APPEARANCE_TRACKING_METHODS = [StrongSort, BotSort, DeepOcSort, BoostTrack, OccluBoost, HybridSort]
 MOTION_ONLY_TRACKING_METHODS = [OcSort, ByteTrack, SFSORT]
 
 ALL_TRACKERS = [
@@ -29,6 +31,7 @@ ALL_TRACKERS = [
     "sfsort",
     "strongsort",
     "boosttrack",
+    "occluboost",
     "hybridsort",
 ]
 PER_CLASS_TRACKERS = [
@@ -38,5 +41,6 @@ PER_CLASS_TRACKERS = [
     "bytetrack",
     "sfsort",
     "boosttrack",
+    "occluboost",
     "hybridsort",
 ]

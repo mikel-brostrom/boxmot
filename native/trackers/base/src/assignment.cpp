@@ -1,6 +1,7 @@
 #include "boxmot/trackers/base/assignment.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -90,7 +91,12 @@ AssignmentResult LinearAssignment(const Eigen::MatrixXd& cost_matrix, const doub
 
     const int size = std::max(rows, cols);
     const double max_cost = cost_matrix.maxCoeff();
-    const double pad_cost = std::max(threshold + 1.0, max_cost + 1.0);
+    // The pad cost must be FINITE: an infinite entry causes the inner JV loop
+    // to compute `inf - inf` (NaN), which traps the algorithm in an infinite
+    // spin. Callers may pass `threshold = +inf` to mean "accept everything,
+    // post-filter externally"; clamp here so that contract is safe.
+    const double safe_threshold = std::isfinite(threshold) ? threshold : max_cost;
+    const double pad_cost = std::max(safe_threshold + 1.0, max_cost + 1.0);
 
     Eigen::MatrixXd square = Eigen::MatrixXd::Constant(size, size, pad_cost);
     square.block(0, 0, rows, cols) = cost_matrix;

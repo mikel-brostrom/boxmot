@@ -41,6 +41,10 @@ jobs:
             backend: py
             sort_key: 25
             fps: "13"
+          - tracker: occluboost
+            backend: cpp
+            sort_key: 26
+            fps: "-"
           - tracker: strongsort
             backend: py
             sort_key: 30

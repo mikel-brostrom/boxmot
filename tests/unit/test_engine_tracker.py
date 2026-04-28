@@ -192,7 +192,7 @@ def test_workflow_support_routes_cpp_live_ocsort_backend(monkeypatch):
 
 
 def test_workflow_support_rejects_unsupported_cpp_live_tracker_backend():
-    with pytest.raises(ValueError, match=r"Available native live trackers: botsort, bytetrack, ocsort, sfsort"):
+    with pytest.raises(ValueError, match=r"Available native live trackers: botsort, bytetrack, occluboost, ocsort, sfsort"):
         workflow_support_module.build_tracker_from_spec("deepocsort", tracker_backend="cpp")
 
 
