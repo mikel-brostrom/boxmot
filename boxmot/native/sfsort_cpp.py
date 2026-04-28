@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import ctypes
-import json
 import os
-import queue
 import subprocess
 import sys
 import threading
@@ -13,12 +11,19 @@ from typing import Any
 import numpy as np
 import yaml
 
+from boxmot.native import _common
+from boxmot.native._common import (  # noqa: F401
+    dets_n_embs_root,
+    drain_native_stderr as _drain_native_stderr,
+    parse_progress_line as _parse_progress_line,
+)
 from boxmot.trackers.tracker_zoo import get_tracker_config
 
 _BUILD_LOCK = threading.Lock()
 _LIVE_LIBRARY_LOCK = threading.Lock()
 _LIVE_LIBRARY = None
-_PROGRESS_PREFIX = "BOXMOT_PROGRESS\t"
+_PROGRESS_PREFIX = _common.PROGRESS_PREFIX
+_NATIVE_DISPLAY_NAME = "SFSORT"
 
 
 def _repo_root() -> Path:
@@ -384,49 +389,7 @@ def create_sfsort_live_tracker(
 
 
 def _parse_summary(stdout: str) -> dict[str, Any]:
-    text = stdout.strip()
-    if not text:
-        raise RuntimeError("Native SFSORT runner produced no stdout.")
-    for line in reversed(text.splitlines()):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            return json.loads(line)
-        except json.JSONDecodeError:
-            continue
-    raise RuntimeError(f"Failed to parse native SFSORT summary JSON from stdout:\n{text}")
-
-
-def _parse_progress_line(line: str) -> tuple[str, int, int] | None:
-    text = str(line).strip()
-    if not text.startswith(_PROGRESS_PREFIX):
-        return None
-    parts = text.split("\t")
-    if len(parts) != 4:
-        return None
-    _, seq_name, current, total = parts
-    try:
-        return seq_name, int(current), int(total)
-    except ValueError:
-        return None
-
-
-def _drain_native_stderr(stderr_stream, progress_queue, stderr_lines: list[str]) -> None:
-    if stderr_stream is None:
-        return
-    for raw_line in stderr_stream:
-        progress = _parse_progress_line(raw_line)
-        if progress is not None:
-            if progress_queue is not None:
-                try:
-                    progress_queue.put_nowait(progress)
-                except (OSError, queue.Full):
-                    pass
-            continue
-        line = str(raw_line).strip()
-        if line:
-            stderr_lines.append(line)
+    return _common.parse_summary(stdout, display_name=_NATIVE_DISPLAY_NAME)
 
 
 def process_sequence_cpp(
@@ -453,9 +416,7 @@ def process_sequence_cpp(
 
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
 
-    det_emb_root = Path(project_root) / "dets_n_embs"
-    if dataset_name:
-        det_emb_root = det_emb_root / dataset_name
+    det_emb_root = dets_n_embs_root(project_root, dataset_name)
 
     output_path = Path(exp_folder) / f"{seq_name}.txt"
     cmd = [
