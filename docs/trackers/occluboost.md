@@ -1,0 +1,37 @@
+# OccluBoost
+
+OccluBoost is an occlusion-aware hybrid tracker built on top of BoostTrack. It keeps BoostTrack's multi-cue association (IoU + Mahalanobis + shape similarity, optional ReID) and DLO confidence boosting, then layers on a BotSort-inspired confirmation state, a ReID-only recovery pass, a safe low-confidence second pass, and an OccluTrack-style **Abnormal Motion Suppression (AMS)** Kalman filter that protects tracks during partial occlusion.
+
+On MOT17-ablation (`yolox_x_MOT17_ablation` + `lmbn_n_duke`), OccluBoost beats BotSort on 5/6 metrics with the locked defaults: HOTA **70.47**, MOTA **78.32**, IDF1 **84.14**, IDSW **135**, AssA **74.73** (only DetA −0.27 vs BotSort).
+
+## What's layered on top of BoostTrack
+
+- **AMS Kalman update.** Every Kalman update (first pass, ReID recovery, low-conf second pass) is routed through `_ams_update`, which scales the Kalman gain on the mean update by `alpha ∈ [ams_alpha0, 1]` when an abnormal-motion event is detected. Covariance is left untouched so uncertainty grows naturally during the suppressed step.
+    - **Trigger.** A per-track ring buffer of length `ams_buffer_size` tracks `[cx, cy, w, h]`. We compute the relative speed spike of the centre and aspect against the buffer mean; if either exceeds `ams_threshold`, the speed gate fires.
+    - **Shrink gate (key addition over the OccluTrack paper).** Suppression only kicks in when the new detection is also physically smaller than the running mean: `cur_area < ams_shrink_ratio * mean_area`. Without this gate, pure speed spikes over-suppress legitimate fast motion and DetA collapses; with it, we get the IDF1/HOTA gain without losing detection accuracy.
+    - **OBB safety.** OBB tracks bypass AMS (`alpha=1.0`) — the suppression model is defined for AABB motion only.
+- **BotSort-style track confirmation** (`tentative -> activated`). New tracks born from medium-confidence detections must accumulate `confirm_hits` consecutive matches before being emitted; detections above `instant_confirm_thresh` skip the wait. Tentative tracks expire after `tentative_max_age` frames, slashing ghost IDs from one-frame flickers.
+- **ReID-only recovery pass.** Unmatched high-confidence detections are re-attached to recently lost tracks when cosine appearance similarity exceeds `recovery_appearance_thresh` and a loose IoU sanity gate (`recovery_iou_thresh`) is satisfied. Recovered embeddings are EMA-blended with `feat_alpha`.
+- **Safe appearance-gated second pass.** Low-confidence detections (`track_low_thresh ≤ conf < det_thresh`) can re-attach **only** to confirmed tracks (`is_activated=True`) under strict IoU + appearance gates. This lifts MOTA without the ID switches an unrestricted ByteTrack-style second pass introduces.
+- **Duplicate suppression.** A conservative `duplicate_iou_thresh` (default 0.95) drops the younger of two near-identical emitted tracks.
+
+## What BoxMOT Needs For OccluBoost
+
+- A detector and a ReID model (the recovery pass and second-pass appearance gate both rely on embeddings).
+- AABB detections (OBB skips the AMS path; the rest still works).
+- Best for crowded / partial-occlusion scenes where identity preservation matters.
+
+## Tuning notes
+
+- **AMS knobs** (locked on MOT17-ablation but worth retuning per dataset):
+    - `ams_alpha0` (default 0.4): how strongly to suppress the gain when both gates fire. Lower = stronger suppression. 0.3 over-protects and inflates IDSW; 0.5+ recovers IDSW but loses HOTA.
+    - `ams_threshold` (default 0.5): relative speed-spike trigger. Lower fires more often.
+    - `ams_shrink_ratio` (default 0.75): only suppress when the new bbox shrinks below this fraction of the buffered mean area. Disable AMS entirely with `ams_enabled: false`.
+    - `ams_buffer_size` (default 30 frames).
+- `confirm_hits` (default 4) and `instant_confirm_thresh` (default 0.77) control the tentative pool. Lower the threshold to emit faster (better recall, more FPs); raise `confirm_hits` to be stricter.
+- `recovery_appearance_thresh` is the dominant identity safety knob: raise it (e.g. 0.7) to be conservative and protect IDF1, lower it (e.g. 0.4) to recover more occluded objects.
+- `use_second_pass` is on by default and only re-attaches low-confidence detections to **confirmed** tracks above `second_pass_min_hits`. Tighten `second_iou_thresh` / `second_appearance_thresh` if you see ID switches in dense scenes; relax them to gain MOTA in clean scenes.
+- `new_track_thresh` is decoupled from `det_thresh` so weakly-confident detections can update existing tracks without spawning new ones.
+- Keep `max_age >= nr_classes` (default 120 vs 80 COCO classes) so per-class tracking survives the per-class predict loop.
+
+::: boxmot.trackers.occluboost.occluboost.OccluBoost
