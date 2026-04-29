@@ -1,28 +1,34 @@
 from __future__ import annotations
 
 import ctypes
-import inspect
-import json
 import os
-import queue
 import subprocess
 import sys
 import threading
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import yaml
 
+from boxmot.native import _common
+from boxmot.native._common import (  # noqa: F401  (re-exported for backwards compat / tests)
+    cached_embedding_path,
+    dets_n_embs_root,
+    drain_native_stderr as _drain_native_stderr,
+    infer_onnx_output_names as _infer_onnx_output_names,
+    native_onnx_cache_path as _native_onnx_cache_path,
+    parse_progress_line as _parse_progress_line,
+    resolve_reid_model_ref as _resolve_reid_model_ref,
+)
 from boxmot.trackers.tracker_zoo import get_tracker_config
-from boxmot.utils.misc import resolve_model_path
+from boxmot.utils.misc import resolve_model_path  # noqa: F401  (used by tests via monkeypatch)
 
 _BUILD_LOCK = threading.Lock()
-_EXPORT_LOCK = threading.Lock()
 _LIVE_LIBRARY_LOCK = threading.Lock()
 _LIVE_LIBRARY = None
-_PROGRESS_PREFIX = "BOXMOT_PROGRESS\t"
+_PROGRESS_PREFIX = _common.PROGRESS_PREFIX
+_NATIVE_DISPLAY_NAME = "OccluBoost"
 
 
 def _repo_root() -> Path:
@@ -79,119 +85,17 @@ def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     return resolved
 
 
-def _resolve_reid_model_ref(reid_weights: str | Path | None) -> Path | None:
-    if reid_weights is None:
-        return None
-
-    path = Path(reid_weights)
-    if path.suffix.lower() == ".onnx" and not path.stem.endswith("_opencv"):
-        resolved_onnx = resolve_model_path(path)
-        opencv_candidate = resolved_onnx.with_name(f"{resolved_onnx.stem}_opencv.onnx")
-        if opencv_candidate.exists():
-            return opencv_candidate
-        return resolved_onnx
-
-    if path.suffix.lower() == ".pt":
-        resolved_pt = resolve_model_path(path)
-        opencv_candidate = _native_onnx_cache_path(resolved_pt)
-        if opencv_candidate.exists():
-            return opencv_candidate
-        return resolved_pt
-
-    if not path.suffix:
-        pt_candidate = resolve_model_path(path.with_suffix(".pt"))
-        opencv_candidate = _native_onnx_cache_path(pt_candidate)
-        if opencv_candidate.exists():
-            return opencv_candidate
-        onnx_candidate = resolve_model_path(path.with_suffix(".onnx"))
-        if onnx_candidate.exists():
-            if not onnx_candidate.stem.endswith("_opencv"):
-                sibling_opencv = onnx_candidate.with_name(f"{onnx_candidate.stem}_opencv.onnx")
-                if sibling_opencv.exists():
-                    return sibling_opencv
-            return onnx_candidate
-        return pt_candidate
-    return resolve_model_path(path)
-
-
-def _native_onnx_cache_path(weights: Path) -> Path:
-    return weights.with_name(f"{weights.stem}_opencv.onnx")
-
-
-def _infer_onnx_output_names(model, dummy_input) -> list[str]:
-    import torch
-
-    model.eval()
-    with torch.no_grad():
-        output = model(dummy_input)
-    if isinstance(output, (tuple, list)):
-        return [f"output{index}" for index in range(len(output))]
-    return ["output0"]
-
-
 def _export_reid_to_onnx(weights: Path) -> Path:
-    from boxmot.engine.export import setup_model
-    import torch
-
-    args = SimpleNamespace(
-        weights=weights,
-        device="cpu",
-        half=False,
-        optimize=False,
-        batch_size=1,
-        imgsz=None,
-    )
-    model, dummy_input = setup_model(args)
-
-    output_names = _infer_onnx_output_names(model, dummy_input)
-    onnx_path = _native_onnx_cache_path(weights)
-    export_kwargs = {
-        "opset_version": 17,
-        "input_names": ["images"],
-        "output_names": output_names,
-        "dynamic_axes": {
-            "images": {0: "batch"},
-            **{name: {0: "batch"} for name in output_names},
-        },
-    }
-    if "dynamo" in inspect.signature(torch.onnx.export).parameters:
-        export_kwargs["dynamo"] = False
-
-    torch.onnx.export(
-        model,
-        (dummy_input,),
-        str(onnx_path),
-        **export_kwargs,
-    )
-    if not onnx_path.exists():
-        raise RuntimeError(f"Failed to export native OccluBoost ReID model to ONNX: {weights}")
-    return onnx_path
+    return _common.export_reid_to_onnx(weights, display_name=_NATIVE_DISPLAY_NAME)
 
 
 def _ensure_native_reid_model_path(reid_weights: str | Path | None) -> Path | None:
-    resolved = _resolve_reid_model_ref(reid_weights)
-    if resolved is None:
-        return None
-
-    suffix = resolved.suffix.lower()
-    if suffix == ".onnx":
-        return resolved
-    if suffix != ".pt":
-        raise RuntimeError(
-            "Native OccluBoost ReID supports ONNX directly and can auto-export PyTorch '.pt' weights only: "
-            f"{resolved}"
-        )
-    if not resolved.exists():
-        raise FileNotFoundError(f"Native OccluBoost ReID weights not found: {resolved}")
-
-    onnx_path = _native_onnx_cache_path(resolved)
-    if onnx_path.exists() and onnx_path.stat().st_mtime >= resolved.stat().st_mtime:
-        return onnx_path
-
-    with _EXPORT_LOCK:
-        if onnx_path.exists() and onnx_path.stat().st_mtime >= resolved.stat().st_mtime:
-            return onnx_path
-        return _export_reid_to_onnx(resolved)
+    return _common.ensure_native_reid_model_path(
+        reid_weights,
+        display_name=_NATIVE_DISPLAY_NAME,
+        exporter=lambda weights: _export_reid_to_onnx(weights),
+        resolver=lambda value: _resolve_reid_model_ref(value),
+    )
 
 
 def _build_target(
@@ -561,49 +465,7 @@ def create_occluboost_live_tracker(
 
 
 def _parse_summary(stdout: str) -> dict[str, Any]:
-    text = stdout.strip()
-    if not text:
-        raise RuntimeError("Native OccluBoost runner produced no stdout.")
-    for line in reversed(text.splitlines()):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            return json.loads(line)
-        except json.JSONDecodeError:
-            continue
-    raise RuntimeError(f"Failed to parse native OccluBoost summary JSON from stdout:\n{text}")
-
-
-def _parse_progress_line(line: str) -> tuple[str, int, int] | None:
-    text = str(line).strip()
-    if not text.startswith(_PROGRESS_PREFIX):
-        return None
-    parts = text.split("\t")
-    if len(parts) != 4:
-        return None
-    _, seq_name, current, total = parts
-    try:
-        return seq_name, int(current), int(total)
-    except ValueError:
-        return None
-
-
-def _drain_native_stderr(stderr_stream, progress_queue, stderr_lines: list[str]) -> None:
-    if stderr_stream is None:
-        return
-    for raw_line in stderr_stream:
-        progress = _parse_progress_line(raw_line)
-        if progress is not None:
-            if progress_queue is not None:
-                try:
-                    progress_queue.put_nowait(progress)
-                except (OSError, queue.Full):
-                    pass
-            continue
-        line = str(raw_line).strip()
-        if line:
-            stderr_lines.append(line)
+    return _common.parse_summary(stdout, display_name=_NATIVE_DISPLAY_NAME)
 
 
 def _bool_arg(value: Any) -> str:
@@ -634,18 +496,21 @@ def process_sequence_cpp(
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
     reid_key = Path(reid_name).stem if Path(reid_name).suffix else str(reid_name)
 
-    det_emb_root = Path(project_root) / "dets_n_embs"
-    if dataset_name:
-        det_emb_root = det_emb_root / dataset_name
+    det_emb_root = dets_n_embs_root(project_root, dataset_name)
 
     # Skip the (potentially expensive) ONNX export + model load when a complete
     # embedding cache already exists for this sequence; the C++ tracker will read
     # embeddings straight from the .npy and never invoke ReID.
     preprocess_key = str(preprocess_name or "resize")
-    cached_emb_path = (
-        det_emb_root / detector_key / "embs" / reid_key / preprocess_key / f"{seq_name}.npy"
+    cached_emb = cached_embedding_path(
+        project_root,
+        detector_name,
+        reid_name,
+        seq_name,
+        dataset_name=dataset_name,
+        preprocess_name=preprocess_key,
     )
-    if cached_emb_path.exists():
+    if cached_emb.exists():
         reid_model_path = None
     else:
         reid_model_path = _ensure_native_reid_model_path(reid_name)

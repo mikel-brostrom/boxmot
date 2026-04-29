@@ -2,6 +2,7 @@ from boxmot.native.botsort_cpp import ensure_botsort_cpp_executable, process_seq
 from boxmot.native.bytetrack_cpp import ensure_bytetrack_cpp_executable
 from boxmot.native.ocsort_cpp import ensure_ocsort_cpp_executable
 from boxmot.native.sfsort_cpp import ensure_sfsort_cpp_executable
+from boxmot.native.reid_capi import CppOnnxReID, ensure_reid_capi_library
 from boxmot.native.registry import (
     NativeLiveBackend,
     NativeReplayBackend,
@@ -14,10 +15,12 @@ from boxmot.native.registry import (
 )
 
 __all__ = [
+    "CppOnnxReID",
     "NativeLiveBackend",
     "NativeReplayBackend",
     "ensure_botsort_cpp_executable",
     "ensure_ocsort_cpp_executable",
+    "ensure_reid_capi_library",
     "ensure_sfsort_cpp_executable",
     "ensure_bytetrack_cpp_executable",
     "get_native_live_backend",

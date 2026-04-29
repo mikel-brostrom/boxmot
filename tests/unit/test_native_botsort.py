@@ -7,6 +7,7 @@ import queue
 
 import torch
 
+from boxmot.native import _common as native_common
 from boxmot.native import botsort_cpp as native_module
 
 
@@ -410,7 +411,7 @@ def test_resolve_reid_model_ref_prefers_native_opencv_cache_for_bare_name(monkey
     native_onnx.touch()
 
     monkeypatch.setattr(
-        native_module,
+        native_common,
         "resolve_model_path",
         lambda path: tmp_path / Path(path).name,
     )
@@ -427,7 +428,7 @@ def test_resolve_reid_model_ref_prefers_native_opencv_cache_for_generic_onnx(mon
     native_onnx.touch()
 
     monkeypatch.setattr(
-        native_module,
+        native_common,
         "resolve_model_path",
         lambda path: tmp_path / Path(path).name,
     )

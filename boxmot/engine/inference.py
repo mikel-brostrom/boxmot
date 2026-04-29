@@ -88,6 +88,7 @@ class DetectorReIDPipeline:
         reid_half: Optional[bool] = None,
         reid_preprocess: Optional[str] = None,
         timing_stats: Optional[TimingStats] = None,
+        tracker_backend: Optional[str] = None,
     ):
         self.detector_path = Path(detector_path)
         self.device = select_device(device)
@@ -95,6 +96,7 @@ class DetectorReIDPipeline:
         self.half = half
         self.reid_half = half if reid_half is None else bool(reid_half)
         self.reid_preprocess = reid_preprocess
+        self.tracker_backend = (str(tracker_backend).strip().lower() if tracker_backend else None) or None
         self.timing_stats = timing_stats if timing_stats is not None else TimingStats()
 
         if imgsz is None:
@@ -131,15 +133,35 @@ class DetectorReIDPipeline:
         if isinstance(reid_model_paths, (str, Path)):
             reid_model_paths = [reid_model_paths]
 
+        use_cpp_reid = self.tracker_backend == "cpp"
+        cpp_reid_factory = None
+        if use_cpp_reid:
+            try:
+                from boxmot.native.reid_capi import CppOnnxReID
+                cpp_reid_factory = CppOnnxReID
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning(
+                    f"--tracker-backend cpp requested but native ReID C ABI is unavailable: "
+                    f"{exc}. Falling back to the Python ReID backend for embedding generation."
+                )
+                cpp_reid_factory = None
+
         for reid_path in reid_model_paths:
             reid_path = Path(reid_path)
-            backend = ReID(
-                weights=reid_path,
-                device=self.reid_device,
-                half=self.reid_half,
-                preprocess_name=self.reid_preprocess,
-            )
-            self.reid_models.append(TimedReIDModel(backend.model, self.timing_stats))
+            if cpp_reid_factory is not None:
+                backend = cpp_reid_factory(
+                    weights=reid_path,
+                    preprocess_name=self.reid_preprocess,
+                )
+                self.reid_models.append(TimedReIDModel(backend.model, self.timing_stats))
+            else:
+                backend = ReID(
+                    weights=reid_path,
+                    device=self.reid_device,
+                    half=self.reid_half,
+                    preprocess_name=self.reid_preprocess,
+                )
+                self.reid_models.append(TimedReIDModel(backend.model, self.timing_stats))
             self.reid_model_names.append(reid_path.stem)
 
     # ------------------------------------------------------------------

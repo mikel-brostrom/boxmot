@@ -178,8 +178,10 @@ class ONNXExporter(BaseExporter):
         return ["output0"]
 
     def _build_dynamic_axes(self, output_names):
-        # Ultralytics always makes images dynamic in batch/H/W when dynamic=True
-        dyn = {"images": {0: "batch", 2: "height", 3: "width"}}
+        # ReID models use fixed crop sizes; only the batch dim varies. Marking
+        # H/W dynamic breaks tracing for backbones that rely on adaptive pooling
+        # (e.g. LMBN / OSNet variants), so keep spatial dims static.
+        dyn = {"images": {0: "batch"}}
 
         # For outputs, always make batch dynamic; add extra dims only when obvious
         try:

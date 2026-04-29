@@ -85,7 +85,7 @@ std::vector<Detection> OccluBoostTracker::EnsureEmbeddings(
         return detections;
     }
     const auto t0 = std::chrono::steady_clock::now();
-    const auto features = reid_model_->GetFeatures(detections, image);
+    const auto features = GetReIdFeatures(*reid_model_, detections, image);
     const auto t1 = std::chrono::steady_clock::now();
     last_reid_time_ms_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
     if (features.size() != detections.size()) {

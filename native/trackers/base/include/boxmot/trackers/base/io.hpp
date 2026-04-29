@@ -43,6 +43,22 @@ LoadedDetectionSequence LoadDetectionSequence(
     int target_fps,
     std::string_view tracker_name
 );
+
+// Load and align the embedding cache for a sequence with the previously loaded
+// detection rows. ``can_infer_embeddings`` lets callers skip the cache when a
+// runtime ReID model is configured (the tracker will compute embeddings on the
+// fly). Returns an empty matrix when no cache exists and inference is enabled,
+// or throws when neither cache nor inference is available.
+Eigen::MatrixXf LoadEmbeddingsCache(
+    const fs::path& det_emb_root,
+    const std::string& detector_name,
+    const std::string& reid_name,
+    const std::string& reid_preprocess,
+    const std::string& sequence_name,
+    const std::unordered_set<int>& keep_frames,
+    int detection_rows,
+    bool can_infer_embeddings
+);
 std::array<cv::Point2f, 4> CanonicalObbCorners(const Eigen::Matrix<double, 5, 1>& box);
 void FilterFrames(
     const std::unordered_set<int>& keep_frames,
