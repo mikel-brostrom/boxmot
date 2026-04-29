@@ -352,6 +352,7 @@ def generate_dets_embs_batched(
         reid_half=getattr(args, "reid_half", args.half),
         reid_preprocess=getattr(args, "reid_preprocess", None),
         timing_stats=timing_stats,
+        tracker_backend=getattr(args, "tracker_backend", None),
     )
     pipeline.warmup()
 
