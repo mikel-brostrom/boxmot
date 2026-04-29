@@ -186,9 +186,10 @@ class _ReidLibrary:
 
     def create(self, model_path: Path, preprocess_name: str | None) -> ctypes.c_void_p:
         handle = ctypes.c_void_p(0)
+        from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
         ok = self._library.boxmot_reid_capi_create(
             str(model_path).encode("utf-8"),
-            (preprocess_name or "resize_pad").encode("utf-8"),
+            (preprocess_name or DEFAULT_PREPROCESS).encode("utf-8"),
             ctypes.byref(handle),
         )
         if ok == 0 or not handle.value:
@@ -300,7 +301,8 @@ class CppOnnxReID:
             )
 
         self.weights = Path(resolved)
-        self.preprocess_name = preprocess_name or "resize_pad"
+        from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+        self.preprocess_name = preprocess_name or DEFAULT_PREPROCESS
 
         self._library = _get_library()
         self._handle = self._library.create(self.weights, self.preprocess_name)
