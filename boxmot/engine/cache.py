@@ -188,20 +188,60 @@ def generate_dets_embs_batched(
             det_max_frame = _max_frame_id(cached_dets_path) if cached_dets_path is not None else 0
             det_col_count = _saved_detection_column_count(cached_dets_path) if cached_dets_path is not None else 0
             emb_rows = {
-                stem: _count_embedding_rows(cached_emb_path if cached_emb_path is not None else emb_paths[stem])
+                stem: (
+                    _count_embedding_rows(cached_emb_path if cached_emb_path is not None else emb_paths[stem])
+                    if (cached_emb_path is not None or emb_paths[stem].exists())
+                    else 0
+                )
                 for stem, cached_emb_path in cached_emb_paths.items()
-                if (cached_emb_path is not None or emb_paths[stem].exists())
             }
             expected_files = cached_dets_path is not None and all(
                 cached_emb_path is not None for cached_emb_path in cached_emb_paths.values()
             )
-            rows_match = len(set([det_rows, *emb_rows.values()])) == 1 if expected_files else False
+            # Treat any divergence between detection rows and *every* ReID embedding
+            # row count as a corrupt-cache signal -- including the case where the
+            # detection .npy was partially written by a previous interrupted run
+            # and the corresponding embedding file is missing or shorter. This
+            # prevents downstream native replay from raising
+            # "Detection and embedding row counts do not match".
+            partial_emb_cache = (
+                cached_dets_path is not None
+                and det_rows > 0
+                and any(
+                    emb_rows.get(stem, 0) != det_rows
+                    for stem in cached_emb_paths.keys()
+                )
+            )
+            rows_match = (
+                len(set([det_rows, *emb_rows.values()])) == 1
+                if expected_files
+                else False
+            )
             schema_match = det_col_count in (0, expected_det_cols)
 
-            if expected_files and not schema_match:
+            if cached_dets_path is not None and not schema_match:
                 LOGGER.warning(
                     f"Cached detection schema mismatch for {seq_name}: "
                     f"found {det_col_count} columns, expected {expected_det_cols}. Resetting cached data."
+                )
+                reset_paths = {
+                    dets_path,
+                    *(path for path in [cached_dets_path, *emb_paths.values(), *cached_emb_paths.values()] if path is not None),
+                }
+                for path in reset_paths:
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        pass
+                processed = 0
+                expected_files = False
+                rows_match = False
+                partial_emb_cache = False
+            elif partial_emb_cache:
+                LOGGER.warning(
+                    f"Partial det/emb cache for {seq_name} "
+                    f"(det_rows={det_rows}, emb_rows={ {stem: emb_rows.get(stem, 0) for stem in cached_emb_paths.keys()} }); "
+                    "resetting cached data."
                 )
                 reset_paths = {
                     dets_path,
@@ -465,8 +505,13 @@ def generate_dets_embs_batched(
                         continue
 
                     dets_np, det_boxes_np = _serialize_eval_detections(dets, frame_id)
-                    det_writers[seq_name].append(dets_np.astype(np.float32, copy=False))
 
+                    # IMPORTANT: compute and append embeddings BEFORE the
+                    # detections, so that any failure (ReID error, OOM, killed
+                    # process) can never leave the on-disk caches with more
+                    # detection rows than embedding rows for this sequence.
+                    # The native C++ replay enforces ``det_rows == emb_rows``
+                    # and will refuse to load a cache that violates it.
                     all_embs = pipeline.get_all_reid_features(det_boxes_np, img)
                     for reid_name, embs in all_embs.items():
                         if embs.shape[0] != det_boxes_np.shape[0]:
@@ -476,6 +521,8 @@ def generate_dets_embs_batched(
                         if embs.ndim >= 2 and reid_name not in emb_dims:
                             emb_dims[reid_name] = embs.shape[1]
                         emb_writers[reid_name][seq_name].append(embs.astype(np.float32, copy=False))
+
+                    det_writers[seq_name].append(dets_np.astype(np.float32, copy=False))
 
                     reid_pbar.update(det_boxes_np.shape[0])
 
