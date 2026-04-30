@@ -285,6 +285,8 @@ def _run_tracking_tasks(
 
         futures = {executor.submit(process_sequence, *task_arg): task_arg[0] for task_arg in bound_task_args}
         pending = set(futures)
+        first_error: BaseException | None = None
+        failed_seqs: list[str] = []
 
         while pending:
             done, pending = concurrent.futures.wait(
@@ -304,12 +306,21 @@ def _run_tracking_tasks(
                     num_frames = int(timing_dict.get("num_frames", 0))
                     seq_progress[sequence_name] = (num_frames, num_frames)
                     done_count += 1
-                except Exception:
+                except Exception as exc:
                     done_count += 1
+                    failed_seqs.append(seq_name)
                     LOGGER.exception(f"Error processing {seq_name}")
+                    if first_error is None:
+                        first_error = exc
 
             if progress_queue is not None:
                 _log_progress(progress_queue)
+
+        if first_error is not None:
+            raise RuntimeError(
+                f"Tracking failed for {len(failed_seqs)} sequence(s): "
+                f"{', '.join(failed_seqs)}"
+            ) from first_error
 
     if tracking_backend == "process":
         spawn_context = mp.get_context("spawn")
@@ -408,6 +419,8 @@ def _run_cpp_tracking_tasks(
             for task_arg in bound_task_args
         }
         pending = set(futures)
+        first_error: BaseException | None = None
+        failed_seqs: list[str] = []
 
         while pending:
             done, pending = concurrent.futures.wait(
@@ -427,12 +440,21 @@ def _run_cpp_tracking_tasks(
                     num_frames = int(timing_dict.get("num_frames", len(kept_ids)))
                     seq_progress[sequence_name] = (num_frames, num_frames)
                     done_count += 1
-                except Exception:
+                except Exception as exc:
                     done_count += 1
+                    failed_seqs.append(seq_name)
                     LOGGER.exception(f"Error processing {seq_name}")
+                    if first_error is None:
+                        first_error = exc
 
             if not quiet:
                 _log_progress()
+
+        if first_error is not None:
+            raise RuntimeError(
+                f"Tracking failed for {len(failed_seqs)} sequence(s): "
+                f"{', '.join(failed_seqs)}"
+            ) from first_error
 
     if not quiet and prev_display_lines > 0:
         if progress_queue is not None:
