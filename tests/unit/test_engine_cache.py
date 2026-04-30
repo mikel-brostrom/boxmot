@@ -154,7 +154,7 @@ def test_generate_dets_embs_batched_routes_progress_into_callback(tmp_path, monk
             return [SimpleNamespace(dets=np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32)) for _ in images]
 
         def get_all_reid_features(self, det_boxes_np, img):
-            return {"reid": np.ones((det_boxes_np.shape[0], 4), dtype=np.float32)}
+            return {"reid.pt": np.ones((det_boxes_np.shape[0], 4), dtype=np.float32)}
 
     monkeypatch.setattr(cache_module, "tqdm", FakeTqdm)
     monkeypatch.setattr(cache_module, "AppendableNpyWriter", FakeWriter)
@@ -259,7 +259,7 @@ def test_generate_dets_embs_batched_resets_partial_cache(tmp_path, monkeypatch):
             return [SimpleNamespace(dets=np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32)) for _ in images]
 
         def get_all_reid_features(self, det_boxes_np, img):
-            return {"reid": np.ones((det_boxes_np.shape[0], 4), dtype=np.float32)}
+            return {"reid.pt": np.ones((det_boxes_np.shape[0], 4), dtype=np.float32)}
 
     class _Tqdm:
         def __init__(self, *args, **kwargs): pass

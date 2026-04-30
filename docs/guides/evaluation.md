@@ -34,7 +34,7 @@ For raw runtime summaries from the Python API, `evaluate(...)` aggregates counts
 boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
 ```
 
-This keeps the existing TrackEval scoring flow, but runs the tracker replay step through the C++ executable under `native/trackers/<tracker>`.
+This keeps the existing TrackEval scoring flow, but runs the tracker replay step through the C++ executable under `boxmot/native/trackers/<tracker>`.
 
 Native replay and live tracking are currently registered for:
 

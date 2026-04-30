@@ -104,6 +104,39 @@ def _existing_embedding_cache_path(path: Path) -> Optional[Path]:
     return _existing_cache_path(path)
 
 
+def reid_cache_key(reid_model: str | os.PathLike) -> str:
+    """Return the directory key used to bucket cached ReID embeddings.
+
+    The full filename (including suffix) is used so that two ReID weights with
+    the same stem but different backends (e.g. ``lmbn_n_duke.pt`` and
+    ``lmbn_n_duke.onnx``) do not collide on the same cache directory and
+    silently consume each other's embeddings.
+    """
+    p = Path(reid_model)
+    return p.name if p.suffix else str(reid_model)
+
+
+def resolve_embedding_dir(
+    embs_root: Path,
+    reid_model: str | os.PathLike,
+    preprocess_name: str,
+) -> Path:
+    """Return the embedding directory for *reid_model*, preferring the new
+    suffixed key but falling back to the legacy stem-only directory if it
+    exists (and the suffixed one does not). Used on the read side.
+    """
+    key = reid_cache_key(reid_model)
+    new_dir = Path(embs_root) / key / preprocess_name
+    if new_dir.exists():
+        return new_dir
+    stem = Path(reid_model).stem if Path(reid_model).suffix else str(reid_model)
+    if stem != key:
+        legacy_dir = Path(embs_root) / stem / preprocess_name
+        if legacy_dir.exists():
+            return legacy_dir
+    return new_dir
+
+
 def _load_embedding_cache_array(path: Path) -> np.ndarray:
     return _load_numeric_cache_array(path, comments="#")
 
@@ -323,6 +356,8 @@ __all__ = [
     "_max_frame_id",
     "_migrate_legacy_embedding_cache",
     "_migrate_legacy_numeric_cache",
+    "reid_cache_key",
+    "resolve_embedding_dir",
     "_read_image_cv2",
     "_saved_detection_column_count",
     "_sequence_img_dir",

@@ -649,8 +649,8 @@ def test_reid_runtime_returns_named_feature_sets(monkeypatch):
     )
     features = pipeline.get_all_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG)
 
-    assert set(features) == {"alpha", "beta"}
-    np.testing.assert_array_equal(features["alpha"], np.full((1, 4), 64.0, dtype=np.float32))
+    assert set(features) == {"alpha.pt", "beta.pt"}
+    np.testing.assert_array_equal(features["alpha.pt"], np.full((1, 4), 64.0, dtype=np.float32))
 
 
 def test_pipeline_delegates_to_detector_backend_and_reid_models(monkeypatch):
@@ -690,7 +690,7 @@ def test_pipeline_delegates_to_detector_backend_and_reid_models(monkeypatch):
         pipeline.get_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG),
         np.ones((1, 2), dtype=np.float32),
     )
-    assert set(pipeline.get_all_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG)) == {"alpha"}
+    assert set(pipeline.get_all_reid_features(np.array([[0, 0, 1, 1]], dtype=np.float32), _DUMMY_IMG)) == {"alpha.pt"}
     assert detector_calls[0] == ("init", Path("det.pt"), "cuda:0", [64, 64])
     assert detector_calls[1:5] == [
         (1, 0.25, 0.7, False, None),

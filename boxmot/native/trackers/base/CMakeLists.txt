@@ -1,6 +1,6 @@
 # Allow this directory to be configured standalone (e.g. by the
 # ``boxmot.native.reid_capi`` Python loader) as well as via the parent
-# ``native/trackers`` project.
+# ``boxmot/native/trackers`` project.
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.16)
     project(boxmot_tracker_base LANGUAGES CXX)

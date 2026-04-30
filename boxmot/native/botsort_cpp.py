@@ -31,16 +31,15 @@ _PROGRESS_PREFIX = _common.PROGRESS_PREFIX
 _NATIVE_DISPLAY_NAME = "BoTSORT"
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+_TRACKER_NAME = "botsort"
 
 
 def _source_dir() -> Path:
-    return _repo_root() / "native" / "trackers" / "botsort"
+    return _common.tracker_source_dir(_TRACKER_NAME)
 
 
 def _build_dir() -> Path:
-    return _repo_root() / "build" / "native" / "botsort"
+    return _common.tracker_build_dir(_TRACKER_NAME)
 
 
 def _executable_name() -> str:
@@ -48,12 +47,11 @@ def _executable_name() -> str:
 
 
 def _candidate_executables() -> list[Path]:
-    build_dir = _build_dir()
-    return [
-        build_dir / _executable_name(),
-        build_dir / "Release" / _executable_name(),
-        build_dir / "Debug" / _executable_name(),
-    ]
+    name = _executable_name()
+    return (
+        _common.installed_executable_candidates(_TRACKER_NAME, name)
+        + _common.build_executable_candidates(_TRACKER_NAME, name)
+    )
 
 
 def _library_name() -> str:
@@ -65,12 +63,11 @@ def _library_name() -> str:
 
 
 def _candidate_libraries() -> list[Path]:
-    build_dir = _build_dir()
-    return [
-        build_dir / _library_name(),
-        build_dir / "Release" / _library_name(),
-        build_dir / "Debug" / _library_name(),
-    ]
+    name = _library_name()
+    return (
+        _common.installed_library_candidates(_TRACKER_NAME, name)
+        + _common.build_library_candidates(_TRACKER_NAME, name)
+    )
 
 
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
@@ -454,10 +451,21 @@ def process_sequence_cpp(
     cfg = _resolve_tracker_cfg(cfg_dict)
 
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
-    reid_key = Path(reid_name).stem if Path(reid_name).suffix else str(reid_name)
+    reid_key = Path(reid_name).name if Path(reid_name).suffix else str(reid_name)
     reid_model_path = _ensure_native_reid_model_path(reid_name)
 
     det_emb_root = dets_n_embs_root(project_root, dataset_name)
+
+    # Back-compat: if the suffix-included embedding cache directory does not
+    # exist on disk but the legacy stem-only directory does, use the legacy
+    # name so the native binary can locate the existing cache.
+    embs_dir_new = det_emb_root / detector_key / "embs" / reid_key / (preprocess_name or "resize")
+    if not embs_dir_new.exists():
+        legacy_stem = Path(reid_name).stem if Path(reid_name).suffix else str(reid_name)
+        if legacy_stem and legacy_stem != reid_key:
+            embs_dir_legacy = det_emb_root / detector_key / "embs" / legacy_stem / (preprocess_name or "resize")
+            if embs_dir_legacy.exists():
+                reid_key = legacy_stem
 
     output_path = Path(exp_folder) / f"{seq_name}.txt"
     cmd = [

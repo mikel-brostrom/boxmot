@@ -36,6 +36,7 @@ def create_tracker(
     evolve_param_dict=None,
     reid_preprocess=None,
     reid_model=None,
+    tracker_backend="python",
 ):
     """
     Creates and returns an instance of the specified tracker type.
@@ -52,13 +53,51 @@ def create_tracker(
     - reid_preprocess: Preprocessing method for the ReID backend (only used when building from ``reid_weights``).
     - reid_model: Pre-built ReID backend (e.g., ``ReID(...).model``). Takes
         precedence over ``reid_weights`` and lets callers share a single backend across trackers.
+    - tracker_backend: Backend to use for the tracker. ``"python"`` (default)
+        uses the pure-Python implementation under ``boxmot.trackers``. ``"cpp"``
+        delegates to the registered native (C++) live backend via
+        :func:`boxmot.native.registry.get_native_live_backend`. The native
+        backend is built on demand if it isn't already compiled.
 
     Returns:
     - An instance of the selected tracker.
 
     Raises:
-    - ValueError: If `tracker_type` is not recognized.
+    - ValueError: If `tracker_type` is not recognized or the requested
+      ``tracker_backend`` is not available for that tracker.
     """
+
+    backend = str(tracker_backend or "python").strip().lower()
+    if backend not in ("python", "cpp"):
+        raise ValueError(
+            f"Unknown tracker_backend '{tracker_backend}'. Expected one of: python, cpp."
+        )
+
+    if backend == "cpp":
+        # Lazy import to keep ``boxmot.native`` (which pulls in ctypes / CMake
+        # plumbing) optional for pure-Python users.
+        from boxmot.native.registry import get_native_live_backend
+
+        native = get_native_live_backend(tracker_type)
+        cfg_dict = None
+        if evolve_param_dict is not None:
+            cfg_dict = dict(evolve_param_dict)
+        elif tracker_config is not None:
+            with open(tracker_config, "r", encoding="utf-8") as f:
+                yaml_config = yaml.safe_load(f) or {}
+                cfg_dict = {
+                    param: details["default"] for param, details in yaml_config.items()
+                }
+        # Native live constructors take ``(cfg_dict, reid_weights=...)``; only
+        # ReID-aware trackers consume ``reid_weights``. Passing ``reid_weights``
+        # to non-ReID trackers is harmless because the unused kwarg is ignored
+        # by the wrapper signatures.
+        kwargs = {}
+        if tracker_type in REID_TRACKERS:
+            kwargs["reid_weights"] = reid_weights
+            if reid_preprocess is not None:
+                kwargs["reid_preprocess"] = reid_preprocess
+        return native.create_tracker(cfg_dict, **kwargs)
 
     if tracker_type not in TRACKER_MAPPING:
         available = ", ".join(TRACKER_MAPPING.keys())

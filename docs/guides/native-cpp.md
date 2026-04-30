@@ -15,10 +15,10 @@ Supported native tracker directories:
 
 | Tracker | Directory | Core target | Main C++ class |
 | --- | --- | --- | --- |
-| ByteTrack | `native/trackers/bytetrack` | `bytetrack_core` | `bytetrack::ByteTrackTracker` |
-| BoTSORT | `native/trackers/botsort` | `botsort_core` | `botsort::BotSortTracker` |
-| OCSORT | `native/trackers/ocsort` | `ocsort_core` | `ocsort::OCSortTracker` |
-| SFSORT | `native/trackers/sfsort` | `sfsort_core` | `sfsort::SFSORTTracker` |
+| ByteTrack | `boxmot/native/trackers/bytetrack` | `bytetrack_core` | `bytetrack::ByteTrackTracker` |
+| BoTSORT | `boxmot/native/trackers/botsort` | `botsort_core` | `botsort::BotSortTracker` |
+| OCSORT | `boxmot/native/trackers/ocsort` | `ocsort_core` | `ocsort::OCSortTracker` |
+| SFSORT | `boxmot/native/trackers/sfsort` | `sfsort_core` | `sfsort::SFSORTTracker` |
 
 ## Requirements
 
@@ -32,7 +32,7 @@ Supported native tracker directories:
 From the BoxMOT repo root:
 
 ```bash
-cmake -S native/trackers/bytetrack -B build/native/bytetrack -DCMAKE_BUILD_TYPE=Release
+cmake -S boxmot/native/trackers/bytetrack -B build/native/bytetrack -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native/bytetrack --config Release --target bytetrack_core
 ```
 
@@ -65,7 +65,7 @@ if(NOT BOXMOT_ROOT)
 endif()
 
 add_subdirectory(
-    "${BOXMOT_ROOT}/native/trackers/bytetrack"
+    "${BOXMOT_ROOT}/boxmot/native/trackers/bytetrack"
     "${CMAKE_BINARY_DIR}/boxmot_bytetrack"
 )
 
@@ -208,8 +208,8 @@ For detector-only C++ examples, ByteTrack, OCSORT, and SFSORT are simpler becaus
 If you need a C ABI instead of the C++ classes, build the shared target:
 
 ```bash
-cmake -S native/trackers/bytetrack -B build/native/bytetrack -DCMAKE_BUILD_TYPE=Release
+cmake -S boxmot/native/trackers/bytetrack -B build/native/bytetrack -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native/bytetrack --config Release --target bytetrack_capi
 ```
 
-The public ABI is declared in `native/trackers/bytetrack/include/bytetrack/c_api.hpp`.
+The public ABI is declared in `boxmot/native/trackers/bytetrack/include/bytetrack/c_api.hpp`.

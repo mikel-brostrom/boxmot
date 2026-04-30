@@ -668,6 +668,52 @@ def export(ctx, **kwargs):
     _run_engine_workflow("boxmot.engine.export", args)
 
 
+@boxmot.command(help='Build native (C++) tracker shared libraries')
+@click.option(
+    '--tracker', 'trackers', multiple=True,
+    type=click.Choice(['all', 'botsort', 'bytetrack', 'occluboost', 'ocsort', 'sfsort', 'reid'],
+                      case_sensitive=False),
+    default=('all',),
+    help='Tracker(s) to build. Pass --tracker multiple times or use "all" (default).',
+)
+@click.option('--force', is_flag=True, default=False, help='Force rebuild even if libraries already exist.')
+def build(trackers, force):
+    """Compile the native C++ shared libraries shipped under ``boxmot/native/trackers``.
+
+    Useful for editable installs (``pip install -e .``) where the wheel build
+    step is skipped. Each tracker is built into ``build/native/<tracker>/`` and
+    the resulting ``*_capi`` shared library is what the ctypes wrappers in
+    ``boxmot.native`` load at runtime.
+    """
+    selected = {t.lower() for t in trackers}
+    if 'all' in selected:
+        selected = {'reid', 'botsort', 'bytetrack', 'occluboost', 'ocsort', 'sfsort'}
+
+    # Sort so the shared ReID base is built first (other trackers depend on it
+    # transitively at link time when configured standalone).
+    order = ['reid', 'botsort', 'bytetrack', 'occluboost', 'ocsort', 'sfsort']
+    selected = [name for name in order if name in selected]
+
+    failures: list[tuple[str, str]] = []
+    for name in selected:
+        try:
+            if name == 'reid':
+                from boxmot.native.reid_capi import ensure_reid_capi_library
+                lib = ensure_reid_capi_library(force_rebuild=force)
+            else:
+                module = __import__(f'boxmot.native.{name}_cpp', fromlist=['*'])
+                ensure = getattr(module, f'ensure_{name}_cpp_library')
+                lib = ensure(force_rebuild=force)
+            click.echo(f"[boxmot build] {name}: built -> {lib}")
+        except Exception as exc:  # noqa: BLE001 - surface CMake errors verbatim
+            failures.append((name, str(exc)))
+            click.echo(f"[boxmot build] {name}: FAILED\n{exc}", err=True)
+
+    if failures:
+        names = ", ".join(name for name, _ in failures)
+        raise click.ClickException(f"Native build failed for: {names}")
+
+
 main = boxmot
 
 if __name__ == "__main__":

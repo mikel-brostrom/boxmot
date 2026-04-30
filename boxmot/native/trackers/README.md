@@ -3,17 +3,17 @@
 BoxMOT keeps Python and native tracker implementations in parallel trees:
 
 - Python tracker runtime: `boxmot/trackers/<name>/`
-- Native C++ tracker family: `native/trackers/<name>/`
-- Native C++ shared tracker base: `native/trackers/base/`
+- Native C++ tracker family: `boxmot/native/trackers/<name>/`
+- Native C++ shared tracker base: `boxmot/native/trackers/base/`
 - Python-side native registration: `boxmot/native/registry.py`
 
 This keeps the user-facing tracker id stable while letting the backend vary by mode, while giving the C++ tree the same high-level shape as the Python tree: a shared base layer plus per-tracker packages.
 
 ## Organization
 
-- `native/trackers/base/`: shared C++ tracker abstractions and utilities analogous to the Python-side base tracker surface. Common helpers that are tracker-agnostic belong here.
-- `native/trackers/<name>/include/<name>/`: public tracker-specific headers.
-- `native/trackers/<name>/src/`: tracker-specific implementation and ABI entrypoints.
+- `boxmot/native/trackers/base/`: shared C++ tracker abstractions and utilities analogous to the Python-side base tracker surface. Common helpers that are tracker-agnostic belong here.
+- `boxmot/native/trackers/<name>/include/<name>/`: public tracker-specific headers.
+- `boxmot/native/trackers/<name>/src/`: tracker-specific implementation and ABI entrypoints.
 
 Tracker-specific code should stay in its own directory even when two trackers look similar. Only move code into `base/` when it is truly generic across tracker families.
 
@@ -32,8 +32,8 @@ boxmot eval --benchmark mot17-ablation --tracker botsort --tracker-backend cpp
 
 ## Build entrypoints
 
-- Per-tracker builds still work from `native/trackers/<name>/` and are what the Python wrappers use today.
-- The tree can also be configured from `native/trackers/` to build the shared base and all registered native trackers together.
+- Per-tracker builds still work from `boxmot/native/trackers/<name>/` and are what the Python wrappers use today.
+- The tree can also be configured from `boxmot/native/trackers/` to build the shared base and all registered native trackers together.
 
 ## Current scope
 
@@ -58,7 +58,7 @@ Build requirements:
 For a standalone C++ application, link against the tracker core target directly. Example for ByteTrack:
 
 ```cmake
-add_subdirectory("${BOXMOT_ROOT}/native/trackers/bytetrack" "${CMAKE_BINARY_DIR}/boxmot_bytetrack")
+add_subdirectory("${BOXMOT_ROOT}/boxmot/native/trackers/bytetrack" "${CMAKE_BINARY_DIR}/boxmot_bytetrack")
 add_executable(my_app main.cpp)
 target_link_libraries(my_app PRIVATE bytetrack_core)
 ```

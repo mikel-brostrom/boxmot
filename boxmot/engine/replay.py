@@ -125,7 +125,7 @@ def process_sequence(
     """Run a tracker over cached detections and embeddings for one sequence."""
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
     reid_weights = Path(reid_name)
-    reid_key = reid_weights.stem if reid_weights.suffix else str(reid_weights)
+    reid_key = reid_weights.name if reid_weights.suffix else str(reid_weights)
     if not reid_weights.suffix:
         reid_weights = reid_weights.with_suffix(".pt")
 

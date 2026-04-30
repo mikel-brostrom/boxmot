@@ -15,7 +15,7 @@ This directory contains the native C++17 BoTSORT implementation used by BoxMOT f
 ## Build
 
 ```bash
-cmake -S native/trackers/botsort -B build/native/botsort -DCMAKE_BUILD_TYPE=Release
+cmake -S boxmot/native/trackers/botsort -B build/native/botsort -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native/botsort --config Release --target botsort_replay
 ```
 

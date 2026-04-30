@@ -34,7 +34,7 @@ def _load_botsort_backend() -> NativeReplayBackend:
         tracker_name="botsort",
         process_sequence=process_sequence_cpp,
         ensure_built=ensure_botsort_cpp_executable,
-        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "botsort",
+        source_dir=Path(__file__).resolve().parent / "trackers" / "botsort",
     )
 
 
@@ -45,7 +45,7 @@ def _load_botsort_live_backend() -> NativeLiveBackend:
         tracker_name="botsort",
         create_tracker=create_botsort_live_tracker,
         ensure_built=ensure_botsort_cpp_library,
-        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "botsort",
+        source_dir=Path(__file__).resolve().parent / "trackers" / "botsort",
     )
 
 
@@ -56,7 +56,7 @@ def _load_bytetrack_backend() -> NativeReplayBackend:
         tracker_name="bytetrack",
         process_sequence=process_sequence_cpp,
         ensure_built=ensure_bytetrack_cpp_executable,
-        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "bytetrack",
+        source_dir=Path(__file__).resolve().parent / "trackers" / "bytetrack",
     )
 
 
@@ -67,7 +67,7 @@ def _load_bytetrack_live_backend() -> NativeLiveBackend:
         tracker_name="bytetrack",
         create_tracker=create_bytetrack_live_tracker,
         ensure_built=ensure_bytetrack_cpp_library,
-        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "bytetrack",
+        source_dir=Path(__file__).resolve().parent / "trackers" / "bytetrack",
     )
 
 
@@ -78,7 +78,7 @@ def _load_sfsort_backend() -> NativeReplayBackend:
         tracker_name="sfsort",
         process_sequence=process_sequence_cpp,
         ensure_built=ensure_sfsort_cpp_executable,
-        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "sfsort",
+        source_dir=Path(__file__).resolve().parent / "trackers" / "sfsort",
     )
 
 
@@ -89,7 +89,7 @@ def _load_sfsort_live_backend() -> NativeLiveBackend:
         tracker_name="sfsort",
         create_tracker=create_sfsort_live_tracker,
         ensure_built=ensure_sfsort_cpp_library,
-        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "sfsort",
+        source_dir=Path(__file__).resolve().parent / "trackers" / "sfsort",
     )
 
 
@@ -100,7 +100,7 @@ def _load_occluboost_backend() -> NativeReplayBackend:
         tracker_name="occluboost",
         process_sequence=process_sequence_cpp,
         ensure_built=ensure_occluboost_cpp_executable,
-        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "occluboost",
+        source_dir=Path(__file__).resolve().parent / "trackers" / "occluboost",
     )
 
 
@@ -111,7 +111,7 @@ def _load_occluboost_live_backend() -> NativeLiveBackend:
         tracker_name="occluboost",
         create_tracker=create_occluboost_live_tracker,
         ensure_built=ensure_occluboost_cpp_library,
-        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "occluboost",
+        source_dir=Path(__file__).resolve().parent / "trackers" / "occluboost",
     )
 
 
@@ -122,7 +122,7 @@ def _load_ocsort_backend() -> NativeReplayBackend:
         tracker_name="ocsort",
         process_sequence=process_sequence_cpp,
         ensure_built=ensure_ocsort_cpp_executable,
-        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "ocsort",
+        source_dir=Path(__file__).resolve().parent / "trackers" / "ocsort",
     )
 
 
@@ -133,7 +133,7 @@ def _load_ocsort_live_backend() -> NativeLiveBackend:
         tracker_name="ocsort",
         create_tracker=create_ocsort_live_tracker,
         ensure_built=ensure_ocsort_cpp_library,
-        source_dir=Path(__file__).resolve().parents[2] / "native" / "trackers" / "ocsort",
+        source_dir=Path(__file__).resolve().parent / "trackers" / "ocsort",
     )
 
 

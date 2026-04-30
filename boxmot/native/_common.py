@@ -27,6 +27,72 @@ EXPORT_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
+# Native source/build/install layout
+# ---------------------------------------------------------------------------
+
+def package_native_root() -> Path:
+    """Return the ``boxmot/native`` directory inside the installed package."""
+    return Path(__file__).resolve().parent
+
+
+def repo_root() -> Path:
+    """Return the repository root.
+
+    Only valid for editable / source checkouts. Wheels installed via pip will
+    typically not have a meaningful repo root above the package, so callers
+    must treat the returned path as best-effort.
+    """
+    return Path(__file__).resolve().parents[2]
+
+
+def tracker_source_dir(name: str) -> Path:
+    """Directory containing the C++ sources for a given native tracker.
+
+    After the relocation of ``native/trackers`` into the package, this lives
+    at ``boxmot/native/trackers/<name>``. The path is the same whether the
+    package is imported from a source checkout or an installed wheel.
+    """
+    return package_native_root() / "trackers" / str(name)
+
+
+def tracker_build_dir(name: str) -> Path:
+    """Out-of-tree CMake build directory used by editable / dev installs.
+
+    Located at ``<repo>/build/native/<name>``. Wheels never write here.
+    """
+    return repo_root() / "build" / "native" / str(name)
+
+
+def installed_library_candidates(name: str, lib_filename: str) -> list[Path]:
+    """Where scikit-build-core places the shared library inside the wheel.
+
+    The build configuration installs the shared library beside the C++ source
+    directory so it ships with the package and is loadable without re-running
+    CMake at runtime.
+    """
+    src = tracker_source_dir(name)
+    return [src / lib_filename, src / "lib" / lib_filename]
+
+
+def installed_executable_candidates(name: str, exe_filename: str) -> list[Path]:
+    """Where the native replay executable is shipped inside the wheel."""
+    src = tracker_source_dir(name)
+    return [src / exe_filename, src / "bin" / exe_filename]
+
+
+def build_library_candidates(name: str, lib_filename: str) -> list[Path]:
+    """Editable-install fallback locations for the shared library."""
+    bd = tracker_build_dir(name)
+    return [bd / lib_filename, bd / "Release" / lib_filename, bd / "Debug" / lib_filename]
+
+
+def build_executable_candidates(name: str, exe_filename: str) -> list[Path]:
+    """Editable-install fallback locations for the replay executable."""
+    bd = tracker_build_dir(name)
+    return [bd / exe_filename, bd / "Release" / exe_filename, bd / "Debug" / exe_filename]
+
+
+# ---------------------------------------------------------------------------
 # dets_n_embs cache layout
 # ---------------------------------------------------------------------------
 
@@ -51,23 +117,35 @@ def cached_embedding_path(
     dataset_name: str | None = None,
     preprocess_name: str | None = None,
 ) -> Path:
-    """Return the expected path of a cached embedding ``.npy`` for a sequence."""
+    """Return the expected path of a cached embedding ``.npy`` for a sequence.
+
+    Prefers the new suffix-included cache directory (e.g. ``lmbn_n_duke.pt``)
+    but transparently falls back to the legacy stem-only directory
+    (``lmbn_n_duke``) when only the legacy cache exists on disk.
+    """
     detector_key = _stem_key(detector_name)
-    reid_key = _stem_key(reid_name)
     preprocess_key = str(preprocess_name or "resize")
-    return (
-        dets_n_embs_root(project_root, dataset_name)
-        / detector_key
-        / "embs"
-        / reid_key
-        / preprocess_key
-        / f"{sequence_name}.npy"
-    )
+    embs_root = dets_n_embs_root(project_root, dataset_name) / detector_key / "embs"
+    reid_key_new = _name_key(reid_name)
+    new_path = embs_root / reid_key_new / preprocess_key / f"{sequence_name}.npy"
+    if new_path.exists():
+        return new_path
+    legacy_key = _stem_key(reid_name)
+    if legacy_key and legacy_key != reid_key_new:
+        legacy_path = embs_root / legacy_key / preprocess_key / f"{sequence_name}.npy"
+        if legacy_path.exists():
+            return legacy_path
+    return new_path
 
 
 def _stem_key(name: str | Path) -> str:
     path = Path(name)
     return path.stem if path.suffix else str(name)
+
+
+def _name_key(name: str | Path) -> str:
+    path = Path(name)
+    return path.name if path.suffix else str(name)
 
 
 # ---------------------------------------------------------------------------

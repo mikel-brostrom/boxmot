@@ -162,7 +162,7 @@ class DetectorReIDPipeline:
                     preprocess_name=self.reid_preprocess,
                 )
                 self.reid_models.append(TimedReIDModel(backend.model, self.timing_stats))
-            self.reid_model_names.append(reid_path.stem)
+            self.reid_model_names.append(reid_path.name)
 
     # ------------------------------------------------------------------
     # Callback management

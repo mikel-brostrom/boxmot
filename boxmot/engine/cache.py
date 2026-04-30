@@ -25,6 +25,7 @@ from boxmot.data.cache import (
     _read_image_cv2,
     _saved_detection_column_count,
     _serialize_eval_detections,
+    reid_cache_key,
 )
 from boxmot.data.dataset import _list_sequence_frames, _sequence_img_dir, _sequence_name_from_img_dir
 from boxmot.detectors import default_imgsz
@@ -150,7 +151,7 @@ def generate_dets_embs_batched(
 
     seq_states = {}
     det_writers: dict[str, AppendableNpyWriter] = {}
-    emb_writers: dict[str, dict[str, AppendableNpyWriter]] = {reid.stem: {} for reid in args.reid}
+    emb_writers: dict[str, dict[str, AppendableNpyWriter]] = {reid_cache_key(reid): {} for reid in args.reid}
     total_frames = 0
     initial_done = 0
 
@@ -170,10 +171,17 @@ def generate_dets_embs_batched(
         cached_emb_paths = {}
         any_emb_cached = False
         for reid_model in args.reid:
-            emb_path = embs_root / reid_model.stem / preprocess_name / f"{seq_name}.npy"
-            emb_paths[reid_model.stem] = emb_path
+            key = reid_cache_key(reid_model)
+            emb_path = embs_root / key / preprocess_name / f"{seq_name}.npy"
+            emb_paths[key] = emb_path
             cached_emb_path = _existing_embedding_cache_path(emb_path)
-            cached_emb_paths[reid_model.stem] = cached_emb_path
+            # Fall back to the legacy stem-only cache directory so that
+            # existing on-disk caches generated before the suffix was added
+            # to the key can still be resumed instead of regenerated.
+            if cached_emb_path is None and reid_model.stem != key:
+                legacy_path = embs_root / reid_model.stem / preprocess_name / f"{seq_name}.npy"
+                cached_emb_path = _existing_embedding_cache_path(legacy_path)
+            cached_emb_paths[key] = cached_emb_path
             if cached_emb_path is not None:
                 any_emb_cached = True
 
@@ -328,9 +336,10 @@ def generate_dets_embs_batched(
         )
 
         for reid_model in args.reid:
-            emb_path = emb_paths[reid_model.stem]
+            key = reid_cache_key(reid_model)
+            emb_path = emb_paths[key]
             emb_path.parent.mkdir(parents=True, exist_ok=True)
-            cached_emb_path = cached_emb_paths[reid_model.stem]
+            cached_emb_path = cached_emb_paths[key]
             if resume and cached_emb_path is not None and cached_emb_path.suffix == ".txt":
                 try:
                     if _migrate_legacy_embedding_cache(cached_emb_path, emb_path):
@@ -339,7 +348,7 @@ def generate_dets_embs_batched(
                         cached_emb_path = emb_path
                 except Exception:
                     pass
-            emb_writers[reid_model.stem][seq_name] = AppendableNpyWriter(
+            emb_writers[key][seq_name] = AppendableNpyWriter(
                 emb_path,
                 dtype=np.float32,
                 trailing_shape=None,

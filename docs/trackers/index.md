@@ -26,7 +26,7 @@ BoxMOT ships multiple tracker backends behind one interface.
 
 - Tracker runtime defaults come from `boxmot/configs/trackers`.
 - The runtime factory lives in `boxmot/trackers/tracker_zoo.py`.
-- Native C++ tracker sources live under `native/trackers/<name>/` and are registered from `boxmot/native/registry.py`.
+- Native C++ tracker sources live under `boxmot/native/trackers/<name>/` and are registered from `boxmot/native/registry.py`.
 
 Use [Native C++ Integration](../guides/native-cpp.md) when you want to compile and embed a tracker directly in a C++ program.
 

@@ -12,7 +12,7 @@ BoT-SORT extends the ByteTrack family by combining motion, appearance, and camer
 
 ## Native C++ Backend
 
-BoxMOT also ships a native C++17 BoTSORT implementation under `native/trackers/botsort/`. It supports:
+BoxMOT also ships a native C++17 BoTSORT implementation under `boxmot/native/trackers/botsort/`. It supports:
 
 - cached replay for `eval`, `tune`, and `research`
 - live `track` through `--tracker-backend cpp`

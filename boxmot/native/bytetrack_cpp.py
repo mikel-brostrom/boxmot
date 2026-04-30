@@ -26,16 +26,15 @@ _PROGRESS_PREFIX = _common.PROGRESS_PREFIX
 _NATIVE_DISPLAY_NAME = "ByteTrack"
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+_TRACKER_NAME = "bytetrack"
 
 
 def _source_dir() -> Path:
-    return _repo_root() / "native" / "trackers" / "bytetrack"
+    return _common.tracker_source_dir(_TRACKER_NAME)
 
 
 def _build_dir() -> Path:
-    return _repo_root() / "build" / "native" / "bytetrack"
+    return _common.tracker_build_dir(_TRACKER_NAME)
 
 
 def _executable_name() -> str:
@@ -43,12 +42,11 @@ def _executable_name() -> str:
 
 
 def _candidate_executables() -> list[Path]:
-    build_dir = _build_dir()
-    return [
-        build_dir / _executable_name(),
-        build_dir / "Release" / _executable_name(),
-        build_dir / "Debug" / _executable_name(),
-    ]
+    name = _executable_name()
+    return (
+        _common.installed_executable_candidates(_TRACKER_NAME, name)
+        + _common.build_executable_candidates(_TRACKER_NAME, name)
+    )
 
 
 def _library_name() -> str:
@@ -60,12 +58,11 @@ def _library_name() -> str:
 
 
 def _candidate_libraries() -> list[Path]:
-    build_dir = _build_dir()
-    return [
-        build_dir / _library_name(),
-        build_dir / "Release" / _library_name(),
-        build_dir / "Debug" / _library_name(),
-    ]
+    name = _library_name()
+    return (
+        _common.installed_library_candidates(_TRACKER_NAME, name)
+        + _common.build_library_candidates(_TRACKER_NAME, name)
+    )
 
 
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
