@@ -9,7 +9,7 @@
 #    define BOXMOT_BYTETRACK_API __declspec(dllimport)
 #  endif
 #else
-#  define BOXMOT_BYTETRACK_API
+#  define BOXMOT_BYTETRACK_API __attribute__((visibility("default")))
 #endif
 
 extern "C" {

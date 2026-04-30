@@ -9,7 +9,7 @@
 #    define BOXMOT_OCCLUBOOST_API __declspec(dllimport)
 #  endif
 #else
-#  define BOXMOT_OCCLUBOOST_API
+#  define BOXMOT_OCCLUBOOST_API __attribute__((visibility("default")))
 #endif
 
 extern "C" {

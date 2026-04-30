@@ -9,7 +9,7 @@
 #    define BOXMOT_OCSORT_API __declspec(dllimport)
 #  endif
 #else
-#  define BOXMOT_OCSORT_API
+#  define BOXMOT_OCSORT_API __attribute__((visibility("default")))
 #endif
 
 extern "C" {

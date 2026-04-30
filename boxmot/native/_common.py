@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import queue
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -90,6 +93,118 @@ def build_executable_candidates(name: str, exe_filename: str) -> list[Path]:
     """Editable-install fallback locations for the replay executable."""
     bd = tracker_build_dir(name)
     return [bd / exe_filename, bd / "Release" / exe_filename, bd / "Debug" / exe_filename]
+
+
+# ---------------------------------------------------------------------------
+# Platform-aware filename + candidate helpers (per-tracker convenience)
+# ---------------------------------------------------------------------------
+
+def executable_filename(tracker_name: str) -> str:
+    """Return the replay executable filename for a tracker on the current OS.
+
+    Convention: ``<tracker>_replay`` (with ``.exe`` on Windows).
+    """
+    return f"{tracker_name}_replay.exe" if os.name == "nt" else f"{tracker_name}_replay"
+
+
+def library_filename(tracker_name: str) -> str:
+    """Return the C-API shared library filename for a tracker on the current OS.
+
+    Convention: ``<tracker>_capi`` with the platform's shared-library suffix.
+    """
+    if os.name == "nt":
+        return f"{tracker_name}_capi.dll"
+    if sys.platform == "darwin":
+        return f"{tracker_name}_capi.dylib"
+    return f"{tracker_name}_capi.so"
+
+
+def candidate_executables(tracker_name: str) -> list[Path]:
+    """Installed-then-built search paths for the replay executable."""
+    name = executable_filename(tracker_name)
+    return (
+        installed_executable_candidates(tracker_name, name)
+        + build_executable_candidates(tracker_name, name)
+    )
+
+
+def candidate_libraries(tracker_name: str) -> list[Path]:
+    """Installed-then-built search paths for the C-API shared library."""
+    name = library_filename(tracker_name)
+    return (
+        installed_library_candidates(tracker_name, name)
+        + build_library_candidates(tracker_name, name)
+    )
+
+
+def build_native_target(
+    *,
+    tracker_name: str,
+    display_name: str,
+    target: str,
+    candidates: list[Path],
+    force_rebuild: bool,
+    not_found_message: str,
+    build_lock: threading.Lock,
+) -> Path:
+    """Configure and build a single CMake target for a native tracker.
+
+    Returns the first existing candidate path after the build (or before, if
+    one already exists and ``force_rebuild`` is False). Raises ``RuntimeError``
+    on configure/build failure or if the expected artifact is still missing.
+    """
+    with build_lock:
+        if not force_rebuild:
+            for candidate in candidates:
+                if candidate.exists():
+                    return candidate
+
+        source_dir = tracker_source_dir(tracker_name)
+        build_dir = tracker_build_dir(tracker_name)
+        build_dir.mkdir(parents=True, exist_ok=True)
+
+        configure_cmd = [
+            "cmake",
+            "-S",
+            str(source_dir),
+            "-B",
+            str(build_dir),
+            "-DCMAKE_BUILD_TYPE=Release",
+        ]
+        configure = subprocess.run(
+            configure_cmd, capture_output=True, text=True, check=False
+        )
+        if configure.returncode != 0:
+            raise RuntimeError(
+                f"Failed to configure native {display_name}.\n"
+                "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+.\n"
+                f"Command: {' '.join(configure_cmd)}\n"
+                f"{configure.stderr.strip()}"
+            )
+
+        build_cmd = [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--config",
+            "Release",
+            "--target",
+            target,
+        ]
+        build = subprocess.run(build_cmd, capture_output=True, text=True, check=False)
+        if build.returncode != 0:
+            raise RuntimeError(
+                f"Failed to build native {display_name}.\n"
+                "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+.\n"
+                f"Command: {' '.join(build_cmd)}\n"
+                f"{build.stderr.strip()}"
+            )
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+        raise RuntimeError(not_found_message)
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@
 #    define BOXMOT_BOTSORT_API __declspec(dllimport)
 #  endif
 #else
-#  define BOXMOT_BOTSORT_API
+#  define BOXMOT_BOTSORT_API __attribute__((visibility("default")))
 #endif
 
 extern "C" {

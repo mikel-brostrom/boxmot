@@ -65,7 +65,7 @@ if(BOXMOT_REID_ONNXRUNTIME)
     endif()
 endif()
 
-include(${CMAKE_CURRENT_LIST_DIR}/../cmake/BoxMOTNativeCompiler.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/BoxMOTNative.cmake)
 
 add_library(boxmot_tracker_base STATIC
     src/assignment.cpp
@@ -73,6 +73,7 @@ add_library(boxmot_tracker_base STATIC
     src/reid_onnx.cpp
 )
 
+target_compile_features(boxmot_tracker_base PUBLIC cxx_std_17)
 set_target_properties(boxmot_tracker_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(boxmot_tracker_base
@@ -100,11 +101,13 @@ boxmot_enable_native_warnings(boxmot_tracker_base)
 # pipeline to populate the embedding cache via the same native ONNX path that
 # the C++ trackers use at replay time.
 add_library(reid_capi SHARED src/reid_capi.cpp)
+target_compile_features(reid_capi PUBLIC cxx_std_17)
 target_link_libraries(reid_capi PRIVATE boxmot_tracker_base)
 target_compile_definitions(reid_capi PRIVATE BOXMOT_REID_CAPI_BUILDING_DLL)
 set_target_properties(reid_capi PROPERTIES
     OUTPUT_NAME reid_capi
     PREFIX ""
+    C_VISIBILITY_PRESET hidden
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
 )

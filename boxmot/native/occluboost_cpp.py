@@ -40,42 +40,6 @@ _NATIVE_DISPLAY_NAME = "OccluBoost"
 _TRACKER_NAME = "occluboost"
 
 
-def _source_dir() -> Path:
-    return _common.tracker_source_dir(_TRACKER_NAME)
-
-
-def _build_dir() -> Path:
-    return _common.tracker_build_dir(_TRACKER_NAME)
-
-
-def _executable_name() -> str:
-    return "occluboost_replay.exe" if os.name == "nt" else "occluboost_replay"
-
-
-def _candidate_executables() -> list[Path]:
-    name = _executable_name()
-    return (
-        _common.installed_executable_candidates(_TRACKER_NAME, name)
-        + _common.build_executable_candidates(_TRACKER_NAME, name)
-    )
-
-
-def _library_name() -> str:
-    if os.name == "nt":
-        return "occluboost_capi.dll"
-    if sys.platform == "darwin":
-        return "occluboost_capi.dylib"
-    return "occluboost_capi.so"
-
-
-def _candidate_libraries() -> list[Path]:
-    name = _library_name()
-    return (
-        _common.installed_library_candidates(_TRACKER_NAME, name)
-        + _common.build_library_candidates(_TRACKER_NAME, name)
-    )
-
-
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     with open(get_tracker_config("occluboost"), "r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
@@ -101,69 +65,22 @@ def _ensure_native_reid_model_path(reid_weights: str | Path | None) -> Path | No
     )
 
 
-def _build_target(
-    *,
-    target: str,
-    candidates: list[Path],
-    force_rebuild: bool,
-    not_found_message: str,
-) -> Path:
-    with _BUILD_LOCK:
-        if not force_rebuild:
-            for candidate in candidates:
-                if candidate.exists():
-                    return candidate
-
-        source_dir = _source_dir()
-        build_dir = _build_dir()
-        build_dir.mkdir(parents=True, exist_ok=True)
-
-        configure_cmd = [
-            "cmake",
-            "-S",
-            str(source_dir),
-            "-B",
-            str(build_dir),
-            "-DCMAKE_BUILD_TYPE=Release",
-        ]
-        configure = subprocess.run(configure_cmd, capture_output=True, text=True, check=False)
-        if configure.returncode != 0:
-            raise RuntimeError(
-                "Failed to configure native OccluBoost.\n"
-                "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+.\n"
-                f"Command: {' '.join(configure_cmd)}\n"
-                f"{configure.stderr.strip()}"
-            )
-
-        build_cmd = [
-            "cmake",
-            "--build",
-            str(build_dir),
-            "--config",
-            "Release",
-            "--target",
-            target,
-        ]
-        build = subprocess.run(build_cmd, capture_output=True, text=True, check=False)
-        if build.returncode != 0:
-            raise RuntimeError(
-                "Failed to build native OccluBoost.\n"
-                "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+.\n"
-                f"Command: {' '.join(build_cmd)}\n"
-                f"{build.stderr.strip()}"
-            )
-
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
-        raise RuntimeError(not_found_message)
+def _build_target(*, target: str, candidates: list[Path], force_rebuild: bool, not_found_message: str) -> Path:
+    return _common.build_native_target(
+        tracker_name=_TRACKER_NAME,
+        display_name=_NATIVE_DISPLAY_NAME,
+        target=target,
+        candidates=candidates,
+        force_rebuild=force_rebuild,
+        not_found_message=not_found_message,
+        build_lock=_BUILD_LOCK,
+    )
 
 
 def ensure_occluboost_cpp_executable(force_rebuild: bool = False) -> Path:
     return _build_target(
         target="occluboost_replay",
-        candidates=_candidate_executables(),
+        candidates=_common.candidate_executables(_TRACKER_NAME),
         force_rebuild=force_rebuild,
         not_found_message="Native OccluBoost build succeeded but the occluboost_replay executable was not found.",
     )
@@ -172,7 +89,7 @@ def ensure_occluboost_cpp_executable(force_rebuild: bool = False) -> Path:
 def ensure_occluboost_cpp_library(force_rebuild: bool = False) -> Path:
     return _build_target(
         target="occluboost_capi",
-        candidates=_candidate_libraries(),
+        candidates=_common.candidate_libraries(_TRACKER_NAME),
         force_rebuild=force_rebuild,
         not_found_message="Native OccluBoost build succeeded but the occluboost_capi shared library was not found.",
     )
