@@ -414,20 +414,27 @@ def process_sequence_cpp(
     cfg = _resolve_tracker_cfg(cfg_dict)
 
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
-    reid_key = Path(reid_name).name if Path(reid_name).suffix else str(reid_name)
+    # Bucket the C++ embedding cache by the runtime-aware key so distinct
+    # runtimes (ORT vs OpenCV-DNN) and Python/C++ stacks never silently
+    # share storage. See ``boxmot.data.cache.reid_cache_key``.
+    from boxmot.data.cache import legacy_reid_cache_keys as _legacy_reid_keys
+    from boxmot.data.cache import reid_cache_key as _reid_cache_key
+    reid_key = _reid_cache_key(reid_name, tracker_backend="cpp")
 
     det_emb_root = dets_n_embs_root(project_root, dataset_name)
 
-    # Back-compat: if the suffix-included embedding cache directory does not
-    # exist on disk but the legacy stem-only directory does, use the legacy
-    # name so the native binary can locate the existing cache.
+    # Read-only back-compat: if the canonical cpp bucket does not exist on
+    # disk but a historical layout does, point the native binary at it so
+    # pre-existing caches keep working. Only the canonical key is written to.
     embs_dir_new = det_emb_root / detector_key / "embs" / reid_key / (preprocess_name or "resize")
     if not embs_dir_new.exists():
-        legacy_stem = Path(reid_name).stem if Path(reid_name).suffix else str(reid_name)
-        if legacy_stem and legacy_stem != reid_key:
-            embs_dir_legacy = det_emb_root / detector_key / "embs" / legacy_stem / (preprocess_name or "resize")
+        for legacy_key in _legacy_reid_keys(reid_name, tracker_backend="cpp"):
+            if legacy_key == reid_key:
+                continue
+            embs_dir_legacy = det_emb_root / detector_key / "embs" / legacy_key / (preprocess_name or "resize")
             if embs_dir_legacy.exists():
-                reid_key = legacy_stem
+                reid_key = legacy_key
+                break
 
     # Skip the (potentially expensive) ONNX export + model load when a complete
     # embedding cache already exists for this sequence; the C++ tracker will read
@@ -440,6 +447,7 @@ def process_sequence_cpp(
         seq_name,
         dataset_name=dataset_name,
         preprocess_name=preprocess_key,
+        tracker_backend="cpp",
     )
     if cached_emb.exists():
         reid_model_path = None

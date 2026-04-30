@@ -536,7 +536,20 @@ class WorkflowProgress:
         # to repaint in place.
         return len(lines) > max(1, height - 1)
 
+    def _alt_screen_disabled(self) -> bool:
+        """Honor an env-var opt-out so users can preserve terminal scrollback.
+
+        Setting ``BOXMOT_NO_ALT_SCREEN=1`` (or ``true``/``yes``/``on``) keeps
+        Rich on the normal screen even when the live renderable is taller
+        than the console, at the cost of writing successive frames to
+        scrollback instead of updating in place.
+        """
+        value = os.environ.get("BOXMOT_NO_ALT_SCREEN", "").strip().lower()
+        return value in {"1", "true", "yes", "on"}
+
     def _start_live(self, *, screen: bool) -> None:
+        if screen and self._alt_screen_disabled():
+            screen = False
         self._live = Live(
             self._live_renderable(),
             console=get_console(stderr=self.stderr),
@@ -593,7 +606,12 @@ class WorkflowProgress:
 
         # If the compact live renderable still doesn't fit, switch to the
         # alternate screen so in-place updates don't pollute scrollback.
-        if oversized and not self._uses_alt_screen and self._live is not None:
+        if (
+            oversized
+            and not self._uses_alt_screen
+            and self._live is not None
+            and not self._alt_screen_disabled()
+        ):
             # Erase the in-place render before swapping to the alternate
             # screen so the user doesn't end up with both the previous frame
             # (persisted to scrollback) and the alt-screen frame (re-printed

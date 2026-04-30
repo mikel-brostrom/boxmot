@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar, Sequence
+from contextlib import contextmanager
+from typing import Any, Callable, ClassVar, Iterator, Sequence
+
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 import boxmot.utils.rich.ui as ui
 
@@ -47,6 +57,61 @@ class WorkflowDetailCallback:
 
     def __call__(self, message: str) -> None:
         self.workflow.set_detail(self.step, message, render=self.render)
+
+    @contextmanager
+    def bar(
+        self,
+        description: str,
+        total: int | float | None,
+        *,
+        unit: str | None = None,
+    ) -> Iterator[Callable[[int], None]]:
+        """Render a Rich progress bar inside the workflow's detail panel.
+
+        Yields an ``advance(n)`` callable. The bar is automatically removed
+        from the panel on exit, regardless of success or exception.
+
+        Use this in place of ``tqdm`` whenever a workflow is active so the
+        bar is hosted by the same Rich Live region — preventing duplicated
+        panel renders that result from tqdm's carriage-return updates
+        racing with Rich's repaints.
+        """
+        columns = [
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+        ]
+        if unit:
+            columns.append(TextColumn(f"• {{task.completed}}/{{task.total}} {unit}"))
+        else:
+            columns.append(TextColumn("• {task.completed}/{task.total}"))
+        columns.append(TimeRemainingColumn())
+
+        progress = Progress(*columns, transient=True, expand=True)
+        task_id = progress.add_task(description, total=total)
+        previous_renderable = self.workflow.detail_renderable
+        previous_title = self.workflow.detail_title
+        previous_text = self.workflow.detail_text
+        self.workflow.set_detail_renderable(self.step, progress, render=self.render)
+
+        def _advance(n: int = 1) -> None:
+            progress.update(task_id, advance=n)
+            if self.render:
+                self.workflow._update_live(render=True)
+
+        try:
+            yield _advance
+        finally:
+            # Restore prior detail state so the surrounding step text reappears.
+            if previous_renderable is not None:
+                self.workflow.set_detail_renderable(
+                    previous_title, previous_renderable, render=self.render
+                )
+            elif previous_text is not None:
+                self.workflow.set_detail(previous_title, previous_text, render=self.render)
+            else:
+                self.workflow.clear_detail(render=self.render)
 
 
 class SilentProgressReporter:
