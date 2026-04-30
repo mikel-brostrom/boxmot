@@ -486,5 +486,8 @@ def main(args):
             classes=getattr(args, "classes", None),
             workflow=workflow,
         )
+    except BaseException as exc:
+        workflow.fail(error=exc)
+        raise
     finally:
         workflow.stop()

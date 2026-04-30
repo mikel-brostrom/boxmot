@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-StepState = Literal["done", "active", "todo"]
+StepState = Literal["done", "active", "todo", "failed"]
 _WORKFLOW_PANEL_PREFIX = "__panel__:"
 
 STYLE_TEXT = "boxmot.text"
@@ -26,9 +26,11 @@ STYLE_ACCENT = "boxmot.accent"
 STYLE_STATUS_DONE = "boxmot.status.done"
 STYLE_STATUS_ACTIVE = "boxmot.status.active"
 STYLE_STATUS_TODO = "boxmot.status.todo"
+STYLE_STATUS_FAILED = "boxmot.status.failed"
 STYLE_BORDER = "boxmot.border"
 STYLE_BORDER_OUTER = "boxmot.border.outer"
 STYLE_BORDER_DETAIL = "boxmot.border.detail"
+STYLE_BORDER_FAILED = "boxmot.border.failed"
 STYLE_TABLE_HEADER = "boxmot.table.header"
 STYLE_COMBINED_ROW = "boxmot.row.combined"
 STYLE_RULE = "boxmot.rule"
@@ -80,9 +82,11 @@ BOXMOT_THEME_STYLES = {
     STYLE_STATUS_DONE: "bold #3fb950",
     STYLE_STATUS_ACTIVE: "bold #e3b341",
     STYLE_STATUS_TODO: "bold #8b949e",
+    STYLE_STATUS_FAILED: "bold #f85149",
     STYLE_BORDER: "#4c566a",
     STYLE_BORDER_OUTER: "#5e81ac",
     STYLE_BORDER_DETAIL: "#88c0d0",
+    STYLE_BORDER_FAILED: "bold #f85149",
     STYLE_TABLE_HEADER: "bold cyan",
     STYLE_COMBINED_ROW: "bold #eceff4 on #3b4252",
     STYLE_RULE: "#4c566a",
@@ -180,6 +184,7 @@ def build_checklist(steps: Sequence[tuple[str, StepState]]) -> Table:
         "done": (STEP_DONE_MARKER, STYLE_STATUS_DONE, "DONE", STYLE_STATUS_DONE),
         "active": ("[>]", STYLE_STATUS_ACTIVE, "ACTIVE", STYLE_STATUS_ACTIVE),
         "todo": ("[ ]", STYLE_STATUS_TODO, "QUEUED", STYLE_STATUS_TODO),
+        "failed": ("[!]", STYLE_STATUS_FAILED, "FAILED", STYLE_STATUS_FAILED),
     }
 
     for label, state in steps:
@@ -189,7 +194,10 @@ def build_checklist(steps: Sequence[tuple[str, StepState]]) -> Table:
         )
         row = Text()
         row.append(f"{marker} ", style=marker_style)
-        row.append(label, style=STYLE_TEXT_STRONG if state == "active" else STYLE_TEXT)
+        row.append(
+            label,
+            style=STYLE_TEXT_STRONG if state in ("active", "failed") else STYLE_TEXT,
+        )
         status = Text(badge, style=badge_style)
         table.add_row(row, status)
 
@@ -382,16 +390,17 @@ def _build_steps_panel(steps: Sequence[tuple[str, StepState]], *, compact: bool 
     if not steps:
         return None
     body: RenderableType
-    if all(step_state == "done" for _, step_state in steps):
+    has_failure = any(step_state == "failed" for _, step_state in steps)
+    if not has_failure and all(step_state == "done" for _, step_state in steps):
         body = _build_completed_steps_summary(steps)
-    elif compact:
+    elif compact and not has_failure:
         body = _build_active_steps_summary(steps)
     else:
         body = build_checklist(steps)
     return Panel(
         body,
         title=Text("Pipeline", style=STYLE_TITLE),
-        border_style=STYLE_BORDER,
+        border_style=STYLE_BORDER_FAILED if has_failure else STYLE_BORDER,
         padding=(0, 1),
     )
 
@@ -400,16 +409,19 @@ def _build_detail_panel(
     detail_title: str | None,
     detail_text: str | None,
     detail_renderable: RenderableType | None,
+    *,
+    failed: bool = False,
 ) -> Panel | None:
     if detail_renderable is None and not detail_text:
         return None
 
     content: RenderableType = detail_renderable if detail_renderable is not None else _decode_ansi(detail_text or "")
-    title = Text(detail_title or "Live Detail", style=STYLE_TITLE)
+    title_style = STYLE_STATUS_FAILED if failed else STYLE_TITLE
+    title = Text(detail_title or "Live Detail", style=title_style)
     return Panel(
         content,
         title=title,
-        border_style=STYLE_BORDER_DETAIL,
+        border_style=STYLE_BORDER_FAILED if failed else STYLE_BORDER_DETAIL,
         padding=(0, 1),
     )
 
@@ -438,7 +450,10 @@ def build_workflow_intro(
         if steps_panel is not None:
             renderables.append(steps_panel)
 
-    detail_panel = _build_detail_panel(detail_title, detail_text, detail_renderable)
+    has_failure = any(step_state == "failed" for _, step_state in steps)
+    detail_panel = _build_detail_panel(
+        detail_title, detail_text, detail_renderable, failed=has_failure
+    )
     if detail_panel is not None:
         renderables.append(detail_panel)
 
@@ -614,6 +629,48 @@ class WorkflowProgress:
         if updated == self.steps:
             return
         self.steps = updated
+        self._update_live(render=render)
+
+    def fail(
+        self,
+        label: str | None = None,
+        error: str | BaseException | None = None,
+        *,
+        render: bool = True,
+    ) -> None:
+        target = label
+        if target is None:
+            for step_label, step_state in self.steps:
+                if step_state == "active":
+                    target = step_label
+                    break
+        if target is None:
+            for step_label, step_state in reversed(self.steps):
+                if step_state != "done":
+                    target = step_label
+                    break
+        if target is None and self.steps:
+            target = self.steps[-1][0]
+
+        if target is not None:
+            self.steps = [
+                (step_label, "failed" if step_label == target else step_state)
+                for step_label, step_state in self.steps
+            ]
+
+        if error is not None:
+            if isinstance(error, BaseException):
+                import traceback
+
+                error_text = "".join(
+                    traceback.format_exception(type(error), error, error.__traceback__)
+                ).rstrip()
+            else:
+                error_text = str(error)
+            self.detail_title = f"{target} failed" if target else "Pipeline failed"
+            self.detail_text = error_text
+            self.detail_renderable = None
+
         self._update_live(render=render)
 
     def set_detail(self, title: str | None, text: str | None, *, render: bool = True) -> None:

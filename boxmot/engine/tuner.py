@@ -864,6 +864,9 @@ def _execute_tune_search(
         else:
             workflow.set_detail(TUNE_OPTIMIZE_STEP, "No successful trials were produced.", render=False)
         return result_grid, tune_dir, maximize, minimize
+    except BaseException as exc:
+        workflow.fail(error=exc)
+        raise
     finally:
         set_tune_progress_workflow(None)
         workflow.stop()

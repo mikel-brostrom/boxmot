@@ -568,7 +568,11 @@ def main(args):
     workflow = log_eval_pipeline_intro(args)
     try:
         result = run_eval(args, verbose=False, workflow=workflow)
-    finally:
+    except BaseException as exc:
+        workflow.fail(error=exc)
+        workflow.stop()
+        raise
+    else:
         workflow.stop()
 
     plot_class, metrics_data = _select_plot_metrics_data(result.raw)

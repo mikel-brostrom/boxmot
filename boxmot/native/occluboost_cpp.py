@@ -24,6 +24,12 @@ from boxmot.native._common import (  # noqa: F401  (re-exported for backwards co
 from boxmot.trackers.tracker_zoo import get_tracker_config
 from boxmot.utils.misc import resolve_model_path  # noqa: F401  (used by tests via monkeypatch)
 
+
+def _default_preprocess() -> str:
+    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+    return DEFAULT_PREPROCESS
+
+
 _BUILD_LOCK = threading.Lock()
 _LIVE_LIBRARY_LOCK = threading.Lock()
 _LIVE_LIBRARY = None
@@ -260,8 +266,7 @@ def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
         ams_buffer_size=int(cfg["ams_buffer_size"]),
         ams_shrink_ratio=float(cfg["ams_shrink_ratio"]),
         reid_model_path=str(cfg.get("reid_model_path", "")).encode("utf-8"),
-        reid_preprocess=str(cfg.get("reid_preprocess", "resize_pad")).encode("utf-8"),
-    )
+            reid_preprocess=str(cfg.get("reid_preprocess") or _default_preprocess()).encode("utf-8"),
 
 
 class _OccluBoostLiveLibrary:
@@ -411,7 +416,7 @@ class NativeOccluBoostTracker:
         self.cfg = _resolve_tracker_cfg(cfg_dict)
         native_reid_path = _ensure_native_reid_model_path(reid_weights)
         self.reid_model_path = str(native_reid_path) if native_reid_path is not None else ""
-        self.reid_preprocess = str(reid_preprocess or "resize_pad")
+        self.reid_preprocess = str(reid_preprocess or _default_preprocess())
         self.cfg["reid_model_path"] = self.reid_model_path
         self.cfg["reid_preprocess"] = self.reid_preprocess
         self.with_reid = bool(self.cfg.get("with_reid", True))

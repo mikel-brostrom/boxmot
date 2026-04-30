@@ -332,7 +332,7 @@ def test_native_botsort_tracker_marks_native_onnx_reid_provider():
 
         assert tracker.provides_reid is True
         assert tracker.cfg["reid_model_path"] == str(expected_path)
-        assert tracker.cfg["reid_preprocess"] == "resize_pad"
+        assert tracker.cfg["reid_preprocess"] == "resize"
         tracker.close()
     finally:
         native_module._ensure_native_reid_model_path = original_resolver
