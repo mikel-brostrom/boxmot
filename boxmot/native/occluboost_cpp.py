@@ -266,7 +266,8 @@ def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
         ams_buffer_size=int(cfg["ams_buffer_size"]),
         ams_shrink_ratio=float(cfg["ams_shrink_ratio"]),
         reid_model_path=str(cfg.get("reid_model_path", "")).encode("utf-8"),
-            reid_preprocess=str(cfg.get("reid_preprocess") or _default_preprocess()).encode("utf-8"),
+        reid_preprocess=str(cfg.get("reid_preprocess") or _default_preprocess()).encode("utf-8"),
+    )
 
 
 class _OccluBoostLiveLibrary:
