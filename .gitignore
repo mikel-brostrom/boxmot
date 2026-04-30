@@ -69,6 +69,7 @@ boxmot/native/trackers/**/*.so
 boxmot/native/trackers/**/*.dylib
 boxmot/native/trackers/**/*.dll
 boxmot/native/trackers/**/*.pyd
+boxmot/native/trackers/**/*.a
 boxmot/native/trackers/*/*_replay
 boxmot/native/trackers/*/*_replay.exe
 
