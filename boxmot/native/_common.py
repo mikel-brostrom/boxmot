@@ -375,6 +375,37 @@ def export_reid_to_onnx(weights: Path, *, display_name: str = "ReID") -> Path:
     return onnx_path
 
 
+def _download_reid_pt_weights(weights: Path, *, display_name: str = "ReID") -> None:
+    """Auto-download a known ReID ``.pt`` checkpoint into ``weights``.
+
+    Mirrors the lazy download performed by ``BaseModelBackend.download_model``
+    so the native cpp ReID path matches the Python path's UX (e.g. CI runners
+    that have never cached the weights locally).
+    """
+    try:
+        import gdown  # noqa: WPS433 (runtime import to avoid hard dep at import-time)
+        from filelock import SoftFileLock  # noqa: WPS433
+        from boxmot.reid.core.registry import ReIDModelRegistry  # noqa: WPS433
+        from boxmot.utils import logger as LOGGER  # noqa: WPS433
+    except Exception:  # pragma: no cover - if optional deps missing, fall through
+        return
+
+    weights.parent.mkdir(parents=True, exist_ok=True)
+    model_url = ReIDModelRegistry.get_model_url(weights)
+    if not model_url:
+        return
+
+    lock = SoftFileLock(str(weights) + ".lock", timeout=300)
+    with lock:
+        if weights.exists():
+            return
+        LOGGER.info(
+            f"[PID {os.getpid()}] Downloading native {display_name} ReID weights "
+            f"from {model_url} -> {weights}"
+        )
+        gdown.download(model_url, str(weights), quiet=False)
+
+
 def ensure_native_reid_model_path(
     reid_weights: str | Path | None,
     *,
@@ -400,6 +431,8 @@ def ensure_native_reid_model_path(
             f"Native {display_name} ReID supports ONNX directly and can auto-export "
             f"PyTorch '.pt' weights only: {resolved}"
         )
+    if not resolved.exists():
+        _download_reid_pt_weights(resolved, display_name=display_name)
     if not resolved.exists():
         raise FileNotFoundError(f"Native {display_name} ReID weights not found: {resolved}")
 
