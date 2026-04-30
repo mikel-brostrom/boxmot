@@ -305,34 +305,79 @@ def _compact_section_title(title: str) -> str:
     return _SECTION_TITLE_ABBREVIATIONS.get(title.upper(), title.upper())
 
 
+def _choose_compact_pair_count(
+    fields: Sequence[tuple[str, object]],
+    *,
+    max_pairs: int = 6,
+    accent_width: int = 10,
+    available_width: int = 130,
+) -> int:
+    """Pick the largest pairs-per-row count whose actual layout fits the panel.
+
+    This mirrors how Rich computes column widths inside a ``Table.grid``: for
+    each candidate ``pair_count`` we compute, per slot ``k``, the widest label
+    and widest value across the rows that land in that slot, and sum the
+    resulting row width. The largest candidate that fits ``available_width``
+    wins. This avoids being bullied into a low pair count by a single long
+    value (e.g. file paths, the Pareto objective string) that only occupies
+    one slot.
+    """
+    if not fields:
+        return 1
+    labels = [_compact_setup_label(str(label)) for label, _ in fields]
+    values = [_format_setup_value(str(label), value) for label, value in fields]
+    n = len(fields)
+    for pair_count in range(min(max_pairs, n), 0, -1):
+        slot_label = [0] * pair_count
+        slot_value = [0] * pair_count
+        for i in range(n):
+            k = i % pair_count
+            if len(labels[i]) > slot_label[k]:
+                slot_label[k] = len(labels[i])
+            if len(values[i]) > slot_value[k]:
+                slot_value[k] = len(values[i])
+        # Each pair needs label + value + ~3 cells of padding/separators.
+        total = accent_width + sum(slot_label[k] + slot_value[k] + 3 for k in range(pair_count))
+        if total <= available_width:
+            return pair_count
+    return 1
+
+
 def _build_setup_section_table(
     section_title: str,
     fields: Sequence[tuple[str, object]],
     *,
     compact: bool = False,
+    pair_count: int | None = None,
+    min_label_width: int | None = None,
+    min_value_width: int | None = None,
 ) -> Table:
-    pair_count = 3 if compact else 2
-    table = Table.grid(expand=True, padding=(0, 1))
-
-    if compact and pair_count == 3:
-        table.add_column(style=STYLE_ACCENT, no_wrap=True, width=8, overflow="ellipsis")
-        for offset in range(pair_count):
-            table.add_column(style=STYLE_MUTED, no_wrap=True, width=10, overflow="ellipsis")
-            table.add_column(
-                style=STYLE_TEXT,
-                no_wrap=True,
-                ratio=2 if offset == pair_count - 1 else 1,
-                overflow="ellipsis",
-            )
+    if compact:
+        if pair_count is None:
+            pair_count = _choose_compact_pair_count(fields)
     else:
-        table.add_column(style=STYLE_ACCENT, no_wrap=True)
-        for offset in range(pair_count):
-            if offset == pair_count - 1:
-                table.add_column(style=STYLE_MUTED, no_wrap=True)
-                table.add_column(style=STYLE_TEXT, ratio=1)
-            else:
-                table.add_column(style=STYLE_MUTED, no_wrap=True)
-                table.add_column(style=STYLE_TEXT, ratio=1)
+        pair_count = 2
+
+    table = Table.grid(expand=True, padding=(0, 1))
+    # Auto-size all columns to their content (no fixed widths) so labels
+    # never get truncated to "MIN BO…" / "USE DL…". Optional ``min_width``
+    # lets the caller harmonise widths across sibling sections so their
+    # columns line up vertically. The last value column gets ``ratio=1`` so
+    # any leftover width flows there instead of stretching every column
+    # unevenly.
+    table.add_column(style=STYLE_ACCENT, no_wrap=True, width=8, overflow="ellipsis")
+    for offset in range(pair_count):
+        label_kwargs = {"style": STYLE_MUTED, "no_wrap": True}
+        if min_label_width is not None:
+            label_kwargs["min_width"] = min_label_width
+        table.add_column(**label_kwargs)
+        if offset == pair_count - 1:
+            table.add_column(style=STYLE_TEXT, no_wrap=True, ratio=1, overflow="ellipsis")
+        else:
+            value_kwargs = {"style": STYLE_TEXT, "no_wrap": True}
+            if min_value_width is not None:
+                value_kwargs["min_width"] = min_value_width
+            table.add_column(**value_kwargs)
 
     title_text = _compact_section_title(section_title) if compact else section_title.upper()
 
@@ -347,7 +392,7 @@ def _build_setup_section_table(
             if item_index < len(fields):
                 label, value = fields[item_index]
                 label_text = (
-                    _compact_setup_label(str(label)) if compact and pair_count == 3 else str(label).upper()
+                    _compact_setup_label(str(label)) if compact and pair_count >= 3 else str(label).upper()
                 )
                 row.extend(
                     [
@@ -378,8 +423,47 @@ def _build_setup_panel(
     if not sections:
         return None
 
+    # In compact mode, share a single pairs-per-row count *and* per-column
+    # min-widths across the parameter sections (everything after
+    # Configuration) so their columns line up vertically. The Configuration
+    # section keeps its own count because its values are typically file
+    # paths much longer than tracker/pipeline knobs.
+    shared_pair_count: int | None = None
+    shared_min_label: int | None = None
+    shared_min_value: int | None = None
+    if compact and len(sections) > 1:
+        combined: list[tuple[str, object]] = []
+        for _, fields in sections[1:]:
+            combined.extend(fields)
+        if combined:
+            shared_pair_count = _choose_compact_pair_count(combined)
+            shared_min_label = max(
+                len(_compact_setup_label(str(label))) for label, _ in combined
+            )
+            shared_min_value = max(
+                len(_format_setup_value(str(label), value)) for label, value in combined
+            )
+
+    section_tables = []
+    for index, (title, fields) in enumerate(sections):
+        if compact and index > 0:
+            section_tables.append(
+                _build_setup_section_table(
+                    title,
+                    fields,
+                    compact=compact,
+                    pair_count=shared_pair_count,
+                    min_label_width=shared_min_label,
+                    min_value_width=shared_min_value,
+                )
+            )
+        else:
+            section_tables.append(
+                _build_setup_section_table(title, fields, compact=compact)
+            )
+
     return Panel(
-        Group(*[_build_setup_section_table(title, fields, compact=compact) for title, fields in sections]),
+        Group(*section_tables),
         title=Text("Setup", style=STYLE_TITLE),
         border_style=STYLE_BORDER_OUTER,
         padding=(0, 1),
