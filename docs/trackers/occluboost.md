@@ -21,6 +21,34 @@ On MOT17-ablation (`yolox_x_MOT17_ablation` + `lmbn_n_duke`), OccluBoost beats B
 - AABB detections (OBB skips the AMS path; the rest still works).
 - Best for crowded / partial-occlusion scenes where identity preservation matters.
 
+## Native C++ Backend
+
+BoxMOT ships a native C++17 OccluBoost implementation under `boxmot/native/trackers/occluboost/`. It mirrors the Python tracker and shares the BoTSORT-style ReID plumbing, so it supports:
+
+- cached replay for `eval`, `tune`, and `research`
+- live `track` through `--tracker-backend cpp`
+- AABB detections (OBB still goes through the Python path)
+- ReID inference through the shared native `OnnxReIdModel`, used for the first-pass association, the ReID-only recovery pass, and the appearance-gated low-confidence second pass
+- automatic `.pt -> .onnx` export for native cpp inference when you pass PyTorch ReID weights
+
+Requirements:
+
+- C++17 compiler
+- CMake 3.16+
+- OpenCV 4.x
+- Eigen3 3.3+
+
+Example:
+
+```bash
+boxmot eval --benchmark mot17-ablation --tracker occluboost --tracker-backend cpp \
+  --detector yolox_x_MOT17_ablation.pt --reid models/lmbn_n_duke.onnx
+boxmot track --tracker occluboost --tracker-backend cpp \
+  --reid models/lmbn_n_duke.pt --source 0
+```
+
+When `--tracker-backend cpp` is set, embedding generation for cached replay also goes through the native C++ ReID and is written to a `__cpp`-suffixed cache bucket. See [Native C++ ReID with `--tracker-backend cpp`](../guides/evaluation.md#native-c-reid-with---tracker-backend-cpp) for the runtime knobs (`BOXMOT_REID_BACKEND`, `BOXMOT_REID_DEVICE`).
+
 ## Tuning notes
 
 - **AMS knobs** (locked on MOT17-ablation but worth retuning per dataset):

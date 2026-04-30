@@ -13,6 +13,7 @@ BoxMOT ships multiple tracker backends behind one interface.
 | DeepOcSort | Yes | No | No | No |
 | HybridSort | Yes | No | No | No |
 | BoostTrack | Yes | No | No | No |
+| OccluBoost | Yes | No | Yes | Yes |
 | SFSORT | No | Yes | Yes | Yes |
 
 ## How to choose

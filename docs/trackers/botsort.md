@@ -17,7 +17,7 @@ BoxMOT also ships a native C++17 BoTSORT implementation under `boxmot/native/tra
 - cached replay for `eval`, `tune`, and `research`
 - live `track` through `--tracker-backend cpp`
 - both AABB and OBB detections for live tracking and cached replay
-- internal ONNX ReID inference for native live tracking
+- ReID inference through the shared native `OnnxReIdModel` for both live tracking and cache generation (no Python ONNXRuntime in the loop)
 - automatic `.pt -> .onnx` export for native cpp inference when you pass PyTorch ReID weights
 
 Requirements:
@@ -36,7 +36,7 @@ boxmot track --tracker botsort --tracker-backend cpp --reid models/lmbn_n_duke.p
 
 `--tracking-backend cpp` remains available as a compatibility alias for existing benchmark scripts.
 
-For cached replay, native ONNX ReID inference is used as a fallback when an embedding cache is missing. If the selected ReID model is a `.pt` file, BoxMOT exports it to a native OpenCV-compatible `*_opencv.onnx` cache file and reuses that export for the native run.
+When `--tracker-backend cpp` is set, embeddings generated for the cached replay path are also produced by the native C++ ReID and stored in a `__cpp`-suffixed cache bucket; the Python ReID backend is only used as a transparent fallback if the native C ABI cannot be loaded. See [Native C++ ReID with `--tracker-backend cpp`](../guides/evaluation.md#native-c-reid-with---tracker-backend-cpp) for the runtime knobs (`BOXMOT_REID_BACKEND`, `BOXMOT_REID_DEVICE`).
 
 For OBB replay, the native runner consumes 8-column OBB caches and writes MMOT-style corner outputs so the native replay stage matches the existing OBB evaluation pipeline.
 
