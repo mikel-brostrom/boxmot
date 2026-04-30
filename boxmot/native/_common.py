@@ -400,7 +400,7 @@ def _download_reid_pt_weights(weights: Path, *, display_name: str = "ReID") -> N
         if weights.exists():
             return
         LOGGER.info(
-            f"[PID {os.getpid()}] Downloading native {display_name} ReID weights "
+            f"[PID {os.getpid()}] Downloading native {display_name} weights "
             f"from {model_url} -> {weights}"
         )
         gdown.download(model_url, str(weights), quiet=False)
