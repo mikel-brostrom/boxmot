@@ -594,6 +594,11 @@ class WorkflowProgress:
         # If the compact live renderable still doesn't fit, switch to the
         # alternate screen so in-place updates don't pollute scrollback.
         if oversized and not self._uses_alt_screen and self._live is not None:
+            # Erase the in-place render before swapping to the alternate
+            # screen so the user doesn't end up with both the previous frame
+            # (persisted to scrollback) and the alt-screen frame (re-printed
+            # on stop) stacked on top of each other.
+            self._live.transient = True
             self._live.stop()
             self._live = None
             self._start_live(screen=True)
