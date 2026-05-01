@@ -18,5 +18,5 @@ abstract: >-
 title: "BoxMOT: pluggable state-of-the-art multi-object tracking modules"
 repository-code: "https://github.com/mikel-brostrom/boxmot"
 license: AGPL-3.0
-version: 19.0.0
+version: 20.0.0
 type: software
