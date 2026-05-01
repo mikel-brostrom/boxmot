@@ -66,9 +66,12 @@ jobs:
           git add pyproject.toml boxmot/__init__.py CITATION.cff
           if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
             git commit -m "${{ steps.get_version.outputs.commit_message }}"
-            git push
+            git push origin HEAD:master
           else
-            git commit -m "${{ steps.get_version.outputs.commit_message }} (testpypi)" || true
+            # Push to a throwaway branch so downstream jobs can check out the
+            # bumped commit by SHA without polluting master.
+            git commit -m "${{ steps.get_version.outputs.commit_message }} (testpypi)"
+            git push -f origin HEAD:refs/heads/ci/testpypi-bump
           fi
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
