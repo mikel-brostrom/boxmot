@@ -277,47 +277,43 @@ def _name_key(name: str | Path) -> str:
 # ---------------------------------------------------------------------------
 
 def native_onnx_cache_path(weights: Path) -> Path:
-    """Path of the OpenCV-compatible ONNX cache produced from a ``.pt`` file."""
-    return weights.with_name(f"{weights.stem}_opencv.onnx")
+    """Path of the ONNX cache produced from a ``.pt`` file.
+
+    The native cpp ReID path uses a plain ``<stem>.onnx`` sibling next to the
+    ``.pt`` weights so the cache is interoperable with any ONNX consumer.
+    """
+    return weights.with_suffix(".onnx")
 
 
 def resolve_reid_model_ref(reid_weights: str | Path | None) -> Path | None:
     """Resolve a user-provided ReID weight reference to a concrete file path.
 
-    Mirrors the lookup precedence used by the native trackers: prefer an
-    OpenCV-compatible ``*_opencv.onnx`` cache when one is available, otherwise
-    fall back to the original ONNX or PyTorch weights.
+    Lookup precedence used by the native trackers: prefer a sibling ``*.onnx``
+    cache when one is available, otherwise fall back to the original ONNX or
+    PyTorch weights.
     """
     if reid_weights is None:
         return None
 
     path = Path(reid_weights)
-    if path.suffix.lower() == ".onnx" and not path.stem.endswith("_opencv"):
-        resolved_onnx = resolve_model_path(path)
-        opencv_candidate = resolved_onnx.with_name(f"{resolved_onnx.stem}_opencv.onnx")
-        if opencv_candidate.exists():
-            return opencv_candidate
-        return resolved_onnx
+    if path.suffix.lower() == ".onnx":
+        return resolve_model_path(path)
 
     if path.suffix.lower() == ".pt":
         resolved_pt = resolve_model_path(path)
-        opencv_candidate = native_onnx_cache_path(resolved_pt)
-        if opencv_candidate.exists():
-            return opencv_candidate
+        onnx_candidate = native_onnx_cache_path(resolved_pt)
+        if onnx_candidate.exists():
+            return onnx_candidate
         return resolved_pt
 
     if not path.suffix:
         pt_candidate = resolve_model_path(path.with_suffix(".pt"))
-        opencv_candidate = native_onnx_cache_path(pt_candidate)
-        if opencv_candidate.exists():
-            return opencv_candidate
-        onnx_candidate = resolve_model_path(path.with_suffix(".onnx"))
+        onnx_candidate = native_onnx_cache_path(pt_candidate)
         if onnx_candidate.exists():
-            if not onnx_candidate.stem.endswith("_opencv"):
-                sibling_opencv = onnx_candidate.with_name(f"{onnx_candidate.stem}_opencv.onnx")
-                if sibling_opencv.exists():
-                    return sibling_opencv
             return onnx_candidate
+        explicit_onnx = resolve_model_path(path.with_suffix(".onnx"))
+        if explicit_onnx.exists():
+            return explicit_onnx
         return pt_candidate
     return resolve_model_path(path)
 

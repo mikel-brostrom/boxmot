@@ -104,7 +104,7 @@ def test_process_sequence_cpp_passes_onnx_reid_model_path(monkeypatch, tmp_path)
     assert timing == {"track_time_ms": 1.0, "num_frames": 1}
 
 
-def test_process_sequence_cpp_keeps_original_reid_cache_key_when_native_model_resolves_to_opencv_onnx(
+def test_process_sequence_cpp_keeps_original_reid_cache_key_when_native_model_resolves_to_onnx(
     monkeypatch,
     tmp_path,
 ):
@@ -112,13 +112,13 @@ def test_process_sequence_cpp_keeps_original_reid_cache_key_when_native_model_re
     monkeypatch.setattr(
         native_module,
         "_ensure_native_reid_model_path",
-        lambda _weights: Path("/weights/lmbn_n_duke_opencv.onnx"),
+        lambda _weights: Path("/weights/lmbn_n_duke.onnx"),
     )
 
     class FakePopen:
         def __init__(self, cmd, stdout, stderr, text, bufsize):
             assert cmd[cmd.index("--reid-name") + 1] == "lmbn_n_duke_pt_ort_cpp"
-            assert cmd[cmd.index("--reid-model") + 1] == "/weights/lmbn_n_duke_opencv.onnx"
+            assert cmd[cmd.index("--reid-model") + 1] == "/weights/lmbn_n_duke.onnx"
             self.stdout = StringIO(
                 '{"sequence":"MOT17-02-FRCNN","num_frames":1,"track_time_ms":1.0,"kept_frame_ids":[1]}\n'
             )
@@ -402,12 +402,10 @@ def test_ensure_native_reid_model_path_reuses_fresh_onnx(monkeypatch, tmp_path):
     assert resolved == onnx_path
 
 
-def test_resolve_reid_model_ref_prefers_native_opencv_cache_for_bare_name(monkeypatch, tmp_path):
+def test_resolve_reid_model_ref_prefers_native_onnx_cache_for_bare_name(monkeypatch, tmp_path):
     pt_path = tmp_path / "osnet_x0_25_msmt17.pt"
-    generic_onnx = tmp_path / "osnet_x0_25_msmt17.onnx"
-    native_onnx = tmp_path / "osnet_x0_25_msmt17_opencv.onnx"
+    native_onnx = tmp_path / "osnet_x0_25_msmt17.onnx"
     pt_path.touch()
-    generic_onnx.touch()
     native_onnx.touch()
 
     monkeypatch.setattr(
@@ -421,11 +419,9 @@ def test_resolve_reid_model_ref_prefers_native_opencv_cache_for_bare_name(monkey
     assert resolved == native_onnx
 
 
-def test_resolve_reid_model_ref_prefers_native_opencv_cache_for_generic_onnx(monkeypatch, tmp_path):
-    generic_onnx = tmp_path / "osnet_x0_25_msmt17.onnx"
-    native_onnx = tmp_path / "osnet_x0_25_msmt17_opencv.onnx"
-    generic_onnx.touch()
-    native_onnx.touch()
+def test_resolve_reid_model_ref_returns_explicit_onnx_as_is(monkeypatch, tmp_path):
+    explicit_onnx = tmp_path / "lmbn_n_duke.onnx"
+    explicit_onnx.touch()
 
     monkeypatch.setattr(
         native_common,
@@ -433,9 +429,9 @@ def test_resolve_reid_model_ref_prefers_native_opencv_cache_for_generic_onnx(mon
         lambda path: tmp_path / Path(path).name,
     )
 
-    resolved = native_module._resolve_reid_model_ref(generic_onnx)
+    resolved = native_module._resolve_reid_model_ref(explicit_onnx)
 
-    assert resolved == native_onnx
+    assert resolved == explicit_onnx
 
 
 def test_export_reid_to_onnx_uses_native_compatible_export_settings(monkeypatch, tmp_path):
@@ -464,7 +460,7 @@ def test_export_reid_to_onnx_uses_native_compatible_export_settings(monkeypatch,
 
     exported = native_module._export_reid_to_onnx(weights)
 
-    assert exported == tmp_path / "osnet_x0_25_msmt17_opencv.onnx"
+    assert exported == tmp_path / "osnet_x0_25_msmt17.onnx"
     assert captured["model"] is model
     assert captured["args"] == (dummy_input,)
     assert captured["path"] == exported
