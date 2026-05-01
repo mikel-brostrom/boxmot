@@ -65,12 +65,9 @@ if(BOXMOT_BUILD_NATIVE AND NOT _BOXMOT_NATIVE_OK)
             "compilation."
         )
     endif()
-    message(WARNING
-        "boxmot: skipping native (C++) tracker compilation. "
-        "Missing dependencies: ${_missing_str}. "
-        "Pure-Python trackers will still work. To enable the C++ backends "
-        "later, install the missing dependencies and run 'boxmot build', or "
-        "reinstall with the dependencies present."
+    message(STATUS
+        "boxmot: native C++ trackers disabled (missing: ${_missing_str}); "
+        "Python trackers available. Run 'boxmot build' after installing to enable."
     )
 endif()
 
