@@ -87,13 +87,14 @@ def _build_library() -> Path:
             str(build_dir),
             "-DCMAKE_BUILD_TYPE=Release",
         ]
-        configure = subprocess.run(configure_cmd, capture_output=True, text=True, check=False)
+        # Stream output live so the user sees progress.
+        print("[boxmot build] reid: configuring...", flush=True)
+        configure = subprocess.run(configure_cmd, check=False)
         if configure.returncode != 0:
             raise RuntimeError(
                 "Failed to configure native ReID C ABI.\n"
                 "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+, ONNX Runtime.\n"
-                f"Command: {' '.join(configure_cmd)}\n"
-                f"{configure.stderr.strip()}"
+                f"Command: {' '.join(configure_cmd)}"
             )
 
         build_cmd = [
@@ -104,14 +105,15 @@ def _build_library() -> Path:
             "Release",
             "--target",
             "reid_capi",
+            "--parallel",
         ]
-        build = subprocess.run(build_cmd, capture_output=True, text=True, check=False)
+        print("[boxmot build] reid: compiling...", flush=True)
+        build = subprocess.run(build_cmd, check=False)
         if build.returncode != 0:
             raise RuntimeError(
                 "Failed to build native ReID C ABI.\n"
                 "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+, ONNX Runtime.\n"
-                f"Command: {' '.join(build_cmd)}\n"
-                f"{build.stderr.strip()}"
+                f"Command: {' '.join(build_cmd)}"
             )
 
         for candidate in _candidate_libraries():

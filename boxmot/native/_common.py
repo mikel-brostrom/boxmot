@@ -171,15 +171,15 @@ def build_native_target(
             str(build_dir),
             "-DCMAKE_BUILD_TYPE=Release",
         ]
-        configure = subprocess.run(
-            configure_cmd, capture_output=True, text=True, check=False
-        )
+        # Stream output live so the user sees progress (CMake configure +
+        # build can take a minute or more for OpenCV-heavy trackers).
+        print(f"[boxmot build] {display_name}: configuring...", flush=True)
+        configure = subprocess.run(configure_cmd, check=False)
         if configure.returncode != 0:
             raise RuntimeError(
                 f"Failed to configure native {display_name}.\n"
                 "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+.\n"
-                f"Command: {' '.join(configure_cmd)}\n"
-                f"{configure.stderr.strip()}"
+                f"Command: {' '.join(configure_cmd)}"
             )
 
         build_cmd = [
@@ -190,14 +190,15 @@ def build_native_target(
             "Release",
             "--target",
             target,
+            "--parallel",
         ]
-        build = subprocess.run(build_cmd, capture_output=True, text=True, check=False)
+        print(f"[boxmot build] {display_name}: compiling...", flush=True)
+        build = subprocess.run(build_cmd, check=False)
         if build.returncode != 0:
             raise RuntimeError(
                 f"Failed to build native {display_name}.\n"
                 "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+.\n"
-                f"Command: {' '.join(build_cmd)}\n"
-                f"{build.stderr.strip()}"
+                f"Command: {' '.join(build_cmd)}"
             )
 
         for candidate in candidates:
