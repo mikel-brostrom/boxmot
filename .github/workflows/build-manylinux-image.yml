@@ -1,0 +1,73 @@
+name: Build manylinux OpenCV image
+
+# Builds and pushes a custom manylinux_2_28 image with OpenCV 4 + Eigen3
+# preinstalled, used by the wheel-build workflows so that cibuildwheel
+# doesn't have to rebuild OpenCV from source for every Python version.
+#
+# Trigger manually whenever you bump OPENCV_VERSION or the base manylinux
+# image. Pushes to ghcr.io/<owner>/boxmot-manylinux:opencv-<version>-<arch>
+# and a moving "latest" tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      opencv_version:
+        description: 'OpenCV version to bake into the image'
+        required: true
+        default: '4.10.0'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            base: quay.io/pypa/manylinux_2_28_x86_64:2024.10.07-1
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            base: quay.io/pypa/manylinux_2_28_aarch64:2024.10.07-1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          owner_lc=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          base="ghcr.io/${owner_lc}/boxmot-manylinux"
+          ver="${{ github.event.inputs.opencv_version }}"
+          arch="${{ matrix.arch }}"
+          {
+            echo "image=${base}"
+            echo "versioned=${base}:opencv-${ver}-${arch}"
+            echo "latest=${base}:latest-${arch}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/docker
+          file: .github/docker/manylinux-opencv.Dockerfile
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ matrix.base }}
+            OPENCV_VERSION=${{ github.event.inputs.opencv_version }}
+          tags: |
+            ${{ steps.tags.outputs.versioned }}
+            ${{ steps.tags.outputs.latest }}

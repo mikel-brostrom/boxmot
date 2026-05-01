@@ -54,21 +54,15 @@ jobs:
           CIBW_ARCHS: ${{ matrix.arch }}
           CIBW_BUILD: 'cp39-* cp310-* cp311-* cp312-*'
           CIBW_SKIP: '*-musllinux_* *-manylinux_i686 pp*'
-          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
-          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
+          # Use prebuilt manylinux_2_28 images that already contain OpenCV 4 +
+          # Eigen3 (built and pushed by .github/workflows/build-manylinux-image.yml).
+          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/${{ github.repository_owner }}/boxmot-manylinux:latest-x86_64
+          CIBW_MANYLINUX_AARCH64_IMAGE: ghcr.io/${{ github.repository_owner }}/boxmot-manylinux:latest-aarch64
           CIBW_BEFORE_ALL_LINUX: |
             set -euo pipefail
-            if command -v dnf >/dev/null; then
-              dnf install -y dnf-plugins-core epel-release
-              dnf config-manager --set-enabled powertools 2>/dev/null \
-                || dnf config-manager --set-enabled crb 2>/dev/null || true
-              dnf install -y cmake gcc-c++ opencv-devel eigen3-devel
-            elif command -v apt-get >/dev/null; then
+            if command -v apt-get >/dev/null; then
               apt-get update
               apt-get install -y cmake g++ libopencv-dev libeigen3-dev
-            else
-              echo "Unsupported package manager in container" >&2
-              exit 1
             fi
           CIBW_BEFORE_ALL_MACOS: |
             brew install cmake opencv eigen
