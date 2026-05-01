@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -111,6 +112,62 @@ def _build_tracker(tracker_name: str, backend: str, *, reid_weights, device: str
     )
 
 
+_PROVIDER_TO_DEVICE = {
+    "CUDAExecutionProvider": "cuda",
+    "TensorrtExecutionProvider": "cuda",
+    "CoreMLExecutionProvider": "coreml",
+    "CPUExecutionProvider": "cpu",
+}
+
+
+def _resolve_reid_label(tracker, tracker_name: str, backend: str, reid_weights, device: str) -> str:
+    """Best-effort label for the ReID runtime actually used by the tracker.
+
+    Examples: ``pt-cuda``, ``onnx-coreml``, ``onnx-cpu``, ``onnx-cuda``.
+    Returns ``"—"`` for non-ReID trackers.
+    """
+    if tracker_name not in REID_TRACKERS:
+        return "—"
+
+    if backend == "cpp":
+        env_be = os.environ.get("BOXMOT_REID_BACKEND", "").lower()
+        fmt = "opencv" if env_be in {"opencv", "dnn"} else "onnx"
+        env_dev = os.environ.get("BOXMOT_REID_DEVICE", "").lower()
+        if env_dev in {"cpu", "cuda", "gpu", "coreml", "mps", "metal"}:
+            dev = {"gpu": "cuda", "mps": "coreml", "metal": "coreml"}.get(env_dev, env_dev)
+        elif sys.platform == "darwin":
+            dev = "coreml"
+        elif sys.platform.startswith("linux") or sys.platform == "win32":
+            dev = "cuda"  # ORT falls back to cpu if EP unavailable
+        else:
+            dev = "cpu"
+        return f"{fmt}-{dev}"
+
+    # Python path: introspect the live ReID model.
+    model = getattr(tracker, "model", None)
+    if model is None:
+        suffix = Path(str(reid_weights)).suffix.lower().lstrip(".") or "pt"
+        return f"{suffix}-{device}"
+    cls = model.__class__.__name__
+    fmt_map = {
+        "PyTorchBackend": "pt",
+        "ONNXBackend": "onnx",
+        "TorchscriptBackend": "torchscript",
+        "TensorRTBackend": "tensorrt",
+        "OpenVinoBackend": "openvino",
+        "TFLiteBackend": "tflite",
+    }
+    fmt = fmt_map.get(cls, cls.replace("Backend", "").lower())
+    if cls == "ONNXBackend":
+        session = getattr(model, "session", None)
+        providers = list(session.get_providers()) if session is not None else []
+        dev = next((_PROVIDER_TO_DEVICE[p] for p in providers if p in _PROVIDER_TO_DEVICE), device)
+    else:
+        dev_obj = getattr(model, "device", device)
+        dev = str(getattr(dev_obj, "type", dev_obj))
+    return f"{fmt}-{dev}"
+
+
 def _measure(
     tracker_name: str,
     backend: str,
@@ -149,6 +206,7 @@ def _measure(
     elapsed = time.perf_counter() - t0
     fps = n_frames / elapsed if elapsed > 0 else float("inf")
     uses_reid = tracker_name in REID_TRACKERS
+    reid_label = _resolve_reid_label(tracker, tracker_name, backend, reid_weights, device)
     return {
         "tracker": tracker_name,
         "backend": backend,
@@ -157,7 +215,8 @@ def _measure(
         "elapsed_s": round(elapsed, 4),
         "fps": round(fps, 2),
         "ms_per_frame": round(1000.0 * elapsed / max(1, n_frames), 3),
-        "reid": str(reid_weights) if uses_reid else "",
+        "reid_weights": str(reid_weights) if uses_reid else "",
+        "reid_backend": reid_label,
     }
 
 
@@ -176,12 +235,12 @@ def _parse_int_csv(text: str | None, default: Iterable[int]) -> list[int]:
 def _print_table(rows: list[dict]) -> None:
     if Console is None or Table is None:
         # Fallback plain text
-        header = f"{'tracker':<12} {'backend':<8} {'n_dets':>7} {'fps':>10} {'ms/frame':>10}"
+        header = f"{'tracker':<12} {'backend':<8} {'reid':<14} {'n_dets':>7} {'fps':>10} {'ms/frame':>10}"
         print(header)
         print("-" * len(header))
         for row in rows:
             print(
-                f"{row['tracker']:<12} {row['backend']:<8} {row['n_dets']:>7} "
+                f"{row['tracker']:<12} {row['backend']:<8} {row.get('reid_backend', '—'):<14} {row['n_dets']:>7} "
                 f"{row['fps']:>10.2f} {row['ms_per_frame']:>10.3f}"
             )
         return
@@ -190,6 +249,7 @@ def _print_table(rows: list[dict]) -> None:
     table = Table(title="BoxMOT tracker FPS (synthetic detections; ReID included for ReID trackers)")
     table.add_column("tracker", style="bold")
     table.add_column("backend")
+    table.add_column("reid backend")
     table.add_column("n_dets", justify="right")
     table.add_column("frames", justify="right")
     table.add_column("elapsed (s)", justify="right")
@@ -199,6 +259,7 @@ def _print_table(rows: list[dict]) -> None:
         table.add_row(
             row["tracker"],
             row["backend"],
+            row.get("reid_backend", "—"),
             str(row["n_dets"]),
             str(row["frames"]),
             f"{row['elapsed_s']:.3f}",
@@ -308,6 +369,8 @@ def main(argv: list[str] | None = None) -> int:
                             "elapsed_s": 0.0,
                             "fps": 0.0,
                             "ms_per_frame": 0.0,
+                            "reid_weights": str(args.reid) if tracker_name in REID_TRACKERS else "",
+                            "reid_backend": "—",
                             "error": f"{exc.__class__.__name__}: {exc}",
                         }
                     )
@@ -325,7 +388,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.csv:
         import csv
 
-        keys = ["tracker", "backend", "n_dets", "frames", "elapsed_s", "fps", "ms_per_frame", "reid", "error"]
+        keys = ["tracker", "backend", "reid_backend", "reid_weights", "n_dets", "frames", "elapsed_s", "fps", "ms_per_frame", "error"]
         with open(args.csv, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=keys)
             writer.writeheader()
