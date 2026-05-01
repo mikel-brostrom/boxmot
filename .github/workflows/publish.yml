@@ -1,8 +1,6 @@
 name: Publish to PyPI
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       pypi:
@@ -24,80 +22,196 @@ on:
           - major
 
 jobs:
-  pypi-upload:
-    name: Publish
+  # ------------------------------------------------------------------
+  # 1. Bump version, commit, push.
+  # ------------------------------------------------------------------
+  bump_version:
+    name: Bump version
     runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.get_version.outputs.new_version }}
+      commit_message: ${{ steps.get_version.outputs.commit_message }}
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          # Personal Access Token (PAT) so that git push
-          # is authenticated such that you and can bypass the protected ref
           token: ${{ secrets.RELEASE_PAT }}
 
-      - name: Set up Python environment
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel uv poetry
-          uv sync
+      - name: Install bump tooling
+        run: python -m pip install --upgrade pip poetry
 
-      - name: Increase uv path version and add
+      - name: Bump pyproject version
         id: get_version
         run: |
-          source .venv/bin/activate
           git config --local user.email yolov5.deepsort.pytorch@gmail.com
           git config --local user.name mikel-brostrom
           bump_type=${{ github.event.inputs.bump_type }}
           commit_message=$(poetry version $bump_type)
           new_version=$(echo $commit_message | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
-          git add pyproject.toml
-          uv build --no-sources
           echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
-          du -sh dist/*
-        if: ${{ success() }}
 
-      - name: Update __init__.py version and add
+      - name: Sync version into __init__.py and CITATION.cff
         run: |
           sed -i "s/__version__ = '.*'/__version__ = '${{ steps.get_version.outputs.new_version }}'/" boxmot/__init__.py
-          git add boxmot/__init__.py
-        if: ${{ success() }}
-
-      - name: Update citation pkg version and add
-        run: |
           sed -i "s/^version: .*/version: ${{ steps.get_version.outputs.new_version }}/" CITATION.cff
-          git add CITATION.cff
-        if: ${{ success() }}
 
-      - name: Commit and push updated version
+      - name: Commit and push
+        id: commit
         run: |
+          git add pyproject.toml boxmot/__init__.py CITATION.cff
           if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
             git commit -m "${{ steps.get_version.outputs.commit_message }}"
             git push
+          else
+            git commit -m "${{ steps.get_version.outputs.commit_message }} (testpypi)" || true
           fi
-        if: ${{ success() }}
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Publish to PyPI
+  # ------------------------------------------------------------------
+  # 2. Build manylinux/macosx/windows wheels via cibuildwheel.
+  # ------------------------------------------------------------------
+  build_wheels:
+    name: Wheel ${{ matrix.os }} (${{ matrix.arch }})
+    needs: bump_version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+          - os: macos-13
+            arch: x86_64
+          - os: macos-14
+            arch: arm64
+          - os: windows-latest
+            arch: AMD64
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump_version.outputs.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install cibuildwheel
+        run: python -m pip install --upgrade pip cibuildwheel==2.21.3
+
+      - name: Build wheels
+        env:
+          CIBW_ARCHS: ${{ matrix.arch }}
+          CIBW_BUILD: 'cp39-* cp310-* cp311-* cp312-*'
+          CIBW_SKIP: '*-musllinux_* *-manylinux_i686 pp*'
+          CIBW_BEFORE_ALL_LINUX: |
+            if command -v dnf >/dev/null; then
+              dnf install -y cmake gcc-c++ opencv-devel eigen3-devel
+            else
+              apt-get update && apt-get install -y cmake g++ libopencv-dev libeigen3-dev
+            fi
+          CIBW_BEFORE_ALL_MACOS: |
+            brew install cmake opencv eigen
+          CIBW_BEFORE_ALL_WINDOWS: |
+            choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+            vcpkg install opencv4 eigen3 --triplet x64-windows
+          CIBW_ENVIRONMENT_WINDOWS: >-
+            CMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+            VCPKG_TARGET_TRIPLET=x64-windows
+            CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON
+          CIBW_ENVIRONMENT_LINUX: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON'
+          CIBW_ENVIRONMENT_MACOS: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON'
+          CIBW_TEST_COMMAND: 'python -c "import boxmot; print(boxmot.__version__)"'
+        run: python -m cibuildwheel --output-dir wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+
+  # ------------------------------------------------------------------
+  # 3. Build sdist.
+  # ------------------------------------------------------------------
+  build_sdist:
+    name: Build sdist
+    needs: bump_version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump_version.outputs.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  # ------------------------------------------------------------------
+  # 4. Collect everything and publish.
+  # ------------------------------------------------------------------
+  publish:
+    name: Publish to ${{ github.event.inputs.pypi }}
+    needs: [bump_version, build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: python -m pip install --upgrade pip uv
+
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+
+      - name: Download sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+
+      - name: List artifacts
+        run: ls -lh dist/
+
+      - name: Publish
         run: |
           if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
-            uv publish --token ${{ secrets.PYPI_TOKEN }}
+            uv publish --token ${{ secrets.PYPI_TOKEN }} dist/*
           else
-            uv publish --index testpypi --token ${{ secrets.TEST_PYPI_TOKEN }}
+            uv publish --index testpypi --token ${{ secrets.TEST_PYPI_TOKEN }} dist/*
           fi
-        if: ${{ success() }}
 
-      - name: Create code release
-        id: create_release
-        uses: actions/create-release@v1
+  # ------------------------------------------------------------------
+  # 5. Tag a GitHub release (only on real PyPI publishes).
+  # ------------------------------------------------------------------
+  release:
+    name: Create GitHub release
+    needs: [bump_version, publish]
+    if: ${{ github.event.inputs.pypi == 'pypi' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ steps.get_version.outputs.new_version }}
-          release_name: Release v${{ steps.get_version.outputs.new_version }}
+          tag_name: v${{ needs.bump_version.outputs.new_version }}
+          release_name: Release v${{ needs.bump_version.outputs.new_version }}
           draft: false
           prerelease: false
-        if: ${{ success() }}
