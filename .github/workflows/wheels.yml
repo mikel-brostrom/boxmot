@@ -66,7 +66,10 @@ jobs:
             fi
           CIBW_BEFORE_ALL_MACOS: |
             brew install cmake opencv eigen
-          CIBW_ENVIRONMENT_LINUX: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON'
+          # LD_LIBRARY_PATH lets auditwheel locate the OpenCV shared libs
+          # installed under /usr/local/{lib,lib64} in the custom manylinux image
+          # so they can be vendored into the repaired wheel.
+          CIBW_ENVIRONMENT_LINUX: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON LD_LIBRARY_PATH=/usr/local/lib64:/usr/local/lib:$LD_LIBRARY_PATH'
           # Match wheel platform tag to the Homebrew bottles' minimum target.
           # macos-14 (arm64) ships bottles built for 14.0; macos-13 for 13.0.
           CIBW_ENVIRONMENT_MACOS: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_target }}'
