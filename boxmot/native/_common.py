@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import queue
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +27,184 @@ PROGRESS_PREFIX = "BOXMOT_PROGRESS\t"
 
 # Module-wide lock used to serialize potentially expensive ONNX exports.
 EXPORT_LOCK = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
+# Native source/build/install layout
+# ---------------------------------------------------------------------------
+
+def package_native_root() -> Path:
+    """Return the ``boxmot/native`` directory inside the installed package."""
+    return Path(__file__).resolve().parent
+
+
+def repo_root() -> Path:
+    """Return the repository root.
+
+    Only valid for editable / source checkouts. Wheels installed via pip will
+    typically not have a meaningful repo root above the package, so callers
+    must treat the returned path as best-effort.
+    """
+    return Path(__file__).resolve().parents[2]
+
+
+def tracker_source_dir(name: str) -> Path:
+    """Directory containing the C++ sources for a given native tracker.
+
+    After the relocation of ``native/trackers`` into the package, this lives
+    at ``boxmot/native/trackers/<name>``. The path is the same whether the
+    package is imported from a source checkout or an installed wheel.
+    """
+    return package_native_root() / "trackers" / str(name)
+
+
+def tracker_build_dir(name: str) -> Path:
+    """Out-of-tree CMake build directory used by editable / dev installs.
+
+    Located at ``<repo>/build/native/<name>``. Wheels never write here.
+    """
+    return repo_root() / "build" / "native" / str(name)
+
+
+def installed_library_candidates(name: str, lib_filename: str) -> list[Path]:
+    """Where scikit-build-core places the shared library inside the wheel.
+
+    The build configuration installs the shared library beside the C++ source
+    directory so it ships with the package and is loadable without re-running
+    CMake at runtime.
+    """
+    src = tracker_source_dir(name)
+    return [src / lib_filename, src / "lib" / lib_filename]
+
+
+def installed_executable_candidates(name: str, exe_filename: str) -> list[Path]:
+    """Where the native replay executable is shipped inside the wheel."""
+    src = tracker_source_dir(name)
+    return [src / exe_filename, src / "bin" / exe_filename]
+
+
+def build_library_candidates(name: str, lib_filename: str) -> list[Path]:
+    """Editable-install fallback locations for the shared library."""
+    bd = tracker_build_dir(name)
+    return [bd / lib_filename, bd / "Release" / lib_filename, bd / "Debug" / lib_filename]
+
+
+def build_executable_candidates(name: str, exe_filename: str) -> list[Path]:
+    """Editable-install fallback locations for the replay executable."""
+    bd = tracker_build_dir(name)
+    return [bd / exe_filename, bd / "Release" / exe_filename, bd / "Debug" / exe_filename]
+
+
+# ---------------------------------------------------------------------------
+# Platform-aware filename + candidate helpers (per-tracker convenience)
+# ---------------------------------------------------------------------------
+
+def executable_filename(tracker_name: str) -> str:
+    """Return the replay executable filename for a tracker on the current OS.
+
+    Convention: ``<tracker>_replay`` (with ``.exe`` on Windows).
+    """
+    return f"{tracker_name}_replay.exe" if os.name == "nt" else f"{tracker_name}_replay"
+
+
+def library_filename(tracker_name: str) -> str:
+    """Return the C-API shared library filename for a tracker on the current OS.
+
+    Convention: ``<tracker>_capi`` with the platform's shared-library suffix.
+    """
+    if os.name == "nt":
+        return f"{tracker_name}_capi.dll"
+    if sys.platform == "darwin":
+        return f"{tracker_name}_capi.dylib"
+    return f"{tracker_name}_capi.so"
+
+
+def candidate_executables(tracker_name: str) -> list[Path]:
+    """Installed-then-built search paths for the replay executable."""
+    name = executable_filename(tracker_name)
+    return (
+        installed_executable_candidates(tracker_name, name)
+        + build_executable_candidates(tracker_name, name)
+    )
+
+
+def candidate_libraries(tracker_name: str) -> list[Path]:
+    """Installed-then-built search paths for the C-API shared library."""
+    name = library_filename(tracker_name)
+    return (
+        installed_library_candidates(tracker_name, name)
+        + build_library_candidates(tracker_name, name)
+    )
+
+
+def build_native_target(
+    *,
+    tracker_name: str,
+    display_name: str,
+    target: str,
+    candidates: list[Path],
+    force_rebuild: bool,
+    not_found_message: str,
+    build_lock: threading.Lock,
+) -> Path:
+    """Configure and build a single CMake target for a native tracker.
+
+    Returns the first existing candidate path after the build (or before, if
+    one already exists and ``force_rebuild`` is False). Raises ``RuntimeError``
+    on configure/build failure or if the expected artifact is still missing.
+    """
+    with build_lock:
+        if not force_rebuild:
+            for candidate in candidates:
+                if candidate.exists():
+                    return candidate
+
+        source_dir = tracker_source_dir(tracker_name)
+        build_dir = tracker_build_dir(tracker_name)
+        build_dir.mkdir(parents=True, exist_ok=True)
+
+        configure_cmd = [
+            "cmake",
+            "-S",
+            str(source_dir),
+            "-B",
+            str(build_dir),
+            "-DCMAKE_BUILD_TYPE=Release",
+        ]
+        configure = subprocess.run(
+            configure_cmd, capture_output=True, text=True, check=False
+        )
+        if configure.returncode != 0:
+            raise RuntimeError(
+                f"Failed to configure native {display_name}.\n"
+                "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+.\n"
+                f"Command: {' '.join(configure_cmd)}\n"
+                f"{configure.stderr.strip()}"
+            )
+
+        build_cmd = [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--config",
+            "Release",
+            "--target",
+            target,
+        ]
+        build = subprocess.run(build_cmd, capture_output=True, text=True, check=False)
+        if build.returncode != 0:
+            raise RuntimeError(
+                f"Failed to build native {display_name}.\n"
+                "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+.\n"
+                f"Command: {' '.join(build_cmd)}\n"
+                f"{build.stderr.strip()}"
+            )
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+        raise RuntimeError(not_found_message)
 
 
 # ---------------------------------------------------------------------------
@@ -50,24 +231,45 @@ def cached_embedding_path(
     *,
     dataset_name: str | None = None,
     preprocess_name: str | None = None,
+    tracker_backend: str | None = None,
 ) -> Path:
-    """Return the expected path of a cached embedding ``.npy`` for a sequence."""
+    """Return the expected path of a cached embedding ``.npy`` for a sequence.
+
+    The canonical bucket name comes from :func:`boxmot.data.cache.reid_cache_key`
+    (e.g. ``lmbn_n_duke_onnx_ort``). When the canonical file is missing we
+    transparently fall back to historical cache keys via
+    :func:`boxmot.data.cache.legacy_reid_cache_keys` so on-disk caches
+    generated by older versions remain loadable. The C++ runtime never
+    consults Python-only legacy buckets.
+    """
+    from boxmot.data.cache import legacy_reid_cache_keys, reid_cache_key
+
     detector_key = _stem_key(detector_name)
-    reid_key = _stem_key(reid_name)
     preprocess_key = str(preprocess_name or "resize")
-    return (
-        dets_n_embs_root(project_root, dataset_name)
-        / detector_key
-        / "embs"
-        / reid_key
-        / preprocess_key
-        / f"{sequence_name}.npy"
-    )
+    embs_root = dets_n_embs_root(project_root, dataset_name) / detector_key / "embs"
+
+    canonical_key = reid_cache_key(reid_name, tracker_backend=tracker_backend)
+    canonical_path = embs_root / canonical_key / preprocess_key / f"{sequence_name}.npy"
+    if canonical_path.exists():
+        return canonical_path
+
+    for legacy_key in legacy_reid_cache_keys(reid_name, tracker_backend=tracker_backend):
+        if legacy_key == canonical_key:
+            continue
+        legacy_path = embs_root / legacy_key / preprocess_key / f"{sequence_name}.npy"
+        if legacy_path.exists():
+            return legacy_path
+    return canonical_path
 
 
 def _stem_key(name: str | Path) -> str:
     path = Path(name)
     return path.stem if path.suffix else str(name)
+
+
+def _name_key(name: str | Path) -> str:
+    path = Path(name)
+    return path.name if path.suffix else str(name)
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +375,37 @@ def export_reid_to_onnx(weights: Path, *, display_name: str = "ReID") -> Path:
     return onnx_path
 
 
+def _download_reid_pt_weights(weights: Path, *, display_name: str = "ReID") -> None:
+    """Auto-download a known ReID ``.pt`` checkpoint into ``weights``.
+
+    Mirrors the lazy download performed by ``BaseModelBackend.download_model``
+    so the native cpp ReID path matches the Python path's UX (e.g. CI runners
+    that have never cached the weights locally).
+    """
+    try:
+        import gdown  # noqa: WPS433 (runtime import to avoid hard dep at import-time)
+        from filelock import SoftFileLock  # noqa: WPS433
+        from boxmot.reid.core.registry import ReIDModelRegistry  # noqa: WPS433
+        from boxmot.utils import logger as LOGGER  # noqa: WPS433
+    except Exception:  # pragma: no cover - if optional deps missing, fall through
+        return
+
+    weights.parent.mkdir(parents=True, exist_ok=True)
+    model_url = ReIDModelRegistry.get_model_url(weights)
+    if not model_url:
+        return
+
+    lock = SoftFileLock(str(weights) + ".lock", timeout=300)
+    with lock:
+        if weights.exists():
+            return
+        LOGGER.info(
+            f"[PID {os.getpid()}] Downloading native {display_name} weights "
+            f"from {model_url} -> {weights}"
+        )
+        gdown.download(model_url, str(weights), quiet=False)
+
+
 def ensure_native_reid_model_path(
     reid_weights: str | Path | None,
     *,
@@ -198,6 +431,8 @@ def ensure_native_reid_model_path(
             f"Native {display_name} ReID supports ONNX directly and can auto-export "
             f"PyTorch '.pt' weights only: {resolved}"
         )
+    if not resolved.exists():
+        _download_reid_pt_weights(resolved, display_name=display_name)
     if not resolved.exists():
         raise FileNotFoundError(f"Native {display_name} ReID weights not found: {resolved}")
 

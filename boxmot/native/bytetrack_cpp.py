@@ -26,46 +26,7 @@ _PROGRESS_PREFIX = _common.PROGRESS_PREFIX
 _NATIVE_DISPLAY_NAME = "ByteTrack"
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _source_dir() -> Path:
-    return _repo_root() / "native" / "trackers" / "bytetrack"
-
-
-def _build_dir() -> Path:
-    return _repo_root() / "build" / "native" / "bytetrack"
-
-
-def _executable_name() -> str:
-    return "bytetrack_replay.exe" if os.name == "nt" else "bytetrack_replay"
-
-
-def _candidate_executables() -> list[Path]:
-    build_dir = _build_dir()
-    return [
-        build_dir / _executable_name(),
-        build_dir / "Release" / _executable_name(),
-        build_dir / "Debug" / _executable_name(),
-    ]
-
-
-def _library_name() -> str:
-    if os.name == "nt":
-        return "bytetrack_capi.dll"
-    if sys.platform == "darwin":
-        return "bytetrack_capi.dylib"
-    return "bytetrack_capi.so"
-
-
-def _candidate_libraries() -> list[Path]:
-    build_dir = _build_dir()
-    return [
-        build_dir / _library_name(),
-        build_dir / "Release" / _library_name(),
-        build_dir / "Debug" / _library_name(),
-    ]
+_TRACKER_NAME = "bytetrack"
 
 
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
@@ -80,69 +41,22 @@ def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     return resolved
 
 
-def _build_target(
-    *,
-    target: str,
-    candidates: list[Path],
-    force_rebuild: bool,
-    not_found_message: str,
-) -> Path:
-    with _BUILD_LOCK:
-        if not force_rebuild:
-            for candidate in candidates:
-                if candidate.exists():
-                    return candidate
-
-        source_dir = _source_dir()
-        build_dir = _build_dir()
-        build_dir.mkdir(parents=True, exist_ok=True)
-
-        configure_cmd = [
-            "cmake",
-            "-S",
-            str(source_dir),
-            "-B",
-            str(build_dir),
-            "-DCMAKE_BUILD_TYPE=Release",
-        ]
-        configure = subprocess.run(configure_cmd, capture_output=True, text=True, check=False)
-        if configure.returncode != 0:
-            raise RuntimeError(
-                "Failed to configure native ByteTrack.\n"
-                "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+.\n"
-                f"Command: {' '.join(configure_cmd)}\n"
-                f"{configure.stderr.strip()}"
-            )
-
-        build_cmd = [
-            "cmake",
-            "--build",
-            str(build_dir),
-            "--config",
-            "Release",
-            "--target",
-            target,
-        ]
-        build = subprocess.run(build_cmd, capture_output=True, text=True, check=False)
-        if build.returncode != 0:
-            raise RuntimeError(
-                "Failed to build native ByteTrack.\n"
-                "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+.\n"
-                f"Command: {' '.join(build_cmd)}\n"
-                f"{build.stderr.strip()}"
-            )
-
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
-        raise RuntimeError(not_found_message)
+def _build_target(*, target: str, candidates: list[Path], force_rebuild: bool, not_found_message: str) -> Path:
+    return _common.build_native_target(
+        tracker_name=_TRACKER_NAME,
+        display_name=_NATIVE_DISPLAY_NAME,
+        target=target,
+        candidates=candidates,
+        force_rebuild=force_rebuild,
+        not_found_message=not_found_message,
+        build_lock=_BUILD_LOCK,
+    )
 
 
 def ensure_bytetrack_cpp_executable(force_rebuild: bool = False) -> Path:
     return _build_target(
         target="bytetrack_replay",
-        candidates=_candidate_executables(),
+        candidates=_common.candidate_executables(_TRACKER_NAME),
         force_rebuild=force_rebuild,
         not_found_message="Native ByteTrack build succeeded but the bytetrack_replay executable was not found.",
     )
@@ -151,7 +65,7 @@ def ensure_bytetrack_cpp_executable(force_rebuild: bool = False) -> Path:
 def ensure_bytetrack_cpp_library(force_rebuild: bool = False) -> Path:
     return _build_target(
         target="bytetrack_capi",
-        candidates=_candidate_libraries(),
+        candidates=_common.candidate_libraries(_TRACKER_NAME),
         force_rebuild=force_rebuild,
         not_found_message="Native ByteTrack build succeeded but the bytetrack_capi shared library was not found.",
     )

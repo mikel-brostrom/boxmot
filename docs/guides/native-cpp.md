@@ -15,10 +15,13 @@ Supported native tracker directories:
 
 | Tracker | Directory | Core target | Main C++ class |
 | --- | --- | --- | --- |
-| ByteTrack | `native/trackers/bytetrack` | `bytetrack_core` | `bytetrack::ByteTrackTracker` |
-| BoTSORT | `native/trackers/botsort` | `botsort_core` | `botsort::BotSortTracker` |
-| OCSORT | `native/trackers/ocsort` | `ocsort_core` | `ocsort::OCSortTracker` |
-| SFSORT | `native/trackers/sfsort` | `sfsort_core` | `sfsort::SFSORTTracker` |
+| ByteTrack | `boxmot/native/trackers/bytetrack` | `bytetrack_core` | `bytetrack::ByteTrackTracker` |
+| BoTSORT | `boxmot/native/trackers/botsort` | `botsort_core` | `botsort::BotSortTracker` |
+| OccluBoost | `boxmot/native/trackers/occluboost` | `occluboost_core` | `occluboost::OccluBoostTracker` |
+| OCSORT | `boxmot/native/trackers/ocsort` | `ocsort_core` | `ocsort::OCSortTracker` |
+| SFSORT | `boxmot/native/trackers/sfsort` | `sfsort_core` | `sfsort::SFSORTTracker` |
+
+ReID for ReID-using trackers (currently BoTSORT and OccluBoost) is provided by the shared library under `boxmot/native/trackers/base/` (target `boxmot_trackers_base`), which exposes `boxmot::trackers::base::OnnxReIdModel`. Linking against `<tracker>_core` already pulls in this dependency.
 
 ## Requirements
 
@@ -32,7 +35,7 @@ Supported native tracker directories:
 From the BoxMOT repo root:
 
 ```bash
-cmake -S native/trackers/bytetrack -B build/native/bytetrack -DCMAKE_BUILD_TYPE=Release
+cmake -S boxmot/native/trackers/bytetrack -B build/native/bytetrack -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native/bytetrack --config Release --target bytetrack_core
 ```
 
@@ -65,7 +68,7 @@ if(NOT BOXMOT_ROOT)
 endif()
 
 add_subdirectory(
-    "${BOXMOT_ROOT}/native/trackers/bytetrack"
+    "${BOXMOT_ROOT}/boxmot/native/trackers/bytetrack"
     "${CMAKE_BINARY_DIR}/boxmot_bytetrack"
 )
 
@@ -194,12 +197,17 @@ detection.det_ind = detector_row_index;
 
 Do not switch between AABB and OBB detections in the same tracker instance. Create a new tracker or call `Reset()` before changing detection geometry.
 
-## BoTSORT With ReID
+## BoTSORT / OccluBoost With ReID
 
-BoTSORT can run without ReID by setting `config.with_reid = false`, or it can use appearance features:
+BoTSORT and OccluBoost can run without ReID by setting `config.with_reid = false`, or they can use appearance features. Two equivalent paths are supported:
 
-- Fill `botsort::Detection::embedding` yourself from your own ReID model.
-- Or set `config.reid_model_path` to a native-compatible ONNX model so the tracker can compute embeddings internally.
+- Fill the `embedding` field on each detection yourself from your own ReID model.
+- Or set `config.reid_model_path` to a native-compatible ONNX model so the tracker computes embeddings internally through the shared native `OnnxReIdModel`.
+
+The internal ReID runtime can be selected at construction time, or via environment variables shared with the Python path:
+
+- `BOXMOT_REID_BACKEND` — `ort` / `onnxruntime` (default) or `opencv` / `dnn` to use `cv2.dnn`.
+- `BOXMOT_REID_DEVICE` — `cpu`, `cuda`, `coreml`, or `auto`.
 
 For detector-only C++ examples, ByteTrack, OCSORT, and SFSORT are simpler because they do not require ReID inputs.
 
@@ -208,8 +216,8 @@ For detector-only C++ examples, ByteTrack, OCSORT, and SFSORT are simpler becaus
 If you need a C ABI instead of the C++ classes, build the shared target:
 
 ```bash
-cmake -S native/trackers/bytetrack -B build/native/bytetrack -DCMAKE_BUILD_TYPE=Release
+cmake -S boxmot/native/trackers/bytetrack -B build/native/bytetrack -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native/bytetrack --config Release --target bytetrack_capi
 ```
 
-The public ABI is declared in `native/trackers/bytetrack/include/bytetrack/c_api.hpp`.
+The public ABI is declared in `boxmot/native/trackers/bytetrack/include/bytetrack/c_api.hpp`.

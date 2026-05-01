@@ -151,7 +151,28 @@ class MOTDataset:
             preprocess_name = reid_preprocess or DEFAULT_PREPROCESS
             base = Path(det_emb_root) / model_name
             self.dets_dir = base / "dets"
-            self.embs_dir = base / "embs" / reid_name / preprocess_name
+            embs_root = base / "embs"
+            self.embs_dir = embs_root / reid_name / preprocess_name
+            # Back-compat: if the (suffix-included) directory does not exist
+            # but the legacy stem-only directory does, prefer the legacy one
+            # so existing on-disk caches keep working.
+            #
+            # Restricted to ``.pt`` requests because the legacy layout was
+            # only ever populated by the PyTorch runtime; reusing it for
+            # ``.onnx`` (or other formats) would silently consume PyTorch
+            # embeddings as if they belonged to a different model.
+            if not self.embs_dir.exists():
+                from pathlib import Path as _Path
+                _name_path = _Path(reid_name)
+                stem = _name_path.stem if _name_path.suffix else str(reid_name)
+                if (
+                    stem
+                    and stem != reid_name
+                    and _name_path.suffix.lower() == ".pt"
+                ):
+                    legacy_dir = embs_root / stem / preprocess_name
+                    if legacy_dir.exists():
+                        self.embs_dir = legacy_dir
         else:
             self.dets_dir = self.embs_dir = None
 

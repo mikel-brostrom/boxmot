@@ -81,7 +81,7 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">13</td>
       <td align="center">❌</td>
       <td align="right">70.48</td>
-      <td align="right">78.32</td>
+      <td align="right">78.31</td>
       <td align="right">84.14</td>
       <td align="right">—</td>
       <td align="center">❌</td>

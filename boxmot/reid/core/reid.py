@@ -14,6 +14,7 @@ from boxmot.reid.backends.pytorch_backend import PyTorchBackend
 from boxmot.reid.backends.tensorrt_backend import TensorRTBackend
 from boxmot.reid.backends.tflite_backend import TFLiteBackend
 from boxmot.reid.backends.torchscript_backend import TorchscriptBackend
+from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device
@@ -42,7 +43,13 @@ class ReID:
         self.weights = model_ref
         self.device = device if isinstance(device, torch.device) else select_device(device)
         self.half = bool(half)
-        self.preprocess_name = "resize_pad"
+        # Honour the caller-provided preprocessing choice. ReID models in the
+        # zoo (OSNet, LMBN, etc.) are trained with plain ``cv2.resize`` to the
+        # input shape, so we fall back to the registry default (``"resize"``)
+        # rather than letterbox-padding the crop. Hardcoding ``"resize_pad"``
+        # here was a regression that silently changed embedding distributions
+        # and degraded IDF1 versus the v17 baseline.
+        self.preprocess_name = preprocess_name or DEFAULT_PREPROCESS
         (
             self.pt,
             self.jit,

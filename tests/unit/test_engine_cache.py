@@ -154,7 +154,7 @@ def test_generate_dets_embs_batched_routes_progress_into_callback(tmp_path, monk
             return [SimpleNamespace(dets=np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32)) for _ in images]
 
         def get_all_reid_features(self, det_boxes_np, img):
-            return {"reid": np.ones((det_boxes_np.shape[0], 4), dtype=np.float32)}
+            return {"reid.pt": np.ones((det_boxes_np.shape[0], 4), dtype=np.float32)}
 
     monkeypatch.setattr(cache_module, "tqdm", FakeTqdm)
     monkeypatch.setattr(cache_module, "AppendableNpyWriter", FakeWriter)
@@ -186,10 +186,16 @@ def test_generate_dets_embs_batched_routes_progress_into_callback(tmp_path, monk
 
 
 def test_generate_dets_embs_batched_resets_partial_cache(tmp_path, monkeypatch):
-    """Regression: a previously interrupted run can leave the dets cache ahead
-    of the embs cache (e.g. dets file written, embs file missing or shorter).
-    The next run must detect this and reset both, otherwise the native C++
-    replay raises 'Detection and embedding row counts do not match'."""
+    """A previously interrupted run can leave the dets cache ahead of the
+    embs cache (e.g. dets file written, embs file missing or shorter). The
+    next run must heal the on-disk state so the native C++ replay never sees
+    ``det_rows != emb_rows``.
+
+    Since the embeddings-only fill landed, the heal path now keeps the
+    detections cache and only regenerates the missing embedding bucket(s),
+    saving an unnecessary YOLO pass. This regression guards both that the
+    dets cache is preserved and that fresh embeddings are written for it.
+    """
 
     source_root = tmp_path / "train"
     seq_name = "MOT17-02-FRCNN"
@@ -259,16 +265,25 @@ def test_generate_dets_embs_batched_resets_partial_cache(tmp_path, monkeypatch):
             return [SimpleNamespace(dets=np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32)) for _ in images]
 
         def get_all_reid_features(self, det_boxes_np, img):
-            return {"reid": np.ones((det_boxes_np.shape[0], 4), dtype=np.float32)}
+            return {"reid.pt": np.ones((det_boxes_np.shape[0], 4), dtype=np.float32)}
 
     class _Tqdm:
         def __init__(self, *args, **kwargs): pass
         def update(self, _): pass
         def close(self): pass
 
+    class FakeReIDModel:
+        def get_features(self, boxes, img):
+            return np.ones((boxes.shape[0], 4), dtype=np.float32)
+
     monkeypatch.setattr(cache_module, "tqdm", _Tqdm)
     monkeypatch.setattr(cache_module, "AppendableNpyWriter", FakeWriter)
     monkeypatch.setattr(cache_module, "DetectorReIDPipeline", FakePipeline)
+    monkeypatch.setattr(
+        cache_module,
+        "_build_reid_only_models",
+        lambda reid_paths, **kwargs: {Path(p).name: FakeReIDModel() for p in reid_paths},
+    )
     monkeypatch.setattr(cache_module, "_read_image_cv2", lambda path: np.zeros((8, 8, 3), dtype=np.uint8))
     monkeypatch.setattr(cache_module, "prepare_detections", lambda result: result.dets)
     monkeypatch.setattr(
@@ -283,15 +298,15 @@ def test_generate_dets_embs_batched_resets_partial_cache(tmp_path, monkeypatch):
 
     cache_module.generate_dets_embs_batched(args, Path("det.pt"), source_root)
 
-    # The stale standalone dets file must have been removed by the
-    # partial-cache reset before generation re-started from frame 1.
-    assert not stale_dets_path.exists(), "Stale dets cache should have been reset"
+    # The cached detections must be preserved -- the new heal path no longer
+    # re-runs YOLO when only the embeddings bucket is missing.
+    assert stale_dets_path.exists(), "Cached dets must be preserved by the embeddings-only fill"
 
-    # Generation re-ran for the single frame: embs were appended FIRST, then dets.
-    # Both should have equal row counts on disk.
-    assert len(appended_dets) == 1
+    # The main YOLO loop did not run for this sequence (no fresh dets append),
+    # but the embeddings-only fill produced one row matching the cached dets.
+    assert len(appended_dets) == 0, "YOLO/dets path should not have re-run"
     assert len(appended_embs) == 1
-    assert appended_dets[0].shape[0] == appended_embs[0].shape[0]
+    assert appended_embs[0].shape[0] == 1
 
 
 def test_generate_dets_embs_batched_appends_embs_before_dets(tmp_path, monkeypatch):

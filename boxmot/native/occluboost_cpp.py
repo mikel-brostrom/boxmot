@@ -24,6 +24,12 @@ from boxmot.native._common import (  # noqa: F401  (re-exported for backwards co
 from boxmot.trackers.tracker_zoo import get_tracker_config
 from boxmot.utils.misc import resolve_model_path  # noqa: F401  (used by tests via monkeypatch)
 
+
+def _default_preprocess() -> str:
+    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+    return DEFAULT_PREPROCESS
+
+
 _BUILD_LOCK = threading.Lock()
 _LIVE_LIBRARY_LOCK = threading.Lock()
 _LIVE_LIBRARY = None
@@ -31,46 +37,7 @@ _PROGRESS_PREFIX = _common.PROGRESS_PREFIX
 _NATIVE_DISPLAY_NAME = "OccluBoost"
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _source_dir() -> Path:
-    return _repo_root() / "native" / "trackers" / "occluboost"
-
-
-def _build_dir() -> Path:
-    return _repo_root() / "build" / "native" / "occluboost"
-
-
-def _executable_name() -> str:
-    return "occluboost_replay.exe" if os.name == "nt" else "occluboost_replay"
-
-
-def _candidate_executables() -> list[Path]:
-    build_dir = _build_dir()
-    return [
-        build_dir / _executable_name(),
-        build_dir / "Release" / _executable_name(),
-        build_dir / "Debug" / _executable_name(),
-    ]
-
-
-def _library_name() -> str:
-    if os.name == "nt":
-        return "occluboost_capi.dll"
-    if sys.platform == "darwin":
-        return "occluboost_capi.dylib"
-    return "occluboost_capi.so"
-
-
-def _candidate_libraries() -> list[Path]:
-    build_dir = _build_dir()
-    return [
-        build_dir / _library_name(),
-        build_dir / "Release" / _library_name(),
-        build_dir / "Debug" / _library_name(),
-    ]
+_TRACKER_NAME = "occluboost"
 
 
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
@@ -98,69 +65,22 @@ def _ensure_native_reid_model_path(reid_weights: str | Path | None) -> Path | No
     )
 
 
-def _build_target(
-    *,
-    target: str,
-    candidates: list[Path],
-    force_rebuild: bool,
-    not_found_message: str,
-) -> Path:
-    with _BUILD_LOCK:
-        if not force_rebuild:
-            for candidate in candidates:
-                if candidate.exists():
-                    return candidate
-
-        source_dir = _source_dir()
-        build_dir = _build_dir()
-        build_dir.mkdir(parents=True, exist_ok=True)
-
-        configure_cmd = [
-            "cmake",
-            "-S",
-            str(source_dir),
-            "-B",
-            str(build_dir),
-            "-DCMAKE_BUILD_TYPE=Release",
-        ]
-        configure = subprocess.run(configure_cmd, capture_output=True, text=True, check=False)
-        if configure.returncode != 0:
-            raise RuntimeError(
-                "Failed to configure native OccluBoost.\n"
-                "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+.\n"
-                f"Command: {' '.join(configure_cmd)}\n"
-                f"{configure.stderr.strip()}"
-            )
-
-        build_cmd = [
-            "cmake",
-            "--build",
-            str(build_dir),
-            "--config",
-            "Release",
-            "--target",
-            target,
-        ]
-        build = subprocess.run(build_cmd, capture_output=True, text=True, check=False)
-        if build.returncode != 0:
-            raise RuntimeError(
-                "Failed to build native OccluBoost.\n"
-                "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+.\n"
-                f"Command: {' '.join(build_cmd)}\n"
-                f"{build.stderr.strip()}"
-            )
-
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
-        raise RuntimeError(not_found_message)
+def _build_target(*, target: str, candidates: list[Path], force_rebuild: bool, not_found_message: str) -> Path:
+    return _common.build_native_target(
+        tracker_name=_TRACKER_NAME,
+        display_name=_NATIVE_DISPLAY_NAME,
+        target=target,
+        candidates=candidates,
+        force_rebuild=force_rebuild,
+        not_found_message=not_found_message,
+        build_lock=_BUILD_LOCK,
+    )
 
 
 def ensure_occluboost_cpp_executable(force_rebuild: bool = False) -> Path:
     return _build_target(
         target="occluboost_replay",
-        candidates=_candidate_executables(),
+        candidates=_common.candidate_executables(_TRACKER_NAME),
         force_rebuild=force_rebuild,
         not_found_message="Native OccluBoost build succeeded but the occluboost_replay executable was not found.",
     )
@@ -169,7 +89,7 @@ def ensure_occluboost_cpp_executable(force_rebuild: bool = False) -> Path:
 def ensure_occluboost_cpp_library(force_rebuild: bool = False) -> Path:
     return _build_target(
         target="occluboost_capi",
-        candidates=_candidate_libraries(),
+        candidates=_common.candidate_libraries(_TRACKER_NAME),
         force_rebuild=force_rebuild,
         not_found_message="Native OccluBoost build succeeded but the occluboost_capi shared library was not found.",
     )
@@ -263,7 +183,7 @@ def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
         ams_buffer_size=int(cfg["ams_buffer_size"]),
         ams_shrink_ratio=float(cfg["ams_shrink_ratio"]),
         reid_model_path=str(cfg.get("reid_model_path", "")).encode("utf-8"),
-        reid_preprocess=str(cfg.get("reid_preprocess", "resize_pad")).encode("utf-8"),
+        reid_preprocess=str(cfg.get("reid_preprocess") or _default_preprocess()).encode("utf-8"),
     )
 
 
@@ -414,7 +334,7 @@ class NativeOccluBoostTracker:
         self.cfg = _resolve_tracker_cfg(cfg_dict)
         native_reid_path = _ensure_native_reid_model_path(reid_weights)
         self.reid_model_path = str(native_reid_path) if native_reid_path is not None else ""
-        self.reid_preprocess = str(reid_preprocess or "resize_pad")
+        self.reid_preprocess = str(reid_preprocess or _default_preprocess())
         self.cfg["reid_model_path"] = self.reid_model_path
         self.cfg["reid_preprocess"] = self.reid_preprocess
         self.with_reid = bool(self.cfg.get("with_reid", True))
@@ -494,9 +414,27 @@ def process_sequence_cpp(
     cfg = _resolve_tracker_cfg(cfg_dict)
 
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
-    reid_key = Path(reid_name).stem if Path(reid_name).suffix else str(reid_name)
+    # Bucket the C++ embedding cache by the runtime-aware key so distinct
+    # runtimes (ORT vs OpenCV-DNN) and Python/C++ stacks never silently
+    # share storage. See ``boxmot.data.cache.reid_cache_key``.
+    from boxmot.data.cache import legacy_reid_cache_keys as _legacy_reid_keys
+    from boxmot.data.cache import reid_cache_key as _reid_cache_key
+    reid_key = _reid_cache_key(reid_name, tracker_backend="cpp")
 
     det_emb_root = dets_n_embs_root(project_root, dataset_name)
+
+    # Read-only back-compat: if the canonical cpp bucket does not exist on
+    # disk but a historical layout does, point the native binary at it so
+    # pre-existing caches keep working. Only the canonical key is written to.
+    embs_dir_new = det_emb_root / detector_key / "embs" / reid_key / (preprocess_name or "resize")
+    if not embs_dir_new.exists():
+        for legacy_key in _legacy_reid_keys(reid_name, tracker_backend="cpp"):
+            if legacy_key == reid_key:
+                continue
+            embs_dir_legacy = det_emb_root / detector_key / "embs" / legacy_key / (preprocess_name or "resize")
+            if embs_dir_legacy.exists():
+                reid_key = legacy_key
+                break
 
     # Skip the (potentially expensive) ONNX export + model load when a complete
     # embedding cache already exists for this sequence; the C++ tracker will read
@@ -509,6 +447,7 @@ def process_sequence_cpp(
         seq_name,
         dataset_name=dataset_name,
         preprocess_name=preprocess_key,
+        tracker_backend="cpp",
     )
     if cached_emb.exists():
         reid_model_path = None

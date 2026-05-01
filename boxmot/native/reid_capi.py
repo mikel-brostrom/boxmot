@@ -41,16 +41,15 @@ _LIBRARY = None
 # Build / load
 # ---------------------------------------------------------------------------
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+_TARGET_NAME = "base"  # reid_capi is built from native/trackers/base
 
 
 def _source_dir() -> Path:
-    return _repo_root() / "native" / "trackers" / "base"
+    return _common.tracker_source_dir(_TARGET_NAME)
 
 
 def _build_dir() -> Path:
-    return _repo_root() / "build" / "native" / "base"
+    return _common.tracker_build_dir(_TARGET_NAME)
 
 
 def _library_name() -> str:
@@ -62,12 +61,11 @@ def _library_name() -> str:
 
 
 def _candidate_libraries() -> list[Path]:
-    build_dir = _build_dir()
-    return [
-        build_dir / _library_name(),
-        build_dir / "Release" / _library_name(),
-        build_dir / "Debug" / _library_name(),
-    ]
+    name = _library_name()
+    return (
+        _common.installed_library_candidates(_TARGET_NAME, name)
+        + _common.build_library_candidates(_TARGET_NAME, name)
+    )
 
 
 def _build_library() -> Path:

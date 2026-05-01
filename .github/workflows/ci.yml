@@ -71,11 +71,83 @@ jobs:
       - name: Configure native trackers
         shell: bash
         run: |
-          cmake -S native/trackers -B build/native/trackers -DCMAKE_BUILD_TYPE=Release
+          cmake -S boxmot/native/trackers -B build/native/trackers -DCMAKE_BUILD_TYPE=Release
       - name: Build native trackers
         shell: bash
         run: |
           cmake --build build/native/trackers --config Release --parallel
+
+  cpp_trackers:
+    # Smoke-test the C++ tracker backends via ``boxmot track --tracker-backend cpp``.
+    # Ensures the native shared libraries built by scikit-build-core are loadable
+    # and produce results for every tracker that exposes a cpp implementation.
+    runs-on: ${{ matrix.os }}
+    outputs:
+      status: ${{ job.status }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+        python-version: ['3.12']
+    env:
+      CPP_TRACKERS: "ocsort bytetrack botsort sfsort occluboost"
+      REID_TRACKERS: "botsort occluboost"
+      IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+      CMAKE_ARGS: "-DBOXMOT_REQUIRE_NATIVE=ON"
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      - name: Install native build dependencies (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libopencv-dev libeigen3-dev
+      - name: Install native build dependencies (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install cmake opencv eigen onnxruntime
+      - name: Install boxmot with native extension
+        shell: bash
+        run: |
+          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+      - name: Verify native libraries are present
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          python - <<'PY'
+          from boxmot.native.registry import (
+              supported_native_live_trackers,
+              get_native_live_backend,
+          )
+          names = supported_native_live_trackers()
+          print("Registered cpp backends:", list(names))
+          for name in names:
+              backend = get_native_live_backend(name)
+              backend.ensure_built()
+              print(f"  {name}: built OK")
+          PY
+      - name: Run cpp tracking method
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          for tracker in $CPP_TRACKERS; do
+            track_args=(boxmot track --detector yolov10n.pt --imgsz 320 \
+                        --tracker "$tracker" --tracker-backend cpp \
+                        --source "$IMG" --verbose)
+            if echo " $REID_TRACKERS " | grep -q " $tracker "; then
+              track_args+=(--reid osnet_x0_25_msmt17.pt)
+            fi
+            echo "::group::cpp $tracker"
+            "${track_args[@]}"
+            echo "::endgroup::"
+          done
   tune:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -143,7 +215,7 @@ jobs:
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > metrics.csv
           for tracker in $TRACKERS; do
-            if boxmot eval --detector yolov8n.pt --reid osnet_x0_25_msmt17.pt --tracker $tracker --verbose --benchmark mot17-mini --ci --classes 0; then
+            if boxmot eval --detector yolov10n.pt --imgsz 320 --reid osnet_x0_25_msmt17.pt --tracker $tracker --verbose --benchmark mot17-mini --ci --classes 0; then
               STATUS="✅"
             else
               STATUS="❌"
@@ -457,6 +529,7 @@ jobs:
     needs:
       - trackers
       - native_build
+      - cpp_trackers
       - metrics
       - obb
       - tune
@@ -472,6 +545,7 @@ jobs:
         run: |
           echo "trackers_STATUS=${{ needs.trackers.result }}" >> $GITHUB_ENV
           echo "native_build_STATUS=${{ needs.native_build.result }}" >> $GITHUB_ENV
+          echo "cpp_trackers_STATUS=${{ needs.cpp_trackers.result }}" >> $GITHUB_ENV
           echo "metrics_STATUS=${{ needs.metrics.result }}" >> $GITHUB_ENV
           echo "obb_STATUS=${{ needs.obb.result }}" >> $GITHUB_ENV
           echo "tune_STATUS=${{ needs.tune.result }}" >> $GITHUB_ENV

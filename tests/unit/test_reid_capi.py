@@ -103,3 +103,69 @@ def test_cpp_reid_obb_to_aabb_conversion():
         np.testing.assert_allclose(feats_obb, feats_aabb, atol=1e-5)
     finally:
         reid.close()
+
+
+def _load_python_reid(weights: Path):
+    """Build the Python ONNX ReID backend that the cpp path is meant to mirror."""
+    try:
+        from boxmot.reid.core.reid import ReID
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"Python ReID backend unavailable: {exc}")
+    try:
+        return ReID(path=weights, device="cpu", half=False)
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"Failed to instantiate Python ReID backend: {exc}")
+
+
+def test_cpp_reid_matches_python_embeddings():
+    """C++ embeddings must agree with the Python ONNX backend.
+
+    Both stacks share the same ONNX weights and ImageNet preprocessing
+    (resize → BGR→RGB → /255 → mean/std → L2 norm). The only place the two
+    can diverge is the box-to-crop conversion in
+    ``boxmot/native/trackers/base/src/reid_onnx.cpp::ClampBoxToImage`` (cpp)
+    vs ``boxmot/reid/backends/base_backend.py::get_crops`` (Python). This
+    test guards against silent regressions in either path.
+    """
+    image = _image_or_skip()
+    weights = _model_or_skip()
+    CppOnnxReID = _load_adapter()
+
+    cpp = CppOnnxReID(weights=weights)
+    py = _load_python_reid(weights)
+    try:
+        # Mix of interior boxes and an edge-touching one to exercise the
+        # rounding / clamping path that previously diverged between stacks.
+        h, w = image.shape[:2]
+        boxes = np.array(
+            [
+                [100.4, 100.6, 200.5, 300.5],
+                [300.0, 150.7, 400.2, 400.9],
+                [50.5, 80.0, 150.5, 250.0],
+                [w - 120.3, h - 220.7, w - 0.5, h - 0.5],
+            ],
+            dtype=np.float32,
+        )
+
+        feats_cpp = cpp.get_features(boxes, image)
+        feats_py = py.model.get_features(boxes, image)
+
+        # Python may return torch tensors depending on backend; normalise.
+        feats_py = np.asarray(feats_py, dtype=np.float32)
+
+        assert feats_cpp.shape == feats_py.shape
+
+        # L2 sanity: both stacks return unit vectors.
+        for feats in (feats_cpp, feats_py):
+            norms = np.linalg.norm(feats, axis=1)
+            np.testing.assert_allclose(norms, 1.0, atol=1e-3)
+
+        # Cosine similarity per row. Allow a small tolerance for FP drift
+        # between CoreML/ORT and CPU ORT, but require very high similarity.
+        cos = np.sum(feats_cpp * feats_py, axis=1)
+        assert np.all(cos > 0.99), (
+            f"Per-row cosine similarity too low: min={cos.min():.4f}, "
+            f"values={cos.tolist()}"
+        )
+    finally:
+        cpp.close()

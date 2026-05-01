@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 from zipfile import BadZipFile, ZipFile
 
 import gdown
@@ -62,10 +62,28 @@ def get_http_session(retries: int = 3, backoff_factor: float = 0.3) -> requests.
     return session
 
 
-def download_file(url: str, dest: Path, chunk_size: int = 8192, overwrite: bool = False, timeout: int = 10) -> Path:
+def _has_workflow_bar(status_fn: Any) -> bool:
+    """Return True if ``status_fn`` exposes a ``.bar()`` context manager."""
+    return status_fn is not None and callable(getattr(status_fn, "bar", None))
+
+
+def download_file(
+    url: str,
+    dest: Path,
+    chunk_size: int = 8192,
+    overwrite: bool = False,
+    timeout: int = 10,
+    *,
+    status_fn: Any = None,
+) -> Path:
     """
     Download a file from a URL to a destination path, with progress and logging.
     Returns the path to the downloaded file.
+
+    When ``status_fn`` exposes ``.bar()`` (i.e. a ``WorkflowDetailCallback``),
+    the download progress is rendered inside the active workflow panel
+    instead of via tqdm — this prevents tqdm's carriage-return updates from
+    racing with Rich's repaints.
     """
     if dest.exists() and not overwrite:
         LOGGER.debug(f"Cached: {dest.name}")
@@ -88,25 +106,43 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192, overwrite: bool 
         response = session.get(url, stream=True, timeout=timeout)
         response.raise_for_status()
 
-        total = int(response.headers.get("Content-Length", 0))
+        total = int(response.headers.get("Content-Length", 0)) or None
 
-        with open(dest, "wb") as f, tqdm(
-            total=total,
-            unit="B",
-            unit_scale=True,
-            desc=f"Downloading {dest.name}"
-        ) as pbar:
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                if chunk:
-                    f.write(chunk)
-                    pbar.update(len(chunk))
+        if _has_workflow_bar(status_fn):
+            with open(dest, "wb") as f, status_fn.bar(
+                f"Downloading {dest.name}", total, unit="B"
+            ) as advance:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        advance(len(chunk))
+        else:
+            with open(dest, "wb") as f, tqdm(
+                total=total or 0,
+                unit="B",
+                unit_scale=True,
+                desc=f"Downloading {dest.name}",
+            ) as pbar:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        pbar.update(len(chunk))
 
     return dest
 
 
-def extract_zip(zip_path: Path, extract_to: Path, overwrite: bool = False) -> None:
+def extract_zip(
+    zip_path: Path,
+    extract_to: Path,
+    overwrite: bool = False,
+    *,
+    status_fn: Any = None,
+) -> None:
     """
     Extract a ZIP archive to a target directory.
+
+    When ``status_fn`` exposes ``.bar()``, the extraction progress is
+    rendered inside the active workflow panel instead of via tqdm.
     """
     if not zip_path.is_file():
         raise FileNotFoundError(f"ZIP file not found: {zip_path}")
@@ -123,12 +159,21 @@ def extract_zip(zip_path: Path, extract_to: Path, overwrite: bool = False) -> No
                     return
 
             LOGGER.info(f"Extracting {zip_path.name}...")
-            for member in tqdm(members, desc=f"Extracting {zip_path.name}"):
-                target = extract_to / member.filename
-                if target.exists() and not overwrite:
-                    continue
-                extract_to.mkdir(parents=True, exist_ok=True)
-                zf.extract(member, extract_to)
+            extract_to.mkdir(parents=True, exist_ok=True)
+
+            if _has_workflow_bar(status_fn):
+                with status_fn.bar(f"Extracting {zip_path.name}", total_files) as advance:
+                    for member in members:
+                        target = extract_to / member.filename
+                        if not (target.exists() and not overwrite):
+                            zf.extract(member, extract_to)
+                        advance(1)
+            else:
+                for member in tqdm(members, desc=f"Extracting {zip_path.name}"):
+                    target = extract_to / member.filename
+                    if target.exists() and not overwrite:
+                        continue
+                    zf.extract(member, extract_to)
 
     except BadZipFile:
         LOGGER.error(f"Corrupt ZIP: {zip_path.name}")
@@ -309,8 +354,10 @@ def download_eval_data(
         if runs_check_path is not None and Path(runs_check_path).exists():
             LOGGER.debug(f"Skipping runs.zip download: {runs_check_path} already exists.")
         else:
-            runs_zip = download_file(runs_url, Path("runs.zip"), overwrite=overwrite)
-            extract_zip(runs_zip, Path("."), overwrite=overwrite)
+            runs_zip = download_file(
+                runs_url, Path("runs.zip"), overwrite=overwrite, status_fn=status_fn
+            )
+            extract_zip(runs_zip, Path("."), overwrite=overwrite, status_fn=status_fn)
 
     if not dataset_url:
         return
@@ -323,7 +370,9 @@ def download_eval_data(
         return
 
     # benchmark ZIP
-    benchmark_zip = download_file(dataset_url, dataset_dest, overwrite=overwrite)
-    extract_zip(benchmark_zip, dataset_dest.parent, overwrite=overwrite)
+    benchmark_zip = download_file(
+        dataset_url, dataset_dest, overwrite=overwrite, status_fn=status_fn
+    )
+    extract_zip(benchmark_zip, dataset_dest.parent, overwrite=overwrite, status_fn=status_fn)
 
     LOGGER.debug(f"Benchmark data ready at: {dataset_dest.parent}")

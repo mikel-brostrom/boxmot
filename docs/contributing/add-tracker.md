@@ -14,7 +14,7 @@ To integrate a new tracker cleanly:
 
 If the tracker also gets a native backend:
 
-1. Add native sources under `native/trackers/<name>/`.
+1. Add native sources under `boxmot/native/trackers/<name>/`.
 2. Add Python wrapper code under `boxmot/native/<name>_cpp.py`.
 3. Register live and replay backends in `boxmot/native/registry.py`.
 4. Document `--tracker-backend cpp` support on the tracker page.

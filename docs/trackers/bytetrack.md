@@ -13,7 +13,7 @@ ByteTrack's main idea is simple: do not throw away low-confidence detections too
 
 ## Native C++ Backend
 
-BoxMOT also ships a native C++17 ByteTrack implementation under `native/trackers/bytetrack/`. It supports:
+BoxMOT also ships a native C++17 ByteTrack implementation under `boxmot/native/trackers/bytetrack/`. It supports:
 
 - cached replay for `eval`, `tune`, and `research`
 - live `track` through `--tracker-backend cpp`

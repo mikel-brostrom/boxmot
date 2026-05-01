@@ -63,3 +63,28 @@ boxmot/motion/cmc/*.jpg
 
 # json outputs
 *_output.json
+
+# In-place compiled native (C++) tracker artifacts (scikit-build-core editable install)
+boxmot/native/trackers/**/*.so
+boxmot/native/trackers/**/*.dylib
+boxmot/native/trackers/**/*.dll
+boxmot/native/trackers/**/*.pyd
+boxmot/native/trackers/**/*.a
+boxmot/native/trackers/*/*_replay
+boxmot/native/trackers/*/*_replay.exe
+
+# CMake caches that may end up beside the C++ sources in inplace builds
+boxmot/native/trackers/**/CMakeCache.txt
+boxmot/native/trackers/**/CMakeFiles/
+boxmot/native/trackers/**/cmake_install.cmake
+
+# scikit-build-core inplace editable build artifacts at the repo root
+.skbuild-info.json
+.cmake/
+.ninja_deps
+.ninja_log
+build.ninja
+CMakeCache.txt
+CMakeFiles/
+CMakeInit.txt
+cmake_install.cmake

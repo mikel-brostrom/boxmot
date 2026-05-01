@@ -24,7 +24,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             assert cmd[0] == "/tmp/botsort_replay"
             assert "--sequence" in cmd
             assert "MOT17-02-FRCNN" in cmd
-            assert cmd[cmd.index("--reid-name") + 1] == "lmbn_n_duke"
+            assert cmd[cmd.index("--reid-name") + 1] == "lmbn_n_duke_pt_ort_cpp"
             assert "--track-high-thresh" in cmd
             assert "--cmc-method" in cmd
             assert "--reid-model" in cmd
@@ -117,7 +117,7 @@ def test_process_sequence_cpp_keeps_original_reid_cache_key_when_native_model_re
 
     class FakePopen:
         def __init__(self, cmd, stdout, stderr, text, bufsize):
-            assert cmd[cmd.index("--reid-name") + 1] == "lmbn_n_duke"
+            assert cmd[cmd.index("--reid-name") + 1] == "lmbn_n_duke_pt_ort_cpp"
             assert cmd[cmd.index("--reid-model") + 1] == "/weights/lmbn_n_duke_opencv.onnx"
             self.stdout = StringIO(
                 '{"sequence":"MOT17-02-FRCNN","num_frames":1,"track_time_ms":1.0,"kept_frame_ids":[1]}\n'
@@ -151,7 +151,7 @@ def test_process_sequence_cpp_auto_exports_pt_reid_model(monkeypatch, tmp_path):
 
     class FakePopen:
         def __init__(self, cmd, stdout, stderr, text, bufsize):
-            assert cmd[cmd.index("--reid-name") + 1] == "lmbn_n_duke"
+            assert cmd[cmd.index("--reid-name") + 1] == "lmbn_n_duke_pt_ort_cpp"
             assert cmd[cmd.index("--reid-model") + 1] == "/weights/lmbn_n_duke.onnx"
             self.stdout = StringIO(
                 '{"sequence":"MOT17-02-FRCNN","num_frames":1,"track_time_ms":1.0,"kept_frame_ids":[1]}\n'
@@ -332,7 +332,7 @@ def test_native_botsort_tracker_marks_native_onnx_reid_provider():
 
         assert tracker.provides_reid is True
         assert tracker.cfg["reid_model_path"] == str(expected_path)
-        assert tracker.cfg["reid_preprocess"] == "resize_pad"
+        assert tracker.cfg["reid_preprocess"] == "resize"
         tracker.close()
     finally:
         native_module._ensure_native_reid_model_path = original_resolver
