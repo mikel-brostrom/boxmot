@@ -114,6 +114,22 @@ jobs:
       - name: Install cibuildwheel
         run: python -m pip install --upgrade pip cibuildwheel==2.21.3
 
+      - name: Install Windows native deps (OpenCV + Eigen)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host '--- Downloading OpenCV 4.10.0 prebuilt ---'
+          curl.exe -L --fail -o opencv.exe https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-windows.exe
+          Write-Host '--- Extracting OpenCV ---'
+          & 'C:\Program Files\7-Zip\7z.exe' x opencv.exe -oC:\opencv-install -y | Out-Null
+          if (-not (Test-Path 'C:\opencv-install\opencv\build\OpenCVConfig.cmake')) {
+            throw 'OpenCV extraction failed: OpenCVConfig.cmake not found'
+          }
+          Write-Host '--- Installing Eigen3 via vcpkg ---'
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install eigen3:x64-windows
+          Write-Host '--- Done ---'
+
       - name: Build wheels
         env:
           CIBW_ARCHS: ${{ matrix.arch }}
@@ -136,10 +152,6 @@ jobs:
             fi
           CIBW_BEFORE_ALL_MACOS: |
             brew install cmake opencv eigen
-          CIBW_BEFORE_ALL_WINDOWS: |
-            curl -L -o opencv.exe https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-windows.exe
-            7z x opencv.exe -oC:\opencv-install -y
-            vcpkg install eigen3:x64-windows
           # LD_LIBRARY_PATH lets auditwheel locate the OpenCV shared libs
           # installed under /usr/local/{lib,lib64} in the custom manylinux image
           # so they can be vendored into the repaired wheel.
@@ -149,10 +161,16 @@ jobs:
           CIBW_ENVIRONMENT_MACOS: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_target }}'
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_target }}
           # Windows: point CMake at the prebuilt OpenCV (vc16/x64) and at the
-          # vcpkg toolchain for Eigen3. delvewheel (cibuildwheel's default
-          # Windows repair tool) needs the OpenCV DLL dir on PATH so it can
-          # vendor opencv_world*.dll into the wheel.
-          CIBW_ENVIRONMENT_WINDOWS: 'CMAKE_ARGS="-DOpenCV_DIR=C:/opencv-install/opencv/build -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows -DBOXMOT_REQUIRE_NATIVE=ON" PATH="C:\\opencv-install\\opencv\\build\\x64\\vc16\\bin;$PATH"'
+          # vcpkg toolchain for Eigen3 (both installed in the dedicated
+          # "Install Windows native deps" step above). delvewheel (cibuildwheel's
+          # default Windows repair tool) needs the OpenCV DLL dir on PATH so it
+          # can vendor opencv_world*.dll into the wheel.
+          CIBW_ENVIRONMENT_WINDOWS: >-
+            CMAKE_ARGS='-DOpenCV_DIR=C:/opencv-install/opencv/build
+            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+            -DVCPKG_TARGET_TRIPLET=x64-windows
+            -DBOXMOT_REQUIRE_NATIVE=ON'
+            PATH='C:\\opencv-install\\opencv\\build\\x64\\vc16\\bin;$PATH'
           CIBW_TEST_COMMAND: 'python -c "import boxmot; print(boxmot.__version__)"'
         run: python -m cibuildwheel --output-dir wheelhouse
 
