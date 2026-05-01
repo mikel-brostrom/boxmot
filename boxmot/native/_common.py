@@ -10,6 +10,7 @@ Centralizes functionality that was previously duplicated across each
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import os
@@ -17,6 +18,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -27,6 +29,50 @@ PROGRESS_PREFIX = "BOXMOT_PROGRESS\t"
 
 # Module-wide lock used to serialize potentially expensive ONNX exports.
 EXPORT_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _cross_process_build_lock(build_dir: Path):
+    """Serialize CMake configure/build across threads *and* subprocesses.
+
+    The native trackers can be invoked concurrently from a thread pool **and**
+    from multiple worker subprocesses (e.g. ``--replay-backend process``).
+    A simple ``threading.Lock`` only protects threads inside one process, so
+    parallel workers race on the same ``build/native/<name>`` directory and
+    corrupt CMake's cache. This context manager wraps the build with a POSIX
+    ``fcntl.flock`` (or ``msvcrt.locking`` on Windows) on a sentinel file so
+    only one process at a time runs ``cmake configure`` / ``cmake --build``.
+    """
+    build_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = build_dir.parent / f"{build_dir.name}.lock"
+
+    fh = open(lock_path, "w")
+    try:
+        if os.name == "nt":  # pragma: no cover - exercised on Windows only
+            import msvcrt
+            while True:
+                try:
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            try:
+                yield
+            finally:
+                try:
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    finally:
+        fh.close()
 
 
 # ---------------------------------------------------------------------------
@@ -163,49 +209,60 @@ def build_native_target(
         build_dir = tracker_build_dir(tracker_name)
         build_dir.mkdir(parents=True, exist_ok=True)
 
-        configure_cmd = [
-            "cmake",
-            "-S",
-            str(source_dir),
-            "-B",
-            str(build_dir),
-            "-DCMAKE_BUILD_TYPE=Release",
-        ]
-        # Stream output live so the user sees progress (CMake configure +
-        # build can take a minute or more for OpenCV-heavy trackers).
-        print(f"[boxmot build] {display_name}: configuring...", flush=True)
-        configure = subprocess.run(configure_cmd, check=False)
-        if configure.returncode != 0:
-            raise RuntimeError(
-                f"Failed to configure native {display_name}.\n"
-                "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+.\n"
-                f"Command: {' '.join(configure_cmd)}"
-            )
+        # Cross-process lock: prevents racing CMake invocations from multiple
+        # worker subprocesses (e.g. ``--replay-backend process``) trampling
+        # each other's CMake cache in the shared build directory.
+        with _cross_process_build_lock(build_dir):
+            # Re-check after acquiring the file lock: a sibling process may
+            # have just finished building the artifact while we waited.
+            if not force_rebuild:
+                for candidate in candidates:
+                    if candidate.exists():
+                        return candidate
 
-        build_cmd = [
-            "cmake",
-            "--build",
-            str(build_dir),
-            "--config",
-            "Release",
-            "--target",
-            target,
-            "--parallel",
-        ]
-        print(f"[boxmot build] {display_name}: compiling...", flush=True)
-        build = subprocess.run(build_cmd, check=False)
-        if build.returncode != 0:
-            raise RuntimeError(
-                f"Failed to build native {display_name}.\n"
-                "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+.\n"
-                f"Command: {' '.join(build_cmd)}"
-            )
+            configure_cmd = [
+                "cmake",
+                "-S",
+                str(source_dir),
+                "-B",
+                str(build_dir),
+                "-DCMAKE_BUILD_TYPE=Release",
+            ]
+            # Stream output live so the user sees progress (CMake configure +
+            # build can take a minute or more for OpenCV-heavy trackers).
+            print(f"[boxmot build] {display_name}: configuring...", flush=True)
+            configure = subprocess.run(configure_cmd, check=False)
+            if configure.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to configure native {display_name}.\n"
+                    "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+.\n"
+                    f"Command: {' '.join(configure_cmd)}"
+                )
 
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
+            build_cmd = [
+                "cmake",
+                "--build",
+                str(build_dir),
+                "--config",
+                "Release",
+                "--target",
+                target,
+                "--parallel",
+            ]
+            print(f"[boxmot build] {display_name}: compiling...", flush=True)
+            build = subprocess.run(build_cmd, check=False)
+            if build.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to build native {display_name}.\n"
+                    "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+.\n"
+                    f"Command: {' '.join(build_cmd)}"
+                )
 
-        raise RuntimeError(not_found_message)
+            for candidate in candidates:
+                if candidate.exists():
+                    return candidate
+
+            raise RuntimeError(not_found_message)
 
 
 # ---------------------------------------------------------------------------

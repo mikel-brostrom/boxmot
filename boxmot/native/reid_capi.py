@@ -79,50 +79,57 @@ def _build_library() -> Path:
         build_dir = _build_dir()
         build_dir.mkdir(parents=True, exist_ok=True)
 
-        configure_cmd = [
-            "cmake",
-            "-S",
-            str(source_dir),
-            "-B",
-            str(build_dir),
-            "-DCMAKE_BUILD_TYPE=Release",
-        ]
-        # Stream output live so the user sees progress.
-        print("[boxmot build] reid: configuring...", flush=True)
-        configure = subprocess.run(configure_cmd, check=False)
-        if configure.returncode != 0:
+        # Cross-process lock: serialize CMake invocations from concurrent
+        # worker subprocesses so they don't corrupt each other's build cache.
+        with _common._cross_process_build_lock(build_dir):
+            for candidate in _candidate_libraries():
+                if candidate.exists():
+                    return candidate
+
+            configure_cmd = [
+                "cmake",
+                "-S",
+                str(source_dir),
+                "-B",
+                str(build_dir),
+                "-DCMAKE_BUILD_TYPE=Release",
+            ]
+            # Stream output live so the user sees progress.
+            print("[boxmot build] reid: configuring...", flush=True)
+            configure = subprocess.run(configure_cmd, check=False)
+            if configure.returncode != 0:
+                raise RuntimeError(
+                    "Failed to configure native ReID C ABI.\n"
+                    "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+, ONNX Runtime.\n"
+                    f"Command: {' '.join(configure_cmd)}"
+                )
+
+            build_cmd = [
+                "cmake",
+                "--build",
+                str(build_dir),
+                "--config",
+                "Release",
+                "--target",
+                "reid_capi",
+                "--parallel",
+            ]
+            print("[boxmot build] reid: compiling...", flush=True)
+            build = subprocess.run(build_cmd, check=False)
+            if build.returncode != 0:
+                raise RuntimeError(
+                    "Failed to build native ReID C ABI.\n"
+                    "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+, ONNX Runtime.\n"
+                    f"Command: {' '.join(build_cmd)}"
+                )
+
+            for candidate in _candidate_libraries():
+                if candidate.exists():
+                    return candidate
+
             raise RuntimeError(
-                "Failed to configure native ReID C ABI.\n"
-                "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+, ONNX Runtime.\n"
-                f"Command: {' '.join(configure_cmd)}"
+                "Native ReID C ABI build succeeded but the shared library was not found."
             )
-
-        build_cmd = [
-            "cmake",
-            "--build",
-            str(build_dir),
-            "--config",
-            "Release",
-            "--target",
-            "reid_capi",
-            "--parallel",
-        ]
-        print("[boxmot build] reid: compiling...", flush=True)
-        build = subprocess.run(build_cmd, check=False)
-        if build.returncode != 0:
-            raise RuntimeError(
-                "Failed to build native ReID C ABI.\n"
-                "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+, ONNX Runtime.\n"
-                f"Command: {' '.join(build_cmd)}"
-            )
-
-        for candidate in _candidate_libraries():
-            if candidate.exists():
-                return candidate
-
-        raise RuntimeError(
-            "Native ReID C ABI build succeeded but the shared library was not found."
-        )
 
 
 def ensure_reid_capi_library(force_rebuild: bool = False) -> Path:

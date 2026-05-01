@@ -54,7 +54,25 @@ ReID for BoTSORT and OccluBoost is provided by the shared `boxmot_trackers_base`
     # Configure CMake with: -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake
     ```
 
-## Minimal project
+## Building from Python (`boxmot build`)
+
+If BoxMOT is already installed (`pip install boxmot`), the CLI can compile the
+native trackers in-place using the toolchain above — no separate CMake invocation
+needed:
+
+```bash
+boxmot build                                          # all registered trackers
+boxmot build --tracker bytetrack --tracker ocsort     # subset
+boxmot build --force                                  # reconfigure from scratch
+```
+
+The compiled `<tracker>_capi.{so,dylib,dll}` lands next to the tracker sources
+under `boxmot/native/trackers/<name>/`, and `--tracker-backend cpp` in the
+`track` / `eval` commands picks it up automatically. This is the easiest way to
+verify your system has the right OpenCV/Eigen/compiler combo before wiring up
+your own CMake project.
+
+## Minimal C++ project
 
 Layout:
 
