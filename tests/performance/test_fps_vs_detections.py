@@ -24,8 +24,8 @@ IMG_H, IMG_W = 640, 640
 
 
 def _make_detections(n: int) -> np.ndarray:
-    """Generate *n* random non-overlapping-ish AABB detections in a 640×640 frame."""
-    rng = np.random.default_rng(seed=42)
+    """Generate *n* random AABB detections in a 640×640 frame."""
+    rng = np.random.default_rng(seed=n)
     x1 = rng.uniform(0, IMG_W - 50, size=n)
     y1 = rng.uniform(0, IMG_H - 50, size=n)
     x2 = x1 + rng.uniform(20, 50, size=n)
