@@ -1,20 +1,29 @@
-name: Build Wheels
+name: Build Platform Wheels (C++ bundled)
 
-# Builds platform wheels for ``boxmot`` using cibuildwheel.
-# Each wheel bundles the pre-compiled native (C++) tracker shared
-# libraries under ``boxmot/native/trackers/<name>/``.
+# Optional, manual-only workflow that builds per-platform wheels with the
+# native (C++) trackers compiled and bundled inside, using cibuildwheel.
+#
+# The default release path (.github/workflows/publish.yml) ships a single
+# pure-Python wheel and lets users opt into C++ via ``boxmot build``. This
+# workflow exists so you can still produce fat platform wheels on demand
+# (for benchmarking, internal distribution, or future PyPI uploads).
+#
+# Requirements to actually use this workflow:
+#   * Switch the build backend in pyproject.toml from ``hatchling`` to
+#     ``scikit-build-core`` (>=0.10) and restore the [tool.scikit-build]
+#     section + the root CMakeLists.txt that drives the C++ build.
+#   * Without that, cibuildwheel will still build pure-Python wheels.
+#
+# Trigger: manual via "Run workflow" only.
 
 on:
   workflow_dispatch:
-  release:
-    types: [published]
-  push:
-    branches: [master]
-    paths:
-      - 'boxmot/native/**'
-      - 'CMakeLists.txt'
-      - 'pyproject.toml'
-      - '.github/workflows/wheels.yml'
+    inputs:
+      upload_artifacts:
+        description: 'Upload built wheels as artifacts'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build_wheels:
@@ -43,8 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -56,24 +64,18 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Write-Host '--- Downloading OpenCV 4.10.0 prebuilt ---'
           curl.exe -L --fail -o opencv.exe https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-windows.exe
-          Write-Host '--- Extracting OpenCV ---'
           & 'C:\Program Files\7-Zip\7z.exe' x opencv.exe -oC:\opencv-install -y | Out-Null
           if (-not (Test-Path 'C:\opencv-install\opencv\build\OpenCVConfig.cmake')) {
             throw 'OpenCV extraction failed: OpenCVConfig.cmake not found'
           }
-          Write-Host '--- Installing Eigen3 via vcpkg ---'
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install eigen3:x64-windows
-          Write-Host '--- Done ---'
 
       - name: Build wheels
         env:
           CIBW_ARCHS: ${{ matrix.arch }}
           CIBW_BUILD: 'cp39-* cp310-* cp311-* cp312-*'
           CIBW_SKIP: '*-musllinux_* *-manylinux_i686 pp*'
-          # Use prebuilt manylinux_2_28 images that already contain OpenCV 4 +
-          # Eigen3 (built and pushed by .github/workflows/build-manylinux-image.yml).
           CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/${{ github.repository_owner }}/boxmot-manylinux:latest-x86_64
           CIBW_MANYLINUX_AARCH64_IMAGE: ghcr.io/${{ github.repository_owner }}/boxmot-manylinux:latest-aarch64
           CIBW_BEFORE_ALL_LINUX: |
@@ -84,19 +86,9 @@ jobs:
             fi
           CIBW_BEFORE_ALL_MACOS: |
             brew install cmake opencv eigen
-          # LD_LIBRARY_PATH lets auditwheel locate the OpenCV shared libs
-          # installed under /usr/local/{lib,lib64} in the custom manylinux image
-          # so they can be vendored into the repaired wheel.
           CIBW_ENVIRONMENT_LINUX: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON LD_LIBRARY_PATH=/usr/local/lib64:/usr/local/lib:$LD_LIBRARY_PATH'
-          # Match wheel platform tag to the Homebrew bottles' minimum target.
-          # macos-14 (arm64) ships bottles built for 14.0; macos-13 for 13.0.
           CIBW_ENVIRONMENT_MACOS: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_target }}'
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_target }}
-          # Windows: point CMake at the prebuilt OpenCV (vc16/x64) and at the
-          # vcpkg toolchain for Eigen3 (both installed in the dedicated
-          # "Install Windows native deps" step above). delvewheel (cibuildwheel's
-          # default Windows repair tool) needs the OpenCV DLL dir on PATH so it
-          # can vendor opencv_world*.dll into the wheel.
           CIBW_ENVIRONMENT_WINDOWS: >-
             CMAKE_ARGS="-DOpenCV_DIR=C:/opencv-install/opencv/build
             -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
@@ -107,24 +99,8 @@ jobs:
         run: python -m cibuildwheel --output-dir wheelhouse
 
       - name: Upload wheels
+        if: ${{ inputs.upload_artifacts }}
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}-${{ matrix.arch }}
           path: wheelhouse/*.whl
-
-  build_sdist:
-    name: Build sdist
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Build sdist
-        run: |
-          python -m pip install --upgrade pip build
-          python -m build --sdist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          path: dist/*.tar.gz

@@ -25,10 +25,65 @@ ReID for ReID-using trackers (currently BoTSORT and OccluBoost) is provided by t
 
 ## Requirements
 
-- C++17 compiler
-- CMake 3.16+
-- OpenCV 4.x
-- Eigen3 3.3+
+The same requirements apply whether you build via `boxmot build` (Python JIT
+build) or directly with CMake from a C++ project.
+
+| Requirement | Minimum version | Notes |
+| --- | --- | --- |
+| CMake | 3.16 | Used to configure and drive the build |
+| C++17 compiler | GCC ≥ 7 / Clang ≥ 5 / AppleClang / MSVC ≥ 19.14 (VS 2017 15.7) | |
+| OpenCV | 4.x | Components: `calib3d core dnn imgcodecs imgproc video` |
+| Eigen3 | 3.3 | Header-only |
+| ONNX Runtime | 1.17+ | **Optional.** Only needed for ReID-using trackers (BoTSORT, OccluBoost) |
+
+### Install the system dependencies
+
+=== "Ubuntu / Debian"
+
+    ```bash
+    sudo apt update
+    sudo apt install -y build-essential cmake libopencv-dev libeigen3-dev
+    # Optional (ReID): install ONNX Runtime from the official release tarball
+    # https://github.com/microsoft/onnxruntime/releases
+    ```
+
+=== "Fedora / RHEL"
+
+    ```bash
+    sudo dnf install -y gcc-c++ cmake opencv-devel eigen3-devel
+    ```
+
+=== "macOS (Homebrew)"
+
+    ```bash
+    brew install cmake opencv eigen
+    # Optional (ReID):
+    brew install onnxruntime
+    ```
+
+=== "Windows (vcpkg)"
+
+    ```powershell
+    vcpkg install opencv4:x64-windows eigen3:x64-windows
+    # Optional (ReID):
+    vcpkg install onnxruntime:x64-windows
+    # Then configure CMake with: -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake
+    ```
+
+### Verify the toolchain
+
+```bash
+cmake --version       # >= 3.16
+c++ --version         # any C++17-capable compiler
+pkg-config --modversion opencv4   # 4.x
+```
+
+If everything is in place you can build all native trackers in one go via:
+
+```bash
+boxmot build           # builds every registered native tracker
+boxmot build --tracker bytetrack --tracker ocsort   # subset
+```
 
 ## Compile a Tracker by Itself
 
@@ -213,11 +268,166 @@ For detector-only C++ examples, ByteTrack, OCSORT, and SFSORT are simpler becaus
 
 ## Shared Library Option
 
-If you need a C ABI instead of the C++ classes, build the shared target:
+If you need a C ABI instead of the C++ classes — for example to call into the
+tracker from C, Rust, Go, or any language with `dlopen`/`LoadLibrary` FFI — link
+against the `<tracker>_capi` shared library. Each tracker exposes the same
+five-function lifecycle (`create`, `destroy`, `reset`, `update`, plus an output
+buffer size helper) under an `extern "C"` block guarded by
+`__declspec(dllexport)` (Windows) and `__attribute__((visibility("default")))`
+(Linux/macOS).
+
+### Build the library
 
 ```bash
 cmake -S boxmot/native/trackers/bytetrack -B build/native/bytetrack -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native/bytetrack --config Release --target bytetrack_capi
 ```
 
-The public ABI is declared in `boxmot/native/trackers/bytetrack/include/bytetrack/c_api.hpp`.
+Or, if you have BoxMOT installed:
+
+```bash
+boxmot build --tracker bytetrack
+```
+
+This produces:
+
+| Platform | Output |
+| --- | --- |
+| Linux   | `bytetrack_capi.so` |
+| macOS   | `bytetrack_capi.dylib` |
+| Windows | `bytetrack_capi.dll` |
+
+next to the tracker's source directory under
+`boxmot/native/trackers/bytetrack/`.
+
+### Public C ABI header
+
+The public ABI is declared in
+`boxmot/native/trackers/bytetrack/include/bytetrack/c_api.hpp`. Every tracker
+follows the same shape — substitute `bytetrack` for `botsort`, `ocsort`,
+`occluboost`, or `sfsort`:
+
+```cpp
+struct BoxMOTByteTrackConfig { /* tracker-specific knobs */ };
+struct BoxMOTByteTrackHandle;
+
+BoxMOTByteTrackHandle* boxmot_bytetrack_create(const BoxMOTByteTrackConfig*);
+void                   boxmot_bytetrack_destroy(BoxMOTByteTrackHandle*);
+int                    boxmot_bytetrack_reset(BoxMOTByteTrackHandle*);
+int                    boxmot_bytetrack_update(
+    BoxMOTByteTrackHandle* handle,
+    const float* dets, int det_rows, int det_cols,    /* (x1,y1,x2,y2,conf,cls) per row */
+    const std::uint8_t* image_data,
+    int image_rows, int image_cols, int image_channels,
+    float* out_tracks, int out_capacity, int* out_count);
+```
+
+### Minimal CMake project
+
+```text
+capi-demo/
+├── CMakeLists.txt
+└── main.cpp
+```
+
+`CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.16)
+project(boxmot_capi_demo LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(BOXMOT_ROOT "" CACHE PATH "Path to a BoxMOT source checkout")
+if(NOT BOXMOT_ROOT)
+    message(FATAL_ERROR "Pass -DBOXMOT_ROOT=/path/to/boxmot")
+endif()
+
+set(BYTETRACK_DIR "${BOXMOT_ROOT}/boxmot/native/trackers/bytetrack")
+
+add_executable(capi_demo main.cpp)
+
+target_include_directories(capi_demo PRIVATE
+    "${BYTETRACK_DIR}/include")
+
+# Link against the prebuilt shared lib produced by `boxmot build --tracker bytetrack`.
+if(WIN32)
+    target_link_libraries(capi_demo PRIVATE "${BYTETRACK_DIR}/bytetrack_capi.lib")
+elseif(APPLE)
+    target_link_libraries(capi_demo PRIVATE "${BYTETRACK_DIR}/bytetrack_capi.dylib")
+else()
+    target_link_libraries(capi_demo PRIVATE "${BYTETRACK_DIR}/bytetrack_capi.so")
+endif()
+
+# Embed the directory holding the tracker .so/.dylib in the executable's RPATH
+# so the loader finds it at runtime without LD_LIBRARY_PATH gymnastics.
+set_target_properties(capi_demo PROPERTIES
+    BUILD_RPATH   "${BYTETRACK_DIR}"
+    INSTALL_RPATH "${BYTETRACK_DIR}")
+```
+
+`main.cpp`:
+
+```cpp
+#include "bytetrack/c_api.hpp"
+
+#include <cstdint>
+#include <cstdio>
+#include <vector>
+
+int main() {
+    BoxMOTByteTrackConfig cfg{};
+    cfg.min_conf      = 0.1f;
+    cfg.track_thresh  = 0.5f;
+    cfg.match_thresh  = 0.8f;
+    cfg.track_buffer  = 30;
+    cfg.frame_rate    = 30;
+    cfg.max_obs       = 50;
+
+    auto* tracker = boxmot_bytetrack_create(&cfg);
+
+    // One detection: x1, y1, x2, y2, conf, cls.
+    std::vector<float> dets = {100.f, 50.f, 200.f, 300.f, 0.9f, 0.f};
+    std::vector<std::uint8_t> dummy_image(720 * 1280 * 3, 0);
+
+    // Output schema is (x1, y1, x2, y2, id, conf, cls, det_ind) — 8 floats per track.
+    std::vector<float> out_tracks(64 * 8);
+    int out_count = 0;
+
+    boxmot_bytetrack_update(
+        tracker,
+        dets.data(), 1, 6,
+        dummy_image.data(), 720, 1280, 3,
+        out_tracks.data(), static_cast<int>(out_tracks.size()), &out_count);
+
+    std::printf("got %d track(s)\n", out_count);
+    for (int i = 0; i < out_count; ++i) {
+        const float* row = &out_tracks[i * 8];
+        std::printf("  id=%.0f conf=%.2f xyxy=(%.1f, %.1f, %.1f, %.1f)\n",
+                    row[4], row[5], row[0], row[1], row[2], row[3]);
+    }
+
+    boxmot_bytetrack_destroy(tracker);
+    return 0;
+}
+```
+
+Build and run:
+
+```bash
+cmake -S capi-demo -B build/capi-demo \
+    -DBOXMOT_ROOT=/path/to/boxmot \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build/capi-demo
+./build/capi-demo/capi_demo
+```
+
+### Choosing between the C++ core and the C ABI
+
+| Need | Recommended target |
+| --- | --- |
+| Pure-C++ project, want `cv::Mat` / Eigen types | `<tracker>_core` (see [Minimal Project](#minimal-project)) |
+| Calling from C, Rust, Go, Swift, JNI, .NET P/Invoke | `<tracker>_capi` (this section) |
+| Hot-swapping the tracker library at runtime | `<tracker>_capi` |
+| Smallest possible link-time dependency surface | `<tracker>_capi` |

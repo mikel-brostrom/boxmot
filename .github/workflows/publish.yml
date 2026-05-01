@@ -1,6 +1,8 @@
 name: Publish to PyPI
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       pypi:
@@ -22,239 +24,80 @@ on:
           - major
 
 jobs:
-  # ------------------------------------------------------------------
-  # 1. Bump version, commit, push.
-  # ------------------------------------------------------------------
-  bump_version:
-    name: Bump version
+  pypi-upload:
+    name: Publish
     runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.get_version.outputs.new_version }}
-      commit_message: ${{ steps.get_version.outputs.commit_message }}
-      sha: ${{ steps.commit.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
+          # Personal Access Token (PAT) so that git push
+          # is authenticated such that you and can bypass the protected ref
           token: ${{ secrets.RELEASE_PAT }}
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'
 
-      - name: Install bump tooling
-        run: python -m pip install --upgrade pip poetry
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel uv poetry
+          uv sync
 
-      - name: Bump pyproject version
+      - name: Increase uv path version and add
         id: get_version
         run: |
+          source .venv/bin/activate
           git config --local user.email yolov5.deepsort.pytorch@gmail.com
           git config --local user.name mikel-brostrom
           bump_type=${{ github.event.inputs.bump_type }}
           commit_message=$(poetry version $bump_type)
           new_version=$(echo $commit_message | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
+          git add pyproject.toml
+          uv build --no-sources
           echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          du -sh dist/*
+        if: ${{ success() }}
 
-      - name: Sync version into __init__.py and CITATION.cff
+      - name: Update __init__.py version and add
         run: |
           sed -i "s/__version__ = '.*'/__version__ = '${{ steps.get_version.outputs.new_version }}'/" boxmot/__init__.py
-          sed -i "s/^version: .*/version: ${{ steps.get_version.outputs.new_version }}/" CITATION.cff
+          git add boxmot/__init__.py
+        if: ${{ success() }}
 
-      - name: Commit and push
-        id: commit
+      - name: Update citation pkg version and add
         run: |
-          git add pyproject.toml boxmot/__init__.py CITATION.cff
+          sed -i "s/^version: .*/version: ${{ steps.get_version.outputs.new_version }}/" CITATION.cff
+          git add CITATION.cff
+        if: ${{ success() }}
+
+      - name: Commit and push updated version
+        run: |
           if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
             git commit -m "${{ steps.get_version.outputs.commit_message }}"
-            git push origin HEAD:master
-          else
-            # Push to a throwaway branch so downstream jobs can check out the
-            # bumped commit by SHA without polluting master.
-            git commit -m "${{ steps.get_version.outputs.commit_message }} (testpypi)"
-            git push -f origin HEAD:refs/heads/ci/testpypi-bump
+            git push
           fi
-          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+        if: ${{ success() }}
 
-  # ------------------------------------------------------------------
-  # 2. Build manylinux/macosx/windows wheels via cibuildwheel.
-  # ------------------------------------------------------------------
-  build_wheels:
-    name: Wheel ${{ matrix.os }} (${{ matrix.arch }})
-    needs: bump_version
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            arch: x86_64
-            macos_target: ''
-          - os: ubuntu-24.04-arm
-            arch: aarch64
-            macos_target: ''
-          - os: macos-13
-            arch: x86_64
-            macos_target: '13.0'
-          - os: macos-14
-            arch: arm64
-            macos_target: '14.0'
-          - os: windows-2022
-            arch: AMD64
-            macos_target: ''
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.bump_version.outputs.sha }}
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install cibuildwheel
-        run: python -m pip install --upgrade pip cibuildwheel==2.21.3
-
-      - name: Install Windows native deps (OpenCV + Eigen)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Write-Host '--- Downloading OpenCV 4.10.0 prebuilt ---'
-          curl.exe -L --fail -o opencv.exe https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-windows.exe
-          Write-Host '--- Extracting OpenCV ---'
-          & 'C:\Program Files\7-Zip\7z.exe' x opencv.exe -oC:\opencv-install -y | Out-Null
-          if (-not (Test-Path 'C:\opencv-install\opencv\build\OpenCVConfig.cmake')) {
-            throw 'OpenCV extraction failed: OpenCVConfig.cmake not found'
-          }
-          Write-Host '--- Installing Eigen3 via vcpkg ---'
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install eigen3:x64-windows
-          Write-Host '--- Done ---'
-
-      - name: Build wheels
-        env:
-          CIBW_ARCHS: ${{ matrix.arch }}
-          CIBW_BUILD: 'cp39-* cp310-* cp311-* cp312-*'
-          CIBW_SKIP: '*-musllinux_* *-manylinux_i686 pp*'
-          # Use prebuilt manylinux_2_28 images that already contain OpenCV 4 +
-          # Eigen3 (built and pushed by .github/workflows/build-manylinux-image.yml).
-          # Falls back to a no-op `before_all` so each Python version doesn't
-          # have to recompile OpenCV from source.
-          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/${{ github.repository_owner }}/boxmot-manylinux:latest-x86_64
-          CIBW_MANYLINUX_AARCH64_IMAGE: ghcr.io/${{ github.repository_owner }}/boxmot-manylinux:latest-aarch64
-          CIBW_BEFORE_ALL_LINUX: |
-            set -euo pipefail
-            # The custom manylinux image already provides OpenCV 4 + Eigen3.
-            # The apt-get branch is only used if you swap in a Debian-based
-            # manylinux image manually.
-            if command -v apt-get >/dev/null; then
-              apt-get update
-              apt-get install -y cmake g++ libopencv-dev libeigen3-dev
-            fi
-          CIBW_BEFORE_ALL_MACOS: |
-            brew install cmake opencv eigen
-          # LD_LIBRARY_PATH lets auditwheel locate the OpenCV shared libs
-          # installed under /usr/local/{lib,lib64} in the custom manylinux image
-          # so they can be vendored into the repaired wheel.
-          CIBW_ENVIRONMENT_LINUX: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON LD_LIBRARY_PATH=/usr/local/lib64:/usr/local/lib:$LD_LIBRARY_PATH'
-          # Match wheel platform tag to the Homebrew bottles' minimum target.
-          # macos-14 (arm64) ships bottles built for 14.0; macos-13 for 13.0.
-          CIBW_ENVIRONMENT_MACOS: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_target }}'
-          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_target }}
-          # Windows: point CMake at the prebuilt OpenCV (vc16/x64) and at the
-          # vcpkg toolchain for Eigen3 (both installed in the dedicated
-          # "Install Windows native deps" step above). delvewheel (cibuildwheel's
-          # default Windows repair tool) needs the OpenCV DLL dir on PATH so it
-          # can vendor opencv_world*.dll into the wheel.
-          CIBW_ENVIRONMENT_WINDOWS: >-
-            CMAKE_ARGS="-DOpenCV_DIR=C:/opencv-install/opencv/build
-            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
-            -DVCPKG_TARGET_TRIPLET=x64-windows
-            -DBOXMOT_REQUIRE_NATIVE=ON"
-            PATH="C:\\opencv-install\\opencv\\build\\x64\\vc16\\bin;$PATH"
-          CIBW_TEST_COMMAND: 'python -c "import boxmot; print(boxmot.__version__)"'
-        run: python -m cibuildwheel --output-dir wheelhouse
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheels-${{ matrix.os }}-${{ matrix.arch }}
-          path: wheelhouse/*.whl
-
-  # ------------------------------------------------------------------
-  # 3. Build sdist.
-  # ------------------------------------------------------------------
-  build_sdist:
-    name: Build sdist
-    needs: bump_version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.bump_version.outputs.sha }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Build sdist
-        run: |
-          python -m pip install --upgrade pip build
-          python -m build --sdist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          path: dist/*.tar.gz
-
-  # ------------------------------------------------------------------
-  # 4. Collect everything and publish.
-  # ------------------------------------------------------------------
-  publish:
-    name: Publish to ${{ github.event.inputs.pypi }}
-    needs: [bump_version, build_wheels, build_sdist]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        run: python -m pip install --upgrade pip uv
-
-      - name: Download all wheels
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          pattern: wheels-*
-          merge-multiple: true
-
-      - name: Download sdist
-        uses: actions/download-artifact@v4
-        with:
-          name: sdist
-          path: dist
-
-      - name: List artifacts
-        run: ls -lh dist/
-
-      - name: Publish
+      - name: Publish to PyPI
         run: |
           if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
-            uv publish --token ${{ secrets.PYPI_TOKEN }} dist/*
+            uv publish --token ${{ secrets.PYPI_TOKEN }}
           else
-            uv publish --index testpypi --token ${{ secrets.TEST_PYPI_TOKEN }} dist/*
+            uv publish --index testpypi --token ${{ secrets.TEST_PYPI_TOKEN }}
           fi
+        if: ${{ success() }}
 
-  # ------------------------------------------------------------------
-  # 5. Tag a GitHub release (only on real PyPI publishes).
-  # ------------------------------------------------------------------
-  release:
-    name: Create GitHub release
-    needs: [bump_version, publish]
-    if: ${{ github.event.inputs.pypi == 'pypi' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/create-release@v1
+      - name: Create code release
+        id: create_release
+        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ needs.bump_version.outputs.new_version }}
-          release_name: Release v${{ needs.bump_version.outputs.new_version }}
+          tag_name: v${{ steps.get_version.outputs.new_version }}
+          release_name: Release v${{ steps.get_version.outputs.new_version }}
           draft: false
           prerelease: false
+        if: ${{ success() }}
