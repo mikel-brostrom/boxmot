@@ -287,19 +287,17 @@ jobs:
           new_table+="  <thead>\n"
           new_table+="    <tr>\n"
           new_table+="      <th rowspan=\"2\" align=\"left\">Tracker</th>\n"
-          new_table+="      <th colspan=\"5\" align=\"center\">Python</th>\n"
-          new_table+="      <th colspan=\"5\" align=\"center\">C++</th>\n"
+          new_table+="      <th colspan=\"4\" align=\"center\">Python</th>\n"
+          new_table+="      <th colspan=\"4\" align=\"center\">C++</th>\n"
           new_table+="    </tr>\n"
           new_table+="    <tr>\n"
           new_table+="      <th align=\"right\">HOTA</th>\n"
           new_table+="      <th align=\"right\">MOTA</th>\n"
           new_table+="      <th align=\"right\">IDF1</th>\n"
-          new_table+="      <th align=\"right\">FPS</th>\n"
           new_table+="      <th align=\"center\">OBB</th>\n"
           new_table+="      <th align=\"right\">HOTA</th>\n"
           new_table+="      <th align=\"right\">MOTA</th>\n"
           new_table+="      <th align=\"right\">IDF1</th>\n"
-          new_table+="      <th align=\"right\">FPS</th>\n"
           new_table+="      <th align=\"center\">OBB</th>\n"
           new_table+="    </tr>\n"
           new_table+="  </thead>\n"
@@ -311,13 +309,11 @@ jobs:
             py_h=$(fmt_metric "${py_hota[$tracker]}")
             py_m=$(fmt_metric "${py_mota[$tracker]}")
             py_i=$(fmt_metric "${py_idf1[$tracker]}")
-            py_f=$(fmt_fps "${py_fps[$tracker]}")
             py_o=${py_obb[$tracker]:-—}
 
             cpp_h=$(fmt_metric "${cpp_hota[$tracker]}")
             cpp_m=$(fmt_metric "${cpp_mota[$tracker]}")
             cpp_i=$(fmt_metric "${cpp_idf1[$tracker]}")
-            cpp_f=$(fmt_fps "${cpp_fps[$tracker]}")
             cpp_o=${cpp_obb[$tracker]:-—}
 
             new_table+="    <tr>\n"
@@ -325,12 +321,10 @@ jobs:
             new_table+="      <td align=\"right\">$py_h</td>\n"
             new_table+="      <td align=\"right\">$py_m</td>\n"
             new_table+="      <td align=\"right\">$py_i</td>\n"
-            new_table+="      <td align=\"right\">$py_f</td>\n"
             new_table+="      <td align=\"center\">$py_o</td>\n"
             new_table+="      <td align=\"right\">$cpp_h</td>\n"
             new_table+="      <td align=\"right\">$cpp_m</td>\n"
             new_table+="      <td align=\"right\">$cpp_i</td>\n"
-            new_table+="      <td align=\"right\">$cpp_f</td>\n"
             new_table+="      <td align=\"center\">$cpp_o</td>\n"
             new_table+="    </tr>\n"
           done

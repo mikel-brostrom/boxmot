@@ -56,19 +56,17 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
   <thead>
     <tr>
       <th rowspan="2" align="left">Tracker</th>
-      <th colspan="5" align="center">Python</th>
-      <th colspan="5" align="center">C++</th>
+      <th colspan="4" align="center">Python</th>
+      <th colspan="4" align="center">C++</th>
     </tr>
     <tr>
       <th align="right">HOTA</th>
       <th align="right">MOTA</th>
       <th align="right">IDF1</th>
-      <th align="right">FPS</th>
       <th align="center">OBB</th>
       <th align="right">HOTA</th>
       <th align="right">MOTA</th>
       <th align="right">IDF1</th>
-      <th align="right">FPS</th>
       <th align="center">OBB</th>
     </tr>
   </thead>
@@ -78,12 +76,10 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">70.47</td>
       <td align="right">78.32</td>
       <td align="right">84.14</td>
-      <td align="right">13</td>
       <td align="center">❌</td>
       <td align="right">70.48</td>
       <td align="right">78.31</td>
       <td align="right">84.14</td>
-      <td align="right">—</td>
       <td align="center">❌</td>
     </tr>
     <tr>
@@ -91,12 +87,10 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">69.44</td>
       <td align="right">78.24</td>
       <td align="right">81.94</td>
-      <td align="right">12</td>
       <td align="center">✅</td>
       <td align="right">69.43</td>
       <td align="right">78.26</td>
       <td align="right">82.00</td>
-      <td align="right">—</td>
       <td align="center">✅</td>
     </tr>
     <tr>
@@ -104,9 +98,7 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">69.25</td>
       <td align="right">75.91</td>
       <td align="right">83.20</td>
-      <td align="right">13</td>
       <td align="center">❌</td>
-      <td align="right">—</td>
       <td align="right">—</td>
       <td align="right">—</td>
       <td align="right">—</td>
@@ -117,9 +109,7 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">68.05</td>
       <td align="right">76.19</td>
       <td align="right">80.76</td>
-      <td align="right">11</td>
       <td align="center">❌</td>
-      <td align="right">—</td>
       <td align="right">—</td>
       <td align="right">—</td>
       <td align="right">—</td>
@@ -130,9 +120,7 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">67.95</td>
       <td align="right">75.83</td>
       <td align="right">80.54</td>
-      <td align="right">12</td>
       <td align="center">❌</td>
-      <td align="right">—</td>
       <td align="right">—</td>
       <td align="right">—</td>
       <td align="right">—</td>
@@ -143,12 +131,10 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">67.68</td>
       <td align="right">78.04</td>
       <td align="right">79.16</td>
-      <td align="right">720</td>
       <td align="center">✅</td>
       <td align="right">67.75</td>
       <td align="right">78.03</td>
       <td align="right">79.38</td>
-      <td align="right">—</td>
       <td align="center">✅</td>
     </tr>
     <tr>
@@ -156,9 +142,7 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">67.31</td>
       <td align="right">74.09</td>
       <td align="right">78.87</td>
-      <td align="right">25</td>
       <td align="center">❌</td>
-      <td align="right">—</td>
       <td align="right">—</td>
       <td align="right">—</td>
       <td align="right">—</td>
@@ -169,12 +153,10 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">66.44</td>
       <td align="right">74.55</td>
       <td align="right">77.90</td>
-      <td align="right">890</td>
       <td align="center">✅</td>
       <td align="right">66.44</td>
       <td align="right">74.55</td>
       <td align="right">77.90</td>
-      <td align="right">—</td>
       <td align="center">✅</td>
     </tr>
     <tr>
@@ -182,12 +164,10 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">62.65</td>
       <td align="right">76.87</td>
       <td align="right">69.18</td>
-      <td align="right">6000</td>
       <td align="center">✅</td>
       <td align="right">62.66</td>
       <td align="right">76.74</td>
       <td align="right">69.18</td>
-      <td align="right">—</td>
       <td align="center">✅</td>
     </tr>
   </tbody>
