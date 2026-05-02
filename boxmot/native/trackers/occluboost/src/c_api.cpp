@@ -82,11 +82,6 @@ std::vector<occluboost::Detection> ConvertDetections(
 
     std::vector<occluboost::Detection> converted =
         boxmot::trackers::base::ConvertLiveDetections<occluboost::Detection>(dets, det_rows, det_cols, "OccluBoost");
-    for (auto& d : converted) {
-        if (d.is_obb) {
-            throw std::runtime_error("Native OccluBoost only supports AABB (6-column) detections.");
-        }
-    }
     for (std::size_t row = 0; row < converted.size(); ++row) {
         if (embs != nullptr && emb_cols > 0) {
             occluboost::Detection& detection = converted[row];
@@ -175,7 +170,7 @@ int boxmot_occluboost_update(
         const std::vector<occluboost::TrackOutput> tracks = handle->tracker->Update(detections, image);
         boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "OccluBoost");
         *out_rows = static_cast<int>(tracks.size());
-        *out_is_obb = 0;  // OccluBoost native is AABB-only.
+        *out_is_obb = boxmot::trackers::base::LiveOutputUsesObb(tracks, det_cols) ? 1 : 0;
     }, g_last_error, "Unknown native OccluBoost failure");
 }
 

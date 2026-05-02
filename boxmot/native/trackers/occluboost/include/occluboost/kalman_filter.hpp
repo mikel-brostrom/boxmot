@@ -5,39 +5,41 @@
 namespace occluboost {
 
 // Constant-noise XYHR Kalman filter mirroring boxmot.motion.kalman_filters.xyhr.
-// State: [x, y, h, r, vx, vy, vh, vr] (dim_x = 8, dim_z = 4).
+// AABB mode (dim_z=4, dim_x=8): state [x, y, h, r, vx, vy, vh, vr]
+// OBB  mode (dim_z=5, dim_x=10): state [x, y, h, r, theta, vx, vy, vh, vr, vtheta]
 class KalmanFilterXYHR {
 public:
     using Vector = Eigen::VectorXd;
     using Matrix = Eigen::MatrixXd;
 
+    // Default-constructed AABB filter for backward compatibility.
     KalmanFilterXYHR();
 
-    // Initialize state vector + covariance from a measurement [x, y, h, r].
+    // Initialize state vector + covariance from a measurement. Latches the
+    // filter to AABB (size 4) or OBB (size 5) mode based on ``measurement``.
     void Initiate(const Vector& measurement);
 
-    // Standard predict step (overwrites internal state).
     void Predict();
 
     // Standard update step with optional alpha-scaled Kalman gain.
-    // alpha=1.0 reproduces a standard correction; alpha<1 dampens the mean
-    // update only — covariance shrinks normally.
     void Update(const Vector& measurement, double alpha = 1.0);
 
-    // Get current state vector [cx, cy, h, r, vx, vy, vh, vr].
     const Vector& mean() const { return mean_; }
     Vector& mutable_mean() { return mean_; }
     const Matrix& covariance() const { return covariance_; }
 
     int dim_x() const { return dim_x_; }
     int dim_z() const { return dim_z_; }
+    bool is_obb() const { return is_obb_; }
 
 private:
+    void Configure(int dim_z);
     void EnforceConstraints();
     std::pair<Vector, Matrix> Project() const;
 
-    static constexpr int dim_x_ = 8;
-    static constexpr int dim_z_ = 4;
+    int dim_x_ = 8;
+    int dim_z_ = 4;
+    bool is_obb_ = false;
 
     Matrix motion_mat_;
     Matrix update_mat_;

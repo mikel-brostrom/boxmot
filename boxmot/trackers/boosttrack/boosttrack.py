@@ -39,22 +39,61 @@ def convert_x_to_bbox(x, score=None):
                      x[0] + w / 2.0, x[1] + h / 2.0, score]).reshape((1, 5))
 
 
+def convert_xywha_to_z(box: np.ndarray) -> np.ndarray:
+    """Convert OBB ``(cx, cy, w, h, angle)`` to KF measurement ``(x, y, h, r, theta)``.
+
+    Mirrors :func:`convert_bbox_to_z` but for oriented bounding boxes; the
+    underlying :class:`KalmanFilterXYHR` automatically switches to its 5-D OBB
+    state when measurements have 5 elements.
+    """
+    cx, cy, w, h, theta = (float(v) for v in box[:5])
+    h = max(h, 1e-4)
+    w = max(w, 1e-4)
+    return np.array([cx, cy, h, w / h, theta], dtype=float)
+
+
+def convert_x_to_xywha(x: np.ndarray) -> np.ndarray:
+    """Inverse of :func:`convert_xywha_to_z` for OBB KF state vectors."""
+    cx, cy, h, r, theta = float(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4])
+    w = h * r
+    return np.array([[cx, cy, w, h, theta]], dtype=float)
+
+
 class KalmanBoxTracker:
     """
     Single object tracker using a Kalman filter.
+
+    Supports both axis-aligned (default) and oriented (OBB) bounding boxes.
+    When ``is_obb=True`` the tracker stores ``(cx, cy, w, h, angle)`` state and
+    expects detections in the layout
+    ``(cx, cy, w, h, angle, conf, cls, det_ind)``.
     """
 
     count = 0
 
-    def __init__(self, det, max_obs, emb: Optional[np.ndarray] = None):
+    def __init__(
+        self,
+        det,
+        max_obs,
+        emb: Optional[np.ndarray] = None,
+        is_obb: bool = False,
+    ):
         KalmanBoxTracker.count += 1
 
+        self.is_obb = bool(is_obb)
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
-        self.kf = KalmanFilterXYHR(convert_bbox_to_z(det[:4]))
-        self.conf = det[4]
-        self.cls = det[5]
-        self.det_ind = det[6]
+        if self.is_obb:
+            # det = (cx, cy, w, h, angle, conf, cls, det_ind)
+            self.kf = KalmanFilterXYHR(convert_xywha_to_z(det[:5]))
+            self.conf = det[5]
+            self.cls = det[6]
+            self.det_ind = det[7]
+        else:
+            self.kf = KalmanFilterXYHR(convert_bbox_to_z(det[:4]))
+            self.conf = det[4]
+            self.cls = det[5]
+            self.det_ind = det[6]
         self.emb = emb
         self.hit_streak = 0
         self.age = 0
@@ -70,15 +109,26 @@ class KalmanBoxTracker:
         self.time_since_update = 0
         self.hit_streak += 1
         self.history_observations.append(self.get_state()[0])
-        self.kf.update(convert_bbox_to_z(det))
-        self.conf = det[4]
-        self.cls = det[5]
-        self.det_ind = det[6]
+        if self.is_obb:
+            self.kf.update(convert_xywha_to_z(det[:5]))
+            self.conf = det[5]
+            self.cls = det[6]
+            self.det_ind = det[7]
+        else:
+            self.kf.update(convert_bbox_to_z(det))
+            self.conf = det[4]
+            self.cls = det[5]
+            self.det_ind = det[6]
 
     def camera_update(self, transform: np.ndarray):
         """
         Handle either a 2×3 affine or a 3×3 homography, by
         promoting the 2×3 to 3×3 [ …; 0 0 1 ].
+
+        For OBB tracks, warps the centre and approximates the global affine
+        scale on the box dimensions (rotation is folded into the angle); this
+        keeps OBB CMC behaviour comparable to the AABB path while avoiding a
+        full corner re-fit per track.
         """
         # ——— normalize to 3×3 —————
         wm = np.asarray(transform, dtype=float)
@@ -86,6 +136,19 @@ class KalmanBoxTracker:
             wm = np.vstack([wm, [0.0, 0.0, 1.0]])
         elif wm.shape != (3, 3):
             raise ValueError(f"Expected 2×3 or 3×3 matrix, got {wm.shape}")
+
+        if self.is_obb:
+            cx, cy, w, h, theta = (float(v) for v in self.get_state()[0])
+            p = wm @ np.array([cx, cy, 1.0])
+            cx_, cy_ = float(p[0]), float(p[1])
+            # Approximate isotropic scale and rotation from the linear part
+            linear = wm[:2, :2]
+            scale = float(np.sqrt(max(abs(np.linalg.det(linear)), 1e-8)))
+            rot = float(np.arctan2(linear[1, 0], linear[0, 0]))
+            w_ = max(w * scale, 1e-4)
+            h_ = max(h * scale, 1e-4)
+            self.kf.x[:5] = [cx_, cy_, h_, w_ / h_, theta + rot]
+            return
 
         # ——— warp your current bbox —————
         x1, y1, x2, y2 = self.get_state()[0]
@@ -108,7 +171,24 @@ class KalmanBoxTracker:
         return self.get_state()
 
     def get_state(self):
+        if self.is_obb:
+            return convert_x_to_xywha(self.kf.x)
         return convert_x_to_bbox(self.kf.x)
+
+    @property
+    def xywha(self) -> np.ndarray:
+        """Return the current OBB state as ``[cx, cy, w, h, angle]``.
+
+        Available for both AABB and OBB tracks; AABB tracks return ``angle=0``.
+        """
+        if self.is_obb:
+            return self.get_state()[0].astype(float)
+        x1, y1, x2, y2 = self.get_state()[0]
+        cx = (x1 + x2) * 0.5
+        cy = (y1 + y2) * 0.5
+        w = max(float(x2 - x1), 1e-4)
+        h = max(float(y2 - y1), 1e-4)
+        return np.array([cx, cy, w, h, 0.0], dtype=float)
 
     def update_emb(self, emb, alpha=0.9):
         self.emb = alpha * self.emb + (1 - alpha) * emb

@@ -21,12 +21,15 @@ public:
     void Reset() override;
     [[nodiscard]] double LastReIdTimeMs() const noexcept { return last_reid_time_ms_; }
 
-    [[nodiscard]] bool SupportsObb() const noexcept override { return false; }
+    [[nodiscard]] bool SupportsObb() const noexcept override { return true; }
     [[nodiscard]] bool SupportsReId() const noexcept override { return true; }
 
 private:
     // Detection prep
     std::vector<Detection> EnsureEmbeddings(std::vector<Detection> detections, const cv::Mat& image);
+
+    // OBB-only update branch (mirrors Python OccluBoost._update_obb).
+    std::vector<TrackOutput> UpdateObb(const std::vector<Detection>& detections, const cv::Mat& image);
 
     // Confidence boosting (use_dlo_boost / use_duo_boost branches).
     void DloConfidenceBoost(std::vector<Detection>& detections) const;
@@ -54,6 +57,10 @@ private:
     std::unique_ptr<CameraMotionCompensator> cmc_;
     std::optional<OnnxReIdModel> reid_model_;
     double last_reid_time_ms_ = 0.0;
+
+    // Detection-mode latch (AABB vs OBB) determined from first non-empty frame.
+    bool detection_mode_ready_ = false;
+    bool is_obb_mode_ = false;
 };
 
 }  // namespace occluboost

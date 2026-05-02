@@ -2,6 +2,8 @@
 
 #include "boxmot/trackers/base/assignment.hpp"
 
+#include <opencv2/imgproc.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -11,6 +13,38 @@ namespace occluboost {
 namespace {
 
 constexpr double kMhdLimit = 13.2767;  // chi^2 99% interval, dof=4.
+constexpr double kPi = 3.14159265358979323846;
+
+cv::RotatedRect RotatedRectFromXywha(const Eigen::Matrix<double, 5, 1>& box) {
+    return cv::RotatedRect(
+        cv::Point2f(static_cast<float>(box[0]), static_cast<float>(box[1])),
+        cv::Size2f(
+            static_cast<float>(std::max(box[2], 1.0e-4)),
+            static_cast<float>(std::max(box[3], 1.0e-4))
+        ),
+        static_cast<float>(box[4] * 180.0 / kPi)
+    );
+}
+
+double ObbIoU(const Eigen::Matrix<double, 5, 1>& lhs, const Eigen::Matrix<double, 5, 1>& rhs) {
+    const cv::RotatedRect lhs_rect = RotatedRectFromXywha(lhs);
+    const cv::RotatedRect rhs_rect = RotatedRectFromXywha(rhs);
+
+    std::vector<cv::Point2f> intersection;
+    const int status = cv::rotatedRectangleIntersection(lhs_rect, rhs_rect, intersection);
+    if (status == cv::INTERSECT_NONE || intersection.empty()) {
+        return 0.0;
+    }
+
+    const double inter_area = std::abs(cv::contourArea(intersection));
+    const double lhs_area = std::max(lhs[2], 0.0) * std::max(lhs[3], 0.0);
+    const double rhs_area = std::max(rhs[2], 0.0) * std::max(rhs[3], 0.0);
+    const double denom = lhs_area + rhs_area - inter_area;
+    if (denom <= 1.0e-12) {
+        return 0.0;
+    }
+    return inter_area / denom;
+}
 
 }  // namespace
 
@@ -36,6 +70,25 @@ Eigen::MatrixXd IouBatch(const Eigen::MatrixXd& dets, const Eigen::MatrixXd& trk
             const double ta = std::max(0.0, tx2 - tx1) * std::max(0.0, ty2 - ty1);
             const double denom = da + ta - inter;
             iou(i, j) = denom > 0.0 ? inter / denom : 0.0;
+        }
+    }
+    return iou;
+}
+
+Eigen::MatrixXd IouBatchObb(const Eigen::MatrixXd& dets_xywha, const Eigen::MatrixXd& trks_xywha) {
+    const int n = static_cast<int>(dets_xywha.rows());
+    const int m = static_cast<int>(trks_xywha.rows());
+    Eigen::MatrixXd iou = Eigen::MatrixXd::Zero(n, m);
+    if (n == 0 || m == 0 || dets_xywha.cols() < 5 || trks_xywha.cols() < 5) {
+        return iou;
+    }
+    for (int i = 0; i < n; ++i) {
+        Eigen::Matrix<double, 5, 1> a;
+        a << dets_xywha(i, 0), dets_xywha(i, 1), dets_xywha(i, 2), dets_xywha(i, 3), dets_xywha(i, 4);
+        for (int j = 0; j < m; ++j) {
+            Eigen::Matrix<double, 5, 1> b;
+            b << trks_xywha(j, 0), trks_xywha(j, 1), trks_xywha(j, 2), trks_xywha(j, 3), trks_xywha(j, 4);
+            iou(i, j) = ObbIoU(a, b);
         }
     }
     return iou;

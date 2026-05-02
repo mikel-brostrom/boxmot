@@ -60,7 +60,7 @@ struct Config {
 };
 
 struct Detection {
-    bool is_obb = false;  // OBB unsupported in OccluBoost native (always false).
+    bool is_obb = false;  // True for OBB detections (xywha set); false for AABB (xyxy set).
     Eigen::Vector4d xyxy = Eigen::Vector4d::Zero();
     Eigen::Matrix<double, 5, 1> xywha = Eigen::Matrix<double, 5, 1>::Zero();
     float conf = 0.0F;

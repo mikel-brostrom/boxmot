@@ -20,10 +20,6 @@ LoadedSequence LoadSequence(const ReplayOptions& options) {
             "OccluBoost"
         );
 
-    if (base_sequence.is_obb) {
-        throw std::runtime_error("Native OccluBoost only supports AABB detections, sequence has OBB cache.");
-    }
-
     const bool can_infer_embeddings =
         !options.reid_model_path.empty() && options.reid_model_path.extension() == ".onnx";
     Eigen::MatrixXf embeddings = boxmot::trackers::base::LoadEmbeddingsCache(

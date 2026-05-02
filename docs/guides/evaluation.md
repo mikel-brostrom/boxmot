@@ -42,7 +42,7 @@ Native replay and live tracking are currently registered for:
 | --- | --- | --- | --- |
 | `botsort` | Yes | Yes | Supports AABB/OBB and uses the native C++ ReID. |
 | `bytetrack` | Yes | Yes | Supports AABB/OBB and does not require ReID. |
-| `occluboost` | Yes | Yes | AABB only; uses the native C++ ReID for embeddings, recovery and the second pass. |
+| `occluboost` | Yes | Yes | AABB and OBB; uses the native C++ ReID for embeddings, recovery and the second pass. |
 | `ocsort` | Yes | Yes | Supports AABB/OBB; native backend currently uses `asso_func=iou`. |
 | `sfsort` | Yes | Yes | Supports AABB/OBB and does not require ReID. |
 
