@@ -268,6 +268,17 @@ class Results:
         except (TypeError, ValueError):
             return 0.0
 
+    def _tracker_reid_phase_breakdown(self) -> dict[str, float]:
+        breakdown: dict[str, float] = {"preprocess": 0.0, "process": 0.0, "postprocess": 0.0}
+        for phase in breakdown:
+            getter = getattr(self.tracker, f"get_last_reid_{phase}_time_ms", None)
+            value = getter() if callable(getter) else getattr(self.tracker, f"last_reid_{phase}_time_ms", 0.0)
+            try:
+                breakdown[phase] = max(float(value), 0.0)
+            except (TypeError, ValueError):
+                breakdown[phase] = 0.0
+        return breakdown
+
     def _log_summary(self) -> None:
         self.print_summary()
 
@@ -481,7 +492,15 @@ class Results:
                 if self.reid is None:
                     tracker_reid_ms = min(self._tracker_reid_time_ms(), track_ms)
                     reid_ms += tracker_reid_ms
-                    self._add_reid_phase_time("process", tracker_reid_ms)
+                    phase_breakdown = self._tracker_reid_phase_breakdown()
+                    if any(phase_breakdown.values()) and tracker_reid_ms > 0.0:
+                        breakdown_total = sum(phase_breakdown.values())
+                        scale = tracker_reid_ms / breakdown_total if breakdown_total > 0.0 else 1.0
+                        for phase, value in phase_breakdown.items():
+                            scaled = max(float(value) * scale, 0.0)
+                            self._add_reid_phase_time(phase, scaled)
+                    else:
+                        self._add_reid_phase_time("process", tracker_reid_ms)
                     track_ms = max(track_ms - tracker_reid_ms, 0.0)
 
                 total_ms = det_ms + reid_ms + track_ms

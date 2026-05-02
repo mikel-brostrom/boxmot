@@ -1,22 +1,17 @@
 #include "boxmot/trackers/base/reid_onnx.hpp"
 
+#include "boxmot/trackers/base/reid_inference_backend.hpp"
+
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
-#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <utility>
-
-#if defined(BOXMOT_HAS_ONNXRUNTIME)
-#include <onnxruntime_cxx_api.h>
-#if defined(__APPLE__)
-#include <coreml_provider_factory.h>
-#endif
-#endif
 
 namespace boxmot::trackers::base {
 
@@ -68,53 +63,13 @@ ReIdDevice ResolveDevice(ReIdDevice requested) {
 #endif
 }
 
-const char* BackendName(ReIdBackend backend) {
-    switch (backend) {
-        case ReIdBackend::kOpenCvDnn: return "opencv_dnn";
-        case ReIdBackend::kOnnxRuntime: return "onnxruntime";
-        default: return "auto";
-    }
-}
-
-const char* DeviceName(ReIdDevice device) {
-    switch (device) {
-        case ReIdDevice::kCpu: return "cpu";
-        case ReIdDevice::kCuda: return "cuda";
-        case ReIdDevice::kCoreMl: return "coreml";
-        default: return "auto";
-    }
-}
-
 }  // namespace
 
-#if defined(BOXMOT_HAS_ONNXRUNTIME)
-
-struct OnnxReIdModel::OrtSession {
-    Ort::Env env{ORT_LOGGING_LEVEL_WARNING, "boxmot_reid"};
-    Ort::SessionOptions options{};
-    std::unique_ptr<Ort::Session> session;
-    Ort::AllocatorWithDefaultOptions allocator{};
-    std::string input_name;
-    std::string output_name;
-    std::vector<int64_t> input_shape;  // [1, 3, H, W]
-    ReIdDevice resolved_device = ReIdDevice::kCpu;
-};
-
-#else
-
-struct OnnxReIdModel::OrtSession {};
-
-#endif  // BOXMOT_HAS_ONNXRUNTIME
-
 cv::Rect ClampBoxToImage(const Eigen::Vector4d& xyxy, const cv::Size& image_size) {
-    // Match Python `box.round().astype("int")` followed by `min(w, x2)` / `min(h, y2)`
-    // (see boxmot/reid/backends/base_backend.py::get_crops). Using truncation or a
-    // `width - 1` upper bound shifts the crop by up to a pixel and changes the
-    // resampled tensor enough to drift L2-normalised ReID features.
-    const int x1 = std::clamp(static_cast<int>(std::lround(xyxy[0])), 0, image_size.width);
-    const int y1 = std::clamp(static_cast<int>(std::lround(xyxy[1])), 0, image_size.height);
-    const int x2 = std::clamp(static_cast<int>(std::lround(xyxy[2])), 0, image_size.width);
-    const int y2 = std::clamp(static_cast<int>(std::lround(xyxy[3])), 0, image_size.height);
+    const int x1 = std::clamp(static_cast<int>(xyxy[0]), 0, image_size.width - 1);
+    const int y1 = std::clamp(static_cast<int>(xyxy[1]), 0, image_size.height - 1);
+    const int x2 = std::clamp(static_cast<int>(xyxy[2]), 0, image_size.width - 1);
+    const int y2 = std::clamp(static_cast<int>(xyxy[3]), 0, image_size.height - 1);
     const int width = std::max(0, x2 - x1);
     const int height = std::max(0, y2 - y1);
     return cv::Rect(x1, y1, width, height);
@@ -169,195 +124,114 @@ OnnxReIdModel::OnnxReIdModel(
         throw std::runtime_error("Native ReID currently supports ONNX models only: " + model_path_.string());
     }
 
-    if (backend_ == ReIdBackend::kOnnxRuntime) {
-#if defined(BOXMOT_HAS_ONNXRUNTIME)
-        ort_ = std::make_unique<OrtSession>();
-        ort_->options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-        ort_->options.SetIntraOpNumThreads(1);
-
-        ReIdDevice resolved = device_;
-        bool provider_added = false;
-
-        if (resolved == ReIdDevice::kCoreMl) {
-#if defined(__APPLE__)
-            uint32_t coreml_flags = 0;
-            const OrtStatus* status = OrtSessionOptionsAppendExecutionProvider_CoreML(
-                static_cast<OrtSessionOptions*>(ort_->options), coreml_flags);
-            if (status == nullptr) {
-                provider_added = true;
-            } else {
-                Ort::GetApi().ReleaseStatus(const_cast<OrtStatus*>(status));
-                resolved = ReIdDevice::kCpu;
-            }
-#else
-            resolved = ReIdDevice::kCpu;
-#endif
-        } else if (resolved == ReIdDevice::kCuda) {
-            try {
-                OrtCUDAProviderOptions cuda_opts{};
-                ort_->options.AppendExecutionProvider_CUDA(cuda_opts);
-                provider_added = true;
-            } catch (const Ort::Exception&) {
-                resolved = ReIdDevice::kCpu;
-            }
-        }
-
-        (void)provider_added;
-        ort_->resolved_device = resolved;
-        device_ = resolved;
-
-        ort_->session = std::make_unique<Ort::Session>(
-            ort_->env, model_path_.string().c_str(), ort_->options);
-
-        Ort::AllocatedStringPtr in_name = ort_->session->GetInputNameAllocated(0, ort_->allocator);
-        Ort::AllocatedStringPtr out_name = ort_->session->GetOutputNameAllocated(0, ort_->allocator);
-        ort_->input_name = in_name.get();
-        ort_->output_name = out_name.get();
-        ort_->input_shape = {1, 3,
-                             static_cast<int64_t>(input_size_.height),
-                             static_cast<int64_t>(input_size_.width)};
-        initialized_ = true;
-#else
-        // ORT not compiled in: fall back to OpenCV DNN.
-        backend_ = ReIdBackend::kOpenCvDnn;
-        device_ = ReIdDevice::kCpu;
-#endif
+    inference_ = MakeReIdInferenceBackend(model_path_, backend_, device_, input_size_);
+    if (!inference_) {
+        throw std::runtime_error("Failed to initialise native ReID inference backend.");
     }
-
-    if (backend_ == ReIdBackend::kOpenCvDnn) {
-        net_ = cv::dnn::readNetFromONNX(model_path_.string());
-        net_.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-        net_.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
-        device_ = ReIdDevice::kCpu;
-        initialized_ = true;
-    }
-
-    std::cerr << "[boxmot] native ReID using backend=" << BackendName(backend_)
-              << " device=" << DeviceName(device_)
-              << " model=" << model_path_.filename().string() << '\n';
+    backend_ = inference_->kind();
+    device_ = inference_->device();
+    initialized_ = true;
 }
 
 OnnxReIdModel::~OnnxReIdModel() = default;
 OnnxReIdModel::OnnxReIdModel(OnnxReIdModel&&) noexcept = default;
 OnnxReIdModel& OnnxReIdModel::operator=(OnnxReIdModel&&) noexcept = default;
 
+OnnxReIdModel::CropBatch OnnxReIdModel::Preprocess(
+    const std::vector<cv::Rect>& boxes,
+    const cv::Mat& image
+) const {
+    CropBatch batch;
+    if (!initialized_ || boxes.empty()) {
+        return batch;
+    }
+
+    std::vector<cv::Mat> processed;
+    processed.reserve(boxes.size());
+    for (const auto& box : boxes) {
+        processed.push_back(PreprocessCrop(ExtractCrop(box, image)));
+    }
+    batch.blob = BuildInputBlob(processed);
+    batch.count = boxes.size();
+    return batch;
+}
+
+OnnxReIdModel::RawFeatures OnnxReIdModel::Process(const CropBatch& crops) const {
+    RawFeatures raw;
+    raw.count = crops.count;
+    if (!initialized_ || crops.count == 0 || !inference_) {
+        return raw;
+    }
+
+    // The OpenCV DNN backend mishandles N>1 for these exported ReID heads
+    // (collapses batch into the feature dim before the final Gemm), so we
+    // forward each crop individually. The ORT backend does the same to keep
+    // outputs identical across backends.
+    const int per_crop_floats = 3 * input_size_.height * input_size_.width;
+    const int dims_single[] = {1, 3, input_size_.height, input_size_.width};
+
+    for (std::size_t i = 0; i < crops.count; ++i) {
+        cv::Mat single(4, dims_single, CV_32F,
+                       reinterpret_cast<float*>(crops.blob.data) +
+                           static_cast<std::ptrdiff_t>(i) * per_crop_floats);
+        std::vector<float> feature = inference_->Forward(single);
+        if (raw.feature_dim == 0) {
+            raw.feature_dim = feature.size();
+            raw.data.resize(raw.feature_dim * crops.count);
+        } else if (feature.size() != raw.feature_dim) {
+            throw std::runtime_error(
+                "Native ReID returned a feature dimension that changed mid-batch.");
+        }
+        std::copy(feature.begin(), feature.end(),
+                  raw.data.begin() + static_cast<std::ptrdiff_t>(i * raw.feature_dim));
+    }
+    return raw;
+}
+
+std::vector<Eigen::VectorXf> OnnxReIdModel::Postprocess(const RawFeatures& raw) const {
+    std::vector<Eigen::VectorXf> features;
+    features.reserve(raw.count);
+    if (raw.count == 0 || raw.feature_dim == 0) {
+        return features;
+    }
+    for (std::size_t i = 0; i < raw.count; ++i) {
+        const float* row = raw.data.data() + i * raw.feature_dim;
+        features.push_back(NormalizeFeature(row, static_cast<int>(raw.feature_dim)));
+    }
+    return features;
+}
+
 std::vector<Eigen::VectorXf> OnnxReIdModel::GetFeaturesForBoxes(
     const std::vector<cv::Rect>& boxes,
     const cv::Mat& image
 ) const {
-    std::vector<Eigen::VectorXf> features;
-    features.reserve(boxes.size());
+    return Postprocess(Process(Preprocess(boxes, image)));
+}
+
+OnnxReIdModel::CropBatch OnnxReIdModel::PreprocessObb(
+    const std::vector<Eigen::Matrix<double, 5, 1>>& boxes,
+    const cv::Mat& image
+) const {
+    CropBatch batch;
     if (!initialized_ || boxes.empty()) {
-        return features;
+        return batch;
     }
 
-    // Both backends here run a single crop per call: ORT to keep the API uniform,
-    // OpenCV DNN because its batched path mis-handles N>1 for these exported ReID
-    // heads (collapses batch into the feature dim before the final Gemm).
-    for (const auto& box : boxes) {
-        const cv::Mat processed = PreprocessCrop(ExtractCrop(box, image));
-        if (backend_ == ReIdBackend::kOnnxRuntime) {
-            features.push_back(RunOrt(processed));
-        } else {
-            features.push_back(RunOpenCv(processed));
-        }
+    std::vector<cv::Mat> processed;
+    processed.reserve(boxes.size());
+    for (const auto& obb : boxes) {
+        processed.push_back(PreprocessCrop(ExtractObbCrop(obb, image)));
     }
-    return features;
+    batch.blob = BuildInputBlob(processed);
+    batch.count = boxes.size();
+    return batch;
 }
 
 std::vector<Eigen::VectorXf> OnnxReIdModel::GetFeaturesForObbBoxes(
     const std::vector<Eigen::Matrix<double, 5, 1>>& boxes,
     const cv::Mat& image
 ) const {
-    std::vector<Eigen::VectorXf> features;
-    features.reserve(boxes.size());
-    if (!initialized_ || boxes.empty()) {
-        return features;
-    }
-    for (const auto& obb : boxes) {
-        const cv::Mat processed = PreprocessCrop(ExtractObbCrop(obb, image));
-        if (backend_ == ReIdBackend::kOnnxRuntime) {
-            features.push_back(RunOrt(processed));
-        } else {
-            features.push_back(RunOpenCv(processed));
-        }
-    }
-    return features;
-}
-
-Eigen::VectorXf OnnxReIdModel::RunOpenCv(const cv::Mat& processed_crop) const {
-    cv::Mat blob = BuildInputBlob({processed_crop});
-    net_.setInput(blob);
-    cv::Mat output = net_.forward();
-    cv::Mat reshaped = output.reshape(1, 1);
-    if (reshaped.rows != 1) {
-        throw std::runtime_error("Native ReID ONNX output shape is incompatible with single-crop inference.");
-    }
-    return NormalizeFeature(reshaped.ptr<float>(0), reshaped.cols);
-}
-
-Eigen::VectorXf OnnxReIdModel::RunOrt(const cv::Mat& processed_crop) const {
-#if defined(BOXMOT_HAS_ONNXRUNTIME)
-    cv::Mat blob = BuildInputBlob({processed_crop});  // [1,3,H,W] CV_32F, contiguous
-    const size_t element_count = static_cast<size_t>(input_size_.height) *
-                                 static_cast<size_t>(input_size_.width) * 3UL;
-
-    Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
-        OrtArenaAllocator, OrtMemTypeDefault);
-    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-        memory_info,
-        reinterpret_cast<float*>(blob.data),
-        element_count,
-        ort_->input_shape.data(),
-        ort_->input_shape.size()
-    );
-
-    const char* input_names[] = {ort_->input_name.c_str()};
-    const char* output_names[] = {ort_->output_name.c_str()};
-    auto output_tensors = ort_->session->Run(
-        Ort::RunOptions{nullptr},
-        input_names, &input_tensor, 1,
-        output_names, 1
-    );
-
-    Ort::Value& output = output_tensors.front();
-    const auto type_info = output.GetTensorTypeAndShapeInfo();
-    const size_t feature_dim = type_info.GetElementCount();
-    const float* data = output.GetTensorData<float>();
-    return NormalizeFeature(data, static_cast<int>(feature_dim));
-#else
-    (void)processed_crop;
-    throw std::runtime_error("OnnxReIdModel built without ONNX Runtime support.");
-#endif
-}
-
-cv::Mat OnnxReIdModel::PreprocessCrop(const cv::Mat& crop) const {
-    cv::Mat prepared;
-    if (preprocess_name_ == "resize_pad") {
-        prepared = ResizePad(crop, input_size_);
-    } else {
-        cv::resize(crop, prepared, input_size_, 0.0, 0.0, cv::INTER_LINEAR);
-    }
-    cv::cvtColor(prepared, prepared, cv::COLOR_BGR2RGB);
-    prepared.convertTo(prepared, CV_32FC3, 1.0 / 255.0);
-    std::vector<cv::Mat> channels;
-    cv::split(prepared, channels);
-    for (int index = 0; index < 3; ++index) {
-        channels[index] = (channels[index] - mean_[index]) / std_[index];
-    }
-    cv::merge(channels, prepared);
-    return prepared;
-}
-
-cv::Mat OnnxReIdModel::ExtractCrop(const cv::Rect& box, const cv::Mat& image) const {
-    if (image.empty() || box.width <= 0 || box.height <= 0) {
-        return cv::Mat(input_size_, CV_8UC3, cv::Scalar(0, 0, 0));
-    }
-    const cv::Rect safe = box & cv::Rect(0, 0, image.cols, image.rows);
-    if (safe.width <= 0 || safe.height <= 0) {
-        return cv::Mat(input_size_, CV_8UC3, cv::Scalar(0, 0, 0));
-    }
-    return image(safe).clone();
+    return Postprocess(Process(PreprocessObb(boxes, image)));
 }
 
 cv::Mat OnnxReIdModel::ExtractObbCrop(
@@ -395,6 +269,35 @@ cv::Mat OnnxReIdModel::ExtractObbCrop(
         cv::Scalar(0, 0, 0)
     );
     return crop;
+}
+
+cv::Mat OnnxReIdModel::PreprocessCrop(const cv::Mat& crop) const {
+    cv::Mat prepared;
+    if (preprocess_name_ == "resize_pad") {
+        prepared = ResizePad(crop, input_size_);
+    } else {
+        cv::resize(crop, prepared, input_size_, 0.0, 0.0, cv::INTER_LINEAR);
+    }
+    cv::cvtColor(prepared, prepared, cv::COLOR_BGR2RGB);
+    prepared.convertTo(prepared, CV_32FC3, 1.0 / 255.0);
+    std::vector<cv::Mat> channels;
+    cv::split(prepared, channels);
+    for (int index = 0; index < 3; ++index) {
+        channels[index] = (channels[index] - mean_[index]) / std_[index];
+    }
+    cv::merge(channels, prepared);
+    return prepared;
+}
+
+cv::Mat OnnxReIdModel::ExtractCrop(const cv::Rect& box, const cv::Mat& image) const {
+    if (image.empty() || box.width <= 0 || box.height <= 0) {
+        return cv::Mat(input_size_, CV_8UC3, cv::Scalar(0, 0, 0));
+    }
+    const cv::Rect safe = box & cv::Rect(0, 0, image.cols, image.rows);
+    if (safe.width <= 0 || safe.height <= 0) {
+        return cv::Mat(input_size_, CV_8UC3, cv::Scalar(0, 0, 0));
+    }
+    return image(safe).clone();
 }
 
 cv::Mat OnnxReIdModel::BuildInputBlob(const std::vector<cv::Mat>& processed_crops) const {

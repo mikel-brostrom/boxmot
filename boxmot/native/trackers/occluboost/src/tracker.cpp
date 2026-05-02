@@ -64,6 +64,9 @@ void OccluBoostTracker::Reset() {
         reid_model_ = MaybeCreateOnnxReIdModel(config_.reid_model_path, config_.reid_preprocess);
     }
     last_reid_time_ms_ = 0.0;
+    last_reid_preprocess_time_ms_ = 0.0;
+    last_reid_process_time_ms_ = 0.0;
+    last_reid_postprocess_time_ms_ = 0.0;
     detection_mode_ready_ = false;
     is_obb_mode_ = false;
 }
@@ -73,6 +76,9 @@ std::vector<Detection> OccluBoostTracker::EnsureEmbeddings(
     const cv::Mat& image
 ) {
     last_reid_time_ms_ = 0.0;
+    last_reid_preprocess_time_ms_ = 0.0;
+    last_reid_process_time_ms_ = 0.0;
+    last_reid_postprocess_time_ms_ = 0.0;
     if (!config_.with_reid || !reid_model_.has_value()) {
         return detections;
     }
@@ -86,15 +92,16 @@ std::vector<Detection> OccluBoostTracker::EnsureEmbeddings(
     if (!needs_embeddings) {
         return detections;
     }
-    const auto t0 = std::chrono::steady_clock::now();
-    const auto features = GetReIdFeatures(*reid_model_, detections, image);
-    const auto t1 = std::chrono::steady_clock::now();
-    last_reid_time_ms_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
-    if (features.size() != detections.size()) {
+    const TimedReIdFeatures timed = GetReIdFeaturesTimed(*reid_model_, detections, image);
+    last_reid_preprocess_time_ms_ = timed.preprocess_ms;
+    last_reid_process_time_ms_ = timed.process_ms;
+    last_reid_postprocess_time_ms_ = timed.postprocess_ms;
+    last_reid_time_ms_ = timed.preprocess_ms + timed.process_ms + timed.postprocess_ms;
+    if (timed.features.size() != detections.size()) {
         throw std::runtime_error("Native OccluBoost ReID returned a different number of embeddings than detections.");
     }
     for (std::size_t i = 0; i < detections.size(); ++i) {
-        detections[i].embedding = features[i];
+        detections[i].embedding = timed.features[i];
     }
     return detections;
 }
@@ -430,6 +437,9 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
 
     ++frame_count_;
     last_reid_time_ms_ = 0.0;
+    last_reid_preprocess_time_ms_ = 0.0;
+    last_reid_process_time_ms_ = 0.0;
+    last_reid_postprocess_time_ms_ = 0.0;
 
     // Camera-motion compensation applied before predict (Python: cmc.apply→camera_update→predict).
     if (cmc_) {
@@ -826,6 +836,9 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
 ) {
     ++frame_count_;
     last_reid_time_ms_ = 0.0;
+    last_reid_preprocess_time_ms_ = 0.0;
+    last_reid_process_time_ms_ = 0.0;
+    last_reid_postprocess_time_ms_ = 0.0;
 
     // Predict trackers and capture xywha + track confidences.
     Eigen::MatrixXd trks_xywha = Eigen::MatrixXd::Zero(static_cast<int>(trackers_.size()), 5);

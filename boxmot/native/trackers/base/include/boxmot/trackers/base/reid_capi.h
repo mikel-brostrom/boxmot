@@ -58,6 +58,37 @@ BOXMOT_REID_CAPI int boxmot_reid_capi_compute_features(
     float* out_features,
     int out_capacity_floats);
 
+// ---- Staged feature extraction -------------------------------------------
+//
+// The three calls below split the work performed by
+// ``boxmot_reid_capi_compute_features`` into the same preprocess/process/
+// postprocess buckets exposed by the Python ``BaseModelBackend`` surface so
+// host languages can attribute timing to each stage. They must be invoked in
+// order on the same handle and are not thread-safe with respect to other
+// calls touching the same handle (intermediate state is stored inside the
+// handle to avoid copying the crop blob and raw feature buffer across the
+// FFI boundary).
+
+// Stage 1: crop + resize + standardise into the handle's internal blob.
+BOXMOT_REID_CAPI int boxmot_reid_capi_preprocess(
+    void* handle,
+    const float* boxes_xyxy,
+    int n_boxes,
+    const std::uint8_t* image_data,
+    int image_rows,
+    int image_cols,
+    int image_channels);
+
+// Stage 2: run the model forward pass over the staged blob, writing raw
+// (un-normalised) features into the handle's internal output buffer.
+BOXMOT_REID_CAPI int boxmot_reid_capi_process(void* handle);
+
+// Stage 3: L2-normalise the staged raw features into ``out_features``.
+BOXMOT_REID_CAPI int boxmot_reid_capi_postprocess(
+    void* handle,
+    float* out_features,
+    int out_capacity_floats);
+
 // Returns the last error message produced on the calling thread. The pointer
 // remains valid until the next call into the C ABI on the same thread.
 BOXMOT_REID_CAPI const char* boxmot_reid_capi_last_error(void);

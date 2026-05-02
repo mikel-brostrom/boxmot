@@ -20,6 +20,9 @@ public:
     std::vector<TrackOutput> Update(const std::vector<Detection>& detections, const cv::Mat& image) override;
     void Reset() override;
     [[nodiscard]] double LastReIdTimeMs() const noexcept { return last_reid_time_ms_; }
+    [[nodiscard]] double LastReIdPreprocessTimeMs() const noexcept { return last_reid_preprocess_time_ms_; }
+    [[nodiscard]] double LastReIdProcessTimeMs() const noexcept { return last_reid_process_time_ms_; }
+    [[nodiscard]] double LastReIdPostprocessTimeMs() const noexcept { return last_reid_postprocess_time_ms_; }
 
     [[nodiscard]] bool SupportsObb() const noexcept override { return true; }
     [[nodiscard]] bool SupportsReId() const noexcept override { return true; }
@@ -57,6 +60,9 @@ private:
     std::unique_ptr<CameraMotionCompensator> cmc_;
     std::optional<OnnxReIdModel> reid_model_;
     double last_reid_time_ms_ = 0.0;
+    double last_reid_preprocess_time_ms_ = 0.0;
+    double last_reid_process_time_ms_ = 0.0;
+    double last_reid_postprocess_time_ms_ = 0.0;
 
     // Detection-mode latch (AABB vs OBB) determined from first non-empty frame.
     bool detection_mode_ready_ = false;
