@@ -154,6 +154,15 @@ class _BotSortLiveLibrary:
         self._library.boxmot_botsort_update.restype = ctypes.c_int
         self._library.boxmot_botsort_last_reid_time_ms.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double)]
         self._library.boxmot_botsort_last_reid_time_ms.restype = ctypes.c_int
+        for sym in (
+            "boxmot_botsort_last_reid_preprocess_time_ms",
+            "boxmot_botsort_last_reid_process_time_ms",
+            "boxmot_botsort_last_reid_postprocess_time_ms",
+        ):
+            fn = getattr(self._library, sym, None)
+            if fn is not None:
+                fn.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double)]
+                fn.restype = ctypes.c_int
         self._library.boxmot_botsort_last_error.argtypes = []
         self._library.boxmot_botsort_last_error.restype = ctypes.c_char_p
 
@@ -266,6 +275,26 @@ class _BotSortLiveLibrary:
             raise RuntimeError(self._last_error())
         return float(out_value.value)
 
+    def _get_phase_time_ms(self, handle, phase: str) -> float:
+        sym = f"boxmot_botsort_last_reid_{phase}_time_ms"
+        fn = getattr(self._library, sym, None)
+        if fn is None:
+            return 0.0
+        out_value = ctypes.c_double(0.0)
+        ok = fn(handle, ctypes.byref(out_value))
+        if ok == 0:
+            raise RuntimeError(self._last_error())
+        return float(out_value.value)
+
+    def get_last_reid_preprocess_time_ms(self, handle) -> float:
+        return self._get_phase_time_ms(handle, "preprocess")
+
+    def get_last_reid_process_time_ms(self, handle) -> float:
+        return self._get_phase_time_ms(handle, "process")
+
+    def get_last_reid_postprocess_time_ms(self, handle) -> float:
+        return self._get_phase_time_ms(handle, "postprocess")
+
 
 def _get_live_botsort_library() -> _BotSortLiveLibrary:
     global _LIVE_LIBRARY
@@ -299,11 +328,17 @@ class NativeBotSortTracker:
         self._library = library if library is not None else _get_live_botsort_library()
         self._handle = self._library.create(self.cfg)
         self.last_reid_time_ms = 0.0
+        self.last_reid_preprocess_time_ms = 0.0
+        self.last_reid_process_time_ms = 0.0
+        self.last_reid_postprocess_time_ms = 0.0
         self._det_cols: int | None = None
 
     def reset(self) -> None:
         self._library.reset(self._handle)
         self.last_reid_time_ms = 0.0
+        self.last_reid_preprocess_time_ms = 0.0
+        self.last_reid_process_time_ms = 0.0
+        self.last_reid_postprocess_time_ms = 0.0
         self._det_cols = None
 
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
@@ -319,10 +354,23 @@ class NativeBotSortTracker:
         tracks = self._library.update(self._handle, det_arr, img, embs)
         getter = getattr(self._library, "get_last_reid_time_ms", None)
         self.last_reid_time_ms = float(getter(self._handle)) if callable(getter) else 0.0
+        for phase in ("preprocess", "process", "postprocess"):
+            phase_getter = getattr(self._library, f"get_last_reid_{phase}_time_ms", None)
+            value = float(phase_getter(self._handle)) if callable(phase_getter) else 0.0
+            setattr(self, f"last_reid_{phase}_time_ms", value)
         return tracks
 
     def get_last_reid_time_ms(self) -> float:
         return float(getattr(self, "last_reid_time_ms", 0.0))
+
+    def get_last_reid_preprocess_time_ms(self) -> float:
+        return float(getattr(self, "last_reid_preprocess_time_ms", 0.0))
+
+    def get_last_reid_process_time_ms(self) -> float:
+        return float(getattr(self, "last_reid_process_time_ms", 0.0))
+
+    def get_last_reid_postprocess_time_ms(self) -> float:
+        return float(getattr(self, "last_reid_postprocess_time_ms", 0.0))
 
     def close(self) -> None:
         handle = getattr(self, "_handle", None)

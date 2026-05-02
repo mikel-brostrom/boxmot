@@ -87,6 +87,9 @@ BOXMOT_OCCLUBOOST_API int boxmot_occluboost_update(
     int* out_is_obb
 );
 BOXMOT_OCCLUBOOST_API int boxmot_occluboost_last_reid_time_ms(BoxMOTOccluBoostHandle* handle, double* out_reid_time_ms);
+BOXMOT_OCCLUBOOST_API int boxmot_occluboost_last_reid_preprocess_time_ms(BoxMOTOccluBoostHandle* handle, double* out_time_ms);
+BOXMOT_OCCLUBOOST_API int boxmot_occluboost_last_reid_process_time_ms(BoxMOTOccluBoostHandle* handle, double* out_time_ms);
+BOXMOT_OCCLUBOOST_API int boxmot_occluboost_last_reid_postprocess_time_ms(BoxMOTOccluBoostHandle* handle, double* out_time_ms);
 BOXMOT_OCCLUBOOST_API const char* boxmot_occluboost_last_error();
 
 }

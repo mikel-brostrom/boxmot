@@ -156,6 +156,42 @@ int boxmot_botsort_last_reid_time_ms(BoxMOTBotSortHandle* handle, double* out_re
     }, g_last_error, "Unknown native BoTSORT failure");
 }
 
+int boxmot_botsort_last_reid_preprocess_time_ms(BoxMOTBotSortHandle* handle, double* out_time_ms) {
+    return boxmot::trackers::base::GuardCall([&]() {
+        if (handle == nullptr || handle->tracker == nullptr) {
+            throw std::runtime_error("Native BoTSORT handle is not initialized.");
+        }
+        if (out_time_ms == nullptr) {
+            throw std::runtime_error("Output ReID timing pointer is null.");
+        }
+        *out_time_ms = handle->tracker->LastReIdPreprocessTimeMs();
+    }, g_last_error, "Unknown native BoTSORT failure");
+}
+
+int boxmot_botsort_last_reid_process_time_ms(BoxMOTBotSortHandle* handle, double* out_time_ms) {
+    return boxmot::trackers::base::GuardCall([&]() {
+        if (handle == nullptr || handle->tracker == nullptr) {
+            throw std::runtime_error("Native BoTSORT handle is not initialized.");
+        }
+        if (out_time_ms == nullptr) {
+            throw std::runtime_error("Output ReID timing pointer is null.");
+        }
+        *out_time_ms = handle->tracker->LastReIdProcessTimeMs();
+    }, g_last_error, "Unknown native BoTSORT failure");
+}
+
+int boxmot_botsort_last_reid_postprocess_time_ms(BoxMOTBotSortHandle* handle, double* out_time_ms) {
+    return boxmot::trackers::base::GuardCall([&]() {
+        if (handle == nullptr || handle->tracker == nullptr) {
+            throw std::runtime_error("Native BoTSORT handle is not initialized.");
+        }
+        if (out_time_ms == nullptr) {
+            throw std::runtime_error("Output ReID timing pointer is null.");
+        }
+        *out_time_ms = handle->tracker->LastReIdPostprocessTimeMs();
+    }, g_last_error, "Unknown native BoTSORT failure");
+}
+
 const char* boxmot_botsort_last_error() {
     return g_last_error.c_str();
 }

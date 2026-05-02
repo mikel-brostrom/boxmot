@@ -45,6 +45,15 @@ cv::Rect BoxFromXyxy(const float* row, const cv::Size& image_size) {
     return ::boxmot::trackers::base::ClampBoxToImage(xyxy, image_size);
 }
 
+std::vector<cv::Rect> BuildBoxes(const float* boxes_xyxy, int n_boxes, const cv::Size& image_size) {
+    std::vector<cv::Rect> boxes;
+    boxes.reserve(static_cast<std::size_t>(n_boxes));
+    for (int i = 0; i < n_boxes; ++i) {
+        boxes.push_back(BoxFromXyxy(boxes_xyxy + static_cast<std::ptrdiff_t>(i) * 4, image_size));
+    }
+    return boxes;
+}
+
 }  // namespace
 
 struct BoxMOTReIdHandle {
@@ -52,6 +61,11 @@ struct BoxMOTReIdHandle {
 
     std::unique_ptr<OnnxReIdModel> reid;
     int feature_dim = 0;  // 0 == not yet probed
+
+    // Per-handle staging buffers reused by the staged
+    // preprocess/process/postprocess C ABI symbols. Not thread-safe.
+    OnnxReIdModel::CropBatch staged_crops;
+    OnnxReIdModel::RawFeatures staged_raw;
 };
 
 extern "C" {
@@ -181,6 +195,106 @@ int boxmot_reid_capi_compute_features(
 
 const char* boxmot_reid_capi_last_error(void) {
     return g_last_error.c_str();
+}
+
+int boxmot_reid_capi_preprocess(
+    void* handle,
+    const float* boxes_xyxy,
+    int n_boxes,
+    const std::uint8_t* image_data,
+    int image_rows,
+    int image_cols,
+    int image_channels
+) {
+    return ::boxmot::trackers::base::GuardCall(
+        [&]() {
+            if (handle == nullptr) {
+                throw std::runtime_error("Native ReID handle is null.");
+            }
+            auto* state = static_cast<BoxMOTReIdHandle*>(handle);
+            state->staged_crops = OnnxReIdModel::CropBatch{};
+            state->staged_raw = OnnxReIdModel::RawFeatures{};
+            if (n_boxes < 0) {
+                throw std::runtime_error("Negative box count is not allowed.");
+            }
+            if (n_boxes == 0) {
+                return;
+            }
+            if (boxes_xyxy == nullptr) {
+                throw std::runtime_error("boxes_xyxy pointer is null.");
+            }
+
+            cv::Mat image = WrapImage(image_data, image_rows, image_cols, image_channels);
+            std::vector<cv::Rect> boxes = BuildBoxes(boxes_xyxy, n_boxes, image.size());
+            state->staged_crops = state->reid->Preprocess(boxes, image);
+        },
+        g_last_error,
+        "Unknown native ReID preprocess failure");
+}
+
+int boxmot_reid_capi_process(void* handle) {
+    return ::boxmot::trackers::base::GuardCall(
+        [&]() {
+            if (handle == nullptr) {
+                throw std::runtime_error("Native ReID handle is null.");
+            }
+            auto* state = static_cast<BoxMOTReIdHandle*>(handle);
+            state->staged_raw = state->reid->Process(state->staged_crops);
+            if (state->staged_raw.feature_dim != 0) {
+                if (state->feature_dim == 0) {
+                    state->feature_dim = static_cast<int>(state->staged_raw.feature_dim);
+                } else if (state->feature_dim != static_cast<int>(state->staged_raw.feature_dim)) {
+                    throw std::runtime_error(
+                        "Native ReID returned a feature dimension that changed mid-stream.");
+                }
+            }
+        },
+        g_last_error,
+        "Unknown native ReID process failure");
+}
+
+int boxmot_reid_capi_postprocess(
+    void* handle,
+    float* out_features,
+    int out_capacity_floats
+) {
+    return ::boxmot::trackers::base::GuardCall(
+        [&]() {
+            if (handle == nullptr) {
+                throw std::runtime_error("Native ReID handle is null.");
+            }
+            auto* state = static_cast<BoxMOTReIdHandle*>(handle);
+            const std::size_t count = state->staged_raw.count;
+            if (count == 0) {
+                return;
+            }
+            if (out_features == nullptr) {
+                throw std::runtime_error("out_features pointer is null.");
+            }
+            auto features = state->reid->Postprocess(state->staged_raw);
+            if (features.empty()) {
+                return;
+            }
+            const int feature_dim = static_cast<int>(features.front().size());
+            const std::size_t required = count * static_cast<std::size_t>(feature_dim);
+            if (out_capacity_floats < 0 || static_cast<std::size_t>(out_capacity_floats) < required) {
+                throw std::runtime_error(
+                    "Output buffer is too small for the requested features.");
+            }
+            for (std::size_t i = 0; i < count; ++i) {
+                const Eigen::VectorXf& feature = features[i];
+                if (static_cast<int>(feature.size()) != feature_dim) {
+                    throw std::runtime_error(
+                        "Inconsistent feature dimension in native ReID output.");
+                }
+                std::copy(
+                    feature.data(),
+                    feature.data() + feature_dim,
+                    out_features + static_cast<std::ptrdiff_t>(i) * feature_dim);
+            }
+        },
+        g_last_error,
+        "Unknown native ReID postprocess failure");
 }
 
 }  // extern "C"

@@ -61,6 +61,26 @@ class ReID:
         self.backend = self
         self.model = self.get_backend()
 
+    @classmethod
+    def from_backend(cls, backend: Any) -> "ReID":
+        """Build a ``ReID`` runtime around an already-instantiated backend.
+
+        Useful when a tracker has already loaded a ReID backend and we want to
+        reuse it (rather than reloading the weights) while still exposing the
+        public ``preprocess`` / ``process`` / ``postprocess`` stage hooks.
+        """
+        instance = cls.__new__(cls)
+        instance.path = Path(getattr(backend, "weights", "") or "")
+        instance.weights = instance.path
+        instance.device = getattr(backend, "device", torch.device("cpu"))
+        instance.half = bool(getattr(backend, "half", False))
+        instance.preprocess_name = DEFAULT_PREPROCESS
+        instance.pt = instance.jit = instance.onnx = False
+        instance.xml = instance.engine = instance.tflite = False
+        instance.backend = instance
+        instance.model = backend
+        return instance
+
     def get_backend(self):
         if hasattr(self, "_backend_model"):
             return self._backend_model
@@ -176,42 +196,61 @@ class ReID:
         return batch
 
     def preprocess(self, inputs, boxes=None, **kwargs):
+        """Build the model-ready input batch (cropping + standardization)."""
         if boxes is not None:
-            return {
-                "mode": "image_boxes",
-                "image": resolve_image(inputs),
-                "boxes": self._coerce_boxes(boxes),
-            }
+            image = resolve_image(inputs)
+            coerced = self._coerce_boxes(boxes)
+            if not hasattr(self.model, "get_crops"):
+                return {"mode": "image_boxes", "image": image, "boxes": coerced, "fallback": True}
+            if coerced.size == 0:
+                empty = torch.empty(
+                    (0, 3, *self.model.input_shape),
+                    dtype=torch.float16 if self.model.half else torch.float32,
+                    device=self.model.device,
+                )
+                batch = self.model.inference_preprocess(empty)
+                return {"mode": "image_boxes", "batch": batch, "empty": True}
+            batch = self.model.get_crops(coerced, image)
+            batch = self.model.inference_preprocess(batch)
+            return {"mode": "image_boxes", "batch": batch, "empty": False}
 
-        return {
-            "mode": "crops",
-            "crops": self._coerce_crops(inputs),
-        }
-
-    def process(self, payload, **kwargs) -> np.ndarray:
-        if payload["mode"] == "image_boxes":
-            boxes = payload["boxes"]
-            if boxes.size == 0:
-                return np.empty((0, 0), dtype=np.float32)
-            return self.model.get_features(boxes, payload["image"])
-
-        crops = payload["crops"]
+        crops = self._coerce_crops(inputs)
         if not crops:
-            return np.empty((0, 0), dtype=np.float32)
+            empty = torch.empty(
+                (0, 3, *self.model.input_shape),
+                dtype=torch.float16 if self.model.half else torch.float32,
+                device=self.model.device,
+            )
+            batch = self.model.inference_preprocess(empty)
+            return {"mode": "crops", "batch": batch, "empty": True}
 
         batch = self._prepare_crop_batch(crops)
         batch = self.model.inference_preprocess(batch)
-        features = self.model.forward(batch)
+        return {"mode": "crops", "batch": batch, "empty": False}
+
+    def process(self, payload, **kwargs):
+        """Run the ReID model forward pass."""
+        if payload.get("fallback", False):
+            return {"_features": self.model.get_features(payload["boxes"], payload["image"])}
+        if payload.get("empty", False):
+            return None
+        with torch.no_grad():
+            return self.model.forward(payload["batch"])
+
+    def postprocess(self, features, **kwargs) -> np.ndarray:
+        """Move features to numpy and L2-normalize them."""
+        if features is None:
+            return np.empty((0, 0), dtype=np.float32)
+        if isinstance(features, dict) and "_features" in features:
+            return np.asarray(features["_features"], dtype=np.float32)
+        if not hasattr(self.model, "inference_postprocess"):
+            return np.asarray(features, dtype=np.float32)
         features = np.asarray(self.model.inference_postprocess(features), dtype=np.float32)
         if features.size == 0:
             return np.empty((0, 0), dtype=np.float32)
-
         norms = np.linalg.norm(features, axis=-1, keepdims=True)
         norms[norms == 0] = 1.0
         return features / norms
-
-    def postprocess(self, features: np.ndarray, **kwargs) -> np.ndarray:
-        return features
 
     def __call__(self, inputs, boxes=None, **kwargs) -> np.ndarray:
         payload = self.preprocess(inputs, boxes=boxes, **kwargs)

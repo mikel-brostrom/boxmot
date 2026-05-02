@@ -340,6 +340,9 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
 
     ++frame_count_;
     last_reid_time_ms_ = 0.0;
+    last_reid_preprocess_time_ms_ = 0.0;
+    last_reid_process_time_ms_ = 0.0;
+    last_reid_postprocess_time_ms_ = 0.0;
 
     std::vector<Detection> working_detections = detections;
     if (config_.with_reid && reid_model_.has_value()) {
@@ -351,15 +354,16 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
             }
         }
         if (needs_embeddings) {
-            const auto reid_started = std::chrono::steady_clock::now();
-            const std::vector<Eigen::VectorXf> features = GetReIdFeatures(*reid_model_, working_detections, image);
-            const auto reid_finished = std::chrono::steady_clock::now();
-            last_reid_time_ms_ = std::chrono::duration<double, std::milli>(reid_finished - reid_started).count();
-            if (features.size() != working_detections.size()) {
+            const TimedReIdFeatures timed = GetReIdFeaturesTimed(*reid_model_, working_detections, image);
+            last_reid_preprocess_time_ms_ = timed.preprocess_ms;
+            last_reid_process_time_ms_ = timed.process_ms;
+            last_reid_postprocess_time_ms_ = timed.postprocess_ms;
+            last_reid_time_ms_ = timed.preprocess_ms + timed.process_ms + timed.postprocess_ms;
+            if (timed.features.size() != working_detections.size()) {
                 throw std::runtime_error("Native ReID returned a different number of embeddings than detections.");
             }
             for (std::size_t index = 0; index < working_detections.size(); ++index) {
-                working_detections[index].embedding = features[index];
+                working_detections[index].embedding = timed.features[index];
             }
         }
     }

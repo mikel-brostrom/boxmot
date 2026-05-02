@@ -86,6 +86,7 @@ class Detector:
             "on_predict_end": [],
         }
         self._lock = threading.Lock()
+        self._last_orig_imgs: list[np.ndarray] | None = None
 
     @classmethod
     def _get_backend_class(cls, path: str | Path):
@@ -142,22 +143,82 @@ class Detector:
             self.done_warmup = True
 
     def preprocess(self, image: np.ndarray, **kwargs):
-        return image
+        images = image if isinstance(image, list) else [image]
+        self._last_orig_imgs = images
+        backend_pre = getattr(self.backend, "preprocess", None)
+        if not callable(backend_pre):
+            return image
+        try:
+            return backend_pre(images)
+        except (TypeError, NotImplementedError):
+            # Backend without a real preprocess stage (legacy contract):
+            # fall back to the no-op pass-through so the composite path
+            # ``self.backend(...)`` continues to work in ``process``.
+            return image
 
     def process(self, frame, **kwargs):
-        images = frame if isinstance(frame, list) else [frame]
+        backend_proc = getattr(self.backend, "process", None)
+        # Composite path: callers passing inference overrides
+        # (conf/iou/classes/agnostic_nms) get the legacy "do everything"
+        # semantics, which is what the warmup and standalone
+        # ``Detector.process(images, conf=..., ...)`` callers rely on.
+        composite_keys = {"conf", "iou", "classes", "agnostic_nms"}
+        if any(key in kwargs for key in composite_keys):
+            images = frame if isinstance(frame, list) else [frame]
+            results = self.backend(
+                images,
+                conf=float(kwargs.get("conf", self.conf)),
+                iou=float(kwargs.get("iou", self.iou)),
+                classes=kwargs.get("classes", self.classes),
+                agnostic_nms=bool(kwargs.get("agnostic_nms", self.agnostic_nms)),
+            )
+            if isinstance(results, list) and len(results) == 1:
+                return results[0]
+            return results
+        # Stage path: ``frame`` is the output of ``self.preprocess`` and we
+        # want only the model forward so timing reports inference separately
+        # from preprocess/postprocess.
+        if callable(backend_proc):
+            try:
+                return backend_proc(frame)
+            except (TypeError, NotImplementedError):
+                pass
+        # Backend has no standalone process stage: fall back to composite.
+        images = self._last_orig_imgs or (frame if isinstance(frame, list) else [frame])
         results = self.backend(
             images,
-            conf=float(kwargs.get("conf", self.conf)),
-            iou=float(kwargs.get("iou", self.iou)),
-            classes=kwargs.get("classes", self.classes),
-            agnostic_nms=bool(kwargs.get("agnostic_nms", self.agnostic_nms)),
+            conf=self.conf,
+            iou=self.iou,
+            classes=self.classes,
+            agnostic_nms=self.agnostic_nms,
         )
         if isinstance(results, list) and len(results) == 1:
             return results[0]
         return results
 
     def postprocess(self, results, as_detections: bool = False, **kwargs):
+        backend_post = getattr(self.backend, "postprocess", None)
+        # If the backend has a real postprocess stage, route the raw model
+        # output through it so NMS/scale-back work shows up in the dedicated
+        # timing bucket. Backends without a real stage fall through to the
+        # legacy unwrap-only behaviour.
+        if callable(backend_post) and not isinstance(results, (Detections,)):
+            already_detections = (
+                isinstance(results, list)
+                and len(results) > 0
+                and all(isinstance(r, Detections) for r in results)
+            )
+            if not already_detections:
+                try:
+                    results = backend_post(
+                        results,
+                        conf=float(kwargs.get("conf", self.conf)),
+                        iou=float(kwargs.get("iou", self.iou)),
+                        classes=kwargs.get("classes", self.classes),
+                        agnostic_nms=bool(kwargs.get("agnostic_nms", self.agnostic_nms)),
+                    )
+                except (TypeError, NotImplementedError):
+                    pass
         if as_detections:
             return results
         if isinstance(results, Detections):
@@ -165,8 +226,12 @@ class Detector:
         if hasattr(results, "dets"):
             return results.dets
         if isinstance(results, list) and all(isinstance(result, Detections) for result in results):
+            if len(results) == 1:
+                return results[0].dets
             return [result.dets for result in results]
         if isinstance(results, list) and all(hasattr(result, "dets") for result in results):
+            if len(results) == 1:
+                return results[0].dets
             return [result.dets for result in results]
         return results
 

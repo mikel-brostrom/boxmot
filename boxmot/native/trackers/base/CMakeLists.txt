@@ -70,6 +70,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/../cmake/BoxMOTNative.cmake)
 add_library(boxmot_tracker_base STATIC
     src/assignment.cpp
     src/io.cpp
+    src/reid_inference_backend.cpp
     src/reid_onnx.cpp
 )
 

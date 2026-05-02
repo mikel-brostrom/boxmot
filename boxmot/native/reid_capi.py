@@ -182,6 +182,27 @@ class _ReidLibrary:
         ]
         self._library.boxmot_reid_capi_compute_features.restype = ctypes.c_int
 
+        self._library.boxmot_reid_capi_preprocess.argtypes = [
+            ctypes.c_void_p,            # handle
+            ctypes.c_void_p,            # boxes_xyxy
+            ctypes.c_int,               # n_boxes
+            ctypes.c_void_p,            # image_data
+            ctypes.c_int,               # image_rows
+            ctypes.c_int,               # image_cols
+            ctypes.c_int,               # image_channels
+        ]
+        self._library.boxmot_reid_capi_preprocess.restype = ctypes.c_int
+
+        self._library.boxmot_reid_capi_process.argtypes = [ctypes.c_void_p]
+        self._library.boxmot_reid_capi_process.restype = ctypes.c_int
+
+        self._library.boxmot_reid_capi_postprocess.argtypes = [
+            ctypes.c_void_p,            # handle
+            ctypes.c_void_p,            # out_features
+            ctypes.c_int,               # out_capacity_floats
+        ]
+        self._library.boxmot_reid_capi_postprocess.restype = ctypes.c_int
+
         self._library.boxmot_reid_capi_last_error.argtypes = []
         self._library.boxmot_reid_capi_last_error.restype = ctypes.c_char_p
 
@@ -230,6 +251,39 @@ class _ReidLibrary:
             int(image.shape[0]),
             int(image.shape[1]),
             1 if image.ndim == 2 else int(image.shape[2]),
+            ctypes.c_void_p(out_features.ctypes.data),
+            int(out_features.size),
+        )
+        if ok == 0:
+            raise RuntimeError(self.last_error())
+
+    def preprocess(
+        self,
+        handle: ctypes.c_void_p,
+        boxes_xyxy: np.ndarray,
+        image: np.ndarray,
+    ) -> None:
+        n = int(boxes_xyxy.shape[0])
+        ok = self._library.boxmot_reid_capi_preprocess(
+            handle,
+            None if n == 0 else ctypes.c_void_p(boxes_xyxy.ctypes.data),
+            n,
+            ctypes.c_void_p(image.ctypes.data),
+            int(image.shape[0]),
+            int(image.shape[1]),
+            1 if image.ndim == 2 else int(image.shape[2]),
+        )
+        if ok == 0:
+            raise RuntimeError(self.last_error())
+
+    def process(self, handle: ctypes.c_void_p) -> None:
+        ok = self._library.boxmot_reid_capi_process(handle)
+        if ok == 0:
+            raise RuntimeError(self.last_error())
+
+    def postprocess(self, handle: ctypes.c_void_p, out_features: np.ndarray) -> None:
+        ok = self._library.boxmot_reid_capi_postprocess(
+            handle,
             ctypes.c_void_p(out_features.ctypes.data),
             int(out_features.size),
         )
@@ -290,8 +344,17 @@ class CppOnnxReID:
     """ReID backend that delegates feature extraction to the native C++ path.
 
     The instance is its own ``model`` so it can be wrapped by ``TimedReIDModel``
-    the same way a Python ``ReID().model`` is.
+    the same way a Python ``ReID().model`` is. Mirrors the
+    ``BaseModelBackend`` surface (``get_crops`` / ``inference_preprocess`` /
+    ``forward`` / ``inference_postprocess``) so the staged C ABI symbols are
+    invoked separately and timing instrumentation can attribute work to the
+    ``preprocess`` / ``process`` / ``postprocess`` buckets.
     """
+
+    # ``BaseModelBackend``-shaped attributes (used by Python ReID code paths
+    # that introspect device / dtype / input_shape on the wrapped backend).
+    device = "cpu"
+    half = False
 
     def __init__(self, weights, preprocess_name: str | None = None) -> None:
         # Auto-export ``.pt`` to ``.onnx`` if needed (mirrors live native trackers).
@@ -314,6 +377,9 @@ class CppOnnxReID:
         self._library = _get_library()
         self._handle = self._library.create(self.weights, self.preprocess_name)
         self._feature_dim: int | None = None
+        # Probed lazily on first use so ``input_shape`` reads can occur before
+        # the first frame without forcing a dummy forward pass.
+        self._input_shape: tuple[int, int] | None = None
 
         # ``DetectorReIDPipeline`` wraps ``backend.model`` via ``TimedReIDModel``;
         # for the Python backends ``ReID().model`` is a ``BaseModelBackend``
@@ -341,7 +407,38 @@ class CppOnnxReID:
             pass
 
     # ------------------------------------------------------------------
-    # Public API (matches BaseModelBackend.get_features)
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalise_boxes(xyxys: np.ndarray) -> np.ndarray:
+        boxes = np.asarray(xyxys, dtype=np.float32)
+        if boxes.size == 0:
+            return np.empty((0, 4), dtype=np.float32)
+        if boxes.ndim == 1:
+            boxes = boxes.reshape(1, -1)
+        if boxes.ndim != 2 or boxes.shape[1] not in {4, 5}:
+            raise ValueError(
+                "CppOnnxReID expects detections as (N, 4) AABB or (N, 5) OBB, "
+                f"got shape {boxes.shape}"
+            )
+        if boxes.shape[1] == 5:
+            boxes = _obb_to_enclosing_xyxy(boxes)
+        else:
+            boxes = boxes[:, :4].astype(np.float32, copy=False)
+        return np.ascontiguousarray(boxes, dtype=np.float32)
+
+    @staticmethod
+    def _normalise_image(img: np.ndarray) -> np.ndarray:
+        image_arr = np.asarray(img)
+        if image_arr.dtype != np.uint8:
+            image_arr = image_arr.astype(np.uint8, copy=False)
+        if image_arr.ndim not in {2, 3}:
+            raise ValueError("Image must be a 2D or 3D uint8 array.")
+        return np.ascontiguousarray(image_arr)
+
+    # ------------------------------------------------------------------
+    # Public API (matches BaseModelBackend)
     # ------------------------------------------------------------------
 
     @property
@@ -350,37 +447,61 @@ class CppOnnxReID:
             self._feature_dim = self._library.feature_dim(self._handle)
         return self._feature_dim
 
-    def get_features(self, xyxys: np.ndarray, img: np.ndarray) -> np.ndarray:
-        if xyxys is None or xyxys.size == 0:
-            return np.array([])
-
-        boxes = np.asarray(xyxys, dtype=np.float32)
-        if boxes.ndim == 1:
-            boxes = boxes.reshape(1, -1)
-        if boxes.ndim != 2 or boxes.shape[1] not in {4, 5}:
-            raise ValueError(
-                "CppOnnxReID expects detections as (N, 4) AABB or (N, 5) OBB, got "
-                f"shape {boxes.shape}"
-            )
-        if boxes.shape[1] == 5:
-            boxes = _obb_to_enclosing_xyxy(boxes)
+    @property
+    def input_shape(self) -> tuple[int, int]:
+        # Cached after the first ``feature_dim`` probe / forward pass. For
+        # callers that need it before that, fall back to a sensible default
+        # (LMBN models use 384x128, others 256x128) inferred from the filename
+        # to mirror the native side's heuristic.
+        if self._input_shape is not None:
+            return self._input_shape
+        name = self.weights.name.lower()
+        if "lmbn" in name:
+            self._input_shape = (384, 128)
         else:
-            boxes = boxes[:, :4].astype(np.float32, copy=False)
+            self._input_shape = (256, 128)
+        return self._input_shape
 
-        boxes = np.ascontiguousarray(boxes, dtype=np.float32)
+    def get_crops(self, xyxys: np.ndarray, img: np.ndarray):
+        """Stage 1: stage the (N, 3, H, W) crop blob inside the native handle.
 
-        image_arr = np.asarray(img)
-        if image_arr.dtype != np.uint8:
-            image_arr = image_arr.astype(np.uint8, copy=False)
-        if image_arr.ndim not in {2, 3}:
-            raise ValueError("Image must be a 2D or 3D uint8 array.")
-        image_arr = np.ascontiguousarray(image_arr)
+        Returns an opaque payload that ``forward`` consumes. The crop tensor
+        itself never crosses the FFI boundary; the payload only carries the
+        per-call shape so ``forward`` can size its output buffer.
+        """
+        boxes = self._normalise_boxes(xyxys)
+        image = self._normalise_image(img)
+        self._library.preprocess(self._handle, boxes, image)
+        return {"count": int(boxes.shape[0])}
 
+    def inference_preprocess(self, payload):
+        # The native side has already produced its (NHWC/NCHW) layout in
+        # ``Preprocess``; nothing left to do here.
+        return payload
+
+    def forward(self, payload):
+        """Stage 2: invoke the native model forward pass on the staged blob."""
+        self._library.process(self._handle)
+        return payload
+
+    def inference_postprocess(self, payload):
+        """Stage 3: copy the L2-normalised features back into a numpy array."""
+        count = int(payload.get("count", 0))
+        if count == 0:
+            return np.empty((0,), dtype=np.float32)
         feature_dim = self.feature_dim
-        n = int(boxes.shape[0])
-        out = np.empty((n, feature_dim), dtype=np.float32)
-        self._library.compute_features(self._handle, boxes, image_arr, out)
+        out = np.empty((count, feature_dim), dtype=np.float32)
+        self._library.postprocess(self._handle, out)
         return out
+
+    def get_features(self, xyxys: np.ndarray, img: np.ndarray) -> np.ndarray:
+        """Single-shot composite for callers that don't need staged timing."""
+        if xyxys is None or np.asarray(xyxys).size == 0:
+            return np.array([])
+        payload = self.get_crops(xyxys, img)
+        payload = self.inference_preprocess(payload)
+        payload = self.forward(payload)
+        return self.inference_postprocess(payload)
 
 
 __all__ = [

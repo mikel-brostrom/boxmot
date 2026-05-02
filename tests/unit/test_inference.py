@@ -127,12 +127,32 @@ def test_ultralytics_detector_preserves_obb_results(monkeypatch):
             self.path = "frame.jpg"
             self.names = {0: "plane"}
 
+    class _FakePredictor:
+        def __init__(self):
+            self.batch = None
+            self.args = SimpleNamespace(conf=0.25, iou=0.7, classes=None, agnostic_nms=False)
+
+        def preprocess(self, ims):
+            return torch.zeros((len(ims), 3, 64, 64), dtype=torch.float32)
+
+        def inference(self, preprocessed):
+            return torch.zeros((preprocessed.shape[0], 1, 7), dtype=torch.float32)
+
+        def postprocess(self, raw_preds, preprocessed, orig_imgs):
+            return [
+                _FakeResult(
+                    [[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]]
+                )
+            ]
+
     class _FakeYOLO:
         def __init__(self, model):
             self.model = model
             self.names = {0: "plane"}
+            self.predictor = None
 
         def predict(self, **_kwargs):
+            self.predictor = _FakePredictor()
             return [
                 _FakeResult(
                     [[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]]

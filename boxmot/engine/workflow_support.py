@@ -118,14 +118,14 @@ def suppress_boxmot_logs(enabled: bool, *, level: str = "WARNING"):
         _configure_boxmot_logging(main_only=True)
 
 
-class TrackerReIDAdapter:
-    def __init__(self, backend: Any) -> None:
-        self.backend = backend
+def TrackerReIDAdapter(backend: Any):
+    """Reuse a tracker-owned ReID backend through the standard ReID stage hooks.
 
-    def __call__(self, inputs, boxes=None, **_kwargs):
-        if boxes is None:
-            raise TypeError("boxes are required when reusing a tracker ReID backend")
-        return self.backend.get_features(boxes, inputs)
+    Returns a :class:`boxmot.reid.ReID` runtime that wraps ``backend`` directly
+    without reloading weights, so timing breakdowns can attribute work to
+    ``preprocess`` / ``process`` / ``postprocess``.
+    """
+    return PublicReID.from_backend(backend)
 
 
 def detector_path_from_spec(spec: Any, *, required: bool = True) -> Path | None:

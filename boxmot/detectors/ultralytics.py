@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from pathlib import Path
+from typing import Any, Optional
 
 import numpy as np
 from ultralytics import YOLO
@@ -17,8 +18,13 @@ class UltralyticsDetector(BaseDetectorBackend):
     """
     Detector wrapper for Ultralytics YOLO models (YOLOv8, YOLO11, etc.).
 
-    All Ultralytics internals are contained here. The public interface
-    follows the same Detector contract as YoloXDetector and RTDetrDetector.
+    Wraps Ultralytics' :class:`BasePredictor` so the standard
+    ``preprocess`` / ``process`` / ``postprocess`` contract maps onto
+    ``predictor.preprocess`` (letterbox + tensor upload),
+    ``predictor.inference`` (pure forward) and
+    ``predictor.postprocess`` (NMS + scale-back). This lets timing
+    instrumentation report each stage independently instead of collapsing
+    everything into the inference bucket.
     """
 
     def __init__(self, model, device, imgsz=None):
@@ -38,6 +44,13 @@ class UltralyticsDetector(BaseDetectorBackend):
         self.pt = True
         self.stride = 32
 
+        # Lazily initialised on the first call: ``predictor`` only exists
+        # after ``YOLO.predict`` runs once, and we don't know the conf/iou
+        # overrides until then.
+        self._predictor = None
+        self._last_orig_imgs: Optional[list[np.ndarray]] = None
+        self._last_preprocessed: Any = None
+
     @staticmethod
     def _is_corrupt_weights_error(exc: Exception) -> bool:
         message = str(exc)
@@ -55,25 +68,67 @@ class UltralyticsDetector(BaseDetectorBackend):
             attempt_download_asset(model_path, release="latest")
             return YOLO(str(model_path))
 
-    def preprocess(self, images):
-        return images
+    def _ensure_predictor(self, conf=None, iou=None, classes=None, agnostic_nms=None) -> None:
+        """Ensure ``self._yolo.predictor`` exists and is configured.
 
-    def process(self, preprocessed, conf, iou, classes, agnostic_nms):
-        return self._yolo.predict(
-            source=preprocessed,
-            conf=conf,
-            iou=iou,
-            classes=classes,
-            agnostic_nms=agnostic_nms,
-            device=self.device,
-            imgsz=self.imgsz,
-            verbose=False,
-            stream=False,
-        )
+        Ultralytics only instantiates the predictor on the first ``predict``
+        call. We use a 1×1 dummy frame to trigger that — this is dwarfed by
+        the real per-frame work and only happens once per detector instance.
+        """
+        if self._predictor is None:
+            dummy = np.zeros((32, 32, 3), dtype=np.uint8)
+            self._yolo.predict(
+                source=dummy,
+                conf=0.25 if conf is None else float(conf),
+                iou=0.7 if iou is None else float(iou),
+                classes=classes,
+                agnostic_nms=False if agnostic_nms is None else bool(agnostic_nms),
+                device=self.device,
+                imgsz=self.imgsz,
+                verbose=False,
+                save=False,
+                stream=False,
+            )
+            self._predictor = self._yolo.predictor
+        # Refresh args used by ``predictor.postprocess`` for NMS thresholds.
+        if conf is not None:
+            self._predictor.args.conf = float(conf)
+        if iou is not None:
+            self._predictor.args.iou = float(iou)
+        if classes is not None:
+            self._predictor.args.classes = classes
+        if agnostic_nms is not None:
+            self._predictor.args.agnostic_nms = bool(agnostic_nms)
 
-    def postprocess(self, detections):
-        processed = []
-        for result in detections:
+    @staticmethod
+    def _as_image_list(images) -> list[np.ndarray]:
+        if isinstance(images, list):
+            return images
+        return [images]
+
+    def preprocess(self, images, **kwargs):
+        self._ensure_predictor()
+        ims = self._as_image_list(images)
+        self._last_orig_imgs = ims
+        # ``predictor.batch`` is read by some postprocess paths to recover
+        # source paths; the third element (``s``) is unused by the BoxMOT
+        # adapter so we leave it as None.
+        self._predictor.batch = ([""] * len(ims), ims, None)
+        preprocessed = self._predictor.preprocess(ims)
+        self._last_preprocessed = preprocessed
+        return preprocessed
+
+    def process(self, preprocessed, **kwargs):
+        self._ensure_predictor()
+        return self._predictor.inference(preprocessed)
+
+    def postprocess(self, raw_preds, conf=None, iou=None, classes=None, agnostic_nms=None, **kwargs):
+        self._ensure_predictor(conf=conf, iou=iou, classes=classes, agnostic_nms=agnostic_nms)
+        preprocessed = kwargs.get("preprocessed", self._last_preprocessed)
+        orig_imgs = kwargs.get("orig_imgs", self._last_orig_imgs) or []
+        results = self._predictor.postprocess(raw_preds, preprocessed, orig_imgs)
+        processed: list[Detections] = []
+        for result in results:
             dets = self._extract_dets(result)
             processed.append(Detections(
                 dets=dets,
@@ -112,11 +167,11 @@ class UltralyticsDetector(BaseDetectorBackend):
 
     def __call__(self, images: list, conf, iou, classes, agnostic_nms) -> list:
         preprocessed = self.preprocess(images)
-        yolo_results = self.process(
-            preprocessed,
+        raw = self.process(preprocessed)
+        return self.postprocess(
+            raw,
             conf=conf,
             iou=iou,
             classes=classes,
             agnostic_nms=agnostic_nms,
         )
-        return self.postprocess(yolo_results)
