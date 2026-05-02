@@ -10,13 +10,14 @@
 
 namespace botsort {
 
-// Reuse the shared base implementation; per-tracker glue is just the
-// detection-to-rect conversion below.
+// Reuse the shared base implementation; OBB detections are warped to
+// straightened axis-aligned crops, AABB ones are clamped and cropped
+// directly. See ``boxmot::trackers::base::GetReIdFeaturesForDetections``.
 using OnnxReIdModel = boxmot::trackers::base::OnnxReIdModel;
 using boxmot::trackers::base::MaybeCreateOnnxReIdModel;
 
-// Compute embeddings for a batch of BoTSORT detections, mapping OBB rows to
-// their enclosing AABB before crop extraction.
+// Compute embeddings for a batch of BoTSORT detections, dispatching AABB and
+// OBB rows through the shared shared-base helper.
 std::vector<Eigen::VectorXf> GetReIdFeatures(
     const OnnxReIdModel& model,
     const std::vector<Detection>& detections,

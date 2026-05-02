@@ -265,6 +265,26 @@ std::vector<Eigen::VectorXf> OnnxReIdModel::GetFeaturesForBoxes(
     return features;
 }
 
+std::vector<Eigen::VectorXf> OnnxReIdModel::GetFeaturesForObbBoxes(
+    const std::vector<Eigen::Matrix<double, 5, 1>>& boxes,
+    const cv::Mat& image
+) const {
+    std::vector<Eigen::VectorXf> features;
+    features.reserve(boxes.size());
+    if (!initialized_ || boxes.empty()) {
+        return features;
+    }
+    for (const auto& obb : boxes) {
+        const cv::Mat processed = PreprocessCrop(ExtractObbCrop(obb, image));
+        if (backend_ == ReIdBackend::kOnnxRuntime) {
+            features.push_back(RunOrt(processed));
+        } else {
+            features.push_back(RunOpenCv(processed));
+        }
+    }
+    return features;
+}
+
 Eigen::VectorXf OnnxReIdModel::RunOpenCv(const cv::Mat& processed_crop) const {
     cv::Mat blob = BuildInputBlob({processed_crop});
     net_.setInput(blob);
@@ -338,6 +358,43 @@ cv::Mat OnnxReIdModel::ExtractCrop(const cv::Rect& box, const cv::Mat& image) co
         return cv::Mat(input_size_, CV_8UC3, cv::Scalar(0, 0, 0));
     }
     return image(safe).clone();
+}
+
+cv::Mat OnnxReIdModel::ExtractObbCrop(
+    const Eigen::Matrix<double, 5, 1>& xywha,
+    const cv::Mat& image
+) const {
+    if (image.empty()) {
+        return cv::Mat(input_size_, CV_8UC3, cv::Scalar(0, 0, 0));
+    }
+    const double cx = xywha[0];
+    const double cy = xywha[1];
+    const int dst_w = std::max(1, static_cast<int>(std::round(xywha[2])));
+    const int dst_h = std::max(1, static_cast<int>(std::round(xywha[3])));
+    const double angle_deg = xywha[4] * 180.0 / 3.14159265358979323846;
+
+    // ``warpAffine`` performs ``dst(x,y) = src(M * [x,y,1]^T)`` so we need a
+    // matrix that takes a destination pixel (x,y) in the axis-aligned crop and
+    // returns the source coordinate in the rotated original. Equivalently:
+    // rotate the source about the OBB centre by -angle, then translate so the
+    // OBB centre lands at the crop centre.
+    cv::Mat rotation = cv::getRotationMatrix2D(
+        cv::Point2f(static_cast<float>(cx), static_cast<float>(cy)),
+        angle_deg,
+        1.0
+    );
+    rotation.at<double>(0, 2) += (dst_w * 0.5) - cx;
+    rotation.at<double>(1, 2) += (dst_h * 0.5) - cy;
+
+    cv::Mat crop;
+    cv::warpAffine(
+        image, crop, rotation,
+        cv::Size(dst_w, dst_h),
+        cv::INTER_LINEAR,
+        cv::BORDER_CONSTANT,
+        cv::Scalar(0, 0, 0)
+    );
+    return crop;
 }
 
 cv::Mat OnnxReIdModel::BuildInputBlob(const std::vector<cv::Mat>& processed_crops) const {

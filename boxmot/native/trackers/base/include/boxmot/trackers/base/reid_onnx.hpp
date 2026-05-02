@@ -72,9 +72,19 @@ public:
         const cv::Mat& image
     ) const;
 
+    // Oriented variant: ``boxes`` are ``(cx, cy, w, h, theta_rad)``. Each crop
+    // is extracted by warping the rotated rectangle so its long/short axes
+    // align with the destination (axis-aligned) crop, eliminating background
+    // pixels that an enclosing-AABB crop would include.
+    std::vector<Eigen::VectorXf> GetFeaturesForObbBoxes(
+        const std::vector<Eigen::Matrix<double, 5, 1>>& boxes,
+        const cv::Mat& image
+    ) const;
+
 private:
     cv::Mat PreprocessCrop(const cv::Mat& crop) const;
     cv::Mat ExtractCrop(const cv::Rect& box, const cv::Mat& image) const;
+    cv::Mat ExtractObbCrop(const Eigen::Matrix<double, 5, 1>& xywha, const cv::Mat& image) const;
     cv::Mat BuildInputBlob(const std::vector<cv::Mat>& processed_crops) const;
     static Eigen::VectorXf NormalizeFeature(const float* data, int size);
     static bool LooksLikeLmbnModel(const fs::path& model_path);
@@ -113,5 +123,52 @@ Eigen::Vector4d ObbToEnclosingXyxy(const Eigen::Matrix<double, 5, 1>& xywha);
 
 // Clamp an ``[x1, y1, x2, y2]`` rect into the bounds of ``image_size``.
 cv::Rect ClampBoxToImage(const Eigen::Vector4d& xyxy, const cv::Size& image_size);
+
+// Generic per-detection ReID dispatch shared by all native trackers.
+//
+// ``Detection`` must expose ``bool is_obb``, ``Eigen::Vector4d xyxy`` and
+// ``Eigen::Matrix<double, 5, 1> xywha``. AABB rows are clamped to the image
+// then routed through ``GetFeaturesForBoxes``; OBB rows are warped to a
+// straightened axis-aligned crop via ``GetFeaturesForObbBoxes``. Original
+// ordering is preserved in the returned vector.
+template <typename Detection>
+std::vector<Eigen::VectorXf> GetReIdFeaturesForDetections(
+    const OnnxReIdModel& model,
+    const std::vector<Detection>& detections,
+    const cv::Mat& image
+) {
+    std::vector<cv::Rect> aabb_boxes;
+    std::vector<std::size_t> aabb_idx;
+    std::vector<Eigen::Matrix<double, 5, 1>> obb_boxes;
+    std::vector<std::size_t> obb_idx;
+    aabb_boxes.reserve(detections.size());
+    obb_boxes.reserve(detections.size());
+    const cv::Size image_size = image.size();
+    for (std::size_t i = 0; i < detections.size(); ++i) {
+        const auto& det = detections[i];
+        if (det.is_obb) {
+            obb_boxes.push_back(det.xywha);
+            obb_idx.push_back(i);
+        } else {
+            aabb_boxes.push_back(ClampBoxToImage(det.xyxy, image_size));
+            aabb_idx.push_back(i);
+        }
+    }
+
+    std::vector<Eigen::VectorXf> features(detections.size());
+    if (!aabb_boxes.empty()) {
+        const auto aabb_features = model.GetFeaturesForBoxes(aabb_boxes, image);
+        for (std::size_t k = 0; k < aabb_idx.size(); ++k) {
+            features[aabb_idx[k]] = aabb_features[k];
+        }
+    }
+    if (!obb_boxes.empty()) {
+        const auto obb_features = model.GetFeaturesForObbBoxes(obb_boxes, image);
+        for (std::size_t k = 0; k < obb_idx.size(); ++k) {
+            features[obb_idx[k]] = obb_features[k];
+        }
+    }
+    return features;
+}
 
 }  // namespace boxmot::trackers::base

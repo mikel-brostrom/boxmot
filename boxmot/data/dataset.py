@@ -173,6 +173,36 @@ class MOTDataset:
                     legacy_dir = embs_root / stem / preprocess_name
                     if legacy_dir.exists():
                         self.embs_dir = legacy_dir
+            # Modern back-compat: caches written by ``boxmot.engine.cache``
+            # are bucketed under ``reid_cache_key`` (e.g.
+            # ``lmbn_n_duke_pt_pytorch_py``). When neither the raw
+            # ``<reid_name>`` nor the legacy stem directory is on disk, fall
+            # back to the canonical cache key so eval can find embeddings
+            # written by a previous generate phase.
+            if not self.embs_dir.exists():
+                try:
+                    from boxmot.data.cache import (legacy_reid_cache_keys,
+                                                   reid_cache_key)
+                except ImportError:
+                    pass
+                else:
+                    candidates: list[str] = []
+                    for backend in ("py", "cpp"):
+                        candidates.append(
+                            reid_cache_key(reid_name, tracker_backend=backend)
+                        )
+                        candidates.extend(
+                            legacy_reid_cache_keys(reid_name, tracker_backend=backend)
+                        )
+                    seen: set[str] = set()
+                    for key in candidates:
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        candidate_dir = embs_root / key / preprocess_name
+                        if candidate_dir.exists():
+                            self.embs_dir = candidate_dir
+                            break
         else:
             self.dets_dir = self.embs_dir = None
 

@@ -560,3 +560,101 @@ def test_create_tracker_invalid_tracker_name():
             half=False,
             per_class=False,
         )
+
+
+# ---------------- OccluBoost OBB tests ----------------
+
+from boxmot.trackers.occluboost.occluboost import (  # noqa: E402
+    OccluBoost,
+    _xywha_to_xyxy_enclosing,
+)
+
+
+def test_occluboost_supports_obb_without_reid():
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    det = np.array([[320, 240, 80, 40, 0.15, 0.95, 0]], dtype=np.float32)
+
+    out1 = tracker.update(det, rgb)
+    out2 = tracker.update(det, rgb)
+
+    assert tracker.is_obb is True
+    assert tracker.supports_obb is True
+    assert out1.shape == (1, 9)
+    assert out2.shape == (1, 9)
+    # cx, cy, w, h, angle should converge close to the (steady) measurement
+    np.testing.assert_allclose(out2[0, :5], det[0, :5], atol=5e-2)
+    # Same id across both frames
+    assert out1[0, 5] == out2[0, 5]
+
+
+def test_occluboost_obb_emits_nine_column_outputs_for_two_objects():
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    dets = np.array(
+        [
+            [100, 100, 60, 30, 0.3, 0.9, 0],
+            [400, 300, 80, 40, -0.4, 0.85, 0],
+        ],
+        dtype=np.float32,
+    )
+    out = tracker.update(dets, rgb)
+    out2 = tracker.update(dets + np.array([[2, 2, 0, 0, 0, 0, 0]] * 2, dtype=np.float32), rgb)
+
+    assert out.shape == (2, 9)
+    assert out2.shape == (2, 9)
+    # IDs should be preserved across frames in the same order
+    assert set(out[:, 5]) == set(out2[:, 5])
+
+
+def test_occluboost_obb_aabb_path_unchanged():
+    """The AABB path must remain 8-column and produce stable IDs."""
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+    dets = np.array([[80, 80, 130, 130, 0.9, 0]], dtype=np.float32)
+    out1 = tracker.update(dets, rgb)
+    out2 = tracker.update(dets, rgb)
+
+    assert tracker.is_obb is False
+    assert out1.shape == (1, 8)
+    assert out2.shape == (1, 8)
+    assert out1[0, 4] == out2[0, 4]
+
+
+def test_xywha_to_xyxy_enclosing_axis_aligned():
+    # Zero angle: the enclosing AABB should equal the box itself.
+    boxes = np.array([[100, 100, 60, 40, 0.0]], dtype=np.float32)
+    xyxy = _xywha_to_xyxy_enclosing(boxes)
+    np.testing.assert_allclose(
+        xyxy[0], np.array([70, 80, 130, 120], dtype=np.float32), atol=1e-4
+    )
+
+
+def test_xywha_to_xyxy_enclosing_45deg_grows_bounds():
+    # 45-degree rotation: enclosing AABB should expand symmetrically.
+    boxes = np.array([[100, 100, 60, 40, np.pi / 4]], dtype=np.float32)
+    xyxy = _xywha_to_xyxy_enclosing(boxes)
+    half = 0.5 * (60 + 40) * np.cos(np.pi / 4)  # = 50/sqrt(2) added per axis
+    np.testing.assert_allclose(
+        xyxy[0],
+        np.array([100 - half, 100 - half, 100 + half, 100 + half], dtype=np.float32),
+        atol=1e-4,
+    )
+
+
+def test_occluboost_obb_history_follows_smoothly_under_rotation():
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
+
+    angles = np.linspace(0.0, 1.5, 12, dtype=np.float32)
+    track_id = None
+    for angle in angles:
+        det = np.array([[320, 240, 90, 40, angle, 0.95, 0]], dtype=np.float32)
+        out = tracker.update(det, rgb)
+        assert out.shape == (1, 9)
+        if track_id is None:
+            track_id = out[0, 5]
+        else:
+            # Single object → ID must persist
+            assert out[0, 5] == track_id

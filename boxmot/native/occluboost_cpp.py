@@ -240,17 +240,17 @@ class _OccluBoostLiveLibrary:
     def update(self, handle, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
         det_arr = np.asarray(dets, dtype=np.float32)
         if det_arr.size == 0:
-            if det_arr.ndim == 2 and det_arr.shape[1] == 6:
-                det_arr = np.empty((0, 6), dtype=np.float32)
+            if det_arr.ndim == 2 and det_arr.shape[1] in {6, 7}:
+                det_arr = np.empty((0, det_arr.shape[1]), dtype=np.float32)
             else:
                 det_arr = np.empty((0, 6), dtype=np.float32)
         elif det_arr.ndim == 1:
             det_arr = det_arr.reshape(1, -1)
         if det_arr.ndim != 2:
             raise ValueError("Detections must be a 2D array.")
-        if det_arr.shape[1] != 6:
+        if det_arr.shape[1] not in {6, 7}:
             raise NotImplementedError(
-                "Native OccluBoost live tracking supports AABB detections with 6 columns only."
+                "Native OccluBoost live tracking supports AABB detections with 6 columns or OBB detections with 7 columns."
             )
         det_arr = np.ascontiguousarray(det_arr, dtype=np.float32)
 
@@ -300,7 +300,8 @@ class _OccluBoostLiveLibrary:
         if ok == 0:
             raise RuntimeError(self._last_error())
         rows = max(int(out_rows.value), 0)
-        return out_arr[:rows, :8].copy()
+        cols = 9 if bool(out_is_obb.value) else 8
+        return out_arr[:rows, :cols].copy()
 
     def get_last_reid_time_ms(self, handle) -> float:
         out_value = ctypes.c_double(0.0)
@@ -319,7 +320,7 @@ def _get_live_occluboost_library() -> _OccluBoostLiveLibrary:
 
 
 class NativeOccluBoostTracker:
-    supports_obb = False
+    supports_obb = True
     tracker_name = "occluboost"
     tracker_backend = "cpp"
 
@@ -342,17 +343,24 @@ class NativeOccluBoostTracker:
         self._library = library if library is not None else _get_live_occluboost_library()
         self._handle = self._library.create(self.cfg)
         self.last_reid_time_ms = 0.0
+        self._det_cols: int | None = None
 
     def reset(self) -> None:
         self._library.reset(self._handle)
         self.last_reid_time_ms = 0.0
+        self._det_cols = None
 
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
-        det_arr = np.asarray(dets) if dets is not None else np.empty((0, 6), dtype=np.float32)
-        if det_arr.size and det_arr.ndim == 2 and det_arr.shape[1] == 6:
-            pass
-        elif det_arr.size == 0:
-            det_arr = np.empty((0, 6), dtype=np.float32)
+        det_arr = np.asarray(dets) if dets is not None else np.empty((0, 0), dtype=np.float32)
+        if det_arr.size and det_arr.ndim == 2 and det_arr.shape[1] in {6, 7}:
+            if self._det_cols is None:
+                self._det_cols = int(det_arr.shape[1])
+            elif int(det_arr.shape[1]) != self._det_cols:
+                raise ValueError(
+                    "Native OccluBoost tracker cannot switch between AABB and OBB inputs after initialization."
+                )
+        elif self._det_cols is not None and det_arr.size == 0:
+            det_arr = np.empty((0, self._det_cols), dtype=np.float32)
         tracks = self._library.update(self._handle, det_arr, img, embs)
         getter = getattr(self._library, "get_last_reid_time_ms", None)
         self.last_reid_time_ms = float(getter(self._handle)) if callable(getter) else 0.0

@@ -10,8 +10,9 @@
 
 namespace occluboost {
 
-// Reuse the shared base implementation; OccluBoost is AABB-only so the glue
-// is just clamp + delegate.
+// Reuse the shared base implementation; OBB detections are warped to
+// straightened axis-aligned crops via the shared per-detection helper, AABB
+// detections are clamped and cropped directly.
 using OnnxReIdModel = boxmot::trackers::base::OnnxReIdModel;
 using boxmot::trackers::base::MaybeCreateOnnxReIdModel;
 

@@ -41,8 +41,11 @@ public:
     [[nodiscard]] const Eigen::VectorXf& embedding() const { return embedding_; }
 
     // Convert internal state to bbox forms.
-    [[nodiscard]] Eigen::Vector4d xyxy() const;  // [x1, y1, x2, y2]
+    [[nodiscard]] Eigen::Vector4d xyxy() const;  // [x1, y1, x2, y2] (enclosing AABB in OBB mode)
     [[nodiscard]] Eigen::Vector4d xywh() const;  // [cx, cy, w, h]
+    [[nodiscard]] Eigen::Matrix<double, 5, 1> xywha() const;  // [cx, cy, w, h, theta]
+
+    [[nodiscard]] bool is_obb() const { return is_obb_; }
 
     // BoostTrack track-confidence decay (coef^(missed) heuristic).
     [[nodiscard]] double GetConfidence(double coef = 0.9) const;
@@ -65,6 +68,7 @@ public:
 private:
     static int count_;
     int max_obs_;
+    bool is_obb_ = false;
     Eigen::VectorXf embedding_;
     std::deque<Eigen::Vector4d> ams_buffer_;
 };
@@ -73,5 +77,10 @@ private:
 Eigen::Vector4d XyxyToZ(const Eigen::Vector4d& xyxy);  // [x, y, h, r]
 Eigen::Vector4d ZToXyxy(const Eigen::Vector4d& z);     // [x1, y1, x2, y2]
 Eigen::Vector4d XyxyToCxcywh(const Eigen::Vector4d& xyxy);
+
+// OBB conversion helpers (mirroring boosttrack.convert_xywha_to_z).
+Eigen::Matrix<double, 5, 1> XywhaToZObb(const Eigen::Matrix<double, 5, 1>& xywha);  // -> [x, y, h, r, theta]
+Eigen::Matrix<double, 5, 1> ZObbToXywha(const Eigen::Matrix<double, 5, 1>& z);      // -> [cx, cy, w, h, theta]
+Eigen::Vector4d XywhaToEnclosingXyxy(const Eigen::Matrix<double, 5, 1>& xywha);
 
 }  // namespace occluboost

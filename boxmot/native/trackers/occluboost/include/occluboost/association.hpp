@@ -16,6 +16,9 @@ struct AssociationResult {
 
 // Pairwise IoU for [x1,y1,x2,y2] boxes.
 Eigen::MatrixXd IouBatch(const Eigen::MatrixXd& dets, const Eigen::MatrixXd& trks);
+
+// Pairwise oriented IoU for [cx, cy, w, h, theta] boxes.
+Eigen::MatrixXd IouBatchObb(const Eigen::MatrixXd& dets_xywha, const Eigen::MatrixXd& trks_xywha);
 Eigen::MatrixXd SoftBiouBatch(const Eigen::MatrixXd& dets, const Eigen::MatrixXd& trks);
 Eigen::MatrixXd ShapeSimilarityV1(const Eigen::MatrixXd& dets, const Eigen::MatrixXd& trks);
 Eigen::MatrixXd MhDistSimilarity(const Eigen::MatrixXd& mh_dist);

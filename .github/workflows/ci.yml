@@ -252,7 +252,7 @@ jobs:
     env:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack occluboost hybridsort sfsort"
       REID_TRACKERS: "botsort deepocsort strongsort boosttrack occluboost hybridsort"
-      EXPECTED_OBB_TRACKERS: "ocsort bytetrack botsort sfsort"
+      EXPECTED_OBB_TRACKERS: "ocsort bytetrack botsort sfsort occluboost"
       SMOKE_SOURCE: ./assets/DOTA8-MOT/train/P1142__1024__0___824/img1
 
     timeout-minutes: 50
