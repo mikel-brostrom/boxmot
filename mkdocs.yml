@@ -6,6 +6,23 @@ theme:
   logo: logo/logo.png
   icon:
     repo: fontawesome/brands/github
+  palette:
+    # Light mode (default), with a switch to dark.
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: white
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    # Dark mode, with a switch back to light.
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
   features:
     - navigation.tabs
     - navigation.tabs.sticky

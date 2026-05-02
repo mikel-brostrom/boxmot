@@ -3,3 +3,11 @@
 .md-header__title .md-header__topic:first-child {
   display: none;
 }
+
+/* The repo's logo is white-on-transparent so it reads on the dark (slate)
+   header. In light mode the header background is white, so invert the
+   logo so it stays visible without shipping a second asset. */
+[data-md-color-scheme="default"] .md-header__button.md-logo img,
+[data-md-color-scheme="default"] .md-header__button.md-logo svg {
+  filter: invert(1);
+}
