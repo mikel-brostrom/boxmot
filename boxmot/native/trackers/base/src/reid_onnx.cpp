@@ -66,10 +66,14 @@ ReIdDevice ResolveDevice(ReIdDevice requested) {
 }  // namespace
 
 cv::Rect ClampBoxToImage(const Eigen::Vector4d& xyxy, const cv::Size& image_size) {
-    const int x1 = std::clamp(static_cast<int>(xyxy[0]), 0, image_size.width - 1);
-    const int y1 = std::clamp(static_cast<int>(xyxy[1]), 0, image_size.height - 1);
-    const int x2 = std::clamp(static_cast<int>(xyxy[2]), 0, image_size.width - 1);
-    const int y2 = std::clamp(static_cast<int>(xyxy[3]), 0, image_size.height - 1);
+    // Match Python `box.round().astype("int")` followed by `min(w, x2)` / `min(h, y2)`
+    // (see boxmot/reid/backends/base_backend.py::get_crops). Using truncation or a
+    // `width - 1` upper bound shifts the crop by up to a pixel and changes the
+    // resampled tensor enough to drift L2-normalised ReID features.
+    const int x1 = std::clamp(static_cast<int>(std::lround(xyxy[0])), 0, image_size.width);
+    const int y1 = std::clamp(static_cast<int>(std::lround(xyxy[1])), 0, image_size.height);
+    const int x2 = std::clamp(static_cast<int>(std::lround(xyxy[2])), 0, image_size.width);
+    const int y2 = std::clamp(static_cast<int>(std::lround(xyxy[3])), 0, image_size.height);
     const int width = std::max(0, x2 - x1);
     const int height = std::max(0, y2 - y1);
     return cv::Rect(x1, y1, width, height);
