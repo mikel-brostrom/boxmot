@@ -5,11 +5,11 @@ message: >-
   metadata from this file.
 
 authors:
-  - given-names: Mikel (Author)
-    family-names: Broström
+  - given-names: Mikel 
+    family-names: Broström (Author)
     orcid: "https://orcid.org/0009-0009-0540-9829"
-  - given-names: Mikhail (Maintainer)
-    family-names: Kozak 
+  - given-names: Mikhail 
+    family-names: Kozak (Maintainer)
 
 abstract: >-
   BoxMOT is a pluggable collection of state-of-the-art multi-object tracking modules
@@ -19,4 +19,5 @@ title: "BoxMOT: pluggable state-of-the-art multi-object tracking modules"
 repository-code: "https://github.com/mikel-brostrom/boxmot"
 license: AGPL-3.0
 version: 18.0.0
+date-released: "2023-06-01"
 type: software
