@@ -71,7 +71,7 @@ from typing import Dict, Generator, List, Optional, Union
 
 import cv2
 import numpy as np
-from tqdm import tqdm
+from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 from boxmot.utils import logger as LOGGER
 

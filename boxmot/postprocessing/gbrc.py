@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor
-from tqdm import tqdm
+from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 from boxmot.utils import logger as LOGGER
 

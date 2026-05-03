@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 import torch
-from tqdm import tqdm
+from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 from boxmot.data.benchmark import configure_benchmark_runtime, load_benchmark_cfg_from_args
 from boxmot.data.cache import (

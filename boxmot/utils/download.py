@@ -19,7 +19,7 @@ from zipfile import BadZipFile, ZipFile
 import gdown
 import requests
 from requests.adapters import HTTPAdapter
-from tqdm import tqdm
+from boxmot.utils.rich.progress import RichTqdm as tqdm
 from urllib3.util.retry import Retry
 
 from boxmot.utils import logger as LOGGER
