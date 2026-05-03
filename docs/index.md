@@ -48,10 +48,9 @@ The high-level Python API is available directly from `boxmot`. Shared CLI and Py
 
 Next steps:
 
-- [Choose a Mode](getting-started/workflows.md)
 - [Modes Overview](modes/index.md)
-- [CLI Usage](usage/cli.md)
-- [Python Usage](usage/python.md)
-- [Configuration](usage/configuration.md)
+- [CLI Usage](usage/index.md)
+- [Python API](python/index.md)
+- [Configuration](config/index.md)
 - [API Reference](python/index.md)
 - [Trackers](trackers/index.md)

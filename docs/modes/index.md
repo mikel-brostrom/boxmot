@@ -2,14 +2,16 @@
 
 BoxMOT organizes its main workflows into six modes exposed through one CLI and one high-level Python facade.
 
-| Mode | Use it when | Start here |
-| --- | --- | --- |
-| `track` | You want detector + tracker output on a live or saved source | [Track](track.md) |
-| `generate` | You want reusable detections and embeddings | [Generate](generate.md) |
-| `eval` | You want benchmark metrics on MOT-style datasets | [Evaluate](eval.md) |
-| `tune` | You want to optimize tracker hyperparameters | [Tune](tune.md) |
-| `research` | You want GEPA to propose and score tracker code changes | [Research](research.md) |
-| `export` | You want to convert a ReID model to deployment formats | [Export](export.md) |
+| Mode | Use it when | Main command | Install notes | Start here |
+| --- | --- | --- | --- | --- |
+| `track` | You want detector + tracker output on a live or saved source | `boxmot track` | Core install. `yolo` extra preinstalls common YOLO backends. | [Track](track.md) |
+| `generate` | You want reusable detections and embeddings | `boxmot generate` | Same as `track`. | [Generate](generate.md) |
+| `eval` | You want TrackEval metrics on a benchmark | `boxmot eval` | Same as `generate`; reuses cached detections and embeddings. | [Evaluate](eval.md) |
+| `tune` | You want to optimize tracker hyperparameters | `boxmot tune` | Add the `evolve` extra. | [Tune](tune.md) |
+| `research` | You want GEPA to propose and score tracker code changes | `boxmot research` | Add the `research` extra. | [Research](research.md) |
+| `export` | You want to convert a ReID model to deployment formats | `boxmot export` | Add format-specific extras (`onnx`, `openvino`, `tflite`). | [Export](export.md) |
+
+See [Installation](../getting-started/installation.md#mode-specific-extras) for exact extras commands.
 
 ## Two workflow families
 
@@ -39,4 +41,8 @@ All BoxMOT modes start from the same command group:
 boxmot MODE [OPTIONS] [DETECTOR] [REID] [TRACKER]
 ```
 
-Use [CLI](../usage/cli.md) for the high-level syntax. Each mode page includes its own examples and generated CLI argument table.
+See [CLI](../usage/index.md) for the high-level syntax. Each mode page below includes its own examples and a generated CLI argument table.
+
+## Python API path
+
+If you want the same modes from Python, start with the [Python API Overview](../python/index.md). The public facade is `boxmot.Boxmot`.

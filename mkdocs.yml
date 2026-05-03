@@ -27,7 +27,6 @@ theme:
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.sections
-    - navigation.expand
     - content.tabs.link
 
 extra_css:
@@ -66,11 +65,13 @@ watch:
   - README.md
   - boxmot
 
+exclude_docs: |
+  AGENTS.md
+
 nav:
   - Quickstart: index.md
   - Getting Started:
       - Installation: getting-started/installation.md
-      - Choose a Mode: getting-started/workflows.md
   - Modes:
       - Overview: modes/index.md
       - Track: modes/track.md
@@ -98,27 +99,16 @@ nav:
       - HybridSort:   trackers/hybridsort.md
       - BoostTrack:   trackers/boosttrack.md
       - OccluBoost:    trackers/occluboost.md
-  - Usage:
-      - Overview: usage/index.md
-      - CLI: usage/cli.md
-      - Python: usage/python.md
-      - Configuration: usage/configuration.md
-  - Concepts:
-      - Overview: concepts/index.md
-      - Detection Layouts: concepts/detection-layouts.md
+  - CLI: usage/index.md
+  - Concepts: concepts/index.md
   - Guides:
       - Evaluation and Postprocessing: guides/evaluation.md
-      - Benchmark Workflows: guides/benchmarks.md
-      - Native C++ Integration: guides/native-cpp.md
-      - Results and Artifacts: guides/results.md
-  - API Reference:
+      - Troubleshooting and FAQ: guides/troubleshooting.md
+  - Native C++: native/index.md
+  - Python API:
       - Overview: python/index.md
-      - Boxmot Facade: python/boxmot.md
-      - track(...) and evaluate(...): python/functions.md
-      - Detector: python/detector.md
-      - ReID: python/reid.md
-      - Results Objects: python/results.md
-      - Tracker Factory: python/tracker-zoo.md
+      - High-level API: python/high-level.md
+      - Low-level API: python/low-level.md
   - Contributing:
       - Contributing Guide: contributing/index.md
       - Add a Tracker: contributing/add-tracker.md

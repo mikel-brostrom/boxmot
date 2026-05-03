@@ -34,6 +34,7 @@ BoxMOT gives you one CLI and one Python API for running modern multi-object trac
 - Swappable trackers with shared detector and ReID plumbing.
 - Benchmark-oriented workflows with reusable detections and embeddings.
 - Support for both AABB and OBB tracking paths.
+- Optional production-ready native C++ tracker implementations with the same metrics as the Python path, opted into via `--tracker-backend cpp` and embeddable in standalone C++ projects via CMake (see [Native C++ Integration](docs/guides/native-cpp.md)).
 - Public Python API for embedding the same workflows in applications and notebooks.
 
 ## Installation

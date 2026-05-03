@@ -85,9 +85,7 @@ Depending on flags, `track` can produce:
 - annotated videos or rendered frames
 - MOT-style text outputs via `--save-txt`
 - cropped detections via `--save-crop`
-- per-run summaries and timing information
-
-See [Results and Artifacts](../guides/results.md).
+- a structured `TrackRunResult` from the Python API (see [High-level API](../python/high-level.md))
 
 ## Native C++ tracking
 
@@ -98,11 +96,11 @@ boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --sour
 boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort:cpp --source 0
 ```
 
-Native live tracking is currently registered for `botsort`, `bytetrack`, `ocsort`, and `sfsort`. The first run builds the matching shared library under `build/native/<tracker>/`, so the environment needs the native build requirements from [Installation](../getting-started/installation.md#native-c-backends).
+Native live tracking is currently registered for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`. See [Native C++ Integration](../native/index.md) for build requirements and embedding details.
 
 ## Detection geometry
 
-`track` accepts either AABB or OBB detections, and BoxMOT switches automatically based on tensor shape. See [Detection Layouts](../concepts/detection-layouts.md).
+`track` accepts either AABB or OBB detections, and BoxMOT switches automatically based on tensor shape. See [Concepts](../concepts/index.md).
 
 ## CLI Arguments
 

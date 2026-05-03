@@ -1,19 +1,10 @@
 # Python API
 
-Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.reid`, `boxmot.trackers`, and `boxmot.trackers.tracker_zoo` for lower-level access.
+Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.detectors`, `boxmot.reid`, and `boxmot.trackers.tracker_zoo` when you want lower-level control.
 
-For a getting-started view, see [Python Usage](../usage/python.md).
+## High-level facade
 
-## Main entry points
-
-- `Boxmot` for high-level workflow orchestration across `track`, `generate`, `val`, `tune`, `research`, and `export`
-- `track(...)` for composable detector + ReID + tracker execution
-- `evaluate(...)` for runtime summaries
-- `Detector` for public detector wrapping
-- `ReID` for the unified ReID runtime
-- result types such as `TrackRunResult`, `GenerateResult`, `ValidationResult`, `TuneResult`, and `ResearchResult`
-
-## Minimal example
+Use `Boxmot` when you want the Python equivalent of the CLI with minimal boilerplate:
 
 ```python
 from boxmot import Boxmot
@@ -21,13 +12,56 @@ from boxmot import Boxmot
 boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 run = boxmot.track(source="video.mp4", save=True)
 print(run)
+
+cache = Boxmot().generate(benchmark="mot17-mini")
+print(cache.cache_dir)
+
+metrics = boxmot.val(benchmark="mot17-mini")
+print(metrics)
+
+tuned = boxmot.tune(benchmark="mot17-mini", n_trials=2)
+print(tuned)
 ```
 
-## Pages
+The same facade also exposes `research(...)` for GEPA-backed benchmark optimization and `export(...)` for ReID conversion workflows.
 
-- [Boxmot Facade](boxmot.md)
-- [track(...) and evaluate(...)](functions.md)
-- [Detector](detector.md)
-- [ReID](reid.md)
-- [Results Objects](results.md)
-- [Tracker Factory](tracker-zoo.md)
+Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` on returned results when you need structured data instead of the human-readable report.
+
+## Native C++ backends
+
+Use `tracker_backend="cpp"` or an inline tracker spec such as `"bytetrack:cpp"` when the selected tracker has a native backend:
+
+```python
+from boxmot import Boxmot
+
+native_track = Boxmot(detector="yolov8n", tracker="bytetrack:cpp")
+run = native_track.track(source="video.mp4")
+
+native_eval = Boxmot(tracker="ocsort")
+metrics = native_eval.val(benchmark="mot17-ablation", tracker_backend="cpp")
+```
+
+Native C++ backends are currently registered for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
+
+## Composable runtime
+
+If you need more control, compose the detector, ReID runtime, and tracker explicitly:
+
+```python
+from boxmot import track
+from boxmot.reid import ReID
+from boxmot.trackers import StrongSort
+from boxmot.detectors import Detector
+
+detector = Detector("yolov8n.pt", device="cpu")
+reid = ReID("osnet_x0_25_msmt17.pt", device="cpu")
+tracker = StrongSort(reid_weights="osnet_x0_25_msmt17.pt", device="cpu", half=False)
+
+results = track("video.mp4", detector, reid, tracker, verbose=False)
+print(results.summary())
+```
+
+## Reference pages
+
+- [High-level API](high-level.md) — `Boxmot` facade, `track(...)`, `evaluate(...)`, and result objects
+- [Low-level API](low-level.md) — `Detector`, `ReID`, and the tracker factory

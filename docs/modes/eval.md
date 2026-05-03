@@ -85,7 +85,7 @@ Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, and `
 - MOT-style tracker outputs
 - reused cache paths and evaluation artifacts in the run directory
 
-See [Evaluation and Postprocessing](../guides/evaluation.md) and [Results and Artifacts](../guides/results.md).
+See [Evaluation and Postprocessing](../guides/evaluation.md).
 
 ## CLI Arguments
 

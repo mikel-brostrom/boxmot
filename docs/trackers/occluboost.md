@@ -47,7 +47,7 @@ boxmot track --tracker occluboost --tracker-backend cpp \
   --reid models/lmbn_n_duke.pt --source 0
 ```
 
-When `--tracker-backend cpp` is set, embedding generation for cached replay also goes through the native C++ ReID and is written to a `__cpp`-suffixed cache bucket. See [Native C++ ReID with `--tracker-backend cpp`](../guides/evaluation.md#native-c-reid-with---tracker-backend-cpp) for the runtime knobs (`BOXMOT_REID_BACKEND`, `BOXMOT_REID_DEVICE`).
+When `--tracker-backend cpp` is set, embedding generation for cached replay also goes through the native C++ ReID and is written to a `__cpp`-suffixed cache bucket. See [Native C++ Integration](../native/index.md#native-c-reid) for the runtime knobs (`BOXMOT_REID_BACKEND`, `BOXMOT_REID_DEVICE`).
 
 ## Tuning notes
 

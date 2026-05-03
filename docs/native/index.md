@@ -1,8 +1,55 @@
 # Native C++ Integration
 
+BoxMOT ships native C++ implementations of several trackers. You can use them in two ways:
+
+1. From the BoxMOT CLI / Python API via `--tracker-backend cpp` (or the `tracker:cpp` shorthand).
+2. Linked directly into your own C++ program via the `<tracker>_core` CMake target or the flat C ABI.
+
+## Using the native backend from BoxMOT
+
+Pass `--tracker-backend cpp` to swap the in-process tracker implementation. This works in `track`, `eval`, `tune`, and `research`:
+
+```bash
+boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
+boxmot eval  --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval  --benchmark mot17-ablation --tracker botsort:cpp
+```
+
+`--tracking-backend cpp` still works as a compatibility alias. The first run configures and builds the matching shared library under `build/native/<tracker>/`. Use `boxmot build` to compile ahead of time:
+
+```bash
+boxmot build                                          # all registered trackers
+boxmot build --tracker bytetrack --tracker ocsort     # subset
+boxmot build --force                                  # reconfigure from scratch
+```
+
+| Tracker | Live `track` | Cached replay | Notes |
+| --- | --- | --- | --- |
+| `botsort`    | Yes | Yes | AABB/OBB; uses native C++ ReID. |
+| `bytetrack`  | Yes | Yes | AABB/OBB; no ReID. |
+| `occluboost` | Yes | Yes | AABB/OBB; uses native C++ ReID for embeddings, recovery, and second pass. |
+| `ocsort`     | Yes | Yes | AABB/OBB; native backend currently uses `asso_func=iou`. |
+| `sfsort`     | Yes | Yes | AABB/OBB; no ReID. |
+
+### Native C++ ReID
+
+When the selected tracker uses appearance features (currently `botsort` and `occluboost`), `--tracker-backend cpp` also routes ReID embedding generation through the native C++ ReID (`OnnxReIdModel`, exposed to Python as `boxmot.native.reid_capi.CppOnnxReID`) instead of the Python `ReID` backend. This applies to both live `track` and the cached `eval` / `tune` / `research` generate phase.
+
+- If the supplied ReID weights are a `.pt` file, BoxMOT auto-exports them to a native OpenCV-compatible `*_opencv.onnx` file and reuses that export for later native runs.
+- Embeddings produced by the native path are cached in a separate bucket suffixed with `__cpp` so they don't collide with Python-backend embeddings on disk.
+- The native ReID runtime can be tuned through environment variables, honoured by both Python and C++:
+    - `BOXMOT_REID_BACKEND` — `ort` / `onnxruntime` (default) or `opencv` / `dnn` for `cv2.dnn.readNetFromONNX`.
+    - `BOXMOT_REID_DEVICE` — `cpu`, `cuda`, `coreml`, or `auto`.
+
+If the native C ABI cannot be loaded for any reason, BoxMOT logs a warning and transparently falls back to the Python ReID backend so generation still completes.
+
+The native replay path accepts both AABB benchmark caches and OBB caches. OBB replay outputs are written in the MMOT corner format expected by the OBB evaluation flow.
+
+## Embedding native trackers in your own C++ program
+
 Embed a BoxMOT native tracker in your own C++ program by linking against the tracker's `<tracker>_core` CMake target.
 
-## Supported trackers
+### Supported trackers
 
 | Tracker | Directory | CMake target | Main class |
 | --- | --- | --- | --- |
@@ -56,21 +103,9 @@ ReID for BoTSORT and OccluBoost is provided by the shared `boxmot_trackers_base`
 
 ## Building from Python (`boxmot build`)
 
-If BoxMOT is already installed (`pip install boxmot`), the CLI can compile the
-native trackers in-place using the toolchain above — no separate CMake invocation
-needed:
+If BoxMOT is already installed (`pip install boxmot`), the CLI compiles the native trackers in-place — no separate CMake invocation needed. See the [Using the native backend from BoxMOT](#using-the-native-backend-from-boxmot) section above for the `boxmot build` commands. The compiled `<tracker>_capi.{so,dylib,dll}` lands next to the tracker sources under `boxmot/native/trackers/<name>/`, and `--tracker-backend cpp` picks it up automatically.
 
-```bash
-boxmot build                                          # all registered trackers
-boxmot build --tracker bytetrack --tracker ocsort     # subset
-boxmot build --force                                  # reconfigure from scratch
-```
-
-The compiled `<tracker>_capi.{so,dylib,dll}` lands next to the tracker sources
-under `boxmot/native/trackers/<name>/`, and `--tracker-backend cpp` in the
-`track` / `eval` commands picks it up automatically. This is the easiest way to
-verify your system has the right OpenCV/Eigen/compiler combo before wiring up
-your own CMake project.
+## Minimal C++ project
 
 ## Minimal C++ project
 

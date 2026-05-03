@@ -82,5 +82,5 @@ The generated build files are kept under `build/native/<tracker>/`.
 ## Next steps
 
 - Use [Quickstart](../index.md) for a minimal path.
-- Use [Choose a Mode](workflows.md) to decide between `track`, `generate`, `eval`, `tune`, `research`, and `export`.
+- Use [Modes Overview](../modes/index.md) to decide between `track`, `generate`, `eval`, `tune`, `research`, and `export`.
 - Use the workflow table above to add the extras your workflow needs.
