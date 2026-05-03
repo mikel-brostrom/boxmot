@@ -3,6 +3,7 @@ import logging
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -216,7 +217,15 @@ def _execute_export(args, model, dummy_input):
 def run_export(args) -> ExportResult:
     model, dummy_input = _prepare_export(args)
     exported_files = _execute_export(args, model, dummy_input)
-    return ExportResult(weights=args.weights, files=exported_files)
+    parity_report: dict[str, dict[str, Any]] = {}
+    if exported_files:
+        with _suppress_export_noise(not args.verbose):
+            parity_report = _verify_export_parity(
+                args, model, dummy_input, exported_files
+            )
+    return ExportResult(
+        weights=args.weights, files=exported_files, parity=parity_report
+    )
 
 
 def _verify_export_parity(
@@ -227,23 +236,40 @@ def _verify_export_parity(
 ) -> dict[str, dict[str, float]]:
     """Compare each exported model's output to the original PyTorch model.
 
-    Returns a mapping ``{format: {"max_abs": float, "mean_abs": float, "ok": bool}}``.
-    Failures are logged but do not raise — exporting is the primary goal,
-    parity is informational.
+    Two complementary metrics are reported per format:
 
-    Per-format tolerances:
-    - torchscript / onnx: tight (~1e-3) — bit-exact FP32 is expected.
-    - openvino: looser (~5e-2) — OpenVINO's ``convert_model`` performs
-      BN folding and other graph rewrites at conversion time that drift
-      a few percent even with ``INFERENCE_PRECISION_HINT=f32``.
+    1. **Strict numerical parity** (``parity_ok``): element-wise
+       ``np.allclose`` against the source PyTorch model using the standard
+       cross-framework tolerances
+
+       - FP32 export → ``rtol=1e-3, atol=1e-5``
+       - FP16 export → ``rtol=1e-2, atol=1e-3``
+
+       Failing this typically points to a real conversion bug (wrong
+       layout, missing op fusion, precision truncation).
+
+    2. **Embedding parity** (``embedding_ok``): mean cosine similarity
+       ≥ ``0.999`` between exported and reference output. ReID models
+       are consumed by cosine matching, so two embeddings that align in
+       direction are functionally equivalent even if their absolute
+       values drift slightly (e.g. from ``ov.convert_model`` graph
+       fusions).
+
+    The combined ``ok`` flag is ``True`` when either metric passes:
+    strict parity is preferred, but embedding parity is sufficient for
+    correctness of the downstream tracker.
+
+    Returns a mapping ``{format: {"max_abs": float, "mean_abs": float,
+    "cosine": float, "parity_ok": bool, "embedding_ok": bool,
+    "ok": bool}}``. Failures are logged but do not raise — exporting is
+    the primary goal, parity is informational.
     """
     import numpy as np
 
-    tolerances: dict[str, tuple[float, float]] = {
-        "torchscript": (1e-2, 1e-3),
-        "onnx": (1e-2, 1e-3),
-        "openvino": (5e-2, 5e-2),
-    }
+    if bool(getattr(args, "half", False)):
+        rtol, atol = 1e-2, 1e-3
+    else:
+        rtol, atol = 1e-3, 1e-5
 
     # ``dummy_input`` was created via ``torch.empty`` for shape inference, so
     # its values are uninitialised and can be NaN/inf — propagating those
@@ -290,6 +316,9 @@ def _verify_export_parity(
                 report[fmt] = {
                     "max_abs": float("nan"),
                     "mean_abs": float("nan"),
+                    "cosine": float("nan"),
+                    "parity_ok": False,
+                    "embedding_ok": False,
                     "ok": False,
                     "error": f"shape mismatch: {out_np.shape} vs {ref_np.shape}",
                 }
@@ -298,13 +327,36 @@ def _verify_export_parity(
             diff = np.abs(out_np - ref_np)
             max_abs = float(diff.max())
             mean_abs = float(diff.mean())
-            rtol, atol = tolerances.get(fmt, (1e-2, 1e-3))
-            ok = bool(np.allclose(out_np, ref_np, rtol=rtol, atol=atol))
-            report[fmt] = {"max_abs": max_abs, "mean_abs": mean_abs, "ok": ok}
+            parity_ok = bool(np.allclose(out_np, ref_np, rtol=rtol, atol=atol))
+
+            # Embedding-aware metric: ReID features are consumed by
+            # cosine similarity, so two embeddings that point in the
+            # same direction are functionally equivalent. Flatten any
+            # spatial dims and average the per-sample cosine.
+            ref_flat = ref_np.reshape(ref_np.shape[0], -1)
+            out_flat = out_np.reshape(out_np.shape[0], -1)
+            denom = np.linalg.norm(ref_flat, axis=1) * np.linalg.norm(
+                out_flat, axis=1
+            )
+            denom = np.where(denom == 0, 1.0, denom)
+            cosine = float(((ref_flat * out_flat).sum(axis=1) / denom).mean())
+            embedding_ok = cosine >= 0.999
+
+            report[fmt] = {
+                "max_abs": max_abs,
+                "mean_abs": mean_abs,
+                "cosine": cosine,
+                "parity_ok": parity_ok,
+                "embedding_ok": embedding_ok,
+                "ok": parity_ok or embedding_ok,
+            }
         except Exception as exc:  # pragma: no cover - defensive
             report[fmt] = {
                 "max_abs": float("nan"),
                 "mean_abs": float("nan"),
+                "cosine": float("nan"),
+                "parity_ok": False,
+                "embedding_ok": False,
                 "ok": False,
                 "error": str(exc),
             }
@@ -341,15 +393,18 @@ def main(args):
             f"Exporting to {len(formats)} format(s): {', '.join(formats) if formats else 'none'}",
         )
         exported_files = _execute_export(args, model, dummy_input)
-        result = ExportResult(weights=args.weights, files=exported_files)
-
-        elapsed_time = time.time() - start_time
-        parity_report: dict[str, dict[str, float]] = {}
-        if result.files:
+        parity_report: dict[str, dict[str, Any]] = {}
+        if exported_files:
             with _suppress_export_noise(not args.verbose):
                 parity_report = _verify_export_parity(
-                    args, model, dummy_input, result.files
+                    args, model, dummy_input, exported_files
                 )
+        result = ExportResult(
+            weights=args.weights, files=exported_files, parity=parity_report
+        )
+
+        elapsed_time = time.time() - start_time
+        if result.files:
             lines = [
                 f"Time: {elapsed_time:.1f}s",
                 f"Saved to: {args.weights.parent.resolve()}",
@@ -364,11 +419,16 @@ def main(args):
                 elif "error" in stats:
                     suffix = f" — parity: error ({stats['error']})"
                 else:
-                    status = "OK" if stats["ok"] else "MISMATCH"
+                    parity_str = "OK" if stats.get("parity_ok") else "MISMATCH"
+                    embed_str = "OK" if stats.get("embedding_ok") else "MISMATCH"
                     suffix = (
-                        f" — parity {status} (maxΔ={stats['max_abs']:.1e})"
+                        f" — parity {parity_str} (maxΔ={stats['max_abs']:.1e}), "
+                        f"embedding {embed_str} (cos={stats['cosine']:.4f})"
                     )
                 lines.append(f"  • {fmt}: {fname}{suffix}")
+            lines.append("")
+            verdict = "acceptable" if result.parity_ok else "out of tolerance"
+            lines.append(f"Overall parity: {verdict}")
             lines.append("")
             lines.append("Visualize: https://netron.app")
             workflow.set_detail(EXPORT_RUN_STEP, "\n".join(lines))

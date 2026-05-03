@@ -487,6 +487,18 @@ class GenerateResult:
 class ExportResult:
     weights: Path
     files: dict[str, Any]
+    parity: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    @property
+    def parity_ok(self) -> bool:
+        """True iff every checked format is within tolerance.
+
+        Formats whose parity was skipped (e.g. ``engine``, ``tflite``)
+        don't count against the result.
+        """
+        if not self.parity:
+            return True
+        return all(stats.get("ok", False) for stats in self.parity.values())
 
 
 @dataclass(**dataclass_slots_kwargs())
