@@ -31,6 +31,7 @@ from boxmot.utils.benchmark_config import (
 )
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.download import set_download_status_fn
+from boxmot.native._common import set_build_status_fn
 from boxmot.utils.misc import dataclass_slots_kwargs, resolve_model_path
 import boxmot.utils.rich.ui as ui
 from boxmot.utils.rich.reporting import WorkflowDetailCallback
@@ -1648,7 +1649,9 @@ class TrackerResearcher:
 
 def main(args: argparse.Namespace) -> ResearchResult:
     workflow = log_research_pipeline_intro(args)
-    set_download_status_fn(WorkflowDetailCallback(workflow, RESEARCH_PREPARE_STEP))
+    setup_callback = WorkflowDetailCallback(workflow, RESEARCH_PREPARE_STEP)
+    set_download_status_fn(setup_callback)
+    set_build_status_fn(setup_callback)
     try:
         return run_research(args, workflow=workflow)
     except BaseException as exc:
@@ -1656,6 +1659,7 @@ def main(args: argparse.Namespace) -> ResearchResult:
         raise
     finally:
         set_download_status_fn(None)
+        set_build_status_fn(None)
         workflow.stop()
 
 

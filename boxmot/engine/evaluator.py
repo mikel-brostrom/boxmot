@@ -48,6 +48,7 @@ from boxmot.utils.benchmark_config import (
 )
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.download import set_download_status_fn
+from boxmot.native._common import set_build_status_fn
 from boxmot.utils.evaluation.results import (
     _filter_obb_trackeval_results,
     _known_trackeval_class_names,
@@ -408,7 +409,9 @@ def main(args):
     # Route any model/dataset downloads triggered during eval setup through
     # the workflow's Setup step so the progress bar is rendered inside the
     # Rich panel instead of leaking tqdm output above it.
-    set_download_status_fn(WorkflowDetailCallback(workflow, EVAL_SETUP_STEP))
+    setup_callback = WorkflowDetailCallback(workflow, EVAL_SETUP_STEP)
+    set_download_status_fn(setup_callback)
+    set_build_status_fn(setup_callback)
     try:
         result = run_eval(args, verbose=False, workflow=workflow)
     except BaseException as exc:
@@ -419,6 +422,7 @@ def main(args):
         workflow.stop()
     finally:
         set_download_status_fn(None)
+        set_build_status_fn(None)
 
     plot_class, metrics_data = _select_plot_metrics_data(result.raw)
     if metrics_data:

@@ -30,6 +30,76 @@ PROGRESS_PREFIX = "BOXMOT_PROGRESS\t"
 # Module-wide lock used to serialize potentially expensive ONNX exports.
 EXPORT_LOCK = threading.Lock()
 
+# ---------------------------------------------------------------------------
+# Build status reporting
+# ---------------------------------------------------------------------------
+
+_build_status_state = threading.local()
+
+
+def set_build_status_fn(status_fn: Any) -> None:
+    """Register a callback used to report native build progress.
+
+    The callback is typically a ``WorkflowDetailCallback`` whose ``__call__``
+    routes a status message into an active Rich workflow panel. When set,
+    :func:`run_build_step` streams CMake output into the panel instead of
+    printing it to stdout (which would corrupt the Rich Live region).
+
+    Pass ``None`` to clear the registration.
+    """
+    _build_status_state.status_fn = status_fn
+
+
+def get_build_status_fn() -> Any:
+    """Return the currently registered build status callback, if any."""
+    return getattr(_build_status_state, "status_fn", None)
+
+
+def run_build_step(
+    *,
+    cmd: list[str],
+    label: str,
+    status_fn: Any | None = None,
+) -> int:
+    """Run a CMake build subcommand, routing output through ``status_fn``.
+
+    When ``status_fn`` is callable (or registered via
+    :func:`set_build_status_fn`), captures stdout/stderr line-by-line and
+    forwards each line to the callback so it appears inside the active Rich
+    workflow panel. When no callback is active, falls back to the legacy
+    behaviour of streaming output to the terminal.
+    """
+    if status_fn is None:
+        status_fn = get_build_status_fn()
+
+    if not callable(status_fn):
+        print(f"[boxmot build] {label}", flush=True)
+        result = subprocess.run(cmd, check=False)
+        return result.returncode
+
+    status_fn(f"{label}")
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    last_line = label
+    try:
+        assert process.stdout is not None
+        for raw in process.stdout:
+            line = raw.rstrip()
+            if not line:
+                continue
+            last_line = line
+            status_fn(f"{label}\n{line}")
+    finally:
+        process.wait()
+    if process.returncode != 0:
+        status_fn(f"{label} (failed)\n{last_line}")
+    return process.returncode
+
 
 @contextlib.contextmanager
 def _cross_process_build_lock(build_dir: Path):
@@ -230,9 +300,11 @@ def build_native_target(
             ]
             # Stream output live so the user sees progress (CMake configure +
             # build can take a minute or more for OpenCV-heavy trackers).
-            print(f"[boxmot build] {display_name}: configuring...", flush=True)
-            configure = subprocess.run(configure_cmd, check=False)
-            if configure.returncode != 0:
+            rc = run_build_step(
+                cmd=configure_cmd,
+                label=f"Building {display_name}: configuring...",
+            )
+            if rc != 0:
                 raise RuntimeError(
                     f"Failed to configure native {display_name}.\n"
                     "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+.\n"
@@ -249,9 +321,11 @@ def build_native_target(
                 target,
                 "--parallel",
             ]
-            print(f"[boxmot build] {display_name}: compiling...", flush=True)
-            build = subprocess.run(build_cmd, check=False)
-            if build.returncode != 0:
+            rc = run_build_step(
+                cmd=build_cmd,
+                label=f"Building {display_name}: compiling...",
+            )
+            if rc != 0:
                 raise RuntimeError(
                     f"Failed to build native {display_name}.\n"
                     "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+.\n"

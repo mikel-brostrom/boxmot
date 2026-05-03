@@ -12,6 +12,7 @@ from boxmot.engine.workflow_results import TrackRunResult
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format
 from boxmot.utils.download import set_download_status_fn
+from boxmot.native._common import set_build_status_fn
 from boxmot.utils.rich.reporting import WorkflowDetailCallback
 from boxmot.utils.rich.track_reporting import (
     TRACK_RUN_STEP,
@@ -376,7 +377,9 @@ def run_track(
 
 def main(args):
     workflow = log_track_pipeline_intro(args)
-    set_download_status_fn(WorkflowDetailCallback(workflow, TRACK_SETUP_STEP))
+    setup_callback = WorkflowDetailCallback(workflow, TRACK_SETUP_STEP)
+    set_download_status_fn(setup_callback)
+    set_build_status_fn(setup_callback)
     try:
         return run_track(
             args,
@@ -391,4 +394,5 @@ def main(args):
         raise
     finally:
         set_download_status_fn(None)
+        set_build_status_fn(None)
         workflow.stop()
