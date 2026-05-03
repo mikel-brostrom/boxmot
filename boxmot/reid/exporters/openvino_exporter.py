@@ -20,18 +20,20 @@ class OpenVINOExporter(BaseExporter):
         if not onnx_path.exists():
             raise FileNotFoundError(f"Missing ONNX file for OpenVINO export: {onnx_path}")
 
-        # Fixed CHW for your ReID crops; only batch should vary
-        c, h, w = 3, 256, 128
-
-        # Bounded dynamic batch (pick something that covers your worst case)
-        max_batch = 80
-        batch_dim = ov.Dimension(1, max_batch)
+        # Derive CHW from the dummy input so model-specific resolutions
+        # (e.g. lmbn uses 384x128, hacnn uses 160x64) are honored. Hardcoding
+        # 256x128 here caused OpenVINO's ONNX frontend to fail conversion for
+        # models whose spatial dims don't survive the network's pooling
+        # stack at the wrong resolution.
+        n_dummy, c, h, w = (int(d) for d in self.im.shape)
 
         if self.dynamic:
-            shape = [batch_dim, c, h, w]
+            # Truly dynamic batch: ``-1`` makes OpenVINO accept any batch
+            # size at inference. A bounded range (e.g. 1..N) would still
+            # raise on overflow, defeating the purpose of ``--dynamic``.
+            shape = [-1, c, h, w]
         else:
-            n = int(self.im.shape[0])
-            shape = [n, c, h, w]
+            shape = [n_dummy, c, h, w]
 
         # Convert from ONNX and FORCE the input shape (name must match ONNX input: "images")
         ov_model = ov.convert_model(

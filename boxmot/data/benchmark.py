@@ -121,30 +121,102 @@ def configure_benchmark_runtime(
     benchmark_detector_cfg = get_benchmark_detector_cfg(benchmark_bundle) if use_benchmark_detector else {}
 
     required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
+    required_reid_model = resolve_required_reid_model(benchmark_bundle)
+
+    # Resolve which artefacts (if any) need to be downloaded so the two
+    # ensure_* calls can run concurrently when both downloads are pending.
+    detector_needs_download = False
+    detector_current: Path | None = None
     if required_yolo_model and use_benchmark_detector:
-        current_detector = resolve_model_path(args.detector[0]) if getattr(args, "detector", None) else None
-        if current_detector is not None and current_detector.exists() and _matches_benchmark_model_reference(
-            current_detector,
-            required_yolo_model,
-            normalize_stem=True,
+        detector_current = resolve_model_path(args.detector[0]) if getattr(args, "detector", None) else None
+        if not (
+            detector_current is not None
+            and detector_current.exists()
+            and _matches_benchmark_model_reference(
+                detector_current, required_yolo_model, normalize_stem=True
+            )
         ):
-            required_model = current_detector
+            detector_needs_download = True
+
+    reid_needs_download = False
+    reid_current: Path | None = None
+    if required_reid_model and use_benchmark_reid:
+        reid_current = resolve_model_path(args.reid[0]) if getattr(args, "reid", None) else None
+        if not (
+            reid_current is not None
+            and reid_current.exists()
+            and _matches_benchmark_model_reference(reid_current, required_reid_model)
+        ):
+            reid_needs_download = True
+
+    detector_resolved: Path | None = None
+    reid_resolved: Path | None = None
+
+    if detector_needs_download and reid_needs_download:
+        import concurrent.futures
+
+        from boxmot.utils.download import (
+            get_download_status_fn,
+            set_download_status_fn,
+        )
+
+        parent_status_fn = get_download_status_fn()
+        descriptions = [
+            f"Downloading {Path(required_yolo_model).name}",
+            f"Downloading {Path(required_reid_model).name}",
+        ]
+
+        def _worker(ensure_fn, per_task_cb):
+            # Worker threads have their own thread-local: install the
+            # per-task callback so download_file routes its progress into
+            # the shared parallel-bars panel instead of falling back to
+            # tqdm (which would corrupt the Rich Live region).
+            if per_task_cb is not None:
+                set_download_status_fn(per_task_cb)
+            try:
+                return ensure_fn(benchmark_bundle)
+            finally:
+                set_download_status_fn(None)
+
+        if parent_status_fn is not None and callable(
+            getattr(parent_status_fn, "parallel_bars", None)
+        ):
+            with parent_status_fn.parallel_bars(descriptions, unit="B") as task_callbacks:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+                    det_future = ex.submit(
+                        _worker, ensure_benchmark_detector_model_fn, task_callbacks[0]
+                    )
+                    reid_future = ex.submit(
+                        _worker, ensure_benchmark_reid_model_fn, task_callbacks[1]
+                    )
+                    detector_resolved = det_future.result() or resolve_model_path(required_yolo_model)
+                    reid_resolved = reid_future.result() or resolve_model_path(required_reid_model)
         else:
-            required_model = ensure_benchmark_detector_model_fn(benchmark_bundle) or resolve_model_path(required_yolo_model)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+                det_future = ex.submit(_worker, ensure_benchmark_detector_model_fn, None)
+                reid_future = ex.submit(_worker, ensure_benchmark_reid_model_fn, None)
+                detector_resolved = det_future.result() or resolve_model_path(required_yolo_model)
+                reid_resolved = reid_future.result() or resolve_model_path(required_reid_model)
+    else:
+        if detector_needs_download:
+            detector_resolved = (
+                ensure_benchmark_detector_model_fn(benchmark_bundle)
+                or resolve_model_path(required_yolo_model)
+            )
+        if reid_needs_download:
+            reid_resolved = (
+                ensure_benchmark_reid_model_fn(benchmark_bundle)
+                or resolve_model_path(required_reid_model)
+            )
+
+    if required_yolo_model and use_benchmark_detector:
+        required_model = detector_resolved if detector_resolved is not None else detector_current
         if verbose and args.detector[0] != required_model:
             LOGGER.info(f"Using benchmark-default detector: {required_model}")
         args.detector = [required_model]
 
-    required_reid_model = resolve_required_reid_model(benchmark_bundle)
     if required_reid_model and use_benchmark_reid:
-        current_reid = resolve_model_path(args.reid[0]) if getattr(args, "reid", None) else None
-        if current_reid is not None and current_reid.exists() and _matches_benchmark_model_reference(
-            current_reid,
-            required_reid_model,
-        ):
-            required_model = current_reid
-        else:
-            required_model = ensure_benchmark_reid_model_fn(benchmark_bundle) or resolve_model_path(required_reid_model)
+        required_model = reid_resolved if reid_resolved is not None else reid_current
         if verbose and args.reid[0] != required_model:
             LOGGER.info(f"Using benchmark-default ReID: {required_model}")
         args.reid = [required_model]

@@ -261,7 +261,14 @@ class BaseModelBackend:
 
             if model_url:
                 LOGGER.info(f"[PID {os.getpid()}] Downloading ReID weights from {model_url} → {w}")
-                gdown.download(model_url, str(w), quiet=False)
+                # Always route through download_file: it handles both the
+                # Google Drive confirm-token flow (via gdown) and direct
+                # HTTP(S) downloads, and integrates with an active Rich
+                # workflow's status callback so the progress is rendered
+                # inside the panel instead of leaking raw tqdm output.
+                from boxmot.utils.download import download_file
+
+                download_file(model_url, w)
             else:
                 LOGGER.error(
                     f"No URL associated with the chosen ReID weights ({w}).\n"

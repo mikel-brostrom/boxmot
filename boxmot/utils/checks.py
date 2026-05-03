@@ -103,13 +103,29 @@ class RequirementsChecker:
             cmd.extend(extra_args)
 
         try:
+            # Always pipe subprocess output so that callers running inside a
+            # Rich ``Live`` workflow do not see raw ``uv`` writes corrupting
+            # their cursor positioning. When verbose is requested we surface
+            # the captured output via the LOGGER (which routes through Rich).
+            completed = subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
             if verbose:
-                subprocess.check_call(cmd)
-            else:
-                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            if verbose:
+                for line in (completed.stdout or "").splitlines():
+                    if line.strip():
+                        LOGGER.info(line)
+                for line in (completed.stderr or "").splitlines():
+                    if line.strip():
+                        LOGGER.info(line)
                 LOGGER.info(f"Extra '{extra}' installed successfully.")
         except subprocess.CalledProcessError as e:
+            stderr_tail = (e.stderr or "").strip().splitlines()[-5:]
+            for line in stderr_tail:
+                LOGGER.error(line)
             LOGGER.error(f"Failed to install extra '{extra}': {e}")
             raise RuntimeError(f"Failed to install extra '{extra}': {e}")
 
@@ -144,8 +160,29 @@ class RequirementsChecker:
                 cmd += list(extra_args)
             cmd += list(packages)
 
-            subprocess.check_call(cmd)
+            # Pipe subprocess output (see comment in ``sync_extra``) and
+            # surface any captured lines through the LOGGER so they render
+            # cleanly inside an active Rich workflow.
+            completed = subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for line in (completed.stdout or "").splitlines():
+                if line.strip():
+                    LOGGER.info(line)
+            for line in (completed.stderr or "").splitlines():
+                if line.strip():
+                    LOGGER.info(line)
             LOGGER.info("All missing packages were installed successfully.")
+        except subprocess.CalledProcessError as e:
+            stderr_tail = (e.stderr or "").strip().splitlines()[-5:]
+            for line in stderr_tail:
+                LOGGER.error(line)
+            LOGGER.error(f"Failed to install packages: {e}")
+            raise RuntimeError(f"Failed to install packages: {e}")
         except Exception as e:
             LOGGER.error(f"Failed to install packages: {e}")
             raise RuntimeError(f"Failed to install packages: {e}")

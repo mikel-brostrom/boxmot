@@ -1,0 +1,64 @@
+"""Rich workflow reporter for the ``generate`` command."""
+
+from __future__ import annotations
+
+import argparse
+
+import boxmot.utils.rich.ui as ui
+from boxmot.utils.rich.reporting import RichWorkflowReporter
+
+
+GENERATE_SETUP_STEP = "Set up models"
+GENERATE_RUN_STEP = "Generate detections and embeddings"
+
+
+def _build_generate_workflow_fields(args: argparse.Namespace) -> list[tuple[str, object]]:
+    fields: list[tuple[str, object]] = []
+
+    detector = getattr(args, "detector", None)
+    if detector:
+        primary = detector[0] if isinstance(detector, (list, tuple)) else detector
+        fields.append(("Detector", primary))
+
+    reid = getattr(args, "reid", None)
+    if reid:
+        primary = reid[0] if isinstance(reid, (list, tuple)) else reid
+        fields.append(("ReID", primary))
+
+    dataset = (
+        getattr(args, "data", None)
+        or getattr(args, "benchmark", None)
+        or getattr(args, "source", None)
+    )
+    if dataset:
+        fields.append(("Dataset", dataset))
+
+    imgsz = getattr(args, "imgsz", None)
+    if imgsz is not None:
+        fields.append(("Image size", imgsz))
+
+    return fields
+
+
+class GenerateWorkflowReporter(RichWorkflowReporter):
+    title = "Generate"
+    prefer_compact_layout = True
+    steps = (
+        (GENERATE_SETUP_STEP, "active"),
+        (GENERATE_RUN_STEP, "todo"),
+    )
+
+    def fields(self) -> list[tuple[str, object]]:
+        return _build_generate_workflow_fields(self.args)
+
+
+def log_generate_pipeline_intro(args: argparse.Namespace) -> ui.WorkflowProgress:
+    return GenerateWorkflowReporter(args).create()
+
+
+__all__ = [
+    "GENERATE_SETUP_STEP",
+    "GENERATE_RUN_STEP",
+    "GenerateWorkflowReporter",
+    "log_generate_pipeline_intro",
+]

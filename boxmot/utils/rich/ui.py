@@ -680,10 +680,10 @@ class WorkflowProgress:
         if used_alt_screen and not self.transient:
             print_renderable(final_renderable, stderr=self.stderr)
 
-    def _update_live(self, *, render: bool = True) -> None:
+    def _update_live(self, *, render: bool = True, force: bool = False) -> None:
         if not (render and self._started):
             return
-        if self._last_rendered_state == self._state_snapshot():
+        if not force and self._last_rendered_state == self._state_snapshot():
             return
         renderable = self._live_renderable()
         oversized = self._renderable_exceeds_console(renderable)

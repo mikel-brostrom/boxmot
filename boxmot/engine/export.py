@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-import io
-import sys
+import logging
 import time
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from contextlib import contextmanager
 from pathlib import Path
 
 import torch
@@ -11,9 +10,26 @@ from boxmot.engine.workflow_results import ExportResult
 from boxmot.reid.core import ReID, export_formats
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.base_exporter import BaseExporter
-from boxmot.utils import WEIGHTS
-from boxmot.utils import configure_logging as _configure_boxmot_logging, logger as LOGGER
+from boxmot.utils import WEIGHTS, logger as LOGGER
+from boxmot.utils.download import set_download_status_fn
+from boxmot.utils.rich.export_reporting import (
+    EXPORT_RUN_STEP,
+    EXPORT_SETUP_STEP,
+    ExportWorkflowReporter,
+    log_export_pipeline_intro,
+)
+from boxmot.utils.rich.reporting import WorkflowDetailCallback
 from boxmot.utils.torch_utils import select_device
+
+
+__all__ = [
+    "EXPORT_SETUP_STEP",
+    "EXPORT_RUN_STEP",
+    "ExportWorkflowReporter",
+    "log_export_pipeline_intro",
+    "main",
+    "run_export",
+]
 
 
 def validate_export_formats(include):
@@ -33,22 +49,47 @@ def _suppress_export_noise(enabled: bool):
         yield
         return
 
-    original_stderr = io.StringIO()
-    LOGGER.remove()
-    LOGGER.add(
-        sys.stderr,
-        level="ERROR",
-        colorize=True,
-        backtrace=True,
-        diagnose=True,
-        enqueue=True,
-        format="<level>{level: <8}</level> | <level>{message}</level>",
+    boxmot_logger = logging.getLogger("boxmot")
+    previous_boxmot_level = boxmot_logger.level
+    boxmot_logger.setLevel(logging.ERROR)
+
+    # Several export backends (torch.export, openvino, onnx) emit warnings
+    # through their own Python loggers that write directly to ``sys.stderr``.
+    # When the Rich workflow Live region is active on stderr, those stray
+    # writes corrupt the panel and cause it to be redrawn / duplicated.
+    noisy_logger_names = (
+        "torch",
+        "torch._dynamo",
+        "torch._inductor",
+        "torch.export",
+        "torch._export",
+        "torch.onnx",
+        "openvino",
+        "openvino.tools",
+        "onnx",
+        "onnxruntime",
+        "nncf",
     )
+    noisy_loggers = []
+    for name in noisy_logger_names:
+        target = logging.getLogger(name)
+        noisy_loggers.append((target, target.level, target.propagate))
+        target.setLevel(logging.ERROR)
+        target.propagate = False
+
     try:
-        with redirect_stdout(io.StringIO()), redirect_stderr(original_stderr):
-            yield
+        # NOTE: ``sys.stdout`` is intentionally NOT redirected here. Rich's
+        # ``Console`` reads ``sys.stdout`` lazily, so any swap would silently
+        # divert the workflow Live region's writes (including in-panel
+        # progress bars for downloads) into a discarded buffer. The noisy
+        # Python loggers above already cover the bulk of the unwanted
+        # output from the export backends.
+        yield
     finally:
-        _configure_boxmot_logging(main_only=True)
+        boxmot_logger.setLevel(previous_boxmot_level)
+        for target, level, propagate in noisy_loggers:
+            target.setLevel(level)
+            target.propagate = propagate
 
 
 def setup_model(args):
@@ -178,53 +219,169 @@ def run_export(args) -> ExportResult:
     return ExportResult(weights=args.weights, files=exported_files)
 
 
+def _verify_export_parity(
+    args,
+    model,
+    dummy_input,
+    exported_files: dict[str, str],
+) -> dict[str, dict[str, float]]:
+    """Compare each exported model's output to the original PyTorch model.
+
+    Returns a mapping ``{format: {"max_abs": float, "mean_abs": float, "ok": bool}}``.
+    Failures are logged but do not raise — exporting is the primary goal,
+    parity is informational.
+
+    Per-format tolerances:
+    - torchscript / onnx: tight (~1e-3) — bit-exact FP32 is expected.
+    - openvino: looser (~5e-2) — OpenVINO's ``convert_model`` performs
+      BN folding and other graph rewrites at conversion time that drift
+      a few percent even with ``INFERENCE_PRECISION_HINT=f32``.
+    """
+    import numpy as np
+
+    tolerances: dict[str, tuple[float, float]] = {
+        "torchscript": (1e-2, 1e-3),
+        "onnx": (1e-2, 1e-3),
+        "openvino": (5e-2, 5e-2),
+    }
+
+    # ``dummy_input`` was created via ``torch.empty`` for shape inference, so
+    # its values are uninitialised and can be NaN/inf — propagating those
+    # through the model gives spurious parity failures. Use a deterministic
+    # random tensor of the same shape/dtype/device for the comparison.
+    torch.manual_seed(0)
+    sample = torch.rand_like(dummy_input.float()).to(
+        dtype=dummy_input.dtype, device=dummy_input.device
+    )
+
+    with torch.inference_mode():
+        ref_output = model(sample)
+    if isinstance(ref_output, (tuple, list)):
+        ref_output = ref_output[0]
+    ref_np = ref_output.detach().to(torch.float32).cpu().numpy()
+
+    cpu_input = sample.detach().to("cpu", dtype=torch.float32)
+
+    report: dict[str, dict[str, float]] = {}
+    for fmt, fpath in exported_files.items():
+        if fmt in ("engine", "tflite"):
+            # TensorRT requires the matching CUDA runtime; TFLite needs the
+            # tflite-runtime + Edge ops shim. Skip parity for those here.
+            continue
+        try:
+            # OpenVINO exporters return the .xml path, but ReID's suffix
+            # check expects the ``_openvino_model`` directory. Pass the
+            # directory so the parity load doesn't emit a stray warning.
+            load_path = fpath
+            if fmt == "openvino":
+                parent = Path(fpath).parent
+                if parent.name.endswith("_openvino_model"):
+                    load_path = str(parent)
+            reid = ReID(weights=load_path, device="cpu", half=False)
+            out = reid.model.forward(cpu_input)
+            if isinstance(out, (tuple, list)):
+                out = out[0]
+            if hasattr(out, "detach"):
+                out_np = out.detach().to(torch.float32).cpu().numpy()
+            else:
+                out_np = np.asarray(out, dtype=np.float32)
+
+            if out_np.shape != ref_np.shape:
+                report[fmt] = {
+                    "max_abs": float("nan"),
+                    "mean_abs": float("nan"),
+                    "ok": False,
+                    "error": f"shape mismatch: {out_np.shape} vs {ref_np.shape}",
+                }
+                continue
+
+            diff = np.abs(out_np - ref_np)
+            max_abs = float(diff.max())
+            mean_abs = float(diff.mean())
+            rtol, atol = tolerances.get(fmt, (1e-2, 1e-3))
+            ok = bool(np.allclose(out_np, ref_np, rtol=rtol, atol=atol))
+            report[fmt] = {"max_abs": max_abs, "mean_abs": mean_abs, "ok": ok}
+        except Exception as exc:  # pragma: no cover - defensive
+            report[fmt] = {
+                "max_abs": float("nan"),
+                "mean_abs": float("nan"),
+                "ok": False,
+                "error": str(exc),
+            }
+
+    return report
+
+
 def main(args):
+    workflow = log_export_pipeline_intro(args)
     start_time = time.time()
-    
-    if args.verbose:
-        LOGGER.info("")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-        LOGGER.opt(colors=True).info("<bold><cyan>🚀 BoxMOT ReID Export</cyan></bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-        LOGGER.opt(colors=True).info(f"<bold>Weights:</bold>    <cyan>{args.weights}</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>Formats:</bold>    <cyan>{', '.join(args.include)}</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>Device:</bold>     <cyan>{args.device}</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>Half:</bold>       <cyan>{args.half}</cyan>")
-        LOGGER.opt(colors=True).info("<blue>" + "-"*60 + "</blue>")
-        LOGGER.opt(colors=True).info("<cyan>[1/3]</cyan> Setting up model...")
+    setup_status_fn = WorkflowDetailCallback(workflow, EXPORT_SETUP_STEP)
+    set_download_status_fn(setup_status_fn)
+    try:
+        workflow.set_detail(EXPORT_SETUP_STEP, "Loading ReID model...")
+        model, dummy_input = _prepare_export(args)
 
-    model, dummy_input = _prepare_export(args)
-
-    output = model(dummy_input)
-    output_tensor = output[0] if isinstance(output, tuple) else output
-    output_shape = tuple(output_tensor.shape)
-    if args.verbose:
-        LOGGER.opt(colors=True).info(
-            f"<bold>Input shape:</bold>  <cyan>{tuple(dummy_input.shape)}</cyan>"
+        output = model(dummy_input)
+        output_tensor = output[0] if isinstance(output, tuple) else output
+        output_shape = tuple(output_tensor.shape)
+        workflow.set_detail(
+            EXPORT_SETUP_STEP,
+            (
+                f"Input shape:  {tuple(dummy_input.shape)}\n"
+                f"Output shape: {output_shape} "
+                f"({BaseExporter.file_size(args.weights):.1f} MB)"
+            ),
         )
-        LOGGER.opt(colors=True).info(
-            f"<bold>Output shape:</bold> <cyan>{output_shape}</cyan> "
-            f"({BaseExporter.file_size(args.weights):.1f} MB)"
+        workflow.complete(EXPORT_SETUP_STEP, render=False)
+        workflow.activate(EXPORT_RUN_STEP)
+
+        formats = list(getattr(args, "include", []) or [])
+        workflow.set_detail(
+            EXPORT_RUN_STEP,
+            f"Exporting to {len(formats)} format(s): {', '.join(formats) if formats else 'none'}",
         )
-        LOGGER.opt(colors=True).info("<cyan>[2/3]</cyan> Exporting to formats...")
+        exported_files = _execute_export(args, model, dummy_input)
+        result = ExportResult(weights=args.weights, files=exported_files)
 
-    exported_files = _execute_export(args, model, dummy_input)
-    result = ExportResult(weights=args.weights, files=exported_files)
-
-    if result.files and args.verbose:
         elapsed_time = time.time() - start_time
-        LOGGER.opt(colors=True).info("<cyan>[3/3]</cyan> Export complete!")
-        LOGGER.info("")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-        LOGGER.opt(colors=True).info("<bold><cyan>✅ Export Summary</cyan></bold>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-        LOGGER.opt(colors=True).info(f"<bold>Time:</bold>       <cyan>{elapsed_time:.1f}s</cyan>")
-        LOGGER.opt(colors=True).info(f"<bold>Saved to:</bold>   <cyan>{args.weights.parent.resolve()}</cyan>")
-        for fmt, fpath in result.files.items():
-            LOGGER.opt(colors=True).info(f"<bold>  • {fmt}:</bold> <cyan>{fpath}</cyan>")
-        LOGGER.opt(colors=True).info("<bold>Visualize:</bold>  <cyan>https://netron.app</cyan>")
-        LOGGER.opt(colors=True).info("<blue>" + "="*60 + "</blue>")
-    return result
+        parity_report: dict[str, dict[str, float]] = {}
+        if result.files:
+            with _suppress_export_noise(not args.verbose):
+                parity_report = _verify_export_parity(
+                    args, model, dummy_input, result.files
+                )
+            lines = [
+                f"Time: {elapsed_time:.1f}s",
+                f"Saved to: {args.weights.parent.resolve()}",
+                "",
+                "Files:",
+            ]
+            for fmt, fpath in result.files.items():
+                stats = parity_report.get(fmt)
+                fname = Path(fpath).name
+                if stats is None:
+                    suffix = " — parity: skipped"
+                elif "error" in stats:
+                    suffix = f" — parity: error ({stats['error']})"
+                else:
+                    status = "OK" if stats["ok"] else "MISMATCH"
+                    suffix = (
+                        f" — parity {status} (maxΔ={stats['max_abs']:.1e})"
+                    )
+                lines.append(f"  • {fmt}: {fname}{suffix}")
+            lines.append("")
+            lines.append("Visualize: https://netron.app")
+            workflow.set_detail(EXPORT_RUN_STEP, "\n".join(lines))
+        else:
+            workflow.set_detail(EXPORT_RUN_STEP, f"Export complete in {elapsed_time:.1f}s")
+        workflow.complete(EXPORT_RUN_STEP, render=False)
+        return result
+    except BaseException as exc:
+        workflow.fail(error=exc)
+        raise
+    finally:
+        set_download_status_fn(None)
+        workflow.stop()
 
 
 if __name__ == "__main__":

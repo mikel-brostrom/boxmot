@@ -1233,7 +1233,7 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
     assert workflow.started is True
     assert workflow.stopped is True
     assert ("Dataset", "mot17-ablation") in workflow.fields
-    assert (evaluator_module.EVAL_GENERATE_STEP, "active") in workflow.steps
+    assert (evaluator_module.EVAL_SETUP_STEP, "active") in workflow.steps
     assert workflow.details == []
     assert calls == [{"verbose": False, "workflow": workflow}]
 

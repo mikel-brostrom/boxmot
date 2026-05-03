@@ -416,7 +416,8 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
     assert workflow.stopped is True
     assert ("Tracker", "botsort") in workflow.fields
     assert ("Source", "0") in workflow.fields
-    assert (tracker_module.TRACK_RUN_STEP, "active") in workflow.steps
+    assert (tracker_module.TRACK_SETUP_STEP, "active") in workflow.steps
+    assert (tracker_module.TRACK_RUN_STEP, "todo") in workflow.steps
     assert calls == [
         (
             calls[0][0],

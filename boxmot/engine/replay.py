@@ -309,7 +309,8 @@ def _run_tracking_tasks(
                 except Exception as exc:
                     done_count += 1
                     failed_seqs.append(seq_name)
-                    LOGGER.exception(f"Error processing {seq_name}")
+                    if progress_callback is None:
+                        LOGGER.exception(f"Error processing {seq_name}")
                     if first_error is None:
                         first_error = exc
 
@@ -443,7 +444,8 @@ def _run_cpp_tracking_tasks(
                 except Exception as exc:
                     done_count += 1
                     failed_seqs.append(seq_name)
-                    LOGGER.exception(f"Error processing {seq_name}")
+                    if progress_callback is None:
+                        LOGGER.exception(f"Error processing {seq_name}")
                     if first_error is None:
                         first_error = exc
 
