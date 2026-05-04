@@ -5,14 +5,21 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import yaml
 
 from boxmot.configs import get_mode_default
 from boxmot.engine.results import Results
 from boxmot.engine.workflow_results import TrackRunResult
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format
-from boxmot.utils.rich.reporting import RichWorkflowReporter, WorkflowDetailCallback
+from boxmot.utils.download import set_download_status_fn
+from boxmot.native._common import set_build_status_fn
+from boxmot.utils.rich.reporting import WorkflowDetailCallback
+from boxmot.utils.rich.track_reporting import (
+    TRACK_RUN_STEP,
+    TRACK_SETUP_STEP,
+    TrackWorkflowReporter,
+    log_track_pipeline_intro,
+)
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 from boxmot.utils.torch_utils import select_device
 import boxmot.utils.rich.ui as ui
@@ -27,8 +34,6 @@ from boxmot.engine.workflow_support import (
     suppress_boxmot_logs,
     tracker_name_from_spec,
 )
-
-TRACK_RUN_STEP = "Run tracker"
 
 
 def _primary_model_ref(value):
@@ -188,114 +193,6 @@ def _consume_run(result: TrackRunResult) -> None:
     result.refresh()
 
 
-def _format_track_param_label(name: str) -> str:
-    label = str(name).replace("_", " ").title()
-    replacements = {
-        "Id": "ID",
-        "Ids": "IDs",
-        "Reid": "ReID",
-        "Cmc": "CMC",
-        "Fps": "FPS",
-        "Imgsz": "Image Size",
-    }
-    for source, target in replacements.items():
-        label = label.replace(source, target)
-    return label
-
-
-def _build_track_tracker_parameter_fields(args) -> list[tuple[str, object]]:
-    tracker_name = tracker_name_from_spec(getattr(args, "tracker", None), required=False)
-    if tracker_name is None:
-        return []
-
-    try:
-        with open(get_tracker_config(tracker_name), "r", encoding="utf-8") as handle:
-            raw = yaml.safe_load(handle) or {}
-    except Exception:
-        return []
-
-    params: list[tuple[str, object]] = []
-    for param_name, details in raw.items():
-        value = getattr(args, param_name, details.get("default"))
-        if value is None:
-            value = details.get("default")
-        params.append((_format_track_param_label(param_name), value))
-    return params
-
-
-def _build_track_pipeline_parameter_fields(args) -> list[tuple[str, object]]:
-    items: list[tuple[str, object]] = []
-    device = getattr(args, "device", None)
-    if device not in {None, ""}:
-        items.append(("Device", device))
-
-    items.append(("Precision", "fp16" if bool(getattr(args, "half", False)) else "fp32"))
-
-    tracker_backend = getattr(args, "tracker_backend", None)
-    if tracker_backend not in {None, ""}:
-        items.append(("Tracker backend", tracker_backend))
-
-    imgsz = getattr(args, "imgsz", None)
-    if imgsz is not None:
-        items.append(("Image size", imgsz))
-
-    conf = getattr(args, "conf", None)
-    if conf is not None:
-        items.append(("Confidence", conf))
-
-    iou = getattr(args, "iou", None)
-    if iou is not None:
-        items.append(("IoU", iou))
-
-    items.append(("Show", bool(getattr(args, "show", False))))
-    items.append(("Save video", bool(getattr(args, "save", False))))
-    items.append(("Save txt", bool(getattr(args, "save_txt", False))))
-
-    return items
-
-
-def _build_track_workflow_fields(args) -> list[tuple[str, object]]:
-    fields: list[tuple[str, object]] = []
-
-    detector = _primary_model_ref(getattr(args, "detector", None))
-    if detector is not None:
-        fields.append(("Detector", detector))
-
-    reid = _primary_model_ref(getattr(args, "reid", None))
-    if reid is not None:
-        fields.append(("ReID", reid))
-
-    tracker = getattr(args, "tracker", None)
-    if tracker not in {None, ""}:
-        fields.append(("Tracker", tracker_name_from_spec(tracker, required=False) or tracker))
-
-    source = getattr(args, "source", None)
-    if source not in {None, ""}:
-        fields.append(("Source", source))
-
-    tracker_params = _build_track_tracker_parameter_fields(args)
-    if tracker_params:
-        fields.append(("__panel__:Tracker Parameters", tracker_params))
-
-    pipeline_params = _build_track_pipeline_parameter_fields(args)
-    if pipeline_params:
-        fields.append(("__panel__:Pipeline Parameters", pipeline_params))
-
-    return fields
-
-
-class TrackWorkflowReporter(RichWorkflowReporter):
-    title = "Tracking"
-    steps = ((TRACK_RUN_STEP, "active"),)
-
-    def fields(self) -> list[tuple[str, object]]:
-        return _build_track_workflow_fields(self.args)
-
-
-def log_track_pipeline_intro(args) -> ui.WorkflowProgress:
-    return TrackWorkflowReporter(args).create()
-
-
 class TrackingSession:
     """Compatibility wrapper around the public Python API tracking facade."""
 
@@ -431,7 +328,11 @@ def run_track(
         reid_runtime = reid if reid is not None else _build_reid(args, tracker_runtime, reid_spec, tracker_spec)
 
     if workflow is not None:
-        workflow.set_detail(TRACK_RUN_STEP, "Starting tracker...", render=False)
+        step_labels = [label for label, _ in getattr(workflow, "steps", ())]
+        if TRACK_SETUP_STEP in step_labels:
+            workflow.complete(TRACK_SETUP_STEP, render=False)
+            workflow.activate(TRACK_RUN_STEP, render=False)
+        workflow.set_detail(TRACK_RUN_STEP, "Starting tracker...")
 
     run = Results(
         source,
@@ -477,6 +378,9 @@ def run_track(
 
 def main(args):
     workflow = log_track_pipeline_intro(args)
+    setup_callback = WorkflowDetailCallback(workflow, TRACK_SETUP_STEP)
+    set_download_status_fn(setup_callback)
+    set_build_status_fn(setup_callback)
     try:
         return run_track(
             args,
@@ -490,4 +394,6 @@ def main(args):
         workflow.fail(error=exc)
         raise
     finally:
+        set_download_status_fn(None)
+        set_build_status_fn(None)
         workflow.stop()

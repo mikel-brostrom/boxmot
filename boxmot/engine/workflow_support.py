@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import re
 import sys
@@ -19,11 +20,11 @@ from boxmot.native import get_native_live_backend
 from boxmot.reid import ReID as PublicReID
 from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
-from boxmot.utils import configure_logging as _configure_boxmot_logging, logger as LOGGER
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.misc import increment_path, resolve_model_path
 from boxmot.utils.torch_utils import select_device
 
-REID_TRACKERS = {"strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack"}
+REID_TRACKERS = {"strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack", "occluboost"}
 TRACKER_CLASS_TO_NAME = {
     class_path.rsplit(".", 1)[-1].lower(): tracker_name
     for tracker_name, class_path in TRACKER_MAPPING.items()
@@ -102,20 +103,13 @@ def suppress_boxmot_logs(enabled: bool, *, level: str = "WARNING"):
         yield
         return
 
-    LOGGER.remove()
-    LOGGER.add(
-        sys.stderr,
-        level=level,
-        colorize=True,
-        backtrace=True,
-        diagnose=True,
-        enqueue=True,
-        format="<level>{level: <8}</level> | <level>{message}</level>",
-    )
+    boxmot_logger = logging.getLogger("boxmot")
+    previous_level = boxmot_logger.level
     try:
+        boxmot_logger.setLevel(getattr(logging, str(level).upper(), logging.WARNING))
         yield
     finally:
-        _configure_boxmot_logging(main_only=True)
+        boxmot_logger.setLevel(previous_level)
 
 
 def TrackerReIDAdapter(backend: Any):
@@ -336,10 +330,18 @@ def build_tracker_from_spec(
         )
     if resolved_backend == "cpp":
         native_backend = get_native_live_backend(tracker_name)
+        native_kwargs: dict[str, Any] = {
+            "reid_weights": reid_weights,
+            "reid_preprocess": reid_preprocess,
+        }
+        # Forward device to native backends that support ReID device selection.
+        import inspect
+        sig = inspect.signature(native_backend.create_tracker)
+        if "reid_device" in sig.parameters:
+            native_kwargs["reid_device"] = str(device) if device else None
         return native_backend.create_tracker(
             default_tracker_config(spec),
-            reid_weights=reid_weights,
-            reid_preprocess=reid_preprocess,
+            **native_kwargs,
         )
 
     return create_tracker(

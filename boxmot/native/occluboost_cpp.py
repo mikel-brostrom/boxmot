@@ -138,6 +138,7 @@ class _OccluBoostCConfig(ctypes.Structure):
         ("ams_shrink_ratio", ctypes.c_float),
         ("reid_model_path", ctypes.c_char_p),
         ("reid_preprocess", ctypes.c_char_p),
+        ("reid_device", ctypes.c_char_p),
     ]
 
 
@@ -184,6 +185,7 @@ def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
         ams_shrink_ratio=float(cfg["ams_shrink_ratio"]),
         reid_model_path=str(cfg.get("reid_model_path", "")).encode("utf-8"),
         reid_preprocess=str(cfg.get("reid_preprocess") or _default_preprocess()).encode("utf-8"),
+        reid_device=str(cfg.get("reid_device", "auto")).encode("utf-8"),
     )
 
 
@@ -359,6 +361,7 @@ class NativeOccluBoostTracker:
         *,
         reid_weights: str | Path | None = None,
         reid_preprocess: str | None = None,
+        reid_device: str | None = None,
         library: _OccluBoostLiveLibrary | None = None,
     ) -> None:
         self.cfg = _resolve_tracker_cfg(cfg_dict)
@@ -367,6 +370,7 @@ class NativeOccluBoostTracker:
         self.reid_preprocess = str(reid_preprocess or _default_preprocess())
         self.cfg["reid_model_path"] = self.reid_model_path
         self.cfg["reid_preprocess"] = self.reid_preprocess
+        self.cfg["reid_device"] = str(reid_device or "auto")
         self.with_reid = bool(self.cfg.get("with_reid", True))
         self.provides_reid = bool(self.reid_model_path and Path(self.reid_model_path).suffix.lower() == ".onnx")
         self._library = library if library is not None else _get_live_occluboost_library()
@@ -436,8 +440,9 @@ def create_occluboost_live_tracker(
     *,
     reid_weights: str | Path | None = None,
     reid_preprocess: str | None = None,
+    reid_device: str | None = None,
 ) -> NativeOccluBoostTracker:
-    return NativeOccluBoostTracker(cfg_dict, reid_weights=reid_weights, reid_preprocess=reid_preprocess)
+    return NativeOccluBoostTracker(cfg_dict, reid_weights=reid_weights, reid_preprocess=reid_preprocess, reid_device=reid_device)
 
 
 def _parse_summary(stdout: str) -> dict[str, Any]:

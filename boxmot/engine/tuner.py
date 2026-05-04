@@ -483,8 +483,8 @@ def _generate_summary(
     summary_path = tune_dir / "summary.md"
     summary_path.write_text("\n".join(lines))
     if emit_logs:
-        LOGGER.opt(colors=True).info(
-            f"<bold>Summary saved to:</bold> <cyan>{summary_path}</cyan>"
+        LOGGER.info(
+            f"[bold]Summary saved to:[/bold] [cyan]{summary_path}[/cyan]"
         )
     return summary_path
 
@@ -523,7 +523,7 @@ def _save_all_results(
     csv_path = tune_dir / "results.csv"
     _save_results_csv(csv_path, trial_data)
     if emit_logs:
-        LOGGER.opt(colors=True).info(f"<bold>Results CSV:</bold> <cyan>{csv_path}</cyan>")
+        LOGGER.info(f"[bold]Results CSV:[/bold] [cyan]{csv_path}[/cyan]")
 
     # 3. Best config → tune root
     best = _best_trial_data(trial_data, maximize=maximize, minimize=minimize)
@@ -532,8 +532,8 @@ def _save_all_results(
     best_yaml_path = tune_dir / f"best_{tracker_name}.yaml"
     _write_trial_yaml(yaml_cfg, best["config"], best_yaml_path)
     if emit_logs:
-        LOGGER.opt(colors=True).info(
-            f"<bold>Best config ({best['trial_id']}):</bold> <cyan>{best_yaml_path}</cyan>"
+        LOGGER.info(
+            f"[bold]Best config ({best['trial_id']}):[/bold] [cyan]{best_yaml_path}[/cyan]"
         )
 
     # 4. summary.md

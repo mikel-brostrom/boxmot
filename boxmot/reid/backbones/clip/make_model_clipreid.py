@@ -3,6 +3,8 @@
 import torch
 import torch.nn as nn
 
+from boxmot.utils import logger as LOGGER
+
 from .clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
 
 _tokenizer = _Tokenizer()
@@ -191,13 +193,13 @@ class build_transformer(nn.Module):
         param_dict = torch.load(trained_path)
         for i in param_dict:
             self.state_dict()[i.replace("module.", "")].copy_(param_dict[i])
-        print("Loaded pretrained model from {}".format(trained_path))
+        LOGGER.info("Loaded pretrained model from {}".format(trained_path))
 
     def load_param_finetune(self, model_path):
         param_dict = torch.load(model_path)
         for i in param_dict:
             self.state_dict()[i].copy_(param_dict[i])
-        print("Loading pretrained model for finetuning from {}".format(model_path))
+        LOGGER.info("Loading pretrained model for finetuning from {}".format(model_path))
 
 
 def make_model(cfg, num_class, camera_num, view_num):

@@ -1233,7 +1233,7 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
     assert workflow.started is True
     assert workflow.stopped is True
     assert ("Dataset", "mot17-ablation") in workflow.fields
-    assert (evaluator_module.EVAL_GENERATE_STEP, "active") in workflow.steps
+    assert (evaluator_module.EVAL_SETUP_STEP, "active") in workflow.steps
     assert workflow.details == []
     assert calls == [{"verbose": False, "workflow": workflow}]
 
@@ -2316,7 +2316,6 @@ def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, mon
         "wait",
         lambda pending, timeout, return_when: (set(pending), set()),
     )
-    monkeypatch.setattr(cached_tracking_module.LOGGER, "opt", lambda **kwargs: SimpleNamespace(info=lambda message: None))
 
     cached_tracking_module.run_generate_mot_results(args, quiet=False)
 

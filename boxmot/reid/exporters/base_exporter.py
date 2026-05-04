@@ -6,31 +6,27 @@ from boxmot.utils.checks import RequirementsChecker
 
 def export_decorator(export_func):
     def wrapper(self, *args, **kwargs):
-        try:
-            # If a subclass defined a dependency bucket, install it now.
-            if hasattr(self, "group") and self.group:
-                # Optional: subclasses can define `cmd` or `extra_args` for installer flags
-                extra_args = getattr(self, "cmd", None) or getattr(self, "extra_args", None)
-                # Allow either a uv group or a project extra. If you want extras, set `self.extra`
-                extra = getattr(self, "extra", None)
-                if extra and self.group:
-                    raise ValueError("Provide only one of `group` or `extra` in exporter.")
-                if self.group:
-                    self.checker.sync_extra(extra=self.group, extra_args=extra_args, verbose=self.verbose)
-                elif extra:
-                    self.checker.sync_extra(extra=extra, extra_args=extra_args, verbose=self.verbose)
+        # If a subclass defined a dependency bucket, install it now.
+        if hasattr(self, "group") and self.group:
+            # Optional: subclasses can define `cmd` or `extra_args` for installer flags
+            extra_args = getattr(self, "cmd", None) or getattr(self, "extra_args", None)
+            # Allow either a uv group or a project extra. If you want extras, set `self.extra`
+            extra = getattr(self, "extra", None)
+            if extra and self.group:
+                raise ValueError("Provide only one of `group` or `extra` in exporter.")
+            if self.group:
+                self.checker.sync_extra(extra=self.group, extra_args=extra_args, verbose=self.verbose)
+            elif extra:
+                self.checker.sync_extra(extra=extra, extra_args=extra_args, verbose=self.verbose)
 
-            if self.verbose:
-                LOGGER.info(f"\nStarting {self.file} export with {self.__class__.__name__}...")
-            result = export_func(self, *args, **kwargs)
-            if result and self.verbose:
-                LOGGER.info(
-                    f"Export success, saved as {result} ({self.file_size(result):.1f} MB)"
-                )
-            return result
-        except Exception as e:
-            LOGGER.error(f"Export failure: {e}")
-            return None
+        if self.verbose:
+            LOGGER.info(f"Starting {self.file} export with {self.__class__.__name__}...")
+        result = export_func(self, *args, **kwargs)
+        if result and self.verbose:
+            LOGGER.info(
+                f"Export success, saved as {result} ({self.file_size(result):.1f} MB)"
+            )
+        return result
 
     return wrapper
 

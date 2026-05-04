@@ -5,6 +5,8 @@ from __future__ import absolute_import, division
 import warnings
 
 import torch
+
+from boxmot.utils import logger as LOGGER
 from torch import nn
 from torch.nn import functional as F
 
@@ -491,13 +493,13 @@ def init_pretrained_weights(model, key=""):
             "(** ignored and continue **)".format(cached_file)
         )
     else:
-        print(
+        LOGGER.info(
             'Successfully loaded imagenet pretrained weights from "{}"'.format(
                 cached_file
             )
         )
         if len(discarded_layers) > 0:
-            print(
+            LOGGER.info(
                 "** The following layers are discarded "
                 "due to unmatched keys or layer size: {}".format(discarded_layers)
             )

@@ -1637,7 +1637,7 @@ def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp
     assert workflow.stopped is True
     assert ("Tracker", "botsort") in workflow.fields
     assert ("Dataset", "mot17-mini") in workflow.fields
-    assert (evaluator_module.EVAL_GENERATE_STEP, "active") in workflow.steps
+    assert (evaluator_module.EVAL_SETUP_STEP, "active") in workflow.steps
     assert metrics.summary["HOTA"] == 50.0
     assert metrics.workflow_rendered is True
     assert str(metrics) == ""

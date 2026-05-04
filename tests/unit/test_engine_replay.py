@@ -187,7 +187,6 @@ def test_replay_nonquiet_uses_manager_queue_for_progress(tmp_path, monkeypatch):
         "wait",
         lambda pending, timeout, return_when: (set(pending), set()),
     )
-    monkeypatch.setattr(replay_module.LOGGER, "opt", lambda **kwargs: SimpleNamespace(info=lambda message: None))
 
     replay_module.run_generate_mot_results(args, quiet=False)
 

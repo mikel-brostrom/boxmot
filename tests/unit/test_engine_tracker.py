@@ -345,7 +345,7 @@ def test_run_track_routes_progress_into_workflow(monkeypatch, tmp_path):
     assert created["verbose"] is False
     assert created["progress_callback"] is not None
     assert workflow.details == [
-        (tracker_module.TRACK_RUN_STEP, "Starting tracker...", False),
+        (tracker_module.TRACK_RUN_STEP, "Starting tracker...", True),
         (tracker_module.TRACK_RUN_STEP, "Frame 1 | Det: 1.0ms | Track: 2.0ms | Total: 3.0ms", True),
     ]
     assert len(workflow.renderable_details) == 1
@@ -416,7 +416,8 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
     assert workflow.stopped is True
     assert ("Tracker", "botsort") in workflow.fields
     assert ("Source", "0") in workflow.fields
-    assert (tracker_module.TRACK_RUN_STEP, "active") in workflow.steps
+    assert (tracker_module.TRACK_SETUP_STEP, "active") in workflow.steps
+    assert (tracker_module.TRACK_RUN_STEP, "todo") in workflow.steps
     assert calls == [
         (
             calls[0][0],

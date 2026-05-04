@@ -1,6 +1,8 @@
 import os
 import shutil
 
+from boxmot.utils import logger as LOGGER
+
 
 def cleanup_mot17(data_dir, keep_detection='FRCNN'):
     """
@@ -24,7 +26,7 @@ def cleanup_mot17(data_dir, keep_detection='FRCNN'):
 
         # Skip if the sequence is already cleaned
         if os.path.exists(cleaned_seq_dir):
-            print(f"Sequence {seq} is already cleaned. Skipping.")
+            LOGGER.info(f"Sequence {seq} is already cleaned. Skipping.")
             continue
 
         # Directories for each detection method
@@ -37,14 +39,14 @@ def cleanup_mot17(data_dir, keep_detection='FRCNN'):
         if os.path.exists(keep_dir):
             # Move the directory to a new name (removing the detection suffix)
             shutil.move(keep_dir, cleaned_seq_dir)
-            print(f"Moved {keep_dir} to {cleaned_seq_dir}")
+            LOGGER.info(f"Moved {keep_dir} to {cleaned_seq_dir}")
 
             # Remove other detection directories
             for seq_dir in seq_dirs:
                 if os.path.exists(seq_dir) and seq_dir != keep_dir:
                     shutil.rmtree(seq_dir)
-                    print(f"Removed {seq_dir}")
+                    LOGGER.info(f"Removed {seq_dir}")
         else:
-            print(f"Directory for {seq} with {keep_detection} detection does not exist. Skipping.")
+            LOGGER.warning(f"Directory for {seq} with {keep_detection} detection does not exist. Skipping.")
 
-    print("MOT17 Cleanup completed!")
+    LOGGER.info("MOT17 Cleanup completed!")

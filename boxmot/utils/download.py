@@ -6,22 +6,43 @@ from __future__ import annotations
 Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
+import concurrent.futures
 import re
 import shutil
 import subprocess
 import sys
+import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 from zipfile import BadZipFile, ZipFile
 
 import gdown
 import requests
 from requests.adapters import HTTPAdapter
-from tqdm import tqdm
+from boxmot.utils.rich.progress import RichTqdm as tqdm
 from urllib3.util.retry import Retry
 
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.ui import print_text
+
+
+_download_status_state = threading.local()
+
+
+def set_download_status_fn(status_fn: Any) -> None:
+    """Register a callback that download helpers should use for progress reporting.
+
+    The callback is typically a :class:`WorkflowDetailCallback` whose ``.bar()``
+    method routes progress updates into an active Rich workflow panel.
+    Pass ``None`` to clear the registration.
+    """
+    _download_status_state.status_fn = status_fn
+
+
+def get_download_status_fn() -> Any:
+    """Return the currently registered download status callback, if any."""
+    return getattr(_download_status_state, "status_fn", None)
 
 
 def _patch_trackeval_numpy_aliases(dest: Path) -> None:
@@ -67,6 +88,83 @@ def _has_workflow_bar(status_fn: Any) -> bool:
     return status_fn is not None and callable(getattr(status_fn, "bar", None))
 
 
+@contextmanager
+def redirect_ultralytics_progress() -> Iterator[None]:
+    """Monkey-patch Ultralytics' ``TQDM`` so its downloads render inside the active workflow panel.
+
+    When a :func:`set_download_status_fn` callback with a ``.tqdm_proxy()``
+    method is registered, this context manager replaces the ``TQDM`` class
+    in ``ultralytics.utils.downloads`` with a Rich-backed shim for the
+    duration of the block.  It also wraps ``subprocess.run`` so that
+    curl-based retries (which Ultralytics falls back to on HTTP errors)
+    have their progress output silenced — preventing raw ``-#`` bars from
+    corrupting the Rich Live panel.  Outside a workflow (no status
+    callback), this is a no-op.
+    """
+    status_fn = get_download_status_fn()
+    if not (status_fn is not None and callable(getattr(status_fn, "tqdm_proxy", None))):
+        yield
+        return
+
+    import ultralytics.utils.downloads as _ul_downloads
+
+    original_tqdm = _ul_downloads.TQDM
+    original_subprocess_run = _ul_downloads.subprocess.run
+
+    def _silent_subprocess_run(cmd, *args, **kwargs):
+        """Suppress stderr for curl calls so ``-#`` progress bars stay hidden."""
+        if cmd and cmd[0] == "curl":
+            kwargs.setdefault("stderr", subprocess.DEVNULL)
+        return original_subprocess_run(cmd, *args, **kwargs)
+
+    with status_fn.tqdm_proxy("Downloading model", unit="B") as rich_tqdm_cls:
+        # Ultralytics passes the full download URL as ``desc``, which eats
+        # all available width and pushes the bar/percentage/ETA off-screen.
+        # Wrap the Rich tqdm class to extract just the filename.
+        _orig_cls = rich_tqdm_cls
+
+        class _CleanDescTqdm:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                desc = kwargs.get("desc", "")
+                if desc and ("/" in desc or len(desc) > 60):
+                    name = desc.rstrip("/").split("?")[0].rsplit("/", 1)[-1]
+                    kwargs["desc"] = f"Downloading {name}"
+                self._inner = _orig_cls(*args, **kwargs)
+
+            def update(self, n: int = 1) -> None:
+                self._inner.update(n)
+
+            def set_description(self, desc: str, refresh: bool = True) -> None:
+                self._inner.set_description(desc, refresh)
+
+            def set_postfix(self, *a: Any, **kw: Any) -> None:
+                self._inner.set_postfix(*a, **kw)
+
+            def set_postfix_str(self, *a: Any, **kw: Any) -> None:
+                self._inner.set_postfix_str(*a, **kw)
+
+            def refresh(self) -> None:
+                self._inner.refresh()
+
+            def close(self) -> None:
+                self._inner.close()
+
+            def __enter__(self) -> "_CleanDescTqdm":
+                self._inner.__enter__()
+                return self
+
+            def __exit__(self, *exc: Any) -> None:
+                self._inner.__exit__(*exc)
+
+        _ul_downloads.TQDM = _CleanDescTqdm
+        _ul_downloads.subprocess.run = _silent_subprocess_run
+        try:
+            yield
+        finally:
+            _ul_downloads.TQDM = original_tqdm
+            _ul_downloads.subprocess.run = original_subprocess_run
+
+
 def download_file(
     url: str,
     dest: Path,
@@ -89,18 +187,71 @@ def download_file(
         LOGGER.debug(f"Cached: {dest.name}")
         return dest
 
+    if status_fn is None:
+        status_fn = get_download_status_fn()
+
     # Ensure parent dir
     dest.parent.mkdir(parents=True, exist_ok=True)
     LOGGER.info(f"Downloading {dest.name}...")
 
     if "drive.google.com" in url or "drive.usercontent.google.com" in url:
-        # Google Drive: use gdown (handles confirm tokens automatically)
-        gdown.download(
-            url=url,
-            output=str(dest),
-            quiet=False,
-            fuzzy=True
-        )
+        # Google Drive: use gdown (handles confirm tokens automatically).
+        # gdown's tqdm bar goes straight to stderr and would corrupt an
+        # active Rich Live region. When a workflow callback exposes a
+        # ``tqdm_proxy`` helper, monkey-patch the gdown module's tqdm with
+        # a Rich-backed shim so the progress is rendered inside the panel.
+        if status_fn is not None and callable(getattr(status_fn, "tqdm_proxy", None)):
+            import importlib
+
+            # ``gdown.download`` is the public function exposed in
+            # ``gdown/__init__.py``, so ``import gdown.download`` returns the
+            # function (not the submodule). Use importlib to reach the
+            # underlying ``gdown.download`` module that owns ``import tqdm``.
+            gdown_download_mod = importlib.import_module("gdown.download")
+
+            original_tqdm_module = gdown_download_mod.tqdm
+            # gdown also writes "Downloading...", "From:", "To:" etc with
+            # ``print(..., file=sys.stderr)``. Replace ``print`` in gdown's
+            # module namespace with a no-op for the duration of the call so
+            # those messages don't leak to the terminal and corrupt the
+            # active Rich Live region. ``contextlib.redirect_stderr`` is too
+            # aggressive — it would also intercept the writes Rich is doing
+            # for its own progress bar refreshes through other paths.
+            original_print = gdown_download_mod.__dict__.get("print", print)
+
+            def _silent_print(*args: Any, **kwargs: Any) -> None:
+                return None
+
+            with status_fn.tqdm_proxy(f"Downloading {dest.name}", unit="B") as rich_tqdm:
+
+                class _TqdmShim:
+                    tqdm = rich_tqdm
+
+                    def __getattr__(self, name: str) -> Any:
+                        return getattr(original_tqdm_module, name)
+
+                gdown_download_mod.tqdm = _TqdmShim()
+                gdown_download_mod.__dict__["print"] = _silent_print
+                try:
+                    gdown.download(
+                        url=url,
+                        output=str(dest),
+                        quiet=False,
+                        fuzzy=True,
+                    )
+                finally:
+                    gdown_download_mod.tqdm = original_tqdm_module
+                    if original_print is print:
+                        gdown_download_mod.__dict__.pop("print", None)
+                    else:
+                        gdown_download_mod.__dict__["print"] = original_print
+        else:
+            gdown.download(
+                url=url,
+                output=str(dest),
+                quiet=False,
+                fuzzy=True,
+            )
     else:
         session = get_http_session()
         response = session.get(url, stream=True, timeout=timeout)
@@ -128,7 +279,75 @@ def download_file(
                         f.write(chunk)
                         pbar.update(len(chunk))
 
+        if total is not None:
+            written = dest.stat().st_size
+            if written < total:
+                try:
+                    dest.unlink()
+                except OSError:
+                    pass
+                raise IOError(
+                    f"Truncated download for {dest.name}: "
+                    f"got {written} bytes, expected {total}. The partial file "
+                    f"has been removed; re-run the command to retry."
+                )
+
     return dest
+
+
+def download_files_parallel(
+    items: "list[tuple[str, Path]]",
+    *,
+    overwrite: bool = False,
+    max_workers: int | None = None,
+) -> "list[Path]":
+    """Download multiple files concurrently.
+
+    When a workflow status callback exposing ``parallel_bars`` is registered
+    via :func:`set_download_status_fn`, all pending downloads share a single
+    Rich panel with one progress bar per file. Otherwise (or when only one
+    file actually needs downloading) this falls back to sequential
+    :func:`download_file` calls so cached files cost nothing.
+    """
+    pending: list[tuple[str, Path]] = []
+    for url, dest in items:
+        if overwrite or not dest.exists():
+            pending.append((url, dest))
+
+    if not pending:
+        return [dest for _, dest in items]
+
+    status_fn = get_download_status_fn()
+    can_parallel = (
+        len(pending) > 1
+        and status_fn is not None
+        and callable(getattr(status_fn, "parallel_bars", None))
+    )
+
+    if not can_parallel:
+        for url, dest in pending:
+            download_file(url, dest, overwrite=overwrite)
+        return [dest for _, dest in items]
+
+    descriptions = [f"Downloading {dest.name}" for _, dest in pending]
+    workers = max_workers or len(pending)
+
+    with status_fn.parallel_bars(descriptions, unit="B") as task_callbacks:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [
+                executor.submit(
+                    download_file,
+                    url,
+                    dest,
+                    overwrite=overwrite,
+                    status_fn=task_cb,
+                )
+                for (url, dest), task_cb in zip(pending, task_callbacks)
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
+
+    return [dest for _, dest in items]
 
 
 def extract_zip(
@@ -146,6 +365,9 @@ def extract_zip(
     """
     if not zip_path.is_file():
         raise FileNotFoundError(f"ZIP file not found: {zip_path}")
+
+    if status_fn is None:
+        status_fn = get_download_status_fn()
 
     try:
         with ZipFile(zip_path, 'r') as zf:

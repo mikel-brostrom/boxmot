@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 import torch
-from tqdm import tqdm
+from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 from boxmot.data.benchmark import configure_benchmark_runtime, load_benchmark_cfg_from_args
 from boxmot.data.cache import (
@@ -39,12 +39,24 @@ from boxmot.utils.benchmark_config import (
 )
 from boxmot.utils.misc import prompt_overwrite, resolve_model_path
 from boxmot.utils.timing import TimingStats
+from boxmot.utils.download import set_download_status_fn
+from boxmot.utils.rich.generate_reporting import (
+    GENERATE_RUN_STEP,
+    GENERATE_SETUP_STEP,
+    GenerateWorkflowReporter,
+    log_generate_pipeline_intro,
+)
+from boxmot.utils.rich.reporting import WorkflowDetailCallback
 
 __all__ = (
     "generate_dets_embs_batched",
     "main",
     "run_generate",
     "run_generate_dets_embs",
+    "GENERATE_RUN_STEP",
+    "GENERATE_SETUP_STEP",
+    "GenerateWorkflowReporter",
+    "log_generate_pipeline_intro",
 )
 
 
@@ -919,14 +931,54 @@ def run_generate_dets_embs(
             )
 
 
-def run_generate(args: argparse.Namespace) -> TimingStats:
+def run_generate(
+    args: argparse.Namespace,
+    *,
+    progress_callback: Callable[[str], None] | None = None,
+) -> TimingStats:
     timing_stats = TimingStats()
-    run_generate_dets_embs(args, timing_stats=timing_stats)
+    run_generate_dets_embs(
+        args,
+        timing_stats=timing_stats,
+        progress_callback=progress_callback,
+    )
     return timing_stats
 
 
 def main(args: argparse.Namespace) -> TimingStats:
-    timing_stats = run_generate(args)
-    if timing_stats.frames > 0:
-        timing_stats.print_summary()
-    return timing_stats
+    workflow = log_generate_pipeline_intro(args)
+    run_callback = WorkflowDetailCallback(workflow, GENERATE_RUN_STEP)
+    setup_callback = WorkflowDetailCallback(workflow, GENERATE_SETUP_STEP)
+    set_download_status_fn(setup_callback)
+    has_setup = GENERATE_SETUP_STEP in getattr(workflow, "steps", ())
+    toggled = {"done": not has_setup}
+
+    def progress_callback(msg: str) -> None:
+        if not toggled["done"]:
+            workflow.complete(GENERATE_SETUP_STEP, render=False)
+            workflow.activate(GENERATE_RUN_STEP, render=False)
+            toggled["done"] = True
+        run_callback(msg)
+
+    verbose = bool(getattr(args, "verbose", False))
+    try:
+        from boxmot.engine.workflow_support import suppress_boxmot_logs
+
+        with suppress_boxmot_logs(not verbose, level="WARNING"):
+            timing_stats = run_generate(args, progress_callback=progress_callback)
+    except BaseException as exc:
+        workflow.fail(error=exc)
+        raise
+    else:
+        if timing_stats.frames > 0:
+            try:
+                summary_text = timing_stats.format_summary()
+            except AttributeError:
+                summary_text = None
+            if summary_text:
+                workflow.set_detail(GENERATE_RUN_STEP, summary_text, render=False)
+        workflow.complete(GENERATE_RUN_STEP, render=False)
+        return timing_stats
+    finally:
+        set_download_status_fn(None)
+        workflow.stop()

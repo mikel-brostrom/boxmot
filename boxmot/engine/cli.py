@@ -298,12 +298,25 @@ def _require_benchmark_input(data: Optional[str], command_name: str) -> str:
 
 
 def _run_engine_workflow(module_name: str, args) -> None:
-    """Run an engine module through its canonical ``main(args)`` entry point."""
+    """Run an engine module through its canonical ``main(args)`` entry point.
+
+    Engine ``main`` functions render their own Rich workflow panels and capture
+    failures into the panel's traceback view via ``WorkflowProgress.fail()``.
+    To avoid click re-printing the same traceback after the panel, we convert
+    any propagated exception into a clean ``click.exceptions.Exit(1)``.
+    ``KeyboardInterrupt`` and ``SystemExit`` are passed through unchanged so
+    the standard interpreter behaviour applies.
+    """
     module = importlib.import_module(module_name)
     main_fn = getattr(module, "main", None)
     if main_fn is None:
         raise AttributeError(f"{module_name} does not expose main")
-    main_fn(args)
+    try:
+        main_fn(args)
+    except (KeyboardInterrupt, SystemExit, click.exceptions.Exit, click.ClickException):
+        raise
+    except BaseException:
+        raise click.exceptions.Exit(code=1)
 
 
 def singular_model_options(func):

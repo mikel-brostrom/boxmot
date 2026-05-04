@@ -95,9 +95,11 @@ def _build_library() -> Path:
                 "-DCMAKE_BUILD_TYPE=Release",
             ]
             # Stream output live so the user sees progress.
-            print("[boxmot build] reid: configuring...", flush=True)
-            configure = subprocess.run(configure_cmd, check=False)
-            if configure.returncode != 0:
+            rc = _common.run_build_step(
+                cmd=configure_cmd,
+                label="Building ReID C ABI: configuring...",
+            )
+            if rc != 0:
                 raise RuntimeError(
                     "Failed to configure native ReID C ABI.\n"
                     "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+, ONNX Runtime.\n"
@@ -114,9 +116,11 @@ def _build_library() -> Path:
                 "reid_capi",
                 "--parallel",
             ]
-            print("[boxmot build] reid: compiling...", flush=True)
-            build = subprocess.run(build_cmd, check=False)
-            if build.returncode != 0:
+            rc = _common.run_build_step(
+                cmd=build_cmd,
+                label="Building ReID C ABI: compiling...",
+            )
+            if rc != 0:
                 raise RuntimeError(
                     "Failed to build native ReID C ABI.\n"
                     "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+, ONNX Runtime.\n"

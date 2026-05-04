@@ -57,6 +57,7 @@ struct Config {
     // ReID
     std::string reid_model_path;
     std::string reid_preprocess = "resize_pad";
+    std::string reid_device = "auto";
 };
 
 struct Detection {

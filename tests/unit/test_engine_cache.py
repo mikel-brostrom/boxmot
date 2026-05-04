@@ -13,7 +13,11 @@ def test_cache_main_runs_generation_pipeline(monkeypatch):
     generated = []
     printed = []
 
-    monkeypatch.setattr(cache_module, "run_generate_dets_embs", lambda args, timing_stats=None: generated.append((args, timing_stats)))
+    monkeypatch.setattr(
+        cache_module,
+        "run_generate_dets_embs",
+        lambda args, timing_stats=None, progress_callback=None: generated.append((args, timing_stats)),
+    )
     monkeypatch.setattr(cache_module.TimingStats, "print_summary", lambda self: printed.append(self.frames))
 
     args = SimpleNamespace()

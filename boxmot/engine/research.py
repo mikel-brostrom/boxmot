@@ -30,8 +30,20 @@ from boxmot.utils.benchmark_config import (
     resolve_required_yolo_model,
 )
 from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.download import set_download_status_fn
+from boxmot.native._common import set_build_status_fn
 from boxmot.utils.misc import dataclass_slots_kwargs, resolve_model_path
+import boxmot.utils.rich.ui as ui
+from boxmot.utils.rich.reporting import WorkflowDetailCallback
 from boxmot.utils.rich.ui import print_text
+from boxmot.utils.rich.research_reporting import (
+    RESEARCH_BASELINE_STEP,
+    RESEARCH_BEST_STEP,
+    RESEARCH_OPTIMIZE_STEP,
+    RESEARCH_PREPARE_STEP,
+    ResearchWorkflowReporter,
+    log_research_pipeline_intro,
+)
 
 RESEARCH_EXTRA = "research"
 RESEARCH_METRICS = ("HOTA", "IDF1", "MOTA")
@@ -1436,8 +1448,10 @@ class TrackerResearcher:
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(content, encoding="utf-8")
 
-    def run(self) -> ResearchResult:
+    def run(self, workflow: ui.WorkflowProgress | None = None) -> ResearchResult:
         self._ensure_dependencies()
+        if workflow is not None:
+            workflow.set_detail(RESEARCH_PREPARE_STEP, "Preparing workspace...")
         _import_installed_gepa()
         workspace = self._prepare_workspace()
 
@@ -1446,6 +1460,22 @@ class TrackerResearcher:
             f"with {len(self.selected_sequences)} benchmark sequence(s)"
         )
         LOGGER.info(f"Editable files: {', '.join(self.editable_files)}")
+        if workflow is not None:
+            workflow.set_detail(
+                RESEARCH_PREPARE_STEP,
+                (
+                    f"Tracker: {self.config.tracker}\n"
+                    f"Benchmark: {self.benchmark_id}\n"
+                    f"Sequences: {len(self.selected_sequences)}\n"
+                    f"Editable files: {', '.join(self.editable_files)}"
+                ),
+            )
+            workflow.complete(RESEARCH_PREPARE_STEP, render=False)
+            workflow.activate(RESEARCH_BASELINE_STEP)
+            workflow.set_detail(
+                RESEARCH_BASELINE_STEP,
+                "Running baseline benchmark evaluation...",
+            )
 
         LOGGER.info("Running baseline benchmark evaluation before GEPA search...")
         baseline_eval = self._combined_benchmark_eval(self.seed_candidate, "baseline_all_sequences")
@@ -1525,6 +1555,17 @@ class TrackerResearcher:
         )
 
         LOGGER.info("Baseline complete. Starting GEPA optimization...")
+        if workflow is not None:
+            workflow.complete(RESEARCH_BASELINE_STEP, render=False)
+            workflow.activate(RESEARCH_OPTIMIZE_STEP)
+            workflow.set_detail(
+                RESEARCH_OPTIMIZE_STEP,
+                (
+                    f"Running GEPA search\n"
+                    f"Max metric calls: {self.config.max_metric_calls}\n"
+                    f"Proposal model: {self.config.proposal_model}"
+                ),
+            )
         result = optimize_anything(
             seed_candidate=self.seed_candidate,
             evaluator=self._candidate_evaluator,
@@ -1532,6 +1573,13 @@ class TrackerResearcher:
         )
 
         best_candidate = _validate_candidate_keys(result.best_candidate, self.editable_files)
+        if workflow is not None:
+            workflow.complete(RESEARCH_OPTIMIZE_STEP, render=False)
+            workflow.activate(RESEARCH_BEST_STEP)
+            workflow.set_detail(
+                RESEARCH_BEST_STEP,
+                "Evaluating best candidate on benchmark...",
+            )
         best_eval = self._combined_benchmark_eval(best_candidate, "best_all_sequences")
         best_summary = best_eval["summary"]
         baseline_score, baseline_penalty_breakdown = self._score_candidate(baseline_summary)
@@ -1579,7 +1627,7 @@ class TrackerResearcher:
             shutil.rmtree(workspace, ignore_errors=True)
             self.workspace_dir = None
 
-        return ResearchResult(
+        research_result = ResearchResult(
             tracker=self.config.tracker,
             benchmark=self.benchmark_id,
             proposal_model=self.config.proposal_model,
@@ -1593,24 +1641,50 @@ class TrackerResearcher:
             delta_summary=delta_summary,
             workspace_dir=workspace_result,
         )
+        if workflow is not None:
+            workflow.set_detail(RESEARCH_BEST_STEP, research_result.render(), render=False)
+            workflow.complete(RESEARCH_BEST_STEP, render=False)
+        return research_result
 
 
 def main(args: argparse.Namespace) -> ResearchResult:
-    return run_research(args)
+    workflow = log_research_pipeline_intro(args)
+    setup_callback = WorkflowDetailCallback(workflow, RESEARCH_PREPARE_STEP)
+    set_download_status_fn(setup_callback)
+    set_build_status_fn(setup_callback)
+    try:
+        return run_research(args, workflow=workflow)
+    except BaseException as exc:
+        workflow.fail(error=exc)
+        raise
+    finally:
+        set_download_status_fn(None)
+        set_build_status_fn(None)
+        workflow.stop()
 
 
-def run_research(args: argparse.Namespace) -> ResearchResult:
+def run_research(
+    args: argparse.Namespace,
+    *,
+    workflow: ui.WorkflowProgress | None = None,
+) -> ResearchResult:
     config = args if isinstance(args, ResearchConfig) else ResearchConfig.from_namespace(args)
-    return TrackerResearcher(config).run()
+    return TrackerResearcher(config).run(workflow=workflow)
 
 
 __all__ = [
     "DEFAULT_PROPOSAL_MODEL",
     "RESEARCH_METRICS",
+    "RESEARCH_BASELINE_STEP",
+    "RESEARCH_BEST_STEP",
+    "RESEARCH_OPTIMIZE_STEP",
+    "RESEARCH_PREPARE_STEP",
     "RegressionPenalties",
     "ResearchConfig",
     "ResearchResult",
+    "ResearchWorkflowReporter",
     "TrackerResearcher",
+    "log_research_pipeline_intro",
     "main",
     "run_research",
 ]

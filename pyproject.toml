@@ -93,15 +93,16 @@ dependencies = [
   "gdown<6.0.0,>=5.1.0",
   # Fast LAP/Hungarian solver for data association
   "lapx<1.0.0,>=0.5.5",
-  "loguru<1.0.0,>=0.7.2",
   "numpy",
-  "regex<2025.0.0,>=2024.0.0",
+  "regex>=2024.0.0",
   "scikit-learn<2.0.0,>=1.3.0",
   "pandas<3.0.0,>=2.0.0",
   "opencv-python<5.0.0,>=4.7.0",
   "torch>=2.2.1,<3.0.0",
   "torchvision>=0.17.1,<1.0.0",
   "click>=8.1.8",
+  # Rich console + logging UI used across the CLI workflows.
+  "rich>=13.0.0",
   # clip reid needs
   "ftfy<7.0.0,>=6.1.3",
   "yacs<1.0.0,>=0.1.8",
@@ -133,6 +134,9 @@ docs = [
 yolo = [
   "ultralytics>=3.8.200",
   "yolox==0.3.0",
+  # yolox 0.3.0 imports loguru in its dist utilities but does not declare it
+  # in the metadata uv reads, so pull it in explicitly here.
+  "loguru>=0.7.2,<1.0.0",
 ]
 
 evolve = [
@@ -179,4 +183,8 @@ tflite = [
   "onnxslim>=0.1.31 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
 
   "ai-edge-litert==2.1.2 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+]
+
+rtdetr = [
+  "transformers>=5.0.0 ; python_version >= '3.10'",
 ]
