@@ -24,7 +24,7 @@ from boxmot.utils import logger as LOGGER
 from boxmot.utils.misc import increment_path, resolve_model_path
 from boxmot.utils.torch_utils import select_device
 
-REID_TRACKERS = {"strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack"}
+REID_TRACKERS = {"strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack", "occluboost"}
 TRACKER_CLASS_TO_NAME = {
     class_path.rsplit(".", 1)[-1].lower(): tracker_name
     for tracker_name, class_path in TRACKER_MAPPING.items()

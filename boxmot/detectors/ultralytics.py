@@ -10,7 +10,7 @@ from ultralytics.utils.downloads import attempt_download_asset
 from boxmot.detectors.base import BaseDetectorBackend, Detections
 from boxmot.detectors.registry import get_detector_url, is_ultralytics_model
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.download import download_file
+from boxmot.utils.download import download_file, redirect_ultralytics_progress
 from boxmot.utils.misc import resolve_model_path
 
 
@@ -30,16 +30,18 @@ class UltralyticsDetector(BaseDetectorBackend):
     def __init__(self, model, device, imgsz=None):
         model_path = resolve_model_path(model)
         detector_url = get_detector_url(model_path)
-        if detector_url and not model_path.exists():
-            LOGGER.info("Downloading detector weights...")
-            download_file(url=detector_url, dest=model_path, overwrite=False)
-        elif is_ultralytics_model(model_path.name) and not model_path.exists():
-            LOGGER.info("Downloading detector weights...")
-            attempt_download_asset(model_path, release="latest")
 
-        self.device = device
-        self.imgsz = imgsz  # passed through to YOLO.predict
-        self._yolo = self._load_yolo(model_path)
+        with redirect_ultralytics_progress():
+            if detector_url and not model_path.exists():
+                LOGGER.info("Downloading detector weights...")
+                download_file(url=detector_url, dest=model_path, overwrite=False)
+            elif is_ultralytics_model(model_path.name) and not model_path.exists():
+                LOGGER.info("Downloading detector weights...")
+                attempt_download_asset(model_path, release="latest")
+
+            self.device = device
+            self.imgsz = imgsz  # passed through to YOLO.predict
+            self._yolo = self._load_yolo(model_path)
         self.names = self._yolo.names or {}
         self.pt = True
         self.stride = 32
@@ -65,8 +67,9 @@ class UltralyticsDetector(BaseDetectorBackend):
 
             LOGGER.warning(f"Detector weights appear corrupted, removing and re-downloading {model_path}")
             model_path.unlink(missing_ok=True)
-            attempt_download_asset(model_path, release="latest")
-            return YOLO(str(model_path))
+            with redirect_ultralytics_progress():
+                attempt_download_asset(model_path, release="latest")
+                return YOLO(str(model_path))
 
     def _ensure_predictor(self, conf=None, iou=None, classes=None, agnostic_nms=None) -> None:
         """Ensure ``self._yolo.predictor`` exists and is configured.

@@ -12,8 +12,9 @@ import shutil
 import subprocess
 import sys
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 from zipfile import BadZipFile, ZipFile
 
 import gdown
@@ -85,6 +86,83 @@ def get_http_session(retries: int = 3, backoff_factor: float = 0.3) -> requests.
 def _has_workflow_bar(status_fn: Any) -> bool:
     """Return True if ``status_fn`` exposes a ``.bar()`` context manager."""
     return status_fn is not None and callable(getattr(status_fn, "bar", None))
+
+
+@contextmanager
+def redirect_ultralytics_progress() -> Iterator[None]:
+    """Monkey-patch Ultralytics' ``TQDM`` so its downloads render inside the active workflow panel.
+
+    When a :func:`set_download_status_fn` callback with a ``.tqdm_proxy()``
+    method is registered, this context manager replaces the ``TQDM`` class
+    in ``ultralytics.utils.downloads`` with a Rich-backed shim for the
+    duration of the block.  It also wraps ``subprocess.run`` so that
+    curl-based retries (which Ultralytics falls back to on HTTP errors)
+    have their progress output silenced — preventing raw ``-#`` bars from
+    corrupting the Rich Live panel.  Outside a workflow (no status
+    callback), this is a no-op.
+    """
+    status_fn = get_download_status_fn()
+    if not (status_fn is not None and callable(getattr(status_fn, "tqdm_proxy", None))):
+        yield
+        return
+
+    import ultralytics.utils.downloads as _ul_downloads
+
+    original_tqdm = _ul_downloads.TQDM
+    original_subprocess_run = _ul_downloads.subprocess.run
+
+    def _silent_subprocess_run(cmd, *args, **kwargs):
+        """Suppress stderr for curl calls so ``-#`` progress bars stay hidden."""
+        if cmd and cmd[0] == "curl":
+            kwargs.setdefault("stderr", subprocess.DEVNULL)
+        return original_subprocess_run(cmd, *args, **kwargs)
+
+    with status_fn.tqdm_proxy("Downloading model", unit="B") as rich_tqdm_cls:
+        # Ultralytics passes the full download URL as ``desc``, which eats
+        # all available width and pushes the bar/percentage/ETA off-screen.
+        # Wrap the Rich tqdm class to extract just the filename.
+        _orig_cls = rich_tqdm_cls
+
+        class _CleanDescTqdm:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                desc = kwargs.get("desc", "")
+                if desc and ("/" in desc or len(desc) > 60):
+                    name = desc.rstrip("/").split("?")[0].rsplit("/", 1)[-1]
+                    kwargs["desc"] = f"Downloading {name}"
+                self._inner = _orig_cls(*args, **kwargs)
+
+            def update(self, n: int = 1) -> None:
+                self._inner.update(n)
+
+            def set_description(self, desc: str, refresh: bool = True) -> None:
+                self._inner.set_description(desc, refresh)
+
+            def set_postfix(self, *a: Any, **kw: Any) -> None:
+                self._inner.set_postfix(*a, **kw)
+
+            def set_postfix_str(self, *a: Any, **kw: Any) -> None:
+                self._inner.set_postfix_str(*a, **kw)
+
+            def refresh(self) -> None:
+                self._inner.refresh()
+
+            def close(self) -> None:
+                self._inner.close()
+
+            def __enter__(self) -> "_CleanDescTqdm":
+                self._inner.__enter__()
+                return self
+
+            def __exit__(self, *exc: Any) -> None:
+                self._inner.__exit__(*exc)
+
+        _ul_downloads.TQDM = _CleanDescTqdm
+        _ul_downloads.subprocess.run = _silent_subprocess_run
+        try:
+            yield
+        finally:
+            _ul_downloads.TQDM = original_tqdm
+            _ul_downloads.subprocess.run = original_subprocess_run
 
 
 def download_file(
