@@ -100,7 +100,9 @@ nav:
       - BoostTrack:   trackers/boosttrack.md
       - OccluBoost:    trackers/occluboost.md
   - CLI: usage/index.md
-  - Concepts: concepts/index.md
+  - Concepts:
+      - Detection Layouts: concepts/index.md
+      - Tracking Pipeline: concepts/tracking-pipeline.md
   - Guides:
       - Evaluation and Postprocessing: guides/evaluation.md
       - Troubleshooting and FAQ: guides/troubleshooting.md
