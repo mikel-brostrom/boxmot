@@ -742,20 +742,14 @@ def _execute_tune_search(
     optuna_search = OptunaSearch(**optuna_kwargs)
 
     n_threads = int(args.n_threads)
-    setup_status_message: str | None = None
 
-    class _TuneSetupStatus:
-        def set_detail(self, _label: str, message: str, *, render: bool = True) -> None:
-            del render
-            nonlocal setup_status_message
-            setup_status_message = str(message)
-
+    # Create workflow and callback, connect them immediately
+    workflow = log_tune_pipeline_intro(args, maximize=maximize, minimize=minimize)
     tune_callback = TuneWorkflowCallback(total=int(args.n_trials), maximize=maximize, minimize=minimize)
+    set_tune_progress_workflow(workflow)
 
     with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
-        eval_setup(args, workflow=_TuneSetupStatus())
-
-    workflow = log_tune_pipeline_intro(args, maximize=maximize, minimize=minimize)
+        eval_setup(args, workflow=workflow, setup_step=TUNE_SETUP_STEP)
 
     tune_dir = _resolve_tune_dir(args, resume=resume_tune)
     tune_name = tune_dir.name
@@ -764,7 +758,7 @@ def _execute_tune_search(
     workflow.activate(TUNE_GENERATE_STEP, render=False)
     workflow.set_detail(
         TUNE_GENERATE_STEP,
-        setup_status_message or "Preparing benchmark cache...",
+        "Preparing benchmark cache...",
         render=False,
     )
     workflow.start()
@@ -821,7 +815,6 @@ def _execute_tune_search(
         )
 
     try:
-        set_tune_progress_workflow(workflow)
         result_grid = tuner.fit()
         if result_grid is None and hasattr(tuner, "get_results"):
             result_grid = tuner.get_results()
