@@ -39,24 +39,13 @@ from boxmot.utils.benchmark_config import (
 )
 from boxmot.utils.misc import prompt_overwrite, resolve_model_path
 from boxmot.utils.timing import TimingStats
-from boxmot.utils.download import set_download_status_fn
-from boxmot.utils.rich.generate_reporting import (
-    GENERATE_RUN_STEP,
-    GENERATE_SETUP_STEP,
-    GenerateWorkflowReporter,
-    log_generate_pipeline_intro,
-)
-from boxmot.utils.rich.reporting import WorkflowDetailCallback
+from boxmot.utils.rich.generate_reporting import GenerateWorkflowReporter
 
 __all__ = (
     "generate_dets_embs_batched",
     "main",
     "run_generate",
     "run_generate_dets_embs",
-    "GENERATE_RUN_STEP",
-    "GENERATE_SETUP_STEP",
-    "GenerateWorkflowReporter",
-    "log_generate_pipeline_intro",
 )
 
 
@@ -946,27 +935,20 @@ def run_generate(
 
 
 def main(args: argparse.Namespace) -> TimingStats:
-    workflow = log_generate_pipeline_intro(args)
-    run_callback = WorkflowDetailCallback(workflow, GENERATE_RUN_STEP)
-    setup_callback = WorkflowDetailCallback(workflow, GENERATE_SETUP_STEP)
-    set_download_status_fn(setup_callback)
-    has_setup = GENERATE_SETUP_STEP in getattr(workflow, "steps", ())
-    toggled = {"done": not has_setup}
+    pipeline = GenerateWorkflowReporter(args).pipeline()
+    toggled = {"done": False}
 
     def progress_callback(msg: str) -> None:
         if not toggled["done"]:
-            workflow.transition(GENERATE_SETUP_STEP, GENERATE_RUN_STEP)
+            pipeline.advance("Generating detections & embeddings...")
             toggled["done"] = True
-        run_callback(msg)
+        pipeline.update(msg)
 
     verbose = bool(getattr(args, "verbose", False))
-    try:
-        from boxmot.engine.workflow_support import suppress_boxmot_logs
+    from boxmot.utils.misc import suppress_boxmot_logs
 
-        with workflow, suppress_boxmot_logs(not verbose, level="WARNING"):
-            timing_stats = run_generate(args, progress_callback=progress_callback)
-    finally:
-        set_download_status_fn(None)
+    with pipeline, suppress_boxmot_logs(not verbose, level="WARNING"):
+        timing_stats = run_generate(args, progress_callback=progress_callback)
 
     if timing_stats.frames > 0:
         try:
@@ -974,6 +956,6 @@ def main(args: argparse.Namespace) -> TimingStats:
         except AttributeError:
             summary_text = None
         if summary_text:
-            workflow.set_detail(GENERATE_RUN_STEP, summary_text, render=False)
-    workflow.complete(GENERATE_RUN_STEP, render=False)
+            pipeline.update(summary_text)
+    pipeline.complete_step()
     return timing_stats

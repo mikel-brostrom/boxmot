@@ -11,12 +11,13 @@ import boxmot.utils.rich.ui as ui
 from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.trackers.tracker_zoo import get_tracker_config
 from boxmot.utils.rich.reporting import RichWorkflowReporter, format_param_label
-
-
-EVAL_SETUP_STEP = "Set up"
-EVAL_GENERATE_STEP = "Generate detections and embeddings"
-EVAL_TRACK_STEP = "Run tracker"
-EVAL_EVALUATE_STEP = "Evaluate results"
+from boxmot.utils.rich.steps import (
+    EVAL_STEPS,
+    EVALUATE as EVAL_EVALUATE_STEP,
+    GENERATE as EVAL_GENERATE_STEP,
+    SETUP as EVAL_SETUP_STEP,
+    TRACK as EVAL_TRACK_STEP,
+)
 
 
 def _effective_eval_tracker_backend(args: argparse.Namespace) -> str | None:
@@ -172,12 +173,11 @@ def _refresh_eval_pipeline_intro(
 class EvalWorkflowReporter(RichWorkflowReporter):
     title = "Evaluation"
     prefer_compact_layout = True
-    steps = (
-        (EVAL_SETUP_STEP, "active"),
-        (EVAL_GENERATE_STEP, "todo"),
-        (EVAL_TRACK_STEP, "todo"),
-        (EVAL_EVALUATE_STEP, "todo"),
-    )
+    SETUP = 0
+    GENERATE = 1
+    TRACK = 2
+    EVALUATE = 3
+    steps = EVAL_STEPS
 
     def fields(self) -> list[tuple[str, object]]:
         return _build_eval_workflow_fields(self.args)

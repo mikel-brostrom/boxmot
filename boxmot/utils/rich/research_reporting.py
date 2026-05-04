@@ -6,12 +6,13 @@ import argparse
 
 import boxmot.utils.rich.ui as ui
 from boxmot.utils.rich.reporting import RichWorkflowReporter
-
-
-RESEARCH_PREPARE_STEP = "Prepare workspace"
-RESEARCH_BASELINE_STEP = "Baseline evaluation"
-RESEARCH_OPTIMIZE_STEP = "GEPA optimization"
-RESEARCH_BEST_STEP = "Best candidate evaluation"
+from boxmot.utils.rich.steps import (
+    BASELINE as RESEARCH_BASELINE_STEP,
+    BEST_CANDIDATE as RESEARCH_BEST_STEP,
+    PREPARE as RESEARCH_PREPARE_STEP,
+    RESEARCH_OPTIMIZE as RESEARCH_OPTIMIZE_STEP,
+    RESEARCH_STEPS,
+)
 
 
 def _build_research_workflow_fields(args: argparse.Namespace) -> list[tuple[str, object]]:
@@ -42,12 +43,11 @@ def _build_research_workflow_fields(args: argparse.Namespace) -> list[tuple[str,
 class ResearchWorkflowReporter(RichWorkflowReporter):
     title = "Tracker Research"
     prefer_compact_layout = True
-    steps = (
-        (RESEARCH_PREPARE_STEP, "active"),
-        (RESEARCH_BASELINE_STEP, "todo"),
-        (RESEARCH_OPTIMIZE_STEP, "todo"),
-        (RESEARCH_BEST_STEP, "todo"),
-    )
+    PREPARE = 0
+    BASELINE = 1
+    OPTIMIZE = 2
+    BEST = 3
+    steps = RESEARCH_STEPS
 
     def fields(self) -> list[tuple[str, object]]:
         return _build_research_workflow_fields(self.args)

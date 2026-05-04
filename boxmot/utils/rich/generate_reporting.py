@@ -6,10 +6,11 @@ import argparse
 
 import boxmot.utils.rich.ui as ui
 from boxmot.utils.rich.reporting import RichWorkflowReporter
-
-
-GENERATE_SETUP_STEP = "Set up models"
-GENERATE_RUN_STEP = "Generate detections and embeddings"
+from boxmot.utils.rich.steps import (
+    GENERATE as GENERATE_RUN_STEP,
+    GENERATE_STEPS,
+    SETUP as GENERATE_SETUP_STEP,
+)
 
 
 def _build_generate_workflow_fields(args: argparse.Namespace) -> list[tuple[str, object]]:
@@ -43,10 +44,9 @@ def _build_generate_workflow_fields(args: argparse.Namespace) -> list[tuple[str,
 class GenerateWorkflowReporter(RichWorkflowReporter):
     title = "Generate"
     prefer_compact_layout = True
-    steps = (
-        (GENERATE_SETUP_STEP, "active"),
-        (GENERATE_RUN_STEP, "todo"),
-    )
+    SETUP = 0
+    RUN = 1
+    steps = GENERATE_STEPS
 
     def fields(self) -> list[tuple[str, object]]:
         return _build_generate_workflow_fields(self.args)

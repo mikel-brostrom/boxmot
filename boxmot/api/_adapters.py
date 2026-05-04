@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 from boxmot.configs import BOXMOT_DEFAULTS, build_mode_namespace
-from boxmot.engine import workflow_support as support
 
 
 class _DefaultArg:
@@ -352,5 +351,4 @@ __all__ = (
     "build_research_args",
     "build_track_args",
     "build_tune_args",
-    "support",
 )

@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import logging
-import math
 import re
-import sys
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 from urllib.parse import urlparse
 
 import cv2
@@ -79,37 +75,8 @@ def resolve_track_output_dir(project: Path, source: Any) -> Path:
     return increment_path(base, mkdir=True)
 
 
-def compare_scores(left: tuple[float, ...], right: tuple[float, ...]) -> bool:
-    return left > right
-
-
-def score_summary(
-    summary: dict[str, Any],
-    *,
-    maximize: Sequence[str],
-    minimize: Sequence[str],
-) -> tuple[float, ...]:
-    score: list[float] = []
-    for metric in maximize:
-        score.append(float(summary.get(metric, float("-inf"))))
-    for metric in minimize:
-        score.append(-float(summary.get(metric, float("inf"))))
-    return tuple(score)
-
-
-@contextmanager
-def suppress_boxmot_logs(enabled: bool, *, level: str = "WARNING"):
-    if not enabled:
-        yield
-        return
-
-    boxmot_logger = logging.getLogger("boxmot")
-    previous_level = boxmot_logger.level
-    try:
-        boxmot_logger.setLevel(getattr(logging, str(level).upper(), logging.WARNING))
-        yield
-    finally:
-        boxmot_logger.setLevel(previous_level)
+# Backward-compat re-exports for symbols moved to their natural homes.
+from boxmot.utils.misc import suppress_boxmot_logs  # noqa: F401
 
 
 def TrackerReIDAdapter(backend: Any):
@@ -221,34 +188,6 @@ def default_tracker_config(tracker_spec: Any) -> dict[str, Any]:
         for key, details in search_space.items()
     }
 
-
-def sample_param(spec: dict[str, Any], rng) -> Any:
-    param_type = str(spec.get("type", "choice")).lower()
-
-    if param_type == "uniform":
-        low, high = spec["range"]
-        return float(rng.uniform(float(low), float(high)))
-
-    if param_type == "loguniform":
-        low, high = spec["range"]
-        return float(math.exp(rng.uniform(math.log(float(low)), math.log(float(high)))))
-
-    if param_type == "randint":
-        low, high = spec["range"]
-        return int(rng.randint(int(low), int(high)))
-
-    if param_type == "qrandint":
-        low, high, step = spec["range"]
-        choices = list(range(int(low), int(high), int(step)))
-        return int(rng.choice(choices))
-
-    if param_type in {"choice", "grid_search"}:
-        options = spec.get("options") or spec.get("values") or []
-        if not options:
-            return spec.get("default")
-        return rng.choice(list(options))
-
-    return spec.get("default")
 
 
 def build_detector_from_spec(
@@ -425,7 +364,6 @@ __all__ = (
     "build_reid_from_spec",
     "build_tracker_from_spec",
     "build_tracker_with_reid_spec",
-    "compare_scores",
     "default_tracker_config",
     "detector_path_from_spec",
     "ensure_model_path",
@@ -435,9 +373,7 @@ __all__ = (
     "resolve_output_fps",
     "resolve_output_stem",
     "resolve_track_output_dir",
-    "sample_param",
     "save_video",
-    "score_summary",
     "suppress_boxmot_logs",
     "tracker_backend_from_spec",
     "tracker_config_from_spec",

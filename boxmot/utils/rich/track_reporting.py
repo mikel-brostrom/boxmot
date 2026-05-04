@@ -9,10 +9,11 @@ import yaml
 import boxmot.utils.rich.ui as ui
 from boxmot.trackers.tracker_zoo import get_tracker_config
 from boxmot.utils.rich.reporting import RichWorkflowReporter, format_param_label, primary_model_ref
-
-
-TRACK_SETUP_STEP = "Set up models"
-TRACK_RUN_STEP = "Run tracker"
+from boxmot.utils.rich.steps import (
+    SETUP as TRACK_SETUP_STEP,
+    TRACK as TRACK_RUN_STEP,
+    TRACK_STEPS,
+)
 
 
 def _tracker_name_from_spec_safe(spec):
@@ -111,10 +112,9 @@ def _build_track_workflow_fields(args) -> list[tuple[str, object]]:
 
 class TrackWorkflowReporter(RichWorkflowReporter):
     title = "Tracking"
-    steps = (
-        (TRACK_SETUP_STEP, "active"),
-        (TRACK_RUN_STEP, "todo"),
-    )
+    SETUP = 0
+    RUN = 1
+    steps = TRACK_STEPS
 
     def fields(self) -> list[tuple[str, object]]:
         return _build_track_workflow_fields(self.args)

@@ -28,7 +28,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None, setup_step=None: (
+        lambda args, pipeline=None: (
             setattr(args, "project", (tmp_path / "runs").resolve()),
             setattr(args, "detector", [tmp_path / "yolox_x_mot17_ablation.pt"]),
             setattr(args, "reid", [tmp_path / "lmbn_n_duke.pt"]),
@@ -47,9 +47,50 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
             set_detail_renderable=lambda *a, **k: None,
             transition=lambda *a, **k: None,
             stop=lambda: workflow_state.update(stopped=True),
+            steps=[],
+            fields=[],
         )
 
-    monkeypatch.setattr(tuner_module, "log_tune_pipeline_intro", _fake_tune_intro)
+    def _fake_create_pipeline(reporter, **kwargs):
+        workflow = _fake_tune_intro(reporter.args)
+
+        class _FakePipeline:
+            def __init__(self):
+                self.workflow = workflow
+
+            def advance(self, *a, **k):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                workflow_state.update(stopped=True)
+
+            def finish(self, *a, **k):
+                pass
+
+            def callback(self, *a, **k):
+                return lambda msg: None
+
+            def complete_step(self, *a, **k):
+                pass
+
+            def update(self, *a, **k):
+                pass
+
+            def step(self, *a, **k):
+                return "fake"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        return _FakePipeline()
+
+    monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline)
 
     class _FakeOptunaSearch:
         def __init__(self, metric, mode):
@@ -167,12 +208,10 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None, setup_step=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+        lambda args, pipeline=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
-    monkeypatch.setattr(
-        tuner_module,
-        "log_tune_pipeline_intro",
-        lambda *args, **kwargs: SimpleNamespace(
+    def _fake_create_pipeline(reporter, **kwargs):
+        wf = SimpleNamespace(
             _started=True,
             _lock=threading.RLock(),
             start=lambda: None,
@@ -183,8 +222,21 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
             set_detail_renderable=lambda *a, **k: None,
             transition=lambda *a, **k: None,
             stop=lambda: None,
-        ),
-    )
+        )
+        class _FP:
+            workflow = wf
+            def advance(self, *a, **k): pass
+            def start(self): pass
+            def stop(self): pass
+            def finish(self, *a, **k): pass
+            def callback(self, *a, **k): return lambda msg: None
+            def complete_step(self, *a, **k): pass
+            def update(self, *a, **k): pass
+            def step(self, *a, **k): return "fake"
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+        return _FP()
+    monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline)
 
     class _FakeOptunaSearch:
         def __init__(self, metric, mode):
@@ -322,12 +374,10 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None, setup_step=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+        lambda args, pipeline=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
-    monkeypatch.setattr(
-        tuner_module,
-        "log_tune_pipeline_intro",
-        lambda *args, **kwargs: SimpleNamespace(
+    def _fake_create_pipeline(reporter, **kwargs):
+        wf = SimpleNamespace(
             _started=True,
             start=lambda: None,
             complete=lambda *a, **k: None,
@@ -337,8 +387,21 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
             set_detail_renderable=lambda *a, **k: None,
             transition=lambda *a, **k: None,
             stop=lambda: None,
-        ),
-    )
+        )
+        class _FP:
+            workflow = wf
+            def advance(self, *a, **k): pass
+            def start(self): pass
+            def stop(self): pass
+            def finish(self, *a, **k): pass
+            def callback(self, *a, **k): return lambda msg: None
+            def complete_step(self, *a, **k): pass
+            def update(self, *a, **k): pass
+            def step(self, *a, **k): return "fake"
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+        return _FP()
+    monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline)
 
     class _FakeOptunaSearch:
         def __init__(self, metric, mode):
@@ -430,12 +493,10 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None, setup_step=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+        lambda args, pipeline=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
-    monkeypatch.setattr(
-        tuner_module,
-        "log_tune_pipeline_intro",
-        lambda *args, **kwargs: SimpleNamespace(
+    def _fake_create_pipeline(reporter, **kwargs):
+        wf = SimpleNamespace(
             start=lambda: None,
             complete=lambda *a, **k: None,
             activate=lambda *a, **k: None,
@@ -443,8 +504,21 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
             set_detail_renderable=lambda *a, **k: None,
             transition=lambda *a, **k: None,
             stop=lambda: None,
-        ),
-    )
+        )
+        class _FP:
+            workflow = wf
+            def advance(self, *a, **k): pass
+            def start(self): pass
+            def stop(self): pass
+            def finish(self, *a, **k): pass
+            def callback(self, *a, **k): return lambda msg: None
+            def complete_step(self, *a, **k): pass
+            def update(self, *a, **k): pass
+            def step(self, *a, **k): return "fake"
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+        return _FP()
+    monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline)
 
     class _FakeOptunaSearch:
         def __init__(self, **kwargs):
@@ -587,17 +661,15 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None, setup_step=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+        lambda args, pipeline=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
 
     def _set_detail_renderable(title, renderable, **kwargs):
         captured["detail_title"] = title
         captured["detail_rendered"] = ui_module.capture_renderable(renderable, width=150)
 
-    monkeypatch.setattr(
-        tuner_module,
-        "log_tune_pipeline_intro",
-        lambda *args, **kwargs: SimpleNamespace(
+    def _fake_create_pipeline_2(reporter, **kwargs):
+        fake_workflow = SimpleNamespace(
             start=lambda: None,
             complete=lambda *a, **k: None,
             activate=lambda *a, **k: None,
@@ -605,8 +677,49 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
             set_detail_renderable=_set_detail_renderable,
             transition=lambda *a, **k: None,
             stop=lambda: None,
-        ),
-    )
+            steps=[],
+            fields=[],
+        )
+
+        class _FakePipeline2:
+            def __init__(self):
+                self.workflow = fake_workflow
+
+            def advance(self, *a, **k):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def finish(self, renderable=None, **k):
+                if renderable is not None:
+                    title = k.get("title", "Results")
+                    _set_detail_renderable(title, renderable)
+
+            def callback(self, *a, **k):
+                return lambda msg: None
+
+            def complete_step(self, *a, **k):
+                pass
+
+            def update(self, *a, **k):
+                pass
+
+            def step(self, *a, **k):
+                return "fake"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        return _FakePipeline2()
+
+    monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline_2)
 
     class _FakeOptunaSearch:
         def __init__(self, **kwargs):

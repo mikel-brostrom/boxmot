@@ -24,22 +24,19 @@ os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"   # keep CWD constant for all trials
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import yaml
 
 from boxmot.engine.evaluator import eval_setup, run_eval, run_generate_dets_embs
 from boxmot.utils.rich.tune_reporting import (
-    TUNE_GENERATE_STEP,
-    TUNE_OPTIMIZE_STEP,
-    TUNE_SETUP_STEP,
     TuneSilentReporter,
     TuneWorkflowCallback,
+    TuneWorkflowReporter,
     build_tune_artifacts_renderable,
     combine_tune_result_renderables,
     format_initial_tune_progress,
-    log_tune_pipeline_intro,
     set_tune_progress_workflow,
 )
 from boxmot.engine.workflow_reporting import (
@@ -47,10 +44,9 @@ from boxmot.engine.workflow_reporting import (
     SUMMARY_COLUMNS,
 )
 from boxmot.engine.workflow_results import TuneResult, TuneTrialResult, ValidationResult
-from boxmot.engine.workflow_support import score_summary, suppress_boxmot_logs
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.misc import increment_path
+from boxmot.utils.misc import increment_path, suppress_boxmot_logs
 
 # Metrics that must be summed across classes (not averaged), because they are counts
 METRIC_SUM = frozenset({"IDSW", "IDs"})
@@ -60,6 +56,21 @@ MINIMIZE_TUNE_METRICS = ("IDSW", "IDs", "IDSW_rate")
 # All metrics returned from each trial (SUMMARY_COLUMNS + derived)
 ALL_TUNE_METRICS = (*SUMMARY_COLUMNS, "IDSW_rate")
 _TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"
+
+
+def score_summary(
+    summary: dict[str, Any],
+    *,
+    maximize: Sequence[str],
+    minimize: Sequence[str],
+) -> tuple[float, ...]:
+    """Score a metric summary for Pareto comparison."""
+    score: list[float] = []
+    for metric in maximize:
+        score.append(float(summary.get(metric, float("-inf"))))
+    for metric in minimize:
+        score.append(-float(summary.get(metric, float("inf"))))
+    return tuple(score)
 
 
 # ---------------------------------------------------------------------------
@@ -743,70 +754,71 @@ def _execute_tune_search(
 
     n_threads = int(args.n_threads)
 
-    # Create workflow and callback, connect them immediately
-    workflow = log_tune_pipeline_intro(args, maximize=maximize, minimize=minimize)
-    tune_callback = TuneWorkflowCallback(total=int(args.n_trials), maximize=maximize, minimize=minimize)
-    set_tune_progress_workflow(workflow)
-
-    with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
-        eval_setup(args, workflow=workflow, setup_step=TUNE_SETUP_STEP)
-
-    tune_dir = _resolve_tune_dir(args, resume=resume_tune)
-    tune_name = tune_dir.name
-
-    workflow.transition(TUNE_SETUP_STEP, TUNE_GENERATE_STEP, "Preparing benchmark cache...")
-    workflow.start()
-
-    results_dir = tune_dir.parent
-    restore_path = tune_dir
-    restore_path_str = str(restore_path)
-    results_dir_str = str(results_dir)
-
-    with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
-        run_generate_dets_embs(args)
-    workflow.transition(
-        TUNE_GENERATE_STEP,
-        TUNE_OPTIMIZE_STEP,
-        format_initial_tune_progress(int(args.n_trials)),
+    # Create pipeline and callback, connect them immediately
+    pipeline = TuneWorkflowReporter(args, maximize=maximize, minimize=minimize).pipeline(
+        auto_start=False,
     )
-
-    tracker_objective = TrackerObjective(_ray_safe_namespace(args))
-
-    def tune_wrapper(cfg):
-        return tracker_objective.objective_function(cfg)
-
-    trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
-
-    if resume_tune and tune.Tuner.can_restore(restore_path_str):
-        tuner = tune.Tuner.restore(
-            restore_path_str,
-            trainable=trainable,
-            resume_errored=True,
-        )
-    else:
-        run_config_kwargs = {
-            "storage_path": results_dir_str,
-            "name": tune_name,
-        }
-        run_config_signature = inspect.signature(RunConfig)
-        if "callbacks" in run_config_signature.parameters:
-            run_config_kwargs["callbacks"] = [tune_callback]
-        if "verbose" in run_config_signature.parameters:
-            run_config_kwargs["verbose"] = 0
-        if "progress_reporter" in run_config_signature.parameters:
-            run_config_kwargs["progress_reporter"] = TuneSilentReporter()
-        tuner = tune.Tuner(
-            trainable,
-            param_space=search_space,
-            tune_config=tune.TuneConfig(
-                num_samples=args.n_trials,
-                search_alg=optuna_search,
-                trial_dirname_creator=lambda trial: f"trial_{trial.trial_id}",
-            ),
-            run_config=RunConfig(**run_config_kwargs),
-        )
+    tune_callback = TuneWorkflowCallback(total=int(args.n_trials), maximize=maximize, minimize=minimize)
+    set_tune_progress_workflow(pipeline.workflow)
 
     try:
+      with pipeline:
+        with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
+            eval_setup(args, pipeline=pipeline)
+
+        tune_dir = _resolve_tune_dir(args, resume=resume_tune)
+        tune_name = tune_dir.name
+
+        pipeline.advance("Preparing benchmark cache...")
+        pipeline.start()
+
+        results_dir = tune_dir.parent
+        restore_path = tune_dir
+        restore_path_str = str(restore_path)
+        results_dir_str = str(results_dir)
+
+        with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
+            run_generate_dets_embs(args)
+        pipeline.advance(
+            format_initial_tune_progress(int(args.n_trials)),
+        )
+
+        tracker_objective = TrackerObjective(_ray_safe_namespace(args))
+
+        def tune_wrapper(cfg):
+            return tracker_objective.objective_function(cfg)
+
+        trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
+
+        if resume_tune and tune.Tuner.can_restore(restore_path_str):
+            tuner = tune.Tuner.restore(
+                restore_path_str,
+                trainable=trainable,
+                resume_errored=True,
+            )
+        else:
+            run_config_kwargs = {
+                "storage_path": results_dir_str,
+                "name": tune_name,
+            }
+            run_config_signature = inspect.signature(RunConfig)
+            if "callbacks" in run_config_signature.parameters:
+                run_config_kwargs["callbacks"] = [tune_callback]
+            if "verbose" in run_config_signature.parameters:
+                run_config_kwargs["verbose"] = 0
+            if "progress_reporter" in run_config_signature.parameters:
+                run_config_kwargs["progress_reporter"] = TuneSilentReporter()
+            tuner = tune.Tuner(
+                trainable,
+                param_space=search_space,
+                tune_config=tune.TuneConfig(
+                    num_samples=args.n_trials,
+                    search_alg=optuna_search,
+                    trial_dirname_creator=lambda trial: f"trial_{trial.trial_id}",
+                ),
+                run_config=RunConfig(**run_config_kwargs),
+            )
+
         result_grid = tuner.fit()
         if result_grid is None and hasattr(tuner, "get_results"):
             result_grid = tuner.get_results()
@@ -822,7 +834,8 @@ def _execute_tune_search(
             emit_logs=False,
         )
 
-        workflow.complete(TUNE_OPTIMIZE_STEP, render=False)
+        # Build the final results renderable
+        final_renderable = None
         artifacts_renderable = build_tune_artifacts_renderable(saved_artifacts) if saved_artifacts else None
         baseline_raw = None
         compare_to_first_trial = bool(getattr(args, "compare_to_first_trial", False))
@@ -837,24 +850,21 @@ def _execute_tune_search(
                     compare_raw=baseline_raw,
                     compare_args=args if baseline_raw else None,
                 )
-                workflow.set_detail_renderable(
-                    "Results",
-                    combine_tune_result_renderables(best_renderable, artifacts_renderable),
-                    render=False,
-                )
-            elif artifacts_renderable is not None:
-                workflow.set_detail_renderable("Results", artifacts_renderable, render=False)
+                final_renderable = combine_tune_result_renderables(best_renderable, artifacts_renderable)
+            else:
+                final_renderable = artifacts_renderable
         elif artifacts_renderable is not None:
-            workflow.set_detail_renderable("Results", artifacts_renderable, render=False)
+            final_renderable = artifacts_renderable
+
+        if final_renderable is not None:
+            pipeline.finish(final_renderable, title="Results")
         else:
-            workflow.set_detail(TUNE_OPTIMIZE_STEP, "No successful trials were produced.", render=False)
+            pipeline.complete_step()
+            pipeline.update("No successful trials were produced.")
         return result_grid, tune_dir, maximize, minimize
-    except BaseException as exc:
-        workflow.fail(error=exc)
-        raise
     finally:
         set_tune_progress_workflow(None)
-        workflow.stop()
+
 
 
 def run_tune(

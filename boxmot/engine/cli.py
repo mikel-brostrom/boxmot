@@ -302,10 +302,11 @@ def _run_engine_workflow(module_name: str, args) -> None:
 
     Engine ``main`` functions render their own Rich workflow panels and capture
     failures into the panel's traceback view via ``WorkflowProgress.fail()``.
-    To avoid click re-printing the same traceback after the panel, we convert
-    any propagated exception into a clean ``click.exceptions.Exit(1)``.
-    ``KeyboardInterrupt`` and ``SystemExit`` are passed through unchanged so
-    the standard interpreter behaviour applies.
+    When the panel has rendered the error (indicated by __exit__ setting
+    ``_workflow_rendered_error`` on the exception), we convert the exception
+    into a clean ``click.exceptions.Exit(1)`` to avoid a duplicate traceback.
+    Otherwise the exception propagates normally so the user sees what went
+    wrong.
     """
     module = importlib.import_module(module_name)
     main_fn = getattr(module, "main", None)
@@ -315,8 +316,10 @@ def _run_engine_workflow(module_name: str, args) -> None:
         main_fn(args)
     except (KeyboardInterrupt, SystemExit, click.exceptions.Exit, click.ClickException):
         raise
-    except BaseException:
-        raise click.exceptions.Exit(code=1)
+    except BaseException as exc:
+        if getattr(exc, "_workflow_rendered_error", False):
+            raise click.exceptions.Exit(code=1)
+        raise
 
 
 def singular_model_options(func):

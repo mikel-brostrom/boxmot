@@ -6,10 +6,11 @@ from typing import Any
 
 import boxmot.utils.rich.ui as ui
 from boxmot.utils.rich.reporting import RichWorkflowReporter
-
-
-EXPORT_SETUP_STEP = "Set up model"
-EXPORT_RUN_STEP = "Export to formats"
+from boxmot.utils.rich.steps import (
+    EXPORT as EXPORT_RUN_STEP,
+    EXPORT_STEPS,
+    SETUP as EXPORT_SETUP_STEP,
+)
 
 
 def _build_export_workflow_fields(args: Any) -> list[tuple[str, object]]:
@@ -30,10 +31,9 @@ def _build_export_workflow_fields(args: Any) -> list[tuple[str, object]]:
 
 class ExportWorkflowReporter(RichWorkflowReporter):
     title = "ReID Export"
-    steps = (
-        (EXPORT_SETUP_STEP, "active"),
-        (EXPORT_RUN_STEP, "todo"),
-    )
+    SETUP = 0
+    RUN = 1
+    steps = EXPORT_STEPS
 
     def fields(self) -> list[tuple[str, object]]:
         return _build_export_workflow_fields(self.args)

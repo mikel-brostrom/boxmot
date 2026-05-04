@@ -12,22 +12,12 @@ from boxmot.reid.core import ReID, export_formats
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.utils import WEIGHTS, logger as LOGGER
-from boxmot.utils.download import set_download_status_fn
-from boxmot.utils.rich.export_reporting import (
-    EXPORT_RUN_STEP,
-    EXPORT_SETUP_STEP,
-    ExportWorkflowReporter,
-    log_export_pipeline_intro,
-)
-from boxmot.utils.rich.reporting import WorkflowDetailCallback
+from boxmot.utils.rich.export_reporting import ExportWorkflowReporter
 from boxmot.utils.torch_utils import select_device
 
 
 __all__ = [
-    "EXPORT_SETUP_STEP",
-    "EXPORT_RUN_STEP",
     "ExportWorkflowReporter",
-    "log_export_pipeline_intro",
     "main",
     "run_export",
 ]
@@ -365,83 +355,73 @@ def _verify_export_parity(
 
 
 def main(args):
-    workflow = log_export_pipeline_intro(args)
+    Export = ExportWorkflowReporter
+    pipeline = Export(args).pipeline()
     start_time = time.time()
-    setup_status_fn = WorkflowDetailCallback(workflow, EXPORT_SETUP_STEP)
-    set_download_status_fn(setup_status_fn)
-    try:
-        workflow.set_detail(EXPORT_SETUP_STEP, "Loading ReID model...")
-        model, dummy_input = _prepare_export(args)
+    with pipeline:
+            pipeline.update("Loading ReID model...")
+            model, dummy_input = _prepare_export(args)
 
-        output = model(dummy_input)
-        output_tensor = output[0] if isinstance(output, tuple) else output
-        output_shape = tuple(output_tensor.shape)
-        workflow.set_detail(
-            EXPORT_SETUP_STEP,
-            (
-                f"Input shape:  {tuple(dummy_input.shape)}\n"
-                f"Output shape: {output_shape} "
-                f"({BaseExporter.file_size(args.weights):.1f} MB)"
-            ),
-        )
-        workflow.complete(EXPORT_SETUP_STEP, render=False)
-        workflow.activate(EXPORT_RUN_STEP)
+            output = model(dummy_input)
+            output_tensor = output[0] if isinstance(output, tuple) else output
+            output_shape = tuple(output_tensor.shape)
+            pipeline.update(
+                (
+                    f"Input shape:  {tuple(dummy_input.shape)}\n"
+                    f"Output shape: {output_shape} "
+                    f"({BaseExporter.file_size(args.weights):.1f} MB)"
+                ),
+            )
+            pipeline.advance("Exporting model...")
 
-        formats = list(getattr(args, "include", []) or [])
-        workflow.set_detail(
-            EXPORT_RUN_STEP,
-            f"Exporting to {len(formats)} format(s): {', '.join(formats) if formats else 'none'}",
-        )
-        exported_files = _execute_export(args, model, dummy_input)
-        parity_report: dict[str, dict[str, Any]] = {}
-        if exported_files:
-            with _suppress_export_noise(not args.verbose):
-                parity_report = _verify_export_parity(
-                    args, model, dummy_input, exported_files
-                )
-        result = ExportResult(
-            weights=args.weights, files=exported_files, parity=parity_report
-        )
-
-        elapsed_time = time.time() - start_time
-        if result.files:
-            lines = [
-                f"Time: {elapsed_time:.1f}s",
-                f"Saved to: {args.weights.parent.resolve()}",
-                "",
-                "Files:",
-            ]
-            for fmt, fpath in result.files.items():
-                stats = parity_report.get(fmt)
-                fname = Path(fpath).name
-                if stats is None:
-                    suffix = " — parity: skipped"
-                elif "error" in stats:
-                    suffix = f" — parity: error ({stats['error']})"
-                else:
-                    parity_str = "OK" if stats.get("parity_ok") else "MISMATCH"
-                    embed_str = "OK" if stats.get("embedding_ok") else "MISMATCH"
-                    suffix = (
-                        f" — parity {parity_str} (maxΔ={stats['max_abs']:.1e}), "
-                        f"embedding {embed_str} (cos={stats['cosine']:.4f})"
+            formats = list(getattr(args, "include", []) or [])
+            pipeline.update(
+                f"Exporting to {len(formats)} format(s): {', '.join(formats) if formats else 'none'}",
+            )
+            exported_files = _execute_export(args, model, dummy_input)
+            parity_report: dict[str, dict[str, Any]] = {}
+            if exported_files:
+                with _suppress_export_noise(not args.verbose):
+                    parity_report = _verify_export_parity(
+                        args, model, dummy_input, exported_files
                     )
-                lines.append(f"  • {fmt}: {fname}{suffix}")
-            lines.append("")
-            verdict = "acceptable" if result.parity_ok else "out of tolerance"
-            lines.append(f"Overall parity: {verdict}")
-            lines.append("")
-            lines.append("Visualize: https://netron.app")
-            workflow.set_detail(EXPORT_RUN_STEP, "\n".join(lines))
-        else:
-            workflow.set_detail(EXPORT_RUN_STEP, f"Export complete in {elapsed_time:.1f}s")
-        workflow.complete(EXPORT_RUN_STEP, render=False)
-        return result
-    except BaseException as exc:
-        workflow.fail(error=exc)
-        raise
-    finally:
-        set_download_status_fn(None)
-        workflow.stop()
+            result = ExportResult(
+                weights=args.weights, files=exported_files, parity=parity_report
+            )
+
+            elapsed_time = time.time() - start_time
+            if result.files:
+                lines = [
+                    f"Time: {elapsed_time:.1f}s",
+                    f"Saved to: {args.weights.parent.resolve()}",
+                    "",
+                    "Files:",
+                ]
+                for fmt, fpath in result.files.items():
+                    stats = parity_report.get(fmt)
+                    fname = Path(fpath).name
+                    if stats is None:
+                        suffix = " — parity: skipped"
+                    elif "error" in stats:
+                        suffix = f" — parity: error ({stats['error']})"
+                    else:
+                        parity_str = "OK" if stats.get("parity_ok") else "MISMATCH"
+                        embed_str = "OK" if stats.get("embedding_ok") else "MISMATCH"
+                        suffix = (
+                            f" — parity {parity_str} (maxΔ={stats['max_abs']:.1e}), "
+                            f"embedding {embed_str} (cos={stats['cosine']:.4f})"
+                        )
+                    lines.append(f"  • {fmt}: {fname}{suffix}")
+                lines.append("")
+                verdict = "acceptable" if result.parity_ok else "out of tolerance"
+                lines.append(f"Overall parity: {verdict}")
+                lines.append("")
+                lines.append("Visualize: https://netron.app")
+                pipeline.update("\n".join(lines))
+            else:
+                pipeline.update(f"Export complete in {elapsed_time:.1f}s")
+            pipeline.finish()
+            return result
 
 
 if __name__ == "__main__":

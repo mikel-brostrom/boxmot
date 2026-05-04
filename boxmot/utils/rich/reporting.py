@@ -137,6 +137,12 @@ class RichWorkflowReporter:
             workflow.start()
         return workflow
 
+    def pipeline(self, **kwargs):
+        """Create a :class:`PipelineTracker` for this reporter."""
+        from boxmot.utils.rich.pipeline import PipelineTracker
+
+        return PipelineTracker(self.create(), **kwargs)
+
 
 class WorkflowDetailCallback:
     """Callable adapter that routes progress text into one workflow step."""

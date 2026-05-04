@@ -38,11 +38,16 @@ STYLE_RULE = "boxmot.rule"
 STEP_DONE_MARKER = "[✓]"
 
 _STEP_LABELS = {
-    "Setup evaluation environment": "Setup",
+    "Set up": "Setup",
     "Generate detections and embeddings": "Generate",
     "Run tracker": "Track",
     "Evaluate results": "Evaluate",
+    "Export to formats": "Export",
     "Optimize trials": "Optimize",
+    "Prepare workspace": "Prepare",
+    "Baseline evaluation": "Baseline",
+    "GEPA optimization": "Optimize",
+    "Best candidate evaluation": "Best",
 }
 
 _SETUP_WORD_ABBREVIATIONS = {
@@ -882,7 +887,53 @@ def create_workflow_progress(
     )
 
 
+class NullWorkflowProgress:
+    """No-op stand-in for :class:`WorkflowProgress`.
+
+    Use ``workflow or NullWorkflowProgress()`` so callers can unconditionally
+    call ``complete`` / ``activate`` / ``transition`` / ``set_detail`` etc.
+    without guarding every call with ``if workflow is not None``.
+    """
+
+    def start(self) -> NullWorkflowProgress:
+        return self
+
+    def stop(self) -> None:
+        pass
+
+    def __enter__(self) -> NullWorkflowProgress:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        pass
+
+    def activate(self, label: str, *, render: bool = True) -> None:
+        pass
+
+    def complete(self, label: str, *, render: bool = True) -> None:
+        pass
+
+    def fail(self, label: str | None = None, error: str | BaseException | None = None, *, render: bool = True) -> None:
+        pass
+
+    def transition(self, done: str, next_step: str, detail: str | None = None) -> None:
+        pass
+
+    def set_detail(self, title: str | None, text: str | None, *, render: bool = True) -> None:
+        pass
+
+    def set_detail_renderable(self, title: str | None, renderable: object = None, *, render: bool = True) -> None:
+        pass
+
+    def clear_detail(self, *, render: bool = True) -> None:
+        pass
+
+    def set_fields(self, fields: Sequence[tuple[str, object]], *, render: bool = True) -> None:
+        pass
+
+
 __all__ = (
+    "NullWorkflowProgress",
     "StepState",
     "WorkflowProgress",
     "build_checklist",

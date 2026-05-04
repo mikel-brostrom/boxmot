@@ -1548,8 +1548,8 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     assert eval_args.classes == [0, 1]
     assert eval_args.show_progress is True
     assert eval_config is None
-    assert "workflow" in eval_kwargs
-    assert eval_kwargs["workflow"] is not None
+    assert "pipeline" in eval_kwargs
+    assert eval_kwargs["pipeline"] is not None
 
     tune_results = model.tune(benchmark="mot17-mini", n_trials=3, device="cpu")
 

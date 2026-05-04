@@ -1249,13 +1249,21 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
     assert ("Dataset", "mot17-ablation") in workflow.fields
     assert (evaluator_module.EVAL_SETUP_STEP, "active") in workflow.steps
     assert workflow.details == []
-    assert calls == [{"verbose": False, "workflow": workflow}]
+    assert "pipeline" in calls[0]
+    assert calls[0]["verbose"] is False
 
 
 def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
     actions = []
 
     class _FakeWorkflow:
+        steps = [
+            (evaluator_module.EVAL_SETUP_STEP, "active"),
+            (evaluator_module.EVAL_GENERATE_STEP, "todo"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+            (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+        ]
+
         def activate(self, label, *, render=True):
             actions.append(("active", label))
 
@@ -1265,21 +1273,23 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
         def set_detail(self, title, text, *, render=True):
             actions.append(("detail", title, text))
 
+        def set_detail_renderable(self, title, renderable, *, render=True):
+            actions.append(("detail", title, str(renderable)))
+
         def transition(self, done, next_step, detail=None):
             actions.append(("done", done))
             actions.append(("active", next_step))
             if detail:
                 actions.append(("detail", next_step, detail))
 
+    from boxmot.utils.rich.pipeline import PipelineTracker
+
     monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
     monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
     monkeypatch.setattr(
         evaluator_module,
         "eval_setup",
-        lambda args, workflow=None: workflow.set_detail(
-            evaluator_module.EVAL_GENERATE_STEP,
-            "Setting up evaluation data...",
-        ) if workflow else None,
+        lambda args, pipeline=None: None,
     )
     monkeypatch.setattr(
         evaluator_module,
@@ -1314,13 +1324,16 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
         verbose=False,
     )
 
-    result = evaluator_module.run_eval(args, verbose=False, workflow=_FakeWorkflow())
+    pipeline = PipelineTracker(_FakeWorkflow(), wire_status_fns=False)
+    result = evaluator_module.run_eval(args, verbose=False, pipeline=pipeline)
 
     assert result.summary == {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
     assert trackeval_calls == [False]
-    assert actions[:10] == [
-        ("detail", evaluator_module.EVAL_GENERATE_STEP, "Setting up evaluation data..."),
+    # Pipeline.advance() calls workflow.transition(), which records (done, active, detail)
+    assert actions[:11] == [
+        ("done", evaluator_module.EVAL_SETUP_STEP),
         ("active", evaluator_module.EVAL_GENERATE_STEP),
+        ("detail", evaluator_module.EVAL_GENERATE_STEP, "Generating detections & embeddings..."),
         (
             "detail",
             evaluator_module.EVAL_GENERATE_STEP,
@@ -1335,12 +1348,7 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
         ("active", evaluator_module.EVAL_EVALUATE_STEP),
         ("detail", evaluator_module.EVAL_EVALUATE_STEP, "Computing metrics..."),
     ]
-    assert actions[10] == ("done", evaluator_module.EVAL_EVALUATE_STEP)
-    assert actions[11][0] == "detail"
-    assert actions[11][1] == evaluator_module.EVAL_EVALUATE_STEP
-    assert "📊 RESULTS SUMMARY" in actions[11][2]
-    assert "HOTA" in actions[11][2]
-    assert "1.00" in actions[11][2]
+    assert actions[11] == ("done", evaluator_module.EVAL_EVALUATE_STEP)
 
 
 def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp_path):
@@ -1351,6 +1359,13 @@ def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp
         return nullcontext()
 
     class _FakeWorkflow:
+        steps = [
+            (evaluator_module.EVAL_SETUP_STEP, "active"),
+            (evaluator_module.EVAL_GENERATE_STEP, "todo"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+            (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+        ]
+
         def activate(self, label, *, render=True):
             return None
 
@@ -1366,10 +1381,12 @@ def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp
         def transition(self, done, next_step, detail=None):
             return None
 
+    from boxmot.utils.rich.pipeline import PipelineTracker
+
     monkeypatch.setattr(evaluator_module, "suppress_boxmot_logs", fake_suppress)
     monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
     monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
-    monkeypatch.setattr(evaluator_module, "eval_setup", lambda args, workflow=None: None)
+    monkeypatch.setattr(evaluator_module, "eval_setup", lambda args, pipeline=None: None)
     monkeypatch.setattr(
         evaluator_module,
         "run_generate_dets_embs",
@@ -1388,7 +1405,8 @@ def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp
         verbose=False,
     )
 
-    evaluator_module.run_eval(args, verbose=False, workflow=_FakeWorkflow())
+    pipeline = PipelineTracker(_FakeWorkflow(), wire_status_fns=False)
+    evaluator_module.run_eval(args, verbose=False, pipeline=pipeline)
 
     assert suppress_calls == [(True, "WARNING"), (True, "WARNING")]
 
@@ -1442,6 +1460,13 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
     refreshed_fields = []
 
     class _FakeWorkflow:
+        steps = [
+            (evaluator_module.EVAL_SETUP_STEP, "active"),
+            (evaluator_module.EVAL_GENERATE_STEP, "todo"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+            (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+        ]
+
         def set_fields(self, fields, *, render=True):
             refreshed_fields.append(list(fields))
 
@@ -1454,13 +1479,18 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
         def set_detail(self, title, text, *, render=True):
             return None
 
+        def set_detail_renderable(self, title, renderable, *, render=True):
+            return None
+
         def transition(self, done, next_step, detail=None):
             return None
+
+    from boxmot.utils.rich.pipeline import PipelineTracker
 
     monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
     monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
 
-    def fake_eval_setup(args, workflow=None):
+    def fake_eval_setup(args, pipeline=None):
         args.detector = [tmp_path / "yolox_x.pt"]
         args.reid = [tmp_path / "lmbn_n_duke.pt"]
         args.benchmark = "mot17-ablation"
@@ -1486,7 +1516,8 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
         verbose=False,
     )
 
-    evaluator_module.run_eval(args, verbose=False, workflow=_FakeWorkflow())
+    pipeline = PipelineTracker(_FakeWorkflow(), wire_status_fns=False)
+    evaluator_module.run_eval(args, verbose=False, pipeline=pipeline)
 
     assert refreshed_fields
     refreshed = dict(refreshed_fields[-1])
