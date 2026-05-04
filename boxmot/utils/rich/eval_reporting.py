@@ -10,7 +10,7 @@ import yaml
 import boxmot.utils.rich.ui as ui
 from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.trackers.tracker_zoo import get_tracker_config
-from boxmot.utils.rich.reporting import RichWorkflowReporter
+from boxmot.utils.rich.reporting import RichWorkflowReporter, format_param_label
 
 
 EVAL_SETUP_STEP = "Set up"
@@ -31,19 +31,7 @@ def _effective_eval_tracker_backend(args: argparse.Namespace) -> str | None:
     return normalize_tracker_backend(raw_tracker_backend, default="python")
 
 
-def _format_eval_param_label(name: str) -> str:
-    label = str(name).replace("_", " ").title()
-    replacements = {
-        "Id": "ID",
-        "Idsw": "IDSW",
-        "Reid": "ReID",
-        "Cmc": "CMC",
-        "Fps": "FPS",
-        "Imgsz": "Image Size",
-    }
-    for source, target in replacements.items():
-        label = label.replace(source, target)
-    return label
+# Use shared format_param_label from reporting module
 
 
 def _read_yaml_mapping(cfg_path: Path | None) -> dict[str, object]:
@@ -74,7 +62,7 @@ def _build_eval_tracker_parameter_fields(args: argparse.Namespace) -> list[tuple
         value = getattr(args, param_name, details.get("default"))
         if value is None:
             value = details.get("default")
-        params.append((_format_eval_param_label(param_name), value))
+        params.append((format_param_label(param_name), value))
     return params
 
 

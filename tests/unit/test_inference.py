@@ -1179,6 +1179,8 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
             self.transient = transient
             self.started = False
             self.stopped = False
+            self.prefer_alt_screen = False
+            self.prefer_compact_layout = False
 
         def start(self):
             self.started = True
@@ -1186,6 +1188,15 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
 
         def stop(self):
             self.stopped = True
+
+        def __enter__(self):
+            self.start()
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            if exc_val is not None:
+                self.fail(error=exc_val)
+            self.stop()
 
         def activate(self, label):
             self.steps = [
@@ -1198,6 +1209,9 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
                 (step_label, "done" if step_label == label else step_state)
                 for step_label, step_state in self.steps
             ]
+
+        def fail(self, label=None, error=None, *, render=True):
+            return None
 
         def set_detail(self, title, text, *, render=True):
             self.details.append((title, text, render))
@@ -1250,6 +1264,12 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
 
         def set_detail(self, title, text, *, render=True):
             actions.append(("detail", title, text))
+
+        def transition(self, done, next_step, detail=None):
+            actions.append(("done", done))
+            actions.append(("active", next_step))
+            if detail:
+                actions.append(("detail", next_step, detail))
 
     monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
     monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
@@ -1343,6 +1363,9 @@ def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp
         def set_detail_renderable(self, title, renderable, *, render=True):
             return None
 
+        def transition(self, done, next_step, detail=None):
+            return None
+
     monkeypatch.setattr(evaluator_module, "suppress_boxmot_logs", fake_suppress)
     monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
     monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
@@ -1431,6 +1454,9 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
         def set_detail(self, title, text, *, render=True):
             return None
 
+        def transition(self, done, next_step, detail=None):
+            return None
+
     monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
     monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
 
@@ -1441,7 +1467,7 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
         args.tracker_backend = "cpp"
 
     monkeypatch.setattr(evaluator_module, "eval_setup", fake_eval_setup)
-    monkeypatch.setattr(evaluator_module, "run_generate_dets_embs", lambda args, timing_stats=None: None)
+    monkeypatch.setattr(evaluator_module, "run_generate_dets_embs", lambda args, timing_stats=None, progress_callback=None: None)
     monkeypatch.setattr(evaluator_module, "run_generate_mot_results", lambda *args, **kwargs: None)
     monkeypatch.setattr(evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
     monkeypatch.setattr(evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}))

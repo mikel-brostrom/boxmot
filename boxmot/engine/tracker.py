@@ -13,7 +13,7 @@ from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tra
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format
 from boxmot.utils.download import set_download_status_fn
 from boxmot.native._common import set_build_status_fn
-from boxmot.utils.rich.reporting import WorkflowDetailCallback
+from boxmot.utils.rich.reporting import WorkflowDetailCallback, primary_model_ref as _primary_model_ref
 from boxmot.utils.rich.track_reporting import (
     TRACK_RUN_STEP,
     TRACK_SETUP_STEP,
@@ -34,12 +34,6 @@ from boxmot.engine.workflow_support import (
     suppress_boxmot_logs,
     tracker_name_from_spec,
 )
-
-
-def _primary_model_ref(value):
-    if isinstance(value, (list, tuple)):
-        return value[0] if value else None
-    return value
 
 
 def _is_live_source(source: Any) -> bool:
@@ -330,9 +324,9 @@ def run_track(
     if workflow is not None:
         step_labels = [label for label, _ in getattr(workflow, "steps", ())]
         if TRACK_SETUP_STEP in step_labels:
-            workflow.complete(TRACK_SETUP_STEP, render=False)
-            workflow.activate(TRACK_RUN_STEP, render=False)
-        workflow.set_detail(TRACK_RUN_STEP, "Starting tracker...")
+            workflow.transition(TRACK_SETUP_STEP, TRACK_RUN_STEP, "Starting tracker...")
+        else:
+            workflow.set_detail(TRACK_RUN_STEP, "Starting tracker...")
 
     run = Results(
         source,
@@ -382,18 +376,15 @@ def main(args):
     set_download_status_fn(setup_callback)
     set_build_status_fn(setup_callback)
     try:
-        return run_track(
-            args,
-            detector_spec=_primary_model_ref(getattr(args, "detector", None)),
-            reid_spec=_primary_model_ref(getattr(args, "reid", None)),
-            tracker_spec=getattr(args, "tracker", None),
-            classes=getattr(args, "classes", None),
-            workflow=workflow,
-        )
-    except BaseException as exc:
-        workflow.fail(error=exc)
-        raise
+        with workflow:
+            return run_track(
+                args,
+                detector_spec=_primary_model_ref(getattr(args, "detector", None)),
+                reid_spec=_primary_model_ref(getattr(args, "reid", None)),
+                tracker_spec=getattr(args, "tracker", None),
+                classes=getattr(args, "classes", None),
+                workflow=workflow,
+            )
     finally:
         set_download_status_fn(None)
         set_build_status_fn(None)
-        workflow.stop()

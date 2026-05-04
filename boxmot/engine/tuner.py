@@ -754,13 +754,7 @@ def _execute_tune_search(
     tune_dir = _resolve_tune_dir(args, resume=resume_tune)
     tune_name = tune_dir.name
 
-    workflow.complete(TUNE_SETUP_STEP, render=False)
-    workflow.activate(TUNE_GENERATE_STEP, render=False)
-    workflow.set_detail(
-        TUNE_GENERATE_STEP,
-        "Preparing benchmark cache...",
-        render=False,
-    )
+    workflow.transition(TUNE_SETUP_STEP, TUNE_GENERATE_STEP, "Preparing benchmark cache...")
     workflow.start()
 
     results_dir = tune_dir.parent
@@ -770,12 +764,10 @@ def _execute_tune_search(
 
     with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
         run_generate_dets_embs(args)
-    workflow.complete(TUNE_GENERATE_STEP, render=False)
-    workflow.activate(TUNE_OPTIMIZE_STEP, render=False)
-    workflow.set_detail(
+    workflow.transition(
+        TUNE_GENERATE_STEP,
         TUNE_OPTIMIZE_STEP,
         format_initial_tune_progress(int(args.n_trials)),
-        render=True,
     )
 
     tracker_objective = TrackerObjective(_ray_safe_namespace(args))

@@ -955,8 +955,7 @@ def main(args: argparse.Namespace) -> TimingStats:
 
     def progress_callback(msg: str) -> None:
         if not toggled["done"]:
-            workflow.complete(GENERATE_SETUP_STEP, render=False)
-            workflow.activate(GENERATE_RUN_STEP, render=False)
+            workflow.transition(GENERATE_SETUP_STEP, GENERATE_RUN_STEP)
             toggled["done"] = True
         run_callback(msg)
 
@@ -964,21 +963,17 @@ def main(args: argparse.Namespace) -> TimingStats:
     try:
         from boxmot.engine.workflow_support import suppress_boxmot_logs
 
-        with suppress_boxmot_logs(not verbose, level="WARNING"):
+        with workflow, suppress_boxmot_logs(not verbose, level="WARNING"):
             timing_stats = run_generate(args, progress_callback=progress_callback)
-    except BaseException as exc:
-        workflow.fail(error=exc)
-        raise
-    else:
-        if timing_stats.frames > 0:
-            try:
-                summary_text = timing_stats.format_summary()
-            except AttributeError:
-                summary_text = None
-            if summary_text:
-                workflow.set_detail(GENERATE_RUN_STEP, summary_text, render=False)
-        workflow.complete(GENERATE_RUN_STEP, render=False)
-        return timing_stats
     finally:
         set_download_status_fn(None)
-        workflow.stop()
+
+    if timing_stats.frames > 0:
+        try:
+            summary_text = timing_stats.format_summary()
+        except AttributeError:
+            summary_text = None
+        if summary_text:
+            workflow.set_detail(GENERATE_RUN_STEP, summary_text, render=False)
+    workflow.complete(GENERATE_RUN_STEP, render=False)
+    return timing_stats

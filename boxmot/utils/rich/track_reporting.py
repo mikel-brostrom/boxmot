@@ -8,17 +8,11 @@ import yaml
 
 import boxmot.utils.rich.ui as ui
 from boxmot.trackers.tracker_zoo import get_tracker_config
-from boxmot.utils.rich.reporting import RichWorkflowReporter
+from boxmot.utils.rich.reporting import RichWorkflowReporter, format_param_label, primary_model_ref
 
 
 TRACK_SETUP_STEP = "Set up models"
 TRACK_RUN_STEP = "Run tracker"
-
-
-def _primary_model_ref(value):
-    if isinstance(value, (list, tuple)):
-        return value[0] if value else None
-    return value
 
 
 def _tracker_name_from_spec_safe(spec):
@@ -31,19 +25,7 @@ def _tracker_name_from_spec_safe(spec):
         return None
 
 
-def _format_track_param_label(name: str) -> str:
-    label = str(name).replace("_", " ").title()
-    replacements = {
-        "Id": "ID",
-        "Ids": "IDs",
-        "Reid": "ReID",
-        "Cmc": "CMC",
-        "Fps": "FPS",
-        "Imgsz": "Image Size",
-    }
-    for source, target in replacements.items():
-        label = label.replace(source, target)
-    return label
+# Use shared format_param_label from reporting module
 
 
 def _build_track_tracker_parameter_fields(args) -> list[tuple[str, object]]:
@@ -62,7 +44,7 @@ def _build_track_tracker_parameter_fields(args) -> list[tuple[str, object]]:
         value = getattr(args, param_name, details.get("default"))
         if value is None:
             value = details.get("default")
-        params.append((_format_track_param_label(param_name), value))
+        params.append((format_param_label(param_name), value))
     return params
 
 
@@ -100,11 +82,11 @@ def _build_track_pipeline_parameter_fields(args) -> list[tuple[str, object]]:
 def _build_track_workflow_fields(args) -> list[tuple[str, object]]:
     fields: list[tuple[str, object]] = []
 
-    detector = _primary_model_ref(getattr(args, "detector", None))
+    detector = primary_model_ref(getattr(args, "detector", None))
     if detector is not None:
         fields.append(("Detector", detector))
 
-    reid = _primary_model_ref(getattr(args, "reid", None))
+    reid = primary_model_ref(getattr(args, "reid", None))
     if reid is not None:
         fields.append(("ReID", reid))
 

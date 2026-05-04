@@ -321,20 +321,6 @@ def _workflow_callback(
     return None
 
 
-def _workflow_transition(
-    workflow: ui.WorkflowProgress | None,
-    done: str,
-    next_step: str,
-    detail: str | None = None,
-) -> None:
-    if workflow is None:
-        return
-    workflow.complete(done, render=False)
-    workflow.activate(next_step, render=False)
-    if detail:
-        workflow.set_detail(next_step, detail)
-
-
 def _workflow_set_result(
     workflow: ui.WorkflowProgress | None,
     result: ValidationResult,
@@ -398,11 +384,10 @@ def run_eval(
                 timing_stats=timing_stats,
                 progress_callback=_workflow_callback(workflow, EVAL_GENERATE_STEP, show_progress),
             )
-        _workflow_transition(workflow, EVAL_GENERATE_STEP, EVAL_TRACK_STEP, "Starting tracker...")
+        if workflow is not None:
+            workflow.transition(EVAL_GENERATE_STEP, EVAL_TRACK_STEP, "Starting tracker...")
     elif workflow is not None:
-        workflow.complete(EVAL_GENERATE_STEP, render=False)
-        workflow.activate(EVAL_TRACK_STEP, render=False)
-        workflow.set_detail(EVAL_TRACK_STEP, "Starting tracker...")
+        workflow.transition(EVAL_GENERATE_STEP, EVAL_TRACK_STEP, "Starting tracker...")
 
     # -- Track --
     with suppress_boxmot_logs(suppress, level="WARNING"):
@@ -413,7 +398,8 @@ def run_eval(
             quiet=not bool(show_progress),
             progress_callback=_workflow_callback(workflow, EVAL_TRACK_STEP, show_progress),
         )
-    _workflow_transition(workflow, EVAL_TRACK_STEP, EVAL_EVALUATE_STEP, "Computing metrics...")
+    if workflow is not None:
+        workflow.transition(EVAL_TRACK_STEP, EVAL_EVALUATE_STEP, "Computing metrics...")
 
     # -- Evaluate --
     raw_results = run_trackeval(args, verbose=verbose and workflow is None)
@@ -435,20 +421,12 @@ def run_eval(
 
 def main(args):
     workflow = log_eval_pipeline_intro(args)
-    # Route any model/dataset downloads triggered during eval setup through
-    # the workflow's Setup step so the progress bar is rendered inside the
-    # Rich panel instead of leaking tqdm output above it.
     setup_callback = WorkflowDetailCallback(workflow, EVAL_SETUP_STEP)
     set_download_status_fn(setup_callback)
     set_build_status_fn(setup_callback)
     try:
-        result = run_eval(args, verbose=False, workflow=workflow)
-    except BaseException as exc:
-        workflow.fail(error=exc)
-        workflow.stop()
-        raise
-    else:
-        workflow.stop()
+        with workflow:
+            result = run_eval(args, verbose=False, workflow=workflow)
     finally:
         set_download_status_fn(None)
         set_build_status_fn(None)

@@ -28,7 +28,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None: (
+        lambda args, workflow=None, setup_step=None: (
             setattr(args, "project", (tmp_path / "runs").resolve()),
             setattr(args, "detector", [tmp_path / "yolox_x_mot17_ablation.pt"]),
             setattr(args, "reid", [tmp_path / "lmbn_n_duke.pt"]),
@@ -45,6 +45,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
             set_detail=lambda title, text, **k: detail_updates.append((title, text)),
             clear_detail=lambda *a, **k: None,
             set_detail_renderable=lambda *a, **k: None,
+            transition=lambda *a, **k: None,
             stop=lambda: workflow_state.update(stopped=True),
         )
 
@@ -166,7 +167,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+        lambda args, workflow=None, setup_step=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
     monkeypatch.setattr(
         tuner_module,
@@ -180,6 +181,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
             set_detail=lambda *a, **k: None,
             clear_detail=lambda *a, **k: None,
             set_detail_renderable=lambda *a, **k: None,
+            transition=lambda *a, **k: None,
             stop=lambda: None,
         ),
     )
@@ -320,7 +322,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+        lambda args, workflow=None, setup_step=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
     monkeypatch.setattr(
         tuner_module,
@@ -333,6 +335,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
             set_detail=lambda *a, **k: None,
             clear_detail=lambda *a, **k: None,
             set_detail_renderable=lambda *a, **k: None,
+            transition=lambda *a, **k: None,
             stop=lambda: None,
         ),
     )
@@ -427,7 +430,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+        lambda args, workflow=None, setup_step=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
     monkeypatch.setattr(
         tuner_module,
@@ -438,6 +441,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
             activate=lambda *a, **k: None,
             set_detail=lambda *a, **k: None,
             set_detail_renderable=lambda *a, **k: None,
+            transition=lambda *a, **k: None,
             stop=lambda: None,
         ),
     )
@@ -583,7 +587,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, workflow=None: setattr(args, "project", (tmp_path / "runs").resolve()),
+        lambda args, workflow=None, setup_step=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
 
     def _set_detail_renderable(title, renderable, **kwargs):
@@ -599,6 +603,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
             activate=lambda *a, **k: None,
             set_detail=lambda *a, **k: None,
             set_detail_renderable=_set_detail_renderable,
+            transition=lambda *a, **k: None,
             stop=lambda: None,
         ),
     )

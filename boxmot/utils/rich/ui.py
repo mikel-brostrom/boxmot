@@ -831,6 +831,39 @@ class WorkflowProgress:
         self.fields = updated
         self._update_live(render=render)
 
+    def transition(
+        self,
+        done: str,
+        next_step: str,
+        detail: str | None = None,
+    ) -> None:
+        """Complete *done*, activate *next_step*, optionally set detail text.
+
+        Batches the state change into a single repaint.
+        """
+        self.complete(done, render=False)
+        self.activate(next_step, render=False)
+        if detail:
+            self.set_detail(next_step, detail)
+        else:
+            self._update_live(render=True)
+
+    # -- context manager protocol ------------------------------------------
+
+    def __enter__(self) -> WorkflowProgress:
+        self.start()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        if exc_val is not None:
+            self.fail(error=exc_val)
+        self.stop()
+
 
 def create_workflow_progress(
     title: str,

@@ -370,6 +370,8 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
             self.transient = transient
             self.started = False
             self.stopped = False
+            self.prefer_alt_screen = False
+            self.prefer_compact_layout = False
 
         def start(self):
             self.started = True
@@ -377,6 +379,18 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
 
         def stop(self):
             self.stopped = True
+
+        def __enter__(self):
+            self.start()
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            if exc_val is not None:
+                self.fail(error=exc_val)
+            self.stop()
+
+        def fail(self, label=None, error=None, *, render=True):
+            return None
 
     def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
         workflow = _FakeWorkflow(title, fields, steps, stderr=stderr, transient=transient)
