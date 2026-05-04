@@ -46,6 +46,10 @@ __all__ = (
     "main",
     "run_generate",
     "run_generate_dets_embs",
+    "GENERATE_RUN_STEP",
+    "GENERATE_SETUP_STEP",
+    "GenerateWorkflowReporter",
+    "log_generate_pipeline_intro",
 )
 
 

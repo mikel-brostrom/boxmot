@@ -30,6 +30,8 @@ from boxmot.utils.benchmark_config import (
     resolve_required_yolo_model,
 )
 from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.download import set_download_status_fn
+from boxmot.native._common import set_build_status_fn
 from boxmot.utils.misc import dataclass_slots_kwargs, resolve_model_path
 import boxmot.utils.rich.ui as ui
 from boxmot.utils.rich.pipeline import PipelineTracker
@@ -1638,11 +1640,16 @@ def run_research(
 __all__ = [
     "DEFAULT_PROPOSAL_MODEL",
     "RESEARCH_METRICS",
+    "RESEARCH_BASELINE_STEP",
+    "RESEARCH_BEST_STEP",
+    "RESEARCH_OPTIMIZE_STEP",
+    "RESEARCH_PREPARE_STEP",
     "RegressionPenalties",
     "ResearchConfig",
     "ResearchResult",
     "ResearchWorkflowReporter",
     "TrackerResearcher",
+    "log_research_pipeline_intro",
     "main",
     "run_research",
 ]
