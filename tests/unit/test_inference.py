@@ -2316,7 +2316,6 @@ def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, mon
         "wait",
         lambda pending, timeout, return_when: (set(pending), set()),
     )
-    monkeypatch.setattr(cached_tracking_module.LOGGER, "opt", lambda **kwargs: SimpleNamespace(info=lambda message: None))
 
     cached_tracking_module.run_generate_mot_results(args, quiet=False)
 

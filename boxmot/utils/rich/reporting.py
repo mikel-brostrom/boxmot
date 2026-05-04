@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from typing import Any, Callable, ClassVar, Iterator, Sequence
 
@@ -13,6 +14,53 @@ from rich.progress import (
 )
 
 import boxmot.utils.rich.ui as ui
+
+
+_BOXMOT_LOGGER_NAME = "boxmot"
+
+
+class LiveLogHandler(logging.Handler):
+    """Routes log records into an active :class:`ui.WorkflowProgress` detail panel.
+
+    Attach this handler to the ``boxmot`` logger while a workflow Live panel
+    is active so that ``LOGGER.info(...)`` messages appear *inside* the panel
+    rather than racing with Rich's repaints.
+    """
+
+    def __init__(self, workflow: ui.WorkflowProgress, step: str, *, render: bool = True) -> None:
+        super().__init__()
+        self.workflow = workflow
+        self.step = step
+        self.render = render
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            self.workflow.set_detail(self.step, msg, render=self.render)
+        except Exception:
+            self.handleError(record)
+
+
+@contextmanager
+def route_logs_to_workflow(
+    workflow: ui.WorkflowProgress,
+    step: str,
+    *,
+    render: bool = True,
+) -> Iterator[None]:
+    """Context manager that routes ``boxmot`` log records into a workflow panel.
+
+    While active, log records are both handled by the existing Rich console
+    handler *and* forwarded to the workflow's detail panel for the given step.
+    """
+    boxmot_logger = logging.getLogger(_BOXMOT_LOGGER_NAME)
+    handler = LiveLogHandler(workflow, step, render=render)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    boxmot_logger.addHandler(handler)
+    try:
+        yield
+    finally:
+        boxmot_logger.removeHandler(handler)
 
 
 class RichWorkflowReporter:

@@ -3,7 +3,6 @@
 import logging
 import multiprocessing as mp
 import os
-import re
 import sys
 import threading
 from pathlib import Path
@@ -11,6 +10,8 @@ from pathlib import Path
 import numpy as np
 
 from rich.logging import RichHandler
+
+from boxmot.utils.rich.ui import get_console
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -40,95 +41,12 @@ NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of multiprocessing th
 
 
 # ----------------------------------------------------------------------------
-# Logging — Rich-based, with a thin loguru-compatible wrapper.
+# Logging — Rich-based.
 # ----------------------------------------------------------------------------
 
-_LOGURU_TAG_RE = re.compile(r"</?[A-Za-z][^>]*>")
 
-
-def _strip_loguru_markup(msg: object) -> object:
-    """Remove loguru ``<tag>`` markup from messages so plain Rich shows clean text."""
-    if isinstance(msg, str) and "<" in msg and ">" in msg:
-        return _LOGURU_TAG_RE.sub("", msg)
-    return msg
-
-
-class _BoxmotLogger:
-    """Thin compatibility wrapper around a stdlib :class:`logging.Logger`.
-
-    Provides the loguru API surface the codebase historically relied on
-    (``opt``, ``add``, ``remove``, ``success``) while routing all output
-    through a single :class:`rich.logging.RichHandler`. Loguru-style
-    ``<tag>`` colour markup is stripped from messages — Rich's own markup
-    is not enabled to keep log output unambiguous.
-    """
-
-    def __init__(self, logger: logging.Logger) -> None:
-        self._logger = logger
-
-    # ---- Standard log levels ------------------------------------------------
-    def debug(self, msg, *args, **kwargs):
-        self._logger.debug(_strip_loguru_markup(msg), *args, **kwargs)
-
-    def info(self, msg, *args, **kwargs):
-        self._logger.info(_strip_loguru_markup(msg), *args, **kwargs)
-
-    def warning(self, msg, *args, **kwargs):
-        self._logger.warning(_strip_loguru_markup(msg), *args, **kwargs)
-
-    warn = warning
-
-    def error(self, msg, *args, **kwargs):
-        self._logger.error(_strip_loguru_markup(msg), *args, **kwargs)
-
-    def critical(self, msg, *args, **kwargs):
-        self._logger.critical(_strip_loguru_markup(msg), *args, **kwargs)
-
-    def exception(self, msg, *args, **kwargs):
-        self._logger.exception(_strip_loguru_markup(msg), *args, **kwargs)
-
-    def success(self, msg, *args, **kwargs):
-        # loguru's SUCCESS level (25) — degrade to INFO for stdlib.
-        self._logger.info(_strip_loguru_markup(msg), *args, **kwargs)
-
-    def log(self, level, msg, *args, **kwargs):
-        self._logger.log(level, _strip_loguru_markup(msg), *args, **kwargs)
-
-    def isEnabledFor(self, level: int) -> bool:
-        return self._logger.isEnabledFor(level)
-
-    @property
-    def level(self) -> int:
-        return self._logger.level
-
-    def setLevel(self, level) -> None:
-        self._logger.setLevel(level)
-
-    # ---- Loguru compatibility shims ----------------------------------------
-    def opt(self, *_args, **_kwargs) -> "_BoxmotLogger":
-        """No-op compatibility shim for ``loguru``'s ``logger.opt(colors=...)``."""
-        return self
-
-    def bind(self, **_kwargs) -> "_BoxmotLogger":
-        return self
-
-    def add(self, *_args, **kwargs) -> int:  # noqa: D401 — mimic loguru signature
-        """Compatibility shim for loguru's ``logger.add``.
-
-        Only the ``level`` argument is honoured (applied to the underlying
-        stdlib logger). All other loguru-specific options are ignored.
-        """
-        level = kwargs.get("level")
-        if level is not None:
-            try:
-                self._logger.setLevel(level)
-            except (TypeError, ValueError):
-                pass
-        return 0
-
-    def remove(self, *_args, **_kwargs) -> None:
-        """Compatibility shim for loguru's ``logger.remove`` — no-op."""
-        return None
+_BOXMOT_LOGGER_NAME = "boxmot"
+_stdlib_logger = logging.getLogger(_BOXMOT_LOGGER_NAME)
 
 
 def _is_main_process() -> bool:
@@ -150,16 +68,11 @@ class _ProcessFilter(logging.Filter):
         return _is_main_process()
 
 
-_BOXMOT_LOGGER_NAME = "boxmot"
-_stdlib_logger = logging.getLogger(_BOXMOT_LOGGER_NAME)
-
-
 def configure_logging(main_only: bool = True, main_thread_only: bool = False):
     """Configure the boxmot logger with a single Rich handler.
 
     Subsequent calls fully replace any previously installed handlers so the
-    logger keeps a single output destination, matching the previous loguru
-    behaviour.
+    logger keeps a single output destination.
     """
     _stdlib_logger.handlers.clear()
     _stdlib_logger.setLevel(logging.INFO)
@@ -167,10 +80,11 @@ def configure_logging(main_only: bool = True, main_thread_only: bool = False):
 
     handler = RichHandler(
         level=logging.INFO,
+        console=get_console(stderr=True),
         show_time=False,
         show_path=False,
         rich_tracebacks=True,
-        markup=False,
+        markup=True,
     )
     handler.setFormatter(logging.Formatter("%(message)s"))
     if main_only or main_thread_only:
@@ -179,5 +93,5 @@ def configure_logging(main_only: bool = True, main_thread_only: bool = False):
     return logger
 
 
-logger = _BoxmotLogger(_stdlib_logger)
+logger = _stdlib_logger
 configure_logging()

@@ -63,7 +63,7 @@ class ReIDModelRegistry:
                     f"Pretrained weights from {weight_path} cannot be loaded. Check key names manually."
                 )
             else:
-                LOGGER.success(f"Loaded pretrained weights from {weight_path}")
+                LOGGER.info(f"Loaded pretrained weights from {weight_path}")
 
             if discarded_layers:
                 LOGGER.debug(

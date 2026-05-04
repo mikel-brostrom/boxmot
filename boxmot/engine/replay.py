@@ -525,21 +525,21 @@ def run_generate_mot_results(
             timing_stats.frames = total_track_frames
         if verbose and total_track_frames > 0:
             avg_track = total_track_time_ms / total_track_frames
-            LOGGER.opt(colors=True).info(
-                f"<bold>Tracking:</bold> {total_track_frames} frames, "
-                f"total: <cyan>{total_track_time_ms:.1f}ms</cyan>, "
-                f"avg: <cyan>{avg_track:.2f}ms/frame</cyan>"
+            LOGGER.info(
+                f"[bold]Tracking:[/bold] {total_track_frames} frames, "
+                f"total: [cyan]{total_track_time_ms:.1f}ms[/cyan], "
+                f"avg: [cyan]{avg_track:.2f}ms/frame[/cyan]"
             )
 
     if getattr(args, "postprocessing", "none") == "gsi":
         if verbose:
-            LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GSI postprocessing...")
+            LOGGER.info("[cyan]\\[3b/4][/cyan] Applying GSI postprocessing...")
         from boxmot.postprocessing.gsi import gsi
 
         gsi(mot_results_folder=exp_dir)
     elif getattr(args, "postprocessing", "none") == "gbrc":
         if verbose:
-            LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GBRC postprocessing...")
+            LOGGER.info("[cyan]\\[3b/4][/cyan] Applying GBRC postprocessing...")
         from boxmot.postprocessing.gbrc import gbrc
 
         gbrc(mot_results_folder=exp_dir)

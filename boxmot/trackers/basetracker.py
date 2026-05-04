@@ -112,7 +112,7 @@ class BaseTracker(VisualizationMixin):
                               if not k.startswith('_') and k not in ('__class__', 'reid_weights', 'device', 'half')}
             all_params = {**base_params, **filtered_kwargs}
             params_str = ", ".join(f"{k}={v}" for k, v in all_params.items())
-            LOGGER.success(f"{tracker_name}: {params_str}")
+            LOGGER.info(f"{tracker_name}: {params_str}")
 
     @abstractmethod
     def update(

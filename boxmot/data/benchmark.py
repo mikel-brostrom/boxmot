@@ -349,15 +349,15 @@ def build_gt_class_remap(
                 seen_det_names.append(det_name)
 
         if remap_logging:
-            LOGGER.opt(colors=True).info("<yellow>Auto class mapping (positional):</yellow>")
+            LOGGER.info("[yellow]Auto class mapping (positional):[/yellow]")
             for bench_name, det_name in rows:
-                LOGGER.opt(colors=True).info(f"  <yellow>{bench_name:<22}</yellow> -> <cyan>{det_name}</cyan>")
-            LOGGER.opt(colors=True).info(
-                "  <yellow>GT class IDs remapped:</yellow> "
+                LOGGER.info(f"  [yellow]{bench_name:<22}[/yellow] -> [cyan]{det_name}[/cyan]")
+            LOGGER.info(
+                "  [yellow]GT class IDs remapped:[/yellow] "
                 + ", ".join(f"{bench_id}->{remap[bench_id]}" for bench_id in sorted(remap))
             )
-            LOGGER.opt(colors=True).info(
-                "  <yellow>Evaluating detector classes:</yellow> "
+            LOGGER.info(
+                "  [yellow]Evaluating detector classes:[/yellow] "
                 + ", ".join(f"{name} ({class_id})" for name, class_id in zip(seen_det_names, seen_det_ids))
             )
         return remap, seen_det_ids, seen_det_names
@@ -397,20 +397,20 @@ def build_gt_class_remap(
     new_class_names = [name for name, _ in new_entries]
 
     model_label = f" -> {model_stem}" if model_stem else ""
-    LOGGER.opt(colors=True).info(f"<cyan>Class mapping ({benchmark_name}{model_label}):</cyan>")
+    LOGGER.info(f"[cyan]Class mapping ({benchmark_name}{model_label}):[/cyan]")
     for benchmark_class_name, detector_class_name in class_mapping.items():
         benchmark_class_name = str(benchmark_class_name)
         detector_class_name = str(detector_class_name)
         if benchmark_class_name in bench_name_to_id and detector_class_name in det_name_to_id:
-            LOGGER.opt(colors=True).info(
-                f"  <blue>{benchmark_class_name:<22}</blue> -> <cyan>{detector_class_name}</cyan>"
+            LOGGER.info(
+                f"  [blue]{benchmark_class_name:<22}[/blue] -> [cyan]{detector_class_name}[/cyan]"
             )
-    LOGGER.opt(colors=True).info(
-        "  <cyan>GT class IDs remapped:</cyan> "
+    LOGGER.info(
+        "  [cyan]GT class IDs remapped:[/cyan] "
         + ", ".join(f"{bench_id}->{remap[bench_id]}" for bench_id in sorted(remap))
     )
-    LOGGER.opt(colors=True).info(
-        "  <cyan>Evaluating detector classes:</cyan> "
+    LOGGER.info(
+        "  [cyan]Evaluating detector classes:[/cyan] "
         + ", ".join(f"{name} ({class_id})" for name, class_id in zip(new_class_names, new_class_ids))
     )
     return remap, new_class_ids, new_class_names

@@ -5,6 +5,8 @@ import copy
 import torch
 from torch import nn
 
+from boxmot.utils import logger as LOGGER
+
 from boxmot.reid.backbones.lmbn.attention import BatchFeatureErase_Top
 from boxmot.reid.backbones.lmbn.bnneck import BNNeck, BNNeck3
 from boxmot.reid.backbones.osnet import OSBlock, osnet_x1_0
@@ -91,7 +93,7 @@ class LMBN_n(nn.Module):
             fmap_p1 = par[:, :, h_par // 2 :, :]
             fmap_c0 = cha[:, : self.chs, :, :]
             fmap_c1 = cha[:, self.chs :, :, :]
-            print("Generating activation maps...")
+            LOGGER.debug("Generating activation maps...")
 
             return glo, glo_, fmap_c0, fmap_c1, fmap_p0, fmap_p1
 
