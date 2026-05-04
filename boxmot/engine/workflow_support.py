@@ -330,10 +330,18 @@ def build_tracker_from_spec(
         )
     if resolved_backend == "cpp":
         native_backend = get_native_live_backend(tracker_name)
+        native_kwargs: dict[str, Any] = {
+            "reid_weights": reid_weights,
+            "reid_preprocess": reid_preprocess,
+        }
+        # Forward device to native backends that support ReID device selection.
+        import inspect
+        sig = inspect.signature(native_backend.create_tracker)
+        if "reid_device" in sig.parameters:
+            native_kwargs["reid_device"] = str(device) if device else None
         return native_backend.create_tracker(
             default_tracker_config(spec),
-            reid_weights=reid_weights,
-            reid_preprocess=reid_preprocess,
+            **native_kwargs,
         )
 
     return create_tracker(

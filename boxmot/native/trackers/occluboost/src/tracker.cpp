@@ -45,12 +45,29 @@ Eigen::MatrixXd DetectionsMatrix(const std::vector<Detection>& dets) {
 
 }  // namespace
 
+namespace {
+
+boxmot::trackers::base::ReIdDevice ParseReIdDevice(const std::string& s) {
+    if (s.empty() || s == "auto") return boxmot::trackers::base::ReIdDevice::kAuto;
+    if (s == "cpu") return boxmot::trackers::base::ReIdDevice::kCpu;
+    if (s == "cuda" || s == "gpu" || s.rfind("cuda:", 0) == 0) return boxmot::trackers::base::ReIdDevice::kCuda;
+    if (s == "coreml" || s == "mps" || s == "metal") return boxmot::trackers::base::ReIdDevice::kCoreMl;
+    // Bare numeric strings like "0" or "1" refer to CUDA devices.
+    if (!s.empty() && std::all_of(s.begin(), s.end(), ::isdigit)) return boxmot::trackers::base::ReIdDevice::kCuda;
+    return boxmot::trackers::base::ReIdDevice::kAuto;
+}
+
+}  // namespace
+
 OccluBoostTracker::OccluBoostTracker(Config config)
     : config_(std::move(config)),
       cmc_(CreateCameraMotionCompensator(config_.cmc_method)) {
     KalmanBoxTracker::ResetCount();
     if (config_.with_reid && !config_.reid_model_path.empty()) {
-        reid_model_ = MaybeCreateOnnxReIdModel(config_.reid_model_path, config_.reid_preprocess);
+        reid_model_ = MaybeCreateOnnxReIdModel(
+            config_.reid_model_path, config_.reid_preprocess,
+            boxmot::trackers::base::ReIdBackend::kAuto,
+            ParseReIdDevice(config_.reid_device));
     }
 }
 
@@ -61,7 +78,10 @@ void OccluBoostTracker::Reset() {
     KalmanBoxTracker::ResetCount();
     reid_model_.reset();
     if (config_.with_reid && !config_.reid_model_path.empty()) {
-        reid_model_ = MaybeCreateOnnxReIdModel(config_.reid_model_path, config_.reid_preprocess);
+        reid_model_ = MaybeCreateOnnxReIdModel(
+            config_.reid_model_path, config_.reid_preprocess,
+            boxmot::trackers::base::ReIdBackend::kAuto,
+            ParseReIdDevice(config_.reid_device));
     }
     last_reid_time_ms_ = 0.0;
     last_reid_preprocess_time_ms_ = 0.0;

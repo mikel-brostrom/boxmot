@@ -62,6 +62,7 @@ occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfig& config) {
 
     c.reid_model_path = config.reid_model_path == nullptr ? "" : std::string(config.reid_model_path);
     c.reid_preprocess = config.reid_preprocess == nullptr ? "resize_pad" : std::string(config.reid_preprocess);
+    c.reid_device = config.reid_device == nullptr ? "auto" : std::string(config.reid_device);
     return c;
 }
 
