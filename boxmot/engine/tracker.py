@@ -328,10 +328,11 @@ def run_track(
         reid_runtime = reid if reid is not None else _build_reid(args, tracker_runtime, reid_spec, tracker_spec)
 
     if workflow is not None:
-        if TRACK_SETUP_STEP in getattr(workflow, "steps", ()):
+        step_labels = [label for label, _ in getattr(workflow, "steps", ())]
+        if TRACK_SETUP_STEP in step_labels:
             workflow.complete(TRACK_SETUP_STEP, render=False)
             workflow.activate(TRACK_RUN_STEP, render=False)
-        workflow.set_detail(TRACK_RUN_STEP, "Starting tracker...", render=False)
+        workflow.set_detail(TRACK_RUN_STEP, "Starting tracker...")
 
     run = Results(
         source,
