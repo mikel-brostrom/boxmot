@@ -311,6 +311,10 @@ def test_run_track_routes_progress_into_workflow(monkeypatch, tmp_path):
 
     class _FakeWorkflow:
         def __init__(self):
+            self.steps = [
+                (tracker_module.TRACK_SETUP_STEP, "active"),
+                (tracker_module.TRACK_RUN_STEP, "todo"),
+            ]
             self.details = []
             self.renderable_details = []
             self.completed = []
@@ -324,9 +328,17 @@ def test_run_track_routes_progress_into_workflow(monkeypatch, tmp_path):
         def complete(self, label, *, render=True):
             self.completed.append((label, render))
 
+        def transition(self, done, next_step, detail=None):
+            self.completed.append((done, False))
+            if detail:
+                self.details.append((next_step, detail, True))
+
+    from boxmot.utils.rich.pipeline import PipelineTracker
+
     monkeypatch.setattr(tracker_module, "Results", _FakeResults)
 
     workflow = _FakeWorkflow()
+    pipeline = PipelineTracker(workflow, wire_status_fns=False)
     result = tracker_module.run_track(
         SimpleNamespace(
             source=str(tmp_path / "video.mp4"),
@@ -339,21 +351,18 @@ def test_run_track_routes_progress_into_workflow(monkeypatch, tmp_path):
         detector=object(),
         reid=None,
         tracker=object(),
-        workflow=workflow,
+        pipeline=pipeline,
     )
 
     assert created["verbose"] is False
     assert created["progress_callback"] is not None
-    assert workflow.details == [
-        (tracker_module.TRACK_RUN_STEP, "Starting tracker...", True),
-        (tracker_module.TRACK_RUN_STEP, "Frame 1 | Det: 1.0ms | Track: 2.0ms | Total: 3.0ms", True),
-    ]
+    # pipeline.advance() completes SETUP and sets detail on RUN
+    assert workflow.completed[0] == (tracker_module.TRACK_SETUP_STEP, False)
+    assert (tracker_module.TRACK_RUN_STEP, "Frame 1 | Det: 1.0ms | Track: 2.0ms | Total: 3.0ms", True) in workflow.details
     assert len(workflow.renderable_details) == 1
     assert workflow.renderable_details[0][0] == "Summary"
     assert "TRACKING SUMMARY" in workflow.renderable_details[0][1]
     assert "Stage" in workflow.renderable_details[0][1]
-    assert workflow.renderable_details[0][2] is False
-    assert workflow.completed == [(tracker_module.TRACK_RUN_STEP, False)]
     assert result.summary["frames"] == 1
 
 
@@ -370,6 +379,8 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
             self.transient = transient
             self.started = False
             self.stopped = False
+            self.prefer_alt_screen = False
+            self.prefer_compact_layout = False
 
         def start(self):
             self.started = True
@@ -377,6 +388,18 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
 
         def stop(self):
             self.stopped = True
+
+        def __enter__(self):
+            self.start()
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            if exc_val is not None:
+                self.fail(error=exc_val)
+            self.stop()
+
+        def fail(self, label=None, error=None, *, render=True):
+            return None
 
     def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
         workflow = _FakeWorkflow(title, fields, steps, stderr=stderr, transient=transient)
@@ -426,7 +449,7 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
                 "reid_spec": tmp_path / "reid.onnx",
                 "tracker_spec": "botsort",
                 "classes": None,
-                "workflow": workflow,
+                "pipeline": calls[0][1]["pipeline"],
             },
         )
     ]

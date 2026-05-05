@@ -38,11 +38,16 @@ STYLE_RULE = "boxmot.rule"
 STEP_DONE_MARKER = "[✓]"
 
 _STEP_LABELS = {
-    "Setup evaluation environment": "Setup",
+    "Set up": "Setup",
     "Generate detections and embeddings": "Generate",
     "Run tracker": "Track",
     "Evaluate results": "Evaluate",
+    "Export to formats": "Export",
     "Optimize trials": "Optimize",
+    "Prepare workspace": "Prepare",
+    "Baseline evaluation": "Baseline",
+    "GEPA optimization": "Optimize",
+    "Best candidate evaluation": "Best",
 }
 
 _SETUP_WORD_ABBREVIATIONS = {
@@ -830,6 +835,39 @@ class WorkflowProgress:
             return
         self.fields = updated
         self._update_live(render=render)
+
+    def transition(
+        self,
+        done: str,
+        next_step: str,
+        detail: str | None = None,
+    ) -> None:
+        """Complete *done*, activate *next_step*, optionally set detail text.
+
+        Batches the state change into a single repaint.
+        """
+        self.complete(done, render=False)
+        self.activate(next_step, render=False)
+        if detail:
+            self.set_detail(next_step, detail)
+        else:
+            self._update_live(render=True)
+
+    # -- context manager protocol ------------------------------------------
+
+    def __enter__(self) -> WorkflowProgress:
+        self.start()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        if exc_val is not None:
+            self.fail(error=exc_val)
+        self.stop()
 
 
 def create_workflow_progress(

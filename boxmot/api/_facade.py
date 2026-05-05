@@ -332,17 +332,18 @@ class Boxmot:
             tracker_backend=tracker_backend,
             tracking_backend=tracking_backend,
         )
-        workflow = evaluator_module.log_eval_pipeline_intro(args)
-        try:
+        from boxmot.utils.rich.eval_reporting import EvalWorkflowReporter
+
+        evaluator_module._normalize_eval_models(args)
+        pipeline = EvalWorkflowReporter(args).pipeline()
+        with pipeline:
             metrics = evaluator_module.run_eval(
                 args,
                 evolve_config=self._tracker_config_from_spec(),
-                workflow=workflow,
+                pipeline=pipeline,
             )
             metrics.workflow_rendered = True
             return metrics
-        finally:
-            workflow.stop()
 
     def tune(
         self,

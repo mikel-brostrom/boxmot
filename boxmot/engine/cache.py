@@ -39,14 +39,7 @@ from boxmot.utils.benchmark_config import (
 )
 from boxmot.utils.misc import prompt_overwrite, resolve_model_path
 from boxmot.utils.timing import TimingStats
-from boxmot.utils.download import set_download_status_fn
-from boxmot.utils.rich.generate_reporting import (
-    GENERATE_RUN_STEP,
-    GENERATE_SETUP_STEP,
-    GenerateWorkflowReporter,
-    log_generate_pipeline_intro,
-)
-from boxmot.utils.rich.reporting import WorkflowDetailCallback
+from boxmot.utils.rich.generate_reporting import GenerateWorkflowReporter
 
 __all__ = (
     "generate_dets_embs_batched",
@@ -946,39 +939,27 @@ def run_generate(
 
 
 def main(args: argparse.Namespace) -> TimingStats:
-    workflow = log_generate_pipeline_intro(args)
-    run_callback = WorkflowDetailCallback(workflow, GENERATE_RUN_STEP)
-    setup_callback = WorkflowDetailCallback(workflow, GENERATE_SETUP_STEP)
-    set_download_status_fn(setup_callback)
-    has_setup = GENERATE_SETUP_STEP in getattr(workflow, "steps", ())
-    toggled = {"done": not has_setup}
+    pipeline = GenerateWorkflowReporter(args).pipeline()
+    toggled = {"done": False}
 
     def progress_callback(msg: str) -> None:
         if not toggled["done"]:
-            workflow.complete(GENERATE_SETUP_STEP, render=False)
-            workflow.activate(GENERATE_RUN_STEP, render=False)
+            pipeline.advance("Generating detections & embeddings...")
             toggled["done"] = True
-        run_callback(msg)
+        pipeline.update(msg)
 
     verbose = bool(getattr(args, "verbose", False))
-    try:
-        from boxmot.engine.workflow_support import suppress_boxmot_logs
+    from boxmot.utils.misc import suppress_boxmot_logs
 
-        with suppress_boxmot_logs(not verbose, level="WARNING"):
-            timing_stats = run_generate(args, progress_callback=progress_callback)
-    except BaseException as exc:
-        workflow.fail(error=exc)
-        raise
-    else:
-        if timing_stats.frames > 0:
-            try:
-                summary_text = timing_stats.format_summary()
-            except AttributeError:
-                summary_text = None
-            if summary_text:
-                workflow.set_detail(GENERATE_RUN_STEP, summary_text, render=False)
-        workflow.complete(GENERATE_RUN_STEP, render=False)
-        return timing_stats
-    finally:
-        set_download_status_fn(None)
-        workflow.stop()
+    with pipeline, suppress_boxmot_logs(not verbose, level="WARNING"):
+        timing_stats = run_generate(args, progress_callback=progress_callback)
+
+    if timing_stats.frames > 0:
+        try:
+            summary_text = timing_stats.format_summary()
+        except AttributeError:
+            summary_text = None
+        if summary_text:
+            pipeline.update(summary_text)
+    pipeline.complete_step()
+    return timing_stats

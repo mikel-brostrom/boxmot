@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from contextlib import contextmanager
 from typing import Any, Callable, ClassVar, Iterator, Sequence
 
@@ -15,52 +14,48 @@ from rich.progress import (
 
 import boxmot.utils.rich.ui as ui
 
+# ---- shared helpers reused by per-command reporters ----------------------
 
-_BOXMOT_LOGGER_NAME = "boxmot"
-
-
-class LiveLogHandler(logging.Handler):
-    """Routes log records into an active :class:`ui.WorkflowProgress` detail panel.
-
-    Attach this handler to the ``boxmot`` logger while a workflow Live panel
-    is active so that ``LOGGER.info(...)`` messages appear *inside* the panel
-    rather than racing with Rich's repaints.
-    """
-
-    def __init__(self, workflow: ui.WorkflowProgress, step: str, *, render: bool = True) -> None:
-        super().__init__()
-        self.workflow = workflow
-        self.step = step
-        self.render = render
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = self.format(record)
-            self.workflow.set_detail(self.step, msg, render=self.render)
-        except Exception:
-            self.handleError(record)
+_PARAM_LABEL_REPLACEMENTS = {
+    "Id": "ID",
+    "Ids": "IDs",
+    "Idsw": "IDSW",
+    "Reid": "ReID",
+    "Cmc": "CMC",
+    "Fps": "FPS",
+    "Imgsz": "Image Size",
+}
 
 
-@contextmanager
-def route_logs_to_workflow(
-    workflow: ui.WorkflowProgress,
-    step: str,
-    *,
-    render: bool = True,
-) -> Iterator[None]:
-    """Context manager that routes ``boxmot`` log records into a workflow panel.
+def format_param_label(name: str) -> str:
+    """Human-readable label for a tracker/pipeline parameter name."""
+    label = str(name).replace("_", " ").title()
+    for source, target in _PARAM_LABEL_REPLACEMENTS.items():
+        label = label.replace(source, target)
+    return label
 
-    While active, log records are both handled by the existing Rich console
-    handler *and* forwarded to the workflow's detail panel for the given step.
-    """
-    boxmot_logger = logging.getLogger(_BOXMOT_LOGGER_NAME)
-    handler = LiveLogHandler(workflow, step, render=render)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    boxmot_logger.addHandler(handler)
-    try:
-        yield
-    finally:
-        boxmot_logger.removeHandler(handler)
+
+def primary_model_ref(value: Any) -> Any:
+    """Extract the first element from a list/tuple model spec, or pass through."""
+    if isinstance(value, (list, tuple)):
+        return value[0] if value else None
+    return value
+
+
+def _make_progress(*, unit: str | None = None) -> Progress:
+    """Build a Rich Progress bar with standard columns for workflow panels."""
+    columns: list[Any] = [
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+    ]
+    if unit:
+        columns.append(TextColumn(f"• {{task.completed}}/{{task.total}} {unit}"))
+    else:
+        columns.append(TextColumn("• {task.completed}/{task.total}"))
+    columns.append(TimeRemainingColumn())
+    return Progress(*columns, transient=True, expand=True)
 
 
 class RichWorkflowReporter:
@@ -94,6 +89,12 @@ class RichWorkflowReporter:
             workflow.start()
         return workflow
 
+    def pipeline(self, **kwargs):
+        """Create a :class:`PipelineTracker` for this reporter."""
+        from boxmot.utils.rich.pipeline import PipelineTracker
+
+        return PipelineTracker(self.create(), **kwargs)
+
 
 class WorkflowDetailCallback:
     """Callable adapter that routes progress text into one workflow step."""
@@ -105,6 +106,35 @@ class WorkflowDetailCallback:
 
     def __call__(self, message: str) -> None:
         self.workflow.set_detail(self.step, message, render=self.render)
+
+    def _save_detail(self) -> tuple[str | None, str | None, Any]:
+        return (
+            self.workflow.detail_title,
+            self.workflow.detail_text,
+            self.workflow.detail_renderable,
+        )
+
+    def _restore_detail(
+        self,
+        saved: tuple[str | None, str | None, Any],
+    ) -> None:
+        title, text, renderable = saved
+        if renderable is not None:
+            self.workflow.set_detail_renderable(title, renderable, render=self.render)
+        elif text is not None:
+            self.workflow.set_detail(title, text, render=self.render)
+        else:
+            self.workflow.clear_detail(render=self.render)
+
+    @contextmanager
+    def _scoped_detail(self, renderable: Any) -> Iterator[None]:
+        """Save current detail, show *renderable*, restore on exit."""
+        saved = self._save_detail()
+        self.workflow.set_detail_renderable(self.step, renderable, render=self.render)
+        try:
+            yield
+        finally:
+            self._restore_detail(saved)
 
     @contextmanager
     def bar(
@@ -124,46 +154,16 @@ class WorkflowDetailCallback:
         panel renders that result from tqdm's carriage-return updates
         racing with Rich's repaints.
         """
-        columns = [
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-        ]
-        if unit:
-            columns.append(TextColumn(f"• {{task.completed}}/{{task.total}} {unit}"))
-        else:
-            columns.append(TextColumn("• {task.completed}/{task.total}"))
-        columns.append(TimeRemainingColumn())
-
-        progress = Progress(*columns, transient=True, expand=True)
+        progress = _make_progress(unit=unit)
         task_id = progress.add_task(description, total=total)
-        previous_renderable = self.workflow.detail_renderable
-        previous_title = self.workflow.detail_title
-        previous_text = self.workflow.detail_text
-        self.workflow.set_detail_renderable(self.step, progress, render=self.render)
 
         def _advance(n: int = 1) -> None:
             progress.update(task_id, advance=n)
             if self.render:
-                # Force a refresh: the ``Progress`` renderable's identity is
-                # unchanged across advances, so ``_update_live``'s snapshot
-                # check would otherwise short-circuit and the bar would
-                # appear frozen.
                 self.workflow._update_live(render=True, force=True)
 
-        try:
+        with self._scoped_detail(progress):
             yield _advance
-        finally:
-            # Restore prior detail state so the surrounding step text reappears.
-            if previous_renderable is not None:
-                self.workflow.set_detail_renderable(
-                    previous_title, previous_renderable, render=self.render
-                )
-            elif previous_text is not None:
-                self.workflow.set_detail(previous_title, previous_text, render=self.render)
-            else:
-                self.workflow.clear_detail(render=self.render)
 
     @contextmanager
     def tqdm_proxy(self, description: str, *, unit: str | None = None) -> Iterator[type]:
@@ -172,31 +172,8 @@ class WorkflowDetailCallback:
         Useful for monkey-patching third-party libraries (e.g. ``gdown``) so
         their progress output is hosted by the workflow's Rich Live region
         instead of leaking raw carriage-return text to the terminal.
-
-        The returned class accepts the common ``tqdm`` constructor kwargs
-        (``total``, ``initial``, ``desc``, ``unit``, ``unit_scale``,
-        ``**ignored``), supports ``update(n)`` / ``set_postfix*`` / ``close``
-        / context manager protocol, and forwards every advance into a Rich
-        ``Progress`` task hosted by this step's detail panel.
         """
-        columns = [
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-        ]
-        if unit:
-            columns.append(TextColumn(f"• {{task.completed}}/{{task.total}} {unit}"))
-        else:
-            columns.append(TextColumn("• {task.completed}/{task.total}"))
-        columns.append(TimeRemainingColumn())
-
-        progress = Progress(*columns, transient=True, expand=True)
-        previous_renderable = self.workflow.detail_renderable
-        previous_title = self.workflow.detail_title
-        previous_text = self.workflow.detail_text
-        self.workflow.set_detail_renderable(self.step, progress, render=self.render)
-
+        progress = _make_progress(unit=unit)
         callback = self
 
         class _RichTqdm:
@@ -235,17 +212,8 @@ class WorkflowDetailCallback:
             def __exit__(self, *exc: Any) -> None:
                 self.close()
 
-        try:
+        with self._scoped_detail(progress):
             yield _RichTqdm
-        finally:
-            if previous_renderable is not None:
-                self.workflow.set_detail_renderable(
-                    previous_title, previous_renderable, render=self.render
-                )
-            elif previous_text is not None:
-                self.workflow.set_detail(previous_title, previous_text, render=self.render)
-            else:
-                self.workflow.clear_detail(render=self.render)
 
     @contextmanager
     def parallel_bars(
@@ -254,27 +222,8 @@ class WorkflowDetailCallback:
         *,
         unit: str | None = "B",
     ) -> Iterator[list["_ParallelTaskCallback"]]:
-        """Render N progress bars stacked in this step's detail panel.
-
-        Yields a list of per-task callbacks (one per description) that quack
-        like :class:`WorkflowDetailCallback` — each exposes ``__call__`` and
-        ``bar()`` — but every bar advances its own task within a single
-        shared Rich ``Progress`` instance. This lets multiple downloads run
-        concurrently without racing for the detail slot.
-        """
-        columns = [
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-        ]
-        if unit:
-            columns.append(TextColumn(f"• {{task.completed}}/{{task.total}} {unit}"))
-        else:
-            columns.append(TextColumn("• {task.completed}/{task.total}"))
-        columns.append(TimeRemainingColumn())
-
-        progress = Progress(*columns, transient=True, expand=True)
+        """Render N progress bars stacked in this step's detail panel."""
+        progress = _make_progress(unit=unit)
 
         def _render() -> None:
             if self.render:
@@ -285,22 +234,8 @@ class WorkflowDetailCallback:
             task_id = progress.add_task(str(desc), total=None)
             callbacks.append(_ParallelTaskCallback(progress, task_id, _render))
 
-        previous_renderable = self.workflow.detail_renderable
-        previous_title = self.workflow.detail_title
-        previous_text = self.workflow.detail_text
-        self.workflow.set_detail_renderable(self.step, progress, render=self.render)
-
-        try:
+        with self._scoped_detail(progress):
             yield callbacks
-        finally:
-            if previous_renderable is not None:
-                self.workflow.set_detail_renderable(
-                    previous_title, previous_renderable, render=self.render
-                )
-            elif previous_text is not None:
-                self.workflow.set_detail(previous_title, previous_text, render=self.render)
-            else:
-                self.workflow.clear_detail(render=self.render)
 
 
 class _ParallelTaskCallback:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 import sys
 from importlib import import_module
@@ -49,26 +48,8 @@ def extract_summary(raw_results: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 
 def timing_summary_from_stats(timing_stats: TimingStats) -> dict[str, Any]:
-    totals = dict(timing_stats.totals)
-    total_ms = float(totals.get("total", 0.0) or 0.0)
-    if total_ms == 0.0:
-        total_ms = float(sum(totals.values()))
-
-    frames = int(timing_stats.frames)
-    avg_ms = {
-        key: (float(value) / frames if frames else 0.0)
-        for key, value in totals.items()
-    }
-    avg_total_ms = total_ms / frames if frames else 0.0
-    fps = (1000.0 * frames / total_ms) if total_ms else 0.0
-
-    return {
-        "frames": frames,
-        "totals_ms": {**{key: float(value) for key, value in totals.items()}, "total": total_ms},
-        "avg_ms": {**avg_ms, "total": avg_total_ms},
-        "fps": fps,
-        "metadata": dict(getattr(timing_stats, "metadata", {})),
-    }
+    """Serialize a :class:`TimingStats` into a JSON-friendly summary dict."""
+    return timing_stats.to_summary_dict()
 
 
 def core_summary_metrics(summary: dict[str, Any]) -> dict[str, float]:
@@ -465,73 +446,22 @@ def print_validation_cli_report(
             print_fn(report)
 
 
-def format_remaining_time(seconds: float | None) -> str:
-    if seconds is None or not math.isfinite(seconds):
-        return "--:--"
-
-    total_seconds = 0 if seconds <= 0 else int(math.ceil(seconds))
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, secs = divmod(remainder, 60)
-    if hours:
-        return f"{hours:d}:{minutes:02d}:{secs:02d}"
-    return f"{minutes:02d}:{secs:02d}"
-
-
-def estimate_tune_remaining(trial_durations: Sequence[float], remaining_trials: int) -> float | None:
-    if remaining_trials <= 0:
-        return 0.0
-    if not trial_durations:
-        return None
-    avg_trial_seconds = sum(trial_durations) / len(trial_durations)
-    return avg_trial_seconds * remaining_trials
+# ── Backward-compat re-exports for tune formatting (moved to tune_reporting) ──
+# Lazy to avoid circular import (tune_reporting → workflow_reporting → tune_reporting).
+_TUNE_REEXPORTS = {
+    "estimate_tune_remaining",
+    "format_named_progress",
+    "format_progress_bar",
+    "format_remaining_time",
+    "format_tune_progress",
+}
 
 
-def format_progress_bar(current: int, total: int, *, bar_width: int = 20) -> tuple[str, float]:
-    if total <= 0:
-        pct = 1.0 if current >= total else 0.0
-    else:
-        pct = min(max(current / total, 0.0), 1.0)
-
-    filled = int(bar_width * pct)
-    bar = "█" * filled + "░" * (bar_width - filled)
-    return bar, pct
-
-
-def format_named_progress(label: str, current: int, total: int, *, detail: str = "") -> str:
-    bar, pct = format_progress_bar(current, total)
-    message = f"  {label:<8s} {bar} {pct:>5.0%}  ({current}/{total})"
-    if detail:
-        message = f"{message}  {detail}"
-    return message
-
-
-def format_tune_progress(
-    completed: int,
-    total: int,
-    summary: dict[str, Any] | None = None,
-    *,
-    current_trial: int | None = None,
-    is_new_best: bool = False,
-    remaining_seconds: float | None = None,
-) -> str:
-    remaining = format_remaining_time(remaining_seconds)
-    if summary is None:
-        running = current_trial if current_trial is not None else (completed + 1)
-        return format_named_progress(
-            "Tune",
-            completed,
-            total,
-            detail=f"running trial {running}/{total}  remaining {remaining}",
-        )
-
-    core = format_core_summary(summary)
-    suffix = "  best" if is_new_best else ""
-    if current_trial is not None and current_trial > completed:
-        detail = f"running trial {current_trial}/{total}  last {core}{suffix}  remaining {remaining}"
-        return format_named_progress("Tune", completed, total, detail=detail)
-
-    detail = f"{core}{suffix}  remaining {remaining}"
-    return format_named_progress("Tune", completed, total, detail=detail)
+def __getattr__(name: str):
+    if name in _TUNE_REEXPORTS:
+        from boxmot.utils.rich import tune_reporting
+        return getattr(tune_reporting, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = (

@@ -34,7 +34,7 @@ from boxmot.engine.cache import generate_dets_embs_batched, run_generate_dets_em
 from boxmot.engine.replay import process_sequence, run_generate_mot_results
 from boxmot.engine.workflow_reporting import extract_summary, timing_summary_from_stats
 from boxmot.engine.workflow_results import ValidationResult
-from boxmot.engine.workflow_support import suppress_boxmot_logs
+from boxmot.utils.misc import suppress_boxmot_logs
 from boxmot.utils import (
     BENCHMARK_CONFIGS,
     logger as LOGGER,
@@ -47,8 +47,15 @@ from boxmot.utils.benchmark_config import (
     should_use_benchmark_reid,
 )
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.download import set_download_status_fn
-from boxmot.native._common import set_build_status_fn
+from boxmot.utils.rich.pipeline import PipelineTracker
+from boxmot.utils.rich.eval_reporting import (
+    EVAL_EVALUATE_STEP,
+    EVAL_GENERATE_STEP,
+    EVAL_SETUP_STEP,
+    EVAL_TRACK_STEP,
+    EvalWorkflowReporter,
+    _build_eval_workflow_fields,
+)
 from boxmot.utils.evaluation.results import (
     _filter_obb_trackeval_results,
     _known_trackeval_class_names,
@@ -64,16 +71,6 @@ from boxmot.utils.evaluation.trackeval import (
 )
 from boxmot.utils.misc import resolve_model_path
 from boxmot.utils.plots import MetricsPlotter
-from boxmot.utils.rich.eval_reporting import (
-    EVAL_EVALUATE_STEP,
-    EVAL_GENERATE_STEP,
-    EVAL_SETUP_STEP,
-    EVAL_TRACK_STEP,
-    EvalWorkflowReporter,
-    _build_eval_workflow_fields,
-    _refresh_eval_pipeline_intro,
-)
-from boxmot.utils.rich.reporting import WorkflowDetailCallback
 from boxmot.utils.timing import TimingStats
 import boxmot.utils.rich.ui as ui
 
@@ -247,19 +244,12 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     return final_results
 
 
-def eval_setup(args, workflow: ui.WorkflowProgress | None = None) -> None:
+def eval_setup(args, pipeline: PipelineTracker | None = None) -> None:
     """
     Common setup for eval and tune pipelines.
     """
     _ensure_eval_dependencies()
-    status_fn = None
-    if workflow is not None:
-        # Use the dedicated Setup step so model downloads, TrackEval bootstrap
-        # and dataset preparation are visible in their own panel section.
-        workflow_steps = getattr(workflow, "steps", ()) or ()
-        step_labels = {label for label, _ in workflow_steps}
-        setup_label = EVAL_SETUP_STEP if EVAL_SETUP_STEP in step_labels else EVAL_GENERATE_STEP
-        status_fn = WorkflowDetailCallback(workflow, setup_label)
+    status_fn = pipeline.callback() if pipeline is not None else None
     eval_init(args, status_fn=status_fn)
     _, _, dataset_detector_cfg = _configure_benchmark_runtime(args)
     det_cfg = get_runtime_detector_cfg(args.detector[0], dataset_detector_cfg)
@@ -318,7 +308,7 @@ def run_eval(
     prepare_cache: bool = True,
     verbose: bool | None = None,
     show_progress: bool | None = None,
-    workflow: ui.WorkflowProgress | None = None,
+    pipeline: PipelineTracker | None = None,
 ) -> ValidationResult:
     _ensure_eval_dependencies()
     _normalize_eval_models(args)
@@ -329,52 +319,42 @@ def run_eval(
     args.show_progress = bool(show_progress)
 
     timing_stats = TimingStats()
-    workflow_steps = getattr(workflow, "steps", ()) or ()
-    has_setup_step = workflow is not None and EVAL_SETUP_STEP in {label for label, _ in workflow_steps}
+    has_pipeline = pipeline is not None
+    suppress = (not verbose) or has_pipeline
+
+    # -- Setup --
     if setup:
-        eval_setup(args, workflow=workflow)
-        _refresh_eval_pipeline_intro(workflow, args)
-    if workflow is not None and has_setup_step:
-        workflow.complete(EVAL_SETUP_STEP, render=False)
-    if workflow is not None and prepare_cache:
-        workflow.activate(EVAL_GENERATE_STEP)
-    if workflow is not None and not prepare_cache:
-        workflow.complete(EVAL_GENERATE_STEP, render=False)
-        workflow.activate(EVAL_TRACK_STEP, render=False)
-        workflow.set_detail(EVAL_TRACK_STEP, "Starting tracker...")
+        eval_setup(args, pipeline=pipeline)
+        if pipeline is not None:
+            pipeline.refresh_fields(_build_eval_workflow_fields(args))
+
+    # -- Generate detections & embeddings --
     if prepare_cache:
-        generate_progress_callback = None
-        if workflow is not None and bool(show_progress):
-            generate_progress_callback = WorkflowDetailCallback(workflow, EVAL_GENERATE_STEP)
-        with suppress_boxmot_logs((not verbose) or workflow is not None, level="WARNING"):
-            if generate_progress_callback is None:
-                run_generate_dets_embs(args, timing_stats=timing_stats)
-            else:
-                run_generate_dets_embs(
-                    args,
-                    timing_stats=timing_stats,
-                    progress_callback=generate_progress_callback,
-                )
-        if workflow is not None:
-            workflow.complete(EVAL_GENERATE_STEP, render=False)
-            workflow.activate(EVAL_TRACK_STEP, render=False)
-            workflow.set_detail(EVAL_TRACK_STEP, "Starting tracker...")
-    progress_callback = None
-    if workflow is not None and bool(show_progress):
-        progress_callback = WorkflowDetailCallback(workflow, EVAL_TRACK_STEP)
-    with suppress_boxmot_logs((not verbose) or workflow is not None, level="WARNING"):
+        if pipeline is not None:
+            pipeline.advance("Generating detections & embeddings...")
+        with suppress_boxmot_logs(suppress, level="WARNING"):
+            run_generate_dets_embs(
+                args,
+                timing_stats=timing_stats,
+                progress_callback=pipeline.callback() if pipeline and show_progress else None,
+            )
+    if pipeline is not None:
+        pipeline.advance("Starting tracker...")
+
+    # -- Track --
+    with suppress_boxmot_logs(suppress, level="WARNING"):
         run_generate_mot_results(
             args,
             evolve_config=evolve_config,
             timing_stats=timing_stats,
             quiet=not bool(show_progress),
-            progress_callback=progress_callback,
+            progress_callback=pipeline.callback() if pipeline and show_progress else None,
         )
-    if workflow is not None:
-        workflow.complete(EVAL_TRACK_STEP, render=False)
-        workflow.activate(EVAL_EVALUATE_STEP, render=False)
-        workflow.set_detail(EVAL_EVALUATE_STEP, "Computing metrics...")
-    raw_results = run_trackeval(args, verbose=bool(verbose) and workflow is None)
+    if pipeline is not None:
+        pipeline.advance("Computing metrics...")
+
+    # -- Evaluate --
+    raw_results = run_trackeval(args, verbose=verbose and not has_pipeline)
     summary_label, summary = extract_summary(raw_results)
     result = ValidationResult(
         benchmark=str(getattr(args, "benchmark", getattr(args, "data", ""))),
@@ -384,45 +364,24 @@ def run_eval(
         exp_dir=getattr(args, "exp_dir", None),
         timings=timing_summary_from_stats(timing_stats),
         args=args,
-        workflow_rendered=workflow is not None,
+        workflow_rendered=has_pipeline,
     )
-    if workflow is not None:
-        workflow.complete(EVAL_EVALUATE_STEP, render=False)
-        if hasattr(workflow, "set_detail_renderable"):
-            workflow.set_detail_renderable(
-                EVAL_EVALUATE_STEP,
-                result.renderable(include_timings=bool(getattr(args, "show_timing", False))),
-                render=False,
-            )
-        else:
-            workflow.set_detail(
-                EVAL_EVALUATE_STEP,
-                result.render(include_timings=bool(getattr(args, "show_timing", False))),
-                render=False,
-            )
+    if pipeline is not None:
+        include_timings = bool(getattr(args, "show_timing", False))
+        pipeline.complete_step()
+        pipeline.set_detail_renderable(
+            pipeline.current_step,
+            result.renderable(include_timings=include_timings),
+        )
 
     return result
 
 
 def main(args):
-    workflow = log_eval_pipeline_intro(args)
-    # Route any model/dataset downloads triggered during eval setup through
-    # the workflow's Setup step so the progress bar is rendered inside the
-    # Rich panel instead of leaking tqdm output above it.
-    setup_callback = WorkflowDetailCallback(workflow, EVAL_SETUP_STEP)
-    set_download_status_fn(setup_callback)
-    set_build_status_fn(setup_callback)
-    try:
-        result = run_eval(args, verbose=False, workflow=workflow)
-    except BaseException as exc:
-        workflow.fail(error=exc)
-        workflow.stop()
-        raise
-    else:
-        workflow.stop()
-    finally:
-        set_download_status_fn(None)
-        set_build_status_fn(None)
+    _normalize_eval_models(args)
+    pipeline = EvalWorkflowReporter(args).pipeline()
+    with pipeline:
+        result = run_eval(args, verbose=False, pipeline=pipeline)
 
     plot_class, metrics_data = _select_plot_metrics_data(result.raw)
     if metrics_data:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Sequence
 
 from rich.console import Group, RenderableType
@@ -9,14 +10,15 @@ from rich.text import Text
 import boxmot.utils.rich.ui as ui
 from boxmot.engine.workflow_reporting import (
     SUMMARY_COLUMNS,
-    estimate_tune_remaining,
-    format_tune_progress,
+    format_core_summary,
 )
 from boxmot.utils.rich.reporting import RichWorkflowCallback, RichWorkflowReporter, SilentProgressReporter
-
-TUNE_SETUP_STEP = "Setup evaluation environment"
-TUNE_GENERATE_STEP = "Generate detections and embeddings"
-TUNE_OPTIMIZE_STEP = "Optimize trials"
+from boxmot.utils.rich.steps import (
+    GENERATE as TUNE_GENERATE_STEP,
+    OPTIMIZE as TUNE_OPTIMIZE_STEP,
+    SETUP as TUNE_SETUP_STEP,
+    TUNE_STEPS,
+)
 
 
 def _score_summary(
@@ -96,11 +98,10 @@ class TuneWorkflowProgress(ui.WorkflowProgress):
 class TuneWorkflowReporter(RichWorkflowReporter):
     title = "Tuning"
     prefer_compact_layout = True
-    steps = (
-        (TUNE_SETUP_STEP, "active"),
-        (TUNE_GENERATE_STEP, "todo"),
-        (TUNE_OPTIMIZE_STEP, "todo"),
-    )
+    SETUP = 0
+    GENERATE = 1
+    OPTIMIZE = 2
+    steps = TUNE_STEPS
     start_on_create = False
 
     def __init__(self, args: Any, *, maximize: list[str], minimize: list[str]) -> None:
@@ -220,3 +221,75 @@ class TuneWorkflowCallback(RichWorkflowCallback):
         self.active_trials.discard(trial_id)
         self.completed += 1
         self._set_progress()
+
+
+# ── Tune progress formatting (moved from workflow_reporting) ─────────────
+
+
+def format_remaining_time(seconds: float | None) -> str:
+    if seconds is None or not math.isfinite(seconds):
+        return "--:--"
+
+    total_seconds = 0 if seconds <= 0 else int(math.ceil(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def estimate_tune_remaining(trial_durations: Sequence[float], remaining_trials: int) -> float | None:
+    if remaining_trials <= 0:
+        return 0.0
+    if not trial_durations:
+        return None
+    avg_trial_seconds = sum(trial_durations) / len(trial_durations)
+    return avg_trial_seconds * remaining_trials
+
+
+def format_progress_bar(current: int, total: int, *, bar_width: int = 20) -> tuple[str, float]:
+    if total <= 0:
+        pct = 1.0 if current >= total else 0.0
+    else:
+        pct = min(max(current / total, 0.0), 1.0)
+
+    filled = int(bar_width * pct)
+    bar = "█" * filled + "░" * (bar_width - filled)
+    return bar, pct
+
+
+def format_named_progress(label: str, current: int, total: int, *, detail: str = "") -> str:
+    bar, pct = format_progress_bar(current, total)
+    message = f"  {label:<8s} {bar} {pct:>5.0%}  ({current}/{total})"
+    if detail:
+        message = f"{message}  {detail}"
+    return message
+
+
+def format_tune_progress(
+    completed: int,
+    total: int,
+    summary: dict[str, Any] | None = None,
+    *,
+    current_trial: int | None = None,
+    is_new_best: bool = False,
+    remaining_seconds: float | None = None,
+) -> str:
+    remaining = format_remaining_time(remaining_seconds)
+    if summary is None:
+        running = current_trial if current_trial is not None else (completed + 1)
+        return format_named_progress(
+            "Tune",
+            completed,
+            total,
+            detail=f"running trial {running}/{total}  remaining {remaining}",
+        )
+
+    core = format_core_summary(summary)
+    suffix = "  best" if is_new_best else ""
+    if current_trial is not None and current_trial > completed:
+        detail = f"running trial {current_trial}/{total}  last {core}{suffix}  remaining {remaining}"
+        return format_named_progress("Tune", completed, total, detail=detail)
+
+    detail = f"{core}{suffix}  remaining {remaining}"
+    return format_named_progress("Tune", completed, total, detail=detail)

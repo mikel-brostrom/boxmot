@@ -11,14 +11,12 @@ from boxmot.engine.results import Results
 from boxmot.engine.workflow_results import TrackRunResult
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format
-from boxmot.utils.download import set_download_status_fn
-from boxmot.native._common import set_build_status_fn
-from boxmot.utils.rich.reporting import WorkflowDetailCallback
+from boxmot.utils.rich.reporting import primary_model_ref as _primary_model_ref
+from boxmot.utils.rich.pipeline import PipelineTracker
 from boxmot.utils.rich.track_reporting import (
     TRACK_RUN_STEP,
     TRACK_SETUP_STEP,
     TrackWorkflowReporter,
-    log_track_pipeline_intro,
 )
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 from boxmot.utils.torch_utils import select_device
@@ -31,15 +29,9 @@ from boxmot.engine.workflow_support import (
     resolve_output_fps,
     resolve_track_output_dir,
     save_video,
-    suppress_boxmot_logs,
     tracker_name_from_spec,
 )
-
-
-def _primary_model_ref(value):
-    if isinstance(value, (list, tuple)):
-        return value[0] if value else None
-    return value
+from boxmot.utils.misc import suppress_boxmot_logs
 
 
 def _is_live_source(source: Any) -> bool:
@@ -317,31 +309,27 @@ def run_track(
     tracker_spec: Any = None,
     classes: list[int] | None = None,
     drawer=None,
-    workflow: ui.WorkflowProgress | None = None,
+    pipeline: PipelineTracker | None = None,
 ) -> TrackRunResult:
     source = getattr(args, "source", get_mode_default("track", "source"))
     verbose = bool(getattr(args, "verbose", get_mode_default("track", "verbose")))
 
-    with suppress_boxmot_logs((not verbose) or workflow is not None, level="WARNING"):
+    with suppress_boxmot_logs((not verbose) or pipeline is not None, level="WARNING"):
         detector_runtime = detector if detector is not None else _build_detector(args, detector_spec, classes)
         tracker_runtime = tracker if tracker is not None else _build_tracker(args, tracker_spec)
         reid_runtime = reid if reid is not None else _build_reid(args, tracker_runtime, reid_spec, tracker_spec)
 
-    if workflow is not None:
-        step_labels = [label for label, _ in getattr(workflow, "steps", ())]
-        if TRACK_SETUP_STEP in step_labels:
-            workflow.complete(TRACK_SETUP_STEP, render=False)
-            workflow.activate(TRACK_RUN_STEP, render=False)
-        workflow.set_detail(TRACK_RUN_STEP, "Starting tracker...")
+    if pipeline is not None:
+        pipeline.advance("Starting tracker...")
 
     run = Results(
         source,
         detector_runtime,
         reid_runtime,
         tracker_runtime,
-        verbose=verbose and workflow is None,
+        verbose=verbose and pipeline is None,
         drawer=drawer,
-        progress_callback=WorkflowDetailCallback(workflow, TRACK_RUN_STEP) if workflow is not None else None,
+        progress_callback=pipeline.callback() if pipeline is not None else None,
     )
 
     output_dir = resolve_track_output_dir(Path(getattr(args, "project", "runs")), source)
@@ -363,37 +351,24 @@ def run_track(
         result.show()
     elif _should_consume_result(args):
         _consume_run(result)
-    if workflow is not None:
+    if pipeline is not None:
         result.refresh()
-        workflow.complete(TRACK_RUN_STEP, render=False)
+        pipeline.complete_step()
         if int(result.summary.get("frames", 0)) > 0:
-            if hasattr(workflow, "set_detail_renderable"):
-                workflow.set_detail_renderable("Summary", result.renderable(), render=False)
-            else:
-                workflow.set_detail("Summary", result.render(), render=False)
+            pipeline.set_detail_renderable("Summary", result.renderable())
         else:
-            workflow.set_detail(TRACK_RUN_STEP, "No frames processed.", render=False)
+            pipeline.update("No frames processed.")
     return result
 
 
 def main(args):
-    workflow = log_track_pipeline_intro(args)
-    setup_callback = WorkflowDetailCallback(workflow, TRACK_SETUP_STEP)
-    set_download_status_fn(setup_callback)
-    set_build_status_fn(setup_callback)
-    try:
+    pipeline = TrackWorkflowReporter(args).pipeline()
+    with pipeline:
         return run_track(
             args,
             detector_spec=_primary_model_ref(getattr(args, "detector", None)),
             reid_spec=_primary_model_ref(getattr(args, "reid", None)),
             tracker_spec=getattr(args, "tracker", None),
             classes=getattr(args, "classes", None),
-            workflow=workflow,
+            pipeline=pipeline,
         )
-    except BaseException as exc:
-        workflow.fail(error=exc)
-        raise
-    finally:
-        set_download_status_fn(None)
-        set_build_status_fn(None)
-        workflow.stop()

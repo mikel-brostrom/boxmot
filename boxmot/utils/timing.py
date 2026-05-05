@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import numpy as np
 
@@ -429,6 +430,29 @@ class TimingStats:
         if not summary:
             return
         print_text(summary)
+
+    def to_summary_dict(self) -> dict[str, Any]:
+        """Serialize timing stats into a JSON-friendly summary dict."""
+        totals = dict(self.totals)
+        total_ms = float(totals.get("total", 0.0) or 0.0)
+        if total_ms == 0.0:
+            total_ms = float(sum(totals.values()))
+
+        frames = int(self.frames)
+        avg_ms = {
+            key: (float(value) / frames if frames else 0.0)
+            for key, value in totals.items()
+        }
+        avg_total_ms = total_ms / frames if frames else 0.0
+        fps = (1000.0 * frames / total_ms) if total_ms else 0.0
+
+        return {
+            "frames": frames,
+            "totals_ms": {**{key: float(value) for key, value in totals.items()}, "total": total_ms},
+            "avg_ms": {**avg_ms, "total": avg_total_ms},
+            "fps": fps,
+            "metadata": dict(getattr(self, "metadata", {})),
+        }
 
 
 class TimedReIDWrapper:
