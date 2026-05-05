@@ -47,7 +47,7 @@ from boxmot.utils.benchmark_config import (
     should_use_benchmark_reid,
 )
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.rich.pipeline import PipelineTracker, create_pipeline
+from boxmot.utils.rich.pipeline import PipelineTracker
 from boxmot.utils.rich.eval_reporting import (
     EVAL_EVALUATE_STEP,
     EVAL_GENERATE_STEP,

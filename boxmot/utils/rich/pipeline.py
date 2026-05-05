@@ -16,13 +16,9 @@ current step and tears them down on exit.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from typing import Any, Callable, Iterator, Sequence
+from typing import Any
 
-from boxmot.utils.rich.reporting import (
-    RichWorkflowReporter,
-    WorkflowDetailCallback,
-)
+from boxmot.utils.rich.reporting import WorkflowDetailCallback
 import boxmot.utils.rich.ui as ui
 
 
@@ -197,21 +193,6 @@ class PipelineTracker:
         self._workflow.stop()
         if self._wire_status_fns:
             _set_status_fns(None)
-
-
-def create_pipeline(
-    reporter: RichWorkflowReporter,
-    *,
-    auto_start: bool = True,
-    wire_status_fns: bool = True,
-) -> PipelineTracker:
-    """Convenience: build a :class:`PipelineTracker` from a reporter."""
-    workflow = reporter.create()
-    return PipelineTracker(
-        workflow,
-        auto_start=auto_start,
-        wire_status_fns=wire_status_fns,
-    )
 
 
 # -- internal helpers ------------------------------------------------------
