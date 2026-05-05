@@ -79,6 +79,13 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
             def update(self, *a, **k):
                 pass
 
+            def refresh_fields(self, fields):
+                for label, value in fields:
+                    if label == "Detector":
+                        captured["intro_detector"] = value
+                    elif label == "ReID":
+                        captured["intro_reid"] = value
+
             def step(self, *a, **k):
                 return "fake"
 
@@ -86,7 +93,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
                 return self
 
             def __exit__(self, *a):
-                pass
+                self.stop()
 
         return _FakePipeline()
 
@@ -232,6 +239,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
             def callback(self, *a, **k): return lambda msg: None
             def complete_step(self, *a, **k): pass
             def update(self, *a, **k): pass
+            def refresh_fields(self, *a, **k): pass
             def step(self, *a, **k): return "fake"
             def __enter__(self): return self
             def __exit__(self, *a): pass
@@ -397,6 +405,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
             def callback(self, *a, **k): return lambda msg: None
             def complete_step(self, *a, **k): pass
             def update(self, *a, **k): pass
+            def refresh_fields(self, *a, **k): pass
             def step(self, *a, **k): return "fake"
             def __enter__(self): return self
             def __exit__(self, *a): pass
@@ -514,6 +523,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
             def callback(self, *a, **k): return lambda msg: None
             def complete_step(self, *a, **k): pass
             def update(self, *a, **k): pass
+            def refresh_fields(self, *a, **k): pass
             def step(self, *a, **k): return "fake"
             def __enter__(self): return self
             def __exit__(self, *a): pass
@@ -706,6 +716,9 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
                 pass
 
             def update(self, *a, **k):
+                pass
+
+            def refresh_fields(self, *a, **k):
                 pass
 
             def step(self, *a, **k):

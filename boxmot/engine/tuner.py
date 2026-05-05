@@ -35,6 +35,7 @@ from boxmot.utils.rich.tune_reporting import (
     TuneWorkflowCallback,
     TuneWorkflowReporter,
     build_tune_artifacts_renderable,
+    build_tune_workflow_fields,
     combine_tune_result_renderables,
     format_initial_tune_progress,
     set_tune_progress_workflow,
@@ -765,6 +766,11 @@ def _execute_tune_search(
       with pipeline:
         with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
             eval_setup(args, pipeline=pipeline)
+
+        # eval_setup may resolve detector/reid paths — refresh the panel fields
+        pipeline.refresh_fields(
+            build_tune_workflow_fields(args, maximize=maximize, minimize=minimize)
+        )
 
         tune_dir = _resolve_tune_dir(args, resume=resume_tune)
         tune_name = tune_dir.name
