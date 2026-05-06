@@ -24,7 +24,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
     monkeypatch.setattr(tuner_module, "_save_all_results", lambda *args, **kwargs: None)
-    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: captured.setdefault("generated", True))
+    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args, progress_callback=None: captured.setdefault("generated", True))
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
@@ -211,7 +211,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
     monkeypatch.setattr(tuner_module, "_save_all_results", lambda *args, **kwargs: None)
-    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: captured.setdefault("generated", True))
+    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args, progress_callback=None: captured.setdefault("generated", True))
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
@@ -378,7 +378,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
     monkeypatch.setattr(tuner_module, "_save_all_results", lambda *args, **kwargs: None)
-    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: None)
+    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args, progress_callback=None: None)
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
@@ -498,7 +498,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
     monkeypatch.setattr(tuner_module, "_save_all_results", lambda *args, **kwargs: None)
-    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: None)
+    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args, progress_callback=None: None)
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
@@ -667,7 +667,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: yaml_cfg)
     monkeypatch.setattr(tuner_module, "_resolve_tune_dir", lambda args, resume=False: tune_dir)
-    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: None)
+    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args, progress_callback=None: None)
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",

@@ -784,7 +784,7 @@ def _execute_tune_search(
         results_dir_str = str(results_dir)
 
         with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
-            run_generate_dets_embs(args)
+            run_generate_dets_embs(args, progress_callback=pipeline.callback())
         pipeline.advance(
             format_initial_tune_progress(int(args.n_trials)),
         )
