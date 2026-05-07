@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
+
 from __future__ import annotations
 
 """
@@ -469,22 +471,22 @@ class CommandFirstGroup(click.Group):
     def parse_args(self, ctx, args):
         """Normalize tune metric lists before Click validates subcommand args."""
         return super().parse_args(ctx, _normalize_tune_metric_cli_args(list(args)))
-    
+
     def format_help(self, _ctx, formatter):
         """Override to show custom help with Ultralytics-style formatting."""
-        
+
         # Main heading
         formatter.write_paragraph()
         formatter.write_text(
             "BoxMOT 'boxmot' commands use the following syntax:"
         )
         formatter.write_paragraph()
-        
+
         # Command syntax
         with formatter.indentation():
             formatter.write_text("boxmot MODE [OPTIONS]")
         formatter.write_paragraph()
-        
+
         # Argument descriptions
         formatter.width = 120  # Increase formatter width to prevent wrapping
         with formatter.indentation():
@@ -496,7 +498,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("       Benchmark configs select their dataset, detector, and ReID profiles.")
             formatter.write_text("          See all options at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
         formatter.write_paragraph()
-        
+
         # Examples
         formatter.write_text("Examples:")
         with formatter.indentation():
@@ -504,17 +506,17 @@ class CommandFirstGroup(click.Group):
             with formatter.indentation():
                 formatter.write_text("boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort --source 0 --show")
             formatter.write_paragraph()
-            
+
             formatter.write_text("2. Track a video file:")
             with formatter.indentation():
                 formatter.write_text("boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save")
             formatter.write_paragraph()
-            
+
             formatter.write_text("3. Evaluate on MOT dataset:")
             with formatter.indentation():
                 formatter.write_text("boxmot eval --benchmark mot17-ablation --tracker boosttrack")
             formatter.write_paragraph()
-            
+
             formatter.write_text("4. Tune tracker hyperparameters:")
             with formatter.indentation():
                 formatter.write_text("boxmot tune --benchmark mot17-ablation --tracker deepocsort --n-trials 10")
@@ -527,12 +529,12 @@ class CommandFirstGroup(click.Group):
                     "--proposal-model openai/gpt-5.4 --max-metric-calls 24"
                 )
             formatter.write_paragraph()
-            
+
             formatter.write_text("6. Export ReID model:")
             with formatter.indentation():
                 formatter.write_text("boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic")
         formatter.write_paragraph()
-        
+
         # Available modes
         formatter.write_text("Modes:")
         with formatter.indentation():
@@ -543,7 +545,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("generate   Generate detections and embeddings")
             formatter.write_text("export     Export ReID models to different formats")
         formatter.write_paragraph()
-        
+
         # Resources
         formatter.write_text("Docs:      https://github.com/mikel-brostrom/boxmot")
         formatter.write_text("Community: https://github.com/mikel-brostrom/boxmot/discussions")
@@ -582,7 +584,7 @@ def track(ctx, detector, reid, classes, **kwargs):
             "split": split,
         }),
     )
-    
+
 @boxmot.command(help='Generate detections and embeddings')
 @data_option
 @source_option(default=BOXMOT_DEFAULTS.generate.source, help_text='direct dataset root to generate dets/embs for without a benchmark config')

@@ -1,3 +1,5 @@
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
+
 import sys
 from types import SimpleNamespace
 
@@ -347,13 +349,18 @@ def test_track_help_lists_current_component_options():
 def test_eval_help_uses_shared_execution_group_without_track_only_output_flags():
     result = CliRunner().invoke(boxmot, ["eval", "--help"])
     assert result.exit_code == 0, result.output
+    option_names = [
+        line.strip().split()[0]
+        for line in result.output.splitlines()
+        if line.strip().startswith("--")
+    ]
     assert "--device TEXT" in result.output
     assert "--tracker TEXT" in result.output
     assert "--show-timing / --hide-timing" in result.output
-    assert "--show" not in result.output
-    assert "--save" not in result.output
-    assert "--save-txt" not in result.output
-    assert "--save-crop" not in result.output
+    assert "--show" not in option_names
+    assert "--save" not in option_names
+    assert "--save-txt" not in option_names
+    assert "--save-crop" not in option_names
 
 
 def test_root_help_lists_research_mode():
