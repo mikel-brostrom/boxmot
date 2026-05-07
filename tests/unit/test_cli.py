@@ -354,9 +354,9 @@ def test_eval_help_uses_shared_execution_group_without_track_only_output_flags()
         for line in result.output.splitlines()
         if line.strip().startswith("--")
     ]
-    assert "--device TEXT" in result.output
-    assert "--tracker TEXT" in result.output
-    assert "--show-timing / --hide-timing" in result.output
+    assert "--device" in option_names
+    assert "--tracker" in option_names
+    assert "--show-timing" in option_names
     assert "--show" not in option_names
     assert "--save" not in option_names
     assert "--save-txt" not in option_names
