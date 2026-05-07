@@ -106,7 +106,9 @@ nav:
   - Guides:
       - Evaluation and Postprocessing: guides/evaluation.md
       - Troubleshooting and FAQ: guides/troubleshooting.md
-  - Native C++: native/index.md
+  - Native C++:
+      - Overview: native/index.md
+      - DeepStream Integration: native/deepstream.md
   - Python API:
       - Overview: python/index.md
       - High-level API: python/high-level.md
