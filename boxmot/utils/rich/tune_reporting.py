@@ -154,6 +154,7 @@ class TuneWorkflowCallback(RichWorkflowCallback):
         self.maximize = list(maximize)
         self.minimize = list(minimize)
         self.completed = 0
+        self._trial_index_offset = 0
         self.trial_durations: list[float] = []
         self.trial_indices: dict[str, int] = {}
         self.active_trials: set[str] = set()
@@ -165,7 +166,7 @@ class TuneWorkflowCallback(RichWorkflowCallback):
     def _trial_index(self, trial: Any) -> int:
         trial_id = self._trial_id(trial)
         if trial_id not in self.trial_indices:
-            self.trial_indices[trial_id] = len(self.trial_indices) + 1
+            self.trial_indices[trial_id] = len(self.trial_indices) + 1 + self._trial_index_offset
         return self.trial_indices[trial_id]
 
     def _running_index(self) -> int | None:
