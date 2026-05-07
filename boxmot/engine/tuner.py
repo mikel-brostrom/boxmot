@@ -38,6 +38,7 @@ from boxmot.utils.rich.tune_reporting import (
     build_tune_workflow_fields,
     combine_tune_result_renderables,
     format_initial_tune_progress,
+    format_tune_progress,
     set_tune_progress_workflow,
 )
 from boxmot.engine.workflow_reporting import (
@@ -681,11 +682,24 @@ def _ray_safe_namespace(args: Any) -> SimpleNamespace:
     return SimpleNamespace(**safe_values)
 
 
-def _resolve_tune_dir(args, *, resume: bool = False) -> Path:
+def _resolve_tune_dir(args, *, resume: str | None = None) -> Path:
     results_dir = Path(args.project).resolve() / "ray"
-    base_dir = results_dir / f"{args.tracker}_tune"
     if resume:
-        return base_dir
+        # Accept an absolute path, a relative path, or just a folder name
+        resume_path = Path(resume)
+        if resume_path.is_absolute():
+            return resume_path
+        # Try as a path relative to the working directory first
+        cwd_candidate = Path(resume).resolve()
+        if cwd_candidate.exists():
+            return cwd_candidate
+        # Try as a folder name under results_dir
+        candidate = results_dir / resume_path.name
+        if candidate.exists():
+            return candidate
+        # Fall back to results_dir / full relative path
+        return (results_dir / resume_path).resolve()
+    base_dir = results_dir / f"{args.tracker}_tune"
     return increment_path(base_dir, sep="_", exist_ok=False)
 
 
@@ -719,6 +733,7 @@ def _execute_tune_search(
 
     from ray import tune
     from ray.tune import RunConfig
+    from ray.tune.search import ConcurrencyLimiter
     from ray.tune.search.optuna import OptunaSearch
 
     _configure_tune_warning_filters()
@@ -732,7 +747,7 @@ def _execute_tune_search(
     args.detector = [Path(y).resolve() for y in args.detector]
     args.reid = [Path(r).resolve() for r in args.reid]
     args.show_progress = False
-    resume_tune = bool(getattr(args, "resume_tune", False))
+    resume_tune = getattr(args, "resume_tune", None) or None
     _ensure_ray_initialized(verbose=bool(getattr(args, "verbose", False)))
     opt_metrics = maximize + minimize
     opt_modes   = ["max"] * len(maximize) + ["min"] * len(minimize)
@@ -752,6 +767,15 @@ def _execute_tune_search(
         optuna_kwargs["points_to_evaluate"] = [baseline_config]
 
     optuna_search = OptunaSearch(**optuna_kwargs)
+
+    # Wrap with ConcurrencyLimiter so Optuna receives results before launching
+    # too many parallel trials — improves Bayesian optimization effectiveness.
+    max_concurrent = int(getattr(args, "max_concurrent_trials", 0)) or None
+    if max_concurrent is None:
+        # Default: allow up to 4 concurrent trials for Optuna to learn effectively
+        import os as _os
+        max_concurrent = min(4, _os.cpu_count() or 4)
+    search_alg = ConcurrencyLimiter(optuna_search, max_concurrent=max_concurrent)
 
     n_threads = int(args.n_threads)
 
@@ -796,11 +820,47 @@ def _execute_tune_search(
 
         trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
 
-        if resume_tune and tune.Tuner.can_restore(restore_path_str):
+        if resume_tune is not None and tune.Tuner.can_restore(restore_path_str):
             tuner = tune.Tuner.restore(
                 restore_path_str,
                 trainable=trainable,
                 resume_errored=True,
+            )
+            # Pre-seed the callback with previously completed trials so the
+            # progress bar reflects the true offset instead of starting at 0.
+            completed_previously = 0
+            try:
+                from ray.tune import ExperimentAnalysis
+                analysis = ExperimentAnalysis(restore_path_str)
+                df = analysis.dataframe()
+                completed_previously = len(df)
+            except Exception:
+                pass
+            if completed_previously == 0:
+                # Fallback: count trial_* subdirectories with a result.json
+                try:
+                    trial_dirs = [
+                        d for d in restore_path.iterdir()
+                        if d.is_dir() and d.name.startswith("trial_")
+                        and (d / "result.json").exists()
+                    ]
+                    completed_previously = len(trial_dirs)
+                except Exception:
+                    pass
+            tune_callback.completed = completed_previously
+            tune_callback._trial_index_offset = completed_previously
+            # Inject our callback into the restored tuner's RunConfig
+            # (the deserialized one starts with stale state).
+            tuner._local_tuner._run_config.callbacks = [tune_callback]
+            tuner._local_tuner._run_config.verbose = 0
+            tuner._local_tuner._run_config.progress_reporter = TuneSilentReporter()
+            # Update the progress display to reflect completed trials immediately
+            pipeline.advance(
+                format_tune_progress(
+                    completed_previously,
+                    int(args.n_trials),
+                    current_trial=completed_previously + 1,
+                ),
             )
         else:
             run_config_kwargs = {
@@ -814,14 +874,33 @@ def _execute_tune_search(
                 run_config_kwargs["verbose"] = 0
             if "progress_reporter" in run_config_signature.parameters:
                 run_config_kwargs["progress_reporter"] = TuneSilentReporter()
+
+            # FailureConfig: tolerate individual trial failures without
+            # aborting the entire experiment (best practice for robustness).
+            from ray.tune import FailureConfig, CheckpointConfig
+            run_config_kwargs["failure_config"] = FailureConfig(
+                max_failures=3,
+            )
+            # CheckpointConfig: limit stored checkpoints to save disk space.
+            run_config_kwargs["checkpoint_config"] = CheckpointConfig(
+                num_to_keep=1,
+            )
+
+            # TuneConfig: set max_concurrent_trials and optional time_budget_s
+            tune_config_kwargs = {
+                "num_samples": args.n_trials,
+                "search_alg": search_alg,
+                "max_concurrent_trials": max_concurrent,
+                "trial_dirname_creator": lambda trial: f"trial_{trial.trial_id}",
+            }
+            time_budget = getattr(args, "time_budget_s", None)
+            if time_budget is not None:
+                tune_config_kwargs["time_budget_s"] = float(time_budget)
+
             tuner = tune.Tuner(
                 trainable,
                 param_space=search_space,
-                tune_config=tune.TuneConfig(
-                    num_samples=args.n_trials,
-                    search_alg=optuna_search,
-                    trial_dirname_creator=lambda trial: f"trial_{trial.trial_id}",
-                ),
+                tune_config=tune.TuneConfig(**tune_config_kwargs),
                 run_config=RunConfig(**run_config_kwargs),
             )
 

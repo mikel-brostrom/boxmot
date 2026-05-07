@@ -105,14 +105,14 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
             self.mode = mode
 
     class _FakeRunConfig:
-        def __init__(self, storage_path, name, callbacks=None, verbose=None):
+        def __init__(self, storage_path, name, callbacks=None, verbose=None, **kwargs):
             self.storage_path = storage_path
             self.name = name
             self.callbacks = callbacks
             self.verbose = verbose
 
     class _FakeTuneConfig:
-        def __init__(self, num_samples, search_alg, trial_dirname_creator):
+        def __init__(self, num_samples, search_alg, trial_dirname_creator, **kwargs):
             self.num_samples = num_samples
             self.search_alg = search_alg
             self.trial_dirname_creator = trial_dirname_creator
@@ -164,9 +164,24 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
 
     import sys
 
+    class _FakeConcurrencyLimiter:
+        def __init__(self, searcher, max_concurrent):
+            self.searcher = searcher
+            self.max_concurrent = max_concurrent
+
+    class _FakeFailureConfig:
+        def __init__(self, **kwargs):
+            pass
+
+    class _FakeCheckpointConfig:
+        def __init__(self, **kwargs):
+            pass
+
     monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
-    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(RunConfig=_FakeRunConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
+        RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune.search", SimpleNamespace(ConcurrencyLimiter=_FakeConcurrencyLimiter))
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
     args = SimpleNamespace(
@@ -252,14 +267,14 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
             self.mode = mode
 
     class _FakeRunConfig:
-        def __init__(self, storage_path, name, callbacks=None, verbose=None):
+        def __init__(self, storage_path, name, callbacks=None, verbose=None, **kwargs):
             self.storage_path = storage_path
             self.name = name
             self.callbacks = callbacks
             self.verbose = verbose
 
     class _FakeTuneConfig:
-        def __init__(self, num_samples, search_alg, trial_dirname_creator):
+        def __init__(self, num_samples, search_alg, trial_dirname_creator, **kwargs):
             self.num_samples = num_samples
             self.search_alg = search_alg
             self.trial_dirname_creator = trial_dirname_creator
@@ -305,9 +320,24 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
 
     import sys
 
+    class _FakeConcurrencyLimiter:
+        def __init__(self, searcher, max_concurrent):
+            self.searcher = searcher
+            self.max_concurrent = max_concurrent
+
+    class _FakeFailureConfig:
+        def __init__(self, **kwargs):
+            pass
+
+    class _FakeCheckpointConfig:
+        def __init__(self, **kwargs):
+            pass
+
     monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
-    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(RunConfig=_FakeRunConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
+        RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune.search", SimpleNamespace(ConcurrencyLimiter=_FakeConcurrencyLimiter))
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
     args = SimpleNamespace(
@@ -418,14 +448,14 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
             self.mode = mode
 
     class _FakeRunConfig:
-        def __init__(self, storage_path, name, callbacks=None, verbose=None):
+        def __init__(self, storage_path, name, callbacks=None, verbose=None, **kwargs):
             self.storage_path = storage_path
             self.name = name
             self.callbacks = callbacks
             self.verbose = verbose
 
     class _FakeTuneConfig:
-        def __init__(self, num_samples, search_alg, trial_dirname_creator):
+        def __init__(self, num_samples, search_alg, trial_dirname_creator, **kwargs):
             self.num_samples = num_samples
             self.search_alg = search_alg
             self.trial_dirname_creator = trial_dirname_creator
@@ -461,9 +491,24 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
 
     import sys
 
+    class _FakeConcurrencyLimiter:
+        def __init__(self, searcher, max_concurrent):
+            self.searcher = searcher
+            self.max_concurrent = max_concurrent
+
+    class _FakeFailureConfig:
+        def __init__(self, **kwargs):
+            pass
+
+    class _FakeCheckpointConfig:
+        def __init__(self, **kwargs):
+            pass
+
     monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
-    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(RunConfig=_FakeRunConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
+        RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune.search", SimpleNamespace(ConcurrencyLimiter=_FakeConcurrencyLimiter))
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
     args = SimpleNamespace(
@@ -478,7 +523,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
         n_trials=3,
         project=Path("runs"),
         verbose=False,
-        resume_tune=True,
+        resume_tune="strongsort_tune",
     )
 
     tuner_module.main(args)
@@ -535,14 +580,14 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
             captured["optuna_kwargs"] = kwargs
 
     class _FakeRunConfig:
-        def __init__(self, storage_path, name, callbacks=None, verbose=None):
+        def __init__(self, storage_path, name, callbacks=None, verbose=None, **kwargs):
             self.storage_path = storage_path
             self.name = name
             self.callbacks = callbacks
             self.verbose = verbose
 
     class _FakeTuneConfig:
-        def __init__(self, num_samples, search_alg, trial_dirname_creator):
+        def __init__(self, num_samples, search_alg, trial_dirname_creator, **kwargs):
             self.num_samples = num_samples
             self.search_alg = search_alg
             self.trial_dirname_creator = trial_dirname_creator
@@ -575,9 +620,24 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
 
     import sys
 
+    class _FakeConcurrencyLimiter:
+        def __init__(self, searcher, max_concurrent):
+            self.searcher = searcher
+            self.max_concurrent = max_concurrent
+
+    class _FakeFailureConfig:
+        def __init__(self, **kwargs):
+            pass
+
+    class _FakeCheckpointConfig:
+        def __init__(self, **kwargs):
+            pass
+
     monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
-    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(RunConfig=_FakeRunConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
+        RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune.search", SimpleNamespace(ConcurrencyLimiter=_FakeConcurrencyLimiter))
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
     args = SimpleNamespace(
@@ -739,7 +799,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
             captured["optuna_kwargs"] = kwargs
 
     class _FakeRunConfig:
-        def __init__(self, storage_path, name, callbacks=None, verbose=None, progress_reporter=None):
+        def __init__(self, storage_path, name, callbacks=None, verbose=None, progress_reporter=None, **kwargs):
             self.storage_path = storage_path
             self.name = name
             self.callbacks = callbacks
@@ -747,7 +807,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
             self.progress_reporter = progress_reporter
 
     class _FakeTuneConfig:
-        def __init__(self, num_samples, search_alg, trial_dirname_creator):
+        def __init__(self, num_samples, search_alg, trial_dirname_creator, **kwargs):
             self.num_samples = num_samples
             self.search_alg = search_alg
             self.trial_dirname_creator = trial_dirname_creator
@@ -782,9 +842,24 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
 
     import sys
 
+    class _FakeConcurrencyLimiter:
+        def __init__(self, searcher, max_concurrent):
+            self.searcher = searcher
+            self.max_concurrent = max_concurrent
+
+    class _FakeFailureConfig:
+        def __init__(self, **kwargs):
+            pass
+
+    class _FakeCheckpointConfig:
+        def __init__(self, **kwargs):
+            pass
+
     monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
-    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(RunConfig=_FakeRunConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
+        RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
+    monkeypatch.setitem(sys.modules, "ray.tune.search", SimpleNamespace(ConcurrencyLimiter=_FakeConcurrencyLimiter))
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
     args = SimpleNamespace(

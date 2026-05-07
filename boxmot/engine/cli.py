@@ -397,6 +397,15 @@ def tune_options(func):
     options = [
         click.option('--n-trials', type=int, default=TUNE_DEFAULTS.n_trials,
                      help='number of trials for evolutionary tuning'),
+        click.option('--max-concurrent-trials', type=int, default=0,
+                     help='max concurrent trials (0 = auto, defaults to min(4, cpu_count)); '
+                          'controls parallelism and improves Bayesian search effectiveness'),
+        click.option('--time-budget-s', type=float, default=None,
+                     help='optional time budget in seconds for the entire tuning run; '
+                          'Tune stops launching new trials after this time'),
+        click.option('--resume-tune', type=str, default=None,
+                     help='resume a Ray Tune experiment; pass a folder name (e.g. deepocsort_tune_3) '
+                          'or full path under runs/ray/. Retries errored trials and continues remaining ones.'),
         click.option('--objectives', type=str, multiple=True,
                      default=TUNE_DEFAULTS.objectives,
                      help='metrics to track and return from each trial; accepts repeated, comma-separated, or space-separated values'),
