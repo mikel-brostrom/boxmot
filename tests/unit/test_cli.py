@@ -346,7 +346,7 @@ def test_track_help_lists_current_component_options():
     assert "--save-crop" in result.output
 
 
-def test_eval_help_uses_shared_execution_group_without_track_only_output_flags():
+def test_eval_help_includes_execution_options_excludes_track_output_options():
     result = CliRunner().invoke(boxmot, ["eval", "--help"])
     assert result.exit_code == 0, result.output
     option_names = [

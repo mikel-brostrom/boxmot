@@ -88,7 +88,7 @@ def _normalize_tune_metric_cli_args(args: list[str]) -> list[str]:
     return prefix + normalized
 
 
-# Shared execution-mode options (excluding model, classes, input selection, and track-only output controls)
+# Shared execution options (excluding model, classes, input selection, and track-only output controls)
 def execution_options(func):
     options = [
         click.option('--imgsz', callback=parse_imgsz, default=_click_imgsz_default(RUNTIME_DEFAULTS.imgsz), type=str,
