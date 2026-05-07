@@ -86,8 +86,8 @@ def _normalize_tune_metric_cli_args(args: list[str]) -> list[str]:
     return prefix + normalized
 
 
-# Shared command options (excluding model, classes, and input selection)
-def core_options(func):
+# Shared execution-mode options (excluding model, classes, input selection, and track-only output controls)
+def shared_execution_options(func):
     options = [
         click.option('--imgsz', callback=parse_imgsz, default=_click_imgsz_default(RUNTIME_DEFAULTS.imgsz), type=str,
                      help='Image size for model input as H,W (e.g. 800,1440) or single int for square. Default: read from the selected detector config, otherwise use detector-specific defaults.'),
@@ -130,6 +130,14 @@ def core_options(func):
             "--postprocessing", type=click.Choice(["none", "gsi", "gbrc"], case_sensitive=False), default=RUNTIME_DEFAULTS.postprocessing,
             help="Postprocess tracker output: none | gsi (Gaussian smoothed interpolation) | gbrc (gradient boosting smooth).",
         ),
+    ]
+    for opt in reversed(options):
+        func = opt(func)
+    return func
+
+
+def track_output_options(func):
+    options = [
         click.option('--show', is_flag=True, default=RUNTIME_DEFAULTS.show,
                      help='display tracking in a window'),
         click.option('--show-labels/--hide-labels', default=RUNTIME_DEFAULTS.show_labels,
@@ -150,8 +158,8 @@ def core_options(func):
                      help='bounding box line width'),
         click.option('--per-class', is_flag=True, default=RUNTIME_DEFAULTS.per_class,
                      help='track each class separately'),
-        click.option('--target-id', type=int, default=RUNTIME_DEFAULTS.target_id,
-                     help='ID to highlight in green')
+         click.option('--target-id', type=int, default=RUNTIME_DEFAULTS.target_id,
+                      help='ID to highlight in green')
     ]
     for opt in reversed(options):
         func = opt(func)
@@ -554,7 +562,8 @@ def boxmot(ctx):
 @boxmot.command(help='Run tracking only')
 @source_option(default=TRACK_DEFAULTS.source, help_text='file/dir/URL/glob, 0 for webcam')
 @tracker_backend_option
-@core_options
+@shared_execution_options
+@track_output_options
 @singular_model_options
 @click.pass_context
 def track(ctx, detector, reid, classes, **kwargs):
@@ -577,7 +586,7 @@ def track(ctx, detector, reid, classes, **kwargs):
 @boxmot.command(help='Generate detections and embeddings')
 @data_option
 @source_option(default=BOXMOT_DEFAULTS.generate.source, help_text='direct dataset root to generate dets/embs for without a benchmark config')
-@core_options
+@shared_execution_options
 @plural_model_options
 @click.pass_context
 def generate(ctx, data, detector, reid, classes, **kwargs):
@@ -605,7 +614,7 @@ def generate(ctx, data, detector, reid, classes, **kwargs):
 @data_option
 @replay_backend_option
 @tracker_backend_option
-@core_options
+@shared_execution_options
 @plural_model_options
 @click.pass_context
 def eval(ctx, data, detector, reid, classes, **kwargs):
@@ -631,7 +640,7 @@ def eval(ctx, data, detector, reid, classes, **kwargs):
 @data_option
 @replay_backend_option
 @tracker_backend_option
-@core_options
+@shared_execution_options
 @tune_options
 @plural_model_options
 @click.pass_context
@@ -658,7 +667,7 @@ def tune(ctx, data, detector, reid, classes, **kwargs):
 @data_option
 @replay_backend_option
 @tracker_backend_option
-@core_options
+@shared_execution_options
 @research_options
 @plural_model_options
 @click.pass_context

@@ -344,6 +344,18 @@ def test_track_help_lists_current_component_options():
     assert "--save-crop" in result.output
 
 
+def test_eval_help_uses_shared_execution_group_without_track_only_output_flags():
+    result = CliRunner().invoke(boxmot, ["eval", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--device TEXT" in result.output
+    assert "--tracker TEXT" in result.output
+    assert "--show-timing / --hide-timing" in result.output
+    assert "--show" not in result.output
+    assert "--save" not in result.output
+    assert "--save-txt" not in result.output
+    assert "--save-crop" not in result.output
+
+
 def test_root_help_lists_research_mode():
     result = CliRunner().invoke(boxmot, ["--help"])
     assert result.exit_code == 0, result.output
