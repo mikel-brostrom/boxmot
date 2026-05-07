@@ -148,8 +148,8 @@ def track_output_options(func):
                      help='show or hide detection confidences'),
         click.option('--show-trajectories', is_flag=True, default=RUNTIME_DEFAULTS.show_trajectories,
                      help='overlay past trajectories'),
-           click.option('--show-kf-preds', 'show_kf_preds', is_flag=True, default=RUNTIME_DEFAULTS.show_kf_preds,
-               help='show Kalman-filter predictions'),
+        click.option('--show-kf-preds', 'show_kf_preds', is_flag=True, default=RUNTIME_DEFAULTS.show_kf_preds,
+                     help='show Kalman-filter predictions'),
         click.option('--save-txt', is_flag=True, default=RUNTIME_DEFAULTS.save_txt,
                      help='save results to a .txt file'),
         click.option('--save-crop', is_flag=True, default=RUNTIME_DEFAULTS.save_crop,
@@ -160,8 +160,8 @@ def track_output_options(func):
                      help='bounding box line width'),
         click.option('--per-class', is_flag=True, default=RUNTIME_DEFAULTS.per_class,
                      help='track each class separately'),
-         click.option('--target-id', type=int, default=RUNTIME_DEFAULTS.target_id,
-                      help='ID to highlight in green')
+        click.option('--target-id', type=int, default=RUNTIME_DEFAULTS.target_id,
+                     help='ID to highlight in green')
     ]
     for opt in reversed(options):
         func = opt(func)
