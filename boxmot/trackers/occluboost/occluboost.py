@@ -33,6 +33,7 @@ from typing import Any, Optional
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from boxmot.postprocessing.gta import OnlineGTA
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.boosttrack.assoc import associate, iou_batch
 from boxmot.trackers.boosttrack.boosttrack import BoostTrack, KalmanBoxTracker
@@ -103,6 +104,21 @@ class OccluBoost(BoostTrack):
         ams_threshold: float = 0.5,
         ams_buffer_size: int = 30,
         ams_shrink_ratio: float = 0.75,
+        # ---- Online GTA (Global Tracklet Association) ----
+        gta_enabled: bool = False,
+        gta_splitter_enabled: bool = True,
+        gta_splitter_interval: int = 10,
+        gta_splitter_eps: float = 0.6,
+        gta_splitter_min_samples: int = 5,
+        gta_splitter_max_clusters: int = 3,
+        gta_splitter_window: int = 30,
+        gta_connector_enabled: bool = True,
+        gta_connector_gallery_ttl: int = 150,
+        gta_connector_gallery_max: int = 200,
+        gta_connector_match_thresh: float = 0.4,
+        gta_connector_spatial_factor: float = 0.5,
+        gta_connector_min_tracklet_len: int = 5,
+        gta_connector_max_young_age: int = 8,
         **kwargs: Any,
     ):
         super().__init__(reid_model=reid_model, **kwargs)
@@ -149,6 +165,25 @@ class OccluBoost(BoostTrack):
         self.ams_threshold = float(max(ams_threshold, 0.0))
         self.ams_buffer_size = int(max(ams_buffer_size, 2))
         self.ams_shrink_ratio = float(np.clip(ams_shrink_ratio, 0.0, 1.0))
+        # ---- Online GTA ----
+        self.gta_enabled = gta_enabled
+        self._gta: OnlineGTA | None = None
+        if self.gta_enabled:
+            self._gta = OnlineGTA(
+                splitter_enabled=gta_splitter_enabled,
+                splitter_interval=gta_splitter_interval,
+                splitter_eps=gta_splitter_eps,
+                splitter_min_samples=gta_splitter_min_samples,
+                splitter_max_clusters=gta_splitter_max_clusters,
+                splitter_window=gta_splitter_window,
+                connector_enabled=gta_connector_enabled,
+                connector_gallery_ttl=gta_connector_gallery_ttl,
+                connector_gallery_max=gta_connector_gallery_max,
+                connector_match_thresh=gta_connector_match_thresh,
+                connector_spatial_factor=gta_connector_spatial_factor,
+                connector_min_tracklet_len=gta_connector_min_tracklet_len,
+                connector_max_young_age=gta_connector_max_young_age,
+            )
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
@@ -407,6 +442,7 @@ class OccluBoost(BoostTrack):
         # Lifecycle: confirmed tracks live up to ``max_age`` frames; tentative
         # tracks are dropped after ``tentative_max_age`` to prevent ghost IDs
         # from spurious detections, mirroring BotSort's ``unconfirmed`` pool.
+        all_trackers_before = list(self.trackers)
         self.trackers = [
             trk
             for trk in self.trackers
@@ -417,10 +453,57 @@ class OccluBoost(BoostTrack):
             )
         ]
 
+        # ---- Online GTA refinement ----
+        if self._gta is not None and len(outputs) > 0:
+            kept_ids = {trk.id for trk in self.trackers}
+            lost_tracks = [
+                trk for trk in all_trackers_before
+                if trk.id not in kept_ids
+            ]
+            outputs_arr = np.vstack(outputs)
+            outputs_arr = self._apply_gta(
+                outputs_arr, lost_tracks, (self.h, self.w)
+            )
+            return self.filter_outputs(outputs_arr)
+
         if len(outputs) == 0:
             return np.empty((0, 8))
         outputs = np.vstack(outputs)
         return self.filter_outputs(outputs)
+
+    def _apply_gta(
+        self,
+        outputs: np.ndarray,
+        lost_tracks: list,
+        frame_shape: tuple[int, int],
+    ) -> np.ndarray:
+        """Run OnlineGTA refinement and propagate ID remaps to track objects."""
+        outputs = self._gta.refine(
+            tracks=outputs,
+            active_tracks=self.active_tracks,
+            lost_tracks=lost_tracks,
+            frame_shape=frame_shape,
+        )
+        # Propagate connector ID remaps back to KalmanBoxTracker objects
+        if self._gta.id_remap:
+            trk_by_id = {trk.id: trk for trk in self.trackers}
+            for new_id, old_id in self._gta.id_remap.items():
+                if new_id in trk_by_id:
+                    trk_by_id[new_id].id = old_id
+            self._gta.clear_remap()
+        # Handle splitter flags: assign new IDs to flagged tracks
+        if self._gta.split_ids:
+            for trk in self.trackers:
+                if trk.id in self._gta.split_ids:
+                    old_id = trk.id
+                    trk.id = KalmanBoxTracker.count
+                    KalmanBoxTracker.count += 1
+                    # Update the output array
+                    id_col = 4 if outputs.shape[1] == 8 else 5
+                    mask = outputs[:, id_col].astype(int) == old_id
+                    outputs[mask, id_col] = trk.id
+            self._gta.clear_split_flags()
+        return outputs
 
     def _maybe_activate(self, trk: KalmanBoxTracker) -> None:
         """Promote a tentative track to activated once it accumulates enough
@@ -882,6 +965,7 @@ class OccluBoost(BoostTrack):
             self.active_tracks.append(trk)
 
         # Lifecycle
+        all_trackers_before = list(self.trackers)
         self.trackers = [
             trk
             for trk in self.trackers
@@ -891,6 +975,19 @@ class OccluBoost(BoostTrack):
                 or trk.time_since_update <= self.tentative_max_age
             )
         ]
+
+        # ---- Online GTA refinement (OBB) ----
+        if self._gta is not None and len(outputs) > 0:
+            kept_ids = {trk.id for trk in self.trackers}
+            lost_tracks = [
+                trk for trk in all_trackers_before
+                if trk.id not in kept_ids
+            ]
+            outputs_arr = np.vstack(outputs)
+            outputs_arr = self._apply_gta(
+                outputs_arr, lost_tracks, (self.h, self.w)
+            )
+            return outputs_arr
 
         if len(outputs) == 0:
             return self.empty_output(dtype=np.float32)
