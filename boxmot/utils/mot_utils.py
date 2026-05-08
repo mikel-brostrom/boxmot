@@ -66,18 +66,20 @@ def xywha_to_corners(boxes: np.ndarray) -> np.ndarray:
     return flattened[0] if single else flattened
 
 
-def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path, str]:
+def split_dataset(src_fldr: Path) -> Tuple[Path, str]:
     """
-    Copies the dataset to a new location and removes a specified percentage of images and annotations,
-    adjusting the frame index to start at 1. Works for MOT17, MOT20, etc.
+    Copies the dataset and keeps only the validation half, matching ByteTrack's split:
+        train_half: [0, num_images // 2]        (0-indexed, discarded)
+        val_half:   [num_images // 2 + 1, num_images - 1]  (0-indexed, kept)
+
+    Updates img1/, gt/gt.txt, det/det.txt, and seqinfo.ini for each sequence.
 
     Args:
         src_fldr (Path): Source folder (e.g. /…/MOT20/train or /…/MOT20/test)
-        percent_to_delete (float): Fraction of the frames to drop (0.5 → drop 50%)
 
     Returns:
-        dst_fldr (Path): The root of the new, smaller split (e.g. …/MOT20-50/train)
-        new_benchmark_name (str): e.g. "MOT20-50"
+        dst_fldr (Path): The root of the new val-half split (e.g. …/MOT20-ablation/train)
+        new_benchmark_name (str): e.g. "MOT20-ablation"
     """
     src_fldr = Path(src_fldr)
 
@@ -110,10 +112,12 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path,
             LOGGER.warning(f"Skipping `{seq_path}` – no gt.txt found")
             continue
 
-        # load and compute split point
+        # ByteTrack split: train_half = [0, N//2], val_half = [N//2+1, N-1] (0-indexed)
+        # In 1-indexed frames: split_frame = N//2 + 1, keep frames > split_frame
         df = pd.read_csv(gt_path, header=None)
         max_frame = int(df[0].max())
-        split_frame = int(max_frame * (1 - percent_to_delete))
+        split_frame = max_frame // 2 + 1
+        val_length = max_frame - split_frame
 
         if split_frame >= max_frame:
             LOGGER.info(f"`{seq_path}` already ≤ split size, skipping.")
@@ -121,10 +125,18 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path,
 
         LOGGER.info(f"{seq_path.name}: keeping frames {split_frame+1}-{max_frame}")
 
-        # filter and re‐index gt
+        # filter and re-index gt
         df = df[df[0] > split_frame].copy()
         df[0] = df[0] - split_frame
         df.to_csv(gt_path, header=False, index=False)
+
+        # filter and re-index det
+        det_path = seq_path / "det" / "det.txt"
+        if det_path.exists():
+            det_df = pd.read_csv(det_path, header=None)
+            det_df = det_df[det_df[0] > split_frame].copy()
+            det_df[0] = det_df[0] - split_frame
+            det_df.to_csv(det_path, header=False, index=False)
 
         # delete early images
         img_folder = seq_path / "img1"
@@ -137,7 +149,14 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path,
         for idx, img in enumerate(remaining, start=1):
             img.rename(img_folder / f"{idx:06}.jpg")
 
-        LOGGER.info(f"{seq_path.name}: now {len(remaining)} images")
+        # update seqinfo.ini
+        ini_path = seq_path / "seqinfo.ini"
+        if ini_path.exists():
+            text = ini_path.read_text()
+            text = re.sub(r"seqLength=\d+", f"seqLength={val_length}", text)
+            ini_path.write_text(text)
+
+        LOGGER.info(f"{seq_path.name}: now {val_length} images")
 
     return dst_fldr, new_benchmark_name
 
