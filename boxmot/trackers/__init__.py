@@ -7,6 +7,7 @@ from boxmot.trackers.occluboost.occluboost import OccluBoost
 from boxmot.trackers.ocsort.ocsort import OcSort
 from boxmot.trackers.sfsort.sfsort import SFSORT
 from boxmot.trackers.strongsort.strongsort import StrongSort
+from boxmot.trackers.track_results import TrackResults
 
 __all__ = (
     "BoostTrack",
@@ -18,4 +19,5 @@ __all__ = (
     "OcSort",
     "SFSORT",
     "StrongSort",
+    "TrackResults",
 )

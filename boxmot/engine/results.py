@@ -10,6 +10,7 @@ import numpy as np
 
 from boxmot.data import iter_source
 from boxmot.detectors.base import Detections
+from boxmot.trackers.track_results import TrackResults
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
 from boxmot.utils.rich.ui import print_text
@@ -41,21 +42,50 @@ def _is_live_source(source: Any) -> bool:
     return False
 
 
-class Tracks:
+class FrameResult:
+    """Per-frame tracking result container.
+
+    Bundles the source frame with its TrackResults (returned by the tracker)
+    and adds visualization and frame-aware export.  Track data is accessed
+    directly via ``self.tracks`` (a TrackResults instance with .id, .conf,
+    .cls, .xyxy, .xywha, etc.).
+
+    Attributes:
+        frame_idx (int): 1-based frame index.
+        frame (np.ndarray): The source frame (HxWxC BGR).
+        tracks (TrackResults): Track output array with named accessors.
+        detections (np.ndarray | None): Raw detector output for this frame.
+        embeddings (np.ndarray | None): ReID embeddings (N, D) for detections, if available.
+        source_path (str): Path of the source file/stream.
+
+    Methods:
+        plot: Render tracks on the frame and return the annotated image.
+        show: Display the annotated frame in a window.
+        save: Save the annotated frame to disk.
+        save_txt: Append tracks in MOT format to a text file.
+        save_csv: Append tracks in CSV format to a file.
+        summary: Return tracks as a list of dicts.
+        to_json: Return tracks as a JSON string.
+        to_csv: Return tracks as a CSV string.
+        verbose: Return a human-readable summary string.
+    """
+
     def __init__(
         self,
         frame_idx: int,
         frame: np.ndarray,
-        tracks: np.ndarray,
+        tracks: TrackResults | np.ndarray,
         detections: np.ndarray | None,
         source_path: str,
         get_drawer: Callable[[], Drawer | None],
         stop_session: Callable[[str | None], None] | None = None,
+        embeddings: np.ndarray | None = None,
     ) -> None:
         self.frame_idx = int(frame_idx)
         self.frame = frame
-        self.tracks = self._as_2d_array(tracks)
+        self.tracks = tracks if isinstance(tracks, TrackResults) else TrackResults(tracks)
         self.detections = None if detections is None else self._as_2d_array(detections)
+        self.embeddings = embeddings
         self.source_path = source_path
         self._get_drawer = get_drawer
         self._stop_session = stop_session
@@ -70,29 +100,38 @@ class Tracks:
             return arr.reshape(1, -1)
         return arr
 
+    # ------------------------------------------------------------------
+    # Convenience
+    # ------------------------------------------------------------------
+
     @property
     def num_tracks(self) -> int:
+        """Number of active tracks in this frame."""
         return int(self.tracks.shape[0])
+
+    def __len__(self) -> int:
+        return self.num_tracks
+
+    # ------------------------------------------------------------------
+    # Visualization
+    # ------------------------------------------------------------------
 
     def _default_draw(self, frame: np.ndarray) -> np.ndarray:
         drawn = frame.copy()
         if self.tracks.size == 0:
             return drawn
 
-        is_obb = self.tracks.shape[1] >= 9
-        for track in self.tracks:
-            if is_obb:
-                cx, cy, width, height, angle = track[:5]
-                track_id = int(track[5])
-                conf = float(track[6])
+        for i in range(len(self.tracks)):
+            track_id = int(self.tracks.id[i])
+            conf = float(self.tracks.conf[i])
+            if self.tracks.is_obb:
+                cx, cy, width, height, angle = self.tracks.xywha[i]
                 rect = ((float(cx), float(cy)), (max(float(width), 1.0), max(float(height), 1.0)), float(np.degrees(angle)))
                 corners = cv2.boxPoints(rect).astype(np.int32)
                 cv2.polylines(drawn, [corners], True, _track_color(track_id), 2)
                 label_point = tuple(corners[0])
             else:
-                x1, y1, x2, y2 = track[:4].round().astype(int)
-                track_id = int(track[4])
-                conf = float(track[5])
+                x1, y1, x2, y2 = self.tracks.xyxy[i].round().astype(int)
                 cv2.rectangle(drawn, (x1, y1), (x2, y2), _track_color(track_id), 2)
                 label_point = (x1, max(0, y1 - 6))
 
@@ -109,26 +148,82 @@ class Tracks:
 
         return drawn
 
-    def render(self) -> np.ndarray:
+    def plot(self) -> np.ndarray:
+        """Plot tracks on the frame and return the annotated image."""
         drawer = self._get_drawer()
         if drawer is not None:
             return drawer(self.frame.copy(), self.tracks)
         return self._default_draw(self.frame)
 
+    def render(self) -> np.ndarray:
+        """Alias for plot()."""
+        return self.plot()
+
     def show(self, window_name: str = "Tracking") -> bool:
-        cv2.imshow(window_name, self.render())
+        """Display the annotated frame. Returns False if user pressed 'q'."""
+        cv2.imshow(window_name, self.plot())
         key = cv2.waitKey(1) & 0xFF
         should_continue = key not in (ord("q"), 27)
         if not should_continue and self._stop_session is not None:
             self._stop_session("Tracking stopped by user.")
         return should_continue
 
+    def save(self, filename: str | Path | None = None) -> str:
+        """Save annotated frame to disk.
+
+        Args:
+            filename: Output path. Defaults to 'result_<frame_idx>.jpg'.
+
+        Returns:
+            str: Path where the image was saved.
+        """
+        if filename is None:
+            filename = f"result_{self.frame_idx:06d}.jpg"
+        path = Path(filename)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(path), self.plot())
+        return str(path)
+
+    # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
+
     def to_mot(self) -> np.ndarray:
+        """Convert tracks to MOT challenge format array."""
         if self.tracks.size == 0:
             return np.empty((0, 0), dtype=np.float32)
-        if self.tracks.shape[1] >= 9:
+        if self.tracks.is_obb:
             return convert_to_mmot_obb_format(self.tracks, self.frame_idx)
         return convert_to_mot_format(self.tracks, self.frame_idx)
+
+    def save_txt(self, path: str | Path) -> None:
+        """Append tracks in MOT challenge format to a text file."""
+        self.tracks.save_mot(path, frame_id=self.frame_idx)
+
+    def save_csv(self, path: str | Path, header: bool = True) -> None:
+        """Append tracks in CSV format to a file."""
+        self.tracks.save_csv(path, frame_id=self.frame_idx, header=header)
+
+    def to_csv(self) -> str:
+        """Return tracks as a CSV-formatted string."""
+        return self.tracks.to_csv(frame_id=self.frame_idx)
+
+    def to_json(self, indent: int | None = None) -> str:
+        """Return tracks as a JSON string."""
+        return self.tracks.to_json(indent=indent)
+
+    def summary(self) -> list[dict[str, Any]]:
+        """Return tracks as a list of dictionaries."""
+        return self.tracks.summary()
+
+    def verbose(self) -> str:
+        """Return a human-readable summary string for this frame."""
+        n = self.num_tracks
+        if n == 0:
+            return f"Frame {self.frame_idx}: (no tracks)"
+        ids = ", ".join(str(i) for i in self.tracks.id[:5])
+        suffix = f", ... ({n} total)" if n > 5 else ""
+        return f"Frame {self.frame_idx}: {n} tracks [IDs: {ids}{suffix}]"
 
     def __str__(self) -> str:
         rows = self.to_mot()
@@ -143,6 +238,9 @@ class Tracks:
         else:
             np.savetxt(buffer, rows, fmt="%g", delimiter=",")
         return buffer.getvalue()
+
+    def __repr__(self) -> str:
+        return f"Tracks(frame={self.frame_idx}, n={self.num_tracks}, obb={self.tracks.is_obb})"
 
 
 class Results:
@@ -168,9 +266,7 @@ class Results:
         self.verbose = bool(verbose)
         self.drawer = drawer
         self._progress_callback = progress_callback
-        self._generator: Iterator[Tracks] | None = None
-        self._cache: list[Tracks] = []
-        self._cache_results = not _is_live_source(source)
+        self._generator: Iterator[FrameResult] | None = None
         self._exhausted = False
         self._interrupted = False
         self._track_ids_seen: set[int] = set()
@@ -192,22 +288,19 @@ class Results:
 
     def __iter__(self):
         if self._exhausted:
-            return iter(self._cache)
+            return iter([])
         if self._generator is None:
             self._generator = self._process()
         return self
 
-    def __next__(self) -> Tracks:
+    def __next__(self) -> FrameResult:
         if self._generator is None:
             self._generator = self._process()
         try:
-            result = next(self._generator)
+            return next(self._generator)
         except StopIteration:
             self._exhausted = True
             raise
-        if self._cache_results:
-            self._cache.append(result)
-        return result
 
     @staticmethod
     def _as_2d_array(values: Any, empty_cols: int = 0) -> np.ndarray:
@@ -371,25 +464,23 @@ class Results:
         self._add_reid_phase_time("process", reid_ms)
         return features, reid_ms
 
-    def _run_tracker(self, dets: np.ndarray, frame: np.ndarray, features: np.ndarray | None) -> np.ndarray:
+    def _run_tracker(self, dets: np.ndarray, frame: np.ndarray, features: np.ndarray | None) -> TrackResults:
         if features is None:
-            return self._as_2d_array(self.tracker.update(dets, frame), empty_cols=8)
-        try:
-            tracks = self.tracker.update(dets, frame, features)
-        except TypeError:
-            tracks = self.tracker.update(dets, frame)
-        return self._as_2d_array(tracks, empty_cols=8)
+            result = self.tracker.update(dets, frame)
+        else:
+            try:
+                result = self.tracker.update(dets, frame, features)
+            except TypeError:
+                result = self.tracker.update(dets, frame)
+        if isinstance(result, TrackResults):
+            return result
+        return TrackResults(result)
 
     @staticmethod
-    def _extract_track_ids(tracks: np.ndarray) -> set[int]:
-        arr = np.asarray(tracks, dtype=np.float32)
-        if arr.size == 0 or arr.ndim != 2:
+    def _extract_track_ids(tracks: TrackResults) -> set[int]:
+        if tracks.size == 0 or tracks.ndim != 2:
             return set()
-        if arr.shape[1] >= 9:
-            return {int(track_id) for track_id in arr[:, 5].tolist()}
-        if arr.shape[1] >= 8:
-            return {int(track_id) for track_id in arr[:, 4].tolist()}
-        return set()
+        return {int(tid) for tid in tracks.id.tolist()}
 
     def _summary_snapshot(self) -> dict[str, Any]:
         frames = int(self.totals["frames"])
@@ -514,7 +605,7 @@ class Results:
                 if self.verbose or self._progress_callback is not None:
                     self._log_frame_timings(frame_idx, det_ms, reid_ms, track_ms)
 
-                yield Tracks(
+                yield FrameResult(
                     frame_idx=frame_idx,
                     frame=frame,
                     tracks=tracks,
@@ -522,6 +613,7 @@ class Results:
                     source_path=path,
                     get_drawer=lambda: self.drawer,
                     stop_session=self.stop,
+                    embeddings=features,
                 )
         except KeyboardInterrupt:
             self._interrupted = True
@@ -535,26 +627,46 @@ class Results:
             if self.verbose:
                 self._log_summary()
 
-    def materialize(self) -> list[Tracks]:
-        while not self._exhausted:
-            try:
-                next(self)
-            except StopIteration:
-                break
-        return self._cache
-
     def save(self, output_path: str | Path) -> Path:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             path.unlink()
-        for track_result in self.materialize():
-            write_mot_results(path, track_result.to_mot())
+        for frame_result in self:
+            write_mot_results(path, frame_result.to_mot())
+        return path
+
+    def save_vid(self, output_path: str | Path, fps: float = 30.0) -> Path:
+        """Save annotated tracking video to disk (streaming, not buffered).
+
+        Args:
+            output_path: Output .mp4 path.
+            fps: Frames per second for the output video.
+
+        Returns:
+            Path: The written video path.
+        """
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        writer: cv2.VideoWriter | None = None
+        try:
+            for frame_result in self:
+                rendered = frame_result.plot()
+                if writer is None:
+                    height, width = rendered.shape[:2]
+                    writer = cv2.VideoWriter(
+                        str(path),
+                        cv2.VideoWriter_fourcc(*"mp4v"),
+                        fps,
+                        (width, height),
+                    )
+                writer.write(rendered)
+        finally:
+            if writer is not None:
+                writer.release()
         return path
 
     def summary(self) -> dict[str, Any]:
-        if not self._exhausted and not self._interrupted and not _is_live_source(self.source):
-            self.materialize()
         return self._summary_snapshot()
 
     def show(self) -> None:

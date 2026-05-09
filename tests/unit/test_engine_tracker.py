@@ -13,11 +13,8 @@ def test_tracking_session_consumes_finite_track_runs_without_show_or_save(monkey
     events = []
 
     class _FakeResults:
-        def __init__(self):
-            self._cache_results = True
-
         def __iter__(self):
-            events.append(("iter", self._cache_results))
+            events.append(("iter", None))
 
             def _gen():
                 yield object()
@@ -66,7 +63,7 @@ def test_tracking_session_consumes_finite_track_runs_without_show_or_save(monkey
 
     session.run()
 
-    assert ("iter", False) in events
+    assert ("iter", None) in events
     assert ("refresh", None) in events
     assert ("show", None) not in events
 

@@ -6,11 +6,14 @@ from typing import Any
 
 import numpy as np
 
+import cv2
+
 from boxmot.configs import get_mode_default
 from boxmot.engine.results import Results
 from boxmot.engine.workflow_results import TrackRunResult
+from boxmot.trackers.track_results import TrackResults
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
-from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format
+from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
 from boxmot.utils.rich.reporting import primary_model_ref as _primary_model_ref
 from boxmot.utils.rich.pipeline import PipelineTracker
 from boxmot.utils.rich.track_reporting import (
@@ -103,12 +106,12 @@ class TrackerRuntime:
 
     @staticmethod
     def format_for_mot(tracks: np.ndarray, frame_idx: int) -> np.ndarray:
-        arr = TrackerRuntime._ensure_2d_tracks(tracks)
-        if arr.size == 0:
+        tr = TrackResults(TrackerRuntime._ensure_2d_tracks(tracks))
+        if tr.size == 0:
             return np.empty((0, 0), dtype=np.float32)
-        if arr.shape[1] >= 9:
-            return convert_to_mmot_obb_format(arr, frame_idx)
-        return convert_to_mot_format(arr, frame_idx)
+        if tr.is_obb:
+            return convert_to_mmot_obb_format(tr, frame_idx)
+        return convert_to_mot_format(tr, frame_idx)
 
     @property
     def names(self):
@@ -175,13 +178,8 @@ def _should_consume_result(args) -> bool:
 
 
 def _consume_run(result: TrackRunResult) -> None:
-    previous_cache_results = getattr(result.results, "_cache_results", True)
-    try:
-        result.results._cache_results = False
-        for _ in result.results:
-            pass
-    finally:
-        result.results._cache_results = previous_cache_results
+    for _ in result.results:
+        pass
     result.refresh()
 
 
@@ -336,10 +334,41 @@ def run_track(
     text_path = output_dir / "tracks.txt" if bool(getattr(args, "save_txt", False)) else None
     video_path = output_dir / "tracks.mp4" if bool(getattr(args, "save", False)) else None
 
-    if text_path is not None:
-        run.save(text_path)
-    if video_path is not None:
-        save_video(run, video_path, fps=resolve_output_fps(source))
+    show = bool(getattr(args, "show", False))
+    needs_iteration = text_path is not None or video_path is not None or show
+
+    if needs_iteration:
+        if text_path is not None:
+            text_path.parent.mkdir(parents=True, exist_ok=True)
+            if text_path.exists():
+                text_path.unlink()
+        video_writer = None
+        video_fps = resolve_output_fps(source) if video_path is not None else 30.0
+        if video_path is not None:
+            video_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            for frame_result in run:
+                if text_path is not None:
+                    write_mot_results(text_path, frame_result.to_mot())
+                if video_path is not None:
+                    rendered = frame_result.render()
+                    if video_writer is None:
+                        h, w = rendered.shape[:2]
+                        video_writer = cv2.VideoWriter(
+                            str(video_path),
+                            cv2.VideoWriter_fourcc(*"mp4v"),
+                            video_fps,
+                            (w, h),
+                        )
+                    video_writer.write(rendered)
+                if show:
+                    if not frame_result.show():
+                        break
+        finally:
+            if video_writer is not None:
+                video_writer.release()
+            if show:
+                cv2.destroyAllWindows()
 
     result = TrackRunResult(
         source=source,
@@ -347,9 +376,7 @@ def run_track(
         video_path=video_path,
         text_path=text_path,
     )
-    if bool(getattr(args, "show", False)):
-        result.show()
-    elif _should_consume_result(args):
+    if not needs_iteration and _should_consume_result(args):
         _consume_run(result)
     if pipeline is not None:
         result.refresh()

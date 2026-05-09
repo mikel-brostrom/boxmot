@@ -299,9 +299,7 @@ class DeepOcSort(BaseTracker):
         self.cmc_off = cmc_off
         self.aw_off = aw_off
         
-    @BaseTracker.setup_decorator
-    @BaseTracker.per_class_decorator
-    def update(
+    def _update_impl(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
     ) -> np.ndarray:
         """Update tracks for one frame.

@@ -30,4 +30,4 @@ Auto-generated reference for the high-level Python surface: the `Boxmot` facade,
 
 ::: boxmot.engine.results.Results
 
-::: boxmot.engine.results.Tracks
+::: boxmot.engine.results.FrameResult
