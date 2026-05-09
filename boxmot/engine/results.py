@@ -55,6 +55,7 @@ class FrameResult:
         frame (np.ndarray): The source frame (HxWxC BGR).
         tracks (TrackResults): Track output array with named accessors.
         detections (np.ndarray | None): Raw detector output for this frame.
+        embeddings (np.ndarray | None): ReID embeddings (N, D) for detections, if available.
         source_path (str): Path of the source file/stream.
 
     Methods:
@@ -78,11 +79,13 @@ class FrameResult:
         source_path: str,
         get_drawer: Callable[[], Drawer | None],
         stop_session: Callable[[str | None], None] | None = None,
+        embeddings: np.ndarray | None = None,
     ) -> None:
         self.frame_idx = int(frame_idx)
         self.frame = frame
         self.tracks = tracks if isinstance(tracks, TrackResults) else TrackResults(tracks)
         self.detections = None if detections is None else self._as_2d_array(detections)
+        self.embeddings = embeddings
         self.source_path = source_path
         self._get_drawer = get_drawer
         self._stop_session = stop_session
@@ -615,6 +618,7 @@ class Results:
                     source_path=path,
                     get_drawer=lambda: self.drawer,
                     stop_session=self.stop,
+                    embeddings=features,
                 )
         except KeyboardInterrupt:
             self._interrupted = True
