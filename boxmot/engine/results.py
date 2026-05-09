@@ -17,6 +17,12 @@ from boxmot.utils.rich.ui import print_text
 from boxmot.utils.timing import build_timing_display_rows, derive_timing_breakdown
 
 
+def _resolve_fps(source: Any) -> float:
+    """Lazily import and call resolve_output_fps to avoid circular imports."""
+    from boxmot.engine.workflow_support import resolve_output_fps
+    return resolve_output_fps(source)
+
+
 try:
     from ultralytics.utils.plotting import colors
 except ImportError:
@@ -40,6 +46,9 @@ def _is_live_source(source: Any) -> bool:
     if isinstance(source, str):
         return source.isdigit() or "://" in source
     return False
+
+
+_video_writers: dict[str, cv2.VideoWriter] = {}
 
 
 class FrameResult:
@@ -235,6 +244,47 @@ class FrameResult:
     def save_csv(self, path: str | Path, header: bool = True) -> None:
         """Append tracks in CSV format to a file."""
         self.tracks.save_csv(path, frame_id=self.frame_idx, header=header)
+
+    def save_vid(self, path: str | Path, fps: float | None = None) -> None:
+        """Append annotated frame to a video file (streaming).
+
+        Call once per frame in your loop. The video writer is created on
+        the first call and reused for subsequent frames with the same path.
+        Call ``FrameResult.close_vid()`` after the loop to finalize.
+
+        Args:
+            path: Output .mp4 path.
+            fps: Frames per second. If None (default), auto-detected from
+                 the source video/camera.
+        """
+        key = str(Path(path))
+        rendered = self.plot()
+        if key not in _video_writers:
+            if fps is None:
+                fps = _resolve_fps(self.source_path)
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            h, w = rendered.shape[:2]
+            _video_writers[key] = cv2.VideoWriter(
+                key, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h),
+            )
+        _video_writers[key].write(rendered)
+
+    @staticmethod
+    def close_vid(path: str | Path | None = None) -> None:
+        """Release video writer(s).
+
+        Args:
+            path: Release writer for this path only. If None, release all.
+        """
+        if path is not None:
+            key = str(Path(path))
+            writer = _video_writers.pop(key, None)
+            if writer is not None:
+                writer.release()
+        else:
+            for writer in _video_writers.values():
+                writer.release()
+            _video_writers.clear()
 
     def to_csv(self) -> str:
         """Return tracks as a CSV-formatted string."""
