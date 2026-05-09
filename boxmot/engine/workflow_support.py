@@ -320,9 +320,19 @@ def build_tracker_with_reid_spec(
 
 
 def resolve_output_fps(source: Any, *, fallback: float = 30.0, cv2_module=cv2) -> float:
+    if isinstance(source, int) or (isinstance(source, str) and source.isdigit()):
+        cap_id = int(source) if isinstance(source, str) else source
+        capture = cv2_module.VideoCapture(cap_id)
+        try:
+            fps = capture.get(cv2_module.CAP_PROP_FPS)
+        finally:
+            capture.release()
+        if fps and fps > 0:
+            return float(fps)
+        return fallback
     if isinstance(source, (str, Path)):
         source_str = str(source)
-        if source_str.isdigit() or "://" in source_str:
+        if "://" in source_str:
             return fallback
         path = Path(source_str)
         if path.is_file() and path.suffix.lower() in VIDEO_EXTS:

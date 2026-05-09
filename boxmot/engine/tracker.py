@@ -334,7 +334,10 @@ def run_track(
     text_path = output_dir / "tracks.txt" if bool(getattr(args, "save_txt", False)) else None
     video_path = output_dir / "tracks.mp4" if bool(getattr(args, "save", False)) else None
 
-    if text_path is not None or video_path is not None:
+    show = bool(getattr(args, "show", False))
+    needs_iteration = text_path is not None or video_path is not None or show
+
+    if needs_iteration:
         if text_path is not None:
             text_path.parent.mkdir(parents=True, exist_ok=True)
             if text_path.exists():
@@ -358,9 +361,14 @@ def run_track(
                             (w, h),
                         )
                     video_writer.write(rendered)
+                if show:
+                    if not frame_result.show():
+                        break
         finally:
             if video_writer is not None:
                 video_writer.release()
+            if show:
+                cv2.destroyAllWindows()
 
     result = TrackRunResult(
         source=source,
@@ -368,9 +376,7 @@ def run_track(
         video_path=video_path,
         text_path=text_path,
     )
-    if bool(getattr(args, "show", False)):
-        result.show()
-    elif _should_consume_result(args):
+    if not needs_iteration and _should_consume_result(args):
         _consume_run(result)
     if pipeline is not None:
         result.refresh()

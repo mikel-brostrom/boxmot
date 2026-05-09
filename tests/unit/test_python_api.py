@@ -650,6 +650,20 @@ def test_boxmot_track_returns_summary_for_eagerly_consumed_finite_sources(tmp_pa
 
 
 def test_boxmot_track_show_flag_displays_results(monkeypatch, tmp_path):
+    shown_frames = []
+
+    class _FakeFrameResult:
+        def to_mot(self):
+            import numpy as np
+            return np.empty((0, 0), dtype=np.float32)
+
+        def render(self):
+            return _DUMMY_IMG
+
+        def show(self):
+            shown_frames.append(1)
+            return True  # continue
+
     class _FakeResults:
         def __init__(self):
             self.totals = {
@@ -661,7 +675,21 @@ def test_boxmot_track_show_flag_displays_results(monkeypatch, tmp_path):
                 "detections": 0,
                 "tracks": 0,
             }
-            self.shown = False
+            self._exhausted = False
+            self._interrupted = False
+
+        def __iter__(self):
+            self.totals.update({
+                "det": 1.0,
+                "reid": 2.0,
+                "track": 3.0,
+                "total": 6.0,
+                "frames": 1,
+                "detections": 4,
+                "tracks": 5,
+            })
+            self._exhausted = True
+            yield _FakeFrameResult()
 
         def summary(self):
             frames = int(self.totals["frames"])
@@ -681,18 +709,6 @@ def test_boxmot_track_show_flag_displays_results(monkeypatch, tmp_path):
                 },
             }
 
-        def show(self):
-            self.shown = True
-            self.totals.update({
-                "det": 1.0,
-                "reid": 2.0,
-                "track": 3.0,
-                "total": 6.0,
-                "frames": 1,
-                "detections": 4,
-                "tracks": 5,
-            })
-
         def save(self, output_path):
             raise AssertionError("save should not be called when only show=True")
 
@@ -711,7 +727,7 @@ def test_boxmot_track_show_flag_displays_results(monkeypatch, tmp_path):
     model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source=tmp_path, show=True)
 
-    assert fake_results.shown is True
+    assert len(shown_frames) == 1
     assert run.summary["frames"] == 1
     assert run.summary["tracks"] == 5
 
