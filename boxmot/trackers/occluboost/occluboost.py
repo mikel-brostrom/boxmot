@@ -150,9 +150,7 @@ class OccluBoost(BoostTrack):
         self.ams_buffer_size = int(max(ams_buffer_size, 2))
         self.ams_shrink_ratio = float(np.clip(ams_shrink_ratio, 0.0, 1.0))
 
-    @BaseTracker.setup_decorator
-    @BaseTracker.per_class_decorator
-    def update(
+    def _update_impl(
         self,
         dets: np.ndarray,
         img: np.ndarray,

@@ -479,9 +479,7 @@ class HybridSort(BaseTracker):
         self.active_tracks: List[KalmanBoxTracker] = []
         KalmanBoxTracker.count = 0
 
-    @BaseTracker.setup_decorator
-    @BaseTracker.per_class_decorator
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
         """
         dets: ndarray [N,6] -> [x1,y1,x2,y2,conf,cls]
         img: HxWxC image

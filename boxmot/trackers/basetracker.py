@@ -7,6 +7,7 @@ import numpy as np
 
 from boxmot.trackers.detection_layout import (get_detection_layout,
                                               infer_detection_layout)
+from boxmot.trackers.track_results import TrackResults
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.iou import AssociationFunction
 from boxmot.utils.visualization import VisualizationMixin
@@ -114,24 +115,121 @@ class BaseTracker(VisualizationMixin):
             params_str = ", ".join(f"{k}={v}" for k, v in all_params.items())
             LOGGER.info(f"{tracker_name}: {params_str}")
 
-    @abstractmethod
     def update(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
-    ) -> np.ndarray:
-        """
-        Abstract method to update the tracker with new detections for a new frame. This method
-        should be implemented by subclasses.
+    ) -> TrackResults:
+        """Update the tracker with new detections for a new frame.
+
+        Handles input preprocessing (unwrapping, layout inference, first-frame
+        setup) and per-class splitting automatically.  Subclasses implement
+        ``_update_impl`` instead of overriding this method directly.
 
         Parameters:
         - dets (np.ndarray): Array of detections for the current frame.
         - img (np.ndarray): The current frame as an image array.
         - embs (np.ndarray, optional): Embeddings associated with the detections, if any.
 
-        Raises:
-        - NotImplementedError: If the subclass does not implement this method.
+        Returns:
+        - TrackResults: Tracked objects as a numpy subclass with named accessors.
+        """
+        dets, img = self._preprocess(dets, img)
+        raw = self._do_update(dets, img, embs)
+        return TrackResults(raw)
+
+    # ------------------------------------------------------------------
+    # Internal pipeline
+    # ------------------------------------------------------------------
+
+    def _preprocess(self, dets: np.ndarray, img: np.ndarray):
+        """Unwrap inputs and run first-frame setup."""
+        # Unwrap `data` attribute if present (e.g. ultralytics tensors)
+        if hasattr(dets, "data"):
+            dets = dets.data
+
+        # Convert memoryview to numpy array if needed
+        if isinstance(dets, memoryview):
+            dets = np.array(dets, dtype=np.float32)
+
+        # First-time detection layout inference
+        if not self._first_dets_processed and dets is not None:
+            layout = infer_detection_layout(dets)
+            if layout is not None:
+                if layout.is_obb and not self.supports_obb:
+                    raise AssertionError(
+                        f"{self.__class__.__name__} does not support OBB detections. "
+                        "Use an OBB-capable tracker such as ByteTrack, BotSort, OCSort, or SFSORT."
+                    )
+                self._set_detection_mode(layout.is_obb)
+                self._first_dets_processed = True
+
+        # First frame image-based setup (association function needs w/h)
+        if not self._first_frame_processed and img is not None:
+            self.h, self.w = img.shape[0:2]
+            self.asso_func = AssociationFunction(
+                w=self.w, h=self.h, asso_mode=self.asso_func_name
+            ).asso_func
+            self._first_frame_processed = True
+
+        return dets, img
+
+    def _do_update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+        """Dispatch to single-pass or per-class update."""
+        if dets is None or len(dets) == 0:
+            dets = self.empty_detections()
+
+        if not self.per_class:
+            return self._update_impl(dets=dets, img=img, embs=embs)
+
+        # Per-class splitting
+        per_class_tracks = []
+        frame_count = self.frame_count
+
+        for cls_id in range(self.nr_classes):
+            class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
+
+            LOGGER.debug(
+                f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings"
+                f" {class_embs.shape if class_embs is not None else None}"
+            )
+
+            # Activate the specific active tracks for this class id
+            self.active_tracks = self.per_class_active_tracks[cls_id]
+
+            # Reset frame count for every class
+            self.frame_count = frame_count
+
+            # Update detections
+            tracks = self._update_impl(dets=class_dets, img=img, embs=class_embs)
+
+            # Save the updated active tracks
+            self.per_class_active_tracks[cls_id] = self.active_tracks
+
+            if tracks.size > 0:
+                per_class_tracks.append(tracks)
+
+        # Increase frame count by 1
+        self.frame_count = frame_count + 1
+        if per_class_tracks:
+            return np.vstack(per_class_tracks)
+
+        return self.empty_output()
+
+    @abstractmethod
+    def _update_impl(
+        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
+    ) -> np.ndarray:
+        """Core tracking logic. Subclasses must implement this.
+
+        Parameters:
+        - dets (np.ndarray): Preprocessed detections for the current frame.
+        - img (np.ndarray): The current frame as an image array.
+        - embs (np.ndarray, optional): Embeddings associated with the detections.
+
+        Returns:
+        - np.ndarray: Raw tracked objects array.
         """
         raise NotImplementedError(
-            "The update method needs to be implemented by the subclass."
+            "The _update_impl method needs to be implemented by the subclass."
         )
 
     def get_class_dets_n_embs(self, dets, embs, cls_id):
@@ -186,103 +284,13 @@ class BaseTracker(VisualizationMixin):
 
     @staticmethod
     def setup_decorator(method):
-        """
-        Decorator to perform setup on the first frame only.
-        This ensures that initialization tasks (like setting the association function) only
-        happen once, on the first frame, and are skipped on subsequent frames.
-        """
-
-        def wrapper(self, *args, **kwargs):
-            # Extract detections and image from args
-            dets = args[0]
-            img = args[1] if len(args) > 1 else None
-
-            # Unwrap `data` attribute if present
-            if hasattr(dets, "data"):
-                dets = dets.data
-
-            # Convert memoryview to numpy array if needed
-            if isinstance(dets, memoryview):
-                dets = np.array(dets, dtype=np.float32)  # Adjust dtype if needed
-
-            # First-time detection setup
-            if not self._first_dets_processed and dets is not None:
-                layout = infer_detection_layout(dets)
-                if layout is not None:
-                    if layout.is_obb and not self.supports_obb:
-                        raise AssertionError(
-                            f"{self.__class__.__name__} does not support OBB detections. "
-                            "Use an OBB-capable tracker such as ByteTrack, BotSort, OCSort, or SFSORT."
-                        )
-                    self._set_detection_mode(layout.is_obb)
-                    self._first_dets_processed = True
-
-            # First frame image-based setup
-            if not self._first_frame_processed and img is not None:
-                self.h, self.w = img.shape[0:2]
-                self.asso_func = AssociationFunction(
-                    w=self.w, h=self.h, asso_mode=self.asso_func_name
-                ).asso_func
-                self._first_frame_processed = True
-
-            # Call the original method with the unwrapped `dets`
-            return method(self, dets, img, *args[2:], **kwargs)
-
-        return wrapper
+        """Deprecated: kept for backward compatibility. Returns method unchanged."""
+        return method
 
     @staticmethod
-    def per_class_decorator(update_method):
-        """
-        Decorator for the update method to handle per-class processing.
-        """
-
-        def wrapper(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None):
-            # handle different types of inputs
-            if dets is None or len(dets) == 0:
-                dets = self.empty_detections()
-
-            if not self.per_class:
-                # Process all detections at once if per_class is False
-                return update_method(self, dets=dets, img=img, embs=embs)
-            # else:
-            # Initialize an array to store the tracks for each class
-            per_class_tracks = []
-
-            # same frame count for all classes
-            frame_count = self.frame_count
-
-            for cls_id in range(self.nr_classes):
-                # Get detections and embeddings for the current class
-                class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
-
-                LOGGER.debug(
-                    f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings"
-                    f" {class_embs.shape if class_embs is not None else None}"
-                )
-
-                # Activate the specific active tracks for this class id
-                self.active_tracks = self.per_class_active_tracks[cls_id]
-
-                # Reset frame count for every class
-                self.frame_count = frame_count
-
-                # Update detections using the decorated method
-                tracks = update_method(self, dets=class_dets, img=img, embs=class_embs)
-
-                # Save the updated active tracks
-                self.per_class_active_tracks[cls_id] = self.active_tracks
-
-                if tracks.size > 0:
-                    per_class_tracks.append(tracks)
-
-            # Increase frame count by 1
-            self.frame_count = frame_count + 1
-            if per_class_tracks:
-                return np.vstack(per_class_tracks)
-
-            return self.empty_output()
-
-        return wrapper
+    def per_class_decorator(method):
+        """Deprecated: kept for backward compatibility. Returns method unchanged."""
+        return method
 
     def check_inputs(self, dets, img, embs=None):
         assert isinstance(dets, np.ndarray), (

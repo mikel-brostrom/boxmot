@@ -256,9 +256,7 @@ class ByteTrack(BaseTracker):
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
 
-    @BaseTracker.setup_decorator
-    @BaseTracker.per_class_decorator
-    def update(
+    def _update_impl(
         self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None
     ) -> np.ndarray:
 

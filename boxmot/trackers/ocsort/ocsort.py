@@ -360,9 +360,7 @@ class OcSort(BaseTracker):
         # Initialize tracker collections
         self.active_tracks: list = []
         
-    @BaseTracker.setup_decorator
-    @BaseTracker.per_class_decorator
-    def update(
+    def _update_impl(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
     ) -> np.ndarray:
         """Update tracks for one frame.

@@ -157,9 +157,7 @@ class BotSort(BaseTracker):
             dets, img, strack_pool, unconfirmed
         )
 
-    @BaseTracker.setup_decorator
-    @BaseTracker.per_class_decorator
-    def update(
+    def _update_impl(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
     ) -> np.ndarray:
         self.check_inputs(dets, img, embs)

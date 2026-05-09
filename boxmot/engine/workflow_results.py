@@ -9,7 +9,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from boxmot.engine.results import Results, Tracks
+from boxmot.engine.results import Results, FrameResult
 from boxmot.utils.misc import dataclass_slots_kwargs
 from boxmot.utils.rich.ui import (
     STYLE_ACCENT,
@@ -530,7 +530,7 @@ class TrackRunResult:
             f"video_path={self.video_path!r}, text_path={self.text_path!r})"
         )
 
-    def __iter__(self) -> Iterator[Tracks]:
+    def __iter__(self) -> Iterator[FrameResult]:
         for track_result in self.results:
             self.refresh()
             yield track_result

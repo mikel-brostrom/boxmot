@@ -9,7 +9,7 @@ class MockTracker(BaseTracker):
         self.lost_stracks = []
         self.removed_stracks = []
 
-    def update(self, dets, img, embs=None):
+    def _update_impl(self, dets, img, embs=None):
         return self.empty_output()
 
 
@@ -17,7 +17,7 @@ class InferredMockTracker(BaseTracker):
     def __init__(self):
         super().__init__()
 
-    def update(self, dets, img, embs=None):
+    def _update_impl(self, dets, img, embs=None):
         return self.empty_output()
 
 class MockTrack:

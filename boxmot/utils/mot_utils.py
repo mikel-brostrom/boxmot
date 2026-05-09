@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from boxmot.trackers.track_results import TrackResults
 from boxmot.utils import logger as LOGGER
 
 
@@ -182,19 +183,16 @@ def convert_to_mot_format(results: Any | np.ndarray, frame_idx: int) -> np.ndarr
         if results.size == 0:
             return np.empty((0, 9), dtype=np.float32)
 
-        tlwh = _xyxy_to_ltwh(results[:, 0:4])
-        frame_idx_column = np.full((results.shape[0], 1), frame_idx, dtype=np.int32)
-        det_ind = (
-            results[:, 7:8].astype(np.int32)
-            if results.shape[1] > 7
-            else -np.ones((results.shape[0], 1), dtype=np.int32)
-        )
+        tr = TrackResults(results)
+        tlwh = _xyxy_to_ltwh(tr.xyxy)
+        frame_idx_column = np.full((len(tr), 1), frame_idx, dtype=np.int32)
+        det_ind = tr.det_ind.reshape(-1, 1).astype(np.int32)
         return np.column_stack((
             frame_idx_column,  # frame index
-            results[:, 4].astype(np.int32),  # track id
+            tr.id.reshape(-1, 1).astype(np.int32),  # track id
             tlwh.round().astype(np.int32),  # top,left,width,height
-            results[:, 5],  # confidence (float)
-            results[:, 6].astype(np.int32) + 1,  # class
+            tr.conf.reshape(-1, 1),  # confidence (float)
+            (tr.cls + 1).reshape(-1, 1).astype(np.int32),  # class
             det_ind,  # detection index
         ))
 
@@ -230,15 +228,16 @@ def convert_to_mmot_obb_format(results: np.ndarray, frame_idx: int) -> np.ndarra
     if results.ndim == 1:
         results = results.reshape(1, -1)
 
-    if results.shape[1] < 8:
-        raise ValueError(f"Expected OBB tracking results with at least 8 columns, got {results.shape[1]}")
+    tr = TrackResults(results)
+    if not tr.is_obb:
+        raise ValueError(f"Expected OBB tracking results with at least 9 columns, got {results.shape[1]}")
 
-    frame_col = np.full((results.shape[0], 1), frame_idx, dtype=np.float32)
-    track_ids = results[:, 5:6].astype(np.float32)
-    corners = xywha_to_corners(results[:, :5]).astype(np.float32)
-    conf = results[:, 6:7].astype(np.float32)
-    cls = results[:, 7:8].astype(np.float32)
-    det_ind = results[:, 8:9].astype(np.float32) if results.shape[1] > 8 else np.zeros((results.shape[0], 1), dtype=np.float32)
+    frame_col = np.full((len(tr), 1), frame_idx, dtype=np.float32)
+    track_ids = tr.id.reshape(-1, 1).astype(np.float32)
+    corners = xywha_to_corners(tr.xywha).astype(np.float32)
+    conf = tr.conf.reshape(-1, 1).astype(np.float32)
+    cls = tr.cls.reshape(-1, 1).astype(np.float32)
+    det_ind = tr.det_ind.reshape(-1, 1).astype(np.float32)
     return np.concatenate((frame_col, track_ids, corners, conf, cls, det_ind), axis=1)
 
 

@@ -9,6 +9,7 @@ import numpy as np
 from boxmot.configs import get_mode_default
 from boxmot.engine.results import Results
 from boxmot.engine.workflow_results import TrackRunResult
+from boxmot.trackers.track_results import TrackResults
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format
 from boxmot.utils.rich.reporting import primary_model_ref as _primary_model_ref
@@ -103,12 +104,12 @@ class TrackerRuntime:
 
     @staticmethod
     def format_for_mot(tracks: np.ndarray, frame_idx: int) -> np.ndarray:
-        arr = TrackerRuntime._ensure_2d_tracks(tracks)
-        if arr.size == 0:
+        tr = TrackResults(TrackerRuntime._ensure_2d_tracks(tracks))
+        if tr.size == 0:
             return np.empty((0, 0), dtype=np.float32)
-        if arr.shape[1] >= 9:
-            return convert_to_mmot_obb_format(arr, frame_idx)
-        return convert_to_mot_format(arr, frame_idx)
+        if tr.is_obb:
+            return convert_to_mmot_obb_format(tr, frame_idx)
+        return convert_to_mot_format(tr, frame_idx)
 
     @property
     def names(self):
