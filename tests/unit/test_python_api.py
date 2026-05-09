@@ -283,6 +283,7 @@ def test_results_save_summary_and_evaluate(tmp_path):
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
+    # Test iteration and FrameResult properties
     results = api_module.track(tmp_path, _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
     first = next(iter(results))
 
@@ -293,16 +294,24 @@ def test_results_save_summary_and_evaluate(tmp_path):
     assert first.render().shape == _DUMMY_IMG.shape
     assert np.all(first.render() == 127)
 
+    # save() streams remaining frames (1 already consumed above)
     output_path = tmp_path / "tracks.txt"
     saved = results.save(output_path)
     summary = results.summary()
-    evaluation = api_module.evaluate([results], metrics=True, speed=True)
 
     assert saved == output_path
-    assert output_path.read_text(encoding="utf-8").count("\n") == 2
+    assert output_path.read_text(encoding="utf-8").count("\n") == 1
     assert summary["frames"] == 2
     assert summary["tracks"] == 2
     assert summary["unique_tracks"] == 2
+
+    # Fresh Results for full save + evaluate
+    results2 = api_module.track(tmp_path, _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    output_path2 = tmp_path / "tracks2.txt"
+    results2.save(output_path2)
+    assert output_path2.read_text(encoding="utf-8").count("\n") == 2
+
+    evaluation = api_module.evaluate([results2], metrics=True, speed=True)
     assert evaluation["metrics"]["frames"] == 2
     assert evaluation["metrics"]["tracks"] == 2
 
@@ -516,7 +525,8 @@ def test_results_summary_does_not_resume_live_source_after_partial_iteration(mon
     assert summary["unique_tracks"] == 1
 
 
-def test_results_live_sources_do_not_cache_frames(monkeypatch):
+def test_results_streaming_does_not_cache_frames(monkeypatch):
+    """Results is purely streaming - no frames stored in RAM."""
     frames = [("0", _DUMMY_IMG.copy()), ("0", _DUMMY_IMG.copy())]
     monkeypatch.setattr(results_module, "iter_source", lambda source: iter(frames))
 
@@ -542,14 +552,11 @@ def test_results_live_sources_do_not_cache_frames(monkeypatch):
     results = api_module.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
 
     first = next(iter(results))
-
     assert first.frame_idx == 1
-    assert results._cache == []
+    assert not hasattr(results, "_cache")
 
     second = next(results)
-
     assert second.frame_idx == 2
-    assert results._cache == []
 
 
 def test_boxmot_track_eagerly_consumes_finite_sources_for_uniform_cli_behavior(monkeypatch, tmp_path):
@@ -883,6 +890,7 @@ def test_results_summary_splits_tracker_owned_reid_time(tmp_path, monkeypatch):
     monkeypatch.setattr(results_module.time, "perf_counter", lambda: next(perf_counter_values))
 
     results = api_module.track(tmp_path, _FakeDetector(), None, _FakeNativeTracker(), verbose=False)
+    list(results)  # consume the stream
     summary = results.summary()
 
     assert summary["frames"] == 1

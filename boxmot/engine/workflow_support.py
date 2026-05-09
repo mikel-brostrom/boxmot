@@ -337,22 +337,22 @@ def resolve_output_fps(source: Any, *, fallback: float = 30.0, cv2_module=cv2) -
 
 
 def save_video(results: Results, video_path: Path, fps: float, *, cv2_module=cv2) -> Path:
-    frames = results.materialize()
-    if not frames:
-        return video_path
-
-    height, width = frames[0].frame.shape[:2]
-    writer = cv2_module.VideoWriter(
-        str(video_path),
-        cv2_module.VideoWriter_fourcc(*"mp4v"),
-        fps,
-        (width, height),
-    )
+    writer = None
     try:
-        for track_result in frames:
-            writer.write(track_result.render())
+        for frame_result in results:
+            rendered = frame_result.render()
+            if writer is None:
+                height, width = rendered.shape[:2]
+                writer = cv2_module.VideoWriter(
+                    str(video_path),
+                    cv2_module.VideoWriter_fourcc(*"mp4v"),
+                    fps,
+                    (width, height),
+                )
+            writer.write(rendered)
     finally:
-        writer.release()
+        if writer is not None:
+            writer.release()
     return video_path
 
 

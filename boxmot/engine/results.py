@@ -267,8 +267,6 @@ class Results:
         self.drawer = drawer
         self._progress_callback = progress_callback
         self._generator: Iterator[FrameResult] | None = None
-        self._cache: list[FrameResult] = []
-        self._cache_results = not _is_live_source(source)
         self._exhausted = False
         self._interrupted = False
         self._track_ids_seen: set[int] = set()
@@ -290,7 +288,7 @@ class Results:
 
     def __iter__(self):
         if self._exhausted:
-            return iter(self._cache)
+            return iter([])
         if self._generator is None:
             self._generator = self._process()
         return self
@@ -299,13 +297,10 @@ class Results:
         if self._generator is None:
             self._generator = self._process()
         try:
-            result = next(self._generator)
+            return next(self._generator)
         except StopIteration:
             self._exhausted = True
             raise
-        if self._cache_results:
-            self._cache.append(result)
-        return result
 
     @staticmethod
     def _as_2d_array(values: Any, empty_cols: int = 0) -> np.ndarray:
@@ -632,26 +627,46 @@ class Results:
             if self.verbose:
                 self._log_summary()
 
-    def materialize(self) -> list[FrameResult]:
-        while not self._exhausted:
-            try:
-                next(self)
-            except StopIteration:
-                break
-        return self._cache
-
     def save(self, output_path: str | Path) -> Path:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             path.unlink()
-        for track_result in self.materialize():
-            write_mot_results(path, track_result.to_mot())
+        for frame_result in self:
+            write_mot_results(path, frame_result.to_mot())
+        return path
+
+    def save_vid(self, output_path: str | Path, fps: float = 30.0) -> Path:
+        """Save annotated tracking video to disk (streaming, not buffered).
+
+        Args:
+            output_path: Output .mp4 path.
+            fps: Frames per second for the output video.
+
+        Returns:
+            Path: The written video path.
+        """
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        writer: cv2.VideoWriter | None = None
+        try:
+            for frame_result in self:
+                rendered = frame_result.plot()
+                if writer is None:
+                    height, width = rendered.shape[:2]
+                    writer = cv2.VideoWriter(
+                        str(path),
+                        cv2.VideoWriter_fourcc(*"mp4v"),
+                        fps,
+                        (width, height),
+                    )
+                writer.write(rendered)
+        finally:
+            if writer is not None:
+                writer.release()
         return path
 
     def summary(self) -> dict[str, Any]:
-        if not self._exhausted and not self._interrupted and not _is_live_source(self.source):
-            self.materialize()
         return self._summary_snapshot()
 
     def show(self) -> None:
