@@ -43,6 +43,45 @@ metrics = native_eval.val(benchmark="mot17-ablation", tracker_backend="cpp")
 
 Native C++ backends are currently registered for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
 
+## Streaming frame results
+
+When you want per-frame access to tracks, detections, and embeddings, iterate the results yourself instead of passing `show=True` or `save=True`:
+
+```python
+from boxmot import Boxmot
+
+model = Boxmot(detector="yolov8l.pt", reid="lmbn_n_duke.pt", tracker="occluboost")
+results = model.track(source=0)
+
+for frame_result in results:
+    tracks = frame_result.tracks          # (M, 8) TrackResults array
+    ids    = frame_result.tracks.id       # (M,) track IDs
+    confs  = frame_result.tracks.conf     # (M,) confidences
+    boxes  = frame_result.tracks.xyxy     # (M, 4) bounding boxes
+    dets   = frame_result.detections      # (M, 6) matched detections, aligned to tracks
+    embs   = frame_result.embeddings      # (M, D) matched embeddings, aligned to tracks
+
+    print(f"Frame {frame_result.frame_idx}: {len(ids)} tracks")
+
+    frame_result.save_csv("tracks.csv")   # append tracks to CSV
+    frame_result.save_vid("output.mp4")   # append frame to video (auto-detects FPS)
+
+    if not frame_result.show():           # display frame, quit on 'q'
+        break
+
+frame_result.close_vid()                  # finalize the video file
+```
+
+!!! note "Detections and embeddings are track-aligned"
+    `frame_result.detections[i]` and `frame_result.embeddings[i]` correspond to `frame_result.tracks[i]`.
+    Coasting tracks (no matched detection) have zero-filled rows.
+    Use `frame_result.tracks.det_ind` to check which tracks are coasting (`-1`).
+
+!!! warning "Avoid `show=True` / `save=True` when iterating"
+    Passing `show=True` or `save=True` to `model.track(...)` consumes the stream
+    internally. The returned object will be exhausted, so your `for` loop gets nothing.
+    Handle display and saving yourself inside the loop as shown above.
+
 ## Composable runtime
 
 If you need more control, compose the detector, ReID runtime, and tracker explicitly:
