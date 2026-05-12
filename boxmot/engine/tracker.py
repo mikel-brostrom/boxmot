@@ -307,6 +307,7 @@ def run_track(
     tracker_spec: Any = None,
     classes: list[int] | None = None,
     drawer=None,
+    show_trajectories: bool = False,
     pipeline: PipelineTracker | None = None,
 ) -> TrackRunResult:
     source = getattr(args, "source", get_mode_default("track", "source"))
@@ -316,6 +317,9 @@ def run_track(
         detector_runtime = detector if detector is not None else _build_detector(args, detector_spec, classes)
         tracker_runtime = tracker if tracker is not None else _build_tracker(args, tracker_spec)
         reid_runtime = reid if reid is not None else _build_reid(args, tracker_runtime, reid_spec, tracker_spec)
+
+    if show_trajectories and drawer is None:
+        drawer = lambda frame, tracks: tracker_runtime.plot_results(frame, show_trajectories=True)
 
     if pipeline is not None:
         pipeline.advance("Starting tracker...")

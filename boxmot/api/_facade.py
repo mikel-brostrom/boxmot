@@ -232,6 +232,7 @@ class Boxmot:
         save_txt: bool = BOXMOT_DEFAULTS.track.save_txt,
         show: bool = BOXMOT_DEFAULTS.track.show,
         drawer=None,
+        show_trajectories: bool = False,
         verbose: bool = BOXMOT_DEFAULTS.track.verbose,
         tracker_backend: str | None = None,
     ) -> TrackRunResult:
@@ -256,6 +257,7 @@ class Boxmot:
             tracker_spec=self.tracker,
             classes=self.classes,
             drawer=drawer,
+            show_trajectories=show_trajectories,
         )
 
     def generate(
