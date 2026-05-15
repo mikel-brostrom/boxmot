@@ -192,3 +192,75 @@ ams_shrink_ratio:
   type: uniform
   default: 0.75
   range: [0.5, 1.0]
+
+# ---- Online GTA (Global Tracklet Association) ----
+
+gta_enabled:
+  type: choice
+  default: True
+  options: [False, True]
+
+gta_splitter_enabled:
+  type: choice
+  default: True
+  options: [False, True]
+
+gta_splitter_interval:
+  type: randint
+  default: 5
+  range: [3, 20]
+
+gta_splitter_eps:
+  type: uniform
+  default: 0.4
+  range: [0.2, 0.8]
+
+gta_splitter_min_samples:
+  type: randint
+  default: 3
+  range: [2, 8]
+
+gta_splitter_max_clusters:
+  type: randint
+  default: 2
+  range: [2, 4]
+
+gta_splitter_window:
+  type: randint
+  default: 20
+  range: [10, 50]
+
+gta_connector_enabled:
+  type: choice
+  default: False
+  options: [False, True]
+
+gta_connector_gallery_ttl:
+  type: randint
+  default: 300
+  range: [60, 500]
+
+gta_connector_gallery_max:
+  type: randint
+  default: 200
+  range: [50, 500]
+
+gta_connector_match_thresh:
+  type: uniform
+  default: 0.15
+  range: [0.1, 0.5]
+
+gta_connector_spatial_factor:
+  type: uniform
+  default: 0.5
+  range: [0.3, 1.0]
+
+gta_connector_min_tracklet_len:
+  type: randint
+  default: 3
+  range: [1, 10]
+
+gta_connector_max_young_age:
+  type: randint
+  default: 6
+  range: [3, 15]
