@@ -1,0 +1,181 @@
+# BoxMOT DeepStream Tracker Configuration
+#
+# This config file follows DeepStream's NvMultiObjectTracker YAML format.
+# It configures BoxMOT's native C++ trackers to run inside DeepStream's
+# Gst-nvtracker plugin via the libnvds_boxmot_tracker.so adapter.
+#
+# Usage in DeepStream app config:
+#   [tracker]
+#   enable=1
+#   tracker-width=960
+#   tracker-height=544
+#   ll-lib-file=/path/to/libnvds_boxmot_tracker.so
+#   ll-config-file=/path/to/config_tracker_boxmot.yml
+#   gpu-id=0
+#   display-tracking-id=1
+
+# ===========================================================================
+# Base Configuration
+# ===========================================================================
+BaseConfig:
+    # BoxMOT tracker algorithm to use:
+    #   botsort     - BoT-SORT (best accuracy, uses ReID + CMC)
+    #   bytetrack   - ByteTrack (high performance, no ReID needed)
+    #   ocsort      - OC-SORT (observation-centric, good for occlusion)
+    #   sfsort      - SF-SORT (scene-aware filtering)
+    #   occluboost  - OccluBoost (occlusion-aware boosting)
+    algorithm: botsort
+
+    # Minimum detector confidence for a valid object (same as DeepStream)
+    # Objects below this threshold are filtered out before tracking.
+    minDetectorConfidence: 0.1
+
+    # Frame rate of the input video (used for track buffer calculation)
+    frameRate: 30
+
+# ===========================================================================
+# Tracker Parameters (algorithm-specific)
+# ===========================================================================
+BoxMOT:
+    # --- Common parameters (all algorithms) ---
+    trackHighThresh: 0.6      # High confidence threshold for first association
+    trackLowThresh: 0.1       # Low confidence threshold for second association
+    newTrackThresh: 0.7       # Minimum confidence to create a new track
+    trackBuffer: 30           # Frames to keep lost tracks before removal
+    matchThresh: 0.8          # IoU threshold for association matching
+
+    # --- BoTSORT-specific ---
+    proximityThresh: 0.5      # Proximity threshold for ReID gating
+    appearanceThresh: 0.25    # Appearance similarity threshold
+    cmcMethod: "none"         # Camera motion compensation: none, ecc, sparse_of, orb
+    fuseFirstAssociate: false # Fuse appearance in first association stage
+    withReId: true            # Enable ReID features
+    maxObs: 50                # Maximum observations for velocity estimation
+
+    # --- OCSORT-specific ---
+    # deltaT: 3.0
+    # iouThresh: 0.3
+    # velDirWeight: 0.2
+
+    # --- SFSORT-specific ---
+    # scenePointThresh: 0.5
+    # highScoreThresh: 0.6
+    # lowScoreThresh: 0.1
+
+# ===========================================================================
+# Target Management (matching DeepStream conventions)
+# ===========================================================================
+TargetManagement:
+    maxTargetsPerStream: 150          # Maximum tracked objects per stream
+    probationAge: 3                   # Frames in probation before activation
+    maxShadowTrackingAge: 30          # Max frames to shadow-track lost objects
+    earlyTerminationAge: 1            # Terminate unconfirmed tracks after this
+    outputTerminatedTracks: 0         # Output terminated track history
+    outputShadowTracks: 0             # Output shadow-tracked objects
+    supportPastFrame: 1               # Support past-frame data output
+    minIouDiff4NewTarget: 0.5         # Min IoU diff to create new target (vs existing)
+
+# ===========================================================================
+# Data Association
+# ===========================================================================
+DataAssociator:
+    associationMatcherType: 0         # 0=GREEDY, 1=CASCADED
+    checkClassMatch: 0                # Only match same-class objects
+    minMatchingScore4Overall: 0.0     # Minimum total matching score
+    minMatchingScore4Iou: 0.0         # Minimum IoU for valid match
+    matchingScoreWeight4Iou: 1.0      # Weight for IoU in cost function
+    matchingScoreWeight4ReIDSimilarity: 0.0  # Weight for ReID (set >0 with ReID)
+    minMatchingScore4ReidSimilarity: 0.0     # Minimum ReID score for match
+
+# ===========================================================================
+# ReID Configuration (TensorRT-accelerated)
+#
+# This section mirrors DeepStream's ReID configuration exactly, allowing
+# direct reuse of models trained for NvDeepSORT/NvDCF.
+#
+# Supported model formats:
+#   - ONNX (via onnxFile)
+#   - NVIDIA TAO encrypted models (via tltEncodedModel + tltModelKey)
+#   - Pre-built TensorRT engines (via modelEngineFile)
+# ===========================================================================
+ReID:
+    # ReID type: 0=disabled, 1=NvDeepSORT-style, 2=Re-association only, 3=both
+    reidType: 1
+
+    # Model files (specify at least one of onnxFile/tltEncodedModel/modelEngineFile)
+    onnxFile: ""
+    # tltEncodedModel: "/opt/nvidia/deepstream/deepstream/samples/models/Tracker/resnet50_market1501.etlt"
+    # tltModelKey: "nvidia_tao"
+    modelEngineFile: ""
+    # calibrationTableFile: ""    # Required for INT8 only
+
+    # Network configuration
+    batchSize: 100                # Max objects processed in one TRT inference call
+    networkMode: 1                # 0=FP32, 1=FP16, 2=INT8
+    workspaceSize: 20             # TensorRT workspace in MB
+    inferDims: [128, 64, 3]       # Input dimensions [H, W, C] or [C, H, W] based on inputOrder
+    inputOrder: 1                 # 0=NCHW, 1=NHWC
+
+    # Input preprocessing (matches DeepStream's formula: y = netScaleFactor*(x-offsets))
+    colorFormat: 0                # 0=RGB, 1=BGR
+    netScaleFactor: 1.0           # Scale factor after offset subtraction
+    offsets: [0.0, 0.0, 0.0]     # Per-channel mean subtraction
+
+    # Feature configuration
+    reidFeatureSize: 256          # Output embedding dimension
+    reidHistorySize: 100          # Number of features kept per target
+    addFeatureNormalization: 1    # L2-normalize output features
+    keepAspc: 1                   # Preserve aspect ratio when resizing crops
+
+# ===========================================================================
+# Example configurations for common models:
+# ===========================================================================
+#
+# --- NVIDIA ReIdentificationNet (ResNet-50, market1501) ---
+# ReID:
+#     reidType: 1
+#     onnxFile: "/opt/nvidia/deepstream/deepstream/samples/models/Tracker/resnet50_market1501_aicity156.onnx"
+#     modelEngineFile: "/opt/nvidia/deepstream/deepstream/samples/models/Tracker/resnet50_market1501_aicity156.onnx_b100_gpu0_fp16.engine"
+#     batchSize: 100
+#     networkMode: 1
+#     workspaceSize: 20
+#     inferDims: [256, 128, 3]
+#     inputOrder: 1
+#     colorFormat: 0
+#     netScaleFactor: 1.0
+#     offsets: [0.0, 0.0, 0.0]
+#     reidFeatureSize: 256
+#     addFeatureNormalization: 1
+#     keepAspc: 1
+#
+# --- OSNet (market1501, 128x256) ---
+# ReID:
+#     reidType: 1
+#     onnxFile: "/path/to/osnet_x0_25_msmt17.onnx"
+#     modelEngineFile: "/path/to/osnet_x0_25_msmt17.engine"
+#     batchSize: 100
+#     networkMode: 1
+#     inferDims: [256, 128, 3]
+#     inputOrder: 1
+#     colorFormat: 0
+#     netScaleFactor: 0.00392157  # 1/255
+#     offsets: [0.0, 0.0, 0.0]
+#     reidFeatureSize: 512
+#     addFeatureNormalization: 1
+#     keepAspc: 0
+#
+# --- LMBN (duke, 384x128) ---
+# ReID:
+#     reidType: 1
+#     onnxFile: "/path/to/lmbn_n_duke.onnx"
+#     modelEngineFile: "/path/to/lmbn_n_duke.engine"
+#     batchSize: 50
+#     networkMode: 1
+#     inferDims: [384, 128, 3]
+#     inputOrder: 1
+#     colorFormat: 0
+#     netScaleFactor: 0.00392157
+#     offsets: [0.0, 0.0, 0.0]
+#     reidFeatureSize: 2048
+#     addFeatureNormalization: 1
+#     keepAspc: 0

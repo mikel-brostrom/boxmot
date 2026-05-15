@@ -16,6 +16,12 @@ add_subdirectory(occluboost)
 add_subdirectory(ocsort)
 add_subdirectory(sfsort)
 
+# DeepStream adapter (optional — requires TensorRT + DeepStream SDK)
+option(BOXMOT_BUILD_DEEPSTREAM "Build the DeepStream Gst-nvtracker adapter" OFF)
+if(BOXMOT_BUILD_DEEPSTREAM)
+    add_subdirectory(deepstream)
+endif()
+
 # ---------------------------------------------------------------------------
 # Wheel install rules
 # ---------------------------------------------------------------------------
