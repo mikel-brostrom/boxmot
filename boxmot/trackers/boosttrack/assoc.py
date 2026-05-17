@@ -165,6 +165,7 @@ def associate(
         lambda_mhd: float = 0.25,
         lambda_shape: float = 0.25,
         s_sim_corr: bool = False,
+        lambda_emb_multiplier: float = 1.5,
 ):
     if len(trackers) == 0:
         return (
@@ -194,7 +195,7 @@ def associate(
             cost_matrix += lambda_shape * conf * shape_similarity(detections, trackers, s_sim_corr)
 
     if emb_cost is not None:
-        lambda_emb = (1 + lambda_iou + lambda_shape + lambda_mhd) * 1.5
+        lambda_emb = (1 + lambda_iou + lambda_shape + lambda_mhd) * lambda_emb_multiplier
         cost_matrix += lambda_emb * emb_cost
 
     return linear_assignment(detections, trackers, iou_matrix, cost_matrix, iou_threshold, emb_cost)

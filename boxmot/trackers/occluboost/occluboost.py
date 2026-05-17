@@ -103,6 +103,7 @@ class OccluBoost(BoostTrack):
         ams_threshold: float = 0.5,
         ams_buffer_size: int = 30,
         ams_shrink_ratio: float = 0.75,
+        lambda_emb_multiplier: float = 1.5,
         **kwargs: Any,
     ):
         super().__init__(reid_model=reid_model, **kwargs)
@@ -149,6 +150,7 @@ class OccluBoost(BoostTrack):
         self.ams_threshold = float(max(ams_threshold, 0.0))
         self.ams_buffer_size = int(max(ams_buffer_size, 2))
         self.ams_shrink_ratio = float(np.clip(ams_shrink_ratio, 0.0, 1.0))
+        self.lambda_emb_multiplier = float(lambda_emb_multiplier)
 
     def _update_impl(
         self,
@@ -239,6 +241,7 @@ class OccluBoost(BoostTrack):
             lambda_mhd=self.lambda_mhd,
             lambda_shape=self.lambda_shape,
             s_sim_corr=self.s_sim_corr,
+            lambda_emb_multiplier=self.lambda_emb_multiplier,
         )
 
         if dets.size > 0:
