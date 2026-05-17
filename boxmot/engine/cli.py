@@ -28,6 +28,7 @@ TRACK_DEFAULTS = BOXMOT_DEFAULTS.track
 TUNE_DEFAULTS = BOXMOT_DEFAULTS.tune
 RESEARCH_DEFAULTS = BOXMOT_DEFAULTS.research
 EXPORT_DEFAULTS = BOXMOT_DEFAULTS.export
+TRAIN_DEFAULTS = BOXMOT_DEFAULTS.train
 SHARED_DEFAULTS = BOXMOT_DEFAULTS.shared
 
 _TUNE_METRIC_OPTIONS = {"--objectives", "--maximize", "--minimize"}
@@ -368,7 +369,7 @@ def export_options(func):
         click.option('--optimize', is_flag=True, default=EXPORT_DEFAULTS.optimize,
                      help='Optimize TorchScript for mobile (CPU export only)'),
         click.option('--dynamic', is_flag=True, default=EXPORT_DEFAULTS.dynamic,
-                     help='Enable dynamic axes for ONNX/TF/TensorRT export'),
+                     help='Enable dynamic axes for ONNX/TensorRT export'),
         click.option('--simplify', is_flag=True, default=EXPORT_DEFAULTS.simplify,
                      help='Simplify ONNX model'),
         click.option('--opset', type=int, default=EXPORT_DEFAULTS.opset,
@@ -480,7 +481,7 @@ class CommandFirstGroup(click.Group):
         # Argument descriptions
         formatter.width = 120  # Increase formatter width to prevent wrapping
         with formatter.indentation():
-            formatter.write_text("Where  MODE (required) is one of [track, eval, tune, research, generate, export]")
+            formatter.write_text("Where  MODE (required) is one of [track, eval, tune, research, generate, train, export]")
             formatter.write_text("       --detector selects a YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
             formatter.write_text("       --reid selects a ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
             formatter.write_text("       --tracker selects one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]")
@@ -520,7 +521,17 @@ class CommandFirstGroup(click.Group):
                 )
             formatter.write_paragraph()
             
-            formatter.write_text("6. Export ReID model:")
+            formatter.write_text("6. Train a ReID model:")
+            with formatter.indentation():
+                formatter.write_text("boxmot train --model osnet_x0_25 --dataset market1501 --data-dir /path/to/data --epochs 120 --device 0")
+            formatter.write_paragraph()
+
+            formatter.write_text("7. Train on all person datasets jointly:")
+            with formatter.indentation():
+                formatter.write_text("boxmot train --model vit_nano --dataset market1501,duke,cuhk03,msmt17 --data-dir /path/to/data --device 0")
+            formatter.write_paragraph()
+
+            formatter.write_text("8. Export ReID model:")
             with formatter.indentation():
                 formatter.write_text("boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic")
         formatter.write_paragraph()
@@ -533,6 +544,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("tune       Optimize tracker hyperparameters")
             formatter.write_text("research   Evolve tracker code against benchmark metrics")
             formatter.write_text("generate   Generate detections and embeddings")
+            formatter.write_text("train      Train a ReID model on a person/vehicle dataset")
             formatter.write_text("export     Export ReID models to different formats")
         formatter.write_paragraph()
         
@@ -679,6 +691,117 @@ def research(ctx, data, detector, reid, classes, **kwargs):
             "split": "",
         },
     )
+
+
+def train_options(func):
+    """Decorator adding ReID training options."""
+    from boxmot.reid.core.config import MODEL_TYPES
+    from boxmot.reid.datasets import DATASET_REGISTRY
+
+    from boxmot.reid.core.preprocessing import PREPROCESS_REGISTRY
+
+    options = [
+        click.option('--model', type=click.Choice(MODEL_TYPES, case_sensitive=False),
+                     default=TRAIN_DEFAULTS.model, show_default=True,
+                     help='ReID backbone architecture'),
+        click.option('--dataset', type=str,
+                     default=TRAIN_DEFAULTS.dataset, show_default=True,
+                     help='Training dataset (comma-separated for joint training, '
+                          f'e.g. market1501,duke,cuhk03,msmt17). '
+                          f'Available: {", ".join(sorted(DATASET_REGISTRY.keys()))}'),
+        click.option('--data-dir', type=click.Path(exists=True), required=True,
+                     help='Root directory of the dataset'),
+        click.option('--loss', type=click.Choice(['softmax', 'triplet'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.loss, show_default=True,
+                     help='Training loss type'),
+        click.option('--preprocess', type=click.Choice(sorted(PREPROCESS_REGISTRY.keys()), case_sensitive=False),
+                     default=TRAIN_DEFAULTS.preprocess, show_default=True,
+                     help='Crop preprocessing method; must match inference-time preprocessing'),
+        click.option('--imgsz', callback=parse_imgsz, type=str,
+                     default=_click_imgsz_default(TRAIN_DEFAULTS.imgsz),
+                     help='Image size as H,W (e.g. 256,128)'),
+        click.option('--batch-size', type=int, default=TRAIN_DEFAULTS.batch_size, show_default=True,
+                     help='Training batch size'),
+        click.option('--lr', type=float, default=TRAIN_DEFAULTS.lr, show_default=True,
+                     help='Base learning rate'),
+        click.option('--weight-decay', type=float, default=TRAIN_DEFAULTS.weight_decay, show_default=True,
+                     help='Weight decay'),
+        click.option('--epochs', type=int, default=TRAIN_DEFAULTS.epochs, show_default=True,
+                     help='Number of training epochs'),
+        click.option('--warmup-epochs', type=int, default=TRAIN_DEFAULTS.warmup_epochs, show_default=True,
+                     help='Linear warmup epochs'),
+        click.option('--eval-interval', type=int, default=TRAIN_DEFAULTS.eval_interval, show_default=True,
+                     help='Validate every N epochs'),
+        click.option('--p-ids', type=int, default=TRAIN_DEFAULTS.p_ids, show_default=True,
+                     help='Number of identities per PK batch'),
+        click.option('--k-instances', type=int, default=TRAIN_DEFAULTS.k_instances, show_default=True,
+                     help='Number of instances per identity'),
+        click.option('--margin', type=float, default=TRAIN_DEFAULTS.margin, show_default=True,
+                     help='Triplet loss margin'),
+        click.option('--label-smooth', type=float, default=TRAIN_DEFAULTS.label_smooth, show_default=True,
+                     help='Label smoothing epsilon'),
+        click.option('--center-loss-weight', type=float, default=TRAIN_DEFAULTS.center_loss_weight, show_default=True,
+                     help='Center loss weight'),
+        click.option('--pretrained/--no-pretrained', default=TRAIN_DEFAULTS.pretrained, show_default=True,
+                     help='Use ImageNet-pretrained backbone'),
+        click.option('--device', default=TRAIN_DEFAULTS.device,
+                     help='cuda device, e.g. 0 or cpu or mps'),
+        click.option('--project', type=click.Path(), default=TRAIN_DEFAULTS.project, show_default=True,
+                     help='Save directory'),
+        click.option('--name', default=TRAIN_DEFAULTS.name, show_default=True,
+                     help='Experiment name'),
+        click.option('--num-workers', type=int, default=TRAIN_DEFAULTS.num_workers, show_default=True,
+                     help='Dataloader workers'),
+        click.option('--seed', type=int, default=TRAIN_DEFAULTS.seed, show_default=True,
+                     help='Random seed'),
+        click.option('--eval-datasets', type=str, default=','.join(TRAIN_DEFAULTS.eval_datasets) if TRAIN_DEFAULTS.eval_datasets else '',
+                     help='Comma-separated list of extra datasets for cross-domain evaluation '
+                          '(e.g. duke,cuhk03,msmt17)'),
+        click.option('--ema-decay', type=float, default=TRAIN_DEFAULTS.ema_decay,
+                     help='EMA momentum decay for model averaging (e.g. 0.999). '
+                          'Disabled by default. Inspired by DynaMix'),
+        click.option('--gaussian-blur/--no-gaussian-blur', default=TRAIN_DEFAULTS.gaussian_blur, show_default=True,
+                     help='Apply random Gaussian blur augmentation'),
+        click.option('--color-jitter/--no-color-jitter', default=TRAIN_DEFAULTS.color_jitter, show_default=True,
+                     help='Apply color jitter augmentation (auto-enabled for ViTs)'),
+        click.option('--random-grayscale', type=float, default=TRAIN_DEFAULTS.random_grayscale, show_default=True,
+                     help='Probability of random grayscale conversion (0 to disable)'),
+        click.option('--resume', type=click.Path(), default=None,
+                     help='Resume training from a checkpoint dir or last.pt file'),
+    ]
+    for opt in reversed(options):
+        func = opt(func)
+    return func
+
+
+@boxmot.command(help='Train a ReID model')
+@train_options
+@click.pass_context
+def train(ctx, **kwargs):
+    args = _build_cli_namespace(ctx, "train", kwargs)
+    _run_engine_workflow("boxmot.engine.reid_trainer", args)
+
+
+@boxmot.command(name='eval-reid', help='Evaluate a trained ReID model on query/gallery')
+@click.option('--weights', type=click.Path(exists=True), required=True,
+              help='Path to trained ReID checkpoint (.pt)')
+@click.option('--model', type=str, default=None,
+              help='Model architecture (auto-detected from checkpoint if omitted)')
+@click.option('--dataset', type=str, required=True,
+              help='Evaluation dataset (e.g. market1501, duke, msmt17)')
+@click.option('--data-dir', type=click.Path(exists=True), required=True,
+              help='Root directory of the dataset')
+@click.option('--device', default='cpu', help='Device: cpu, mps, or cuda index')
+@click.option('--batch-size', type=int, default=64, show_default=True,
+              help='Batch size for feature extraction')
+@click.option('--num-workers', type=int, default=4, show_default=True,
+              help='Dataloader workers')
+@click.option('--output', type=click.Path(), default=None,
+              help='Directory to save eval JSON (default: next to weights)')
+@click.pass_context
+def eval_reid(ctx, **kwargs):
+    args = _build_cli_namespace(ctx, "eval-reid", kwargs)
+    _run_engine_workflow("boxmot.engine.reid_evaluator", args)
 
 
 @boxmot.command(help='Export ReID models')

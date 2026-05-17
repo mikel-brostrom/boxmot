@@ -28,6 +28,22 @@ class ReIDModelRegistry:
         return TRAINED_URLS.get(model.name, None)
 
     @staticmethod
+    def get_checkpoint_preprocess(weight_path) -> str | None:
+        """Return the preprocessing method stored in a checkpoint, or None."""
+        try:
+            checkpoint = torch.load(
+                weight_path,
+                map_location="cpu",
+                weights_only=False,
+                encoding="latin1",
+            )
+            if isinstance(checkpoint, dict):
+                return checkpoint.get("preprocess")
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
     def load_pretrained_weights(model, weight_path):
         """
         Loads pretrained weights into a model.

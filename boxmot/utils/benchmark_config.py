@@ -489,8 +489,8 @@ def should_use_benchmark_detector(args: Any, cfg: dict[str, Any]) -> bool:
     if getattr(args, "detector_explicit", None) is True:
         return False
 
-    default_name = (WEIGHTS / "yolov8n.pt").name.lower()
-    return Path(current_model).name.lower() == default_name
+    default_stem = Path("yolov8n").stem.lower()
+    return Path(current_model).stem.lower() == default_stem
 
 
 def should_use_benchmark_reid(args: Any, cfg: dict[str, Any]) -> bool:
@@ -518,8 +518,8 @@ def should_use_benchmark_reid(args: Any, cfg: dict[str, Any]) -> bool:
     if getattr(args, "reid_explicit", None) is True:
         return False
 
-    default_name = (WEIGHTS / "osnet_x0_25_msmt17.pt").name.lower()
-    return Path(current_model).name.lower() == default_name
+    default_stem = Path("osnet_x0_25_msmt17").stem.lower()
+    return Path(current_model).stem.lower() == default_stem
 
 
 def _resolve_benchmark_dest(cfg: dict[str, Any], benchmark_name: str, source_root: Path | None) -> Path:

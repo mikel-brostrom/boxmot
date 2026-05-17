@@ -141,6 +141,20 @@ def build_mode_namespace(
         project = values.get("project")
         if project is not None:
             values["project"] = Path(project)
+    elif normalized_mode == "train":
+        project = values.get("project")
+        if project is not None:
+            values["project"] = Path(project)
+        imgsz = values.get("imgsz")
+        if isinstance(imgsz, (list, tuple)):
+            values["imgsz"] = tuple(imgsz)
+        elif isinstance(imgsz, int):
+            values["imgsz"] = (imgsz, imgsz // 2)
+        # Parse eval_datasets: accept comma-separated string or list
+        ed = values.get("eval_datasets", ())
+        if isinstance(ed, str):
+            ed = [s.strip() for s in ed.split(",") if s.strip()]
+        values["eval_datasets"] = list(ed)
 
     return SimpleNamespace(**values)
 
@@ -391,6 +405,76 @@ class ExportModeDefaults:
 
 
 @dataclass(frozen=True, **dataclass_slots_kwargs())
+class TrainModeDefaults:
+    model: str
+    dataset: str
+    data_dir: str | None
+    loss: str
+    preprocess: str
+    imgsz: Any
+    batch_size: int
+    lr: float
+    weight_decay: float
+    epochs: int
+    warmup_epochs: int
+    eval_interval: int
+    p_ids: int
+    k_instances: int
+    margin: float
+    label_smooth: float
+    center_loss_weight: float
+    pretrained: bool
+    device: str
+    project: str
+    name: str
+    num_workers: int
+    seed: int
+    eval_datasets: tuple
+    ema_decay: float | None
+    gaussian_blur: bool
+    color_jitter: bool
+    random_grayscale: float
+
+    @classmethod
+    def from_mapping(cls, values: Mapping[str, Any]) -> "TrainModeDefaults":
+        imgsz = values.get("imgsz")
+        if isinstance(imgsz, (list, tuple)):
+            imgsz = tuple(imgsz)
+        elif isinstance(imgsz, int):
+            imgsz = (imgsz, imgsz // 2)
+        return cls(
+            model=str(values.get("model", "osnet_x0_25")),
+            dataset=str(values.get("dataset", "market1501")),
+            data_dir=None if values.get("data_dir") is None else str(values["data_dir"]),
+            loss=str(values.get("loss", "triplet")),
+            preprocess=str(values.get("preprocess", "resize")),
+            imgsz=imgsz,
+            batch_size=int(values.get("batch_size", 64)),
+            lr=float(values.get("lr", 3.5e-4)),
+            weight_decay=float(values.get("weight_decay", 5e-4)),
+            epochs=int(values.get("epochs", 120)),
+            warmup_epochs=int(values.get("warmup_epochs", 10)),
+            eval_interval=int(values.get("eval_interval", 10)),
+            p_ids=int(values.get("p_ids", 16)),
+            k_instances=int(values.get("k_instances", 4)),
+            margin=float(values.get("margin", 0.3)),
+            label_smooth=float(values.get("label_smooth", 0.1)),
+            center_loss_weight=float(values.get("center_loss_weight", 5e-4)),
+            pretrained=bool(values.get("pretrained", True)),
+            device=str(values.get("device", "cpu")),
+            project=str(values.get("project", "runs/reid_train")),
+            name=str(values.get("name", "exp")),
+            num_workers=int(values.get("num_workers", 4)),
+            seed=int(values.get("seed", 42)),
+            eval_datasets=tuple(values.get("eval_datasets", ())),
+            ema_decay=values.get("ema_decay"),
+            gaussian_blur=bool(values.get("gaussian_blur", False)),
+            color_jitter=bool(values.get("color_jitter", False)),
+            random_grayscale=float(values.get("random_grayscale", 0.0)),
+        )
+
+
+@dataclass(frozen=True, **dataclass_slots_kwargs())
 class BoxMOTDefaults:
     shared: SharedModeDefaults
     track: TrackModeDefaults
@@ -399,6 +483,7 @@ class BoxMOTDefaults:
     tune: TuneModeDefaults
     research: ResearchModeDefaults
     export: ExportModeDefaults
+    train: TrainModeDefaults
 
 
 BOXMOT_DEFAULTS = BoxMOTDefaults(
@@ -409,6 +494,7 @@ BOXMOT_DEFAULTS = BoxMOTDefaults(
     tune=TuneModeDefaults.from_mapping(get_mode_defaults("tune")),
     research=ResearchModeDefaults.from_mapping(get_mode_defaults("research")),
     export=ExportModeDefaults.from_mapping(get_mode_defaults("export")),
+    train=TrainModeDefaults.from_mapping(get_mode_defaults("train")),
 )
 
 __all__ = (
@@ -424,6 +510,7 @@ __all__ = (
     "RuntimeModeDefaults",
     "SharedModeDefaults",
     "TrackModeDefaults",
+    "TrainModeDefaults",
     "TuneModeDefaults",
     "build_mode_namespace",
     "ensure_model_extension",

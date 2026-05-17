@@ -62,6 +62,9 @@ class TFLiteBackend(BaseModelBackend):
         self.input_details = self.interpreter.get_input_details()  # inputs
         self.output_details = self.interpreter.get_output_details()  # outputs
         self.current_allocated_batch_size = self.input_details[0]["shape"][0]
+        shape = tuple(int(dim) for dim in self.input_details[0]["shape"])
+        if len(shape) == 4:
+            self.nhwc = shape[-1] == 3 and shape[1] != 3
 
     def forward(self, im_batch: torch.Tensor) -> np.ndarray:
         """
@@ -74,17 +77,22 @@ class TFLiteBackend(BaseModelBackend):
             np.ndarray: Output features from the TFLite model.
         """
         im_batch = im_batch.cpu().numpy()
+        if self.nhwc:
+            im_batch = np.transpose(im_batch, (0, 2, 3, 1))
 
         # Extract batch size from im_batch
         batch_size = im_batch.shape[0]
 
         # Resize tensors if the new batch size is different from the current allocated batch size
         if batch_size != self.current_allocated_batch_size:
-            # print(f"Resizing tensor input to batch size {batch_size}")
+            input_shape = list(self.input_details[0]["shape"])
+            input_shape[0] = batch_size
             self.interpreter.resize_tensor_input(
-                self.input_details[0]["index"], [batch_size, 256, 128, 3]
+                self.input_details[0]["index"], input_shape
             )
             self.interpreter.allocate_tensors()
+            self.input_details = self.interpreter.get_input_details()
+            self.output_details = self.interpreter.get_output_details()
             self.current_allocated_batch_size = batch_size
 
         # Set the tensor to point to the input data

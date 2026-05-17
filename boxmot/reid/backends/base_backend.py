@@ -38,6 +38,7 @@ class BaseModelBackend:
             use_gpu=device,
         )
         self.checker = RequirementsChecker()
+        self._preprocess_name = preprocess
         self.preprocess_fn = get_preprocess_fn(preprocess)
         self.load_model(self.weights)
 
@@ -50,7 +51,7 @@ class BaseModelBackend:
         # Determine input shape, depending on dataset and model name
         if "vehicleid" in self.weights.name or "veri" in self.weights.name:
             input_shape = (256, 256)
-        elif "lmbn" in self.model_name:
+        elif "lmbn" in self.model_name or "vit_tiny" in self.model_name:
             input_shape = (384, 128)
         elif "hacnn" in self.model_name:
             input_shape = (160, 64)

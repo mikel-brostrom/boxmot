@@ -10,6 +10,7 @@ from boxmot.reid.backbones.osnet import (osnet_ibn_x1_0, osnet_x0_5,
 from boxmot.reid.backbones.osnet_ain import (osnet_ain_x0_5, osnet_ain_x0_25,
                                              osnet_ain_x0_75, osnet_ain_x1_0)
 from boxmot.reid.backbones.resnet import resnet50, resnet101
+from boxmot.reid.backbones.vit_nano import vit_nano, vit_nano_ain, vit_nano_ain_os, vit_tiny
 
 # Map model names to their respective constructors
 MODEL_FACTORY = {
@@ -31,4 +32,8 @@ MODEL_FACTORY = {
     "lmbn_ain_n": LMBN_ain_n,
     "lmbn_n": LMBN_n,
     "clip": make_model,
+    "vit_nano": vit_nano,
+    "vit_nano_ain": vit_nano_ain,
+    "vit_nano_ain_os": vit_nano_ain_os,
+    "vit_tiny": vit_tiny,
 }

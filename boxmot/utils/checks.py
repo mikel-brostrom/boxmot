@@ -135,6 +135,8 @@ class RequirementsChecker:
         """Return requirement specifiers from *requirements* that are not satisfied."""
         missing: list[str] = []
         for req in [Requirement(r) for r in requirements]:
+            if req.marker is not None and not req.marker.evaluate():
+                continue
             try:
                 inst_ver = version(req.name)
                 if req.specifier and not req.specifier.contains(inst_ver, prereleases=True):
