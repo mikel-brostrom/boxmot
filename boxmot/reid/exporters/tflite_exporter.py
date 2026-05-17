@@ -1,12 +1,11 @@
-import inspect
-import os
-import shutil
+import copy
 import sys
-from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any
+
+import torch
+from torch import nn
 
 from boxmot.reid.exporters.base_exporter import BaseExporter
-from boxmot.reid.exporters.onnx_exporter import ONNXExporter
 from boxmot.utils import logger as LOGGER
 
 
@@ -18,94 +17,106 @@ class TFLiteExporter(BaseExporter):
         self.opset = opset
 
     def export(self) -> str:
-        if sys.version_info < (3, 12):
-            raise RuntimeError("TFLite export requires Python 3.12 for the pinned onnx2tf flatbuffer_direct stack.")
-        if sys.platform not in {"linux", "win32"}:
-            raise RuntimeError("TFLite export is only supported on Linux or Windows in this environment.")
+        if sys.version_info < (3, 10):
+            raise RuntimeError("TFLite export with litert-torch requires Python 3.10 or newer.")
 
-        import onnx2tf
-        import tensorflow as tf
+        import litert_torch
 
-        LOGGER.info(
-            f"Exporting TFLite with tensorflow {tf.__version__} and onnx2tf {onnx2tf.__version__}..."
+        tflite_path = self.file.with_suffix(".tflite")
+        version = getattr(litert_torch, "__version__", "unknown")
+        LOGGER.info(f"Exporting TFLite with litert-torch {version}...")
+
+        sample_inputs = self._sample_inputs(self.im)
+        model = self._prepare_model_for_litert(self.model.eval(), sample_inputs)
+        edge_model = litert_torch.convert(
+            model,
+            sample_inputs,
         )
+        edge_model.export(str(tflite_path))
 
-        onnx_path = self._ensure_onnx_file()
-        export_dir = self.file.parent / f"{self.file.stem}_saved_model"
-        output_folder_path = str(export_dir) + os.sep
-
-        if export_dir.is_dir():
-            shutil.rmtree(export_dir)
-
-        onnx2tf.convert(**self._build_convert_kwargs(onnx2tf, onnx_path, output_folder_path))
-
-        tflite_path = self._select_tflite_artifact(export_dir)
-        if tflite_path is None:
-            raise RuntimeError(f"onnx2tf completed without producing a .tflite artifact in {export_dir}")
+        if not tflite_path.is_file():
+            raise RuntimeError(f"litert-torch completed without producing {tflite_path}")
 
         return str(tflite_path)
 
-    def _ensure_onnx_file(self) -> Path:
-        onnx_path = self.file.with_suffix(".onnx")
-        if onnx_path.exists():
-            return onnx_path
+    def _prepare_model_for_litert(self, model: nn.Module, sample_inputs: tuple[Any, ...]) -> nn.Module:
+        return self._replace_static_adaptive_max_pool2d(model, sample_inputs)
 
-        LOGGER.info("Missing ONNX export; generating an intermediate ONNX model for TFLite conversion...")
-        exported = ONNXExporter(
-            self.model,
-            self.im,
-            self.file,
-            opset=self.opset,
-            dynamic=self.dynamic,
-            half=self.half,
-            simplify=self.simplify,
-        ).export()
-        if not exported:
-            raise RuntimeError("ONNX export failed; cannot continue with TFLite export.")
+    @staticmethod
+    def _sample_inputs(im: Any) -> tuple[Any, ...]:
+        if isinstance(im, tuple):
+            return im
+        if isinstance(im, list):
+            return tuple(im)
+        return (im,)
 
-        return Path(exported)
-
-    def _build_convert_kwargs(self, onnx2tf_module, onnx_path: Path, output_folder_path: str) -> dict:
-        kwargs = {
-            "input_onnx_file_path": str(onnx_path),
-            "output_folder_path": output_folder_path,
+    def _replace_static_adaptive_max_pool2d(self, model: nn.Module, sample_inputs: tuple[Any, ...]) -> nn.Module:
+        adaptive_pools = {
+            name: module
+            for name, module in model.named_modules()
+            if isinstance(module, nn.AdaptiveMaxPool2d) and self._pool_output_size(module) == (1, 1)
         }
+        if not adaptive_pools:
+            return model
+
+        input_shapes: dict[str, list[tuple[int, int]]] = {name: [] for name in adaptive_pools}
+        handles = []
+        for name, module in adaptive_pools.items():
+            handles.append(
+                module.register_forward_hook(
+                    lambda _module, args, _output, pool_name=name: input_shapes[pool_name].append(
+                        tuple(int(dim) for dim in args[0].shape[-2:])
+                    )
+                )
+            )
 
         try:
-            sig = inspect.signature(onnx2tf_module.convert)
-        except (TypeError, ValueError):
-            sig = None
+            with torch.inference_mode():
+                model(*sample_inputs)
+        except Exception as exc:
+            if self.verbose:
+                LOGGER.warning(f"Unable to inspect adaptive max-pool shapes for LiteRT export: {exc}")
+            return model
+        finally:
+            for handle in handles:
+                handle.remove()
 
-        self._set_if_supported(kwargs, sig, "tflite_backend", "flatbuffer_direct")
-        self._set_if_supported(kwargs, sig, "verbosity", "info")
-        self._set_if_supported(kwargs, sig, "output_float16_tflite", bool(self.half))
+        replacements = {}
+        for name, shapes in input_shapes.items():
+            unique_shapes = set(shapes)
+            if len(unique_shapes) == 1:
+                replacements[name] = unique_shapes.pop()
+            elif self.verbose:
+                LOGGER.warning(
+                    f"Keeping {name} as AdaptiveMaxPool2d because it saw multiple input shapes: {sorted(unique_shapes)}"
+                )
 
-        return kwargs
+        if not replacements:
+            return model
+
+        export_model = copy.deepcopy(model).eval()
+        for name, kernel_size in replacements.items():
+            self._set_submodule(
+                export_model,
+                name,
+                nn.MaxPool2d(kernel_size=kernel_size, stride=kernel_size),
+            )
+
+        if self.verbose:
+            LOGGER.info(
+                f"Replaced {len(replacements)} AdaptiveMaxPool2d layer(s) with static MaxPool2d for LiteRT export."
+            )
+        return export_model
 
     @staticmethod
-    def _set_if_supported(kwargs: dict, sig, name: str, value) -> None:
-        if sig is None or name in sig.parameters:
-            kwargs[name] = value
-
-    def _select_tflite_artifact(self, export_dir: Path) -> Optional[Path]:
-        tflites = sorted(export_dir.rglob("*.tflite"))
-        tflites = [p for p in tflites if "quant_with_int16_act.tflite" not in p.name]
-        if not tflites:
-            return None
-
-        if self.half:
-            preferred_tokens = ("float16", "fp16")
-            fallback_tokens = ("float32", "fp32")
-        else:
-            preferred_tokens = ("float32", "fp32")
-            fallback_tokens = ("float16", "fp16")
-
-        preferred = next((p for p in tflites if self._matches_any_token(p, preferred_tokens)), None)
-        fallback = next((p for p in tflites if self._matches_any_token(p, fallback_tokens)), None)
-
-        return preferred or fallback or tflites[0]
+    def _pool_output_size(module: nn.AdaptiveMaxPool2d) -> tuple[int, int]:
+        output_size = module.output_size
+        if isinstance(output_size, int):
+            return (output_size, output_size)
+        return tuple(output_size)
 
     @staticmethod
-    def _matches_any_token(path: Path, tokens: Tuple[str, ...]) -> bool:
-        stem = path.stem.lower()
-        return any(token in stem for token in tokens)
+    def _set_submodule(model: nn.Module, name: str, module: nn.Module) -> None:
+        parent_name, _, child_name = name.rpartition(".")
+        parent = model.get_submodule(parent_name) if parent_name else model
+        setattr(parent, child_name, module)
