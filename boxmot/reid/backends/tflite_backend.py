@@ -93,6 +93,7 @@ class TFLiteBackend(BaseModelBackend):
 
     def _try_resize(self, batch_size: int) -> bool:
         """Attempt to resize the interpreter to *batch_size*. Returns True on success."""
+        original_bs = self.current_allocated_batch_size
         try:
             input_shape = list(self.input_details[0]["shape"])
             input_shape[0] = batch_size
@@ -105,6 +106,15 @@ class TFLiteBackend(BaseModelBackend):
             self.current_allocated_batch_size = batch_size
             return True
         except RuntimeError:
+            # Restore the original batch size so the interpreter is usable
+            input_shape = list(self.input_details[0]["shape"])
+            input_shape[0] = original_bs
+            self.interpreter.resize_tensor_input(
+                self.input_details[0]["index"], input_shape
+            )
+            self.interpreter.allocate_tensors()
+            self.input_details = self.interpreter.get_input_details()
+            self.output_details = self.interpreter.get_output_details()
             return False
 
     def _forward_chunked(self, im_batch: np.ndarray) -> np.ndarray:
