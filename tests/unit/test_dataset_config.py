@@ -275,8 +275,8 @@ def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
     assert args.eval_box_type == "obb"
     assert calls == {
         "runs_url": "",
-        "dataset_url": "hf://Annzstbl/MMOT/MMOT",
-        "dataset_dest": Path("boxmot/engine/trackeval/data/MMOT-OBB"),
+        "dataset_url": "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/MMOT-OBB.zip",
+        "dataset_dest": Path("boxmot/engine/trackeval/data/MMOT-OBB.zip"),
         "overwrite": False,
         "runs_check_path": None,
         "status_fn": None,
@@ -309,14 +309,14 @@ def test_sportsmot_benchmark_uses_split_schema():
     assert cfg["id"] == "sportsmot"
     assert cfg["dataset_config"] == "sportsmot"
     assert cfg["path"] == "boxmot/engine/trackeval/data/SportsMOT"
-    assert cfg["split"] == "test"
+    assert cfg["split"] == "val"
     assert cfg["train"] == "train"
     assert cfg["test"] == "test"
     assert cfg["detector_config"] == "yolox_x_mot17_ablation"
     assert cfg["reid_config"] == "lmbn_n_duke"
     assert cfg["storage"] == {
         "root": "boxmot/engine/trackeval/data/SportsMOT",
-        "split": "test",
+        "split": "val",
     }
     assert cfg["evaluation"] == {
         "box_type": "aabb",
@@ -354,7 +354,7 @@ def test_apply_benchmark_config_resolves_sportsmot(monkeypatch):
     assert cfg["id"] == "sportsmot"
     assert args.benchmark_id == "sportsmot"
     assert args.dataset_id == "sportsmot"
-    assert args.source == Path("boxmot/engine/trackeval/data/SportsMOT/test")
+    assert args.source == Path("boxmot/engine/trackeval/data/SportsMOT/val")
 
 
 def test_find_dataset_cfg_for_sportsmot_source():
