@@ -275,8 +275,8 @@ def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
     assert args.eval_box_type == "obb"
     assert calls == {
         "runs_url": "",
-        "dataset_url": "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/MMOT-OBB.zip",
-        "dataset_dest": Path("boxmot/engine/trackeval/data/MMOT-OBB.zip"),
+        "dataset_url": "hf://Annzstbl/MMOT/MMOT",
+        "dataset_dest": Path("boxmot/engine/trackeval/data/MMOT-OBB"),
         "overwrite": False,
         "runs_check_path": None,
         "status_fn": None,
@@ -302,3 +302,63 @@ def test_ensure_benchmark_detector_model_downloads_missing_weight(monkeypatch, t
         "dest": target,
         "overwrite": False,
     }
+
+
+def test_sportsmot_benchmark_uses_split_schema():
+    cfg = load_benchmark_only_cfg("sportsmot")
+    assert cfg["id"] == "sportsmot"
+    assert cfg["dataset_config"] == "sportsmot"
+    assert cfg["path"] == "boxmot/engine/trackeval/data/SportsMOT"
+    assert cfg["split"] == "test"
+    assert cfg["train"] == "train"
+    assert cfg["test"] == "test"
+    assert cfg["detector_config"] == "yolox_x_mot17_ablation"
+    assert cfg["reid_config"] == "lmbn_n_duke"
+    assert cfg["storage"] == {
+        "root": "boxmot/engine/trackeval/data/SportsMOT",
+        "split": "test",
+    }
+    assert cfg["evaluation"] == {
+        "box_type": "aabb",
+        "layout": "mot",
+        "tracker_eval": "mot_challenge",
+        "classes": {
+            "eval": {1: "player"},
+            "distractor": {},
+            "mapping": {},
+        },
+    }
+
+
+def test_sportsmot_dataset_loads_without_model_bindings():
+    cfg = load_dataset_cfg("sportsmot")
+    assert cfg["id"] == "sportsmot"
+    assert cfg["path"] == "boxmot/engine/trackeval/data/SportsMOT"
+    assert cfg["box_type"] == "aabb"
+    assert cfg["layout"] == "mot"
+    assert cfg["trackeval"] == "mot_challenge"
+    assert cfg["detector_config"] is None
+    assert cfg["reid_config"] is None
+
+
+def test_sportsmot_full_benchmark_loads_detector_and_reid():
+    cfg = load_benchmark_cfg("sportsmot")
+    assert resolve_required_yolo_model(cfg) == Path("models/yolox_x_MOT17_ablation.pt")
+    assert resolve_required_reid_model(cfg) == Path("models/lmbn_n_duke.pt")
+
+
+def test_apply_benchmark_config_resolves_sportsmot(monkeypatch):
+    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
+    args = SimpleNamespace(data="sportsmot", source=None)
+    cfg = apply_benchmark_config(args)
+    assert cfg["id"] == "sportsmot"
+    assert args.benchmark_id == "sportsmot"
+    assert args.dataset_id == "sportsmot"
+    assert args.source == Path("boxmot/engine/trackeval/data/SportsMOT/test")
+
+
+def test_find_dataset_cfg_for_sportsmot_source():
+    cfg = find_dataset_cfg_for_source("boxmot/engine/trackeval/data/SportsMOT/test/SNMOT-001/img1")
+    assert cfg is not None
+    assert cfg["id"] == "sportsmot"
+    assert cfg["path"] == "boxmot/engine/trackeval/data/SportsMOT"
