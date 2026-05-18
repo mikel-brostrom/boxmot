@@ -330,6 +330,10 @@ def run_eval(
 
     # -- Generate detections & embeddings --
     if prepare_cache:
+        from boxmot.engine.workflow_support import REID_TRACKERS
+        tracker_name = str(getattr(args, "tracker", "")).lower()
+        if tracker_name not in REID_TRACKERS:
+            args.reid = []
         if pipeline is not None:
             pipeline.advance("Generating detections & embeddings...")
         with suppress_boxmot_logs(suppress, level="WARNING"):

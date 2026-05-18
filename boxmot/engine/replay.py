@@ -93,7 +93,7 @@ def _build_task_args(
             str(args.source),
             cache_project_root,
             args.detector[0].stem,
-            str(args.reid[0]),
+            str(args.reid[0]) if args.reid else "",
             args.tracker,
             str(exp_dir),
             getattr(args, "fps", None),
@@ -124,10 +124,14 @@ def process_sequence(
 ):
     """Run a tracker over cached detections and embeddings for one sequence."""
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
-    reid_weights = Path(reid_name)
-    reid_key = reid_weights.name if reid_weights.suffix else str(reid_weights)
-    if not reid_weights.suffix:
-        reid_weights = reid_weights.with_suffix(".pt")
+    if reid_name:
+        reid_weights = Path(reid_name)
+        reid_key = reid_weights.name if reid_weights.suffix else str(reid_weights)
+        if not reid_weights.suffix:
+            reid_weights = reid_weights.with_suffix(".pt")
+    else:
+        reid_weights = None
+        reid_key = None
 
     timing_stats = TimingStats()
 
@@ -173,14 +177,14 @@ def process_sequence(
         kept_frame_ids.append(frame_id)
         num_frames += 1
 
-        if dets.size and embs.size and conf_threshold > 0:
+        if dets.size and conf_threshold > 0:
             conf_col = 5 if dets.shape[1] == 7 else 4
             mask = dets[:, conf_col] >= conf_threshold
             dets = dets[mask]
-            embs = embs[mask]
+            embs = embs[mask] if embs.size else embs
 
-        if dets.size and embs.size:
-            if dets.shape[0] != embs.shape[0]:
+        if dets.size:
+            if embs.size and dets.shape[0] != embs.shape[0]:
                 message = (
                     f"Detection/embedding count mismatch for {seq_name} frame {frame_id}: "
                     f"dets={dets.shape[0]} embs={embs.shape[0]}"
@@ -188,7 +192,8 @@ def process_sequence(
                 LOGGER.error(message)
                 raise ValueError(message)
 
-            tracks, elapsed_ms = tracker_runtime.update(dets, img, embs)
+            embs_arg = embs if embs.size else None
+            tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg)
             frame_reid_time_ms = min(timing_stats.get_last_reid_time(), elapsed_ms)
             total_reid_time_ms += frame_reid_time_ms
             total_track_time_ms += max(elapsed_ms - frame_reid_time_ms, 0.0)
@@ -489,7 +494,7 @@ def run_generate_mot_results(
     base = args.project / "mot"
     if getattr(args, "benchmark", None):
         base = base / args.benchmark
-    base = base / f"{args.detector[0].stem}_{args.reid[0].stem}_{args.tracker}"
+    base = base / f"{args.detector[0].stem}_{args.reid[0].stem if args.reid else 'noreid'}_{args.tracker}"
     exp_dir = increment_path(base, sep="_", exist_ok=False)
     exp_dir.mkdir(parents=True, exist_ok=True)
     args.exp_dir = exp_dir

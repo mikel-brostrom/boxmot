@@ -224,7 +224,7 @@ def configure_benchmark_runtime(
     runtime_reid_cfg = (
         get_benchmark_reid_cfg(benchmark_bundle)
         if use_benchmark_reid
-        else load_runtime_reid_component_cfg(args.reid[0])
+        else (load_runtime_reid_component_cfg(args.reid[0]) if args.reid else {})
     )
     apply_reid_runtime_defaults(args, {"reid": runtime_reid_cfg}, use_config=bool(runtime_reid_cfg))
 

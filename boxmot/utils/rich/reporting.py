@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time as _time
 from contextlib import contextmanager
 from typing import Any, Callable, ClassVar, Iterator, Sequence
 
@@ -156,11 +157,17 @@ class WorkflowDetailCallback:
         """
         progress = _make_progress(unit=unit)
         task_id = progress.add_task(description, total=total)
+        _last_refresh = 0.0
+        _REFRESH_INTERVAL = 0.25  # cap visual refreshes at ~4 FPS
 
         def _advance(n: int = 1) -> None:
+            nonlocal _last_refresh
             progress.update(task_id, advance=n)
-            if self.render:
-                self.workflow._update_live(render=True, force=True)
+            if self.render and self.workflow._live is not None:
+                now = _time.monotonic()
+                if (now - _last_refresh) >= _REFRESH_INTERVAL:
+                    self.workflow._live.refresh()
+                    _last_refresh = now
 
         with self._scoped_detail(progress):
             yield _advance
@@ -175,6 +182,8 @@ class WorkflowDetailCallback:
         """
         progress = _make_progress(unit=unit)
         callback = self
+        _last_refresh = [0.0]
+        _REFRESH_INTERVAL = 0.25  # cap visual refreshes at ~4 FPS
 
         class _RichTqdm:
             def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -188,7 +197,10 @@ class WorkflowDetailCallback:
             def update(self, n: int = 1) -> None:
                 progress.update(self._task_id, advance=int(n))
                 if callback.render:
-                    callback.workflow._update_live(render=True, force=True)
+                    now = _time.monotonic()
+                    if (now - _last_refresh[0]) >= _REFRESH_INTERVAL:
+                        callback.workflow._update_live(render=True, force=True)
+                        _last_refresh[0] = now
 
             def set_description(self, desc: str, refresh: bool = True) -> None:
                 progress.update(self._task_id, description=str(desc))
@@ -201,7 +213,10 @@ class WorkflowDetailCallback:
 
             def refresh(self) -> None:
                 if callback.render:
-                    callback.workflow._update_live(render=True, force=True)
+                    now = _time.monotonic()
+                    if (now - _last_refresh[0]) >= _REFRESH_INTERVAL:
+                        callback.workflow._update_live(render=True, force=True)
+                        _last_refresh[0] = now
 
             def close(self) -> None:
                 pass

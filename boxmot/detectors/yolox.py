@@ -28,7 +28,7 @@ YOLOX_BASE_MODELS = tuple(Path(name).stem for name in YOLOX_ZOO)
 def _find_benchmark_model_url(model: Path) -> Optional[str]:
     """Look up a detector download URL from detector configs by filename."""
     lowered_name = model.name.lower()
-    for cfg_path in sorted(DETECTOR_CONFIGS.glob("*.yaml")):
+    for cfg_path in sorted(DETECTOR_CONFIGS.glob("**/*.yaml")):
         try:
             with open(cfg_path, "r") as f:
                 cfg = yaml.safe_load(f) or {}
@@ -150,16 +150,21 @@ class YoloXDetector(BaseDetectorBackend):
 
         LOGGER.info(f"Loading {model_type} with {str(model)}")
 
-        benchmark_model_url = _find_benchmark_model_url(model)
-        if not model.exists() and model.stem == model_type:
-            LOGGER.info("Downloading pretrained weights...")
+        if not model.exists():
             from boxmot.utils.download import download_file
-            download_file(url=YOLOX_ZOO[model.stem + ".pt"], dest=model, overwrite=False)
-            exp.num_classes = 1
-        elif not model.exists() and benchmark_model_url:
-            LOGGER.info("Downloading benchmark detector weights...")
-            from boxmot.utils.download import download_file
-            download_file(url=benchmark_model_url, dest=model, overwrite=False)
+            # First check YAML detector configs for a download URL
+            benchmark_model_url = _find_benchmark_model_url(model)
+            if benchmark_model_url:
+                LOGGER.info("Downloading detector weights from config...")
+                download_file(url=benchmark_model_url, dest=model, overwrite=False)
+            elif model.stem + ".pt" in YOLOX_ZOO:
+                LOGGER.info("Downloading pretrained weights from YOLOX zoo...")
+                download_file(url=YOLOX_ZOO[model.stem + ".pt"], dest=model, overwrite=False)
+            else:
+                raise FileNotFoundError(
+                    f"Detector weights not found: {model}. "
+                    f"No download URL in detector configs or YOLOX_ZOO."
+                )
             exp.num_classes = 1
         elif model.stem.startswith(model_type):
             exp.num_classes = 1

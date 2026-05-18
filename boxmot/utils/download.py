@@ -404,6 +404,78 @@ def extract_zip(
         except FileNotFoundError:
             pass
         raise
+
+
+def extract_tar(
+    tar_path: Path,
+    extract_to: Path,
+    overwrite: bool = False,
+    *,
+    status_fn: Any = None,
+) -> None:
+    """
+    Extract a TAR archive to a target directory.
+
+    When ``status_fn`` exposes ``.bar()``, the extraction progress is
+    rendered inside the active workflow panel instead of via tqdm.
+    """
+    import tarfile
+
+    if not tar_path.is_file():
+        raise FileNotFoundError(f"TAR file not found: {tar_path}")
+
+    if status_fn is None:
+        status_fn = get_download_status_fn()
+
+    try:
+        with tarfile.open(tar_path) as tf:
+            members = tf.getmembers()
+
+            extract_to.mkdir(parents=True, exist_ok=True)
+
+            # Filter out already-extracted members when not overwriting
+            if overwrite:
+                to_extract = members
+            else:
+                to_extract = [m for m in members if not (extract_to / m.name).exists()]
+
+            if not to_extract:
+                LOGGER.debug(f"Cached: {tar_path.name} (all extracted)")
+                return
+
+            LOGGER.info(f"Extracting {tar_path.name}...")
+
+            # Use extractall for sequential I/O (much faster than per-file extract)
+            num_to_extract = len(to_extract)
+            if _has_workflow_bar(status_fn):
+                _count = [0]
+                with status_fn.bar(f"Extracting {tar_path.name}", num_to_extract) as advance:
+                    def _filter_with_progress(member, dest_path):
+                        result = tarfile.data_filter(member, dest_path)
+                        _count[0] += 1
+                        advance(1)
+                        return result
+                    tf.extractall(path=extract_to, members=to_extract, filter=_filter_with_progress)
+            else:
+                _pbar = tqdm(total=num_to_extract, desc=f"Extracting {tar_path.name}")
+                def _filter_with_tqdm(member, dest_path):
+                    result = tarfile.data_filter(member, dest_path)
+                    _pbar.update(1)
+                    return result
+                try:
+                    tf.extractall(path=extract_to, members=to_extract, filter=_filter_with_tqdm)
+                finally:
+                    _pbar.close()
+
+    except tarfile.TarError:
+        LOGGER.error(f"Corrupt TAR: {tar_path.name}")
+        try:
+            tar_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def _sync_trackeval_dataset_overlays(dest: Path) -> None:
     """Overlay the vendored TrackEval OBB dataset adapters with the tracked copies."""
     _patch_trackeval_numpy_aliases(dest)
@@ -479,7 +551,7 @@ def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False
     LOGGER.debug("TrackEval setup complete")
 
     
-def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False) -> None:
+def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False, status_fn: Any = None) -> None:
     """
     Download a dataset from HuggingFace Hub to the given destination.
 
@@ -489,11 +561,17 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False) -> No
         repo_id: HuggingFace dataset repo ID (e.g. "user/dataset").
         dest: Local directory to save the dataset into.
         overwrite: If True, re-download even if *dest* already exists.
+        status_fn: Optional workflow status callback with ``.bar()`` support.
     """
 
     dest_exists = dest.exists() or dest.with_suffix('').exists()
 
-    if dest_exists and not overwrite:
+    # Check for incomplete downloads in the HF cache — if any .incomplete files
+    # remain, the previous download was interrupted and should be resumed.
+    hf_cache_dir = dest / ".cache" / "huggingface" / "download"
+    has_incomplete = hf_cache_dir.is_dir() and any(hf_cache_dir.rglob("*.incomplete"))
+
+    if dest_exists and not overwrite and not has_incomplete:
         LOGGER.debug(f"HF dataset already present at {dest}")
         return
 
@@ -504,7 +582,6 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False) -> No
         subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub"])
         from huggingface_hub import HfApi, snapshot_download
 
-    from tqdm.auto import tqdm as base_tqdm
     from huggingface_hub.hf_api import RepoFile
 
     # Get file list with real sizes upfront
@@ -519,34 +596,86 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False) -> No
     LOGGER.info(f"Downloading HuggingFace dataset {repo_id} "
                 f"({num_files} files, {total_size / 1e9:.1f} GB) ...")
 
-    class _TqdmKnownTotal(base_tqdm):
-        """tqdm wrapper that injects pre-computed totals for HF progress bars."""
-        _lock_total = False
+    if _has_workflow_bar(status_fn):
+        # Use the Rich workflow bar so progress is visible inside the eval panel.
+        _ctx = status_fn.bar(
+            f"Downloading {repo_id} ({num_files} files)",
+            total_size,
+            unit="B",
+        )
+        _advance = _ctx.__enter__()
 
-        def __init__(self, *args, **kwargs):
-            kwargs.pop("name", None)
-            desc = kwargs.get("desc", "")
-            if desc.startswith("Downloading"):
-                kwargs["total"] = total_size
-                kwargs["desc"] = "Downloading"
-            elif desc.startswith("Fetching"):
-                kwargs["total"] = num_files
-                kwargs["desc"] = f"Fetching {num_files} files"
-            super().__init__(*args, **kwargs)
-            if desc.startswith("Downloading"):
-                self._lock_total = True
+        from tqdm.auto import tqdm as base_tqdm
+        import time as _time
 
-        def __setattr__(self, name, value):
-            if name == "total" and self._lock_total:
-                return
-            super().__setattr__(name, value)
+        class _WorkflowTqdm(base_tqdm):
+            """tqdm shim that forwards byte progress to the workflow bar."""
+            _FLUSH_BYTES = 1 << 20   # flush to Rich every 1 MiB
+            _FLUSH_SECS = 0.08       # … or every 80 ms (keeps spinner ~12 fps)
 
-    snapshot_download(
-        repo_id=repo_id,
-        repo_type="dataset",
-        local_dir=str(dest.parent),
-        tqdm_class=_TqdmKnownTotal,
-    )
+            def __init__(self, *args, **kwargs):
+                kwargs.pop("name", None)
+                kwargs["disable"] = True
+                super().__init__(*args, **kwargs)
+                self._pending = 0
+                self._last_flush = _time.monotonic()
+
+            def update(self, n=1):
+                self._pending += n
+                now = _time.monotonic()
+                if self._pending >= self._FLUSH_BYTES or (now - self._last_flush) >= self._FLUSH_SECS:
+                    _advance(self._pending)
+                    self._pending = 0
+                    self._last_flush = now
+                return super().update(n)
+
+            def close(self):
+                if self._pending > 0:
+                    _advance(self._pending)
+                    self._pending = 0
+                super().close()
+
+        try:
+            snapshot_download(
+                repo_id=repo_id,
+                repo_type="dataset",
+                local_dir=str(dest),
+                tqdm_class=_WorkflowTqdm,
+            )
+        finally:
+            _ctx.__exit__(None, None, None)
+    else:
+        from tqdm.auto import tqdm as base_tqdm
+
+        class _TqdmKnownTotal(base_tqdm):
+            """tqdm wrapper that injects pre-computed totals for HF progress bars."""
+            _lock_total = False
+
+            def __init__(self, *args, **kwargs):
+                kwargs.pop("name", None)
+                desc = kwargs.get("desc", "")
+                if desc.startswith("Downloading"):
+                    kwargs["total"] = total_size
+                    kwargs["desc"] = "Downloading"
+                elif desc.startswith("Fetching"):
+                    kwargs["total"] = num_files
+                    kwargs["desc"] = f"Fetching {num_files} files"
+                super().__init__(*args, **kwargs)
+                if desc.startswith("Downloading"):
+                    self._lock_total = True
+
+            def __setattr__(self, name, value):
+                if name == "total" and self._lock_total:
+                    return
+                super().__setattr__(name, value)
+
+        snapshot_download(
+            repo_id=repo_id,
+            repo_type="dataset",
+            local_dir=str(dest),
+            tqdm_class=_TqdmKnownTotal,
+        )
+
     LOGGER.debug(f"HF dataset ready at {dest}")
 
 
@@ -588,7 +717,20 @@ def download_eval_data(
     if dataset_url.startswith("hf://"):
         parts = dataset_url[len("hf://"):].split("/")
         repo_id = "/".join(parts[:2])        # e.g. "Fleyderer/FastTracker-Benchmark-MOT"
-        download_hf_dataset(repo_id, dataset_dest, overwrite=overwrite)
+        download_hf_dataset(repo_id, dataset_dest, overwrite=overwrite, status_fn=status_fn)
+
+        # Extract any tar archives found after HF download (e.g. SportsMOT)
+        tar_files = list(dataset_dest.rglob("*.tar")) + list(dataset_dest.rglob("*.tar.gz"))
+        for tar_file in sorted(tar_files):
+            # Quick check: skip tar if its stem directory already exists and is non-empty
+            stem = tar_file.stem
+            if stem.endswith(".tar"):
+                stem = stem[:-4]  # handle .tar.gz
+            extracted_dir = dataset_dest / stem
+            if not overwrite and extracted_dir.is_dir() and any(extracted_dir.iterdir()):
+                LOGGER.debug(f"Cached: {tar_file.name} (directory already exists)")
+                continue
+            extract_tar(tar_file, dataset_dest, overwrite=overwrite, status_fn=status_fn)
         return
 
     # benchmark ZIP
