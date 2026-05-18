@@ -2,9 +2,9 @@ id: sportsmot
 
 path: "boxmot/engine/trackeval/data/SportsMOT"
 split: "val"
-train:
-val: "val"
-test:
+train: "train"
+val:
+test: "test"
 
 layout: mot
 box_type: aabb
@@ -16,4 +16,4 @@ distractors: {}
 class_map: {}
 
 download:
-  dataset:
+  dataset: "hf://MCG-NJU/SportsMOT/dataset"
