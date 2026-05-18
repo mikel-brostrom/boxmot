@@ -491,14 +491,18 @@ class ReIDTrainer:
         return DataLoader(query_ds, **loader_kwargs), DataLoader(gallery_ds, **loader_kwargs)
 
     def _probe_feat_dim(self, model: nn.Module) -> int:
-        """Run a dummy forward to determine the embedding dimension."""
-        model.eval()
+        """Run a dummy forward to determine the training embedding dimension."""
+        was_training = model.training
+        model.train()
         dummy = torch.randn(2, 3, *self.img_size, device=self.device)
         with torch.no_grad():
             out = model(dummy)
-        model.train()
-        if isinstance(out, (tuple, list)):
+        if not was_training:
+            model.eval()
+        if isinstance(out, tuple):
             return out[1].shape[1]  # triplet: (logits, features)
+        if isinstance(out, list):
+            return out[0].shape[1]  # multi-branch softmax: list of logits
         return out.shape[1]
 
     # ------------------------------------------------------------------
@@ -602,14 +606,17 @@ class ReIDTrainer:
             with torch.amp.autocast("cuda", enabled=use_amp):
                 output = model(imgs)
 
-                if self.loss_type == "triplet" and isinstance(output, (tuple, list)):
+                if self.loss_type == "triplet" and isinstance(output, tuple):
                     logits, features = output
                 else:
                     logits = output
                     features = None
 
-                # ID loss
-                loss_id = criterion_id(logits, pids)
+                # ID loss — supports multi-branch (part-based) logits
+                if isinstance(logits, list):
+                    loss_id = sum(criterion_id(lg, pids) for lg in logits) / len(logits)
+                else:
+                    loss_id = criterion_id(logits, pids)
                 loss = loss_id
 
                 # Triplet loss — L2-normalize features so Euclidean distance in

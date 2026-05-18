@@ -11,6 +11,7 @@ from boxmot.reid.backbones.osnet_ain import (osnet_ain_x0_5, osnet_ain_x0_25,
                                              osnet_ain_x0_75, osnet_ain_x1_0)
 from boxmot.reid.backbones.resnet import resnet50, resnet101
 from boxmot.reid.backbones.vit_nano import vit_nano, vit_nano_ain, vit_nano_ain_os, vit_tiny
+from boxmot.reid.backbones.vit_tiny import vit_tiny_parts
 
 # Map model names to their respective constructors
 MODEL_FACTORY = {
@@ -36,4 +37,5 @@ MODEL_FACTORY = {
     "vit_nano_ain": vit_nano_ain,
     "vit_nano_ain_os": vit_nano_ain_os,
     "vit_tiny": vit_tiny,
+    "vit_tiny_parts": vit_tiny_parts,
 }
