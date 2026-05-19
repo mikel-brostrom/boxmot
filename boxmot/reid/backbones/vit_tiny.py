@@ -181,3 +181,21 @@ def vit_tiny_parts(
     if pretrained:
         _load_pretrained_deit_tiny(model)
     return model
+
+
+def vit_tiny_parts3(
+    num_classes: int = 1000,
+    pretrained: bool = False,
+    loss: str = "softmax",
+    use_gpu: bool = True,
+    **kwargs,
+) -> ViTTinyParts:
+    """ViT-Tiny + 3-part pooling variant."""
+    kwargs.setdefault("num_parts", 3)
+    return vit_tiny_parts(
+        num_classes=num_classes,
+        pretrained=pretrained,
+        loss=loss,
+        use_gpu=use_gpu,
+        **kwargs,
+    )

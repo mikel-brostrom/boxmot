@@ -19,6 +19,7 @@ MODEL_TYPES = [
     "vit_nano_ain_os",
     "vit_tiny",
     "vit_tiny_parts",
+    "vit_tiny_parts3",
 ]
 
 TRAINED_URLS = {
