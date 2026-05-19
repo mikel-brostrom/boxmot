@@ -166,7 +166,7 @@ onnx = [
 openvino = ["openvino>=2025.2.0"]
 
 tflite = [
-  "litert-torch==0.9.0",
+  "litert-torch==0.9.1",
 ]
 
 rtdetr = [

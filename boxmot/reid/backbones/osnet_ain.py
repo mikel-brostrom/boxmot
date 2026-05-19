@@ -414,7 +414,7 @@ class OSNet(nn.Module):
         if return_featuremaps:
             return x
         v = self.global_avgpool(x)
-        v = v.view(v.size(0), -1)
+        v = v.flatten(1)
         if self.fc is not None:
             v = self.fc(v)
         if not self.training:

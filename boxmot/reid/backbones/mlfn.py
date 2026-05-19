@@ -195,7 +195,7 @@ class MLFN(nn.Module):
         s_hat = self.fc_s(s_hat)
 
         v = (x + s_hat) * 0.5
-        v = v.view(v.size(0), -1)
+        v = v.flatten(1)
 
         if not self.training:
             return v

@@ -207,7 +207,7 @@ class BaseModelBackend:
             self.forward(crops)  # warmup
 
     def to_numpy(self, x):
-        return x.cpu().numpy() if isinstance(x, torch.Tensor) else x
+        return x.detach().cpu().numpy() if isinstance(x, torch.Tensor) else x
 
     def inference_preprocess(self, x):
         if self.half:

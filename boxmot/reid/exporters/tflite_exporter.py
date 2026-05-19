@@ -28,10 +28,27 @@ class TFLiteExporter(BaseExporter):
 
         sample_inputs = self._sample_inputs(self.im)
         model = self._prepare_model_for_litert(self.model.eval(), sample_inputs)
-        edge_model = litert_torch.convert(
-            model,
-            sample_inputs,
-        )
+
+        # Attempt dynamic batch export; fall back to static if unsupported.
+        edge_model = None
+        if self.dynamic and sample_inputs:
+            batch_dim = torch.export.Dim("batch", min=1, max=128)
+            dynamic_shapes = [
+                {0: batch_dim} if isinstance(t, torch.Tensor) and t.dim() >= 1 else {}
+                for t in sample_inputs
+            ]
+            try:
+                edge_model = litert_torch.convert(
+                    model,
+                    sample_inputs,
+                    dynamic_shapes=dynamic_shapes,
+                )
+            except Exception:
+                LOGGER.info("Dynamic batch export unsupported; falling back to static batch.")
+
+        if edge_model is None:
+            edge_model = litert_torch.convert(model, sample_inputs)
+
         edge_model.export(str(tflite_path))
 
         if not tflite_path.is_file():
