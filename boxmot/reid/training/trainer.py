@@ -372,6 +372,34 @@ class ReIDTrainer:
         history: List[TrainMetrics] = []
         val_history: List[ValMetrics] = []
 
+        # Restore prior metrics when resuming so the full history is preserved
+        if self.resume:
+            prev_metrics = save_dir / "metrics.json"
+            if prev_metrics.exists():
+                try:
+                    prev = json.loads(prev_metrics.read_text())
+                    for t in prev.get("train", []):
+                        if t["epoch"] < start_epoch:
+                            history.append(TrainMetrics(
+                                epoch=t["epoch"], loss=t["loss"],
+                                id_loss=t["id_loss"], triplet_loss=t["triplet_loss"],
+                                center_loss=t["center_loss"], lr=t["lr"], elapsed_s=0.0,
+                            ))
+                    for v in prev.get("val", []):
+                        if v["epoch"] < start_epoch:
+                            val_history.append(ValMetrics(
+                                epoch=v["epoch"], mAP=v["mAP"],
+                                rank1=v["rank1"], rank5=v.get("rank5", 0.0),
+                                rank10=v.get("rank10", 0.0),
+                                dataset=v.get("dataset", ""),
+                            ))
+                    LOGGER.info(
+                        f"Restored {len(history)} train and {len(val_history)} "
+                        f"val entries from prior metrics.json"
+                    )
+                except Exception as e:
+                    LOGGER.warning(f"Could not restore prior metrics: {e}")
+
         from tqdm import tqdm
 
         epoch_bar = tqdm(range(start_epoch, self.epochs + 1), desc="Training", unit="epoch",
