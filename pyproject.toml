@@ -9,12 +9,6 @@
 [tool.uv]
 preview = true
 extra-build-dependencies = { yolox = ["setuptools", "torch<3.0.0,>=2.2.1"] }
-conflicts = [
-  [
-    { extra = "evolve" },
-    { extra = "tflite" },
-  ],
-]
 
 # Override yolox's outdated dependencies
 [[tool.uv.dependency-metadata]]
@@ -145,11 +139,11 @@ yolo = [
 ]
 
 evolve = [
-  "ray[tune]==2.49.2",
+  "ray[tune]==2.52.1",
   "plotly==5.19.0",
   "bayesian-optimization==2.0.4",
   "optuna==3.5.0",
-  "pydantic>=2.12.5,<3.0.0"
+  "pydantic>=2.5.0,<2.12.0"
 ]
 
 research = [
