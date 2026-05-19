@@ -548,3 +548,46 @@ def run_generate_mot_results(
         from boxmot.postprocessing.gbrc import gbrc
 
         gbrc(mot_results_folder=exp_dir)
+    elif getattr(args, "postprocessing", "none") == "gta":
+        if verbose:
+            LOGGER.info("[cyan]\\[3b/4][/cyan] Applying GTA postprocessing...")
+        from boxmot.postprocessing.gta import gta as gta_postprocess
+        from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+        from boxmot.data.cache import reid_cache_key, legacy_reid_cache_keys
+
+        # Resolve cached embeddings/detections directory
+        det_emb_root = cache_project / "dets_n_embs"
+        if getattr(args, "benchmark", None):
+            det_emb_root = det_emb_root / args.benchmark
+        detector_key = args.detector[0].stem
+        dets_dir = det_emb_root / detector_key / "dets"
+        embs_dir = None
+        if args.reid:
+            preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
+            embs_root = det_emb_root / detector_key / "embs"
+            tracker_backend = getattr(args, "tracker_backend", None)
+
+            # Try canonical cache key first, then legacy keys
+            candidates = [
+                reid_cache_key(args.reid[0], tracker_backend=tracker_backend),
+                *legacy_reid_cache_keys(args.reid[0], tracker_backend=tracker_backend),
+                args.reid[0].name if args.reid[0].suffix else str(args.reid[0]),
+                args.reid[0].stem,
+            ]
+            for key in candidates:
+                candidate_dir = embs_root / key / preprocess_name
+                if candidate_dir.exists():
+                    embs_dir = candidate_dir
+                    break
+
+            if embs_dir is None:
+                LOGGER.warning(
+                    f"GTA: Could not find embedding cache under {embs_root}. "
+                    f"Tried keys: {candidates[:3]}"
+                )
+
+        gta_postprocess(
+            mot_results_folder=exp_dir,
+            embs_dir=embs_dir,
+            dets_dir=dets_dir if dets_dir.exists() else None,
+        )

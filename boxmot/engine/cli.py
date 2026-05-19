@@ -128,8 +128,8 @@ def core_options(func):
         click.option('--agnostic-nms', is_flag=True, default=RUNTIME_DEFAULTS.agnostic_nms,
                      help='class-agnostic NMS'),
         click.option(
-            "--postprocessing", type=click.Choice(["none", "gsi", "gbrc"], case_sensitive=False), default=RUNTIME_DEFAULTS.postprocessing,
-            help="Postprocess tracker output: none | gsi (Gaussian smoothed interpolation) | gbrc (gradient boosting smooth).",
+            "--postprocessing", type=click.Choice(["none", "gsi", "gbrc", "gta"], case_sensitive=False), default=RUNTIME_DEFAULTS.postprocessing,
+            help="Postprocess tracker output: none | gsi (Gaussian smoothed interpolation) | gbrc (gradient boosting smooth) | gta (global tracklet association).",
         ),
         click.option('--show', is_flag=True, default=RUNTIME_DEFAULTS.show,
                      help='display tracking in a window'),

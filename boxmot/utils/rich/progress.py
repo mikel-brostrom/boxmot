@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Iterator
 
+from rich.errors import LiveError
 from rich.progress import (
     BarColumn,
     DownloadColumn,
@@ -84,7 +85,13 @@ class RichTqdm:
             console=get_console(stderr=True),
             transient=not leave,
         )
-        self._progress.start()
+        try:
+            self._progress.start()
+        except LiveError:
+            # Another Rich Live display is already active (e.g. workflow panel)
+            self._progress = None
+            self._task_id = None
+            return
         self._task_id = self._progress.add_task(
             self._desc,
             total=total,
