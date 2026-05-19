@@ -32,8 +32,8 @@ class TFLiteBackend(BaseModelBackend):
             half (bool): Flag to indicate if half precision is used.
             preprocess (str | None): Name of preprocessing function from the registry.
         """
+        self.nhwc = True  # Default; load_model may override based on actual model layout
         super().__init__(weights, device, half, preprocess=preprocess)
-        self.nhwc = True
         self.half = False
         # self.interpreter: tf.lite.Interpreter = None
         # self.current_allocated_batch_size: int = None
