@@ -1,6 +1,6 @@
 max_age:
   type: randint
-  default: 120
+  default: 240
   range:
   - 15
   - 200
@@ -243,3 +243,44 @@ lambda_emb_multiplier:
   range:
   - 0.1
   - 3.0
+# ---- Online GTA (Global Track Association) ----
+# At end-of-sequence, runs a global pass over ALL track fragments.
+# Pairs of non-overlapping tracks with high appearance similarity are
+# merged (same ID) and gaps are filled with GP-smoothed interpolation.
+# This is the online analogue of offline GSI/GTA post-processing.
+gta_enabled:
+  type: choice
+  default: false
+  options:
+  - false
+  - true
+gta_appearance_thresh:
+  type: uniform
+  default: 0.5
+  range:
+  - 0.3
+  - 0.8
+gta_min_track_length:
+  type: randint
+  default: 5
+  range:
+  - 2
+  - 15
+gta_smooth_tau:
+  type: uniform
+  default: 5.0
+  range:
+  - 1.0
+  - 15.0
+gta_interpolate:
+  type: choice
+  default: true
+  options:
+  - false
+  - true
+gta_max_gap:
+  type: randint
+  default: 120
+  range:
+  - 15
+  - 150

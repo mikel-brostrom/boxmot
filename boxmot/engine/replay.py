@@ -201,6 +201,15 @@ def process_sequence(
             if tracks.size:
                 all_tracks.append(TrackerRuntime.format_for_mot(tracks, frame_id))
 
+    # Flush Online GTA: append gap-fill entries (if tracker supports it)
+    tracker_obj = tracker_runtime.tracker
+    if hasattr(tracker_obj, "flush_gta"):
+        gta_entries = tracker_obj.flush_gta()
+        if isinstance(gta_entries, tuple):
+            gta_entries = gta_entries[0]  # legacy compat
+        if gta_entries.size:
+            all_tracks.append(gta_entries)
+
     out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
     write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
 

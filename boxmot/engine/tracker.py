@@ -369,6 +369,13 @@ def run_track(
                     if not frame_result.show():
                         break
         finally:
+            # Flush Online GTA interpolated entries to MOT results file
+            if text_path is not None and hasattr(run, "tracker"):
+                _trk = getattr(run, "tracker", None)
+                if _trk is not None and hasattr(_trk, "flush_gta"):
+                    gta_entries = _trk.flush_gta()
+                    if gta_entries.size:
+                        write_mot_results(text_path, gta_entries)
             if video_writer is not None:
                 video_writer.release()
             if show:
