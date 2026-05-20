@@ -154,7 +154,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.9', '3.12']
+        python-version: ['3.10', '3.12']
     outputs:
       status: ${{ job.status }}
 
@@ -182,7 +182,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]   # skip windows-latest for
-        python-version: ['3.9', '3.12']
+        python-version: ['3.10', '3.12']
     outputs:
       status: ${{ job.status }}
     env:
@@ -407,7 +407,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          TFLITE_MODEL=$(find models -name '*_float32.tflite' | head -n 1)
+          TFLITE_MODEL=$(find models -name '*.tflite' | head -n 1)
           engines=(torchscript onnx openvino tflite)
           model_paths=(
             "models/osnet_x0_25_msmt17.torchscript"

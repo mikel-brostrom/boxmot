@@ -143,7 +143,7 @@ def gbrc(
     """
     Apply GBRC/GBI-style postprocessing to all MOT*.txt files in a folder.
     """
-    tracking_files = list(mot_results_folder.glob("MOT*.txt"))
+    tracking_files = list(mot_results_folder.glob("*.txt"))
     total_files = len(tracking_files)
     LOGGER.debug(f"GBRC: Found {total_files} file(s) to process.")
 

@@ -493,8 +493,8 @@ class ExportResult:
     def parity_ok(self) -> bool:
         """True iff every checked format is within tolerance.
 
-        Formats whose parity was skipped (e.g. ``engine``, ``tflite``)
-        don't count against the result.
+        Formats whose parity was skipped (e.g. ``engine``) don't count
+        against the result.
         """
         if not self.parity:
             return True

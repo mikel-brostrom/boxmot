@@ -93,7 +93,7 @@ def _build_task_args(
             str(args.source),
             cache_project_root,
             args.detector[0].stem,
-            str(args.reid[0]),
+            str(args.reid[0]) if args.reid else "",
             args.tracker,
             str(exp_dir),
             getattr(args, "fps", None),
@@ -124,10 +124,14 @@ def process_sequence(
 ):
     """Run a tracker over cached detections and embeddings for one sequence."""
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
-    reid_weights = Path(reid_name)
-    reid_key = reid_weights.name if reid_weights.suffix else str(reid_weights)
-    if not reid_weights.suffix:
-        reid_weights = reid_weights.with_suffix(".pt")
+    if reid_name:
+        reid_weights = Path(reid_name)
+        reid_key = reid_weights.name if reid_weights.suffix else str(reid_weights)
+        if not reid_weights.suffix:
+            reid_weights = reid_weights.with_suffix(".pt")
+    else:
+        reid_weights = None
+        reid_key = None
 
     timing_stats = TimingStats()
 
@@ -173,14 +177,14 @@ def process_sequence(
         kept_frame_ids.append(frame_id)
         num_frames += 1
 
-        if dets.size and embs.size and conf_threshold > 0:
+        if dets.size and conf_threshold > 0:
             conf_col = 5 if dets.shape[1] == 7 else 4
             mask = dets[:, conf_col] >= conf_threshold
             dets = dets[mask]
-            embs = embs[mask]
+            embs = embs[mask] if embs.size else embs
 
-        if dets.size and embs.size:
-            if dets.shape[0] != embs.shape[0]:
+        if dets.size:
+            if embs.size and dets.shape[0] != embs.shape[0]:
                 message = (
                     f"Detection/embedding count mismatch for {seq_name} frame {frame_id}: "
                     f"dets={dets.shape[0]} embs={embs.shape[0]}"
@@ -188,13 +192,23 @@ def process_sequence(
                 LOGGER.error(message)
                 raise ValueError(message)
 
-            tracks, elapsed_ms = tracker_runtime.update(dets, img, embs)
+            embs_arg = embs if embs.size else None
+            tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg)
             frame_reid_time_ms = min(timing_stats.get_last_reid_time(), elapsed_ms)
             total_reid_time_ms += frame_reid_time_ms
             total_track_time_ms += max(elapsed_ms - frame_reid_time_ms, 0.0)
 
             if tracks.size:
                 all_tracks.append(TrackerRuntime.format_for_mot(tracks, frame_id))
+
+    # Flush Online GTA: append gap-fill entries (if tracker supports it)
+    tracker_obj = tracker_runtime.tracker
+    if hasattr(tracker_obj, "flush_gta"):
+        gta_entries = tracker_obj.flush_gta()
+        if isinstance(gta_entries, tuple):
+            gta_entries = gta_entries[0]  # legacy compat
+        if gta_entries.size:
+            all_tracks.append(gta_entries)
 
     out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
     write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
@@ -489,7 +503,7 @@ def run_generate_mot_results(
     base = args.project / "mot"
     if getattr(args, "benchmark", None):
         base = base / args.benchmark
-    base = base / f"{args.detector[0].stem}_{args.reid[0].stem}_{args.tracker}"
+    base = base / f"{args.detector[0].stem}_{args.reid[0].stem if args.reid else 'noreid'}_{args.tracker}"
     exp_dir = increment_path(base, sep="_", exist_ok=False)
     exp_dir.mkdir(parents=True, exist_ok=True)
     args.exp_dir = exp_dir
@@ -543,3 +557,46 @@ def run_generate_mot_results(
         from boxmot.postprocessing.gbrc import gbrc
 
         gbrc(mot_results_folder=exp_dir)
+    elif getattr(args, "postprocessing", "none") == "gta":
+        if verbose:
+            LOGGER.info("[cyan]\\[3b/4][/cyan] Applying GTA postprocessing...")
+        from boxmot.postprocessing.gta import gta as gta_postprocess
+        from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+        from boxmot.data.cache import reid_cache_key, legacy_reid_cache_keys
+
+        # Resolve cached embeddings/detections directory
+        det_emb_root = cache_project / "dets_n_embs"
+        if getattr(args, "benchmark", None):
+            det_emb_root = det_emb_root / args.benchmark
+        detector_key = args.detector[0].stem
+        dets_dir = det_emb_root / detector_key / "dets"
+        embs_dir = None
+        if args.reid:
+            preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
+            embs_root = det_emb_root / detector_key / "embs"
+            tracker_backend = getattr(args, "tracker_backend", None)
+
+            # Try canonical cache key first, then legacy keys
+            candidates = [
+                reid_cache_key(args.reid[0], tracker_backend=tracker_backend),
+                *legacy_reid_cache_keys(args.reid[0], tracker_backend=tracker_backend),
+                args.reid[0].name if args.reid[0].suffix else str(args.reid[0]),
+                args.reid[0].stem,
+            ]
+            for key in candidates:
+                candidate_dir = embs_root / key / preprocess_name
+                if candidate_dir.exists():
+                    embs_dir = candidate_dir
+                    break
+
+            if embs_dir is None:
+                LOGGER.warning(
+                    f"GTA: Could not find embedding cache under {embs_root}. "
+                    f"Tried keys: {candidates[:3]}"
+                )
+
+        gta_postprocess(
+            mot_results_folder=exp_dir,
+            embs_dir=embs_dir,
+            dets_dir=dets_dir if dets_dir.exists() else None,
+        )

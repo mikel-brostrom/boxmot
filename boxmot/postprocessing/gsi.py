@@ -107,7 +107,7 @@ def process_file(file_path: Path, interval: int, tau: float):
     if tracking_results.size != 0:
         interpolated_results = linear_interpolation(tracking_results, interval)
         smoothed_results = gaussian_smooth(interpolated_results, tau)
-        np.savetxt(file_path, smoothed_results, fmt="%d %d %d %d %d %d %d %d %d")
+        np.savetxt(file_path, smoothed_results, fmt="%d,%d,%d,%d,%d,%d,%.6f,%d,%d")
     else:
         LOGGER.warning(f"No tracking results in {file_path}. Skipping...")
 
@@ -121,7 +121,7 @@ def gsi(mot_results_folder: Path, interval: int = 20, tau: float = 10):
         interval (int, optional): Maximum gap to perform interpolation. Defaults to 20.
         tau (float, optional): Smoothing parameter for Gaussian process. Defaults to 10.
     """
-    tracking_files = list(mot_results_folder.glob("MOT*.txt"))
+    tracking_files = list(mot_results_folder.glob("*.txt"))
     total_files = len(tracking_files)
     LOGGER.debug(f"GSI: Found {total_files} file(s) to process.")
 

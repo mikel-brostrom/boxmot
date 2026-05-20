@@ -15,7 +15,7 @@ def test_eval_requires_benchmark():
 def test_eval_rejects_source_option():
     result = CliRunner().invoke(boxmot, ["eval", "--source", "boxmot/engine/trackeval/data/MOT17-ablation/train"])
     assert result.exit_code != 0
-    assert "No such option: --source" in result.output
+    assert "No such option" in result.output and "--source" in result.output
 
 
 def test_eval_passes_benchmark_config_via_benchmark(monkeypatch):
@@ -159,7 +159,7 @@ def test_tune_requires_benchmark():
 def test_tune_rejects_source_option():
     result = CliRunner().invoke(boxmot, ["tune", "--source", "boxmot/engine/trackeval/data/MOT17-ablation/train"])
     assert result.exit_code != 0
-    assert "No such option: --source" in result.output
+    assert "No such option" in result.output and "--source" in result.output
 
 
 def test_tune_accepts_space_separated_metric_lists(monkeypatch):
@@ -262,7 +262,7 @@ def test_research_rejects_positional_tracker_shim():
 def test_eval_rejects_legacy_data_alias():
     result = CliRunner().invoke(boxmot, ["eval", "--data", "mot17-ablation"])
     assert result.exit_code != 0
-    assert "No such option: --data" in result.output
+    assert "No such option" in result.output and "--data" in result.output
 
 
 def test_generate_rejects_benchmark_names_passed_through_source():
@@ -314,19 +314,19 @@ def test_track_keeps_source_literal(monkeypatch):
 def test_track_rejects_legacy_detector_alias():
     result = CliRunner().invoke(boxmot, ["track", "--yolo-model", "yolov8n.pt"])
     assert result.exit_code != 0
-    assert "No such option: --yolo-model" in result.output
+    assert "No such option" in result.output and "--yolo-model" in result.output
 
 
 def test_track_rejects_legacy_reid_alias():
     result = CliRunner().invoke(boxmot, ["track", "--reid-model", "osnet_x0_25_msmt17.pt"])
     assert result.exit_code != 0
-    assert "No such option: --reid-model" in result.output
+    assert "No such option" in result.output and "--reid-model" in result.output
 
 
 def test_eval_rejects_legacy_tracking_method_alias():
     result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-ablation", "--tracking-method", "boosttrack"])
     assert result.exit_code != 0
-    assert "No such option: --tracking-method" in result.output
+    assert "No such option" in result.output and "--tracking-method" in result.output
 
 
 def test_track_help_lists_current_component_options():

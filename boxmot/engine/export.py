@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import logging
 import time
+import warnings
 from contextlib import contextmanager
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +13,7 @@ from boxmot.engine.workflow_results import ExportResult
 from boxmot.reid.core import ReID, export_formats
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.base_exporter import BaseExporter
-from boxmot.utils import WEIGHTS, logger as LOGGER
+from boxmot.utils import WEIGHTS
 from boxmot.utils.rich.export_reporting import ExportWorkflowReporter
 from boxmot.utils.torch_utils import select_device
 
@@ -75,7 +77,10 @@ def _suppress_export_noise(enabled: bool):
         # progress bars for downloads) into a discarded buffer. The noisy
         # Python loggers above already cover the bulk of the unwanted
         # output from the export backends.
-        yield
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning, message=".*LeafSpec.*")
+            warnings.filterwarnings("ignore", category=FutureWarning, message=".*treespec.*")
+            yield
     finally:
         boxmot_logger.setLevel(previous_boxmot_level)
         for target, level, propagate in noisy_loggers:
@@ -280,21 +285,23 @@ def _verify_export_parity(
 
     report: dict[str, dict[str, float]] = {}
     for fmt, fpath in exported_files.items():
-        if fmt in ("engine", "tflite"):
-            # TensorRT requires the matching CUDA runtime; TFLite needs the
-            # tflite-runtime + Edge ops shim. Skip parity for those here.
+        if fmt == "engine":
+            # TensorRT requires the matching CUDA runtime. Skip parity here.
             continue
         try:
-            # OpenVINO exporters return the .xml path, but ReID's suffix
-            # check expects the ``_openvino_model`` directory. Pass the
-            # directory so the parity load doesn't emit a stray warning.
-            load_path = fpath
-            if fmt == "openvino":
-                parent = Path(fpath).parent
-                if parent.name.endswith("_openvino_model"):
-                    load_path = str(parent)
-            reid = ReID(weights=load_path, device="cpu", half=False)
-            out = reid.model.forward(cpu_input)
+            if fmt == "tflite":
+                out = _run_tflite_for_parity(fpath, cpu_input)
+            else:
+                # OpenVINO exporters return the .xml path, but ReID's suffix
+                # check expects the ``_openvino_model`` directory. Pass the
+                # directory so the parity load doesn't emit a stray warning.
+                load_path = fpath
+                if fmt == "openvino":
+                    parent = Path(fpath).parent
+                    if parent.name.endswith("_openvino_model"):
+                        load_path = str(parent)
+                reid = ReID(weights=load_path, device="cpu", half=False)
+                out = reid.model.forward(cpu_input)
             if isinstance(out, (tuple, list)):
                 out = out[0]
             if hasattr(out, "detach"):
@@ -352,6 +359,41 @@ def _verify_export_parity(
             }
 
     return report
+
+
+def _run_tflite_for_parity(fpath: str | Path, cpu_input: torch.Tensor):
+    litert = import_module("ai_edge_litert.interpreter")
+    interpreter = litert.Interpreter(model_path=str(fpath))
+    interpreter.allocate_tensors()
+
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    if not input_details or not output_details:
+        raise RuntimeError("TFLite model is missing input or output tensors.")
+
+    input_detail = input_details[0]
+    input_array = cpu_input.detach().cpu().numpy().astype(input_detail["dtype"], copy=False)
+    expected_shape = tuple(int(dim) for dim in input_detail["shape"])
+    input_array = _match_tflite_input_layout(input_array, expected_shape)
+
+    if tuple(input_array.shape) != expected_shape:
+        interpreter.resize_tensor_input(input_detail["index"], list(input_array.shape))
+        interpreter.allocate_tensors()
+        input_detail = interpreter.get_input_details()[0]
+        output_details = interpreter.get_output_details()
+
+    interpreter.set_tensor(input_detail["index"], input_array)
+    interpreter.invoke()
+    return interpreter.get_tensor(output_details[0]["index"])
+
+
+def _match_tflite_input_layout(input_array, expected_shape: tuple[int, ...]):
+    if input_array.ndim == 4 and len(expected_shape) == 4:
+        nchw_shape = tuple(input_array.shape)
+        nhwc_shape = (nchw_shape[0], nchw_shape[2], nchw_shape[3], nchw_shape[1])
+        if expected_shape == nhwc_shape:
+            return input_array.transpose(0, 2, 3, 1)
+    return input_array
 
 
 def main(args):

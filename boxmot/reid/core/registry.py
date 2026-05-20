@@ -1,4 +1,6 @@
 # model_registry.py
+from __future__ import annotations
+
 from collections import OrderedDict
 
 import torch
@@ -26,6 +28,22 @@ class ReIDModelRegistry:
     @staticmethod
     def get_model_url(model):
         return TRAINED_URLS.get(model.name, None)
+
+    @staticmethod
+    def get_checkpoint_preprocess(weight_path) -> str | None:
+        """Return the preprocessing method stored in a checkpoint, or None."""
+        try:
+            checkpoint = torch.load(
+                weight_path,
+                map_location="cpu",
+                weights_only=False,
+                encoding="latin1",
+            )
+            if isinstance(checkpoint, dict):
+                return checkpoint.get("preprocess")
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def load_pretrained_weights(model, weight_path):

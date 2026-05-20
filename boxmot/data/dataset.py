@@ -82,7 +82,10 @@ def _sequence_img_dir(seq_dir: Path) -> Path:
 
 
 def _list_sequence_frames(img_dir: Path) -> list[Path]:
-    return sorted(list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")))
+    return sorted(
+        p for p in list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png"))
+        if not p.name.startswith("._")
+    )
 
 
 def _sequence_name_from_img_dir(img_dir: Path) -> str:
@@ -146,63 +149,66 @@ class MOTDataset:
         self.target_fps = target_fps
         self.seqs: Dict[str, Dict] = {}
 
-        if det_emb_root and model_name and reid_name:
+        if det_emb_root and model_name:
             from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
             preprocess_name = reid_preprocess or DEFAULT_PREPROCESS
             base = Path(det_emb_root) / model_name
             self.dets_dir = base / "dets"
-            embs_root = base / "embs"
-            self.embs_dir = embs_root / reid_name / preprocess_name
-            # Back-compat: if the (suffix-included) directory does not exist
-            # but the legacy stem-only directory does, prefer the legacy one
-            # so existing on-disk caches keep working.
-            #
-            # Restricted to ``.pt`` requests because the legacy layout was
-            # only ever populated by the PyTorch runtime; reusing it for
-            # ``.onnx`` (or other formats) would silently consume PyTorch
-            # embeddings as if they belonged to a different model.
-            if not self.embs_dir.exists():
-                from pathlib import Path as _Path
-                _name_path = _Path(reid_name)
-                stem = _name_path.stem if _name_path.suffix else str(reid_name)
-                if (
-                    stem
-                    and stem != reid_name
-                    and _name_path.suffix.lower() == ".pt"
-                ):
-                    legacy_dir = embs_root / stem / preprocess_name
-                    if legacy_dir.exists():
-                        self.embs_dir = legacy_dir
-            # Modern back-compat: caches written by ``boxmot.engine.cache``
-            # are bucketed under ``reid_cache_key`` (e.g.
-            # ``lmbn_n_duke_pt_pytorch_py``). When neither the raw
-            # ``<reid_name>`` nor the legacy stem directory is on disk, fall
-            # back to the canonical cache key so eval can find embeddings
-            # written by a previous generate phase.
-            if not self.embs_dir.exists():
-                try:
-                    from boxmot.data.cache import (legacy_reid_cache_keys,
-                                                   reid_cache_key)
-                except ImportError:
-                    pass
-                else:
-                    candidates: list[str] = []
-                    for backend in ("py", "cpp"):
-                        candidates.append(
-                            reid_cache_key(reid_name, tracker_backend=backend)
-                        )
-                        candidates.extend(
-                            legacy_reid_cache_keys(reid_name, tracker_backend=backend)
-                        )
-                    seen: set[str] = set()
-                    for key in candidates:
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        candidate_dir = embs_root / key / preprocess_name
-                        if candidate_dir.exists():
-                            self.embs_dir = candidate_dir
-                            break
+            if reid_name:
+                embs_root = base / "embs"
+                self.embs_dir = embs_root / reid_name / preprocess_name
+                # Back-compat: if the (suffix-included) directory does not exist
+                # but the legacy stem-only directory does, prefer the legacy one
+                # so existing on-disk caches keep working.
+                #
+                # Restricted to ``.pt`` requests because the legacy layout was
+                # only ever populated by the PyTorch runtime; reusing it for
+                # ``.onnx`` (or other formats) would silently consume PyTorch
+                # embeddings as if they belonged to a different model.
+                if not self.embs_dir.exists():
+                    from pathlib import Path as _Path
+                    _name_path = _Path(reid_name)
+                    stem = _name_path.stem if _name_path.suffix else str(reid_name)
+                    if (
+                        stem
+                        and stem != reid_name
+                        and _name_path.suffix.lower() == ".pt"
+                    ):
+                        legacy_dir = embs_root / stem / preprocess_name
+                        if legacy_dir.exists():
+                            self.embs_dir = legacy_dir
+                # Modern back-compat: caches written by ``boxmot.engine.cache``
+                # are bucketed under ``reid_cache_key`` (e.g.
+                # ``lmbn_n_duke_pt_pytorch_py``). When neither the raw
+                # ``<reid_name>`` nor the legacy stem directory is on disk, fall
+                # back to the canonical cache key so eval can find embeddings
+                # written by a previous generate phase.
+                if not self.embs_dir.exists():
+                    try:
+                        from boxmot.data.cache import (legacy_reid_cache_keys,
+                                                       reid_cache_key)
+                    except ImportError:
+                        pass
+                    else:
+                        candidates: list[str] = []
+                        for backend in ("py", "cpp"):
+                            candidates.append(
+                                reid_cache_key(reid_name, tracker_backend=backend)
+                            )
+                            candidates.extend(
+                                legacy_reid_cache_keys(reid_name, tracker_backend=backend)
+                            )
+                        seen: set[str] = set()
+                        for key in candidates:
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            candidate_dir = embs_root / key / preprocess_name
+                            if candidate_dir.exists():
+                                self.embs_dir = candidate_dir
+                                break
+            else:
+                self.embs_dir = None
         else:
             self.dets_dir = self.embs_dir = None
 
@@ -298,21 +304,22 @@ class MOTSequence:
 
     def _prepare(self) -> None:
         """Load detections / embeddings and optionally downsample to ``target_fps``."""
-        if self.meta["det_path"] and self.meta["emb_path"]:
+        if self.meta["det_path"]:
             det_path = Path(self.meta["det_path"])
             if det_path.suffix == ".npy":
                 self.dets = np.load(det_path, mmap_mode="r")
             else:
                 self.dets = _load_text_matrix(det_path, comments="#")
 
-            emb_path = Path(self.meta["emb_path"])
-            if emb_path.suffix == ".npy":
-                self.embs = np.load(emb_path, mmap_mode="r")
-            else:
-                self.embs = _load_text_matrix(emb_path, comments="#")
+            if self.meta["emb_path"]:
+                emb_path = Path(self.meta["emb_path"])
+                if emb_path.suffix == ".npy":
+                    self.embs = np.load(emb_path, mmap_mode="r")
+                else:
+                    self.embs = _load_text_matrix(emb_path, comments="#")
 
-            if self.dets.shape[0] != self.embs.shape[0]:
-                raise ValueError(f"Row mismatch in {self.name}")
+                if self.dets.shape[0] != self.embs.shape[0]:
+                    raise ValueError(f"Row mismatch in {self.name}")
 
             if self.target_fps and self.dets.shape[0] > 0:
                 seq_info_file = self.meta["seq_dir"] / "seqinfo.ini"
@@ -323,7 +330,8 @@ class MOTSequence:
                     mask = compute_fps_mask(self.dets[:, 0], orig_fps, self.target_fps)
 
                     self.dets = self.dets[mask]
-                    self.embs = self.embs[mask]
+                    if self.embs is not None:
+                        self.embs = self.embs[mask]
                     keep_ids = set(self.dets[:, 0].astype(int))
                     idxs_to_keep = [index for index, fid in enumerate(self.frame_ids) if fid in keep_ids]
                     self.frame_ids = self.frame_ids[idxs_to_keep]
@@ -358,7 +366,7 @@ class MOTSequence:
             if self.dets is not None:
                 mask = self.dets[:, 0].astype(int) == fid
                 dets_f = self.dets[mask, 1:]
-                embs_f = self.embs[mask]
+                embs_f = self.embs[mask] if self.embs is not None else np.zeros((dets_f.shape[0], 0))
             else:
                 dets_f = np.zeros((0, 5))
                 embs_f = np.zeros((0, 128))

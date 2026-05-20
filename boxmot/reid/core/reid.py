@@ -172,6 +172,9 @@ class ReID:
                 device=self.model.device,
             )
 
+        from boxmot.reid.core.preprocessing import get_preprocess_fn
+        preprocess_fn = get_preprocess_fn(self.preprocess_name)
+
         batch = torch.empty(
             (len(crops), 3, *self.model.input_shape),
             dtype=torch.float16 if self.model.half else torch.float32,
@@ -182,11 +185,7 @@ class ReID:
             if crop.size == 0:
                 crop = np.zeros((*self.model.input_shape, 3), dtype=np.uint8)
 
-            resized = cv2.resize(
-                crop,
-                (self.model.input_shape[1], self.model.input_shape[0]),
-                interpolation=cv2.INTER_LINEAR,
-            )
+            resized = preprocess_fn(crop, self.model.input_shape)
             resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
             tensor = torch.from_numpy(resized).to(batch.device, dtype=batch.dtype)
             batch[index] = tensor.permute(2, 0, 1)
