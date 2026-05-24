@@ -16,7 +16,7 @@ BoxMOT uses YAML configuration files to keep benchmark workflows repeatable acro
 This layout lets commands such as:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker boosttrack
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
 ```
 
 resolve detector, ReID, and dataset defaults without forcing you to repeat the same paths for every run.

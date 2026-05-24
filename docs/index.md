@@ -20,13 +20,13 @@
         Benchmark a tracker on a built-in config:
 
         ```bash
-        boxmot eval --benchmark mot17-ablation --tracker boosttrack --verbose
+        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --verbose
         ```
 
         Research tracker code changes on a built-in config:
 
         ```bash
-        boxmot research --benchmark mot17-ablation --tracker bytetrack --proposal-model openai/gpt-5.4 --max-metric-calls 24
+        boxmot research --benchmark mot17 --split ablation --tracker bytetrack --proposal-model openai/gpt-5.4 --max-metric-calls 24
         ```
 
     === "Python"

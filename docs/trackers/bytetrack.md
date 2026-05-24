@@ -29,7 +29,7 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
 boxmot track --tracker bytetrack --tracker-backend cpp --source 0
 ```
 

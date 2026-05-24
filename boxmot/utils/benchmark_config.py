@@ -117,6 +117,9 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "val": val_value,
         "test": test_value,
     }
+    # Merge additional named splits (e.g. ablation: "val-frcnn")
+    for name, path in (cfg.get("splits") or {}).items():
+        split_paths.setdefault(name, path)
     if split_paths.get(split_name) is None:
         split_paths[split_name] = split_name
 
@@ -139,6 +142,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "train": split_paths.get("train"),
         "val": split_paths.get("val"),
         "test": split_paths.get("test"),
+        "splits": dict(split_paths),
         "layout": str(layout),
         "box_type": str(box_type).lower(),
         "trackeval": str(trackeval_name),
@@ -606,8 +610,9 @@ def _apply_benchmark_config_ref(
         cfg_split = str(cfg.get("split") or "train")
     args.split = cfg_split
 
-    # Resolve source path using the active split
-    active_split_path = str(cfg.get(cfg_split) or cfg_split)
+    # Resolve source path using the active split (check splits dict first)
+    all_splits = cfg.get("splits") or {}
+    active_split_path = str(all_splits.get(cfg_split) or cfg.get(cfg_split) or cfg_split)
     args.source = (source_root / active_split_path) if source_root is not None else (benchmark_dest / active_split_path)
 
     box_type = cfg.get("box_type")

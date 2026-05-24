@@ -2,7 +2,7 @@
 
 OccluBoost is an occlusion-aware hybrid tracker built on top of BoostTrack. It keeps BoostTrack's multi-cue association (IoU + Mahalanobis + shape similarity, optional ReID) and DLO confidence boosting, then layers on a BotSort-inspired confirmation state, a ReID-only recovery pass, a safe low-confidence second pass, and an OccluTrack-style **Abnormal Motion Suppression (AMS)** Kalman filter that protects tracks during partial occlusion.
 
-On MOT17-ablation (`yolox_x_MOT17_ablation` + `lmbn_n_duke`), OccluBoost beats BotSort on 5/6 metrics with the locked defaults: HOTA **70.47**, MOTA **78.32**, IDF1 **84.14**, IDSW **135**, AssA **74.73** (only DetA −0.27 vs BotSort).
+On the MOT17 ablation split (`yolox_x_MOT17_ablation` + `lmbn_n_duke`), OccluBoost beats BotSort on 5/6 metrics with the locked defaults: HOTA **70.47**, MOTA **78.32**, IDF1 **84.14**, IDSW **135**, AssA **74.73** (only DetA −0.27 vs BotSort).
 
 ## What's layered on top of BoostTrack
 
@@ -41,7 +41,7 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker occluboost --tracker-backend cpp \
+boxmot eval --benchmark mot17 --split ablation --tracker occluboost --tracker-backend cpp \
   --detector yolox_x_MOT17_ablation.pt --reid models/lmbn_n_duke.onnx
 boxmot track --tracker occluboost --tracker-backend cpp \
   --reid models/lmbn_n_duke.pt --source 0
@@ -51,7 +51,7 @@ When `--tracker-backend cpp` is set, embedding generation for cached replay also
 
 ## Tuning notes
 
-- **AMS knobs** (locked on MOT17-ablation but worth retuning per dataset):
+- **AMS knobs** (locked on the MOT17 ablation split but worth retuning per dataset):
     - `ams_alpha0` (default 0.4): how strongly to suppress the gain when both gates fire. Lower = stronger suppression. 0.3 over-protects and inflates IDSW; 0.5+ recovers IDSW but loses HOTA.
     - `ams_threshold` (default 0.5): relative speed-spike trigger. Lower fires more often.
     - `ams_shrink_ratio` (default 0.75): only suppress when the new bbox shrinks below this fraction of the buffered mean area. Disable AMS entirely with `ams_enabled: false`.

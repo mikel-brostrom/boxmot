@@ -9,7 +9,7 @@ Use `tune` to search tracker hyperparameters against one or more objective metri
     === "CLI"
 
         ```bash
-        boxmot tune --benchmark mot17-ablation --tracker ocsort --n-trials 10
+        boxmot tune --benchmark mot17 --split ablation --tracker ocsort --n-trials 10
         ```
 
     === "Python"
@@ -18,7 +18,7 @@ Use `tune` to search tracker hyperparameters against one or more objective metri
         from boxmot import Boxmot
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="ocsort")
-        tuned = boxmot.tune(benchmark="mot17-ablation", n_trials=10)
+        tuned = boxmot.tune(benchmark="mot17", split="ablation", n_trials=10)
         print(tuned)
         print(tuned.best_yaml)
         ```
@@ -32,7 +32,7 @@ Tracker search spaces come from the selected tracker YAML in `boxmot/configs/tra
 Use `--tracker-backend cpp` when you want each trial to score the native C++ tracker backend instead of the Python backend:
 
 ```bash
-boxmot tune --benchmark mot17-ablation --tracker sfsort --tracker-backend cpp --n-trials 10
+boxmot tune --benchmark mot17 --split ablation --tracker sfsort --tracker-backend cpp --n-trials 10
 ```
 
 Native tuning uses the same search space YAML as the Python tracker and swaps only the tracker implementation used during cached replay. Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, and `sfsort`.
@@ -46,13 +46,13 @@ Native tuning uses the same search space YAML as the Python tracker and swaps on
         Single-objective tuning:
 
         ```bash
-        boxmot tune --benchmark mot17-ablation --tracker bytetrack --objectives HOTA
+        boxmot tune --benchmark mot17 --split ablation --tracker bytetrack --objectives HOTA
         ```
 
         Multi-objective tuning:
 
         ```bash
-        boxmot tune --benchmark mot17-ablation --tracker bytetrack \
+        boxmot tune --benchmark mot17 --split ablation --tracker bytetrack \
           --objectives HOTA IDF1_rate \
           --maximize HOTA \
           --minimize IDSW_rate
@@ -65,7 +65,7 @@ Native tuning uses the same search space YAML as the Python tracker and swaps on
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="bytetrack")
         tuned = boxmot.tune(
-            benchmark="mot17-ablation",
+            benchmark="mot17", split="ablation",
             n_trials=10,
             maximize=("HOTA",),
             minimize=("IDSW_rate",),

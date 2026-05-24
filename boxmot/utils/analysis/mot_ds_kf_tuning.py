@@ -227,8 +227,8 @@ if __name__ == "__main__":
         description="Estimate Q/R and std_weight_* across all sequences in a MOT dataset",
         epilog="""
 Examples:
-  # MOT17-ablation
-  python -m boxmot.utils.analysis.mot_ds_kf_tuning --train_root boxmot/engine/trackeval/MOT17-ablation/train
+  # MOT17-mini
+  python -m boxmot.utils.analysis.mot_ds_kf_tuning --train_root boxmot/engine/trackeval/MOT17-mini/train
   
   # VisDrone
   python -m boxmot.utils.analysis.mot_ds_kf_tuning --train_root boxmot/engine/trackeval/VisDrone2019-MOT-test-dev
@@ -237,7 +237,7 @@ Examples:
     parser.add_argument(
         "--train_root", 
         type=Path,
-        default=TRACKEVAL / "MOT17-ablation/train",
+        default=TRACKEVAL / "MOT17-mini/train",
         help="Root folder containing sequences (auto-detects MOT17 or VisDrone layout)"
     )
     parser.add_argument(

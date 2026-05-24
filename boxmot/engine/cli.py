@@ -183,7 +183,7 @@ def data_option(func):
         'data',
         type=str,
         default=None,
-        help='benchmark config name or YAML file, e.g. mot17-ablation or boxmot/configs/datasets/mot17-ablation.yaml',
+        help='benchmark config name or YAML file, e.g. mot17 or boxmot/configs/datasets/mot17.yaml',
     )(func)
 
 
@@ -497,7 +497,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("       --detector selects a YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
             formatter.write_text("       --reid selects a ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
             formatter.write_text("       --tracker selects one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]")
-            formatter.write_text("       OPTIONS (optional) flags like '--source 0' for tracking inputs or '--benchmark mot17-ablation' for benchmark-driven eval/tune/research runs.")
+            formatter.write_text("       OPTIONS (optional) flags like '--source 0' for tracking inputs or '--benchmark mot17 --split ablation' for benchmark-driven eval/tune/research runs.")
             formatter.write_text("       Benchmark configs select their dataset, detector, and ReID profiles.")
             formatter.write_text("          See all options at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
         formatter.write_paragraph()
@@ -517,18 +517,18 @@ class CommandFirstGroup(click.Group):
             
             formatter.write_text("3. Evaluate on MOT dataset:")
             with formatter.indentation():
-                formatter.write_text("boxmot eval --benchmark mot17-ablation --tracker boosttrack")
+                formatter.write_text("boxmot eval --benchmark mot17 --split ablation --tracker boosttrack")
             formatter.write_paragraph()
             
             formatter.write_text("4. Tune tracker hyperparameters:")
             with formatter.indentation():
-                formatter.write_text("boxmot tune --benchmark mot17-ablation --tracker deepocsort --n-trials 10")
+                formatter.write_text("boxmot tune --benchmark mot17 --split ablation --tracker deepocsort --n-trials 10")
             formatter.write_paragraph()
 
             formatter.write_text("5. Research tracker code changes:")
             with formatter.indentation():
                 formatter.write_text(
-                    "boxmot research --benchmark mot17-ablation --tracker bytetrack "
+                    "boxmot research --benchmark mot17 --split ablation --tracker bytetrack "
                     "--proposal-model openai/gpt-5.4 --max-metric-calls 24"
                 )
             formatter.write_paragraph()

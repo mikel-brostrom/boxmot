@@ -50,7 +50,7 @@ Example:
 
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
-boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
 ```
 
 The generated build files are kept under `build/native/<tracker>/`.

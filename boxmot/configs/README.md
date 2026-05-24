@@ -14,13 +14,13 @@ The primary config split is:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker boosttrack
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
 ```
 
 In this layout:
 
 - `boxmot/configs/modes.yaml` provides the shared defaults for `track`, `generate`, `eval`, `tune`, and `export`
-- `--benchmark mot17-ablation` resolves `boxmot/configs/datasets/mot17-ablation.yaml`
+- `--benchmark mot17 --split ablation` resolves `boxmot/configs/datasets/mot17.yaml`
 - the dataset config includes its default detector and ReID profiles
 - `--tracker boosttrack` loads `boxmot/configs/trackers/boosttrack.yaml`
 - `--split test` overrides the default split defined in the dataset config

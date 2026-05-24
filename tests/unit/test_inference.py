@@ -28,7 +28,7 @@ import boxmot.reid.core as reid_core_module
 import boxmot.utils.rich.ui as ui_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
 from boxmot.engine.inference import prepare_detections
-from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
+from boxmot.trackers.bbox.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
 from boxmot.data.cache import (
@@ -1116,7 +1116,7 @@ def test_evaluator_dependency_check_is_lazy(monkeypatch):
 
 def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tmp_path, capsys):
     result = evaluator_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
             "MOTA": 78.243,
@@ -1227,8 +1227,8 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
         detector=[tmp_path / "detector.pt"],
         reid=[tmp_path / "reid.pt"],
         tracker="bytetrack",
-        data="mot17-ablation",
-        benchmark="mot17-ablation",
+        data="mot17-mini",
+        benchmark="mot17-mini",
         source=None,
         imgsz=None,
         show_timing=False,
@@ -1244,7 +1244,7 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
     assert workflow.title == "Evaluation"
     assert workflow.started is True
     assert workflow.stopped is True
-    assert ("Dataset", "mot17-ablation") in workflow.fields
+    assert ("Dataset", "mot17-mini") in workflow.fields
     assert (evaluator_module.EVAL_SETUP_STEP, "active") in workflow.steps
     assert workflow.details == []
     assert "pipeline" in calls[0]
@@ -1316,8 +1316,8 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
     args = SimpleNamespace(
         detector=[tmp_path / "detector.pt"],
         reid=[tmp_path / "reid.pt"],
-        benchmark="mot17-ablation",
-        data="mot17-ablation",
+        benchmark="mot17-mini",
+        data="mot17-mini",
         show_progress=True,
         verbose=False,
     )
@@ -1416,7 +1416,7 @@ def test_build_eval_workflow_fields_reports_effective_cpp_backend(tmp_path):
         tracker="botsort",
         tracker_backend=None,
         tracking_backend="cpp",
-        data="mot17-ablation",
+        data="mot17-mini",
         benchmark="",
         dataset_id="",
         benchmark_id="",
@@ -1443,7 +1443,7 @@ def test_build_eval_workflow_fields_reports_effective_cpp_backend(tmp_path):
     assert fields["ReID"] == Path("models/lmbn_n_duke.pt")
     assert fields["Tracker"] == "botsort"
     assert fields["Tracker backend"] == "cpp"
-    assert fields["Dataset"] == "mot17-ablation"
+    assert fields["Dataset"] == "mot17-mini"
     assert "Replay backend" not in fields
     assert "__panel__:Benchmark Parameters" not in fields
     assert "__panel__:Dataset Parameters" not in fields
@@ -1491,7 +1491,7 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
     def fake_eval_setup(args, pipeline=None):
         args.detector = [tmp_path / "yolox_x.pt"]
         args.reid = [tmp_path / "lmbn_n_duke.pt"]
-        args.benchmark = "mot17-ablation"
+        args.benchmark = "mot17-mini"
         args.tracker_backend = "cpp"
 
     monkeypatch.setattr(evaluator_module, "eval_setup", fake_eval_setup)
@@ -1507,7 +1507,7 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
         tracker_backend=None,
         tracking_backend="process",
         benchmark="",
-        data="mot17-ablation",
+        data="mot17-mini",
         source=None,
         imgsz=None,
         show_progress=False,
@@ -1523,7 +1523,7 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
     assert refreshed["ReID"] == tmp_path / "lmbn_n_duke.pt"
     assert refreshed["Tracker"] == "botsort"
     assert refreshed["Tracker backend"] == "cpp"
-    assert refreshed["Dataset"] == "mot17-ablation"
+    assert refreshed["Dataset"] == "mot17-mini"
 
 
 def test_workflow_progress_renders_single_stateful_block(monkeypatch):
@@ -1894,8 +1894,8 @@ def test_hybridsort_eval_intro_fits_terminal_height():
         tracker="hybridsort",
         tracker_backend=None,
         tracking_backend="process",
-        data="mot17-ablation",
-        benchmark="mot17-ablation",
+        data="mot17-mini",
+        benchmark="mot17-mini",
         dataset_id="",
         benchmark_id="",
         source=None,
@@ -1929,7 +1929,7 @@ def test_build_workflow_intro_uses_compact_setup_panel_and_completed_pipeline_su
                 ("Detector", Path("models/yolox_x_MOT17_ablation.pt")),
                 ("ReID", Path("models/lmbn_n_duke.pt")),
                 ("Tracker", "bytetrack"),
-                ("Dataset", "mot17-ablation"),
+                ("Dataset", "mot17-mini"),
                 ("__panel__:Tracker Parameters", [("Min Conf", 0.1), ("Track Thresh", 0.6)]),
                 ("__panel__:Pipeline Parameters", [("Tracker backend", "python"), ("Replay backend", "thread")]),
             ],
@@ -1959,7 +1959,7 @@ def test_build_workflow_intro_compact_live_layout_shows_all_progress_rows():
         ("Detector", Path("models/yolox_x_MOT17_ablation.pt")),
         ("ReID", Path("models/lmbn_n_duke.pt")),
         ("Tracker", "hybridsort"),
-        ("Dataset", "mot17-ablation"),
+        ("Dataset", "mot17-mini"),
         (
             "__panel__:Tracker Parameters",
             [

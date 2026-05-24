@@ -57,7 +57,7 @@ def test_boxmot_defaults_follow_shared_configs():
 def test_boxmot_eval_namespace_uses_shared_reid_default_when_reid_is_none(tmp_path):
     model = api_module.Boxmot(reid=None, project=tmp_path / "runs")
 
-    args = model._base_eval_args("mot17-ablation")
+    args = model._base_eval_args("mot17-mini")
 
     assert args.reid == [DEFAULT_REID]
 
@@ -65,7 +65,7 @@ def test_boxmot_eval_namespace_uses_shared_reid_default_when_reid_is_none(tmp_pa
 def test_boxmot_eval_namespace_treats_inherited_defaults_as_non_explicit():
     model = api_module.Boxmot()
 
-    args = model._base_eval_args("mot17-ablation")
+    args = model._base_eval_args("mot17-mini")
 
     assert args.detector_explicit is False
     assert args.reid_explicit is False
@@ -79,7 +79,7 @@ def test_boxmot_eval_namespace_treats_inherited_defaults_as_non_explicit():
 def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
     model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 
-    args = model._base_eval_args("mot17-ablation")
+    args = model._base_eval_args("mot17-mini")
 
     assert args.detector_explicit is True
     assert args.reid_explicit is True
@@ -89,7 +89,7 @@ def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
 def test_boxmot_eval_namespace_normalizes_inline_tracker_backend():
     model = api_module.Boxmot(tracker="botsort:cpp")
 
-    args = model._base_eval_args("mot17-ablation")
+    args = model._base_eval_args("mot17-mini")
 
     assert args.tracker == "botsort"
     assert args.tracker_backend == "cpp"
@@ -947,7 +947,7 @@ def test_validation_result_formats_sequence_and_combined_report():
         },
     }
     result = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw=raw,
         summary_label="single_class",
         summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
@@ -965,7 +965,7 @@ def test_validation_result_formats_sequence_and_combined_report():
 
 def test_validation_result_str_renders_cli_style_report():
     result = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
             "MOTA": 78.243,
@@ -1086,7 +1086,7 @@ def test_validation_result_str_keeps_multiclass_obb_sections():
 
 def test_tune_result_formats_best_report():
     metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
             "MOTA": 78.243,
@@ -1111,7 +1111,7 @@ def test_tune_result_formats_best_report():
         summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
     )
     tune = api_module.TuneResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         tracker="botsort",
         trials=[],
         best=api_module.TuneTrialResult(index=1, config={}, metrics=metrics, score=(69.445, 78.243, 81.937)),
@@ -1128,7 +1128,7 @@ def test_tune_result_formats_best_report():
 
 def test_tune_results_expose_validation_like_accessors():
     metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={"all": {"HOTA": 69.445}},
         summary_label="all",
         summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
@@ -1143,7 +1143,7 @@ def test_tune_results_expose_validation_like_accessors():
         score=(69.445, 78.243, 81.937),
     )
     tune = api_module.TuneResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         tracker="bytetrack",
         trials=[trial],
         best=trial,
@@ -1165,7 +1165,7 @@ def test_tune_results_expose_validation_like_accessors():
     assert tune.exp_dir == metrics.exp_dir
     assert tune.format_report() == tune.format_best_report()
     assert "📊 BEST TRIAL SUMMARY" in str(tune)
-    assert "TuneResult(benchmark='mot17-ablation'" in repr(tune)
+    assert "TuneResult(benchmark='mot17-mini'" in repr(tune)
     assert tune.to_dict()["summary"] == metrics.summary
     assert tune.to_dict(include_trials=True)["trials"][0]["metrics"]["summary"] == metrics.summary
 
@@ -1180,7 +1180,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
 
     baseline_metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 66.0,
             "MOTA": 77.0,
@@ -1215,7 +1215,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
         args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
     )
     best_metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 67.5,
             "MOTA": 78.2,
@@ -1252,7 +1252,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
     baseline_trial = api_module.TuneTrialResult(index=1, config={"track_buffer": 30}, metrics=baseline_metrics, score=(66.0,))
     best_trial = api_module.TuneTrialResult(index=2, config={"track_buffer": 40}, metrics=best_metrics, score=(67.5,))
     tune = api_module.TuneResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         tracker="bytetrack",
         trials=[baseline_trial, best_trial],
         best=best_trial,
@@ -1274,7 +1274,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
 
 def test_validation_result_renderable_shows_delta_vs_baseline() -> None:
     baseline_metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "person": {
                 "HOTA": 66.0,
@@ -1302,7 +1302,7 @@ def test_validation_result_renderable_shows_delta_vs_baseline() -> None:
         args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
     )
     best_metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "person": {
                 "HOTA": 67.5,
@@ -1355,7 +1355,7 @@ def test_validation_result_str_colorizes_base_table_when_tty(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
 
     result = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
             "MOTA": 78.243,
@@ -1400,7 +1400,7 @@ def test_validation_result_str_colorizes_base_table_when_tty(monkeypatch):
 
 def test_validation_result_print_report_matches_cli_style(capsys):
     result = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
             "MOTA": 78.243,
@@ -1678,6 +1678,7 @@ def test_boxmot_generate_and_research_facades(monkeypatch, tmp_path):
         timing_stats.totals["reid"] = 12.0
         timing_stats.totals["total"] = 40.0
         args.benchmark = "mot17-mini"
+        args.split = "train"
         args.source = tmp_path / "datasets" / "mot17-mini" / "train"
         return timing_stats
 
@@ -1707,7 +1708,7 @@ def test_boxmot_generate_and_research_facades(monkeypatch, tmp_path):
     generate_args = calls["generate"]
     assert generated.benchmark == "mot17-mini"
     assert generated.source == tmp_path / "datasets" / "mot17-mini" / "train"
-    assert generated.cache_dir == tmp_path / "runs" / "dets_n_embs" / "mot17-mini"
+    assert generated.cache_dir == tmp_path / "runs" / "dets_n_embs" / "mot17-mini" / "train"
     assert generated.timings["frames"] == 4
     assert generated.detectors[0].name == "yolov8n.pt"
     assert generated.reid_models[0].name == "osnet_x0_25_msmt17.pt"

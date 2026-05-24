@@ -1,29 +1,44 @@
 # Benchmarks
 
-Benchmark configs live under `boxmot/configs/benchmarks`.
+Benchmark configs live under `boxmot/configs/datasets`.
 
 ## Role
 
-A benchmark YAML ties together:
+Each dataset YAML is a self-contained benchmark definition that includes:
 
-- one dataset config
-- one detector profile
-- one ReID profile
+- dataset path, split, and class definitions
+- default detector profile
+- default ReID profile
 - optional cache download URLs
 
 ## Example
 
 ```yaml
-id: mot17-ablation
-dataset: mot17-ablation
+id: mot17
+
+path: "boxmot/engine/trackeval/data/MOT17-mini"
+split: "train"
+train: "train"
+
+layout: mot
+box_type: aabb
+
 detector: yolox_x_mot17_ablation
 reid: lmbn_n_duke
+
+names:
+  1: pedestrian
 ```
 
 ## Use from the CLI
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker boosttrack
+# Use default split from config
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
+
+# Override split
+boxmot eval --benchmark sportsmot --split test --tracker boosttrack
 ```
 
 That benchmark name selects the corresponding YAML and all linked profiles.
+The `--split` flag overrides the default split defined in the config.

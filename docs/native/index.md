@@ -11,8 +11,8 @@ Pass `--tracker-backend cpp` to swap the in-process tracker implementation. This
 
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
-boxmot eval  --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
-boxmot eval  --benchmark mot17-ablation --tracker botsort:cpp
+boxmot eval  --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval  --benchmark mot17 --split ablation --tracker botsort:cpp
 ```
 
 `--tracking-backend cpp` still works as a compatibility alias. The first run configures and builds the matching shared library under `build/native/<tracker>/`. Use `boxmot build` to compile ahead of time:

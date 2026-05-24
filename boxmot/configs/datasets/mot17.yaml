@@ -7,6 +7,9 @@ train: "train"
 val: "val-frcnn"
 test: "test"
 
+splits:
+  ablation: "val-frcnn"
+
 layout: mot
 box_type: aabb
 

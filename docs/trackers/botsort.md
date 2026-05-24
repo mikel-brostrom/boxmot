@@ -30,7 +30,7 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker botsort --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker botsort --tracker-backend cpp
 boxmot track --tracker botsort --tracker-backend cpp --reid models/lmbn_n_duke.pt --source 0
 ```
 

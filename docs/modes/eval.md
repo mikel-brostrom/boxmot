@@ -9,7 +9,7 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
     === "CLI"
 
         ```bash
-        boxmot eval --benchmark mot17-ablation --tracker boosttrack --verbose
+        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --verbose
         ```
 
     === "Python"
@@ -18,7 +18,7 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
         from boxmot import Boxmot
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-        metrics = boxmot.val(benchmark="mot17-ablation")
+        metrics = boxmot.val(benchmark="mot17", split="ablation")
         print(metrics)
         ```
 
@@ -31,8 +31,8 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
         For repeated experiments:
 
         ```bash
-        boxmot generate --benchmark mot17-ablation
-        boxmot eval --benchmark mot17-ablation --tracker boosttrack
+        boxmot generate --benchmark mot17 --split ablation
+        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
         ```
 
         This lets `eval` reuse precomputed detections and embeddings.
@@ -43,7 +43,7 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
         from boxmot import Boxmot
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-        metrics = boxmot.val(benchmark="mot17-ablation")
+        metrics = boxmot.val(benchmark="mot17", split="ablation")
         print(metrics)
         ```
 
@@ -53,11 +53,12 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
 
     === "CLI"
 
-        `eval` can apply optional postprocessing before scoring:
+        `eval` can apply optional postprocessing before scoring.
+        Multiple steps can be chained with commas (applied in order):
 
         ```bash
-        boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gsi
-        boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gbrc
+        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --postprocessing gsi
+        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --postprocessing gbrc,gta
         ```
 
     === "Python"
@@ -71,8 +72,8 @@ See [Evaluation and Postprocessing](../guides/evaluation.md).
 Use `--tracker-backend cpp` to run the cached replay stage through a native tracker implementation:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
-boxmot eval --benchmark mot17-ablation --tracker ocsort:cpp
+boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker ocsort:cpp
 ```
 
 Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, and `sfsort`. `--tracking-backend cpp` is still accepted as a compatibility alias, but `--tracker-backend cpp` is the canonical selector.

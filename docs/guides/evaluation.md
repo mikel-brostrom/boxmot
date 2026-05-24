@@ -20,11 +20,21 @@ For raw runtime summaries from the Python API, `evaluate(...)` aggregates counts
 
 ## Postprocessing modes
 
-`eval` supports three postprocessing modes through `--postprocessing`:
+`eval` supports three postprocessing modes through `--postprocessing`.
+Multiple steps can be chained in order using comma separation:
 
-- `none`
-- `gsi` for Gaussian-smoothed interpolation
-- `gbrc` for gradient-boosting-based reconnection and interpolation
+- `none` – no postprocessing (default)
+- `gsi` – Gaussian-smoothed interpolation
+- `gbrc` – gradient-boosting-based reconnection and interpolation
+- `gta` – global tracklet association
+
+```bash
+# Single step
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --postprocessing gsi
+
+# Multiple steps applied in order
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --postprocessing gbrc,gta
+```
 
 ## Native C++ tracker backends
 
@@ -33,11 +43,10 @@ For raw runtime summaries from the Python API, `evaluate(...)` aggregates counts
 ## Common commands
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker boosttrack
-boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gsi
-boxmot eval --benchmark mot17-ablation --tracker boosttrack --postprocessing gbrc
-boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
-boxmot eval --benchmark mot17-ablation --tracker botsort:cpp
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --postprocessing gbrc,gta
+boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker botsort:cpp
 ```
 
 ## Main outputs

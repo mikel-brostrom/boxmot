@@ -27,14 +27,14 @@ boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --so
 Evaluate a tracker on a benchmark:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker boosttrack --verbose
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --verbose
 ```
 
 Run a native C++ tracker backend:
 
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
-boxmot eval --benchmark mot17-ablation --tracker bytetrack:cpp
+boxmot eval --benchmark mot17 --split ablation --tracker bytetrack:cpp
 ```
 
 Export a ReID model:
@@ -46,7 +46,7 @@ boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --
 Run GEPA-based research:
 
 ```bash
-boxmot research --benchmark mot17-ablation --tracker bytetrack --proposal-model openai/gpt-5.4 --max-metric-calls 24
+boxmot research --benchmark mot17 --split ablation --tracker bytetrack --proposal-model openai/gpt-5.4 --max-metric-calls 24
 ```
 
 ## Direct source vs benchmark configs
@@ -56,7 +56,7 @@ Use `track` when you already have a concrete source such as `0`, `video.mp4`, `p
 Use benchmark-driven modes when you want BoxMOT to resolve dataset, detector, and ReID profiles automatically from config files:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker boosttrack
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
 ```
 
 ## Full argument tables

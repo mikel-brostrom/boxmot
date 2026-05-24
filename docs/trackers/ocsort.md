@@ -28,7 +28,7 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker ocsort --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker ocsort --tracker-backend cpp
 boxmot track --tracker ocsort --tracker-backend cpp --source 0
 ```
 

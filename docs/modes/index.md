@@ -28,9 +28,9 @@ boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --so
 Use `generate`, `eval`, `tune`, and `research` when you want repeatable experiments backed by YAML configs in `boxmot/configs`.
 
 ```bash
-boxmot generate --benchmark mot17-ablation
-boxmot eval --benchmark mot17-ablation --tracker boosttrack
-boxmot tune --benchmark mot17-ablation --tracker bytetrack
+boxmot generate --benchmark mot17 --split ablation
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
+boxmot tune --benchmark mot17 --split ablation --tracker bytetrack
 ```
 
 ## Shared CLI shape
