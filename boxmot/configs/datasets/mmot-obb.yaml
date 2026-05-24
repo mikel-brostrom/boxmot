@@ -9,6 +9,9 @@ test:
 layout: mot
 box_type: obb
 
+detector: yolo11l_3ch
+reid: lmbn_n_duke
+
 names:
   1: car
   2: bike

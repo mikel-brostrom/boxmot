@@ -146,6 +146,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "distractors": distractors,
         "class_map": class_map,
         "download": download_cfg,
+        "dataset_config": cfg["id"],
         "detector_config": str(detector_ref) if detector_ref else None,
         "reid_config": str(reid_ref) if reid_ref else None,
     }
@@ -582,9 +583,8 @@ def _apply_benchmark_config_ref(
     source_root = Path(path_str) if path_str else None
     benchmark_name = _resolve_runtime_benchmark_name(cfg, source_root, cfg_path)
     benchmark_dest = _resolve_benchmark_dest(cfg, benchmark_name, source_root)
-    split_path = _resolve_active_split_path(cfg)
 
-    runs_check_path = Path("runs") / "dets_n_embs" / benchmark_name
+    runs_check_path = Path("runs") / "dets_n_embs" / benchmark_name / str(cfg.get("split") or "train")
     download_eval_data(
         runs_url=download_cfg.get("runs", ""),
         dataset_url=download_cfg.get("dataset", ""),
@@ -597,8 +597,18 @@ def _apply_benchmark_config_ref(
     args.benchmark_id = cfg.get("id", benchmark_name)
     args.dataset_id = args.benchmark_id
     args.benchmark = benchmark_name
-    args.split = str(cfg.get("split") or "train")
-    args.source = (source_root / split_path) if source_root is not None else (benchmark_dest / split_path)
+
+    # Respect explicit --split from CLI; otherwise use config default
+    cli_split = getattr(args, "split", None)
+    if cli_split and getattr(args, "split_explicit", False):
+        cfg_split = cli_split
+    else:
+        cfg_split = str(cfg.get("split") or "train")
+    args.split = cfg_split
+
+    # Resolve source path using the active split
+    active_split_path = str(cfg.get(cfg_split) or cfg_split)
+    args.source = (source_root / active_split_path) if source_root is not None else (benchmark_dest / active_split_path)
 
     box_type = cfg.get("box_type")
     if box_type:

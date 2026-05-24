@@ -134,6 +134,7 @@ def build_mode_namespace(
         values.setdefault("tracker_explicit", "tracker" in explicit)
         values.setdefault("device_explicit", "device" in explicit)
         values.setdefault("half_explicit", "half" in explicit)
+        values.setdefault("split_explicit", "split" in explicit)
     elif normalized_mode == "export":
         values["weights"] = ensure_model_extension(values.get("weights") or get_mode_default("export", "weights"))
         include = values.get("include") or ()

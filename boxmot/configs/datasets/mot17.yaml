@@ -1,10 +1,11 @@
-id: mot17-ablation
+id: mot17
 
-path: "boxmot/engine/trackeval/data/MOT17-ablation"
-split: "train"
+path: "/Users/mikel.brostrom/datasets/mot17"
+dets_n_embs: "runs/dets_n_embs/mot17/test"
+split: "test"
 train: "train"
-val:
-test:
+val: "val-frcnn"
+test: "test"
 
 layout: mot
 box_type: aabb
@@ -24,5 +25,5 @@ distractors:
 class_map: {}
 
 download:
-  dataset: "https://github.com/mikel-brostrom/boxmot/releases/download/v13.0.9/MOT17-ablation.zip"
+  dataset: ""
   runs: ""

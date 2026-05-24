@@ -9,6 +9,9 @@ test:
 layout: mot
 box_type: aabb
 
+detector:
+reid:
+
 names:
   1: person
   2: bus_small

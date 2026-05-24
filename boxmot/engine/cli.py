@@ -128,8 +128,8 @@ def core_options(func):
         click.option('--agnostic-nms', is_flag=True, default=RUNTIME_DEFAULTS.agnostic_nms,
                      help='class-agnostic NMS'),
         click.option(
-            "--postprocessing", type=click.Choice(["none", "gsi", "gbrc", "gta"], case_sensitive=False), default=RUNTIME_DEFAULTS.postprocessing,
-            help="Postprocess tracker output: none | gsi (Gaussian smoothed interpolation) | gbrc (gradient boosting smooth) | gta (global tracklet association).",
+            "--postprocessing", type=str, default=RUNTIME_DEFAULTS.postprocessing,
+            help="Postprocess tracker output (comma-separated, applied in order): none | gsi | gbrc | gta. E.g. 'gbrc,gta'.",
         ),
         click.option('--show', is_flag=True, default=RUNTIME_DEFAULTS.show,
                      help='display tracking in a window'),
@@ -152,7 +152,11 @@ def core_options(func):
         click.option('--per-class', is_flag=True, default=RUNTIME_DEFAULTS.per_class,
                      help='track each class separately'),
         click.option('--target-id', type=int, default=RUNTIME_DEFAULTS.target_id,
-                     help='ID to highlight in green')
+                     help='ID to highlight in green'),
+        click.option('--masks-dir', type=str, default=None,
+                     help='Override directory for cached segmentation masks (.npz files)'),
+        click.option('--masks-model', type=click.Choice(['maskrcnn'], case_sensitive=False), default=None,
+                     help='Mask model to use for generation (stored under cache tree automatically)'),
     ]
     for opt in reversed(options):
         func = opt(func)
@@ -164,6 +168,14 @@ def source_option(default='0', help_text='file/dir/URL/glob, 0 for webcam'):
     return click.option('--source', type=str, default=default, help=help_text)
 
 
+def split_option(func):
+    """Attach a ``--split`` option to override the dataset split (train/val/test)."""
+    return click.option(
+        '--split', type=str, default=None,
+        help='Dataset split to use (e.g. train, val, test). Overrides auto-detection from source path.'
+    )(func)
+
+
 def data_option(func):
     """Attach the benchmark-config option."""
     return click.option(
@@ -171,7 +183,7 @@ def data_option(func):
         'data',
         type=str,
         default=None,
-        help='benchmark config name or YAML file, e.g. mot17-ablation or boxmot/configs/benchmarks/mot17-ablation.yaml',
+        help='benchmark config name or YAML file, e.g. mot17-ablation or boxmot/configs/datasets/mot17-ablation.yaml',
     )(func)
 
 
@@ -565,12 +577,13 @@ def boxmot(ctx):
 
 @boxmot.command(help='Run tracking only')
 @source_option(default=TRACK_DEFAULTS.source, help_text='file/dir/URL/glob, 0 for webcam')
+@split_option
 @tracker_backend_option
 @core_options
 @singular_model_options
 @click.pass_context
-def track(ctx, detector, reid, classes, **kwargs):
-    src, bench, split = _resolve_source_context(kwargs.pop('source'))
+def track(ctx, detector, reid, classes, split, **kwargs):
+    src, bench, auto_split = _resolve_source_context(kwargs.pop('source'))
     _dispatch_cli_workflow(
         ctx,
         "track",
@@ -582,20 +595,21 @@ def track(ctx, detector, reid, classes, **kwargs):
             "classes": classes,
             "source": src,
             "benchmark": bench,
-            "split": split,
+            "split": split if split else auto_split,
         }),
     )
     
 @boxmot.command(help='Generate detections and embeddings')
 @data_option
 @source_option(default=BOXMOT_DEFAULTS.generate.source, help_text='direct dataset root to generate dets/embs for without a benchmark config')
+@split_option
 @core_options
 @plural_model_options
 @click.pass_context
-def generate(ctx, data, detector, reid, classes, **kwargs):
+def generate(ctx, data, detector, reid, classes, split, **kwargs):
     src = kwargs.pop('source')
     _require_generate_input(data, src, "generate")
-    src, bench, split = _resolve_source_context(src)
+    src, bench, auto_split = _resolve_source_context(src)
     _dispatch_cli_workflow(
         ctx,
         "generate",
@@ -608,19 +622,20 @@ def generate(ctx, data, detector, reid, classes, **kwargs):
             "data": data,
             "source": src,
             "benchmark": bench,
-            "split": split,
+            "split": split if split else auto_split,
         },
     )
 
 
 @boxmot.command(help='Evaluate tracking performance')
 @data_option
+@split_option
 @replay_backend_option
 @tracker_backend_option
 @core_options
 @plural_model_options
 @click.pass_context
-def eval(ctx, data, detector, reid, classes, **kwargs):
+def eval(ctx, data, detector, reid, classes, split, **kwargs):
     data = _require_benchmark_input(data, "eval")
     _dispatch_cli_workflow(
         ctx,
@@ -634,20 +649,21 @@ def eval(ctx, data, detector, reid, classes, **kwargs):
             "data": data,
             "source": None,
             "benchmark": "",
-            "split": "",
+            "split": split or "",
         },
     )
 
 
 @boxmot.command(help='Tune models via evolutionary algorithms')
 @data_option
+@split_option
 @replay_backend_option
 @tracker_backend_option
 @core_options
 @tune_options
 @plural_model_options
 @click.pass_context
-def tune(ctx, data, detector, reid, classes, **kwargs):
+def tune(ctx, data, detector, reid, classes, split, **kwargs):
     data = _require_benchmark_input(data, "tune")
     _dispatch_cli_workflow(
         ctx,
@@ -661,20 +677,21 @@ def tune(ctx, data, detector, reid, classes, **kwargs):
             "data": data,
             "source": None,
             "benchmark": "",
-            "split": "",
+            "split": split or "",
         },
     )
 
 
 @boxmot.command(help='Research tracker code changes with GEPA')
 @data_option
+@split_option
 @replay_backend_option
 @tracker_backend_option
 @core_options
 @research_options
 @plural_model_options
 @click.pass_context
-def research(ctx, data, detector, reid, classes, **kwargs):
+def research(ctx, data, detector, reid, classes, split, **kwargs):
     data = _require_benchmark_input(data, "research")
     _dispatch_cli_workflow(
         ctx,
@@ -688,7 +705,7 @@ def research(ctx, data, detector, reid, classes, **kwargs):
             "data": data,
             "source": None,
             "benchmark": "",
-            "split": "",
+            "split": split or "",
         },
     )
 
