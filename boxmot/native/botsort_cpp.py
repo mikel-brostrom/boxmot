@@ -412,6 +412,7 @@ def process_sequence_cpp(
     dataset_name: str | None = None,
     conf_threshold: float = 0.0,
     preprocess_name: str | None = None,
+    split: str | None = None,
     progress_queue=None,
 ):
     if str(tracker_name).lower() != "botsort":
@@ -429,7 +430,7 @@ def process_sequence_cpp(
     reid_key = _reid_cache_key(reid_name, tracker_backend="cpp")
     reid_model_path = _ensure_native_reid_model_path(reid_name)
 
-    det_emb_root = dets_n_embs_root(project_root, dataset_name)
+    det_emb_root = dets_n_embs_root(project_root, dataset_name, split=split)
 
     # Read-only back-compat: if the canonical cpp bucket does not exist on
     # disk but a historical layout does, point the native binary at it so

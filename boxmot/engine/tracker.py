@@ -121,7 +121,8 @@ class TrackerRuntime:
     def names(self, value) -> None:
         setattr(self.tracker, "names", value)
 
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> tuple[np.ndarray, float]:
+    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None,
+               masks: np.ndarray | None = None) -> tuple[np.ndarray, float]:
         elapsed_ms = 0.0
         started = False
         if self.timing_stats is not None:
@@ -132,13 +133,20 @@ class TrackerRuntime:
             start_time = time.perf_counter()
 
         try:
-            if embs is None:
-                tracks = self.tracker.update(dets, img)
-            else:
+            kwargs = {}
+            if embs is not None:
+                kwargs["embs"] = embs
+            if masks is not None:
+                kwargs["masks"] = masks
+
+            if kwargs:
                 try:
-                    tracks = self.tracker.update(dets, img, embs)
+                    tracks = self.tracker.update(dets, img, **kwargs)
                 except TypeError:
+                    # Fallback: tracker doesn't accept these kwargs
                     tracks = self.tracker.update(dets, img)
+            else:
+                tracks = self.tracker.update(dets, img)
         finally:
             if started:
                 self.timing_stats.end_tracking()

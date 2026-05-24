@@ -87,6 +87,7 @@ def _build_task_args(
 ) -> list[tuple]:
     from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
     preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
+    masks_dir = getattr(args, "masks_dir", None)
     return [
         (
             seq_name,
@@ -101,6 +102,8 @@ def _build_task_args(
             getattr(args, "benchmark", None),
             conf_threshold,
             preprocess_name,
+            getattr(args, "split", None),
+            masks_dir,
             progress_queue,
         )
         for seq_name in sequence_names
@@ -120,6 +123,8 @@ def process_sequence(
     dataset_name: Optional[str] = None,
     conf_threshold: float = 0.0,
     preprocess_name: Optional[str] = None,
+    split: Optional[str] = None,
+    masks_dir: Optional[str] = None,
     progress_queue=None,
 ):
     """Run a tracker over cached detections and embeddings for one sequence."""
@@ -148,6 +153,8 @@ def process_sequence(
     det_emb_root = Path(project_root) / "dets_n_embs"
     if dataset_name:
         det_emb_root = det_emb_root / dataset_name
+    if split:
+        det_emb_root = det_emb_root / split
     dataset = MOTDataset(
         mot_root=mot_root,
         det_emb_root=str(det_emb_root),
@@ -155,6 +162,7 @@ def process_sequence(
         reid_name=reid_key,
         target_fps=target_fps,
         reid_preprocess=preprocess_name,
+        masks_dir=masks_dir,
     )
     sequence = dataset.get_sequence(
         seq_name,
@@ -173,6 +181,10 @@ def process_sequence(
         dets = frame["dets"]
         embs = frame["embs"]
         img = frame["img"]
+        masks = frame.get("masks")
+
+        # Masks are passed at their stored resolution (e.g. 640x640).
+        # The tracker handles coordinate scaling internally.
 
         kept_frame_ids.append(frame_id)
         num_frames += 1
@@ -182,6 +194,8 @@ def process_sequence(
             mask = dets[:, conf_col] >= conf_threshold
             dets = dets[mask]
             embs = embs[mask] if embs.size else embs
+            if masks is not None:
+                masks = masks[mask]
 
         if dets.size:
             if embs.size and dets.shape[0] != embs.shape[0]:
@@ -193,7 +207,8 @@ def process_sequence(
                 raise ValueError(message)
 
             embs_arg = embs if embs.size else None
-            tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg)
+            masks_arg = masks if (masks is not None and masks.size) else None
+            tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg, masks=masks_arg)
             frame_reid_time_ms = min(timing_stats.get_last_reid_time(), elapsed_ms)
             total_reid_time_ms += frame_reid_time_ms
             total_track_time_ms += max(elapsed_ms - frame_reid_time_ms, 0.0)
@@ -545,58 +560,71 @@ def run_generate_mot_results(
                 f"avg: [cyan]{avg_track:.2f}ms/frame[/cyan]"
             )
 
-    if getattr(args, "postprocessing", "none") == "gsi":
-        if verbose:
-            LOGGER.info("[cyan]\\[3b/4][/cyan] Applying GSI postprocessing...")
-        from boxmot.postprocessing.gsi import gsi
+    # Parse postprocessing pipeline (comma-separated, applied in order)
+    pp_raw = getattr(args, "postprocessing", "none")
+    pp_steps = [s.strip().lower() for s in pp_raw.split(",") if s.strip().lower() not in ("none", "")]
+    valid_steps = {"gsi", "gbrc", "gta"}
+    for s in pp_steps:
+        if s not in valid_steps:
+            raise ValueError(
+                f"Unknown postprocessing step '{s}'. Valid options: {sorted(valid_steps)}"
+            )
 
-        gsi(mot_results_folder=exp_dir)
-    elif getattr(args, "postprocessing", "none") == "gbrc":
-        if verbose:
-            LOGGER.info("[cyan]\\[3b/4][/cyan] Applying GBRC postprocessing...")
-        from boxmot.postprocessing.gbrc import gbrc
+    for step_idx, pp_step in enumerate(pp_steps, 1):
+        if pp_step == "gsi":
+            if verbose:
+                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GSI postprocessing (step {step_idx}/{len(pp_steps)})...")
+            from boxmot.postprocessing.gsi import gsi
 
-        gbrc(mot_results_folder=exp_dir)
-    elif getattr(args, "postprocessing", "none") == "gta":
-        if verbose:
-            LOGGER.info("[cyan]\\[3b/4][/cyan] Applying GTA postprocessing...")
-        from boxmot.postprocessing.gta import gta as gta_postprocess
-        from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
-        from boxmot.data.cache import reid_cache_key, legacy_reid_cache_keys
+            gsi(mot_results_folder=exp_dir)
+        elif pp_step == "gbrc":
+            if verbose:
+                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GBRC postprocessing (step {step_idx}/{len(pp_steps)})...")
+            from boxmot.postprocessing.gbrc import gbrc
 
-        # Resolve cached embeddings/detections directory
-        det_emb_root = cache_project / "dets_n_embs"
-        if getattr(args, "benchmark", None):
-            det_emb_root = det_emb_root / args.benchmark
-        detector_key = args.detector[0].stem
-        dets_dir = det_emb_root / detector_key / "dets"
-        embs_dir = None
-        if args.reid:
-            preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
-            embs_root = det_emb_root / detector_key / "embs"
-            tracker_backend = getattr(args, "tracker_backend", None)
+            gbrc(mot_results_folder=exp_dir)
+        elif pp_step == "gta":
+            if verbose:
+                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GTA postprocessing (step {step_idx}/{len(pp_steps)})...")
+            from boxmot.postprocessing.gta import gta as gta_postprocess
+            from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+            from boxmot.data.cache import reid_cache_key, legacy_reid_cache_keys
 
-            # Try canonical cache key first, then legacy keys
-            candidates = [
-                reid_cache_key(args.reid[0], tracker_backend=tracker_backend),
-                *legacy_reid_cache_keys(args.reid[0], tracker_backend=tracker_backend),
-                args.reid[0].name if args.reid[0].suffix else str(args.reid[0]),
-                args.reid[0].stem,
-            ]
-            for key in candidates:
-                candidate_dir = embs_root / key / preprocess_name
-                if candidate_dir.exists():
-                    embs_dir = candidate_dir
-                    break
+            # Resolve cached embeddings/detections directory
+            det_emb_root = cache_project / "dets_n_embs"
+            if getattr(args, "benchmark", None):
+                det_emb_root = det_emb_root / args.benchmark
+            if getattr(args, "split", None):
+                det_emb_root = det_emb_root / args.split
+            detector_key = args.detector[0].stem
+            dets_dir = det_emb_root / detector_key / "dets"
+            embs_dir = None
+            if args.reid:
+                preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
+                embs_root = det_emb_root / detector_key / "embs"
+                tracker_backend = getattr(args, "tracker_backend", None)
 
-            if embs_dir is None:
-                LOGGER.warning(
-                    f"GTA: Could not find embedding cache under {embs_root}. "
-                    f"Tried keys: {candidates[:3]}"
-                )
+                # Try canonical cache key first, then legacy keys
+                candidates = [
+                    reid_cache_key(args.reid[0], tracker_backend=tracker_backend),
+                    *legacy_reid_cache_keys(args.reid[0], tracker_backend=tracker_backend),
+                    args.reid[0].name if args.reid[0].suffix else str(args.reid[0]),
+                    args.reid[0].stem,
+                ]
+                for key in candidates:
+                    candidate_dir = embs_root / key / preprocess_name
+                    if candidate_dir.exists():
+                        embs_dir = candidate_dir
+                        break
 
-        gta_postprocess(
-            mot_results_folder=exp_dir,
-            embs_dir=embs_dir,
-            dets_dir=dets_dir if dets_dir.exists() else None,
-        )
+                if embs_dir is None:
+                    LOGGER.warning(
+                        f"GTA: Could not find embedding cache under {embs_root}. "
+                        f"Tried keys: {candidates[:3]}"
+                    )
+
+            gta_postprocess(
+                mot_results_folder=exp_dir,
+                embs_dir=embs_dir,
+                dets_dir=dets_dir if dets_dir.exists() else None,
+            )

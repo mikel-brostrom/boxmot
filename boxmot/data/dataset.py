@@ -144,6 +144,7 @@ class MOTDataset:
         reid_name: Optional[str] = None,
         reid_preprocess: Optional[str] = None,
         target_fps: Optional[int] = None,
+        masks_dir: Optional[str] = None,
     ):
         self.root = Path(mot_root)
         self.target_fps = target_fps
@@ -212,6 +213,18 @@ class MOTDataset:
         else:
             self.dets_dir = self.embs_dir = None
 
+        self.masks_dir = Path(masks_dir) if masks_dir else None
+
+        # Auto-discover masks from the cache tree if not explicitly provided
+        if self.masks_dir is None and det_emb_root and model_name:
+            masks_base = Path(det_emb_root) / model_name / "masks"
+            if masks_base.is_dir():
+                # Use the first subdirectory that contains mask files (.npy or legacy .npz)
+                for sub in sorted(masks_base.iterdir()):
+                    if sub.is_dir() and (any(sub.glob("*.npy")) or any(sub.glob("*.npz"))):
+                        self.masks_dir = sub
+                        break
+
         self._index_sequences()
 
     def _index_sequences(self) -> None:
@@ -250,12 +263,23 @@ class MOTDataset:
             else:
                 emb_path = None
 
+            # Mask cache path: prefer .npy (same row order as dets), fall back to legacy .npz
+            mask_path = None
+            if self.masks_dir:
+                npy_path = self.masks_dir / f"{name}.npy"
+                npz_path = self.masks_dir / f"{name}.npz"
+                if npy_path.exists():
+                    mask_path = npy_path
+                elif npz_path.exists():
+                    mask_path = npz_path
+
             self.seqs[name] = {
                 "seq_dir": seq_dir,
                 "frame_ids": np.array(frame_ids, dtype=int),
                 "frame_paths": imgs,
                 "det_path": det_path,
                 "emb_path": emb_path,
+                "mask_path": mask_path,
             }
 
     def sequence_names(self) -> List[str]:
@@ -298,6 +322,8 @@ class MOTSequence:
         self.progress_queue = progress_queue
         self.dets: Optional[np.ndarray] = None
         self.embs: Optional[np.ndarray] = None
+        self.masks_data: Optional[Dict[int, np.ndarray]] = None
+        self._masks_flat: Optional[np.ndarray] = None
         self.frame_ids: np.ndarray = meta["frame_ids"]
         self.frame_paths: List[Path] = meta["frame_paths"]
         self._prepare()
@@ -327,15 +353,34 @@ class MOTSequence:
                     LOGGER.warning(f"Missing seqinfo.ini in {self.meta['seq_dir']}, skipping FPS downsample")
                 else:
                     orig_fps = read_seq_fps(self.meta["seq_dir"])
-                    mask = compute_fps_mask(self.dets[:, 0], orig_fps, self.target_fps)
+                    fps_mask = compute_fps_mask(self.dets[:, 0], orig_fps, self.target_fps)
 
-                    self.dets = self.dets[mask]
+                    self.dets = self.dets[fps_mask]
                     if self.embs is not None:
-                        self.embs = self.embs[mask]
+                        self.embs = self.embs[fps_mask]
                     keep_ids = set(self.dets[:, 0].astype(int))
                     idxs_to_keep = [index for index, fid in enumerate(self.frame_ids) if fid in keep_ids]
                     self.frame_ids = self.frame_ids[idxs_to_keep]
                     self.frame_paths = [self.frame_paths[index] for index in idxs_to_keep]
+                    self._fps_mask = fps_mask
+
+        # Load mask cache
+        if self.meta.get("mask_path"):
+            mask_path = Path(self.meta["mask_path"])
+            if mask_path.suffix == ".npy":
+                # Bit-packed format: (total_dets, H, W_packed) uint8, same row order as dets/embs
+                masks_arr = np.load(str(mask_path), mmap_mode="r")
+                if hasattr(self, "_fps_mask"):
+                    masks_arr = masks_arr[self._fps_mask]
+                self._masks_flat = masks_arr
+            else:
+                # Legacy .npz format: keyed by frame id
+                mask_npz = np.load(str(mask_path), allow_pickle=False)
+                self.masks_data = {}
+                for key in mask_npz.files:
+                    fid = int(key.split("_")[1])
+                    self.masks_data[fid] = mask_npz[key]
+                mask_npz.close()
 
     def __len__(self) -> int:
         return len(self.frame_ids)
@@ -367,15 +412,31 @@ class MOTSequence:
                 mask = self.dets[:, 0].astype(int) == fid
                 dets_f = self.dets[mask, 1:]
                 embs_f = self.embs[mask] if self.embs is not None else np.zeros((dets_f.shape[0], 0))
+                # Masks from flat .npy (bit-packed, same row order as dets)
+                if self._masks_flat is not None:
+                    packed = np.array(self._masks_flat[mask])
+                    # Unpack bits: (N, H, W_packed) → (N, H, W_packed*8), trim not needed if W%8==0
+                    masks_f = np.unpackbits(packed, axis=-1)
+                else:
+                    masks_f = None
             else:
                 dets_f = np.zeros((0, 5))
                 embs_f = np.zeros((0, 128))
+                masks_f = None
+
+            # Legacy .npz masks fallback (keyed by frame id)
+            if masks_f is None and self.masks_data is not None:
+                masks_f = self.masks_data.get(fid)
+                # Align masks to detection count
+                if masks_f is not None and masks_f.shape[0] != dets_f.shape[0]:
+                    masks_f = None
 
             yield {
                 "frame_id": fid,
                 "img": img,
                 "dets": dets_f,
                 "embs": embs_f,
+                "masks": masks_f,
             }
 
 

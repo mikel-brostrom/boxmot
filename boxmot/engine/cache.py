@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import numpy as np
+import cv2
 import torch
 from boxmot.utils.rich.progress import RichTqdm as tqdm
 
@@ -43,6 +44,7 @@ from boxmot.utils.rich.generate_reporting import GenerateWorkflowReporter
 
 __all__ = (
     "generate_dets_embs_batched",
+    "generate_masks_for_cache",
     "main",
     "run_generate",
     "run_generate_dets_embs",
@@ -343,20 +345,29 @@ def generate_dets_embs_batched(
     expected_det_cols = 8 if str(getattr(args, "eval_box_type", "")).lower() == "obb" else 7
 
     benchmark = getattr(args, "benchmark", None)
+    split = getattr(args, "split", None)
     cache_project = Path(getattr(args, "cache_project", args.project))
     dets_base = cache_project / "dets_n_embs"
     if benchmark:
         dets_base = dets_base / benchmark
+    if split:
+        dets_base = dets_base / split
     dets_folder = dets_base / y.stem / "dets"
     embs_root = dets_base / y.stem / "embs"
+    masks_folder = dets_base / y.stem / "masks" / "seg"
+    from boxmot.detectors.registry import is_seg_model
     from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
     preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
+
+    # Determine if the detector produces masks (seg model)
+    _is_seg = is_seg_model(y)
 
     mot_folder_paths = sorted([path for path in Path(source_root).iterdir() if path.is_dir()])
 
     seq_states = {}
     embed_only_states: dict[str, dict] = {}
     det_writers: dict[str, AppendableNpyWriter] = {}
+    mask_writers: dict[str, AppendableNpyWriter] = {}
     tracker_backend = getattr(args, "tracker_backend", None)
     emb_writers: dict[str, dict[str, AppendableNpyWriter]] = {
         reid_cache_key(reid, tracker_backend=tracker_backend): {} for reid in args.reid
@@ -631,6 +642,14 @@ def generate_dets_embs_batched(
             )
 
         seq_states[seq_name] = {"frames": frames, "i": processed, "img_dir": img_dir}
+        if _is_seg:
+            masks_folder.mkdir(parents=True, exist_ok=True)
+            mask_writers[seq_name] = AppendableNpyWriter(
+                masks_folder / f"{seq_name}.npy",
+                dtype=np.uint8,
+                trailing_shape=None,
+                empty_trailing_shape=(0, 0),
+            )
         total_frames += len(frames)
         initial_done += processed
 
@@ -825,6 +844,21 @@ def generate_dets_embs_batched(
 
                     det_writers[seq_name].append(dets_np.astype(np.float32, copy=False))
 
+                    # Append masks downsampled + bit-packed (same row order as dets/embs)
+                    # Binary masks (N, H, W) → resize to 160×160 → packbits → (N, 160, 20)
+                    # 128× smaller than raw storage; IoU ratios are resolution-invariant
+                    if _is_seg and result.masks is not None and seq_name in mask_writers:
+                        masks_raw = result.masks.astype(np.uint8, copy=False)
+                        n = masks_raw.shape[0]
+                        masks_small = np.empty((n, 160, 160), dtype=np.uint8)
+                        for _mi in range(n):
+                            masks_small[_mi] = cv2.resize(
+                                masks_raw[_mi], (160, 160),
+                                interpolation=cv2.INTER_NEAREST,
+                            )
+                        packed = np.packbits(masks_small, axis=-1)
+                        mask_writers[seq_name].append(packed)
+
                     reid_pbar.update(det_boxes_np.shape[0])
 
                     if timing_stats:
@@ -862,6 +896,11 @@ def generate_dets_embs_batched(
                     writer.close()
                 except Exception as exc:  # noqa: BLE001
                     LOGGER.warning(f"Failed to save embeddings for {seq_name}/{reid_name}: {exc}")
+        for seq_name, writer in mask_writers.items():
+            try:
+                writer.close()
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning(f"Failed to save masks for {seq_name}: {exc}")
 
     # Sequences that already had a complete detections cache but were missing
     # one or more ReID buckets are filled now (post main loop) so we don't
@@ -877,6 +916,135 @@ def generate_dets_embs_batched(
         own_terminal_progress=own_terminal_progress,
         verbose=verbose,
     )
+
+
+# ---------------------------------------------------------------------------
+# Mask generation
+# ---------------------------------------------------------------------------
+
+PERSON_CLASS_ID = 1  # COCO class ID for "person"
+
+
+def _compute_iou_matrix(boxes_a: np.ndarray, boxes_b: np.ndarray) -> np.ndarray:
+    """Compute IoU between two sets of boxes. Returns (M, K) matrix."""
+    x1 = np.maximum(boxes_a[:, 0:1], boxes_b[:, 0:1].T)
+    y1 = np.maximum(boxes_a[:, 1:2], boxes_b[:, 1:2].T)
+    x2 = np.minimum(boxes_a[:, 2:3], boxes_b[:, 2:3].T)
+    y2 = np.minimum(boxes_a[:, 3:4], boxes_b[:, 3:4].T)
+    inter = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
+    area_a = (boxes_a[:, 2] - boxes_a[:, 0]) * (boxes_a[:, 3] - boxes_a[:, 1])
+    area_b = (boxes_b[:, 2] - boxes_b[:, 0]) * (boxes_b[:, 3] - boxes_b[:, 1])
+    union = area_a[:, None] + area_b[None, :] - inter
+    return inter / np.maximum(union, 1e-6)
+
+
+def generate_masks_for_cache(
+    source_root: Path,
+    dets_dir: Path,
+    output_dir: Path,
+    device: str = "cpu",
+    mask_threshold: float = 0.5,
+    conf_threshold: float = 0.5,
+    progress_callback: Callable[[str], None] | None = None,
+) -> None:
+    """Generate Mask R-CNN segmentation masks aligned with cached detections.
+
+    For each sequence with a .npy detection cache, runs Mask R-CNN on every
+    frame and matches predictions to cached detections via IoU.  Results are
+    stored as compressed .npz files: key ``frame_{id}`` -> (N, H, W) uint8.
+    """
+    import torchvision
+    from torchvision.transforms.functional import to_tensor
+    import cv2
+
+    seq_names = sorted(p.stem for p in dets_dir.glob("*.npy"))
+    if not seq_names:
+        LOGGER.warning(f"No detection caches found in {dets_dir}")
+        return
+
+    LOGGER.info(f"Generating masks for {len(seq_names)} sequences -> {output_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    dev = torch.device(device)
+    model = torchvision.models.detection.maskrcnn_resnet50_fpn(
+        weights=torchvision.models.detection.MaskRCNN_ResNet50_FPN_Weights.DEFAULT
+    )
+    model.eval().to(dev)
+
+    for seq_name in seq_names:
+        output_path = output_dir / f"{seq_name}.npz"
+        if output_path.exists():
+            LOGGER.info(f"  [SKIP] {seq_name} masks already cached")
+            continue
+
+        dets_path = dets_dir / f"{seq_name}.npy"
+        dets = np.load(str(dets_path))
+        frame_ids = np.unique(dets[:, 0].astype(int))
+
+        img_dir = _sequence_img_dir(source_root / seq_name)
+        if img_dir is None:
+            LOGGER.warning(f"  [SKIP] No image dir for {seq_name}")
+            continue
+
+        frames_list = sorted(img_dir.glob("*.jpg"), key=lambda p: int(p.stem))
+        if not frames_list:
+            frames_list = sorted(img_dir.glob("*.png"), key=lambda p: int(p.stem))
+        frame_path_map = {int(p.stem): p for p in frames_list}
+
+        masks_dict: dict[str, np.ndarray] = {}
+        total_dets = 0
+        total_masks = 0
+
+        for fid in frame_ids:
+            img_path = frame_path_map.get(fid)
+            if img_path is None:
+                continue
+
+            img = cv2.imread(str(img_path))
+            if img is None:
+                continue
+
+            frame_mask_sel = dets[:, 0].astype(int) == fid
+            frame_dets = dets[frame_mask_sel, 1:]  # (M, 6) x1,y1,x2,y2,conf,cls
+            n_dets = frame_dets.shape[0]
+            total_dets += n_dets
+
+            if n_dets == 0:
+                masks_dict[f"frame_{fid}"] = np.zeros((0, img.shape[0], img.shape[1]), dtype=np.uint8)
+                continue
+
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img_tensor = to_tensor(img_rgb).unsqueeze(0).to(dev)
+
+            with torch.no_grad():
+                results = model(img_tensor)[0]
+
+            rcnn_boxes = results["boxes"].cpu().numpy()
+            rcnn_scores = results["scores"].cpu().numpy()
+            rcnn_labels = results["labels"].cpu().numpy()
+            rcnn_masks = results["masks"].cpu().numpy()[:, 0]
+
+            person_sel = (rcnn_labels == PERSON_CLASS_ID) & (rcnn_scores >= conf_threshold)
+            rcnn_boxes = rcnn_boxes[person_sel]
+            rcnn_masks = rcnn_masks[person_sel]
+
+            frame_masks = np.zeros((n_dets, img.shape[0], img.shape[1]), dtype=np.uint8)
+
+            if len(rcnn_boxes) > 0:
+                iou_matrix = _compute_iou_matrix(frame_dets[:, :4], rcnn_boxes)
+                for i in range(n_dets):
+                    best_j = np.argmax(iou_matrix[i])
+                    if iou_matrix[i, best_j] > 0.3:
+                        frame_masks[i] = (rcnn_masks[best_j] > mask_threshold).astype(np.uint8)
+                        total_masks += 1
+
+            masks_dict[f"frame_{fid}"] = frame_masks
+
+        np.savez_compressed(str(output_path), **masks_dict)
+        msg = f"  {seq_name}: {total_masks}/{total_dets} dets matched"
+        LOGGER.info(msg)
+        if progress_callback:
+            progress_callback(msg)
 
 
 def run_generate_dets_embs(
@@ -935,6 +1103,39 @@ def run_generate(
         timing_stats=timing_stats,
         progress_callback=progress_callback,
     )
+
+    # Generate masks when --masks-model is specified (e.g. "maskrcnn")
+    # Store at the canonical location: <det_emb_root>/<detector>/masks/<masks_model>/
+    masks_model = getattr(args, "masks_model", None)
+    masks_dir_override = getattr(args, "masks_dir", None)
+    if masks_model or masks_dir_override:
+        source_root = Path(args.source)
+        project = Path(getattr(args, "cache_project", getattr(args, "project", "runs")))
+        det_emb_root = project / "dets_n_embs"
+        benchmark = getattr(args, "benchmark", None)
+        if benchmark:
+            det_emb_root = det_emb_root / benchmark
+        split = getattr(args, "split", None)
+        if split:
+            det_emb_root = det_emb_root / split
+        detector_key = args.detector[0].stem if hasattr(args.detector[0], "stem") else str(args.detector[0])
+        dets_dir = det_emb_root / detector_key / "dets"
+
+        # Output directory: explicit --masks-dir override, or canonical location
+        if masks_dir_override:
+            output_dir = Path(masks_dir_override)
+        else:
+            output_dir = det_emb_root / detector_key / "masks" / masks_model
+
+        device = getattr(args, "device", "cpu")
+        generate_masks_for_cache(
+            source_root=source_root,
+            dets_dir=dets_dir,
+            output_dir=output_dir,
+            device=str(device),
+            progress_callback=progress_callback,
+        )
+
     return timing_stats
 
 

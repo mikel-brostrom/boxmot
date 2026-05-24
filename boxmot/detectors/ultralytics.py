@@ -8,7 +8,7 @@ from ultralytics import YOLO
 from ultralytics.utils.downloads import attempt_download_asset
 
 from boxmot.detectors.base import BaseDetectorBackend, Detections
-from boxmot.detectors.registry import get_detector_url, is_ultralytics_model
+from boxmot.detectors.registry import get_detector_url, is_seg_model, is_ultralytics_model
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.download import download_file, redirect_ultralytics_progress
 from boxmot.utils.misc import resolve_model_path
@@ -132,12 +132,13 @@ class UltralyticsDetector(BaseDetectorBackend):
         results = self._predictor.postprocess(raw_preds, preprocessed, orig_imgs)
         processed: list[Detections] = []
         for result in results:
-            dets = self._extract_dets(result)
+            dets, masks = self._extract_dets(result)
             processed.append(Detections(
                 dets=dets,
                 orig_img=result.orig_img,
                 path=result.path or "",
                 names=result.names or self.names,
+                masks=masks,
             ))
         return processed
 
@@ -149,24 +150,42 @@ class UltralyticsDetector(BaseDetectorBackend):
             values = values.numpy()
         return np.asarray(values, dtype=np.float32)
 
-    def _extract_dets(self, result) -> np.ndarray:
+    def _extract_dets(self, result) -> tuple[np.ndarray, np.ndarray | None]:
+        """Extract detections and optional masks from an Ultralytics result.
+
+        Returns:
+            (dets, masks) where masks is (N, H, W) uint8 or None.
+        """
+        masks = None
+
         if result.obb is not None:
             if len(result.obb) == 0:
-                return np.empty((0, 7), dtype=np.float32)
+                return np.empty((0, 7), dtype=np.float32), None
             xywhr = self._as_numpy(result.obb.xywhr)
             conf = self._as_numpy(result.obb.conf).reshape(-1, 1)
             cls = self._as_numpy(result.obb.cls).reshape(-1, 1)
-            return np.concatenate([xywhr, conf, cls], axis=1)
+            return np.concatenate([xywhr, conf, cls], axis=1), None
 
         if result.boxes is not None:
             if len(result.boxes) == 0:
-                return np.empty((0, 6), dtype=np.float32)
+                return np.empty((0, 6), dtype=np.float32), None
             xyxy = self._as_numpy(result.boxes.xyxy)
             conf = self._as_numpy(result.boxes.conf).reshape(-1, 1)
             cls = self._as_numpy(result.boxes.cls).reshape(-1, 1)
-            return np.concatenate([xyxy, conf, cls], axis=1)
+            dets = np.concatenate([xyxy, conf, cls], axis=1)
 
-        return np.empty((0, 6), dtype=np.float32)
+            # Extract masks from segmentation models
+            if result.masks is not None and len(result.masks) > 0:
+                mask_data = result.masks.data  # (N, H_model, W_model) tensor
+                if hasattr(mask_data, "cpu"):
+                    mask_data = mask_data.cpu()
+                if hasattr(mask_data, "numpy"):
+                    mask_data = mask_data.numpy()
+                masks = (mask_data > 0.5).astype(np.uint8)
+
+            return dets, masks
+
+        return np.empty((0, 6), dtype=np.float32), None
 
     def __call__(self, images: list, conf, iou, classes, agnostic_nms) -> list:
         preprocessed = self.preprocess(images)

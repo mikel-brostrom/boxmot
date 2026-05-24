@@ -560,6 +560,14 @@ def _save_all_results(
         args,
         emit_logs=emit_logs,
     )
+
+    # 5. Analysis plots
+    try:
+        from boxmot.engine.tune_analysis import generate_tune_analysis
+        generate_tune_analysis(tune_dir, tracker_name=tracker_name, n_trials=len(trial_data))
+    except Exception as exc:
+        LOGGER.debug(f"Analysis plot generation skipped: {exc}")
+
     return {
         "trial_data": trial_data,
         "csv_path": csv_path,
@@ -711,10 +719,14 @@ def _ensure_ray_initialized(*, verbose: bool) -> None:
 
     init_kwargs: dict[str, Any] = {
         "include_dashboard": False,
+        "configure_logging": True,
     }
     if not verbose:
         init_kwargs["logging_level"] = logging.ERROR
         init_kwargs["log_to_driver"] = False
+    else:
+        init_kwargs["logging_level"] = logging.WARNING
+    os.environ.setdefault("RAY_DEDUP_LOGS", "1")
 
     ray.init(**init_kwargs)
 

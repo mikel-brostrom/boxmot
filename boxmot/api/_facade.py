@@ -81,6 +81,9 @@ def _cache_dir_from_args(args) -> Path:
     benchmark = getattr(args, "benchmark", None)
     if benchmark:
         cache_dir = cache_dir / str(benchmark)
+    split = getattr(args, "split", None)
+    if split:
+        cache_dir = cache_dir / str(split)
     return cache_dir
 
 

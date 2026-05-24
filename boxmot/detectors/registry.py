@@ -13,10 +13,23 @@ ULTRALYTICS_MODELS = {"yolov8", "yolov9", "yolov10", "yolo11", "yolo12", "yolo26
 RTDETR_MODELS = {"rtdetr_v2_r50vd", "rtdetr_v2_r18vd", "rtdetr_v2_r101vd"}
 YOLOX_MODELS = {"yolox_n", "yolox_s", "yolox_m", "yolox_l", "yolox_x"}
 
+# Suffixes/keywords that indicate a segmentation (mask-producing) model
+_SEG_MARKERS = {"-seg", "_seg", "seg."}
+
 
 def _check_model(name, markers):
     """Check if model name contains any of the markers."""
     return any(marker in str(name) for marker in markers)
+
+
+def is_seg_model(name) -> bool:
+    """Return True if the model name indicates a segmentation (mask-producing) model.
+
+    Detection: yolo11n.pt, yolov8l.pt
+    Segmentation: yolo11n-seg.pt, yolov8l-seg.pt
+    """
+    stem = Path(str(name)).stem.lower()
+    return any(marker in stem or stem.endswith(marker.rstrip(".")) for marker in _SEG_MARKERS)
 
 
 def _detector_name_key(name) -> str:
@@ -200,6 +213,7 @@ __all__ = (
     "get_detector_url",
     "get_runtime_detector_cfg",
     "is_rtdetr_model",
+    "is_seg_model",
     "is_ultralytics_model",
     "is_yolox_model",
     "load_detector_cfg",

@@ -343,15 +343,17 @@ def build_native_target(
 # dets_n_embs cache layout
 # ---------------------------------------------------------------------------
 
-def dets_n_embs_root(project_root: str | Path, dataset_name: str | None = None) -> Path:
+def dets_n_embs_root(project_root: str | Path, dataset_name: str | None = None, split: str | None = None) -> Path:
     """Return the canonical ``dets_n_embs`` cache root for a project.
 
     Mirrors the layout used by :mod:`boxmot.engine.cache` and the native
-    replay binaries: ``<project_root>/dets_n_embs[/<dataset>]``.
+    replay binaries: ``<project_root>/dets_n_embs[/<dataset>][/<split>]``.
     """
     root = Path(project_root) / "dets_n_embs"
     if dataset_name:
         root = root / dataset_name
+    if split:
+        root = root / split
     return root
 
 
@@ -362,6 +364,7 @@ def cached_embedding_path(
     sequence_name: str,
     *,
     dataset_name: str | None = None,
+    split: str | None = None,
     preprocess_name: str | None = None,
     tracker_backend: str | None = None,
 ) -> Path:
@@ -378,7 +381,7 @@ def cached_embedding_path(
 
     detector_key = _stem_key(detector_name)
     preprocess_key = str(preprocess_name or "resize")
-    embs_root = dets_n_embs_root(project_root, dataset_name) / detector_key / "embs"
+    embs_root = dets_n_embs_root(project_root, dataset_name, split=split) / detector_key / "embs"
 
     canonical_key = reid_cache_key(reid_name, tracker_backend=tracker_backend)
     canonical_path = embs_root / canonical_key / preprocess_key / f"{sequence_name}.npy"

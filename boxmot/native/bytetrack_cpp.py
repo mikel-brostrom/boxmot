@@ -280,6 +280,7 @@ def process_sequence_cpp(
     dataset_name: str | None = None,
     conf_threshold: float = 0.0,
     preprocess_name: str | None = None,
+    split: str | None = None,
     progress_queue=None,
 ):
     del reid_name, preprocess_name
@@ -291,7 +292,7 @@ def process_sequence_cpp(
 
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
 
-    det_emb_root = dets_n_embs_root(project_root, dataset_name)
+    det_emb_root = dets_n_embs_root(project_root, dataset_name, split=split)
 
     output_path = Path(exp_folder) / f"{seq_name}.txt"
     cmd = [

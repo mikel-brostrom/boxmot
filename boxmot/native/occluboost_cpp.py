@@ -466,6 +466,7 @@ def process_sequence_cpp(
     dataset_name: str | None = None,
     conf_threshold: float = 0.0,
     preprocess_name: str | None = None,
+    split: str | None = None,
     progress_queue=None,
 ):
     if str(tracker_name).lower() != "occluboost":
@@ -482,7 +483,7 @@ def process_sequence_cpp(
     from boxmot.data.cache import reid_cache_key as _reid_cache_key
     reid_key = _reid_cache_key(reid_name, tracker_backend="cpp")
 
-    det_emb_root = dets_n_embs_root(project_root, dataset_name)
+    det_emb_root = dets_n_embs_root(project_root, dataset_name, split=split)
 
     # Read-only back-compat: if the canonical cpp bucket does not exist on
     # disk but a historical layout does, point the native binary at it so
