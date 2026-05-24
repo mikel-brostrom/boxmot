@@ -9,7 +9,7 @@ import numpy as np
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.bytetrack.basetrack import BaseTrack, TrackState
+from boxmot.trackers.bbox.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
 from boxmot.utils.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
 
@@ -257,7 +257,8 @@ class ByteTrack(BaseTracker):
         self.removed_stracks = []  # type: list[STrack]
 
     def _update_impl(
-        self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None
+        self, dets: np.ndarray, img: np.ndarray = None, embs: np.ndarray = None,
+        masks: np.ndarray = None,
     ) -> np.ndarray:
 
         self.check_inputs(dets, img)

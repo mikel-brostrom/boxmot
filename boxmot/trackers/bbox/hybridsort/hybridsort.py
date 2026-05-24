@@ -16,7 +16,7 @@ import numpy as np
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.basetracker import BaseTracker
 # Keep your original association functions:
-from boxmot.trackers.hybridsort.association import (
+from boxmot.trackers.bbox.hybridsort.association import (
     associate_4_points_with_score, associate_4_points_with_score_with_reid,
     cal_score_dif_batch_two_score, ciou_batch, ct_dist, diou_batch,
     embedding_distance, giou_batch, hmiou, iou_batch, linear_assignment)
@@ -479,7 +479,7 @@ class HybridSort(BaseTracker):
         self.active_tracks: List[KalmanBoxTracker] = []
         KalmanBoxTracker.count = 0
 
-    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None) -> np.ndarray:
         """
         dets: ndarray [N,6] -> [x1,y1,x2,y2,conf,cls]
         img: HxWxC image

@@ -35,8 +35,8 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.boosttrack.assoc import associate, iou_batch
-from boxmot.trackers.boosttrack.boosttrack import BoostTrack, KalmanBoxTracker
+from boxmot.trackers.bbox.boosttrack.assoc import associate, iou_batch
+from boxmot.trackers.bbox.boosttrack.boosttrack import BoostTrack, KalmanBoxTracker
 from boxmot.utils.iou import AssociationFunction
 
 
@@ -183,6 +183,7 @@ class OccluBoost(BoostTrack):
         dets: np.ndarray,
         img: np.ndarray,
         embs: Optional[np.ndarray] = None,
+        masks: np.ndarray = None,
     ) -> np.ndarray:
         self.check_inputs(dets=dets, embs=embs, img=img)
 
@@ -703,7 +704,7 @@ class OccluBoost(BoostTrack):
         history_observations, conf/cls/det_ind) stays consistent across the
         first pass, ReID-only recovery, and the low-confidence second pass.
         """
-        from boxmot.trackers.boosttrack.boosttrack import convert_bbox_to_z
+        from boxmot.trackers.bbox.boosttrack.boosttrack import convert_bbox_to_z
 
         alpha = self._compute_ams_alpha(trk, det[:4])
         trk.time_since_update = 0
@@ -768,7 +769,7 @@ class OccluBoost(BoostTrack):
         for OBB KFs), so we just route the update through the OBB-aware KF
         and keep the same bookkeeping as :meth:`_ams_update`.
         """
-        from boxmot.trackers.boosttrack.boosttrack import convert_xywha_to_z
+        from boxmot.trackers.bbox.boosttrack.boosttrack import convert_xywha_to_z
         trk.time_since_update = 0
         trk.hit_streak += 1
         trk.history_observations.append(trk.get_state()[0])

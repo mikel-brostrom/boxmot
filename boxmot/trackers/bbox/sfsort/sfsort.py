@@ -255,7 +255,7 @@ class SFSORT(BaseTracker):
         self.active_tracks: list[Track] = []
         self.lost_tracks: list[Track] = []
 
-    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
+    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None, masks: np.ndarray = None) -> np.ndarray:
         self.check_inputs(dets=dets, img=img, embs=embs)
 
         if not self._margins_ready and hasattr(self, "w") and hasattr(self, "h"):

@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
-from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
+from boxmot.trackers.bbox.botsort.basetrack import BaseTrack, TrackState
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 
 

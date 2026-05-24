@@ -8,7 +8,7 @@ import numpy as np
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.boosttrack.assoc import (MhDist_similarity, associate,
+from boxmot.trackers.bbox.boosttrack.assoc import (MhDist_similarity, associate,
                                               iou_batch, shape_similarity,
                                               soft_biou_batch)
 
@@ -284,7 +284,7 @@ class BoostTrack(BaseTracker):
         else:
             self.cmc = None
 
-    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: Optional[np.ndarray] = None) -> np.ndarray:
+    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: Optional[np.ndarray] = None, masks: np.ndarray = None) -> np.ndarray:
         """
         Update the tracker with detections and an image.
 

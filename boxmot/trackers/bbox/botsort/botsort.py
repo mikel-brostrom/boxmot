@@ -9,9 +9,9 @@ import numpy as np
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.botsort.basetrack import BaseTrack, TrackState
-from boxmot.trackers.botsort.botsort_track import STrack
-from boxmot.trackers.botsort.botsort_utils import (joint_stracks,
+from boxmot.trackers.bbox.botsort.basetrack import BaseTrack, TrackState
+from boxmot.trackers.bbox.botsort.botsort_track import STrack
+from boxmot.trackers.bbox.botsort.botsort_utils import (joint_stracks,
                                                    remove_duplicate_stracks,
                                                    sub_stracks)
 from boxmot.utils.matching import (embedding_distance, fuse_score,
@@ -158,7 +158,8 @@ class BotSort(BaseTracker):
         )
 
     def _update_impl(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
+        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
+        masks: np.ndarray = None,
     ) -> np.ndarray:
         self.check_inputs(dets, img, embs)
         self.kalman_filter = KalmanFilterXYWH(ndim=self._kalman_ndim())

@@ -7,8 +7,6 @@ from boxmot.trackers.bbox.occluboost.occluboost import OccluBoost
 from boxmot.trackers.bbox.ocsort.ocsort import OcSort
 from boxmot.trackers.bbox.sfsort.sfsort import SFSORT
 from boxmot.trackers.bbox.strongsort.strongsort import StrongSort
-from boxmot.trackers.hybrid.sam2mot.sam2mot import Sam2Mot
-from boxmot.trackers.track_results import TrackResults
 
 __all__ = (
     "BoostTrack",
@@ -18,8 +16,6 @@ __all__ = (
     "HybridSort",
     "OccluBoost",
     "OcSort",
-    "Sam2Mot",
     "SFSORT",
     "StrongSort",
-    "TrackResults",
 )

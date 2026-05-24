@@ -9,15 +9,16 @@ from boxmot.utils import TRACKER_CONFIGS
 REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack", "occluboost"]
 
 TRACKER_MAPPING = {
-    "strongsort": "boxmot.trackers.strongsort.strongsort.StrongSort",
-    "ocsort"    : "boxmot.trackers.ocsort.ocsort.OcSort",
-    "bytetrack" : "boxmot.trackers.bytetrack.bytetrack.ByteTrack",
-    "sfsort"    : "boxmot.trackers.sfsort.sfsort.SFSORT",
-    "botsort"   : "boxmot.trackers.botsort.botsort.BotSort",
-    "deepocsort": "boxmot.trackers.deepocsort.deepocsort.DeepOcSort",
-    "hybridsort": "boxmot.trackers.hybridsort.hybridsort.HybridSort",
-    "boosttrack": "boxmot.trackers.boosttrack.boosttrack.BoostTrack",
-    "occluboost" : "boxmot.trackers.occluboost.occluboost.OccluBoost",
+    "strongsort": "boxmot.trackers.bbox.strongsort.strongsort.StrongSort",
+    "ocsort"    : "boxmot.trackers.bbox.ocsort.ocsort.OcSort",
+    "bytetrack" : "boxmot.trackers.bbox.bytetrack.bytetrack.ByteTrack",
+    "sfsort"    : "boxmot.trackers.bbox.sfsort.sfsort.SFSORT",
+    "botsort"   : "boxmot.trackers.bbox.botsort.botsort.BotSort",
+    "deepocsort": "boxmot.trackers.bbox.deepocsort.deepocsort.DeepOcSort",
+    "hybridsort": "boxmot.trackers.bbox.hybridsort.hybridsort.HybridSort",
+    "boosttrack": "boxmot.trackers.bbox.boosttrack.boosttrack.BoostTrack",
+    "occluboost": "boxmot.trackers.bbox.occluboost.occluboost.OccluBoost",
+    "sam2mot"   : "boxmot.trackers.hybrid.sam2mot.sam2mot.Sam2Mot",
 }
 
 

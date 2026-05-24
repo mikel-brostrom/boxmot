@@ -15,6 +15,7 @@ from boxmot.utils.visualization import VisualizationMixin
 
 class BaseTracker(VisualizationMixin):
     supports_obb = False
+    supports_masks = False
 
     def __init__(
         self,
@@ -116,7 +117,8 @@ class BaseTracker(VisualizationMixin):
             LOGGER.info(f"{tracker_name}: {params_str}")
 
     def update(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
+        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
+        masks: np.ndarray = None,
     ) -> TrackResults:
         """Update the tracker with new detections for a new frame.
 
@@ -128,13 +130,20 @@ class BaseTracker(VisualizationMixin):
         - dets (np.ndarray): Array of detections for the current frame.
         - img (np.ndarray): The current frame as an image array.
         - embs (np.ndarray, optional): Embeddings associated with the detections, if any.
+        - masks (np.ndarray, optional): Segmentation masks for the detections,
+            shape (N, H, W) where N matches the number of detections.
 
         Returns:
         - TrackResults: Tracked objects as a numpy subclass with named accessors.
         """
         dets, img = self._preprocess(dets, img)
-        raw = self._do_update(dets, img, embs)
-        return TrackResults(raw)
+        masks = self._preprocess_masks(dets, masks)
+        result = self._do_update(dets, img, embs, masks)
+        if isinstance(result, tuple):
+            raw, output_masks = result
+        else:
+            raw, output_masks = result, None
+        return TrackResults(raw, masks=output_masks)
 
     # ------------------------------------------------------------------
     # Internal pipeline
@@ -172,20 +181,52 @@ class BaseTracker(VisualizationMixin):
 
         return dets, img
 
-    def _do_update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+    def _preprocess_masks(self, dets: np.ndarray, masks: np.ndarray = None) -> np.ndarray:
+        """Validate and preprocess segmentation masks."""
+        if masks is None:
+            return None
+
+        if not self.supports_masks:
+            if not getattr(self, "_masks_warning_issued", False):
+                LOGGER.warning(
+                    f"{self.__class__.__name__} does not support masks. "
+                    "Masks will be ignored."
+                )
+                self._masks_warning_issued = True
+            return None
+
+        masks = np.asarray(masks)
+        if masks.ndim != 3:
+            raise ValueError(
+                f"Masks must be 3D (N, H, W), got shape {masks.shape}"
+            )
+
+        n_dets = len(dets) if dets is not None else 0
+        if masks.shape[0] != n_dets:
+            raise ValueError(
+                f"Masks count ({masks.shape[0]}) must match detections count ({n_dets})"
+            )
+
+        return masks
+
+    def _do_update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
+                    masks: np.ndarray = None):
         """Dispatch to single-pass or per-class update."""
         if dets is None or len(dets) == 0:
             dets = self.empty_detections()
+            masks = None
 
         if not self.per_class:
-            return self._update_impl(dets=dets, img=img, embs=embs)
+            return self._update_impl(dets=dets, img=img, embs=embs, masks=masks)
 
         # Per-class splitting
         per_class_tracks = []
+        per_class_masks = []
         frame_count = self.frame_count
 
         for cls_id in range(self.nr_classes):
             class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
+            class_masks = self._get_class_masks(dets, masks, cls_id)
 
             LOGGER.debug(
                 f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings"
@@ -199,24 +240,46 @@ class BaseTracker(VisualizationMixin):
             self.frame_count = frame_count
 
             # Update detections
-            tracks = self._update_impl(dets=class_dets, img=img, embs=class_embs)
+            result = self._update_impl(dets=class_dets, img=img, embs=class_embs, masks=class_masks)
+            if isinstance(result, tuple):
+                tracks, track_masks = result
+            else:
+                tracks, track_masks = result, None
 
             # Save the updated active tracks
             self.per_class_active_tracks[cls_id] = self.active_tracks
 
             if tracks.size > 0:
                 per_class_tracks.append(tracks)
+                if track_masks is not None:
+                    per_class_masks.append(track_masks)
 
         # Increase frame count by 1
         self.frame_count = frame_count + 1
         if per_class_tracks:
-            return np.vstack(per_class_tracks)
+            combined_tracks = np.vstack(per_class_tracks)
+            combined_masks = np.vstack(per_class_masks) if per_class_masks else None
+            if combined_masks is not None:
+                return combined_tracks, combined_masks
+            return combined_tracks
 
         return self.empty_output()
 
+    def _get_class_masks(self, dets: np.ndarray, masks: np.ndarray, cls_id: int):
+        """Slice masks by class, matching the logic of get_class_dets_n_embs."""
+        if masks is None:
+            return None
+        if dets.size == 0:
+            return None
+        class_indices = np.where(dets[:, self.detection_layout.cls_idx] == cls_id)[0]
+        if len(class_indices) == 0:
+            return None
+        return masks[class_indices]
+
     @abstractmethod
     def _update_impl(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
+        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
+        masks: np.ndarray = None,
     ) -> np.ndarray:
         """Core tracking logic. Subclasses must implement this.
 
@@ -224,9 +287,12 @@ class BaseTracker(VisualizationMixin):
         - dets (np.ndarray): Preprocessed detections for the current frame.
         - img (np.ndarray): The current frame as an image array.
         - embs (np.ndarray, optional): Embeddings associated with the detections.
+        - masks (np.ndarray, optional): Segmentation masks for detections, shape (N, H, W).
 
         Returns:
         - np.ndarray: Raw tracked objects array.
+            Mask-capable trackers may return a tuple (tracks_array, output_masks)
+            where output_masks has shape (M, H, W) for M active tracks.
         """
         raise NotImplementedError(
             "The _update_impl method needs to be implemented by the subclass."
@@ -348,7 +414,7 @@ class BaseTracker(VisualizationMixin):
 
         if hasattr(track, "state"):
             try:
-                from boxmot.trackers.bytetrack.basetrack import TrackState
+                from boxmot.trackers.bbox.bytetrack.basetrack import TrackState
 
                 if track.state == TrackState.Tracked:
                     return "confirmed"

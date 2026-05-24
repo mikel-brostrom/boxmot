@@ -8,10 +8,10 @@ import numpy as np
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.strongsort.sort.detection import Detection
-from boxmot.trackers.strongsort.sort.linear_assignment import \
+from boxmot.trackers.bbox.strongsort.sort.detection import Detection
+from boxmot.trackers.bbox.strongsort.sort.linear_assignment import \
     NearestNeighborDistanceMetric
-from boxmot.trackers.strongsort.sort.tracker import Tracker
+from boxmot.trackers.bbox.strongsort.sort.tracker import Tracker
 from boxmot.utils.ops import xyxy2tlwh
 
 
@@ -68,7 +68,8 @@ class StrongSort(BaseTracker):
         self.cmc = get_cmc_method("ecc")()
 
     def _update_impl(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
+        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
+        masks: np.ndarray = None,
     ) -> np.ndarray:
         self.check_inputs(dets, img, embs)
         dets = self.detection_layout.with_detection_indices(dets)

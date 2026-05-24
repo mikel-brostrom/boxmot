@@ -361,7 +361,8 @@ class OcSort(BaseTracker):
         self.active_tracks: list = []
         
     def _update_impl(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None
+        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
+        masks: np.ndarray = None,
     ) -> np.ndarray:
         """Update tracks for one frame.
 
