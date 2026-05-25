@@ -67,6 +67,81 @@ def xywha_to_corners(boxes: np.ndarray) -> np.ndarray:
     return flattened[0] if single else flattened
 
 
+def _build_val_half_split(seq_dirs: list[Path], dst_dir: Path) -> None:
+    """Copy sequences to *dst_dir*, keeping only the second half of frames.
+
+    For each sequence, this:
+    - Copies the directory structure
+    - Trims gt/gt.txt and det/det.txt to frames > N//2+1
+    - Removes images from the first half
+    - Re-indexes remaining frames starting from 1
+    - Updates seqinfo.ini with the new sequence length
+
+    This is the standard ByteTrack ablation protocol (val-half).
+    """
+    for src_seq in seq_dirs:
+        seq_name = src_seq.name
+        dst_seq = dst_dir / seq_name
+        if dst_seq.exists():
+            continue
+
+        # Copy entire sequence
+        for item in src_seq.rglob("*"):
+            target = dst_seq / item.relative_to(src_seq)
+            if item.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(item.read_bytes())
+
+        gt_path = dst_seq / "gt" / "gt.txt"
+        if not gt_path.exists():
+            LOGGER.warning(f"Skipping `{dst_seq}` – no gt.txt found")
+            continue
+
+        # ByteTrack split: keep frames > N//2+1 (1-indexed)
+        df = pd.read_csv(gt_path, header=None)
+        max_frame = int(df[0].max())
+        split_frame = max_frame // 2 + 1
+        val_length = max_frame - split_frame
+
+        if split_frame >= max_frame:
+            continue
+
+        LOGGER.info(f"{seq_name}: keeping frames {split_frame + 1}-{max_frame} ({val_length} frames)")
+
+        # Filter and re-index gt
+        df = df[df[0] > split_frame].copy()
+        df[0] = df[0] - split_frame
+        df.to_csv(gt_path, header=False, index=False)
+
+        # Filter and re-index det
+        det_path = dst_seq / "det" / "det.txt"
+        if det_path.exists():
+            det_df = pd.read_csv(det_path, header=None)
+            det_df = det_df[det_df[0] > split_frame].copy()
+            det_df[0] = det_df[0] - split_frame
+            det_df.to_csv(det_path, header=False, index=False)
+
+        # Delete first-half images
+        img_folder = dst_seq / "img1"
+        for img in img_folder.glob("*.jpg"):
+            if int(img.stem) <= split_frame:
+                img.unlink()
+
+        # Rename remaining to 000001…
+        remaining = sorted(img_folder.glob("*.jpg"))
+        for idx, img in enumerate(remaining, start=1):
+            img.rename(img_folder / f"{idx:06}.jpg")
+
+        # Update seqinfo.ini
+        ini_path = dst_seq / "seqinfo.ini"
+        if ini_path.exists():
+            text = ini_path.read_text()
+            text = re.sub(r"seqLength=\d+", f"seqLength={val_length}", text)
+            ini_path.write_text(text)
+
+
 def split_dataset(src_fldr: Path) -> Tuple[Path, str]:
     """
     Copies the dataset and keeps only the validation half, matching ByteTrack's split:

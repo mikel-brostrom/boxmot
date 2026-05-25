@@ -90,6 +90,56 @@ def _trackeval_adapter_for_box_type(box_type: str) -> str:
     return "mmot_rgb" if normalized == "obb" else "mot_challenge"
 
 
+def _build_filtered_split(
+    base_dir: Path,
+    split_name: str,
+    seq_pattern: str,
+    dataset_root: Path,
+    frame_split: str | None = None,
+) -> Path:
+    """Build a split directory with sequences matching *seq_pattern*.
+
+    When *frame_split* is ``None``, creates symlinks to full sequences.
+    When *frame_split* is ``"val-half"``, creates physical copies trimmed to
+    the second half of frames (the standard ByteTrack ablation protocol).
+
+    The directory is reused if it already exists and is populated.
+    """
+    from fnmatch import fnmatch
+
+    split_dir = dataset_root / split_name
+
+    # Determine which sequences should be included
+    wanted = sorted(
+        p for p in base_dir.iterdir()
+        if p.is_dir() and fnmatch(p.name, seq_pattern)
+    )
+    wanted_names = {p.name for p in wanted}
+
+    if frame_split == "val-half":
+        # Physical copy with frame halving — only build once
+        if split_dir.is_dir() and any(split_dir.iterdir()):
+            return split_dir
+        split_dir.mkdir(parents=True, exist_ok=True)
+        from boxmot.utils.mot_utils import _build_val_half_split
+        _build_val_half_split(wanted, split_dir)
+    else:
+        # Symlink mode — lightweight, no frame trimming
+        split_dir.mkdir(parents=True, exist_ok=True)
+        # Remove stale symlinks that no longer match
+        for existing in split_dir.iterdir():
+            if existing.is_symlink() and existing.name not in wanted_names:
+                existing.unlink()
+        # Create missing symlinks
+        for seq_dir in wanted:
+            link = split_dir / seq_dir.name
+            if link.exists() or link.is_symlink():
+                continue
+            link.symlink_to(seq_dir.resolve())
+
+    return split_dir
+
+
 def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[str, Any]:
     """Normalize dataset-like configs while preserving the current runtime accessors."""
     cfg = dict(raw_cfg or {})
@@ -117,9 +167,9 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "val": val_value,
         "test": test_value,
     }
-    # Merge additional named splits (e.g. ablation: "val-frcnn")
-    for name, path in (cfg.get("splits") or {}).items():
-        split_paths.setdefault(name, path)
+    # Merge additional named splits (string path or dict with path + seq_pattern + detection_source)
+    for name, entry in (cfg.get("splits") or {}).items():
+        split_paths.setdefault(name, entry)
     if split_paths.get(split_name) is None:
         split_paths[split_name] = split_name
 
@@ -612,8 +662,36 @@ def _apply_benchmark_config_ref(
 
     # Resolve source path using the active split (check splits dict first)
     all_splits = cfg.get("splits") or {}
-    active_split_path = str(all_splits.get(cfg_split) or cfg.get(cfg_split) or cfg_split)
-    args.source = (source_root / active_split_path) if source_root is not None else (benchmark_dest / active_split_path)
+    split_entry = all_splits.get(cfg_split) or cfg.get(cfg_split) or cfg_split
+    # Split entries can be a string (path) or a dict with path + seq_pattern + detection_source
+    if isinstance(split_entry, dict):
+        active_split_path = str(split_entry.get("path") or cfg_split)
+        seq_pattern = split_entry.get("seq_pattern")
+        detection_source = split_entry.get("detection_source")
+        frame_split = split_entry.get("frame_split")
+    else:
+        active_split_path = str(split_entry)
+        seq_pattern = None
+        detection_source = None
+        frame_split = None
+    base_source = (source_root / active_split_path) if source_root is not None else (benchmark_dest / active_split_path)
+
+    # Build filtered split directory at runtime when seq_pattern is specified
+    if seq_pattern and base_source.is_dir():
+        args.source = _build_filtered_split(
+            base_source, cfg_split, seq_pattern,
+            source_root or benchmark_dest, frame_split=frame_split,
+        )
+    else:
+        args.source = base_source
+    if seq_pattern:
+        args.seq_pattern = seq_pattern
+    # CLI --detection-source overrides config; config value is the fallback
+    cli_detection_source = getattr(args, "detection_source", None)
+    if cli_detection_source:
+        pass  # keep the explicit CLI value
+    elif detection_source:
+        args.detection_source = detection_source
 
     box_type = cfg.get("box_type")
     if box_type:

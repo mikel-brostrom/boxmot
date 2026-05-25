@@ -337,6 +337,21 @@ class DetectorReIDPipeline:
         if not use_accel:
             return max(1, requested_batch_size)
 
+        # MPS (Apple Metal) does not reliably throw OOM RuntimeErrors the way
+        # CUDA does — macOS will instead consume all unified memory until the
+        # system becomes unresponsive or kills the process.  Cap the starting
+        # batch size conservatively so the probing loop below cannot allocate
+        # an unreasonable amount of memory before we ever get a chance to
+        # detect failure.
+        if dev_lower.startswith(("mps", "metal")):
+            mps_cap = 2  # safe default for large models at high resolution
+            if requested_batch_size > mps_cap:
+                LOGGER.info(
+                    f"MPS device detected — capping autotune start from "
+                    f"{requested_batch_size} to {mps_cap} to avoid system memory exhaustion."
+                )
+                requested_batch_size = mps_cap
+
         def _empty_cache():
             if dev_lower.startswith("cuda") and torch.cuda.is_available():
                 torch.cuda.empty_cache()

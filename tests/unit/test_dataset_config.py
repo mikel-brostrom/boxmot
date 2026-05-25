@@ -362,10 +362,31 @@ def test_find_dataset_cfg_for_sportsmot_source():
     assert cfg["path"] == "boxmot/engine/trackeval/data/SportsMOT"
 
 
-def test_mot17_ablation_split_resolves_to_val_frcnn(monkeypatch):
+def test_mot17_ablation_split_resolves_to_train_with_seq_pattern(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
     args = SimpleNamespace(data="mot17", source=None, split="ablation", split_explicit=True)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "mot17"
     assert args.split == "ablation"
-    assert args.source == Path("/Users/mikel.brostrom/datasets/mot17/val-frcnn")
+    # When the base dir exists, a filtered split dir is built with symlinks
+    assert args.source == Path("boxmot/engine/trackeval/data/MOT17/ablation")
+    assert args.seq_pattern == "*-FRCNN"
+    # Verify the symlink dir only contains FRCNN sequences
+    seq_names = [p.name for p in args.source.iterdir() if p.is_dir()]
+    assert all(name.endswith("-FRCNN") for name in seq_names)
+    assert len(seq_names) == 7
+
+
+def test_mot17_ablation_split_respects_cli_detection_source(monkeypatch):
+    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
+    args = SimpleNamespace(
+        data="mot17", source=None, split="ablation", split_explicit=True,
+        detection_source="public",
+    )
+    cfg = apply_benchmark_config(args)
+    assert cfg["id"] == "mot17"
+    assert args.split == "ablation"
+    assert args.source == Path("boxmot/engine/trackeval/data/MOT17/ablation")
+    assert args.seq_pattern == "*-FRCNN"
+    # CLI --detection-source takes precedence
+    assert args.detection_source == "public"

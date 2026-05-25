@@ -1,0 +1,8 @@
+id: mot20-ablation
+
+dataset: mot20-ablation
+detector: yolox_x_mot20_ablation
+reid: lmbn_n_duke
+
+download:
+  runs: ""

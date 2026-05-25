@@ -18,6 +18,16 @@ from boxmot.data.dataset import (
 
 
 def _read_image_cv2(path: Path) -> np.ndarray:
+    if path.suffix == ".npy":
+        arr = np.load(str(path))
+        # 8-channel MMOT multispectral: extract pseudo-RGB as BGR for cv2/YOLO.
+        # Per the MMOT paper, RGB proxy = bands 5,3,2 (0-indexed: 4,2,1).
+        # BGR order for YOLO: B=band2(idx1), G=band3(idx2), R=band5(idx4).
+        if arr.ndim == 3 and arr.shape[2] == 8:
+            arr = arr[:, :, [1, 2, 4]]
+        elif arr.ndim == 3 and arr.shape[2] > 3:
+            arr = arr[:, :, :3]
+        return arr
     image = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if image is None:
         raise RuntimeError(f"Failed to read image: {path}")

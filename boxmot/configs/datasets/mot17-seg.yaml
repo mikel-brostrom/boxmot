@@ -1,13 +1,15 @@
 id: mot17-seg
 
-path: "/Users/mikel.brostrom/datasets/mot17"
+path: "boxmot/engine/trackeval/data/MOT17"
 split: "ablation"
 train: "train"
-val: "val-frcnn"
+val: "val"
 test: "test"
 
 splits:
-  ablation: "val-frcnn"
+  ablation:
+    path: "val"
+    seq_pattern: "*-FRCNN"
 
 layout: mot
 box_type: aabb

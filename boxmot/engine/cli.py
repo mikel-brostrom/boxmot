@@ -172,7 +172,15 @@ def split_option(func):
     """Attach a ``--split`` option to override the dataset split (train/val/test)."""
     return click.option(
         '--split', type=str, default=None,
-        help='Dataset split to use (e.g. train, val, test). Overrides auto-detection from source path.'
+        help='Dataset split to use (e.g. train, val, test, ablation). Overrides auto-detection from source path.'
+    )(func)
+
+
+def detection_source_option(func):
+    """Attach a ``--detection-source`` option to choose public or private detections."""
+    return click.option(
+        '--detection-source', type=click.Choice(['public', 'private']), default=None,
+        help='Detection source: "public" reads det/det.txt from sequences, "private" (default) runs the configured detector model.'
     )(func)
 
 
@@ -603,10 +611,11 @@ def track(ctx, detector, reid, classes, split, **kwargs):
 @data_option
 @source_option(default=BOXMOT_DEFAULTS.generate.source, help_text='direct dataset root to generate dets/embs for without a benchmark config')
 @split_option
+@detection_source_option
 @core_options
 @plural_model_options
 @click.pass_context
-def generate(ctx, data, detector, reid, classes, split, **kwargs):
+def generate(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
     src = kwargs.pop('source')
     _require_generate_input(data, src, "generate")
     src, bench, auto_split = _resolve_source_context(src)
@@ -623,6 +632,7 @@ def generate(ctx, data, detector, reid, classes, split, **kwargs):
             "source": src,
             "benchmark": bench,
             "split": split if split else auto_split,
+            "detection_source": detection_source,
         },
     )
 
@@ -630,12 +640,13 @@ def generate(ctx, data, detector, reid, classes, split, **kwargs):
 @boxmot.command(help='Evaluate tracking performance')
 @data_option
 @split_option
+@detection_source_option
 @replay_backend_option
 @tracker_backend_option
 @core_options
 @plural_model_options
 @click.pass_context
-def eval(ctx, data, detector, reid, classes, split, **kwargs):
+def eval(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
     data = _require_benchmark_input(data, "eval")
     _dispatch_cli_workflow(
         ctx,
@@ -650,6 +661,7 @@ def eval(ctx, data, detector, reid, classes, split, **kwargs):
             "source": None,
             "benchmark": "",
             "split": split or "",
+            "detection_source": detection_source,
         },
     )
 
@@ -657,13 +669,14 @@ def eval(ctx, data, detector, reid, classes, split, **kwargs):
 @boxmot.command(help='Tune models via evolutionary algorithms')
 @data_option
 @split_option
+@detection_source_option
 @replay_backend_option
 @tracker_backend_option
 @core_options
 @tune_options
 @plural_model_options
 @click.pass_context
-def tune(ctx, data, detector, reid, classes, split, **kwargs):
+def tune(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
     data = _require_benchmark_input(data, "tune")
     _dispatch_cli_workflow(
         ctx,
@@ -678,6 +691,7 @@ def tune(ctx, data, detector, reid, classes, split, **kwargs):
             "source": None,
             "benchmark": "",
             "split": split or "",
+            "detection_source": detection_source,
         },
     )
 
@@ -685,13 +699,14 @@ def tune(ctx, data, detector, reid, classes, split, **kwargs):
 @boxmot.command(help='Research tracker code changes with GEPA')
 @data_option
 @split_option
+@detection_source_option
 @replay_backend_option
 @tracker_backend_option
 @core_options
 @research_options
 @plural_model_options
 @click.pass_context
-def research(ctx, data, detector, reid, classes, split, **kwargs):
+def research(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
     data = _require_benchmark_input(data, "research")
     _dispatch_cli_workflow(
         ctx,
@@ -706,6 +721,7 @@ def research(ctx, data, detector, reid, classes, split, **kwargs):
             "source": None,
             "benchmark": "",
             "split": split or "",
+            "detection_source": detection_source,
         },
     )
 

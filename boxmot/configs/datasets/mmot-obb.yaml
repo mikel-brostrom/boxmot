@@ -1,10 +1,10 @@
 id: mmot-obb
 
-path: "boxmot/engine/trackeval/data/MMOT-OBB"
+path: "/Volumes/LaCie/MMOT/data"
 split: "train"
-train: "train"
+train: "train/npy"
 val:
-test:
+test: "test/npy"
 
 layout: mot
 box_type: obb

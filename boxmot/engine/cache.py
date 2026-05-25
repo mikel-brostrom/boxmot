@@ -321,6 +321,84 @@ def _run_embeddings_only_fill(
 
 
 @torch.inference_mode()
+def _generate_public_dets_cache(
+    args: argparse.Namespace,
+    source_root: Path,
+    progress_callback: Callable[[str], None] | None = None,
+) -> None:
+    """Generate detection cache from public det/det.txt files (MOT format).
+
+    Public detections are provided with MOT17/MOT20 sequences in
+    ``<seq>/det/det.txt`` with format: frame,id,x,y,w,h,conf,-1,-1,-1.
+    This converts them to the standard cache format (frame_id, x1, y1, x2, y2, conf, cls).
+    """
+    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+    verbose = bool(getattr(args, "verbose", False))
+    resume = bool(getattr(args, "resume", True))
+    preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
+    tracker_backend = getattr(args, "tracker_backend", None)
+
+    expected_det_cols = 7  # public dets are always AABB
+    benchmark = getattr(args, "benchmark", None)
+    split = getattr(args, "split", None)
+    cache_project = Path(getattr(args, "cache_project", args.project))
+    dets_base = cache_project / "dets_n_embs"
+    if benchmark:
+        dets_base = dets_base / benchmark
+    if split:
+        dets_base = dets_base / split
+    # For public detections, use "public" as the detector name in cache path
+    dets_folder = dets_base / "public" / "dets"
+    dets_folder.mkdir(parents=True, exist_ok=True)
+
+    mot_folder_paths = sorted([p for p in source_root.iterdir() if p.is_dir()])
+    _seq_pattern = getattr(args, "seq_pattern", None)
+    if _seq_pattern:
+        from fnmatch import fnmatch
+        mot_folder_paths = [p for p in mot_folder_paths if fnmatch(p.name, _seq_pattern)]
+
+    for seq_dir in mot_folder_paths:
+        img_dir = _sequence_img_dir(seq_dir)
+        frames = _list_sequence_frames(img_dir)
+        if not frames:
+            continue
+        seq_name = _sequence_name_from_img_dir(img_dir)
+        dets_path = dets_folder / f"{seq_name}.npy"
+
+        if resume and dets_path.exists():
+            if verbose:
+                LOGGER.info(f"Skipping public dets for {seq_name} (cached).")
+            continue
+
+        det_txt = seq_dir / "det" / "det.txt"
+        if not det_txt.exists():
+            LOGGER.warning(f"No public detections at {det_txt}, skipping {seq_name}.")
+            continue
+
+        # Load MOT format: frame,id,x,y,w,h,conf,-1,-1,-1
+        raw = np.loadtxt(det_txt, delimiter=",")
+        if raw.ndim == 1:
+            raw = raw.reshape(1, -1)
+
+        # Convert (x, y, w, h) → (x1, y1, x2, y2)
+        frame_ids = raw[:, 0].astype(np.int32)
+        x, y, w, h = raw[:, 2], raw[:, 3], raw[:, 4], raw[:, 5]
+        conf = raw[:, 6] if raw.shape[1] > 6 else np.ones(len(raw))
+        x1, y1 = x, y
+        x2, y2 = x + w, y + h
+        cls = np.zeros(len(raw), dtype=np.float32)
+
+        # Output format: (frame_id, x1, y1, x2, y2, conf, cls)
+        dets = np.column_stack([frame_ids, x1, y1, x2, y2, conf, cls]).astype(np.float32)
+        np.save(dets_path, dets)
+        if verbose:
+            LOGGER.info(f"Cached {len(dets)} public detections for {seq_name}.")
+
+    if progress_callback:
+        progress_callback("Public detections cached.")
+
+
+@torch.inference_mode()
 def generate_dets_embs_batched(
     args: argparse.Namespace,
     y: Path,
@@ -363,6 +441,11 @@ def generate_dets_embs_batched(
     _is_seg = is_seg_model(y)
 
     mot_folder_paths = sorted([path for path in Path(source_root).iterdir() if path.is_dir()])
+    # Apply sequence pattern filter if configured (e.g. "*-FRCNN" for public FRCNN detections)
+    _seq_pattern = getattr(args, "seq_pattern", None)
+    if _seq_pattern:
+        from fnmatch import fnmatch
+        mot_folder_paths = [p for p in mot_folder_paths if fnmatch(p.name, _seq_pattern)]
 
     seq_states = {}
     embed_only_states: dict[str, dict] = {}
@@ -1071,6 +1154,14 @@ def run_generate_dets_embs(
         args.auto_batch = True
     if not hasattr(args, "resume"):
         args.resume = True
+
+    # Public detections: read from det/det.txt instead of running a detector model
+    detection_source = getattr(args, "detection_source", None)
+    if detection_source == "public":
+        _generate_public_dets_cache(args, source_root, progress_callback=progress_callback)
+        # Override detector stem for downstream cache lookups
+        args.detector = [Path("public")]
+        return
 
     for detector in args.detector:
         if verbose:
