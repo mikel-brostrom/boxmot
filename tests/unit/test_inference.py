@@ -49,7 +49,7 @@ _DUMMY_IMG = np.zeros((64, 64, 3), dtype=np.uint8)
 
 
 class _DummyTracker(BaseTracker):
-    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None) -> np.ndarray:
         self.check_inputs(dets, img, embs)
         return np.empty((0, 9 if self.is_obb else 8), dtype=np.float32)
 

@@ -202,7 +202,9 @@ def test_process_sequence_reports_separate_reid_and_tracker_rest_time(tmp_path, 
     created = {}
 
     class FakeTrackerRuntime:
-        def update(self, dets, img, embs):
+        tracker = None
+
+        def update(self, dets, img, embs, masks=None):
             created["timing_stats"].add_reid_time(3.0)
             return np.array([[1, 2, 10, 12, 1, 0.9, 0, 0]], dtype=np.float32), 10.0
 

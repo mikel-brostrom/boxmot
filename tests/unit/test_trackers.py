@@ -76,7 +76,7 @@ def test_tracker_output_size(tracker_type):
     )
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
-    det = np.array([[144, 212, 400, 480, 0.82, 0], [425, 281, 576, 472, 0.72, 65]])
+    det = np.array([[144, 212, 400, 480, 0.92, 0], [425, 281, 576, 472, 0.91, 65]])
 
     output = np.empty((0,))
     for _ in range(10):

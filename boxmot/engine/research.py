@@ -364,7 +364,10 @@ def _normalize_editable_files(
     if editable_files:
         files = [Path(path) for path in editable_files]
     else:
-        tracker_dir = ROOT / "boxmot" / "trackers" / tracker.lower()
+        tracker_dir = ROOT / "boxmot" / "trackers" / "bbox" / tracker.lower()
+        if not tracker_dir.exists():
+            # Fallback for non-bbox trackers (e.g. hybrid)
+            tracker_dir = ROOT / "boxmot" / "trackers" / tracker.lower()
         if not tracker_dir.exists():
             raise FileNotFoundError(f"Tracker source directory not found: {tracker_dir}")
 

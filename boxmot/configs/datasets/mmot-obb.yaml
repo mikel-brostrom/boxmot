@@ -1,6 +1,6 @@
 id: mmot-obb
 
-path: "/Volumes/LaCie/MMOT/data"
+path: "boxmot/engine/trackeval/data/MMOT-OBB"
 split: "train"
 train: "train/npy"
 val:

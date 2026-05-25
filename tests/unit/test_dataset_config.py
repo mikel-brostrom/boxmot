@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import boxmot.utils.benchmark_config as benchmark_config
 
 from boxmot.utils.benchmark_config import (
@@ -362,6 +364,10 @@ def test_find_dataset_cfg_for_sportsmot_source():
     assert cfg["path"] == "boxmot/engine/trackeval/data/SportsMOT"
 
 
+@pytest.mark.skipif(
+    not Path("boxmot/engine/trackeval/data/MOT17/val").is_dir(),
+    reason="MOT17 val data not available",
+)
 def test_mot17_ablation_split_resolves_to_train_with_seq_pattern(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
     args = SimpleNamespace(data="mot17", source=None, split="ablation", split_explicit=True)
@@ -377,6 +383,10 @@ def test_mot17_ablation_split_resolves_to_train_with_seq_pattern(monkeypatch):
     assert len(seq_names) == 7
 
 
+@pytest.mark.skipif(
+    not Path("boxmot/engine/trackeval/data/MOT17/val").is_dir(),
+    reason="MOT17 val data not available",
+)
 def test_mot17_ablation_split_respects_cli_detection_source(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
     args = SimpleNamespace(

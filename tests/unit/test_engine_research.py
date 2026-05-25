@@ -52,9 +52,9 @@ def test_ensure_not_local_gepa_path_accepts_site_packages():
 
 def test_normalize_editable_files_defaults_to_primary_tracker_source():
     files = research_module._normalize_editable_files("strongsort", None)
-    assert "boxmot/trackers/strongsort/strongsort.py" in files
-    assert "boxmot/trackers/strongsort/__init__.py" not in files
-    assert "boxmot/trackers/strongsort/strongsort_kf.py" not in files
+    assert "boxmot/trackers/bbox/strongsort/strongsort.py" in files
+    assert "boxmot/trackers/bbox/strongsort/__init__.py" not in files
+    assert "boxmot/trackers/bbox/strongsort/strongsort_kf.py" not in files
     assert "boxmot/configs/trackers/strongsort.yaml" not in files
     assert all(not Path(path).is_absolute() for path in files)
 
