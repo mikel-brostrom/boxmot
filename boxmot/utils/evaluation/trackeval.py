@@ -10,7 +10,7 @@ from typing import Optional
 
 import numpy as np
 
-from boxmot.utils import ROOT, logger as LOGGER
+from boxmot.utils import NUM_THREADS, ROOT, logger as LOGGER
 from boxmot.utils.benchmark_config import load_benchmark_cfg
 
 from boxmot.data.benchmark import (
@@ -28,18 +28,10 @@ _RESOURCE_TRACKER_STDERR_PATTERNS = (
 )
 
 
-def _should_use_parallel_trackeval(
-    *,
-    platform_name: str | None = None,
-    version_info: tuple[int, ...] | None = None,
-) -> bool:
-    platform_name = sys.platform if platform_name is None else platform_name
-    version_info = tuple(sys.version_info) if version_info is None else tuple(version_info)
-
-    # macOS + Python 3.12 emits spurious resource_tracker semaphore warnings
-    # from TrackEval's multiprocessing path. Fall back to serial evaluation there.
-    if platform_name == "darwin" and version_info[:2] >= (3, 12):
-        return False
+def _should_use_parallel_trackeval() -> bool:
+    # The subprocess env (_trackeval_subprocess_env) already suppresses the
+    # spurious resource_tracker semaphore warnings on macOS + Python 3.12+,
+    # so parallelism is safe on all platforms.
     return True
 
 
@@ -186,7 +178,7 @@ def trackeval(
     gt_loc_format = dataset_settings["gt_loc_format"]
     benchmark_name = dataset_settings["benchmark_name"]
     use_parallel = _should_use_parallel_trackeval()
-    parallel_cores = 4 if use_parallel else 1
+    parallel_cores = min(NUM_THREADS, len(seq_info)) if use_parallel else 1
 
     cmd_args = [
         sys.executable,
@@ -280,14 +272,25 @@ def _prepare_obb_eval_bridge(
         src_img_dir = (seq_dir / "img1" if (seq_dir / "img1").exists() else seq_dir).resolve()
         bridge_img_dir = img_bridge / seq_name
         if os.path.lexists(bridge_img_dir) and bridge_img_dir.is_symlink():
-            bridge_img_dir.unlink()
-        if not bridge_img_dir.exists():
+            if os.readlink(bridge_img_dir) == str(src_img_dir):
+                pass  # symlink already correct
+            else:
+                bridge_img_dir.unlink()
+                os.symlink(src_img_dir, bridge_img_dir, target_is_directory=True)
+        elif not bridge_img_dir.exists():
             try:
                 os.symlink(src_img_dir, bridge_img_dir, target_is_directory=True)
             except OSError:
                 shutil.copytree(src_img_dir, bridge_img_dir, dirs_exist_ok=True)
 
+        # MMOT stores GT as flat files in a sibling "mot/" directory
+        # (e.g. <root>/test/mot/data23-1.txt alongside <root>/test/npy/data23-1/)
+        mot_sibling = Path(args.source).parent / "mot" / f"{seq_name}.txt"
+
+        gt_out = gt_bridge / f"{seq_name}.txt"
+
         raw_candidates = [
+            mot_sibling,
             seq_dir / "gt" / "gt_temp.txt",
             gt_folder / seq_name / "gt" / "gt_temp.txt",
             seq_dir / "gt" / "gt.txt",
@@ -307,6 +310,10 @@ def _prepare_obb_eval_bridge(
             if not candidate.exists():
                 continue
             try:
+                # Skip rewrite if bridge GT is newer than source
+                if gt_out.exists() and gt_out.stat().st_mtime >= candidate.stat().st_mtime:
+                    source_gt = candidate
+                    break
                 normalized_gt = _load_obb_gt_matrix(candidate)
                 source_gt = candidate
                 break
@@ -319,12 +326,13 @@ def _prepare_obb_eval_bridge(
                 "Expected gt.txt/gt_temp.txt or gt_obb*.txt in 13-column corner format."
             )
 
-        gt_out = gt_bridge / f"{seq_name}.txt"
-        gt_out.parent.mkdir(parents=True, exist_ok=True)
-        if normalized_gt is None or normalized_gt.size == 0:
-            gt_out.write_text("")
-        else:
-            np.savetxt(gt_out, normalized_gt, delimiter=",", fmt="%g")
+        # normalized_gt is None when cache hit (bridge GT already up-to-date)
+        if normalized_gt is not None:
+            gt_out.parent.mkdir(parents=True, exist_ok=True)
+            if normalized_gt.size == 0:
+                gt_out.write_text("")
+            else:
+                np.savetxt(gt_out, normalized_gt, delimiter=",", fmt="%g")
 
     return gt_bridge, img_bridge
 
@@ -346,6 +354,9 @@ def trackeval_obb(
     classes_to_eval = resolve_obb_classes_to_eval(args, bench_cfg)
     class_ids = resolve_obb_class_ids_to_eval(args, bench_cfg)
     gt_bridge, img_bridge = _prepare_obb_eval_bridge(args, gt_folder, seq_info)
+
+    use_parallel = _should_use_parallel_trackeval()
+    parallel_cores = min(NUM_THREADS, len(seq_info)) if use_parallel else 1
 
     cmd_args = [
         sys.executable,
@@ -372,7 +383,9 @@ def trackeval_obb(
         "--PRINT_ONLY_COMBINED",
         "False",
         "--USE_PARALLEL",
-        "False",
+        "True" if use_parallel else "False",
+        "--NUM_PARALLEL_CORES",
+        str(parallel_cores),
     ]
     if classes_to_eval:
         cmd_args.extend(["--CLASSES_TO_EVAL", *classes_to_eval])

@@ -72,6 +72,8 @@ class AssociationFunction:
     @staticmethod
     def iou_batch_obb(bboxes1, bboxes2) -> np.ndarray:
         N, M = len(bboxes1), len(bboxes2)
+        if N == 0 or M == 0:
+            return np.zeros((N, M), dtype=np.float64)
 
         def wrapper(i, j):
             return iou_obb_pair(i, j, bboxes1, bboxes2)

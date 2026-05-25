@@ -48,7 +48,7 @@ boxmot --help
 
 For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino`, and `tflite`, see the [installation guide](docs/getting-started/installation.md).
 
-## Benchmark Results (MOT17 ablation split)
+## Benchmark Results
 
 <div align="center" markdown="1">
 
@@ -57,8 +57,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
   <thead>
     <tr>
       <th rowspan="2" align="left">Tracker</th>
-      <th colspan="4" align="center">Python</th>
-      <th colspan="4" align="center">C++</th>
+      <th colspan="4" align="center">MOT17 (ablation split)</th>
+      <th colspan="3" align="center">SportsMOT (val split)</th>
+      <th colspan="3" align="center"><a href="https://github.com/Annzstbl/MMOT">MMOT-OBB</a> (test split)</th>
     </tr>
     <tr>
       <th align="right">HOTA</th>
@@ -68,20 +69,24 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <th align="right">HOTA</th>
       <th align="right">MOTA</th>
       <th align="right">IDF1</th>
-      <th align="center">OBB</th>
+      <th align="right">HOTA</th>
+      <th align="right">MOTA</th>
+      <th align="right">IDF1</th>
     </tr>
   </thead>
   <tbody>
     <tr>
       <td align="left">occluboost</td>
-      <td align="right">70.47</td>
-      <td align="right">78.32</td>
-      <td align="right">84.14</td>
+      <td align="right"><b>70.47</b></td>
+      <td align="right"><b>78.32</b></td>
+      <td align="right"><b>84.14</b></td>
       <td align="center">✅</td>
-      <td align="right">70.48</td>
-      <td align="right">78.31</td>
-      <td align="right">84.14</td>
-      <td align="center">✅</td>
+      <td align="right"><b>83.17</b></td>
+      <td align="right">97.48</td>
+      <td align="right"><b>89.36</b></td>
+      <td align="right">29.36</td>
+      <td align="right">1.72</td>
+      <td align="right">34.01</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2206.14651">botsort</a></td>
@@ -89,10 +94,12 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">78.24</td>
       <td align="right">81.94</td>
       <td align="center">✅</td>
-      <td align="right">69.43</td>
-      <td align="right">78.26</td>
-      <td align="right">82.00</td>
-      <td align="center">✅</td>
+      <td align="right">76.93</td>
+      <td align="right"><b>98.11</b></td>
+      <td align="right">78.30</td>
+      <td align="right"><b>51.79</b></td>
+      <td align="right"><b>46.05</b></td>
+      <td align="right"><b>60.85</b></td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2408.13003">boosttrack</a></td>
@@ -100,10 +107,12 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">75.91</td>
       <td align="right">83.20</td>
       <td align="center">❌</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="center">—</td>
+      <td align="right">76.32</td>
+      <td align="right">97.08</td>
+      <td align="right">77.82</td>
+      <td align="right">–</td>
+      <td align="right">–</td>
+      <td align="right">–</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2202.13514">strongsort</a></td>
@@ -111,10 +120,12 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">76.19</td>
       <td align="right">80.76</td>
       <td align="center">❌</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="center">—</td>
+      <td align="right">79.80</td>
+      <td align="right">97.31</td>
+      <td align="right">80.27</td>
+      <td align="right">–</td>
+      <td align="right">–</td>
+      <td align="right">–</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2302.11813">deepocsort</a></td>
@@ -122,10 +133,12 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">75.83</td>
       <td align="right">80.54</td>
       <td align="center">❌</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="center">—</td>
+      <td align="right">79.51</td>
+      <td align="right">97.94</td>
+      <td align="right">79.59</td>
+      <td align="right">–</td>
+      <td align="right">–</td>
+      <td align="right">–</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2110.06864">bytetrack</a></td>
@@ -133,10 +146,12 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">78.04</td>
       <td align="right">79.16</td>
       <td align="center">✅</td>
-      <td align="right">67.75</td>
-      <td align="right">78.03</td>
-      <td align="right">79.38</td>
-      <td align="center">✅</td>
+      <td align="right">67.93</td>
+      <td align="right">97.25</td>
+      <td align="right">76.90</td>
+      <td align="right">33.97</td>
+      <td align="right">33.72</td>
+      <td align="right">39.74</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2308.00783">hybridsort</a></td>
@@ -144,10 +159,12 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">74.09</td>
       <td align="right">78.87</td>
       <td align="center">❌</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="center">—</td>
+      <td align="right">81.14</td>
+      <td align="right">98.07</td>
+      <td align="right">81.88</td>
+      <td align="right">–</td>
+      <td align="right">–</td>
+      <td align="right">–</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2203.14360">ocsort</a></td>
@@ -155,10 +172,12 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">74.55</td>
       <td align="right">77.90</td>
       <td align="center">✅</td>
-      <td align="right">66.44</td>
-      <td align="right">74.55</td>
-      <td align="right">77.90</td>
-      <td align="center">✅</td>
+      <td align="right">76.34</td>
+      <td align="right">96.60</td>
+      <td align="right">75.64</td>
+      <td align="right">28.57</td>
+      <td align="right">26.19</td>
+      <td align="right">29.95</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/pdf/2404.07553">sfsort</a></td>
@@ -166,16 +185,18 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right">76.87</td>
       <td align="right">69.18</td>
       <td align="center">✅</td>
-      <td align="right">62.66</td>
-      <td align="right">76.74</td>
-      <td align="right">69.18</td>
-      <td align="center">✅</td>
+      <td align="right">75.73</td>
+      <td align="right">98.39</td>
+      <td align="right">72.99</td>
+      <td align="right">44.19</td>
+      <td align="right">44.27</td>
+      <td align="right">46.25</td>
     </tr>
   </tbody>
 </table>
 <!-- END TRACKER TABLE -->
 
-<sub>Evaluation was run on the second half of the MOT17 training set because the validation split is not public and the ablation detector was trained on the first half. Results used [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip) with each tracker configured from its default repository settings. Native `cpp` cells use `--tracker-backend cpp` for the implemented replay backends.</sub>
+<sub>MOT17 evaluation was run on the second half of the MOT17 training set because the validation split is not public and the ablation detector was trained on the first half. Results used [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip) with each tracker configured from its default repository settings. SportsMOT evaluation used the val split with yolox_x_sportsmot detector and lmbn_n_duke ReID model. MMOT-OBB metrics are class-averaged across all 8 categories (car, bike, pedestrian, van, truck, bus, tricycle, awning-bike) following the <a href="https://arxiv.org/abs/2510.12565">MMOT paper</a> convention, using yolo11l_3ch detector and lmbn_n_duke ReID model.</sub>
 
 </div>
 

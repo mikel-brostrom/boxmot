@@ -168,6 +168,7 @@ def process_sequence(
         seq_name,
         show_progress=False,
         progress_queue=progress_queue,
+        skip_image_load=True,
     )
 
     all_tracks = []
@@ -523,7 +524,10 @@ def run_generate_mot_results(
     exp_dir.mkdir(parents=True, exist_ok=True)
     args.exp_dir = exp_dir
 
-    sequence_names = MOTDataset(mot_root=str(args.source)).sequence_names()
+    sequence_names = MOTDataset(
+        mot_root=str(args.source),
+        seq_pattern=getattr(args, "seq_pattern", None),
+    ).sequence_names()
     conf_threshold = getattr(args, "conf", None)
     if conf_threshold is None:
         conf_threshold = default_conf(args.detector[0])

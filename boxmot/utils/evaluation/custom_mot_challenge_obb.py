@@ -31,11 +31,11 @@ DEFAULT_OBB_SUPER_CATEGORIES = {
     "BIKE": ["bike", "tricycle", "awning-bike"],
 }
 
-VALID_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+VALID_FRAME_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp", ".npy"}
 
 
 def _count_frames(path: str) -> int:
-    return sum(1 for name in os.listdir(path) if os.path.splitext(name)[1].lower() in VALID_IMAGE_EXTENSIONS)
+    return sum(1 for name in os.listdir(path) if os.path.splitext(name)[1].lower() in VALID_FRAME_EXTENSIONS)
 
 
 def _polygon_to_rotated_rect(polygon: np.ndarray) -> tuple[tuple[float, float], tuple[float, float], float]:
@@ -43,6 +43,49 @@ def _polygon_to_rotated_rect(polygon: np.ndarray) -> tuple[tuple[float, float], 
     rect = cv2.minAreaRect(points)
     (cx, cy), (w, h), angle_deg = rect
     return (float(cx), float(cy)), (float(w), float(h)), float(angle_deg)
+
+
+def _polygons_to_rotated_rects(polygons: np.ndarray):
+    """Convert N polygons (N, 8) to lists of rotated rects and precomputed areas."""
+    n = len(polygons)
+    rects = [None] * n
+    areas = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        points = polygons[i].reshape(4, 2).astype(np.float32)
+        rect = cv2.minAreaRect(points)
+        rects[i] = rect
+        areas[i] = rect[1][0] * rect[1][1]
+    return rects, areas
+
+
+def _rotated_iou_batch(gt_dets: np.ndarray, tracker_dets: np.ndarray) -> np.ndarray:
+    """Compute IoU matrix between N GT and M tracker OBB detections efficiently."""
+    n = len(gt_dets)
+    m = len(tracker_dets)
+
+    gt_rects, gt_areas = _polygons_to_rotated_rects(gt_dets)
+    tr_rects, tr_areas = _polygons_to_rotated_rects(tracker_dets)
+
+    scores = np.zeros((n, m), dtype=np.float32)
+    eps = np.finfo(float).eps
+
+    for i in range(n):
+        if gt_areas[i] <= eps:
+            continue
+        rect_a = gt_rects[i]
+        area_a = gt_areas[i]
+        for j in range(m):
+            if tr_areas[j] <= eps:
+                continue
+            ret, intersection = cv2.rotatedRectangleIntersection(rect_a, tr_rects[j])
+            if ret == cv2.INTERSECT_NONE or intersection is None or len(intersection) == 0:
+                continue
+            inter_area = float(cv2.contourArea(intersection))
+            union = area_a + tr_areas[j] - inter_area
+            if union > eps:
+                scores[i, j] = inter_area / union
+
+    return scores
 
 
 def _rotated_iou(poly_a: np.ndarray, poly_b: np.ndarray) -> float:
@@ -120,7 +163,11 @@ class CustomMotChallengeOBB(CustomMotChallengeBase, _BaseDataset):
         self.use_super_categories = bool(self.super_categories)
 
         self.seq_lengths = {}
-        self.seq_list = sorted(Path(seq_file).stem for seq_file in os.listdir(self.gt_fol) if seq_file.endswith(".txt"))
+        self.seq_list = sorted(
+            Path(seq_file).stem
+            for seq_file in os.listdir(self.gt_fol)
+            if seq_file.endswith(".txt") and not seq_file.startswith("._")
+        )
 
         if self.config["TRACKERS_TO_EVAL"] is None:
             self.tracker_list = os.listdir(self.tracker_fol)
@@ -268,11 +315,7 @@ class CustomMotChallengeOBB(CustomMotChallengeBase, _BaseDataset):
         if len(gt_dets_t) == 0 or len(tracker_dets_t) == 0:
             return np.zeros((len(gt_dets_t), len(tracker_dets_t)), dtype=np.float32)
 
-        scores = np.zeros((len(gt_dets_t), len(tracker_dets_t)), dtype=np.float32)
-        for i, gt_det in enumerate(gt_dets_t):
-            for j, tracker_det in enumerate(tracker_dets_t):
-                scores[i, j] = _rotated_iou(gt_det, tracker_det)
-        return scores
+        return _rotated_iou_batch(np.asarray(gt_dets_t), np.asarray(tracker_dets_t))
 
 
 mmot_RGB = CustomMotChallengeOBB

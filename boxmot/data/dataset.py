@@ -83,7 +83,7 @@ def _sequence_img_dir(seq_dir: Path) -> Path:
 
 def _list_sequence_frames(img_dir: Path) -> list[Path]:
     return sorted(
-        p for p in list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png"))
+        p for p in list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")) + list(img_dir.glob("*.npy"))
         if not p.name.startswith("._")
     )
 
@@ -145,9 +145,11 @@ class MOTDataset:
         reid_preprocess: Optional[str] = None,
         target_fps: Optional[int] = None,
         masks_dir: Optional[str] = None,
+        seq_pattern: Optional[str] = None,
     ):
         self.root = Path(mot_root)
         self.target_fps = target_fps
+        self.seq_pattern = seq_pattern
         self.seqs: Dict[str, Dict] = {}
 
         if det_emb_root and model_name:
@@ -233,6 +235,11 @@ class MOTDataset:
             if not seq_dir.is_dir():
                 continue
             name = seq_dir.name
+            # Apply sequence pattern filter (e.g. "*-FRCNN")
+            if self.seq_pattern:
+                from fnmatch import fnmatch
+                if not fnmatch(name, self.seq_pattern):
+                    continue
             img_dir = _sequence_img_dir(seq_dir)
             imgs = _list_sequence_frames(img_dir)
             if not imgs:
@@ -291,6 +298,7 @@ class MOTDataset:
         name: str,
         show_progress: bool = True,
         progress_queue=None,
+        skip_image_load: bool = False,
     ) -> "MOTSequence":
         """Return a :class:`MOTSequence` iterator for the given sequence."""
         if name not in self.seqs:
@@ -301,6 +309,7 @@ class MOTDataset:
             self.target_fps,
             show_progress=show_progress,
             progress_queue=progress_queue,
+            skip_image_load=skip_image_load,
         )
 
 
@@ -314,12 +323,14 @@ class MOTSequence:
         target_fps: Optional[int],
         show_progress: bool = True,
         progress_queue=None,
+        skip_image_load: bool = False,
     ):
         self.name = name
         self.meta = meta
         self.target_fps = target_fps
         self.show_progress = show_progress
         self.progress_queue = progress_queue
+        self.skip_image_load = skip_image_load
         self.dets: Optional[np.ndarray] = None
         self.embs: Optional[np.ndarray] = None
         self.masks_data: Optional[Dict[int, np.ndarray]] = None
@@ -330,6 +341,7 @@ class MOTSequence:
 
     def _prepare(self) -> None:
         """Load detections / embeddings and optionally downsample to ``target_fps``."""
+        self._det_index: Optional[Dict[int, tuple]] = None
         if self.meta["det_path"]:
             det_path = Path(self.meta["det_path"])
             if det_path.suffix == ".npy":
@@ -364,6 +376,10 @@ class MOTSequence:
                     self.frame_paths = [self.frame_paths[index] for index in idxs_to_keep]
                     self._fps_mask = fps_mask
 
+            # Build frame_id → row-slice index for O(1) per-frame lookup
+            if self.dets is not None and self.dets.shape[0] > 0:
+                self._det_index = self._build_det_index()
+
         # Load mask cache
         if self.meta.get("mask_path"):
             mask_path = Path(self.meta["mask_path"])
@@ -382,6 +398,24 @@ class MOTSequence:
                     self.masks_data[fid] = mask_npz[key]
                 mask_npz.close()
 
+    def _build_det_index(self) -> Dict[int, tuple]:
+        """Build a mapping from frame_id to (start, end) row indices in self.dets."""
+        fids = self.dets[:, 0].astype(int)
+        index: Dict[int, tuple] = {}
+        n = len(fids)
+        if n == 0:
+            return index
+        # Detections are sorted by frame_id in cache files
+        start = 0
+        current_fid = fids[0]
+        for i in range(1, n):
+            if fids[i] != current_fid:
+                index[int(current_fid)] = (start, i)
+                current_fid = fids[i]
+                start = i
+        index[int(current_fid)] = (start, n)
+        return index
+
     def __len__(self) -> int:
         return len(self.frame_ids)
 
@@ -389,6 +423,7 @@ class MOTSequence:
         """Yield frame dictionaries one by one."""
         total = len(self.frame_ids)
         progress_queue = self.progress_queue
+        _img_stub: Optional[np.ndarray] = None
         for index, (fid, img_path) in enumerate(
             tqdm(
                 zip(self.frame_ids, self.frame_paths),
@@ -403,22 +438,52 @@ class MOTSequence:
                 except Exception:
                     pass
 
-            img = cv2.imread(str(img_path))
+            # After the first frame, reuse a small stub image when caller
+            # only needs shape (e.g. tracking replay with cached embeddings).
+            if self.skip_image_load and _img_stub is not None:
+                img = _img_stub
+            elif img_path.suffix == ".npy":
+                img = np.load(str(img_path))
+                # Convert multi-channel arrays to 3-channel BGR for tracker compatibility
+                if img.ndim == 3 and img.shape[2] > 3:
+                    img = img[:, :, :3]
+                elif img.ndim == 2:
+                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            else:
+                img = cv2.imread(str(img_path))
             if img is None:
                 LOGGER.warning(f"Failed to load {img_path}")
                 continue
 
+            # Create a tiny stub with same shape metadata for subsequent frames
+            if self.skip_image_load and _img_stub is None:
+                _img_stub = np.empty((img.shape[0], img.shape[1], 3), dtype=np.uint8)
+
             if self.dets is not None:
-                mask = self.dets[:, 0].astype(int) == fid
-                dets_f = self.dets[mask, 1:]
-                embs_f = self.embs[mask] if self.embs is not None else np.zeros((dets_f.shape[0], 0))
-                # Masks from flat .npy (bit-packed, same row order as dets)
-                if self._masks_flat is not None:
-                    packed = np.array(self._masks_flat[mask])
-                    # Unpack bits: (N, H, W_packed) → (N, H, W_packed*8), trim not needed if W%8==0
-                    masks_f = np.unpackbits(packed, axis=-1)
-                else:
+                if self._det_index is not None and fid in self._det_index:
+                    start, end = self._det_index[fid]
+                    dets_f = np.array(self.dets[start:end, 1:])
+                    embs_f = np.array(self.embs[start:end]) if self.embs is not None else np.zeros((end - start, 0))
+                    if self._masks_flat is not None:
+                        packed = np.array(self._masks_flat[start:end])
+                        masks_f = np.unpackbits(packed, axis=-1)
+                    else:
+                        masks_f = None
+                elif self._det_index is not None:
+                    # Frame not in index → no detections
+                    dets_f = np.zeros((0, self.dets.shape[1] - 1))
+                    embs_f = np.zeros((0, self.embs.shape[1] if self.embs is not None else 0))
                     masks_f = None
+                else:
+                    # Fallback for unsorted data (no index built)
+                    mask = self.dets[:, 0].astype(int) == fid
+                    dets_f = self.dets[mask, 1:]
+                    embs_f = self.embs[mask] if self.embs is not None else np.zeros((dets_f.shape[0], 0))
+                    if self._masks_flat is not None:
+                        packed = np.array(self._masks_flat[mask])
+                        masks_f = np.unpackbits(packed, axis=-1)
+                    else:
+                        masks_f = None
             else:
                 dets_f = np.zeros((0, 5))
                 embs_f = np.zeros((0, 128))
