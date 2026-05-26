@@ -135,7 +135,7 @@ jobs:
             TRACKER_BACKEND_ARGS+=(--tracker-backend cpp)
           fi
 
-          if boxmot eval --classes 0 --detector yolox_x_MOT17_ablation.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} "${TRACKER_BACKEND_ARGS[@]}" --ci --verbose --benchmark mot17-ablation; then
+          if boxmot eval --classes 0 --detector yolox_x_MOT17_ablation.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} "${TRACKER_BACKEND_ARGS[@]}" --ci --verbose --benchmark mot17 --split ablation; then
             STATUS="✅"
           else
             STATUS="❌"

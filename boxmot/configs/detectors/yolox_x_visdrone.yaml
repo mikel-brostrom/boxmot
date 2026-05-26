@@ -1,7 +1,7 @@
 id: yolox_x_visdrone
 model: "models/yolox_x_visdrone.pt"
 url: "https://drive.google.com/uc?id=1ajehBs9enBHhuBqGIoQPGqkkzasE9d3o"
-imgsz: [800, 1440]
+imgsz: [896, 1600]
 conf: 0.01
 classes:
   0: pedestrian

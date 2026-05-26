@@ -8,9 +8,11 @@ from multiprocessing import freeze_support
 from pathlib import Path
 
 current_dir = Path(__file__).resolve().parent
-repo_root = current_dir.parents[2]
-boxmot_dir = current_dir.parents[1]
-trackeval_dir = boxmot_dir / "engine" / "trackeval"
+# current_dir = boxmot/engine/eval/metrics
+# repo root is 4 levels up: metrics → eval → engine → boxmot(pkg) → boxmot(repo)
+repo_root = current_dir.parents[3]
+# Vendored trackeval lives at boxmot/engine/trackeval (sibling of eval/)
+trackeval_dir = current_dir.parents[1] / "trackeval"
 
 sys.path.insert(0, str(repo_root))
 sys.path.insert(0, str(trackeval_dir))

@@ -365,8 +365,8 @@ def test_find_dataset_cfg_for_sportsmot_source():
 
 
 @pytest.mark.skipif(
-    not Path("boxmot/engine/eval/trackeval/data/MOT17/val").is_dir(),
-    reason="MOT17 val data not available",
+    not Path("boxmot/engine/eval/trackeval/data/MOT17/train").is_dir(),
+    reason="MOT17 train data not available",
 )
 def test_mot17_ablation_split_resolves_to_train_with_seq_pattern(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
@@ -374,18 +374,18 @@ def test_mot17_ablation_split_resolves_to_train_with_seq_pattern(monkeypatch):
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "mot17"
     assert args.split == "ablation"
-    # When the base dir exists, a filtered split dir is built with symlinks
+    # ablation is built from the second half of train (frame_split: val-half)
     assert args.source == Path("boxmot/engine/eval/trackeval/data/MOT17/ablation")
     assert args.seq_pattern == "*-FRCNN"
-    # Verify the symlink dir only contains FRCNN sequences
+    # Verify the dir only contains FRCNN sequences
     seq_names = [p.name for p in args.source.iterdir() if p.is_dir()]
     assert all(name.endswith("-FRCNN") for name in seq_names)
     assert len(seq_names) == 7
 
 
 @pytest.mark.skipif(
-    not Path("boxmot/engine/eval/trackeval/data/MOT17/val").is_dir(),
-    reason="MOT17 val data not available",
+    not Path("boxmot/engine/eval/trackeval/data/MOT17/train").is_dir(),
+    reason="MOT17 train data not available",
 )
 def test_mot17_ablation_split_respects_cli_detection_source(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)

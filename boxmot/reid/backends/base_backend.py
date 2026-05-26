@@ -86,22 +86,27 @@ class BaseModelBackend:
 
     @staticmethod
     def _crop_obb(box: np.ndarray, img: np.ndarray) -> np.ndarray:
-        """Extract a rectified crop from an oriented box `[cx, cy, w, h, angle]`."""
+        """Extract a rectified crop from an oriented box `[cx, cy, w, h, angle]`.
+
+        Uses affine rotation (faster than perspective warp) since OBBs are
+        true rotated rectangles.
+        """
         box = np.asarray(box, dtype=np.float32).reshape(-1)
         cx, cy, bw, bh, angle = box[:5]
         bw = max(float(bw), 1.0)
         bh = max(float(bh), 1.0)
-        rect = ((float(cx), float(cy)), (bw, bh), float(np.degrees(angle)))
-        src = BaseModelBackend._order_corners(cv2.boxPoints(rect))
-        dst = np.array(
-            [[0, 0], [bw - 1, 0], [bw - 1, bh - 1], [0, bh - 1]],
-            dtype=np.float32,
-        )
-        matrix = cv2.getPerspectiveTransform(src, dst)
-        return cv2.warpPerspective(
-            img,
-            matrix,
-            (max(int(round(bw)), 1), max(int(round(bh)), 1)),
+        out_w, out_h = max(int(round(bw)), 1), max(int(round(bh)), 1)
+
+        # Rotation matrix that rotates around (cx, cy) by -angle, then translates
+        # so the box center lands at (out_w/2, out_h/2)
+        angle_deg = float(np.degrees(angle))
+        M = cv2.getRotationMatrix2D((float(cx), float(cy)), angle_deg, 1.0)
+        # Shift so center maps to output center
+        M[0, 2] += out_w / 2.0 - float(cx)
+        M[1, 2] += out_h / 2.0 - float(cy)
+
+        return cv2.warpAffine(
+            img, M, (out_w, out_h),
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=(0, 0, 0),

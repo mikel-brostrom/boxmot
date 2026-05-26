@@ -27,7 +27,8 @@ Reference material:
         from boxmot import Boxmot
 
         result = Boxmot(tracker="bytetrack").research(
-            benchmark="mot17-ablation",
+            benchmark="mot17",
+            split="ablation",
             proposal_model="openai/gpt-5.4",
             max_metric_calls=24,
         )

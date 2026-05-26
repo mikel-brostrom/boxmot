@@ -1,18 +1,14 @@
 id: mot17
 
 path: "boxmot/engine/eval/trackeval/data/MOT17"
-dets_n_embs: "runs/dets_n_embs/mot17/test"
 split: "test"
 train: "train"
 val: "val"
 test: "test"
 
 splits:
-  # Standard MOT17 ablation: FRCNN sequences from the val split (ByteTrack protocol)
-  # The download tool provides train and val as separate folders.
-  # Use --detection-source public to read det/det.txt instead of running a detector
   ablation:
-    path: "val"
+    path: "ablation"
     seq_pattern: "*-FRCNN"
 
 layout: mot
@@ -33,5 +29,5 @@ distractors:
 class_map: {}
 
 download:
-  dataset: ""
+  dataset: "hf://Lekim89/MOT17"
   runs: ""

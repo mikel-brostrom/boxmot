@@ -28,7 +28,7 @@ Use `generate` to precompute detections and embeddings that can be reused by lat
         ```python
         from boxmot import Boxmot
 
-        benchmark_cache = Boxmot().generate(benchmark="mot17-ablation")
+        benchmark_cache = Boxmot().generate(benchmark="mot17", split="ablation")
         print(benchmark_cache.cache_dir)
 
         direct_cache = Boxmot(

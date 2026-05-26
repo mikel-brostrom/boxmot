@@ -35,6 +35,86 @@ def iou_obb_pair(i, j, bboxes1, bboxes2):
     return intersection_area / union_area if union_area > 0 else 0.0
 
 
+def _iou_obb_matrix(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
+    """Compute NxM rotated IoU matrix using vectorized AABB pre-filtering.
+
+    Steps:
+    1. Compute enclosing axis-aligned bounding boxes for all OBBs (vectorized).
+    2. Compute AABB overlap mask to identify candidate pairs (vectorized).
+    3. Only call cv.rotatedRectangleIntersection for overlapping candidates.
+
+    This skips the majority of pairs (typically >80%) that have zero IoU.
+    """
+    N, M = len(bboxes1), len(bboxes2)
+    if N == 0 or M == 0:
+        return np.zeros((N, M), dtype=np.float64)
+
+    # -- Vectorized enclosing AABB computation --
+    # For a rotated rect (cx, cy, w, h, angle), the enclosing AABB half-extents are:
+    #   ex = |w/2 * cos(a)| + |h/2 * sin(a)|
+    #   ey = |w/2 * sin(a)| + |h/2 * cos(a)|
+    cx1, cy1 = bboxes1[:, 0], bboxes1[:, 1]
+    hw1, hh1 = bboxes1[:, 2] / 2, bboxes1[:, 3] / 2
+    cos1, sin1 = np.abs(np.cos(bboxes1[:, 4])), np.abs(np.sin(bboxes1[:, 4]))
+    ex1 = hw1 * cos1 + hh1 * sin1
+    ey1 = hw1 * sin1 + hh1 * cos1
+
+    cx2, cy2 = bboxes2[:, 0], bboxes2[:, 1]
+    hw2, hh2 = bboxes2[:, 2] / 2, bboxes2[:, 3] / 2
+    cos2, sin2 = np.abs(np.cos(bboxes2[:, 4])), np.abs(np.sin(bboxes2[:, 4]))
+    ex2 = hw2 * cos2 + hh2 * sin2
+    ey2 = hw2 * sin2 + hh2 * cos2
+
+    # AABB bounds: (cx - ex, cy - ey, cx + ex, cy + ey)
+    # Vectorized overlap check for all NxM pairs using broadcasting
+    # Separating axis: no overlap if gap_x > 0 or gap_y > 0
+    # gap_x = |cx1[i] - cx2[j]| - (ex1[i] + ex2[j])
+    dx = np.abs(cx1[:, None] - cx2[None, :])  # (N, M)
+    dy = np.abs(cy1[:, None] - cy2[None, :])  # (N, M)
+    sum_ex = ex1[:, None] + ex2[None, :]       # (N, M)
+    sum_ey = ey1[:, None] + ey2[None, :]       # (N, M)
+
+    # Candidate mask: AABBs overlap
+    candidates = (dx < sum_ex) & (dy < sum_ey)
+
+    # -- Compute rotated IoU only for candidate pairs --
+    cand_i, cand_j = np.nonzero(candidates)
+    if len(cand_i) == 0:
+        return np.zeros((N, M), dtype=np.float64)
+
+    # Pre-compute OpenCV rotated rect tuples and areas
+    areas1 = bboxes1[:, 2] * bboxes1[:, 3]
+    areas2 = bboxes2[:, 2] * bboxes2[:, 3]
+    angles1_deg = np.degrees(bboxes1[:, 4])
+    angles2_deg = np.degrees(bboxes2[:, 4])
+
+    rects1 = [
+        ((float(cx1[i]), float(cy1[i])),
+         (float(bboxes1[i, 2]), float(bboxes1[i, 3])),
+         float(angles1_deg[i]))
+        for i in range(N)
+    ]
+    rects2 = [
+        ((float(cx2[j]), float(cy2[j])),
+         (float(bboxes2[j, 2]), float(bboxes2[j, 3])),
+         float(angles2_deg[j]))
+        for j in range(M)
+    ]
+
+    iou_matrix = np.zeros((N, M), dtype=np.float64)
+    for idx in range(len(cand_i)):
+        i, j = int(cand_i[idx]), int(cand_j[idx])
+        ret, intersect = cv.rotatedRectangleIntersection(rects1[i], rects2[j])
+        if ret == 0 or intersect is None:
+            continue
+        inter_area = cv.contourArea(intersect)
+        union = areas1[i] + areas2[j] - inter_area
+        if union > 0:
+            iou_matrix[i, j] = inter_area / union
+
+    return iou_matrix
+
+
 class AssociationFunction:
     def __init__(self, w, h, asso_mode="iou"):
         """
@@ -71,15 +151,7 @@ class AssociationFunction:
 
     @staticmethod
     def iou_batch_obb(bboxes1, bboxes2) -> np.ndarray:
-        N, M = len(bboxes1), len(bboxes2)
-        if N == 0 or M == 0:
-            return np.zeros((N, M), dtype=np.float64)
-
-        def wrapper(i, j):
-            return iou_obb_pair(i, j, bboxes1, bboxes2)
-
-        iou_matrix = np.fromfunction(np.vectorize(wrapper), shape=(N, M), dtype=int)
-        return iou_matrix
+        return _iou_obb_matrix(np.asarray(bboxes1, dtype=float), np.asarray(bboxes2, dtype=float))
 
     @staticmethod
     def hmiou_batch(bboxes1, bboxes2):
