@@ -17,12 +17,14 @@ from boxmot.utils.rich.ui import StepState
 
 # ── Atomic step labels ──────────────────────────────────────────────────
 
-SETUP    = "Set up"
-GENERATE = "Generate detections and embeddings"
-TRACK    = "Run tracker"
-EVALUATE = "Evaluate results"
-EXPORT   = "Export to formats"
-OPTIMIZE = "Optimize trials"
+SETUP       = "Set up"
+GENERATE    = "Generate detections and embeddings"
+TUNE_KF     = "Tune Kalman filter"
+TRACK       = "Run tracker"
+POSTPROCESS = "Postprocess tracks"
+EVALUATE    = "Evaluate results"
+EXPORT      = "Export to formats"
+OPTIMIZE    = "Optimize trials"
 
 # Research-specific (no shared overlap with other modes)
 PREPARE            = "Prepare workspace"
@@ -49,3 +51,15 @@ EVAL_STEPS     = compose(SETUP, GENERATE, TRACK, EVALUATE)
 EXPORT_STEPS   = compose(SETUP, EXPORT)
 TUNE_STEPS     = compose(SETUP, GENERATE, OPTIMIZE)
 RESEARCH_STEPS = compose(PREPARE, BASELINE, RESEARCH_OPTIMIZE, BEST_CANDIDATE)
+
+
+def eval_steps(*, tune_kf: bool = False, postprocess: bool = False) -> tuple[tuple[str, StepState], ...]:
+    """Build eval pipeline steps, including optional stages only when enabled."""
+    labels = [SETUP, GENERATE]
+    if tune_kf:
+        labels.append(TUNE_KF)
+    labels.append(TRACK)
+    if postprocess:
+        labels.append(POSTPROCESS)
+    labels.append(EVALUATE)
+    return compose(*labels)

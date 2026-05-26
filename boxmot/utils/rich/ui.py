@@ -40,7 +40,9 @@ STEP_DONE_MARKER = "[✓]"
 _STEP_LABELS = {
     "Set up": "Setup",
     "Generate detections and embeddings": "Generate",
+    "Tune Kalman filter": "Tune KF",
     "Run tracker": "Track",
+    "Postprocess tracks": "Postprocess",
     "Evaluate results": "Evaluate",
     "Export to formats": "Export",
     "Optimize trials": "Optimize",

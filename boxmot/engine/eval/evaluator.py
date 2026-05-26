@@ -409,6 +409,8 @@ def run_eval(
     # -- KF Tuning (optional) --
     tune_kf = getattr(args, "tune_kf", False)
     if tune_kf:
+        if pipeline is not None:
+            pipeline.advance("Tuning KF noise...")
         kf_type = _tracker_kf_type(str(getattr(args, "tracker", "")))
         if kf_type:
             kf_result = _run_kf_tuning(args, kf_type=kf_type, verbose=verbose)
@@ -422,7 +424,9 @@ def run_eval(
     if pipeline is not None:
         pipeline.advance("Starting tracker...")
 
-    # -- Track --
+    # -- Track + Postprocess --
+    pp_raw = getattr(args, "postprocessing", "none")
+    has_postprocess = pp_raw.strip().lower() not in ("none", "")
     with suppress_boxmot_logs(suppress, level="WARNING"):
         run_generate_mot_results(
             args,
@@ -431,6 +435,8 @@ def run_eval(
             quiet=not bool(show_progress),
             progress_callback=pipeline.callback() if pipeline and show_progress else None,
         )
+    if has_postprocess and pipeline is not None:
+        pipeline.advance("Postprocessing tracks...")
     if pipeline is not None:
         pipeline.advance("Computing metrics...")
 

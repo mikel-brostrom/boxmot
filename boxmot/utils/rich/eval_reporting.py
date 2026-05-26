@@ -13,6 +13,7 @@ from boxmot.trackers.tracker_zoo import get_tracker_config
 from boxmot.utils.rich.reporting import RichWorkflowReporter, format_param_label
 from boxmot.utils.rich.steps import (
     EVAL_STEPS,
+    eval_steps,
 )
 from boxmot.utils.rich.steps import (
     EVALUATE as EVAL_EVALUATE_STEP,
@@ -186,6 +187,13 @@ class EvalWorkflowReporter(RichWorkflowReporter):
     TRACK = 2
     EVALUATE = 3
     steps = EVAL_STEPS
+
+    def __init__(self, args: Any) -> None:
+        super().__init__(args)
+        tune_kf = bool(getattr(args, "tune_kf", False))
+        pp_raw = getattr(args, "postprocessing", "none") or "none"
+        has_postprocess = pp_raw.strip().lower() not in ("none", "")
+        self.steps = eval_steps(tune_kf=tune_kf, postprocess=has_postprocess)
 
     def fields(self) -> list[tuple[str, object]]:
         return _build_eval_workflow_fields(self.args)

@@ -85,8 +85,10 @@ class BaseTracker(VisualizationMixin):
         # Initialize per-class active tracks
         if self.per_class:
             self.per_class_active_tracks = {}
+            self.per_class_trackers = {}
             for i in range(self.nr_classes):
                 self.per_class_active_tracks[i] = []
+                self.per_class_trackers[i] = []
 
         if self.max_age >= self.max_obs:
             LOGGER.warning(
@@ -234,6 +236,8 @@ class BaseTracker(VisualizationMixin):
 
             # Activate the specific active tracks for this class id
             self.active_tracks = self.per_class_active_tracks[cls_id]
+            if hasattr(self, "trackers"):
+                self.trackers = self.per_class_trackers[cls_id]
 
             # Reset frame count for every class
             self.frame_count = frame_count
@@ -247,6 +251,8 @@ class BaseTracker(VisualizationMixin):
 
             # Save the updated active tracks
             self.per_class_active_tracks[cls_id] = self.active_tracks
+            if hasattr(self, "trackers"):
+                self.per_class_trackers[cls_id] = self.trackers
 
             if tracks.size > 0:
                 per_class_tracks.append(tracks)
