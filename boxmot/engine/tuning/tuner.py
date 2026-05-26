@@ -846,6 +846,7 @@ def _execute_tune_search(
             tuner = tune.Tuner.restore(
                 restore_path_str,
                 trainable=trainable,
+                param_space=search_space,
                 resume_errored=True,
             )
             # Pre-seed the callback with previously completed trials so the
