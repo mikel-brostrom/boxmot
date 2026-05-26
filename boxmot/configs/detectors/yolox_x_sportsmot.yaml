@@ -1,6 +1,6 @@
 id: yolox_x_sportsmot
 model: "models/yolox_x_sportsmot.pt"
-url: "https://drive.google.com/uc?id=1834kh10-X0Tu743fgmN7jXPVDKgq4ZqR"
+url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_sportsmot.pt"
 imgsz: [800, 1440]
 conf: 0.01
 classes:
