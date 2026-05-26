@@ -155,31 +155,35 @@ def _apply_kf_tuning_to_runtime(kf_tuning: dict) -> None:
         from boxmot.motion.kalman_filters.xyhr import ConstantNoiseXYHR
         Q = kf_tuning.get("Q")
         R = kf_tuning.get("R")
+        Q_vel_diag = kf_tuning.get("Q_vel_diag")
         if Q is not None:
             _original_get_q = ConstantNoiseXYHR.get_q
             _raw_q = np.asarray(Q, dtype=float)
-            # Extract position-block diagonal and build a structurally sound Q.
-            # The method-of-moments estimate can produce degenerate matrices
-            # (identical position/velocity blocks) that destroy the filter's
-            # constant-velocity assumption.  We keep velocity noise at 1% of
-            # position noise (matching the default ratio).
+            # Extract position-block diagonal from method-of-moments Q.
             _tuned_q_pos_diag = np.abs(np.diag(_raw_q)[:_raw_q.shape[0] // 2])
+            # Velocity noise: use acceleration-based estimate if available,
+            # otherwise fall back to 1% of position noise (default ratio).
+            if Q_vel_diag is not None:
+                _tuned_q_vel_diag = np.abs(np.asarray(Q_vel_diag, dtype=float))
+            else:
+                _tuned_q_vel_diag = _tuned_q_pos_diag * 0.01
 
             def _tuned_get_q(self):
                 q = np.zeros((self.dim_x, self.dim_x), dtype=float)
                 n_pos = min(len(_tuned_q_pos_diag), self.dim_z)
+                n_vel = min(len(_tuned_q_vel_diag), self.dim_z)
                 # Position diagonal from estimation
                 for i in range(n_pos):
                     q[i, i] = _tuned_q_pos_diag[i]
-                # Velocity diagonal = position * 0.01 (default structure ratio)
-                for i in range(n_pos):
-                    q[self.dim_z + i, self.dim_z + i] = _tuned_q_pos_diag[i] * 0.01
+                # Velocity diagonal from GT accelerations
+                for i in range(n_vel):
+                    q[self.dim_z + i, self.dim_z + i] = _tuned_q_vel_diag[i]
                 # Fill remaining dims (e.g. theta in OBB) from default
                 if self.dim_x > 2 * n_pos:
                     q_default = _original_get_q(self)
                     for i in range(n_pos, self.dim_z):
                         q[i, i] = q_default[i, i]
-                    for i in range(n_pos, self.dim_x - self.dim_z):
+                    for i in range(max(n_pos, n_vel), self.dim_x - self.dim_z):
                         q[self.dim_z + i, self.dim_z + i] = q_default[self.dim_z + i, self.dim_z + i]
                 return q
 
