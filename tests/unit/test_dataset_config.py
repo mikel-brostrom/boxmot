@@ -213,7 +213,7 @@ def test_apply_benchmark_config_preserves_runtime_benchmark_name(monkeypatch):
     args = SimpleNamespace(data="dancetrack-ablation", source=None, split=None, split_explicit=False)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "dancetrack-ablation"
-    assert cfg["detector_config_id"] == "yolox_x_dancetrack_ablation"
+    assert cfg["detector_config_id"] == "yolox_x_dancetrack"
     assert cfg["reid_config_id"] == "lmbn_n_duke"
     assert args.benchmark_id == "dancetrack-ablation"
     assert args.dataset_id == "dancetrack-ablation"

@@ -157,23 +157,37 @@ def _apply_kf_tuning_to_runtime(kf_tuning: dict) -> None:
         R = kf_tuning.get("R")
         if Q is not None:
             _original_get_q = ConstantNoiseXYHR.get_q
+            _tuned_q = np.asarray(Q, dtype=float)
 
             def _tuned_get_q(self):
-                q = np.asarray(Q, dtype=float)
-                # Ensure shape matches dim_x
-                if q.shape[0] == self.dim_x:
-                    return q
+                # If tuned Q matches runtime dim_x, use directly
+                if _tuned_q.shape[0] == self.dim_x:
+                    return _tuned_q.copy()
+                # OBB runtime (dim_x=10) with AABB tuning (8×8): embed into
+                # larger matrix, using default noise for extra theta dims
+                if _tuned_q.shape[0] < self.dim_x:
+                    q_full = _original_get_q(self)
+                    n = _tuned_q.shape[0]
+                    q_full[:n, :n] = _tuned_q
+                    return q_full
                 return _original_get_q(self)
 
             ConstantNoiseXYHR.get_q = _tuned_get_q
         if R is not None:
             _original_get_r = ConstantNoiseXYHR.get_r
+            _tuned_r = np.asarray(R, dtype=float)
 
             def _tuned_get_r(self):
-                r = np.asarray(R, dtype=float)
-                # Ensure shape matches dim_z
-                if r.shape[0] == self.dim_z:
-                    return r
+                # If tuned R matches runtime dim_z, use directly
+                if _tuned_r.shape[0] == self.dim_z:
+                    return _tuned_r.copy()
+                # OBB runtime (dim_z=5) with AABB tuning (4×4): embed into
+                # larger matrix, using default noise for extra theta dim
+                if _tuned_r.shape[0] < self.dim_z:
+                    r_full = _original_get_r(self)
+                    n = _tuned_r.shape[0]
+                    r_full[:n, :n] = _tuned_r
+                    return r_full
                 return _original_get_r(self)
 
             ConstantNoiseXYHR.get_r = _tuned_get_r

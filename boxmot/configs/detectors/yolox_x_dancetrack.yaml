@@ -1,0 +1,7 @@
+id: yolox_x_dancetrack
+model: "models/yolox_x_dancetrack.pt"
+url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_dancetrack.pt"
+imgsz: [800, 1440]
+conf: 0.01
+classes:
+  0: person
