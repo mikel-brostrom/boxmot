@@ -40,9 +40,11 @@ from pathlib import Path
 
 # Setup paths
 current_dir = Path(__file__).resolve().parent
-repo_root = current_dir.parents[2]
-boxmot_dir = current_dir.parents[1]
-trackeval_dir = boxmot_dir / "engine" / "trackeval"
+# current_dir = boxmot/engine/eval/metrics
+# repo root is 4 levels up: metrics → eval → engine → boxmot(pkg) → boxmot(repo)
+repo_root = current_dir.parents[3]
+# Vendored trackeval lives at boxmot/engine/trackeval (sibling of eval/)
+trackeval_dir = current_dir.parents[1] / "trackeval"
 
 sys.path.insert(0, str(repo_root))
 # Add trackeval to sys.path
@@ -50,7 +52,7 @@ sys.path.insert(0, str(trackeval_dir))
 
 import trackeval  # noqa: E402
 
-from boxmot.utils.evaluation.custom_mot_challenge_2d_box import CustomMotChallenge2DBox
+from boxmot.engine.eval.metrics.custom_mot_challenge_2d_box import CustomMotChallenge2DBox
 
 if __name__ == '__main__':
     freeze_support()

@@ -32,7 +32,7 @@ CLI_RESULTS_SUMMARY_TITLE = "📊 RESULTS SUMMARY"
 CLI_TUNE_BEST_SUMMARY_TITLE = "📊 BEST TRIAL SUMMARY"
 
 def extract_summary(raw_results: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    results_module = import_module("boxmot.utils.evaluation.results")
+    results_module = import_module("boxmot.engine.eval.metrics.results")
     label, metrics = results_module._select_plot_metrics_data(raw_results)
     if not metrics and raw_results:
         first_value = next(iter(raw_results.values()), {})
@@ -195,7 +195,7 @@ def build_validation_cli_renderable(
     compare_raw: dict[str, Any] | None = None,
     compare_args: Any = None,
 ) -> RenderableType:
-    results_module = import_module("boxmot.utils.evaluation.results")
+    results_module = import_module("boxmot.engine.eval.metrics.results")
     cfg = results_module._load_report_cfg_from_args(args)
     parsed_results = results_module.normalize_report_results(raw, args, cfg)
     if not parsed_results:
@@ -330,7 +330,7 @@ def format_validation_report(
     title: str | None = None,
     include_sequences: bool = True,
 ) -> str:
-    results_module = import_module("boxmot.utils.evaluation.results")
+    results_module = import_module("boxmot.engine.eval.metrics.results")
     cfg = results_module._load_report_cfg_from_args(args)
     parsed_results = results_module.normalize_report_results(raw, args, cfg)
     if not parsed_results:
@@ -382,7 +382,7 @@ def render_validation_cli_report(
     if colorize is None:
         colorize = supports_ansi_color(sys_module=sys_module, environ=environ)
 
-    results_module = import_module("boxmot.utils.evaluation.results")
+    results_module = import_module("boxmot.engine.eval.metrics.results")
     cfg = results_module._load_report_cfg_from_args(args)
     parsed_results = results_module.normalize_report_results(raw, args, cfg)
     if not parsed_results:

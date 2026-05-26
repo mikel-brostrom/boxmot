@@ -24,7 +24,7 @@ from boxmot.engine.workflows.support import (
 from boxmot.trackers.track_results import TrackResults
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.utils.misc import suppress_boxmot_logs
-from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
+from boxmot.engine.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
 from boxmot.utils.rich.pipeline import PipelineTracker
 from boxmot.utils.rich.reporting import primary_model_ref as _primary_model_ref
 from boxmot.utils.rich.track_reporting import (

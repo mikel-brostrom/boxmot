@@ -57,8 +57,12 @@ class BaseKalmanFilter:
         self.H = self._update_mat.copy()
 
         # Motion and observation uncertainty weights.
-        self._std_weight_position = 1.0 / 20
-        self._std_weight_velocity = 1.0 / 160
+        self._std_weight_position = getattr(
+            type(self), '_tuned_std_weight_position', 1.0 / 20
+        )
+        self._std_weight_velocity = getattr(
+            type(self), '_tuned_std_weight_velocity', 1.0 / 160
+        )
 
         # Stateful Kalman filter members used by matrix-based subclasses.
         self.x = np.zeros((self.dim_x, 1))

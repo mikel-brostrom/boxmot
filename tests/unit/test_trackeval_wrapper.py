@@ -4,7 +4,7 @@ import importlib
 from argparse import Namespace
 
 
-trackeval_module = importlib.import_module("boxmot.utils.evaluation.trackeval")
+trackeval_module = importlib.import_module("boxmot.engine.eval.metrics.trackeval")
 
 
 _RESOURCE_TRACKER_STDERR = """/Users/test/.local/share/uv/python/cpython-3.12.10/lib/python3.12/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 6 leaked semaphore objects to clean up at shutdown

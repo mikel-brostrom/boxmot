@@ -32,7 +32,7 @@ from boxmot.detectors import default_imgsz
 from boxmot.engine.tracking.inference import DetectorReIDPipeline, prepare_detections
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.benchmark_config import (
+from boxmot.configs.benchmark import (
     ensure_benchmark_detector_model,
     ensure_benchmark_reid_model,
     should_use_benchmark_detector,
@@ -1141,7 +1141,7 @@ def run_generate_dets_embs(
     verbose = bool(getattr(args, "verbose", False))
 
     if getattr(args, "data", None) and getattr(args, "source", None) is None:
-        from boxmot.utils.benchmark_config import apply_benchmark_config
+        from boxmot.configs.benchmark import apply_benchmark_config
 
         apply_benchmark_config(args, overwrite=False)
 

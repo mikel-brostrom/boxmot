@@ -9,7 +9,7 @@ import numpy as np
 from boxmot.detectors import default_conf, default_imgsz, get_runtime_detector_cfg
 from boxmot.utils import TRACKEVAL
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.benchmark_config import (
+from boxmot.configs.benchmark import (
     apply_benchmark_config,
     apply_reid_runtime_defaults,
     ensure_benchmark_detector_model,

@@ -12,7 +12,7 @@ from boxmot.data import iter_source
 from boxmot.detectors.base import Detections
 from boxmot.trackers.track_results import TrackResults
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
+from boxmot.engine.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
 from boxmot.utils.rich.ui import print_text
 from boxmot.utils.timing import build_timing_display_rows, derive_timing_breakdown
 

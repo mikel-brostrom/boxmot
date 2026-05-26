@@ -27,7 +27,7 @@ from boxmot.data.dataset import _collect_seq_info
 from boxmot.native._common import set_build_status_fn
 from boxmot.utils import ROOT
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.benchmark_config import (
+from boxmot.configs.benchmark import (
     apply_benchmark_config,
     resolve_required_reid_model,
     resolve_required_yolo_model,
@@ -104,7 +104,7 @@ from pathlib import Path
 
 from boxmot.configs import build_mode_namespace
 from boxmot.engine.eval.evaluator import eval_setup, run_generate_dets_embs, run_generate_mot_results, run_trackeval
-from boxmot.utils.evaluation.results import build_trackeval_feedback
+from boxmot.engine.eval.metrics.results import build_trackeval_feedback
 
 payload = json.loads(Path(sys.argv[1]).read_text())
 

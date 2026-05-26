@@ -19,7 +19,7 @@ from boxmot.configs import (
     BOXMOT_DEFAULTS,
     build_mode_namespace,
 )
-from boxmot.utils.benchmark_config import resolve_benchmark_cfg_path
+from boxmot.configs.benchmark import resolve_benchmark_cfg_path
 from boxmot.utils.misc import parse_imgsz
 
 RUNTIME_DEFAULTS = BOXMOT_DEFAULTS.eval
@@ -644,8 +644,12 @@ def generate(ctx, data, detector, reid, classes, split, detection_source, **kwar
 @tracker_backend_option
 @core_options
 @plural_model_options
+@click.option('--tune-kf/--no-tune-kf', 'tune_kf', default=False,
+              help='Run KF noise tuning (Q/R estimation) before tracking. '
+              'Automatically selects parameterization based on the tracker. '
+              'Requires cached dets and GT.')
 @click.pass_context
-def eval(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
+def eval(ctx, data, detector, reid, classes, split, detection_source, tune_kf, **kwargs):
     data = _require_benchmark_input(data, "eval")
     _dispatch_cli_workflow(
         ctx,
@@ -661,6 +665,7 @@ def eval(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
             "benchmark": "",
             "split": split or "",
             "detection_source": detection_source,
+            "tune_kf": tune_kf,
         },
     )
 

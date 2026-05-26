@@ -18,7 +18,7 @@ from boxmot.data.benchmark import (
 )
 from boxmot.utils import NUM_THREADS, ROOT
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.benchmark_config import load_benchmark_cfg
+from boxmot.configs.benchmark import load_benchmark_cfg
 
 _RESOURCE_TRACKER_STDERR_PATTERNS = (
     "resource_tracker",
@@ -181,7 +181,7 @@ def trackeval(
 
     cmd_args = [
         sys.executable,
-        ROOT / "boxmot" / "utils" / "evaluation" / "run_mot_challenge.py",
+        ROOT / "boxmot" / "engine" / "eval" / "metrics" / "run_mot_challenge.py",
         "--GT_FOLDER",
         str(gt_folder),
         "--BENCHMARK",
@@ -360,7 +360,7 @@ def trackeval_obb(
     cmd_args = [
         sys.executable,
         "-m",
-        "boxmot.utils.evaluation.run_mmot_rgb",
+        "boxmot.engine.eval.metrics.run_mmot_rgb",
         "--GT_FOLDER",
         str(gt_bridge),
         "--IMG_FOLDER",

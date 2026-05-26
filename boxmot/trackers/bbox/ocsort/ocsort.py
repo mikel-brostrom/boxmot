@@ -11,8 +11,8 @@ import numpy as np
 
 from boxmot.motion.kalman_filters.xysr import KalmanFilterXYSR
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils.association import associate, linear_assignment
-from boxmot.utils.ops import xyxy2xysr
+from boxmot.trackers.association import associate, linear_assignment
+from boxmot.trackers.ops import xyxy2xysr
 
 
 def k_previous_obs(observations, cur_age, k, is_obb=False):

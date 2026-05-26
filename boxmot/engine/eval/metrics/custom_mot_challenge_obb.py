@@ -9,7 +9,7 @@ from trackeval import _timing, utils
 from trackeval.datasets._base_dataset import _BaseDataset
 from trackeval.utils import TrackEvalException
 
-from boxmot.utils.evaluation.custom_mot_challenge_base import CustomMotChallengeBase
+from boxmot.engine.eval.metrics.custom_mot_challenge_base import CustomMotChallengeBase
 
 DEFAULT_OBB_CLASS_NAME_TO_ID = {
     "car": 0,

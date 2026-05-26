@@ -17,7 +17,7 @@ sys.path.insert(0, str(trackeval_dir))
 
 import trackeval  # noqa: E402
 
-from boxmot.utils.evaluation.custom_mot_challenge_obb import CustomMotChallengeOBB
+from boxmot.engine.eval.metrics.custom_mot_challenge_obb import CustomMotChallengeOBB
 
 if __name__ == "__main__":
     freeze_support()

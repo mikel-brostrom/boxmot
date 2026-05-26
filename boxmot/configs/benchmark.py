@@ -121,7 +121,7 @@ def _build_filtered_split(
         if split_dir.is_dir() and any(split_dir.iterdir()):
             return split_dir
         split_dir.mkdir(parents=True, exist_ok=True)
-        from boxmot.utils.mot_utils import _build_val_half_split
+        from boxmot.engine.mot_utils import _build_val_half_split
         _build_val_half_split(wanted, split_dir)
     else:
         # Symlink mode — lightweight, no frame trimming

@@ -21,7 +21,7 @@ from boxmot.trackers.specs import normalize_tracker_backend
 from boxmot.utils import configure_logging as _base_configure_logging
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.misc import increment_path
-from boxmot.utils.mot_utils import write_mot_results
+from boxmot.engine.mot_utils import write_mot_results
 from boxmot.utils.rich.ui import print_text
 from boxmot.utils.timing import TimingStats
 from boxmot.utils.torch_utils import select_device
@@ -107,6 +107,7 @@ def _build_task_args(
     from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
     preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
     masks_dir = getattr(args, "masks_dir", None)
+    kf_tuning = getattr(args, "kf_tuning", None)
     return [
         (
             seq_name,
@@ -123,10 +124,62 @@ def _build_task_args(
             preprocess_name,
             getattr(args, "split", None),
             masks_dir,
+            kf_tuning,
             progress_queue,
         )
         for seq_name in sequence_names
     ]
+
+
+def _apply_kf_tuning_to_runtime(kf_tuning: dict) -> None:
+    """Apply tuned KF noise weights to the appropriate Kalman filter class.
+
+    This patches class-level defaults so all new KF instances in this process
+    use the tuned values.
+    """
+    kf_type = kf_tuning.get("kf_type")
+    std_pos = kf_tuning.get("std_weight_position")
+    std_vel = kf_tuning.get("std_weight_velocity")
+
+    if kf_type in ("xywh", "xyah", "xysr"):
+        from boxmot.motion.kalman_filters.base import BaseKalmanFilter
+        if std_pos is not None:
+            BaseKalmanFilter._tuned_std_weight_position = std_pos
+        if std_vel is not None:
+            BaseKalmanFilter._tuned_std_weight_velocity = std_vel
+        LOGGER.info(
+            f"KF tuning applied to BaseKalmanFilter: "
+            f"_std_weight_position={std_pos}, _std_weight_velocity={std_vel}"
+        )
+    elif kf_type == "xyhr":
+        from boxmot.motion.kalman_filters.xyhr import ConstantNoiseXYHR
+        Q = kf_tuning.get("Q")
+        R = kf_tuning.get("R")
+        if Q is not None:
+            _original_get_q = ConstantNoiseXYHR.get_q
+
+            def _tuned_get_q(self):
+                q = np.asarray(Q, dtype=float)
+                # Ensure shape matches dim_x
+                if q.shape[0] == self.dim_x:
+                    return q
+                return _original_get_q(self)
+
+            ConstantNoiseXYHR.get_q = _tuned_get_q
+        if R is not None:
+            _original_get_r = ConstantNoiseXYHR.get_r
+
+            def _tuned_get_r(self):
+                r = np.asarray(R, dtype=float)
+                # Ensure shape matches dim_z
+                if r.shape[0] == self.dim_z:
+                    return r
+                return _original_get_r(self)
+
+            ConstantNoiseXYHR.get_r = _tuned_get_r
+        LOGGER.info(
+            f"KF tuning applied to ConstantNoiseXYHR: Q/R matrices overridden"
+        )
 
 
 def process_sequence(
@@ -144,6 +197,7 @@ def process_sequence(
     preprocess_name: Optional[str] = None,
     split: Optional[str] = None,
     masks_dir: Optional[str] = None,
+    kf_tuning: dict | None = None,
     progress_queue=None,
 ):
     """Run a tracker over cached detections and embeddings for one sequence."""
@@ -169,6 +223,14 @@ def process_sequence(
         timing_stats=timing_stats,
     )
 
+    # Apply KF tuning if provided
+    if kf_tuning:
+        _apply_kf_tuning_to_runtime(kf_tuning)
+
+    # Trackers with camera motion compensation need real image data
+    tracker_obj = tracker_runtime.tracker
+    needs_images = hasattr(tracker_obj, "cmc") and tracker_obj.cmc is not None
+
     det_emb_root = Path(project_root) / "dets_n_embs"
     if dataset_name:
         det_emb_root = det_emb_root / dataset_name
@@ -187,7 +249,7 @@ def process_sequence(
         seq_name,
         show_progress=False,
         progress_queue=progress_queue,
-        skip_image_load=True,
+        skip_image_load=not needs_images,
     )
 
     all_tracks = []

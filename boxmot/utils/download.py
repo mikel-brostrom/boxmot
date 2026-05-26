@@ -479,7 +479,7 @@ def _sync_trackeval_dataset_overlays(dest: Path) -> None:
     """Overlay the vendored TrackEval OBB dataset adapters with the tracked copies."""
     _patch_trackeval_numpy_aliases(dest)
 
-    source_dir = Path(__file__).resolve().parent / "evaluation"
+    source_dir = Path(__file__).resolve().parent.parent / "engine" / "eval" / "metrics"
     overlays = [
         (source_dir / "custom_mot_challenge_obb.py", dest / "trackeval" / "datasets" / "mmot_rgb.py"),
         (source_dir / "trackeval_datasets_init.py", dest / "trackeval" / "datasets" / "__init__.py"),

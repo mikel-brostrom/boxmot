@@ -3,9 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import boxmot.utils.benchmark_config as benchmark_config
+import boxmot.configs.benchmark as benchmark_config
 
-from boxmot.utils.benchmark_config import (
+from boxmot.configs.benchmark import (
     apply_benchmark_config,
     apply_reid_runtime_defaults,
     ensure_dataset_source_available,

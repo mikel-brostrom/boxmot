@@ -41,7 +41,7 @@ from boxmot.data.cache import (
     _saved_detection_column_count,
 )
 from boxmot.utils.iou import iou_obb_pair
-from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
+from boxmot.engine.mot_utils import convert_to_mot_format, write_mot_results
 from boxmot.utils import WEIGHTS
 
 _DUMMY_IMG = np.zeros((64, 64, 3), dtype=np.uint8)
@@ -919,7 +919,7 @@ def test_parse_mot_results_preserves_multiword_class_names():
 
 
 def test_build_trackeval_feedback_keeps_summary_and_per_sequence_metrics():
-    results_module = importlib.import_module("boxmot.utils.evaluation.results")
+    results_module = importlib.import_module("boxmot.engine.eval.metrics.results")
     raw = {
         "all": {
             "HOTA": 62.5,

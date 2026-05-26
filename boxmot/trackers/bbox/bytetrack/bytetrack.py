@@ -11,7 +11,7 @@ from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bbox.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
-from boxmot.utils.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
+from boxmot.trackers.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):
