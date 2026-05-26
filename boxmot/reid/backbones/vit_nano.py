@@ -44,7 +44,6 @@ import torch.nn.functional as F
 
 from boxmot.utils import logger as LOGGER
 
-
 # ---------------------------------------------------------------------------
 # Building blocks
 # ---------------------------------------------------------------------------

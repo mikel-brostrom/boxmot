@@ -320,7 +320,7 @@ class KalmanFilterNew_score_new(object):
         self.P_prior = self.P.copy()
 
         # these will always be a copy of x,P after update() is called
-        self.x_post = self.x.copy()             
+        self.x_post = self.x.copy()
         self.P_post = self.P.copy()
 
         # Only computed only if requested via property
@@ -328,7 +328,7 @@ class KalmanFilterNew_score_new(object):
         self._likelihood = sys.float_info.min
         self._mahalanobis = None
 
-        # keep all observations 
+        # keep all observations
         self.history_obs = []
 
         self.inv = np.linalg.inv
@@ -393,7 +393,7 @@ class KalmanFilterNew_score_new(object):
         if self.attr_saved is not None:
             new_history = deepcopy(self.history_obs)
             self.__dict__ = self.attr_saved
-            # self.history_obs = new_history 
+            # self.history_obs = new_history
             self.history_obs = self.history_obs[:-1]
             occur = [int(d is None) for d in new_history]
             indices = np.where(np.array(occur)==0)[0]
@@ -415,8 +415,8 @@ class KalmanFilterNew_score_new(object):
             h2 = np.sqrt(s2 / r2)
             time_gap = index2 - index1
             dx = (x2-x1)/time_gap
-            dy = (y2-y1)/time_gap 
-            dw = (w2-w1)/time_gap 
+            dy = (y2-y1)/time_gap
+            dw = (w2-w1)/time_gap
             dh = (h2-h1)/time_gap
             dc = (c2 - c1) / time_gap
             for i in range(index2 - index1):
@@ -425,11 +425,11 @@ class KalmanFilterNew_score_new(object):
                     motion (constant speed hypothesis), you could modify this 
                     part to implement your own. 
                 """
-                x = x1 + (i+1) * dx 
-                y = y1 + (i+1) * dy 
-                w = w1 + (i+1) * dw 
+                x = x1 + (i+1) * dx
+                y = y1 + (i+1) * dy
+                w = w1 + (i+1) * dw
                 h = h1 + (i+1) * dh
-                s = w * h 
+                s = w * h
                 r = w / (h + 1e-12)
                 c = c1 + (i+1) * dc
                 new_box = np.array([x, y, s, c, r], dtype=float).reshape((5, 1))
@@ -474,7 +474,7 @@ class KalmanFilterNew_score_new(object):
 
         # append the observation
         self.history_obs.append(z)
-        
+
         if z is None:
             if self.observed:
                 """
@@ -482,13 +482,13 @@ class KalmanFilterNew_score_new(object):
                     potential online smoothing.
                 """
                 self.freeze()
-            self.observed = False 
+            self.observed = False
             self.z = np.array([[None]*self.dim_z]).T
             self.x_post = self.x.copy()
             self.P_post = self.P.copy()
             self.y = zeros((self.dim_z, 1))
             return
-        
+
         # self.observed = True
         if not self.observed:
             """

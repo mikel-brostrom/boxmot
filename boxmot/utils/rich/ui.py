@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from io import StringIO
-import os
 from typing import Literal, Sequence
 
 from rich.console import Console, Group, RenderableType

@@ -14,7 +14,11 @@ import yaml
 from boxmot.native import _common
 from boxmot.native._common import (  # noqa: F401
     dets_n_embs_root,
+)
+from boxmot.native._common import (
     drain_native_stderr as _drain_native_stderr,
+)
+from boxmot.native._common import (
     parse_progress_line as _parse_progress_line,
 )
 from boxmot.trackers.tracker_zoo import get_tracker_config

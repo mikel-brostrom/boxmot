@@ -10,7 +10,6 @@ import numpy as np
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.ui import print_text
 
-
 DETECTOR_PHASES = ("preprocess", "process", "postprocess")
 REID_PHASES = ("preprocess", "process", "postprocess")
 
@@ -254,10 +253,10 @@ def build_timing_display_rows(
 
 class TimingStats:
     """Track timing statistics for detection, ReID, and tracking phases."""
-    
+
     def __init__(self):
         self.reset()
-    
+
     def reset(self):
         self.totals = {
             'preprocess': 0.0,
@@ -279,15 +278,15 @@ class TimingStats:
         self._frame_start = None
         self._track_start = None
         self._plot_start = None
-    
+
     def start_frame(self):
         """Mark the start of frame processing."""
         self._frame_start = time.perf_counter()
-    
+
     def start_tracking(self):
         """Mark the start of tracking phase."""
         self._track_start = time.perf_counter()
-    
+
     def end_tracking(self):
         """Mark the end of tracking phase and record time."""
         if self._track_start is not None:
@@ -295,29 +294,29 @@ class TimingStats:
             self.totals['track'] += elapsed
             self._last_track_time = elapsed
             self._track_start = None
-    
+
     def get_last_track_time(self):
         """Get the last tracking time in ms."""
         return getattr(self, '_last_track_time', 0)
-    
+
     def get_last_reid_time(self):
         """Get the last ReID time in ms (accumulated during last track update)."""
         return getattr(self, '_last_reid_time', 0)
-    
+
     def reset_frame_reid(self):
         """Reset per-frame ReID accumulator (call before each track update)."""
         self._last_reid_time = 0
-    
+
     def start_plot(self):
         """Mark the start of plotting phase."""
         self._plot_start = time.perf_counter()
-    
+
     def end_plot(self):
         """Mark the end of plotting phase and record time."""
         if self._plot_start is not None:
             self.totals['plot'] += (time.perf_counter() - self._plot_start) * 1000
             self._plot_start = None
-    
+
     def add_reid_time(self, time_ms):
         """Add ReID time in milliseconds."""
         self.totals['reid'] += time_ms
@@ -340,7 +339,7 @@ class TimingStats:
         elapsed_ms = float(time_ms or 0.0)
         self.totals[specific_key] += elapsed_ms
         self.add_reid_time(elapsed_ms)
-    
+
     def record_ultralytics_times(self, predictor):
         """Record timing from Ultralytics results."""
         # Ultralytics stores speed info in results[].speed dict
@@ -351,14 +350,14 @@ class TimingStats:
                     self.add_detector_phase_time('preprocess', result.speed.get('preprocess', 0) or 0)
                     self.add_detector_phase_time('process', result.speed.get('inference', 0) or 0)
                     self.add_detector_phase_time('postprocess', result.speed.get('postprocess', 0) or 0)
-    
+
     def end_frame(self):
         """Mark the end of frame processing."""
         if self._frame_start is not None:
             self.totals['total'] += (time.perf_counter() - self._frame_start) * 1000
             self.frames += 1
             self._frame_start = None
-    
+
     def format_summary(self) -> str:
         """Return a plain-text execution time summary table."""
         # Check if we have any data to display
@@ -457,15 +456,15 @@ class TimingStats:
 
 class TimedReIDWrapper:
     """Wrapper around ReID model to track timing."""
-    
+
     def __init__(self, model, timing_stats):
         self._model = model
         self._timing_stats = timing_stats
-    
+
     def get_features(self, *args, **kwargs):
         """Wrap get_features to measure timing."""
         return timed_reid_get_features(self._model, self._timing_stats, *args, **kwargs)
-    
+
     def __getattr__(self, name):
         """Forward all other attributes to the wrapped model."""
         return getattr(self._model, name)
@@ -482,14 +481,14 @@ def wrap_tracker_reid(tracker, timing_stats):
     # Different trackers store ReID model in different attributes
     reid_model = None
     reid_attr = None
-    
+
     if hasattr(tracker, 'model') and tracker.model is not None:
         reid_model = tracker.model
         reid_attr = 'model'
     elif hasattr(tracker, 'reid_model') and tracker.reid_model is not None:
         reid_model = tracker.reid_model
         reid_attr = 'reid_model'
-    
+
     if reid_model is not None and hasattr(reid_model, 'get_features'):
         wrapped = TimedReIDWrapper(reid_model, timing_stats)
         setattr(tracker, reid_attr, wrapped)

@@ -28,7 +28,7 @@ weights/*.engine
 weights/*.tflite
 
 # evaluation tools folder
-boxmot/engine/trackeval/
+boxmot/engine/eval/trackeval/
 
 # zip files
 *.zip

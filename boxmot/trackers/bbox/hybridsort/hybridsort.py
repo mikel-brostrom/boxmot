@@ -7,7 +7,6 @@ from __future__ import annotations
 # - update(dets, img, embs=None) signature compatible with BoxMOT trackers
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
 # - Safe with COCO 80 classes; preserves det_ind; guards out-of-range indices
-
 from collections import deque
 from typing import Any, List, Optional
 
@@ -15,11 +14,21 @@ import numpy as np
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.basetracker import BaseTracker
+
 # Keep your original association functions:
 from boxmot.trackers.bbox.hybridsort.association import (
-    associate_4_points_with_score, associate_4_points_with_score_with_reid,
-    cal_score_dif_batch_two_score, ciou_batch, ct_dist, diou_batch,
-    embedding_distance, giou_batch, hmiou, iou_batch, linear_assignment)
+    associate_4_points_with_score,
+    associate_4_points_with_score_with_reid,
+    cal_score_dif_batch_two_score,
+    ciou_batch,
+    ct_dist,
+    diou_batch,
+    embedding_distance,
+    giou_batch,
+    hmiou,
+    iou_batch,
+    linear_assignment,
+)
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -114,8 +123,7 @@ class KalmanBoxTracker(object):
         det_ind: int = -1,
     ):
         if use_custom_kf:
-            from .kalmanfilter_score_new import \
-                KalmanFilterNew_score_new as KalmanFilter_score_new
+            from .kalmanfilter_score_new import KalmanFilterNew_score_new as KalmanFilter_score_new
             self.kf = KalmanFilter_score_new(dim_x=9, dim_z=5)
             self.kf.F = np.array(
                 [

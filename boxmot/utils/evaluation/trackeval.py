@@ -10,16 +10,15 @@ from typing import Optional
 
 import numpy as np
 
-from boxmot.utils import NUM_THREADS, ROOT, logger as LOGGER
-from boxmot.utils.benchmark_config import load_benchmark_cfg
-
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     load_benchmark_cfg_from_args,
     resolve_obb_class_ids_to_eval,
     resolve_obb_classes_to_eval,
 )
-
+from boxmot.utils import NUM_THREADS, ROOT
+from boxmot.utils import logger as LOGGER
+from boxmot.utils.benchmark_config import load_benchmark_cfg
 
 _RESOURCE_TRACKER_STDERR_PATTERNS = (
     "resource_tracker",

@@ -7,7 +7,8 @@ from typing import Callable, Optional
 import numpy as np
 
 from boxmot.detectors import default_conf, default_imgsz, get_runtime_detector_cfg
-from boxmot.utils import TRACKEVAL, logger as LOGGER
+from boxmot.utils import TRACKEVAL
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.benchmark_config import (
     apply_benchmark_config,
     apply_reid_runtime_defaults,
@@ -24,7 +25,6 @@ from boxmot.utils.benchmark_config import (
 )
 from boxmot.utils.download import download_trackeval
 from boxmot.utils.misc import resolve_model_path
-
 
 COCO_CLASSES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",

@@ -1,6 +1,6 @@
 id: visdrone-ablation
 
-path: "boxmot/engine/trackeval/data/VisDrone2019-MOT-test-dev"
+path: "boxmot/engine/eval/trackeval/data/VisDrone2019-MOT-test-dev"
 split: "val"
 train:
 val: "sequences"

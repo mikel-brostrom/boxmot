@@ -5,8 +5,7 @@ from abc import ABC, abstractmethod
 import cv2 as cv
 import numpy as np
 
-from boxmot.trackers.detection_layout import (get_detection_layout,
-                                              infer_detection_layout)
+from boxmot.trackers.detection_layout import get_detection_layout, infer_detection_layout
 from boxmot.trackers.track_results import TrackResults
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.iou import AssociationFunction
@@ -110,7 +109,7 @@ class BaseTracker(VisualizationMixin):
                 'asso_func': asso_func,
             }
             # Filter out internal/non-config params
-            filtered_kwargs = {k: v for k, v in kwargs.items() 
+            filtered_kwargs = {k: v for k, v in kwargs.items()
                               if not k.startswith('_') and k not in ('__class__', 'reid_weights', 'device', 'half')}
             all_params = {**base_params, **filtered_kwargs}
             params_str = ", ".join(f"{k}={v}" for k, v in all_params.items())

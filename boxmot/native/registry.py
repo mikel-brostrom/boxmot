@@ -4,10 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from boxmot.utils.misc import dataclass_slots_kwargs
 
-
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class NativeReplayBackend:
     """Registered native replay backend for a tracker."""
 
@@ -17,7 +15,7 @@ class NativeReplayBackend:
     source_dir: Path
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class NativeLiveBackend:
     """Registered native live-tracking backend for a tracker."""
 

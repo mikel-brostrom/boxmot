@@ -71,9 +71,9 @@ from typing import Dict, Generator, List, Optional, Union
 
 import cv2
 import numpy as np
-from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 
 def _sequence_img_dir(seq_dir: Path) -> Path:
@@ -180,7 +180,7 @@ class MOTDataset:
                         legacy_dir = embs_root / stem / preprocess_name
                         if legacy_dir.exists():
                             self.embs_dir = legacy_dir
-                # Modern back-compat: caches written by ``boxmot.engine.cache``
+                # Modern back-compat: caches written by ``boxmot.engine.eval.cache``
                 # are bucketed under ``reid_cache_key`` (e.g.
                 # ``lmbn_n_duke_pt_pytorch_py``). When neither the raw
                 # ``<reid_name>`` nor the legacy stem directory is on disk, fall
@@ -188,8 +188,7 @@ class MOTDataset:
                 # written by a previous generate phase.
                 if not self.embs_dir.exists():
                     try:
-                        from boxmot.data.cache import (legacy_reid_cache_keys,
-                                                       reid_cache_key)
+                        from boxmot.data.cache import legacy_reid_cache_keys, reid_cache_key
                     except ImportError:
                         pass
                     else:

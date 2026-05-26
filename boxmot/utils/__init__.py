@@ -8,7 +8,6 @@ import threading
 from pathlib import Path
 
 import numpy as np
-
 from rich.logging import RichHandler
 
 from boxmot.utils.rich.ui import get_console

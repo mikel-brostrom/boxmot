@@ -8,15 +8,21 @@ from rich.table import Table
 from rich.text import Text
 
 import boxmot.utils.rich.ui as ui
-from boxmot.engine.workflow_reporting import (
+from boxmot.engine.workflows.reporting import (
     SUMMARY_COLUMNS,
     format_core_summary,
 )
 from boxmot.utils.rich.reporting import RichWorkflowCallback, RichWorkflowReporter, SilentProgressReporter
 from boxmot.utils.rich.steps import (
     GENERATE as TUNE_GENERATE_STEP,
+)
+from boxmot.utils.rich.steps import (
     OPTIMIZE as TUNE_OPTIMIZE_STEP,
+)
+from boxmot.utils.rich.steps import (
     SETUP as TUNE_SETUP_STEP,
+)
+from boxmot.utils.rich.steps import (
     TUNE_STEPS,
 )
 

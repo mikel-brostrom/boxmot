@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from boxmot.engine.export import _verify_export_parity, create_export_tasks
+from boxmot.engine.reid.export import _verify_export_parity, create_export_tasks
 from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
 from boxmot.utils.checks import RequirementsChecker
 

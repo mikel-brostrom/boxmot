@@ -1,6 +1,6 @@
 id: mot17
 
-path: "boxmot/engine/trackeval/data/MOT17"
+path: "boxmot/engine/eval/trackeval/data/MOT17"
 dets_n_embs: "runs/dets_n_embs/mot17/test"
 split: "test"
 train: "train"

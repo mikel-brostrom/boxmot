@@ -100,14 +100,14 @@ jobs:
         id: cache-restore
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/trackeval/data/MOT17-ablation.zip
+          path: boxmot/engine/eval/trackeval/data/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v4
 
       - name: Cache MOT17.zip if not already cached
         if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/trackeval/data/MOT17-ablation.zip
+          path: boxmot/engine/eval/trackeval/data/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v4
 
       - name: DOTA8-MOT OBB smoke tracking

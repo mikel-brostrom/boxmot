@@ -160,7 +160,7 @@ def main():
         front3 ['hover'] = make_hover(front3)
 
         fig = go.Figure()
-        
+
         # --- Identify the single best-HOTA trial -----------------------------
         best_idx  = df3[x_metric].idxmax()          # x_metric == "HOTA"
         best_row  = df3.loc[[best_idx]].copy()
@@ -189,7 +189,7 @@ def main():
             hoverinfo='text',
             hovertext=front3['hover']
         ))
-        
+
         # ★ Best HOTA trial (highlighted) ★
         fig.add_trace(go.Scatter3d(
             x=best_row[x_metric],

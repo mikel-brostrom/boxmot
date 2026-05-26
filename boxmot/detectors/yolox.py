@@ -12,7 +12,8 @@ from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
 from boxmot.detectors.base import BaseDetectorBackend, Detections
-from boxmot.utils import DETECTOR_CONFIGS, logger as LOGGER
+from boxmot.utils import DETECTOR_CONFIGS
+from boxmot.utils import logger as LOGGER
 
 # default model weights for generic YOLOX model names
 YOLOX_ZOO = {

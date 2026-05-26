@@ -39,7 +39,7 @@ BoxMOT gives you one CLI and one Python API for running modern multi-object trac
 
 ## Installation
 
-BoxMOT supports Python `3.9` through `3.12`.
+BoxMOT supports Python `3.10` through `3.13`.
 
 ```bash
 pip install boxmot
@@ -57,15 +57,19 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
   <thead>
     <tr>
       <th rowspan="2" align="left">Tracker</th>
-      <th colspan="4" align="center">MOT17 (ablation split)</th>
+      <th rowspan="2"></th>
+      <th colspan="3" align="center">MOT17 (ablation split)</th>
+      <th rowspan="2"></th>
       <th colspan="3" align="center">SportsMOT (val split)</th>
-      <th colspan="3" align="center"><a href="https://github.com/Annzstbl/MMOT">MMOT-OBB</a> (test split)</th>
+      <th rowspan="2"></th>
+      <th colspan="3" align="center">MMOT-OBB (test split)</th>
+      <th rowspan="2"></th>
+      <th rowspan="2" align="center">OBB</th>
     </tr>
     <tr>
       <th align="right">HOTA</th>
       <th align="right">MOTA</th>
       <th align="right">IDF1</th>
-      <th align="center">OBB</th>
       <th align="right">HOTA</th>
       <th align="right">MOTA</th>
       <th align="right">IDF1</th>
@@ -77,120 +81,156 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
   <tbody>
     <tr>
       <td align="left">occluboost</td>
+      <td></td>
       <td align="right"><b>70.47</b></td>
       <td align="right"><b>78.32</b></td>
       <td align="right"><b>84.14</b></td>
-      <td align="center">✅</td>
+      <td></td>
       <td align="right"><b>83.17</b></td>
       <td align="right">97.48</td>
       <td align="right"><b>89.36</b></td>
+      <td></td>
       <td align="right">29.36</td>
       <td align="right">1.72</td>
       <td align="right">34.01</td>
+      <td></td>
+      <td align="center">✅</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2206.14651">botsort</a></td>
+      <td></td>
       <td align="right">69.44</td>
       <td align="right">78.24</td>
       <td align="right">81.94</td>
-      <td align="center">✅</td>
+      <td></td>
       <td align="right">76.93</td>
       <td align="right"><b>98.11</b></td>
       <td align="right">78.30</td>
+      <td></td>
       <td align="right"><b>51.79</b></td>
       <td align="right"><b>46.05</b></td>
       <td align="right"><b>60.85</b></td>
+      <td></td>
+      <td align="center">✅</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2408.13003">boosttrack</a></td>
+      <td></td>
       <td align="right">69.25</td>
       <td align="right">75.91</td>
       <td align="right">83.20</td>
-      <td align="center">❌</td>
+      <td></td>
       <td align="right">76.32</td>
       <td align="right">97.08</td>
       <td align="right">77.82</td>
+      <td></td>
       <td align="right">–</td>
       <td align="right">–</td>
       <td align="right">–</td>
+      <td></td>
+      <td align="center">❌</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2202.13514">strongsort</a></td>
+      <td></td>
       <td align="right">68.05</td>
       <td align="right">76.19</td>
       <td align="right">80.76</td>
-      <td align="center">❌</td>
+      <td></td>
       <td align="right">79.80</td>
       <td align="right">97.31</td>
       <td align="right">80.27</td>
+      <td></td>
       <td align="right">–</td>
       <td align="right">–</td>
       <td align="right">–</td>
+      <td></td>
+      <td align="center">❌</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2302.11813">deepocsort</a></td>
+      <td></td>
       <td align="right">67.95</td>
       <td align="right">75.83</td>
       <td align="right">80.54</td>
-      <td align="center">❌</td>
+      <td></td>
       <td align="right">79.51</td>
       <td align="right">97.94</td>
       <td align="right">79.59</td>
+      <td></td>
       <td align="right">–</td>
       <td align="right">–</td>
       <td align="right">–</td>
+      <td></td>
+      <td align="center">❌</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2110.06864">bytetrack</a></td>
+      <td></td>
       <td align="right">67.68</td>
       <td align="right">78.04</td>
       <td align="right">79.16</td>
-      <td align="center">✅</td>
+      <td></td>
       <td align="right">67.93</td>
       <td align="right">97.25</td>
       <td align="right">76.90</td>
+      <td></td>
       <td align="right">33.97</td>
       <td align="right">33.72</td>
       <td align="right">39.74</td>
+      <td></td>
+      <td align="center">✅</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2308.00783">hybridsort</a></td>
+      <td></td>
       <td align="right">67.31</td>
       <td align="right">74.09</td>
       <td align="right">78.87</td>
-      <td align="center">❌</td>
+      <td></td>
       <td align="right">81.14</td>
       <td align="right">98.07</td>
       <td align="right">81.88</td>
+      <td></td>
       <td align="right">–</td>
       <td align="right">–</td>
       <td align="right">–</td>
+      <td></td>
+      <td align="center">❌</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/abs/2203.14360">ocsort</a></td>
+      <td></td>
       <td align="right">66.44</td>
       <td align="right">74.55</td>
       <td align="right">77.90</td>
-      <td align="center">✅</td>
+      <td></td>
       <td align="right">76.34</td>
       <td align="right">96.60</td>
       <td align="right">75.64</td>
+      <td></td>
       <td align="right">28.57</td>
       <td align="right">26.19</td>
       <td align="right">29.95</td>
+      <td></td>
+      <td align="center">✅</td>
     </tr>
     <tr>
       <td align="left"><a href="https://arxiv.org/pdf/2404.07553">sfsort</a></td>
+      <td></td>
       <td align="right">62.65</td>
       <td align="right">76.87</td>
       <td align="right">69.18</td>
-      <td align="center">✅</td>
+      <td></td>
       <td align="right">75.73</td>
       <td align="right">98.39</td>
       <td align="right">72.99</td>
+      <td></td>
       <td align="right">44.19</td>
       <td align="right">44.27</td>
       <td align="right">46.25</td>
+      <td></td>
+      <td align="center">✅</td>
     </tr>
   </tbody>
 </table>

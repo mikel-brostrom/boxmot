@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-import boxmot.engine.evaluator as evaluator_module
-import boxmot.engine.replay as replay_module
+import boxmot.engine.eval.evaluator as evaluator_module
+import boxmot.engine.eval.replay as replay_module
 
 
 def test_worker_init_suppresses_worker_logs(monkeypatch):

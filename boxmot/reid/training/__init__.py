@@ -1,7 +1,7 @@
 """ReID model training utilities: losses, trainer, and evaluation."""
 
-from boxmot.reid.training.losses import CrossEntropyLabelSmooth, TripletLoss, CenterLoss
 from boxmot.reid.training.evaluator import evaluate_ranking
+from boxmot.reid.training.losses import CenterLoss, CrossEntropyLabelSmooth, TripletLoss
 
 __all__ = (
     "CenterLoss",

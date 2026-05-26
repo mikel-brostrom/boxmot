@@ -5,8 +5,10 @@ from typing import Iterable, Optional, Sequence
 
 from packaging.requirements import Requirement
 
+from boxmot.utils import ROOT
+
 # Replace this import with your logger, or use logging.getLogger(__name__)
-from boxmot.utils import logger as LOGGER, ROOT
+from boxmot.utils import logger as LOGGER
 
 REQUIREMENTS_FILE = Path("requirements.txt")
 

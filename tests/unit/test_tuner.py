@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import click
 import pytest
 
-import boxmot.engine.tuner as tuner_module
+import boxmot.engine.tuning.tuner as tuner_module
 import boxmot.utils.rich.reporting as rich_reporting
 import boxmot.utils.rich.tune_reporting as tune_reporting
 import boxmot.utils.rich.ui as ui_module

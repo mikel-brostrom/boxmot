@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from boxmot.engine import workflow_support as workflow_support_module
-import boxmot.engine.tracker as tracker_module
+from boxmot.engine.workflows import support as workflow_support_module
+import boxmot.engine.tracking.tracker as tracker_module
 import boxmot.utils.rich.ui as ui_module
 
 

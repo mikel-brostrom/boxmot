@@ -4,16 +4,16 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from boxmot.configs import BOXMOT_DEFAULTS
-from boxmot.engine import cache as cache_module
-from boxmot.engine import evaluator as evaluator_module
-from boxmot.engine import export as export_module
+from boxmot.engine.eval import cache as cache_module
+from boxmot.engine.eval import evaluator as evaluator_module
+from boxmot.engine.reid import export as export_module
 from boxmot.engine import research as research_module
-from boxmot.engine import tracker as tracker_module
-from boxmot.engine import tuner as tuner_module
-from boxmot.engine import workflow_support as support
-from boxmot.engine.results import Results
-from boxmot.engine.workflow_reporting import timing_summary_from_stats
-from boxmot.engine.workflow_results import (
+from boxmot.engine.tracking import tracker as tracker_module
+from boxmot.engine.tuning import tuner as tuner_module
+from boxmot.engine.workflows import support
+from boxmot.engine.tracking.results import Results
+from boxmot.engine.workflows.reporting import timing_summary_from_stats
+from boxmot.engine.workflows.results import (
     ExportResult,
     GenerateResult,
     TrackRunResult,

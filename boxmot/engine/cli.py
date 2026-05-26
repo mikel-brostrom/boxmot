@@ -6,7 +6,6 @@ CLI for BoxMOT: multi-step multiple object tracking pipeline.
 Provides commands to track, generate detections and embeddings, evaluate performance, tune models, research tracker changes, or run all steps.
 """
 import importlib
-
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -14,6 +13,7 @@ import click
 from click.core import ParameterSource
 
 from boxmot import __version__
+
 # Shared CLI/Python API defaults and namespace normalization live under boxmot/configs.
 from boxmot.configs import (
     BOXMOT_DEFAULTS,
@@ -21,7 +21,6 @@ from boxmot.configs import (
 )
 from boxmot.utils.benchmark_config import resolve_benchmark_cfg_path
 from boxmot.utils.misc import parse_imgsz
-
 
 RUNTIME_DEFAULTS = BOXMOT_DEFAULTS.eval
 TRACK_DEFAULTS = BOXMOT_DEFAULTS.track
@@ -482,22 +481,22 @@ class CommandFirstGroup(click.Group):
     def parse_args(self, ctx, args):
         """Normalize tune metric lists before Click validates subcommand args."""
         return super().parse_args(ctx, _normalize_tune_metric_cli_args(list(args)))
-    
+
     def format_help(self, _ctx, formatter):
         """Override to show custom help with Ultralytics-style formatting."""
-        
+
         # Main heading
         formatter.write_paragraph()
         formatter.write_text(
             "BoxMOT 'boxmot' commands use the following syntax:"
         )
         formatter.write_paragraph()
-        
+
         # Command syntax
         with formatter.indentation():
             formatter.write_text("boxmot MODE [OPTIONS]")
         formatter.write_paragraph()
-        
+
         # Argument descriptions
         formatter.width = 120  # Increase formatter width to prevent wrapping
         with formatter.indentation():
@@ -509,7 +508,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("       Benchmark configs select their dataset, detector, and ReID profiles.")
             formatter.write_text("          See all options at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
         formatter.write_paragraph()
-        
+
         # Examples
         formatter.write_text("Examples:")
         with formatter.indentation():
@@ -517,17 +516,17 @@ class CommandFirstGroup(click.Group):
             with formatter.indentation():
                 formatter.write_text("boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort --source 0 --show")
             formatter.write_paragraph()
-            
+
             formatter.write_text("2. Track a video file:")
             with formatter.indentation():
                 formatter.write_text("boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save")
             formatter.write_paragraph()
-            
+
             formatter.write_text("3. Evaluate on MOT dataset:")
             with formatter.indentation():
                 formatter.write_text("boxmot eval --benchmark mot17 --split ablation --tracker boosttrack")
             formatter.write_paragraph()
-            
+
             formatter.write_text("4. Tune tracker hyperparameters:")
             with formatter.indentation():
                 formatter.write_text("boxmot tune --benchmark mot17 --split ablation --tracker deepocsort --n-trials 10")
@@ -540,7 +539,7 @@ class CommandFirstGroup(click.Group):
                     "--proposal-model openai/gpt-5.4 --max-metric-calls 24"
                 )
             formatter.write_paragraph()
-            
+
             formatter.write_text("6. Train a ReID model:")
             with formatter.indentation():
                 formatter.write_text("boxmot train --model osnet_x0_25 --dataset market1501 --data-dir /path/to/data --epochs 120 --device 0")
@@ -555,7 +554,7 @@ class CommandFirstGroup(click.Group):
             with formatter.indentation():
                 formatter.write_text("boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic")
         formatter.write_paragraph()
-        
+
         # Available modes
         formatter.write_text("Modes:")
         with formatter.indentation():
@@ -567,7 +566,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("train      Train a ReID model on a person/vehicle dataset")
             formatter.write_text("export     Export ReID models to different formats")
         formatter.write_paragraph()
-        
+
         # Resources
         formatter.write_text("Docs:      https://github.com/mikel-brostrom/boxmot")
         formatter.write_text("Community: https://github.com/mikel-brostrom/boxmot/discussions")
@@ -595,7 +594,7 @@ def track(ctx, detector, reid, classes, split, **kwargs):
     _dispatch_cli_workflow(
         ctx,
         "track",
-        "boxmot.engine.tracker",
+        "boxmot.engine.tracking.tracker",
         _apply_track_cli_defaults(ctx, {
             **kwargs,
             "detector": detector,
@@ -606,7 +605,7 @@ def track(ctx, detector, reid, classes, split, **kwargs):
             "split": split if split else auto_split,
         }),
     )
-    
+
 @boxmot.command(help='Generate detections and embeddings')
 @data_option
 @source_option(default=BOXMOT_DEFAULTS.generate.source, help_text='direct dataset root to generate dets/embs for without a benchmark config')
@@ -622,7 +621,7 @@ def generate(ctx, data, detector, reid, classes, split, detection_source, **kwar
     _dispatch_cli_workflow(
         ctx,
         "generate",
-        "boxmot.engine.cache",
+        "boxmot.engine.eval.cache",
         {
             **kwargs,
             "detector": list(detector),
@@ -651,7 +650,7 @@ def eval(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
     _dispatch_cli_workflow(
         ctx,
         "eval",
-        "boxmot.engine.evaluator",
+        "boxmot.engine.eval.evaluator",
         {
             **kwargs,
             "detector": list(detector),
@@ -681,7 +680,7 @@ def tune(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
     _dispatch_cli_workflow(
         ctx,
         "tune",
-        "boxmot.engine.tuner",
+        "boxmot.engine.tuning.tuner",
         {
             **kwargs,
             "detector": list(detector),
@@ -729,9 +728,8 @@ def research(ctx, data, detector, reid, classes, split, detection_source, **kwar
 def train_options(func):
     """Decorator adding ReID training options."""
     from boxmot.reid.core.config import MODEL_TYPES
-    from boxmot.reid.datasets import DATASET_REGISTRY
-
     from boxmot.reid.core.preprocessing import PREPROCESS_REGISTRY
+    from boxmot.reid.datasets import DATASET_REGISTRY
 
     options = [
         click.option('--model', type=click.Choice(MODEL_TYPES, case_sensitive=False),
@@ -812,7 +810,7 @@ def train_options(func):
 @click.pass_context
 def train(ctx, **kwargs):
     args = _build_cli_namespace(ctx, "train", kwargs)
-    _run_engine_workflow("boxmot.engine.reid_trainer", args)
+    _run_engine_workflow("boxmot.engine.reid.trainer", args)
 
 
 @boxmot.command(name='eval-reid', help='Evaluate a trained ReID model on query/gallery')
@@ -834,7 +832,7 @@ def train(ctx, **kwargs):
 @click.pass_context
 def eval_reid(ctx, **kwargs):
     args = _build_cli_namespace(ctx, "eval-reid", kwargs)
-    _run_engine_workflow("boxmot.engine.reid_evaluator", args)
+    _run_engine_workflow("boxmot.engine.reid.evaluator", args)
 
 
 @boxmot.command(help='Export ReID models')
@@ -846,7 +844,7 @@ def export(ctx, **kwargs):
     Mirrors the standalone argparse-based export script.
     """
     args = _build_cli_namespace(ctx, "export", kwargs)
-    _run_engine_workflow("boxmot.engine.export", args)
+    _run_engine_workflow("boxmot.engine.reid.export", args)
 
 
 @boxmot.command(help='Build native (C++) tracker shared libraries')

@@ -1,5 +1,4 @@
 import copy
-import sys
 from typing import Any
 
 import torch
@@ -17,9 +16,6 @@ class TFLiteExporter(BaseExporter):
         self.opset = opset
 
     def export(self) -> str:
-        if sys.version_info < (3, 10):
-            raise RuntimeError("TFLite export with litert-torch requires Python 3.10 or newer.")
-
         import litert_torch
 
         tflite_path = self.file.with_suffix(".tflite")

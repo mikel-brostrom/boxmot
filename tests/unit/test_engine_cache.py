@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-import boxmot.engine.cache as cache_module
-import boxmot.engine.evaluator as evaluator_module
+import boxmot.engine.eval.cache as cache_module
+import boxmot.engine.eval.evaluator as evaluator_module
 
 
 def test_cache_main_runs_generation_pipeline(monkeypatch):

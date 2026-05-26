@@ -32,9 +32,9 @@ Command Line Arguments: Defaults, # Comments
         'METRICS': ['HOTA', 'CLEAR', 'Identity', 'VACE']
 """
 
-import sys
-import os
 import argparse
+import os
+import sys
 from multiprocessing import freeze_support
 from pathlib import Path
 
@@ -49,6 +49,7 @@ sys.path.insert(0, str(repo_root))
 sys.path.insert(0, str(trackeval_dir))
 
 import trackeval  # noqa: E402
+
 from boxmot.utils.evaluation.custom_mot_challenge_2d_box import CustomMotChallenge2DBox
 
 if __name__ == '__main__':
@@ -57,10 +58,10 @@ if __name__ == '__main__':
     # Command line interface:
     default_eval_config = trackeval.Evaluator.get_default_eval_config()
     default_eval_config['DISPLAY_LESS_PROGRESS'] = False
-    
+
     # Use CustomMotChallenge2DBox for default config
     default_dataset_config = CustomMotChallenge2DBox.get_default_dataset_config()
-    
+
     default_metrics_config = {'METRICS': ['HOTA', 'CLEAR', 'Identity'], 'THRESHOLD': 0.5}
     config = {**default_eval_config, **default_dataset_config, **default_metrics_config}  # Merge default configs
     parser = argparse.ArgumentParser()

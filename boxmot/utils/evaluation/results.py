@@ -14,7 +14,6 @@ from boxmot.data.benchmark import (
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.ui import print_text
 
-
 SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
 SUMMARY_INT_COLUMNS = {"IDSW", "IDs"}
 TRACKEVAL_INTEGER_FIELDS = {

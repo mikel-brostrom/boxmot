@@ -11,7 +11,7 @@ import yaml
 
 from boxmot.trackers.specs import parse_tracker_spec
 from boxmot.utils import WEIGHTS
-from boxmot.utils.misc import dataclass_slots_kwargs, resolve_model_path
+from boxmot.utils.misc import resolve_model_path
 
 RUNTIME_MODES = frozenset({"track", "generate", "eval", "tune", "research"})
 MODE_DEFAULTS_PATH = Path(__file__).resolve().parent / "modes.yaml"
@@ -201,13 +201,13 @@ def _runtime_mode_kwargs(values: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class SharedModeDefaults:
     detector: Path
     reid: Path
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class RuntimeModeDefaults:
     imgsz: Any
     fps: int | None
@@ -247,7 +247,7 @@ class RuntimeModeDefaults:
         return cls(**_runtime_mode_kwargs(values))
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class TrackModeDefaults(RuntimeModeDefaults):
     source: str
     benchmark: str
@@ -263,7 +263,7 @@ class TrackModeDefaults(RuntimeModeDefaults):
         )
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class GenerateModeDefaults(RuntimeModeDefaults):
     data: str | None
     source: str | None
@@ -283,7 +283,7 @@ class GenerateModeDefaults(RuntimeModeDefaults):
         )
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class EvalModeDefaults(RuntimeModeDefaults):
     data: str | None
     source: str | None
@@ -303,7 +303,7 @@ class EvalModeDefaults(RuntimeModeDefaults):
         )
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class TuneModeDefaults(RuntimeModeDefaults):
     data: str | None
     source: str | None
@@ -332,7 +332,7 @@ class TuneModeDefaults(RuntimeModeDefaults):
         )
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class ResearchModeDefaults(RuntimeModeDefaults):
     data: str | None
     source: str | None
@@ -374,7 +374,7 @@ class ResearchModeDefaults(RuntimeModeDefaults):
         )
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class ExportModeDefaults:
     batch_size: int
     imgsz: Any
@@ -405,7 +405,7 @@ class ExportModeDefaults:
         )
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class TrainModeDefaults:
     model: str
     dataset: str
@@ -475,7 +475,7 @@ class TrainModeDefaults:
         )
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class BoxMOTDefaults:
     shared: SharedModeDefaults
     track: TrackModeDefaults

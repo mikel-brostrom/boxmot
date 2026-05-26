@@ -2,7 +2,7 @@
 
 ## Requirements
 
-BoxMOT supports Python `3.9` through `3.12`.
+BoxMOT supports Python `3.10` through `3.13`.
 
 ## Basic install
 

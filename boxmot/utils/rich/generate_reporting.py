@@ -8,7 +8,11 @@ import boxmot.utils.rich.ui as ui
 from boxmot.utils.rich.reporting import RichWorkflowReporter
 from boxmot.utils.rich.steps import (
     GENERATE as GENERATE_RUN_STEP,
+)
+from boxmot.utils.rich.steps import (
     GENERATE_STEPS,
+)
+from boxmot.utils.rich.steps import (
     SETUP as GENERATE_SETUP_STEP,
 )
 

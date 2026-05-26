@@ -10,7 +10,8 @@ from filelock import SoftFileLock
 
 from boxmot.reid.core.preprocessing import get_preprocess_fn
 from boxmot.reid.core.registry import ReIDModelRegistry
-from boxmot.utils import WEIGHTS, logger as LOGGER
+from boxmot.utils import WEIGHTS
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.misc import resolve_model_path
 
@@ -55,7 +56,7 @@ class BaseModelBackend:
             input_shape = (384, 128)
         elif "hacnn" in self.model_name:
             input_shape = (160, 64)
-        else: 
+        else:
             input_shape = (256, 128)
         self.input_shape = input_shape
 
@@ -243,7 +244,7 @@ class BaseModelBackend:
 
 
     def download_model(self, w):
-        if isinstance(w, str): 
+        if isinstance(w, str):
             w = Path(w)
         w = resolve_model_path(w)
 

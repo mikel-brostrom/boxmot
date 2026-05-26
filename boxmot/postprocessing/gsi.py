@@ -5,9 +5,9 @@ from pathlib import Path
 import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.gaussian_process.kernels import RBF
-from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 
 def linear_interpolation(data: np.ndarray, interval: int) -> np.ndarray:

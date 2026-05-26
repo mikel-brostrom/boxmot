@@ -13,7 +13,7 @@ Proposed workflow
 git clone https://github.com/your-username/boxmot.git
 cd boxmot
 pip install uv
-uv sync  # builds & installs boxmot in editable mode
+uv sync --all-extras --all-groups  # installs boxmot in editable mode with all dependencies
 
 # Create a branch
 git checkout -b feature/short-desc
@@ -22,11 +22,11 @@ git checkout -b feature/short-desc
 # ...
 
 # Run functionality where changes were introduced
-uv run python -m boxmot.engine.cli track --detector yolov8x --reid osnet_x0_25_msmt17 --tracker bytetrack --source my_video.mp4 --classes 0
-uv run python -m boxmot.engine.cli generate --detector yolov8x --reid osnet_x0_25_msmt17 --source path/to/dataset --classes 0
-uv run python -m boxmot.engine.cli eval --benchmark mot17-ablation --tracker bytetrack
-uv run python -m boxmot.engine.cli tune --benchmark mot17-ablation --tracker bytetrack
- 
+uv run boxmot track --detector yolov8x --reid osnet_x0_25_msmt17 --tracker bytetrack --source my_video.mp4 --classes 0
+uv run boxmot generate --detector yolov8x --reid osnet_x0_25_msmt17 --source path/to/dataset --classes 0
+uv run boxmot eval --benchmark mot17-ablation --tracker bytetrack
+uv run boxmot tune --benchmark mot17-ablation --tracker bytetrack
+
 # Run tests
 uv run pytest
 

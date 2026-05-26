@@ -15,10 +15,20 @@ from boxmot.native import _common
 from boxmot.native._common import (  # noqa: F401  (re-exported for backwards compat / tests)
     cached_embedding_path,
     dets_n_embs_root,
+)
+from boxmot.native._common import (
     drain_native_stderr as _drain_native_stderr,
+)
+from boxmot.native._common import (
     infer_onnx_output_names as _infer_onnx_output_names,
+)
+from boxmot.native._common import (
     native_onnx_cache_path as _native_onnx_cache_path,
+)
+from boxmot.native._common import (
     parse_progress_line as _parse_progress_line,
+)
+from boxmot.native._common import (
     resolve_reid_model_ref as _resolve_reid_model_ref,
 )
 from boxmot.trackers.tracker_zoo import get_tracker_config

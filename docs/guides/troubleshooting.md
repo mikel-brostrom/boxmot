@@ -31,7 +31,7 @@ python boxmot/engine/cli.py --help
 
 ## Python compatibility
 
-BoxMOT supports Python `3.9` through `3.12`. If you maintain extensions, avoid `@dataclass(..., slots=True)` on Python 3.9; use the `dataclass_slots_kwargs()` helper in `boxmot.utils.compat` instead.
+BoxMOT requires Python `3.10` or newer (up to `3.13`). Use `@dataclass(..., slots=True)` directly in all dataclass definitions.
 
 ## ReID and acceleration
 

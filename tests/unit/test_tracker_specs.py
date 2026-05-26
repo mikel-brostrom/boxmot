@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from boxmot.engine import workflow_support as support
+from boxmot.engine.workflows import support
 from boxmot.trackers.specs import TrackerSpec, normalize_tracker_backend, parse_tracker_spec
 
 

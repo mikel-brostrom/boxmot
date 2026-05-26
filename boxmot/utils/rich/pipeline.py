@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from boxmot.utils.rich.reporting import WorkflowDetailCallback
 import boxmot.utils.rich.ui as ui
+from boxmot.utils.rich.reporting import WorkflowDetailCallback
 
 
 class PipelineTracker:
@@ -199,8 +199,8 @@ class PipelineTracker:
 
 def _set_status_fns(callback: WorkflowDetailCallback | None) -> None:
     """Wire (or clear) the global download / build status sinks."""
-    from boxmot.utils.download import set_download_status_fn
     from boxmot.native._common import set_build_status_fn
+    from boxmot.utils.download import set_download_status_fn
 
     set_download_status_fn(callback)
     set_build_status_fn(callback)

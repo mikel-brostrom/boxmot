@@ -3,7 +3,7 @@
 """Public BoxMOT Python API."""
 
 from boxmot.engine.research import ResearchResult
-from boxmot.engine.workflow_results import (
+from boxmot.engine.workflows.results import (
     ExportResult,
     GenerateResult,
     TrackRunResult,

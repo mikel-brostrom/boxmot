@@ -1,6 +1,6 @@
 id: dancetrack-ablation
 
-path: "boxmot/engine/trackeval/data/test1"
+path: "boxmot/engine/eval/trackeval/data/test1"
 split: "val"
 train:
 val: "val"

@@ -346,7 +346,7 @@ def build_native_target(
 def dets_n_embs_root(project_root: str | Path, dataset_name: str | None = None, split: str | None = None) -> Path:
     """Return the canonical ``dets_n_embs`` cache root for a project.
 
-    Mirrors the layout used by :mod:`boxmot.engine.cache` and the native
+    Mirrors the layout used by :mod:`boxmot.engine.eval.cache` and the native
     replay binaries: ``<project_root>/dets_n_embs[/<dataset>][/<split>]``.
     """
     root = Path(project_root) / "dets_n_embs"
@@ -466,8 +466,9 @@ def infer_onnx_output_names(model, dummy_input) -> list[str]:
 
 def export_reid_to_onnx(weights: Path, *, display_name: str = "ReID") -> Path:
     """Export ``.pt`` ReID weights to an OpenCV-compatible ONNX file."""
-    from boxmot.engine.export import setup_model
     import torch
+
+    from boxmot.engine.reid.export import setup_model
 
     args = SimpleNamespace(
         weights=weights,
@@ -516,6 +517,7 @@ def _download_reid_pt_weights(weights: Path, *, display_name: str = "ReID") -> N
     try:
         import gdown  # noqa: WPS433 (runtime import to avoid hard dep at import-time)
         from filelock import SoftFileLock  # noqa: WPS433
+
         from boxmot.reid.core.registry import ReIDModelRegistry  # noqa: WPS433
         from boxmot.utils import logger as LOGGER  # noqa: WPS433
     except Exception:  # pragma: no cover - if optional deps missing, fall through

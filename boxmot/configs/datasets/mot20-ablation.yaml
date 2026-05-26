@@ -1,6 +1,6 @@
 id: mot20-ablation
 
-path: "boxmot/engine/trackeval/data/MOT20-ablation"
+path: "boxmot/engine/eval/trackeval/data/MOT20-ablation"
 split: "train"
 train: "train"
 val:

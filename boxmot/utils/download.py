@@ -20,12 +20,11 @@ from zipfile import BadZipFile, ZipFile
 import gdown
 import requests
 from requests.adapters import HTTPAdapter
-from boxmot.utils.rich.progress import RichTqdm as tqdm
 from urllib3.util.retry import Retry
 
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.rich.progress import RichTqdm as tqdm
 from boxmot.utils.rich.ui import print_text
-
 
 _download_status_state = threading.local()
 
@@ -499,7 +498,7 @@ def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False
     Download and set up the TrackEval repository into the given destination folder.
 
     Args:
-        dest (Path): target directory for TrackEval (e.g. boxmot/engine/trackeval)
+        dest (Path): target directory for TrackEval (e.g. boxmot/engine/eval/trackeval)
         branch (str): Git branch to download (default "master")
         overwrite (bool): if True, force re-download even if dest already exists
     """
@@ -550,7 +549,7 @@ def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False
 
     LOGGER.debug("TrackEval setup complete")
 
-    
+
 def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False, status_fn: Any = None) -> None:
     """
     Download a dataset from HuggingFace Hub to the given destination.
@@ -605,8 +604,9 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False, statu
         )
         _advance = _ctx.__enter__()
 
-        from tqdm.auto import tqdm as base_tqdm
         import time as _time
+
+        from tqdm.auto import tqdm as base_tqdm
 
         class _WorkflowTqdm(base_tqdm):
             """tqdm shim that forwards byte progress to the workflow bar."""

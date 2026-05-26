@@ -25,7 +25,7 @@ def iou_batch(bboxes1, bboxes2):
     """
     bboxes2 = np.expand_dims(bboxes2, 0)
     bboxes1 = np.expand_dims(bboxes1, 1)
-    
+
     xx1 = np.maximum(bboxes1[..., 0], bboxes2[..., 0])
     yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
     xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
@@ -33,8 +33,8 @@ def iou_batch(bboxes1, bboxes2):
     w = np.maximum(0., xx2 - xx1)
     h = np.maximum(0., yy2 - yy1)
     wh = w * h
-    o = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])                                      
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)                                              
+    o = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)
     return(o)
 
 
@@ -106,16 +106,16 @@ def giou_batch(bboxes1, bboxes2):
     h = np.maximum(0., yy2 - yy1)
     wh = w * h
     iou = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)  
+        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)
 
     xxc1 = np.minimum(bboxes1[..., 0], bboxes2[..., 0])
     yyc1 = np.minimum(bboxes1[..., 1], bboxes2[..., 1])
     xxc2 = np.maximum(bboxes1[..., 2], bboxes2[..., 2])
     yyc2 = np.maximum(bboxes1[..., 3], bboxes2[..., 3])
-    wc = xxc2 - xxc1 
-    hc = yyc2 - yyc1 
+    wc = xxc2 - xxc1
+    hc = yyc2 - yyc1
     assert((wc > 0).all() and (hc > 0).all())
-    area_enclose = wc * hc 
+    area_enclose = wc * hc
     giou = iou - (area_enclose - wh) / area_enclose
     giou = (giou + 1.)/2.0 # resize from (-1,1) to (0,1)
     return giou
@@ -173,8 +173,8 @@ def diou_batch(bboxes1, bboxes2):
     w = np.maximum(0., xx2 - xx1)
     h = np.maximum(0., yy2 - yy1)
     wh = w * h
-    iou = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])                                      
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh) 
+    iou = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)
 
     centerx1 = (bboxes1[..., 0] + bboxes1[..., 2]) / 2.0
     centery1 = (bboxes1[..., 1] + bboxes1[..., 3]) / 2.0
@@ -212,8 +212,8 @@ def ciou_batch(bboxes1, bboxes2):
     w = np.maximum(0., xx2 - xx1)
     h = np.maximum(0., yy2 - yy1)
     wh = w * h
-    iou = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])                                      
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh) 
+    iou = wh / ((bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
+        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1]) - wh)
 
     centerx1 = (bboxes1[..., 0] + bboxes1[..., 2]) / 2.0
     centery1 = (bboxes1[..., 1] + bboxes1[..., 3]) / 2.0
@@ -228,7 +228,7 @@ def ciou_batch(bboxes1, bboxes2):
     yyc2 = np.maximum(bboxes1[..., 3], bboxes2[..., 3])
 
     outer_diag = (xxc2 - xxc1) ** 2 + (yyc2 - yyc1) ** 2
-    
+
     w1 = bboxes1[..., 2] - bboxes1[..., 0]
     h1 = bboxes1[..., 3] - bboxes1[..., 1]
     w2 = bboxes2[..., 2] - bboxes2[..., 0]
@@ -239,10 +239,10 @@ def ciou_batch(bboxes1, bboxes2):
     h1 = h1 + 1.
     arctan = np.arctan(w2/h2) - np.arctan(w1/h1)
     v = (4 / (np.pi ** 2)) * (arctan ** 2)
-    S = 1 - iou 
+    S = 1 - iou
     alpha = v / (S+v)
     ciou = iou - inner_diag / outer_diag - alpha * v
-    
+
     return (ciou + 1) / 2.0 # resize from (-1,1) to (0,1)
 
 
@@ -280,10 +280,10 @@ def speed_direction_batch(dets, tracks):
     tracks = tracks[..., np.newaxis]
     CX1, CY1 = (dets[:,0] + dets[:,2])/2.0, (dets[:,1]+dets[:,3])/2.0
     CX2, CY2 = (tracks[:,0] + tracks[:,2]) /2.0, (tracks[:,1]+tracks[:,3])/2.0
-    dx = CX1 - CX2 
-    dy = CY1 - CY2 
+    dx = CX1 - CX2
+    dy = CY1 - CY2
     norm = np.sqrt(dx**2 + dy**2) + 1e-6
-    dx = dx / norm 
+    dx = dx / norm
     dy = dy / norm
     return dy, dx # size: num_track x num_det
 
@@ -346,7 +346,7 @@ def associate_detections_to_trackers(detections,trackers,iou_threshold = 0.3):
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
 
-def associate(detections, trackers, iou_threshold, velocities, previous_obs, vdc_weight):    
+def associate(detections, trackers, iou_threshold, velocities, previous_obs, vdc_weight):
     if(len(trackers)==0):
         return np.empty((0,2),dtype=int), np.arange(len(detections)), np.empty((0,5),dtype=int)
 
@@ -361,7 +361,7 @@ def associate(detections, trackers, iou_threshold, velocities, previous_obs, vdc
 
     valid_mask = np.ones(previous_obs.shape[0])
     valid_mask[np.where(previous_obs[:,4]<0)] = 0
-    
+
     iou_matrix = iou_batch(detections, trackers)
     scores = np.repeat(detections[:,-1][:, np.newaxis], trackers.shape[0], axis=1)
     # iou_matrix = iou_matrix * scores # a trick sometiems works, we don't encourage this
@@ -655,7 +655,7 @@ def associate_4_points_with_score_with_reid(detections, trackers, iou_threshold,
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
 
-def associate_kitti(detections, trackers, det_cates, iou_threshold, 
+def associate_kitti(detections, trackers, det_cates, iou_threshold,
         velocities, previous_obs, vdc_weight):
     if(len(trackers)==0):
         return np.empty((0,2),dtype=int), np.arange(len(detections)), np.empty((0,5),dtype=int)
@@ -673,7 +673,7 @@ def associate_kitti(detections, trackers, det_cates, iou_threshold,
     diff_angle = (np.pi /2.0 - np.abs(diff_angle)) / np.pi
 
     valid_mask = np.ones(previous_obs.shape[0])
-    valid_mask[np.where(previous_obs[:,4]<0)]=0  
+    valid_mask[np.where(previous_obs[:,4]<0)]=0
     valid_mask = np.repeat(valid_mask[:, np.newaxis], X.shape[1], axis=1)
 
     scores = np.repeat(detections[:,-1][:, np.newaxis], trackers.shape[0], axis=1)
@@ -685,7 +685,7 @@ def associate_kitti(detections, trackers, det_cates, iou_threshold,
         Cost from IoU
     """
     iou_matrix = iou_batch(detections, trackers)
-    
+
 
     """
         With multiple categories, generate the cost for catgory mismatch
@@ -697,7 +697,7 @@ def associate_kitti(detections, trackers, det_cates, iou_threshold,
             for j in range(num_trk):
                 if det_cates[i] != trackers[j, 4]:
                         cate_matrix[i][j] = -1e6
-    
+
     cost_matrix = - iou_matrix -angle_diff_cost - cate_matrix
 
     if min(iou_matrix.shape) > 0:

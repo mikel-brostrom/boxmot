@@ -17,9 +17,8 @@ RUN git clone https://github.com/mikel-brostrom/boxmot.git -b master boxmot
 # Set the working directory to the cloned repository
 WORKDIR /usr/src/boxmot
 
-# Install pip packages and Poetry dependencies
-RUN python3 -m pip install --upgrade pip poetry && \
-    pip install uv && \
+# Install uv and sync dependencies
+RUN pip install uv && \
     uv sync --all-extras --all-groups
 
 # ------------------------------------------------------------------------------

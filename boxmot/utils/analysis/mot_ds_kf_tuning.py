@@ -25,12 +25,12 @@ def load_gt_data(seq_dir: Path, annotations_dir: Path = None, use_temp_gt: bool 
         ann_file = annotations_dir / f"{seq_dir.name}.txt"
         if ann_file.exists():
             return np.loadtxt(ann_file, delimiter=',')
-    
+
     # Fall back to MOT17 layout
     gt_file = seq_dir / "gt" / ("gt_temp.txt" if use_temp_gt else "gt.txt")
     if gt_file.exists():
         return np.loadtxt(gt_file, delimiter=',')
-    
+
     raise FileNotFoundError(f"No GT file found for sequence {seq_dir.name}")
 
 
@@ -107,7 +107,7 @@ def main(
     # VisDrone: has "annotations" and "sequences" subdirectories
     # MOT17: sequence folders directly under train_root, each with gt/gt.txt
     annotations_dir = train_root.parent / "annotations" if (train_root.parent / "annotations").exists() else None
-    
+
     # For VisDrone, sequences are in a "sequences" subfolder
     if train_root.name == "sequences":
         seq_root = train_root
@@ -116,7 +116,7 @@ def main(
         annotations_dir = train_root / "annotations"
     else:
         seq_root = train_root
-    
+
     print(f"Dataset root: {train_root}")
     print(f"Sequences dir: {seq_root}")
     if annotations_dir:
@@ -133,7 +133,7 @@ def main(
         print(f"Processing sequence: {seq_dir.name}")
         try:
             tracks, ws, hs = build_tracks_from_sequence(
-                seq_dir, annotations_dir=annotations_dir, 
+                seq_dir, annotations_dir=annotations_dir,
                 use_temp_gt=use_temp_gt, min_detections=min_detections)
             all_tracks.extend(tracks)
             all_ws.append(ws)
@@ -228,14 +228,14 @@ if __name__ == "__main__":
         epilog="""
 Examples:
   # MOT17-mini
-  python -m boxmot.utils.analysis.mot_ds_kf_tuning --train_root boxmot/engine/trackeval/MOT17-mini/train
+  python -m boxmot.utils.analysis.mot_ds_kf_tuning --train_root boxmot/engine/eval/trackeval/MOT17-mini/train
   
   # VisDrone
-  python -m boxmot.utils.analysis.mot_ds_kf_tuning --train_root boxmot/engine/trackeval/VisDrone2019-MOT-test-dev
+  python -m boxmot.utils.analysis.mot_ds_kf_tuning --train_root boxmot/engine/eval/trackeval/VisDrone2019-MOT-test-dev
 """
     )
     parser.add_argument(
-        "--train_root", 
+        "--train_root",
         type=Path,
         default=TRACKEVAL / "MOT17-mini/train",
         help="Root folder containing sequences (auto-detects MOT17 or VisDrone layout)"

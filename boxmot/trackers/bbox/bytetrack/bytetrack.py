@@ -6,8 +6,8 @@ from typing import Any
 import cv2
 import numpy as np
 
-from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
+from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bbox.bytetrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
@@ -236,7 +236,7 @@ class ByteTrack(BaseTracker):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
         super().__init__(**init_args, _tracker_name='ByteTrack', **kwargs)
-        
+
         # Track lifecycle parameters
         self.frame_id = 0
         self.track_buffer = track_buffer
@@ -251,7 +251,7 @@ class ByteTrack(BaseTracker):
 
         # Motion model
         self.kalman_filter = KalmanFilterXYAH()
-        
+
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]

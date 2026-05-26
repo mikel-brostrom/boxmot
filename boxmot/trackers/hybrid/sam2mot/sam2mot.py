@@ -18,7 +18,6 @@ from scipy.optimize import linear_sum_assignment
 from boxmot.trackers.hybrid.base import HybridBaseTracker
 from boxmot.utils import logger as LOGGER
 
-
 # ---------------------------------------------------------------------------
 # Track state labels
 # ---------------------------------------------------------------------------

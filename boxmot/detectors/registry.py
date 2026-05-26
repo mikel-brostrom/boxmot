@@ -4,7 +4,8 @@ from pathlib import Path
 
 import yaml
 
-from boxmot.utils import DETECTOR_CONFIGS, logger as LOGGER
+from boxmot.utils import DETECTOR_CONFIGS
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 
 checker = RequirementsChecker()

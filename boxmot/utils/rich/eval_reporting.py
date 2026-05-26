@@ -13,9 +13,17 @@ from boxmot.trackers.tracker_zoo import get_tracker_config
 from boxmot.utils.rich.reporting import RichWorkflowReporter, format_param_label
 from boxmot.utils.rich.steps import (
     EVAL_STEPS,
+)
+from boxmot.utils.rich.steps import (
     EVALUATE as EVAL_EVALUATE_STEP,
+)
+from boxmot.utils.rich.steps import (
     GENERATE as EVAL_GENERATE_STEP,
+)
+from boxmot.utils.rich.steps import (
     SETUP as EVAL_SETUP_STEP,
+)
+from boxmot.utils.rich.steps import (
     TRACK as EVAL_TRACK_STEP,
 )
 

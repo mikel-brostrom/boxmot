@@ -1,6 +1,6 @@
 id: fasttracker-mot
 
-path: "boxmot/engine/trackeval/data/FastTracker-Benchmark-MOT"
+path: "boxmot/engine/eval/trackeval/data/FastTracker-Benchmark-MOT"
 split: "train"
 train: "train"
 val:

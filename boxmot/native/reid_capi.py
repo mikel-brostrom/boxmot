@@ -2,7 +2,7 @@
 
 Exposes a ``CppOnnxReID`` class that mimics the public surface of
 ``boxmot.reid.backends.base_backend.BaseModelBackend`` (just ``get_features``)
-so it can be plugged into :class:`boxmot.engine.inference.DetectorReIDPipeline`
+so it can be plugged into :class:`boxmot.engine.tracking.inference.DetectorReIDPipeline`
 in place of the Python ONNXRuntime backend. This is what makes
 ``--tracker-backend cpp`` produce its embedding cache via the exact same C++
 ONNX inference path that the C++ trackers use at replay time.

@@ -1,14 +1,21 @@
 import copy
+
 import torch
 from torch import nn
-
-from boxmot.utils import logger as LOGGER
-from boxmot.reid.backbones.osnet_ain import osnet_ain_x1_0, OSBlock
-from boxmot.reid.backbones.lmbn.attention import BatchDrop, BatchFeatureErase_Top, PAM_Module, CAM_Module, SE_Module, Dual_Module
-from boxmot.reid.backbones.lmbn.bnneck import BNNeck, BNNeck3
+from torch.autograd import Variable
 from torch.nn import functional as F
 
-from torch.autograd import Variable
+from boxmot.reid.backbones.lmbn.attention import (
+    BatchDrop,
+    BatchFeatureErase_Top,
+    CAM_Module,
+    Dual_Module,
+    PAM_Module,
+    SE_Module,
+)
+from boxmot.reid.backbones.lmbn.bnneck import BNNeck, BNNeck3
+from boxmot.reid.backbones.osnet_ain import OSBlock, osnet_ain_x1_0
+from boxmot.utils import logger as LOGGER
 
 
 class LMBN_ain_n(nn.Module):
@@ -36,17 +43,17 @@ class LMBN_ain_n(nn.Module):
         conv3 = osnet.conv3[1:]
 
         self.global_branch = nn.Sequential(
-            copy.deepcopy(conv3), copy.deepcopy(osnet.pool3), 
+            copy.deepcopy(conv3), copy.deepcopy(osnet.pool3),
             copy.deepcopy(osnet.conv4),
             copy.deepcopy(osnet.conv5))
 
         self.partial_branch = nn.Sequential(
-            copy.deepcopy(conv3), copy.deepcopy(osnet.pool3), 
+            copy.deepcopy(conv3), copy.deepcopy(osnet.pool3),
             copy.deepcopy(osnet.conv4),
             copy.deepcopy(osnet.conv5))
 
         self.channel_branch = nn.Sequential(
-            copy.deepcopy(conv3), copy.deepcopy(osnet.pool3), 
+            copy.deepcopy(conv3), copy.deepcopy(osnet.pool3),
             copy.deepcopy(osnet.conv4),
             copy.deepcopy(osnet.conv5))
 

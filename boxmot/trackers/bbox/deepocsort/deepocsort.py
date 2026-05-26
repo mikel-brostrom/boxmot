@@ -279,7 +279,7 @@ class DeepOcSort(BaseTracker):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
         super().__init__(**init_args, _tracker_name='DeepOcSort', **kwargs)
-        
+
         """
         Sets key parameters for SORT
         """
@@ -298,7 +298,7 @@ class DeepOcSort(BaseTracker):
         self.embedding_off = embedding_off
         self.cmc_off = cmc_off
         self.aw_off = aw_off
-        
+
     def _update_impl(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
         masks: np.ndarray = None,

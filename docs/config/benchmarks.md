@@ -16,7 +16,7 @@ Each dataset YAML is a self-contained benchmark definition that includes:
 ```yaml
 id: mot17
 
-path: "boxmot/engine/trackeval/data/MOT17-mini"
+path: "boxmot/engine/eval/trackeval/data/MOT17-mini"
 split: "train"
 train: "train"
 

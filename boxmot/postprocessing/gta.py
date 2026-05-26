@@ -51,10 +51,9 @@ import torch
 import torchvision.transforms as T
 from PIL import Image
 from scipy.spatial.distance import cdist
-from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 from boxmot.utils import logger as LOGGER
-
+from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 # ---------------------------------------------------------------------------
 # Data structures

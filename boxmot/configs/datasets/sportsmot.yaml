@@ -1,6 +1,6 @@
 id: sportsmot
 
-path: "boxmot/engine/trackeval/data/SportsMOT"
+path: "boxmot/engine/eval/trackeval/data/SportsMOT"
 split: "val" # test has no gt
 train: "train"
 val:

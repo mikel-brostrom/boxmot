@@ -28,6 +28,6 @@ Auto-generated reference for the high-level Python surface: the `Boxmot` facade,
 
 ::: boxmot.ExportResult
 
-::: boxmot.engine.results.Results
+::: boxmot.engine.tracking.results.Results
 
-::: boxmot.engine.results.FrameResult
+::: boxmot.engine.tracking.results.FrameResult

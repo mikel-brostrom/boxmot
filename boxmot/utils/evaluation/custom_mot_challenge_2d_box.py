@@ -1,6 +1,6 @@
 import numpy as np
-from scipy.optimize import linear_sum_assignment
 import trackeval._timing as _timing
+from scipy.optimize import linear_sum_assignment
 from trackeval.datasets.mot_challenge_2d_box import MotChallenge2DBox
 
 from boxmot.utils.evaluation.custom_mot_challenge_base import CustomMotChallengeBase

@@ -12,7 +12,7 @@ class BaseVisualization(ABC):
     """
     Abstract base class for visualization methods in BaseTracker.
     """
-    
+
     def id_to_color(
         self,
         id: int,

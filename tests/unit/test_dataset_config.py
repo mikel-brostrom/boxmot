@@ -218,7 +218,7 @@ def test_apply_benchmark_config_preserves_runtime_benchmark_name(monkeypatch):
     assert args.benchmark_id == "dancetrack-ablation"
     assert args.dataset_id == "dancetrack-ablation"
     assert args.benchmark == "dancetrack-ablation"
-    assert args.source == Path("boxmot/engine/trackeval/data/test1/val")
+    assert args.source == Path("boxmot/engine/eval/trackeval/data/test1/val")
 
 
 def test_apply_benchmark_config_normalizes_benchmark_name_to_lowercase(monkeypatch):
@@ -241,17 +241,17 @@ def test_apply_benchmark_config_ignores_source_without_data(monkeypatch):
 
 
 def test_find_dataset_cfg_for_nested_source_path():
-    cfg = find_dataset_cfg_for_source("boxmot/engine/trackeval/data/MMOT-OBB/train/data44-3/img1")
+    cfg = find_dataset_cfg_for_source("boxmot/engine/eval/trackeval/data/MMOT-OBB/train/data44-3/img1")
 
     assert cfg is not None
     assert cfg["id"] == "mmot-obb"
-    assert cfg["path"] == "boxmot/engine/trackeval/data/MMOT-OBB"
+    assert cfg["path"] == "boxmot/engine/eval/trackeval/data/MMOT-OBB"
 
 
 def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
     calls = {}
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: calls.update(kwargs))
-    source = "boxmot/engine/trackeval/data/MMOT-OBB/train/data44-3/img1"
+    source = "boxmot/engine/eval/trackeval/data/MMOT-OBB/train/data44-3/img1"
     real_exists = Path.exists
 
     def fake_exists(self):
@@ -270,13 +270,13 @@ def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
 
     assert cfg is not None
     assert cfg["id"] == "mmot-obb"
-    assert args.source == "boxmot/engine/trackeval/data/MMOT-OBB/train/data44-3/img1"
+    assert args.source == "boxmot/engine/eval/trackeval/data/MMOT-OBB/train/data44-3/img1"
     assert args.dataset_id == "mmot-obb"
     assert args.eval_box_type == "obb"
     assert calls == {
         "runs_url": "",
         "dataset_url": "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/MMOT-OBB.zip",
-        "dataset_dest": Path("boxmot/engine/trackeval/data/MMOT-OBB.zip"),
+        "dataset_dest": Path("boxmot/engine/eval/trackeval/data/MMOT-OBB.zip"),
         "overwrite": False,
         "runs_check_path": None,
         "status_fn": None,
@@ -308,14 +308,14 @@ def test_sportsmot_benchmark_uses_split_schema():
     cfg = load_benchmark_only_cfg("sportsmot")
     assert cfg["id"] == "sportsmot"
     assert cfg["dataset_config"] == "sportsmot"
-    assert cfg["path"] == "boxmot/engine/trackeval/data/SportsMOT"
+    assert cfg["path"] == "boxmot/engine/eval/trackeval/data/SportsMOT"
     assert cfg["split"] == "val"
     assert cfg["train"] == "train"
     assert cfg["test"] == "test"
     assert cfg["detector_config"] == "yolox_x_sportsmot"
     assert cfg["reid_config"] == "lmbn_n_duke"
     assert cfg["storage"] == {
-        "root": "boxmot/engine/trackeval/data/SportsMOT",
+        "root": "boxmot/engine/eval/trackeval/data/SportsMOT",
         "split": "val",
     }
     assert cfg["evaluation"] == {
@@ -333,7 +333,7 @@ def test_sportsmot_benchmark_uses_split_schema():
 def test_sportsmot_dataset_loads_with_model_bindings():
     cfg = load_dataset_cfg("sportsmot")
     assert cfg["id"] == "sportsmot"
-    assert cfg["path"] == "boxmot/engine/trackeval/data/SportsMOT"
+    assert cfg["path"] == "boxmot/engine/eval/trackeval/data/SportsMOT"
     assert cfg["box_type"] == "aabb"
     assert cfg["layout"] == "mot"
     assert cfg["trackeval"] == "mot_challenge"
@@ -354,18 +354,18 @@ def test_apply_benchmark_config_resolves_sportsmot(monkeypatch):
     assert cfg["id"] == "sportsmot"
     assert args.benchmark_id == "sportsmot"
     assert args.dataset_id == "sportsmot"
-    assert args.source == Path("boxmot/engine/trackeval/data/SportsMOT/val")
+    assert args.source == Path("boxmot/engine/eval/trackeval/data/SportsMOT/val")
 
 
 def test_find_dataset_cfg_for_sportsmot_source():
-    cfg = find_dataset_cfg_for_source("boxmot/engine/trackeval/data/SportsMOT/test/SNMOT-001/img1")
+    cfg = find_dataset_cfg_for_source("boxmot/engine/eval/trackeval/data/SportsMOT/test/SNMOT-001/img1")
     assert cfg is not None
     assert cfg["id"] == "sportsmot"
-    assert cfg["path"] == "boxmot/engine/trackeval/data/SportsMOT"
+    assert cfg["path"] == "boxmot/engine/eval/trackeval/data/SportsMOT"
 
 
 @pytest.mark.skipif(
-    not Path("boxmot/engine/trackeval/data/MOT17/val").is_dir(),
+    not Path("boxmot/engine/eval/trackeval/data/MOT17/val").is_dir(),
     reason="MOT17 val data not available",
 )
 def test_mot17_ablation_split_resolves_to_train_with_seq_pattern(monkeypatch):
@@ -375,7 +375,7 @@ def test_mot17_ablation_split_resolves_to_train_with_seq_pattern(monkeypatch):
     assert cfg["id"] == "mot17"
     assert args.split == "ablation"
     # When the base dir exists, a filtered split dir is built with symlinks
-    assert args.source == Path("boxmot/engine/trackeval/data/MOT17/ablation")
+    assert args.source == Path("boxmot/engine/eval/trackeval/data/MOT17/ablation")
     assert args.seq_pattern == "*-FRCNN"
     # Verify the symlink dir only contains FRCNN sequences
     seq_names = [p.name for p in args.source.iterdir() if p.is_dir()]
@@ -384,7 +384,7 @@ def test_mot17_ablation_split_resolves_to_train_with_seq_pattern(monkeypatch):
 
 
 @pytest.mark.skipif(
-    not Path("boxmot/engine/trackeval/data/MOT17/val").is_dir(),
+    not Path("boxmot/engine/eval/trackeval/data/MOT17/val").is_dir(),
     reason="MOT17 val data not available",
 )
 def test_mot17_ablation_split_respects_cli_detection_source(monkeypatch):
@@ -396,7 +396,7 @@ def test_mot17_ablation_split_respects_cli_detection_source(monkeypatch):
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "mot17"
     assert args.split == "ablation"
-    assert args.source == Path("boxmot/engine/trackeval/data/MOT17/ablation")
+    assert args.source == Path("boxmot/engine/eval/trackeval/data/MOT17/ablation")
     assert args.seq_pattern == "*-FRCNN"
     # CLI --detection-source takes precedence
     assert args.detection_source == "public"

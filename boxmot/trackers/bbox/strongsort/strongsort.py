@@ -9,8 +9,7 @@ import numpy as np
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bbox.strongsort.sort.detection import Detection
-from boxmot.trackers.bbox.strongsort.sort.linear_assignment import \
-    NearestNeighborDistanceMetric
+from boxmot.trackers.bbox.strongsort.sort.linear_assignment import NearestNeighborDistanceMetric
 from boxmot.trackers.bbox.strongsort.sort.tracker import Tracker
 from boxmot.utils.ops import xyxy2tlwh
 

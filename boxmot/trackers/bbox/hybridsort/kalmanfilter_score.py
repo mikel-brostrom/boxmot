@@ -321,7 +321,7 @@ class KalmanFilterNew_score(object):
         self.P_prior = self.P.copy()
 
         # these will always be a copy of x,P after update() is called
-        self.x_post = self.x.copy()             
+        self.x_post = self.x.copy()
         self.P_post = self.P.copy()
 
         # Only computed only if requested via property
@@ -329,7 +329,7 @@ class KalmanFilterNew_score(object):
         self._likelihood = sys.float_info.min
         self._mahalanobis = None
 
-        # keep all observations 
+        # keep all observations
         self.history_obs = []
 
         self.inv = np.linalg.inv
@@ -393,7 +393,7 @@ class KalmanFilterNew_score(object):
         if self.attr_saved is not None:
             new_history = deepcopy(self.history_obs)
             self.__dict__ = self.attr_saved
-            # self.history_obs = new_history 
+            # self.history_obs = new_history
             self.history_obs = self.history_obs[:-1]
             occur = [int(d is None) for d in new_history]
             indices = np.where(np.array(occur)==0)[0]
@@ -467,7 +467,7 @@ class KalmanFilterNew_score(object):
 
         # append the observation
         self.history_obs.append(z)
-        
+
         if z is None:
             if self.observed:
                 """
@@ -475,13 +475,13 @@ class KalmanFilterNew_score(object):
                     potential online smoothing.
                 """
                 self.freeze()
-            self.observed = False 
+            self.observed = False
             self.z = np.array([[None]*self.dim_z]).T
             self.x_post = self.x.copy()
             self.P_post = self.P.copy()
             self.y = zeros((self.dim_z, 1))
             return
-        
+
         # self.observed = True
         if not self.observed:
             """

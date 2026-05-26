@@ -11,11 +11,8 @@ from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bbox.botsort.basetrack import BaseTrack, TrackState
 from boxmot.trackers.bbox.botsort.botsort_track import STrack
-from boxmot.trackers.bbox.botsort.botsort_utils import (joint_stracks,
-                                                   remove_duplicate_stracks,
-                                                   sub_stracks)
-from boxmot.utils.matching import (embedding_distance, fuse_score,
-                                   iou_distance, linear_assignment)
+from boxmot.trackers.bbox.botsort.botsort_utils import joint_stracks, remove_duplicate_stracks, sub_stracks
+from boxmot.utils.matching import embedding_distance, fuse_score, iou_distance, linear_assignment
 
 
 class BotSort(BaseTracker):
@@ -76,7 +73,7 @@ class BotSort(BaseTracker):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
         super().__init__(**init_args, _tracker_name='BotSort', **kwargs)
-        
+
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
         BaseTrack.clear_count()

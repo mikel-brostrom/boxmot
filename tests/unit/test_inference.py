@@ -18,16 +18,15 @@ from boxmot.detectors.base import Detections
 import boxmot.data.loaders as loaders_module
 import boxmot.detectors.detector as detector_module
 import boxmot.detectors.ultralytics as ultralytics_detector_module
-import boxmot.engine.evaluator as evaluator_module
-import boxmot.engine.inference as pipeline_module
-import boxmot.engine.replay as cached_tracking_module
-import boxmot.engine.tracker as tracker_module
-import boxmot.engine.tracker as tracker_runtime_module
-import boxmot.engine.workflow_reporting as workflow_reporting_module
+import boxmot.engine.eval.evaluator as evaluator_module
+import boxmot.engine.tracking.inference as pipeline_module
+import boxmot.engine.eval.replay as cached_tracking_module
+import boxmot.engine.tracking.tracker as tracker_runtime_module
+import boxmot.engine.workflows.reporting as workflow_reporting_module
 import boxmot.reid.core as reid_core_module
 import boxmot.utils.rich.ui as ui_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
-from boxmot.engine.inference import prepare_detections
+from boxmot.engine.tracking.inference import prepare_detections
 from boxmot.trackers.bbox.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
@@ -2385,7 +2384,7 @@ def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, mon
 
 
 def test_tracking_session_output_stem_handles_stream_and_camera_sources():
-    session = tracker_module.TrackingSession(SimpleNamespace(source="rtsp://camera/stream", fps=None))
+    session = tracker_runtime_module.TrackingSession(SimpleNamespace(source="rtsp://camera/stream", fps=None))
 
     assert session._resolve_output_stem() == "rtsp_camera_stream"
 
@@ -2394,7 +2393,7 @@ def test_tracking_session_output_stem_handles_stream_and_camera_sources():
 
 
 def test_tracking_session_resolves_output_fps_from_args():
-    session = tracker_module.TrackingSession(SimpleNamespace(source="video.mp4", fps=12))
+    session = tracker_runtime_module.TrackingSession(SimpleNamespace(source="video.mp4", fps=12))
 
     assert session._resolve_output_fps() == 12
 
@@ -2434,4 +2433,4 @@ def test_initialize_trackers_rejects_unknown_tracker():
     args = SimpleNamespace(tracker="unknown", reid=Path("reid.pt"), half=False, per_class=False, target_id=None)
 
     with pytest.raises(ValueError, match="registered tracker name"):
-        tracker_module.TrackingSession.initialize_trackers(predictor, args)
+        tracker_runtime_module.TrackingSession.initialize_trackers(predictor, args)

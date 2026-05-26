@@ -8,9 +8,13 @@ import numpy as np
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.bbox.boosttrack.assoc import (MhDist_similarity, associate,
-                                              iou_batch, shape_similarity,
-                                              soft_biou_batch)
+from boxmot.trackers.bbox.boosttrack.assoc import (
+    MhDist_similarity,
+    associate,
+    iou_batch,
+    shape_similarity,
+    soft_biou_batch,
+)
 
 
 def convert_bbox_to_z(bbox):
@@ -253,7 +257,7 @@ class BoostTrack(BaseTracker):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
         super().__init__(**init_args, _tracker_name='BoostTrack', **kwargs)
-        
+
         self.active_tracks = []
         self.frame_count = 0
         self.trackers: List[KalmanBoxTracker] = []
@@ -391,7 +395,7 @@ class BoostTrack(BaseTracker):
                 # Format: [x1, y1, x2, y2, id, confidence, cls, det_ind]
                 outputs.append(np.array([d[0], d[1], d[2], d[3], trk.id, trk.conf, trk.cls, trk.det_ind]))
                 self.active_tracks.append(trk)
-            
+
         self.trackers = [trk for trk in self.trackers if trk.time_since_update <= self.max_age]
 
         if len(outputs) == 0:
@@ -408,7 +412,7 @@ class BoostTrack(BaseTracker):
         area_filter = w_arr * h_arr > self.min_box_area
 
         return outputs[vertical_filter & area_filter]
-    
+
     def get_iou_matrix(self, detections: np.ndarray, buffered: bool = False) -> np.ndarray:
         trackers = np.zeros((len(self.trackers), 5))
         for t, trk in enumerate(trackers):

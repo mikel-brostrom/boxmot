@@ -12,15 +12,15 @@ import torch
 
 import boxmot
 import boxmot.api as api_module
-from boxmot.engine import cache as cache_module
-from boxmot.engine import evaluator as evaluator_module
-from boxmot.engine import export as export_module
+from boxmot.engine.eval import cache as cache_module
+from boxmot.engine.eval import evaluator as evaluator_module
+from boxmot.engine.reid import export as export_module
 from boxmot.engine import research as research_engine_module
-from boxmot.engine import tracker as tracker_module
-from boxmot.engine import tuner as tuner_module
-from boxmot.engine import workflow_reporting as reporting_module
-from boxmot.engine import workflow_support as workflow_support_module
-import boxmot.engine.results as results_module
+from boxmot.engine.tracking import tracker as tracker_module
+from boxmot.engine.tuning import tuner as tuner_module
+from boxmot.engine.workflows import reporting as reporting_module
+from boxmot.engine.workflows import support as workflow_support_module
+import boxmot.engine.tracking.results as results_module
 from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
 from boxmot.detectors import Detector
 from boxmot.detectors.base import Detections
@@ -96,7 +96,7 @@ def test_boxmot_eval_namespace_normalizes_inline_tracker_backend():
 
 
 def test_boxmot_eval_namespace_allows_benchmark_runtime_to_override_inherited_defaults(monkeypatch):
-    evaluator_module = importlib.import_module("boxmot.engine.evaluator")
+    evaluator_module = importlib.import_module("boxmot.engine.eval.evaluator")
     model = api_module.Boxmot()
     args = model._base_eval_args("mot17-mini")
 

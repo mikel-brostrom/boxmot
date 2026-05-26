@@ -345,7 +345,7 @@ class OcSort(BaseTracker):
         # Capture all init params for logging
         init_args = {k: v for k, v in locals().items() if k not in ('self', 'kwargs')}
         super().__init__(**init_args, _tracker_name='OcSort', **kwargs)
-        
+
         # Store OcSort-specific parameters
         self.min_conf: float = min_conf
         self.asso_threshold: float = self.iou_threshold  # Use from BaseTracker
@@ -356,10 +356,10 @@ class OcSort(BaseTracker):
         self.Q_s_scaling: float = Q_s_scaling
         self.frame_count: int = 0
         KalmanBoxTracker.count = 0
-        
+
         # Initialize tracker collections
         self.active_tracks: list = []
-        
+
     def _update_impl(
         self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
         masks: np.ndarray = None,
