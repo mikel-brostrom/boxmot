@@ -23,4 +23,5 @@ OBB-capable trackers in the current repo are:
 - `bytetrack`
 - `botsort`
 - `ocsort`
+- `occluboost`
 - `sfsort`

@@ -37,7 +37,7 @@ pip install "boxmot[yolo,evolve,research]"
 
 ## Native C++ backends
 
-Native C++ tracker backends are built lazily the first time you select `--tracker-backend cpp`. They are currently available for `botsort`, `bytetrack`, `ocsort`, and `sfsort`.
+Native C++ tracker backends are built lazily the first time you select `--tracker-backend cpp`. They are currently available for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
 
 Install the native build tools before using them:
 

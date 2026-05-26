@@ -18,7 +18,7 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
         from boxmot import Boxmot
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-        metrics = boxmot.val(benchmark="mot17", split="ablation")
+        metrics = boxmot.val(benchmark="mot17-ablation")
         print(metrics)
         ```
 
@@ -43,7 +43,7 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
         from boxmot import Boxmot
 
         boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-        metrics = boxmot.val(benchmark="mot17", split="ablation")
+        metrics = boxmot.val(benchmark="mot17-ablation")
         print(metrics)
         ```
 
@@ -76,7 +76,7 @@ boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-bac
 boxmot eval --benchmark mot17 --split ablation --tracker ocsort:cpp
 ```
 
-Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, and `sfsort`. `--tracking-backend cpp` is still accepted as a compatibility alias, but `--tracker-backend cpp` is the canonical selector.
+Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`. `--tracking-backend cpp` is still accepted as a compatibility alias, but `--tracker-backend cpp` is the canonical selector.
 
 ## Main outputs
 

@@ -3,7 +3,7 @@
 BoxMOT exposes one command group for all supported workflows:
 
 ```bash
-boxmot MODE [OPTIONS] [DETECTOR] [REID] [TRACKER]
+boxmot MODE [OPTIONS]
 ```
 
 ## Core idea

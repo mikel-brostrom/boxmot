@@ -38,7 +38,7 @@ native_track = Boxmot(detector="yolov8n", tracker="bytetrack:cpp")
 run = native_track.track(source="video.mp4")
 
 native_eval = Boxmot(tracker="ocsort")
-metrics = native_eval.val(benchmark="mot17", split="ablation", tracker_backend="cpp")
+metrics = native_eval.val(benchmark="mot17-ablation", tracker_backend="cpp")
 ```
 
 Native C++ backends are currently registered for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.

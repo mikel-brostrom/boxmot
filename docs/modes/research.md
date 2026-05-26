@@ -27,7 +27,7 @@ Reference material:
         from boxmot import Boxmot
 
         result = Boxmot(tracker="bytetrack").research(
-            benchmark="mot17", split="ablation",
+            benchmark="mot17-ablation",
             proposal_model="openai/gpt-5.4",
             max_metric_calls=24,
         )
@@ -72,7 +72,7 @@ Use `--tracker-backend cpp` to score candidate changes through a native C++ repl
 boxmot research --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
 ```
 
-This is only useful for trackers with registered native replay support: `botsort`, `bytetrack`, `ocsort`, and `sfsort`.
+This is only useful for trackers with registered native replay support: `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
 
 ## Outputs
 
