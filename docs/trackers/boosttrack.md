@@ -10,4 +10,4 @@ BoostTrack++ focuses on a neglected part of MOT pipelines: deciding which detect
 - AABB detections only in BoxMOT.
 - Best when low-confidence true positives are a recurring problem and you want stronger association scoring than plain IoU or Mahalanobis distance.
 
-::: boxmot.trackers.boosttrack.boosttrack.BoostTrack
+::: boxmot.trackers.bbox.boosttrack.boosttrack.BoostTrack

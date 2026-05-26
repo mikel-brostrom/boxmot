@@ -12,6 +12,10 @@ on:
     branches:
       - master
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   UV_TORCH_BACKEND: cpu
   UV_INDEX_STRATEGY: unsafe-best-match
@@ -244,6 +248,15 @@ jobs:
         shell: bash
         run: |
           cat pretty_results.txt
+          {
+            echo "## MOT17-mini Metrics"
+            echo
+            echo '| Tracker | Status | HOTA | MOTA | IDF1 |'
+            echo '| --- | --- | --- | --- | --- |'
+            tail -n +2 metrics.csv | while IFS=, read -r name status hota mota idf1; do
+              echo "| $name | $status | $hota | $mota | $idf1 |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
   obb:
     runs-on: ubuntu-latest
@@ -311,13 +324,24 @@ jobs:
           set -e
           exit "$failed"
       - name: Show OBB Results
+        if: always()
         shell: bash
         run: |
           column -s, -t obb.csv
+          {
+            echo "## OBB Tracker Support"
+            echo
+            echo '| Tracker | OBB | Reason |'
+            echo '| --- | --- | --- |'
+            tail -n +2 obb.csv | while IFS=, read -r name status reason; do
+              echo "| $name | $status | $reason |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
   pose:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -336,6 +360,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -361,9 +386,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
+    timeout-minutes: 30
     steps:
-      - id: set_result
-        run: echo "::set-output name=result::success"
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -383,9 +407,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
+    timeout-minutes: 30
     steps:
-      - id: set_result
-        run: echo "::set-output name=result::success"
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -393,9 +416,7 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: |
-          sed -i'' -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
-          python -m pip install --upgrade pip setuptools wheel uv
-          uv sync --extra yolo --extra onnx --extra openvino --extra tflite
+          bash .github/scripts/uv_ci_install.sh ".[yolo,onnx,openvino,tflite]"
 
       - name: Test export models
         run: | 
@@ -480,6 +501,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -499,6 +521,13 @@ jobs:
         run: |
           uv run python -m pytest --cov="$PACKAGE_DIR" --cov-report=html -v -s tests
           uv run python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 14
   # test-gpu:
   #   runs-on: gpu-latest
   #   outputs:
@@ -538,36 +567,42 @@ jobs:
       - pose
       - seg
       - yolos
-    if: always()  # This ensures the job runs regardless of previous job failures
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Prepare environment variables
-        run: |
-          echo "trackers_STATUS=${{ needs.trackers.result }}" >> $GITHUB_ENV
-          echo "native_build_STATUS=${{ needs.native_build.result }}" >> $GITHUB_ENV
-          echo "cpp_trackers_STATUS=${{ needs.cpp_trackers.result }}" >> $GITHUB_ENV
-          echo "metrics_STATUS=${{ needs.metrics.result }}" >> $GITHUB_ENV
-          echo "obb_STATUS=${{ needs.obb.result }}" >> $GITHUB_ENV
-          echo "tune_STATUS=${{ needs.tune.result }}" >> $GITHUB_ENV
-          echo "export_STATUS=${{ needs.export.result }}" >> $GITHUB_ENV
-          echo "tests_STATUS=${{ needs.tests.result }}" >> $GITHUB_ENV
-          echo "pose_STATUS=${{ needs.pose.result }}" >> $GITHUB_ENV
-          echo "seg_STATUS=${{ needs.seg.result }}" >> $GITHUB_ENV
-          echo "yolos_STATUS=${{ needs.yolos.result }}" >> $GITHUB_ENV
       - name: Check for failures and create summary
         run: |
-          summary=""
+          results=(
+            "trackers=${{ needs.trackers.result }}"
+            "native_build=${{ needs.native_build.result }}"
+            "cpp_trackers=${{ needs.cpp_trackers.result }}"
+            "metrics=${{ needs.metrics.result }}"
+            "obb=${{ needs.obb.result }}"
+            "tune=${{ needs.tune.result }}"
+            "export=${{ needs.export.result }}"
+            "tests=${{ needs.tests.result }}"
+            "pose=${{ needs.pose.result }}"
+            "seg=${{ needs.seg.result }}"
+            "yolos=${{ needs.yolos.result }}"
+          )
           failed=false
-          # Print all environment variables, grep for those ending with _STATUS, then loop
-          for var in $(printenv | grep '_STATUS$'); do
-            job_status="${var##*=}"  # Extract the status part
-            job_name="${var%%=*}"  # Extract the job name part
-            if [[ "$job_status" != "success" ]]; then
-              summary+="$job_name failed with status: $job_status\n"
-              failed=true
-            fi
-          done
-          if [[ "$failed" = false ]]; then
-            summary="All jobs succeeded."
+          {
+            echo "## CI Results"
+            echo
+            echo "| Job | Status |"
+            echo "| --- | --- |"
+            for entry in "${results[@]}"; do
+              job="${entry%%=*}"
+              status="${entry##*=}"
+              if [[ "$status" == "success" ]]; then
+                echo "| $job | :white_check_mark: |"
+              else
+                echo "| $job | :x: $status |"
+                failed=true
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$failed" == "true" ]]; then
+            echo "::error::One or more jobs failed"
+            exit 1
           fi
-          echo "Summary: $summary"

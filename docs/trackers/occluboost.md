@@ -62,4 +62,4 @@ When `--tracker-backend cpp` is set, embedding generation for cached replay also
 - `new_track_thresh` is decoupled from `det_thresh` so weakly-confident detections can update existing tracks without spawning new ones.
 - Keep `max_age >= nr_classes` (default 120 vs 80 COCO classes) so per-class tracking survives the per-class predict loop.
 
-::: boxmot.trackers.occluboost.occluboost.OccluBoost
+::: boxmot.trackers.bbox.occluboost.occluboost.OccluBoost
