@@ -157,42 +157,54 @@ def _apply_kf_tuning_to_runtime(kf_tuning: dict) -> None:
         R = kf_tuning.get("R")
         if Q is not None:
             _original_get_q = ConstantNoiseXYHR.get_q
-            _tuned_q = np.asarray(Q, dtype=float)
+            _raw_q = np.asarray(Q, dtype=float)
+            # Extract position-block diagonal and build a structurally sound Q.
+            # The method-of-moments estimate can produce degenerate matrices
+            # (identical position/velocity blocks) that destroy the filter's
+            # constant-velocity assumption.  We keep velocity noise at 1% of
+            # position noise (matching the default ratio).
+            _tuned_q_pos_diag = np.abs(np.diag(_raw_q)[:_raw_q.shape[0] // 2])
 
             def _tuned_get_q(self):
-                # If tuned Q matches runtime dim_x, use directly
-                if _tuned_q.shape[0] == self.dim_x:
-                    return _tuned_q.copy()
-                # OBB runtime (dim_x=10) with AABB tuning (8×8): embed into
-                # larger matrix, using default noise for extra theta dims
-                if _tuned_q.shape[0] < self.dim_x:
-                    q_full = _original_get_q(self)
-                    n = _tuned_q.shape[0]
-                    q_full[:n, :n] = _tuned_q
-                    return q_full
-                return _original_get_q(self)
+                q = np.zeros((self.dim_x, self.dim_x), dtype=float)
+                n_pos = min(len(_tuned_q_pos_diag), self.dim_z)
+                # Position diagonal from estimation
+                for i in range(n_pos):
+                    q[i, i] = _tuned_q_pos_diag[i]
+                # Velocity diagonal = position * 0.01 (default structure ratio)
+                for i in range(n_pos):
+                    q[self.dim_z + i, self.dim_z + i] = _tuned_q_pos_diag[i] * 0.01
+                # Fill remaining dims (e.g. theta in OBB) from default
+                if self.dim_x > 2 * n_pos:
+                    q_default = _original_get_q(self)
+                    for i in range(n_pos, self.dim_z):
+                        q[i, i] = q_default[i, i]
+                    for i in range(n_pos, self.dim_x - self.dim_z):
+                        q[self.dim_z + i, self.dim_z + i] = q_default[self.dim_z + i, self.dim_z + i]
+                return q
 
             ConstantNoiseXYHR.get_q = _tuned_get_q
         if R is not None:
             _original_get_r = ConstantNoiseXYHR.get_r
-            _tuned_r = np.asarray(R, dtype=float)
+            _raw_r = np.asarray(R, dtype=float)
+            # Use diagonal-only R to avoid injecting unreliable cross-terms
+            _tuned_r_diag = np.abs(np.diag(_raw_r))
 
             def _tuned_get_r(self):
-                # If tuned R matches runtime dim_z, use directly
-                if _tuned_r.shape[0] == self.dim_z:
-                    return _tuned_r.copy()
-                # OBB runtime (dim_z=5) with AABB tuning (4×4): embed into
-                # larger matrix, using default noise for extra theta dim
-                if _tuned_r.shape[0] < self.dim_z:
-                    r_full = _original_get_r(self)
-                    n = _tuned_r.shape[0]
-                    r_full[:n, :n] = _tuned_r
-                    return r_full
-                return _original_get_r(self)
+                r = np.zeros((self.dim_z, self.dim_z), dtype=float)
+                n = min(len(_tuned_r_diag), self.dim_z)
+                for i in range(n):
+                    r[i, i] = _tuned_r_diag[i]
+                # Fill remaining dims from default (e.g. theta in OBB)
+                if self.dim_z > n:
+                    r_default = _original_get_r(self)
+                    for i in range(n, self.dim_z):
+                        r[i, i] = r_default[i, i]
+                return r
 
             ConstantNoiseXYHR.get_r = _tuned_get_r
         LOGGER.info(
-            f"KF tuning applied to ConstantNoiseXYHR: Q/R matrices overridden"
+            f"KF tuning applied to ConstantNoiseXYHR: Q/R diagonal-scaled"
         )
 
 
