@@ -11,7 +11,6 @@ Supports single-objective (default) and multi-objective Pareto search:
 """
 
 import csv
-import inspect
 import logging
 import os
 import warnings
@@ -690,6 +689,81 @@ def _ray_safe_namespace(args: Any) -> SimpleNamespace:
     return SimpleNamespace(**safe_values)
 
 
+def _count_completed_trials(tune_dir: Path) -> int:
+    """Count how many trials in *tune_dir* have finished successfully."""
+    # Count trial_* subdirectories that contain a result.json.
+    # This is more reliable than ExperimentAnalysis which may reflect
+    # a stale experiment_state after a corrupted resume.
+    try:
+        return sum(
+            1 for d in tune_dir.iterdir()
+            if d.is_dir() and d.name.startswith("trial_") and (d / "result.json").exists()
+        )
+    except Exception:
+        return 0
+
+
+def _patch_search_gen_state(tune_dir: Path, n_trials: int) -> None:
+    """Patch the SearchGenerator checkpoint on disk so resume targets *n_trials*.
+
+    During resume, Ray's ``SearchGenerator.restore_from_dir`` loads the newest
+    ``search_gen_state-*.json`` (cloudpickle) and calls ``set_state()``, which
+    overwrites ``_total_samples`` with the persisted value.  If that value is <=
+    the current counter, the generator immediately reports ``is_finished=True``
+    and no new trials are created.
+
+    This helper rewrites the newest checkpoint to set ``total_samples`` to
+    *n_trials* and ``finished`` to False, ensuring the generator will produce
+    trials until *n_trials* is reached.
+    """
+    import glob
+    import ray.cloudpickle as cloudpickle
+
+    pattern = str(tune_dir / "search_gen_state-*.json")
+    files = glob.glob(pattern)
+    if not files:
+        return
+    newest = max(files)
+    try:
+        with open(newest, "rb") as f:
+            state = cloudpickle.load(f)
+    except Exception:
+        return  # Corrupted file; fit() will handle the fallback
+
+    if not isinstance(state, dict) or "total_samples" not in state:
+        return
+
+    # Set counter to the number of already-completed trials so the generator
+    # produces exactly (n_trials - completed) new suggestions.
+    completed = _count_completed_trials(tune_dir)
+    state["counter"] = completed
+    state["total_samples"] = n_trials
+    state["finished"] = False
+    with open(newest, "wb") as f:
+        cloudpickle.dump(state, f)
+
+
+def _patch_restored_tuner(tuner, *, n_trials: int, callback, reporter) -> None:
+    """Apply overrides to a restored Ray Tuner.
+
+    Ray's ``_fit_resume`` omits ``num_samples`` (defaults to 1) and uses stale
+    callbacks from the serialised RunConfig.  This helper injects the correct
+    values before ``.fit()`` is called.
+    """
+    from ray.tune import FailureConfig
+
+    internal = tuner._local_tuner
+    # num_samples must travel via _tuner_kwargs because _fit_resume spreads
+    # these kwargs last into tune.run(), overriding the default of 1.
+    internal._tuner_kwargs["num_samples"] = n_trials
+    internal._run_config.callbacks = [callback]
+    internal._run_config.verbose = 0
+    internal._run_config.progress_reporter = reporter
+    # Ensure trial-level fault tolerance even if the original run lacked it.
+    if internal._run_config.failure_config is None:
+        internal._run_config.failure_config = FailureConfig(max_failures=3)
+
+
 def _resolve_tune_dir(args, *, resume: str | None = None) -> Path:
     results_dir = Path(args.project).resolve() / "ray"
     if resume:
@@ -757,10 +831,12 @@ def _execute_tune_search(
     except Exception:
         pass
 
+    # -- Prepare args for eval/tune pipeline --
     args.detector = [Path(y).resolve() for y in args.detector]
     args.reid = [Path(r).resolve() for r in args.reid]
     args.show_progress = False
     resume_tune = getattr(args, "resume_tune", None) or None
+
     _ensure_ray_initialized(verbose=bool(getattr(args, "verbose", False)))
     opt_metrics = maximize + minimize
     opt_modes   = ["max"] * len(maximize) + ["min"] * len(minimize)
@@ -812,14 +888,10 @@ def _execute_tune_search(
         tune_dir = _resolve_tune_dir(args, resume=resume_tune)
         tune_name = tune_dir.name
 
-        # When resuming from an absolute path, infer project from the tune dir
-        # so that cache lookups (dets_n_embs) resolve to the same disk/location
-        # where the original run stored them (<project>/ray/<experiment>).
+        # When resuming from an external disk the cache lives under
+        # <tune_dir>/../.. (e.g. /Volumes/LaCie/runs), not the default project.
         if resume_tune and tune_dir.parent.name == "ray":
-            inferred_project = tune_dir.parent.parent
-            current_project = Path(args.project).resolve()
-            if inferred_project != current_project:
-                args.project = str(inferred_project)
+            args.project = str(tune_dir.parent.parent)
 
         pipeline.advance("Preparing benchmark cache...")
         pipeline.start()
@@ -843,40 +915,25 @@ def _execute_tune_search(
         trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
 
         if resume_tune is not None and tune.Tuner.can_restore(restore_path_str):
+            # Patch the on-disk SearchGenerator state BEFORE restore so that
+            # when fit() calls restore_from_dir(), it picks up the new target.
+            _patch_search_gen_state(restore_path, n_trials=int(args.n_trials))
             tuner = tune.Tuner.restore(
                 restore_path_str,
                 trainable=trainable,
                 param_space=search_space,
+                resume_unfinished=True,
                 resume_errored=True,
             )
-            # Pre-seed the callback with previously completed trials so the
-            # progress bar reflects the true offset instead of starting at 0.
-            completed_previously = 0
-            try:
-                from ray.tune import ExperimentAnalysis
-                analysis = ExperimentAnalysis(restore_path_str)
-                df = analysis.dataframe()
-                completed_previously = len(df)
-            except Exception:
-                pass
-            if completed_previously == 0:
-                # Fallback: count trial_* subdirectories with a result.json
-                try:
-                    trial_dirs = [
-                        d for d in restore_path.iterdir()
-                        if d.is_dir() and d.name.startswith("trial_")
-                        and (d / "result.json").exists()
-                    ]
-                    completed_previously = len(trial_dirs)
-                except Exception:
-                    pass
+            completed_previously = _count_completed_trials(restore_path)
             tune_callback.completed = completed_previously
             tune_callback._trial_index_offset = completed_previously
-            # Inject our callback into the restored tuner's RunConfig
-            # (the deserialized one starts with stale state).
-            tuner._local_tuner._run_config.callbacks = [tune_callback]
-            tuner._local_tuner._run_config.verbose = 0
-            tuner._local_tuner._run_config.progress_reporter = TuneSilentReporter()
+            _patch_restored_tuner(
+                tuner,
+                n_trials=int(args.n_trials),
+                callback=tune_callback,
+                reporter=TuneSilentReporter(),
+            )
             # Update the progress display to reflect completed trials immediately
             pipeline.advance(
                 format_tune_progress(
@@ -886,32 +943,10 @@ def _execute_tune_search(
                 ),
             )
         else:
-            run_config_kwargs = {
-                "storage_path": results_dir_str,
-                "name": tune_name,
-            }
-            run_config_signature = inspect.signature(RunConfig)
-            if "callbacks" in run_config_signature.parameters:
-                run_config_kwargs["callbacks"] = [tune_callback]
-            if "verbose" in run_config_signature.parameters:
-                run_config_kwargs["verbose"] = 0
-            if "progress_reporter" in run_config_signature.parameters:
-                run_config_kwargs["progress_reporter"] = TuneSilentReporter()
-
-            # FailureConfig: tolerate individual trial failures without
-            # aborting the entire experiment (best practice for robustness).
             from ray.tune import CheckpointConfig, FailureConfig
-            run_config_kwargs["failure_config"] = FailureConfig(
-                max_failures=3,
-            )
-            # CheckpointConfig: limit stored checkpoints to save disk space.
-            run_config_kwargs["checkpoint_config"] = CheckpointConfig(
-                num_to_keep=1,
-            )
 
-            # TuneConfig: set max_concurrent_trials and optional time_budget_s
             tune_config_kwargs = {
-                "num_samples": args.n_trials,
+                "num_samples": int(args.n_trials),
                 "search_alg": search_alg,
                 "max_concurrent_trials": max_concurrent,
                 "trial_dirname_creator": lambda trial: f"trial_{trial.trial_id}",
@@ -924,7 +959,15 @@ def _execute_tune_search(
                 trainable,
                 param_space=search_space,
                 tune_config=tune.TuneConfig(**tune_config_kwargs),
-                run_config=RunConfig(**run_config_kwargs),
+                run_config=RunConfig(
+                    storage_path=results_dir_str,
+                    name=tune_name,
+                    callbacks=[tune_callback],
+                    verbose=0,
+                    progress_reporter=TuneSilentReporter(),
+                    failure_config=FailureConfig(max_failures=3),
+                    checkpoint_config=CheckpointConfig(num_to_keep=1),
+                ),
             )
 
         result_grid = tuner.fit()
