@@ -388,8 +388,14 @@ def load_benchmark_cfg(name: str | Path) -> dict[str, Any]:
     detector_ref = benchmark_cfg.get("detector_config")
     reid_ref = benchmark_cfg.get("reid_config")
     if detector_ref or reid_ref:
-        detector_cfg = load_detector_component_cfg(detector_ref) if detector_ref else {}
-        reid_cfg = load_reid_component_cfg(reid_ref) if reid_ref else {}
+        try:
+            detector_cfg = load_detector_component_cfg(detector_ref) if detector_ref else {}
+        except FileNotFoundError:
+            detector_cfg = {}
+        try:
+            reid_cfg = load_reid_component_cfg(reid_ref) if reid_ref else {}
+        except FileNotFoundError:
+            reid_cfg = {}
         return _combine_benchmark_and_component_cfg(benchmark_cfg, detector_cfg=detector_cfg, reid_cfg=reid_cfg)
 
     return _combine_benchmark_and_component_cfg(benchmark_cfg, {}, {})
