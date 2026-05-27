@@ -199,7 +199,7 @@ def test_mmot_obb_detector_exposes_download_url():
 
 def test_mot17_detector_exposes_download_url():
     cfg = load_benchmark_cfg("mot17-mini")
-    assert get_benchmark_detector_url(cfg) == "https://drive.google.com/uc?id=1iqhM-6V_r1FpOlOzrdP_Ejshgk0DxOob"
+    assert get_benchmark_detector_url(cfg) == "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_MOT17_ablation.pt"
 
 
 def test_dataset_detector_is_not_used_for_other_explicit_models():

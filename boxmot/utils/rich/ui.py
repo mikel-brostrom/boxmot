@@ -761,6 +761,22 @@ class WorkflowProgress:
             self._last_rendered_state = self._state_snapshot()
             return
 
+        # If the renderable now fits but we are on the alternate screen,
+        # switch back to the normal screen so terminal scrollback is
+        # accessible again (e.g. after KF tuning output shrinks to the
+        # compact Optimize progress bar).
+        if (
+            not oversized
+            and self._uses_alt_screen
+            and self._live is not None
+        ):
+            self._live.transient = True
+            self._live.stop()
+            self._live = None
+            self._start_live(screen=False)
+            self._last_rendered_state = self._state_snapshot()
+            return
+
         self._oversized = oversized
         if self._live is not None:
             self._live.update(renderable, refresh=True)

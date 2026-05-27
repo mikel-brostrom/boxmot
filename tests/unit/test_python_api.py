@@ -1609,6 +1609,10 @@ def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp
             self.transient = transient
             self.started = False
             self.stopped = False
+            self._live = None
+            self.detail_renderable = None
+            self.detail_text = None
+            self.detail_title = None
 
         def start(self):
             self.started = True
@@ -1628,6 +1632,9 @@ def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp
                 (step_label, "done" if step_label == label else step_state)
                 for step_label, step_state in self.steps
             ]
+
+        def renderable(self, *, compact=False, include_setup=True):
+            return ""
 
     def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
         workflow = _FakeWorkflow(title, fields, steps, stderr=stderr, transient=transient)

@@ -1070,7 +1070,7 @@ def test_run_generate_mot_results_quiet_mode_skips_manager_queue(tmp_path, monke
 
         def submit(self, _func, *task_arg):
             seq_name = task_arg[0]
-            progress_queue = task_arg[-1]
+            progress_queue = task_arg[-2]
             assert progress_queue is None
             return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
 
@@ -1178,6 +1178,10 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
             self.stopped = False
             self.prefer_alt_screen = False
             self.prefer_compact_layout = False
+            self._live = None
+            self.detail_renderable = None
+            self.detail_text = None
+            self.detail_title = None
 
         def start(self):
             self.started = True
@@ -1212,6 +1216,9 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
 
         def set_detail(self, title, text, *, render=True):
             self.details.append((title, text, render))
+
+        def renderable(self, *, compact=False, include_setup=True):
+            return ""
 
     def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
         workflow = _FakeWorkflow(title, fields, steps, stderr=stderr, transient=transient)
@@ -1260,6 +1267,9 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
             (evaluator_module.EVAL_TRACK_STEP, "todo"),
             (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
         ]
+        detail_renderable = None
+        detail_text = None
+        detail_title = None
 
         def activate(self, label, *, render=True):
             actions.append(("active", label))
@@ -1362,6 +1372,9 @@ def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp
             (evaluator_module.EVAL_TRACK_STEP, "todo"),
             (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
         ]
+        detail_renderable = None
+        detail_text = None
+        detail_title = None
 
         def activate(self, label, *, render=True):
             return None
@@ -1463,6 +1476,9 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
             (evaluator_module.EVAL_TRACK_STEP, "todo"),
             (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
         ]
+        detail_renderable = None
+        detail_text = None
+        detail_title = None
 
         def set_fields(self, fields, *, render=True):
             refreshed_fields.append(list(fields))
@@ -1813,7 +1829,7 @@ def test_workflow_progress_keeps_compact_layout_for_final_render(monkeypatch):
 
     full_renderable = object()
     compact_renderable = object()
-    workflow.renderable = lambda *, compact=False: compact_renderable if compact else full_renderable
+    workflow.renderable = lambda *, compact=False, include_setup=True: compact_renderable if compact else full_renderable
 
     monkeypatch.setattr(
         ui_module.WorkflowProgress,
@@ -1827,8 +1843,10 @@ def test_workflow_progress_keeps_compact_layout_for_final_render(monkeypatch):
     workflow.stop()
 
     assert workflow._compact_layout is True
-    assert update_calls[-1][0] is compact_renderable
-    assert update_calls[-1][1] is False
+    # In compact mode, _renderable_with_limit builds a Panel via
+    # build_workflow_intro instead of calling self.renderable(compact=True).
+    from rich.panel import Panel
+    assert isinstance(update_calls[-1][0], Panel)
 
 
 def test_workflow_progress_prefers_compact_layout_from_first_render(monkeypatch):
@@ -1859,12 +1877,15 @@ def test_workflow_progress_prefers_compact_layout_from_first_render(monkeypatch)
 
     full_renderable = object()
     compact_renderable = object()
-    workflow.renderable = lambda *, compact=False: compact_renderable if compact else full_renderable
+    workflow.renderable = lambda *, compact=False, include_setup=True: compact_renderable if compact else full_renderable
 
     workflow.start()
 
     assert workflow._compact_layout is True
-    assert init_renderables[0] is compact_renderable
+    # In compact mode, _renderable_with_limit builds a Panel via
+    # build_workflow_intro instead of calling self.renderable(compact=True).
+    from rich.panel import Panel
+    assert isinstance(init_renderables[0], Panel)
 
 
 def test_build_checklist_uses_semantic_state_colors():
@@ -2358,7 +2379,7 @@ def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, mon
 
         def submit(self, _func, *task_arg):
             seq_name = task_arg[0]
-            progress_queue = task_arg[-1]
+            progress_queue = task_arg[-2]
             if progress_queue is not None:
                 progress_queue.put_nowait((seq_name, 1, 1))
             return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))

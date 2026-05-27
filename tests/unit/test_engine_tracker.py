@@ -315,6 +315,9 @@ def test_run_track_routes_progress_into_workflow(monkeypatch, tmp_path):
             self.details = []
             self.renderable_details = []
             self.completed = []
+            self.detail_renderable = None
+            self.detail_text = None
+            self.detail_title = None
 
         def set_detail(self, title, text, *, render=True):
             self.details.append((title, text, render))
@@ -378,6 +381,10 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
             self.stopped = False
             self.prefer_alt_screen = False
             self.prefer_compact_layout = False
+            self._live = None
+            self.detail_renderable = None
+            self.detail_text = None
+            self.detail_title = None
 
         def start(self):
             self.started = True
@@ -397,6 +404,9 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
 
         def fail(self, label=None, error=None, *, render=True):
             return None
+
+        def renderable(self, *, compact=False, include_setup=True):
+            return ""
 
     def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
         workflow = _FakeWorkflow(title, fields, steps, stderr=stderr, transient=transient)

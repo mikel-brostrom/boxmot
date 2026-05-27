@@ -18,5 +18,5 @@ distractors:
   12: reflection
 
 defaults:
-  detector: yolov8n
+  detector: yolox_x_mot17_ablation
   reid: lmbn_n_duke
