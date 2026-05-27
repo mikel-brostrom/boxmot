@@ -1,18 +1,14 @@
 id: mot17-mini
 
-path: "assets/MOT17-mini"
-split: "train"
-train: "train"
-val:
-test:
-
+root: "assets/MOT17-mini"
 layout: mot
 box_type: aabb
 
-detector: yolox_x_mot17_ablation
-reid: lmbn_n_duke
+splits:
+  train: "train"
+default_split: train
 
-names:
+classes:
   1: pedestrian
 
 distractors:
@@ -21,4 +17,6 @@ distractors:
   8: distractor
   12: reflection
 
-class_map: {}
+defaults:
+  detector: yolov8n
+  reid: lmbn_n_duke

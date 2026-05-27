@@ -53,11 +53,17 @@ def resolve_dataset_cfg_path(name: str | Path) -> Path:
 
 
 def resolve_benchmark_cfg_path(name: str | Path) -> Path:
-    """Resolve a benchmark config by stem or YAML filename."""
+    """Resolve a benchmark config by stem or YAML filename.
+
+    Searches the benchmarks directory first, then falls back to datasets.
+    """
     path = Path(name)
     if path.suffix.lower() in {".yaml", ".yml"} and path.exists():
         return path.resolve()
-    return _resolve_yaml_path(BENCHMARK_CONFIGS, name)
+    try:
+        return _resolve_yaml_path(BENCHMARK_CONFIGS, name)
+    except FileNotFoundError:
+        return _resolve_yaml_path(DATASET_CONFIGS, name)
 
 
 def resolve_detector_cfg_path(name: str | Path) -> Path:
@@ -145,8 +151,11 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
     cfg = dict(raw_cfg or {})
     cfg.setdefault("id", cfg_path.stem.lower())
 
-    path_value = cfg.get("path") or ""
-    split_name = str(cfg.get("split") or "")
+    # Support new schema: ``root`` is the preferred key, ``path`` is legacy
+    path_value = cfg.get("root") or cfg.get("path") or ""
+
+    # Support new schema: ``default_split`` takes precedence over ``split``
+    split_name = str(cfg.get("default_split") or cfg.get("split") or "")
 
     train_value = cfg.get("train")
     val_value = cfg.get("val")
@@ -168,8 +177,21 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "test": test_value,
     }
     # Merge additional named splits (string path or dict with path + seq_pattern + detection_source)
+    # Entries from the ``splits:`` block override None top-level values.
     for name, entry in (cfg.get("splits") or {}).items():
-        split_paths.setdefault(name, entry)
+        if split_paths.get(name) is None:
+            split_paths[name] = entry
+    # Pick up extra top-level split keys (e.g. ablation: "ablation")
+    _KNOWN_KEYS = {
+        "id", "root", "path", "split", "default_split", "train", "val", "test", "splits",
+        "layout", "box_type", "detector", "reid", "names", "classes",
+        "distractors", "class_map", "download", "dataset_config",
+        "detector_config", "reid_config", "seq_pattern",
+        "trackeval", "storage", "evaluation", "benchmark", "defaults",
+    }
+    for key, value in cfg.items():
+        if key not in _KNOWN_KEYS and isinstance(value, (str, dict)) and value:
+            split_paths.setdefault(key, value)
     if split_paths.get(split_name) is None:
         split_paths[split_name] = split_name
 
@@ -177,13 +199,17 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
     layout = cfg.get("layout") or "mot"
     trackeval_name = _trackeval_adapter_for_box_type(str(box_type).lower())
 
-    names = dict(cfg.get("names") or {})
+    # Support new schema: ``classes`` is the preferred key, ``names`` is legacy
+    names = dict(cfg.get("classes") or cfg.get("names") or {})
     distractors = dict(cfg.get("distractors") or {})
     class_map = dict(cfg.get("class_map") or {})
 
     download_cfg = _normalize_dataset_download(cfg)
-    detector_ref = cfg.get("detector")
-    reid_ref = cfg.get("reid")
+
+    # Support new schema: ``defaults.detector`` / ``defaults.reid``
+    defaults_block = cfg.get("defaults") or {}
+    detector_ref = cfg.get("detector") or defaults_block.get("detector")
+    reid_ref = cfg.get("reid") or defaults_block.get("reid")
 
     normalized = {
         "id": cfg["id"],
@@ -203,6 +229,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "dataset_config": cfg["id"],
         "detector_config": str(detector_ref) if detector_ref else None,
         "reid_config": str(reid_ref) if reid_ref else None,
+        "seq_pattern": cfg.get("seq_pattern"),
     }
 
     normalized["storage"] = {
@@ -256,6 +283,14 @@ def _merge_benchmark_bundle_cfg(
     dataset_ref = cfg.get("dataset") or dataset_cfg.get("id")
     if dataset_ref:
         payload["dataset_config"] = str(dataset_ref)
+
+    split_ref = cfg.get("split")
+    if split_ref:
+        payload["split"] = str(split_ref)
+
+    seq_pattern_ref = cfg.get("seq_pattern")
+    if seq_pattern_ref:
+        payload["seq_pattern"] = str(seq_pattern_ref)
 
     detector_ref = cfg.get("detector") or dataset_cfg.get("detector_config")
     reid_ref = cfg.get("reid") or dataset_cfg.get("reid_config")
@@ -674,6 +709,9 @@ def _apply_benchmark_config_ref(
         seq_pattern = None
         detection_source = None
         frame_split = None
+    # Allow top-level seq_pattern as fallback (e.g. from benchmark config)
+    if seq_pattern is None:
+        seq_pattern = cfg.get("seq_pattern")
     base_source = (source_root / active_split_path) if source_root is not None else (benchmark_dest / active_split_path)
 
     # Build filtered split directory at runtime when seq_pattern is specified

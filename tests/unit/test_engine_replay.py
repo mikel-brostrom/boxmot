@@ -88,7 +88,7 @@ def test_replay_process_backend_uses_spawn_context(tmp_path, monkeypatch):
 
         def submit(self, _func, *task_arg):
             seq_name = task_arg[0]
-            progress_queue = task_arg[-1]
+            progress_queue = task_arg[-2]  # second-to-last; last is adaptive_kf
             assert task_arg[2] == str(args.cache_project)
             if progress_queue is not None:
                 progress_queue.put_nowait((seq_name, 1, 1))
@@ -176,7 +176,7 @@ def test_replay_nonquiet_uses_manager_queue_for_progress(tmp_path, monkeypatch):
 
         def submit(self, _func, *task_arg):
             seq_name = task_arg[0]
-            progress_queue = task_arg[-1]
+            progress_queue = task_arg[-2]  # second-to-last; last is adaptive_kf
             progress_queue.put_nowait((seq_name, 1, 1))
             return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
 

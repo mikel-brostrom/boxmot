@@ -227,3 +227,8 @@ gta_max_gap:
   type: randint
   default: 40
   range: [15, 150]
+
+adaptive_kf:
+  type: choice
+  default: False
+  options: [False, True]

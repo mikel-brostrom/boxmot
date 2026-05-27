@@ -29,6 +29,7 @@ import numpy as np
 import yaml
 
 from boxmot.engine.eval.evaluator import eval_setup, run_eval, run_generate_dets_embs
+from boxmot.engine.tuning.kf_tuning import run_kf_tuning as _run_kf_tuning, tracker_kf_type as _tracker_kf_type
 from boxmot.engine.workflows.reporting import (
     CLI_TUNE_BEST_SUMMARY_TITLE,
     SUMMARY_COLUMNS,
@@ -801,6 +802,8 @@ def _ensure_ray_initialized(*, verbose: bool) -> None:
     else:
         init_kwargs["logging_level"] = logging.WARNING
     os.environ.setdefault("RAY_DEDUP_LOGS", "1")
+    # Prevent C++ core worker from writing metrics connection errors to fd 2
+    os.environ.setdefault("RAY_ENABLE_METRICS_COLLECTION", "0")
 
     ray.init(**init_kwargs)
 
@@ -903,6 +906,26 @@ def _execute_tune_search(
 
         with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
             run_generate_dets_embs(args)
+
+        # Run KF tuning once (uses cached dets + GT) and attach to args
+        # so all trials benefit without re-computing per trial.
+        if getattr(args, "tune_kf", False):
+            pipeline.advance("Tuning KF noise...")
+            kf_type = _tracker_kf_type(str(getattr(args, "tracker", "")))
+            if kf_type:
+                kf_result, kf_log = _run_kf_tuning(
+                    args, kf_type=kf_type, verbose=True, capture=True,
+                )
+                if kf_result:
+                    args.kf_tuning = kf_result
+                    if kf_log:
+                        pipeline.callback()(kf_log)
+            else:
+                pipeline.callback()(
+                    f"KF tuning skipped: tracker '{args.tracker}' does not use a supported KF."
+                )
+            # Disable flag so Ray workers don't re-run tuning each trial
+            args.tune_kf = False
         pipeline.advance(
             format_initial_tune_progress(int(args.n_trials)),
         )
@@ -1008,7 +1031,8 @@ def _execute_tune_search(
             final_renderable = artifacts_renderable
 
         if final_renderable is not None:
-            pipeline.finish(final_renderable, title="Results")
+            pipeline.finish(final_renderable, title="Results",
+                           interactive=bool(getattr(args, "interactive", False)))
         else:
             pipeline.complete_step()
             pipeline.update("No successful trials were produced.")

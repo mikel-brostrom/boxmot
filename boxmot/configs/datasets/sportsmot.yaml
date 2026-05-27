@@ -1,22 +1,20 @@
 id: sportsmot
 
-path: "boxmot/engine/eval/trackeval/data/SportsMOT"
-split: "val" # test has no gt
-train: "train"
-val:
-test: "test"
-
+root: "boxmot/engine/eval/trackeval/data/SportsMOT"
 layout: mot
 box_type: aabb
 
-detector: yolox_x_sportsmot
-reid: lmbn_n_duke
+splits:
+  train: "train"
+  test: "test"
+default_split: val  # test has no gt
 
-names:
+classes:
   1: player
 
-distractors: {}
-class_map: {}
+defaults:
+  detector: yolox_x_sportsmot
+  reid: lmbn_n_duke
 
 download:
   dataset: "hf://MCG-NJU/SportsMOT/dataset"

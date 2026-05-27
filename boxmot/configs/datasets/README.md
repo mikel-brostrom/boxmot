@@ -6,16 +6,16 @@ This directory contains dataset definitions for BoxMOT's config-driven
 Each dataset config is a self-contained benchmark definition:
 
 - `id`: dataset/benchmark identifier
-- `path`: dataset root
-- `split`: default split name (overridable via `--split`)
-- `train`, `val`, `test`: split-relative paths when needed
+- `root`: local directory where the dataset is stored (download destination)
 - `layout`: dataset storage layout, for example `mot` or `visdrone`
 - `box_type`: `aabb` or `obb`
-- `detector`: default detector profile (references `configs/detectors/`)
-- `reid`: default ReID profile (references `configs/reid/`)
-- `names`: benchmark ground-truth classes
-- `distractors`: classes to ignore during evaluation
-- `class_map`: benchmark class name to detector class name mapping
+- `splits`: dict of available splits (e.g. `train`, `val`, `test`, `ablation`)
+- `default_split`: which split to use when `--split` is not specified
+- `classes`: benchmark ground-truth class labels (id → name)
+- `distractors`: classes to ignore during evaluation (optional)
+- `class_map`: GT class name to detector class name mapping (optional)
+- `defaults.detector`: default detector profile (references `configs/detectors/`)
+- `defaults.reid`: default ReID profile (references `configs/reid/`)
 - `download.dataset`: optional dataset download URL
 - `download.runs`: optional detections/embeddings cache download URL
 

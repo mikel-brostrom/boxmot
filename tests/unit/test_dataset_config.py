@@ -203,21 +203,21 @@ def test_mot17_detector_exposes_download_url():
 
 
 def test_dataset_detector_is_not_used_for_other_explicit_models():
-    cfg = load_benchmark_cfg("visdrone-ablation")
+    cfg = load_benchmark_cfg("visdrone")
     args = SimpleNamespace(detector=[Path("models/yolov8x.pt")], detector_explicit=True)
     assert should_use_benchmark_detector(args, cfg) is False
 
 
 def test_apply_benchmark_config_preserves_runtime_benchmark_name(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
-    args = SimpleNamespace(data="dancetrack-ablation", source=None, split=None, split_explicit=False)
+    args = SimpleNamespace(data="dancetrack", source=None, split=None, split_explicit=False)
     cfg = apply_benchmark_config(args)
-    assert cfg["id"] == "dancetrack-ablation"
+    assert cfg["id"] == "dancetrack"
     assert cfg["detector_config_id"] == "yolox_x_dancetrack"
     assert cfg["reid_config_id"] == "lmbn_n_duke"
-    assert args.benchmark_id == "dancetrack-ablation"
-    assert args.dataset_id == "dancetrack-ablation"
-    assert args.benchmark == "dancetrack-ablation"
+    assert args.benchmark_id == "dancetrack"
+    assert args.dataset_id == "dancetrack"
+    assert args.benchmark == "dancetrack"
     assert args.source == Path("boxmot/engine/eval/trackeval/data/test1/val")
 
 
@@ -368,15 +368,13 @@ def test_find_dataset_cfg_for_sportsmot_source():
     not Path("boxmot/engine/eval/trackeval/data/MOT17/train").is_dir(),
     reason="MOT17 train data not available",
 )
-def test_mot17_ablation_split_resolves_to_train_with_seq_pattern(monkeypatch):
+def test_mot17_ablation_split_resolves_to_ablation_dir(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
     args = SimpleNamespace(data="mot17", source=None, split="ablation", split_explicit=True)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "mot17"
     assert args.split == "ablation"
-    # ablation is built from the second half of train (frame_split: val-half)
     assert args.source == Path("boxmot/engine/eval/trackeval/data/MOT17/ablation")
-    assert args.seq_pattern == "*-FRCNN"
     # Verify the dir only contains FRCNN sequences
     seq_names = [p.name for p in args.source.iterdir() if p.is_dir()]
     assert all(name.endswith("-FRCNN") for name in seq_names)
@@ -397,6 +395,5 @@ def test_mot17_ablation_split_respects_cli_detection_source(monkeypatch):
     assert cfg["id"] == "mot17"
     assert args.split == "ablation"
     assert args.source == Path("boxmot/engine/eval/trackeval/data/MOT17/ablation")
-    assert args.seq_pattern == "*-FRCNN"
     # CLI --detection-source takes precedence
     assert args.detection_source == "public"

@@ -20,6 +20,7 @@ from boxmot.native import get_native_replay_backend, process_sequence_cpp
 from boxmot.trackers.specs import normalize_tracker_backend
 from boxmot.utils import configure_logging as _base_configure_logging
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.callbacks import safe_progress_callback
 from boxmot.utils.misc import increment_path
 from boxmot.engine.mot_utils import write_mot_results
 from boxmot.utils.rich.ui import print_text
@@ -58,6 +59,11 @@ def _format_seq_progress(sequence_names: list[str], seq_progress: dict) -> str:
             bar = "\u2591" * bar_width
             return f"  {name:<{name_width}s} {bar}    --  (pending)"
         current, total = counts
+        # Sentinel (-1, 0) means "in progress" (no percentage known)
+        if current < 0:
+            filled = bar_width // 4
+            bar = "\u2593" * filled + "\u2591" * (bar_width - filled)
+            return f"  {name:<{name_width}s} {bar}    --  (processing)"
         if total <= 0:
             pct = 1.0 if current >= total else 0.0
         else:
@@ -108,6 +114,7 @@ def _build_task_args(
     preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
     masks_dir = getattr(args, "masks_dir", None)
     kf_tuning = getattr(args, "kf_tuning", None)
+    adaptive_kf = getattr(args, "adaptive_kf", False)
     return [
         (
             seq_name,
@@ -126,6 +133,7 @@ def _build_task_args(
             masks_dir,
             kf_tuning,
             progress_queue,
+            adaptive_kf,
         )
         for seq_name in sequence_names
     ]
@@ -156,59 +164,52 @@ def _apply_kf_tuning_to_runtime(kf_tuning: dict) -> None:
         Q = kf_tuning.get("Q")
         R = kf_tuning.get("R")
         Q_vel_diag = kf_tuning.get("Q_vel_diag")
+
+        # Build the per-class noise registry.
+        # Key -1 = global (fallback for classes not explicitly tuned).
+        registry: dict[int, dict] = {}
+
+        # Global tuned noise → key -1
         if Q is not None:
-            _original_get_q = ConstantNoiseXYHR.get_q
             _raw_q = np.asarray(Q, dtype=float)
-            # Extract position-block diagonal from method-of-moments Q.
             _tuned_q_pos_diag = np.abs(np.diag(_raw_q)[:_raw_q.shape[0] // 2])
-            # Velocity noise: use acceleration-based estimate if available,
-            # otherwise fall back to 1% of position noise (default ratio).
             if Q_vel_diag is not None:
                 _tuned_q_vel_diag = np.abs(np.asarray(Q_vel_diag, dtype=float))
             else:
                 _tuned_q_vel_diag = _tuned_q_pos_diag * 0.01
+            global_entry: dict = {"q_pos_diag": _tuned_q_pos_diag, "q_vel_diag": _tuned_q_vel_diag}
+            if R is not None:
+                global_entry["r_diag"] = np.abs(np.diag(np.asarray(R, dtype=float)))
+            registry[-1] = global_entry
 
-            def _tuned_get_q(self):
-                q = np.zeros((self.dim_x, self.dim_x), dtype=float)
-                n_pos = min(len(_tuned_q_pos_diag), self.dim_z)
-                n_vel = min(len(_tuned_q_vel_diag), self.dim_z)
-                # Position diagonal from estimation
-                for i in range(n_pos):
-                    q[i, i] = _tuned_q_pos_diag[i]
-                # Velocity diagonal from GT accelerations
-                for i in range(n_vel):
-                    q[self.dim_z + i, self.dim_z + i] = _tuned_q_vel_diag[i]
-                # Fill remaining dims (e.g. theta in OBB) from default
-                if self.dim_x > 2 * n_pos:
-                    q_default = _original_get_q(self)
-                    for i in range(n_pos, self.dim_z):
-                        q[i, i] = q_default[i, i]
-                    for i in range(max(n_pos, n_vel), self.dim_x - self.dim_z):
-                        q[self.dim_z + i, self.dim_z + i] = q_default[self.dim_z + i, self.dim_z + i]
-                return q
+        # Per-class noise → specific class keys
+        per_class_data = kf_tuning.get("per_class")
+        if per_class_data:
+            for cls_id_key, cls_noise in per_class_data.items():
+                cls_id = int(cls_id_key)
+                cls_Q = cls_noise.get("Q")
+                cls_R = cls_noise.get("R")
+                cls_Q_vel = cls_noise.get("Q_vel_diag")
+                entry: dict = {}
+                if cls_Q is not None:
+                    raw_q = np.asarray(cls_Q, dtype=float)
+                    dim_z_cls = raw_q.shape[0] // 2
+                    entry["q_pos_diag"] = np.abs(np.diag(raw_q)[:dim_z_cls])
+                    if cls_Q_vel is not None:
+                        entry["q_vel_diag"] = np.abs(np.asarray(cls_Q_vel, dtype=float))
+                    else:
+                        entry["q_vel_diag"] = entry["q_pos_diag"] * 0.01
+                if cls_R is not None:
+                    raw_r = np.asarray(cls_R, dtype=float)
+                    entry["r_diag"] = np.abs(np.diag(raw_r))
+                if entry:
+                    registry[cls_id] = entry
 
-            ConstantNoiseXYHR.get_q = _tuned_get_q
-        if R is not None:
-            _original_get_r = ConstantNoiseXYHR.get_r
-            _raw_r = np.asarray(R, dtype=float)
-            # Use diagonal-only R to avoid injecting unreliable cross-terms
-            _tuned_r_diag = np.abs(np.diag(_raw_r))
-
-            def _tuned_get_r(self):
-                r = np.zeros((self.dim_z, self.dim_z), dtype=float)
-                n = min(len(_tuned_r_diag), self.dim_z)
-                for i in range(n):
-                    r[i, i] = _tuned_r_diag[i]
-                # Fill remaining dims from default (e.g. theta in OBB)
-                if self.dim_z > n:
-                    r_default = _original_get_r(self)
-                    for i in range(n, self.dim_z):
-                        r[i, i] = r_default[i, i]
-                return r
-
-            ConstantNoiseXYHR.get_r = _tuned_get_r
+        ConstantNoiseXYHR._per_class_noise = registry
+        n_classes = len([k for k in registry if k >= 0])
         LOGGER.info(
-            f"KF tuning applied to ConstantNoiseXYHR: Q/R diagonal-scaled"
+            f"KF tuning applied to ConstantNoiseXYHR: "
+            f"global Q/R + {n_classes} per-class entries"
         )
 
 
@@ -229,6 +230,7 @@ def process_sequence(
     masks_dir: Optional[str] = None,
     kf_tuning: dict | None = None,
     progress_queue=None,
+    adaptive_kf: bool = False,
 ):
     """Run a tracker over cached detections and embeddings for one sequence."""
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
@@ -252,6 +254,10 @@ def process_sequence(
         evolve_param_dict=cfg_dict,
         timing_stats=timing_stats,
     )
+
+    # Apply CLI --adaptive-kf override
+    if adaptive_kf and hasattr(tracker_runtime.tracker, "adaptive_kf"):
+        tracker_runtime.tracker.adaptive_kf = True
 
     # Apply KF tuning if provided
     if kf_tuning:
@@ -473,7 +479,7 @@ def _run_tracking_tasks(
             bound_task_args = (
                 task_args
                 if progress_queue is None
-                else [task[:-1] + (progress_queue,) for task in task_args]
+                else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
             )
 
             with concurrent.futures.ProcessPoolExecutor(
@@ -487,7 +493,7 @@ def _run_tracking_tasks(
         bound_task_args = (
             task_args
             if progress_queue is None
-            else [task[:-1] + (progress_queue,) for task in task_args]
+            else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
         )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.n_threads) as executor:
@@ -622,8 +628,11 @@ def run_generate_mot_results(
     timing_stats: Optional[TimingStats] = None,
     quiet: bool = False,
     progress_callback: Callable[[str], None] | None = None,
+    postprocess_callback: Callable[[str], None] | None = None,
 ) -> None:
     """Run trackers over cached detections/embeddings and write MOT result files."""
+    progress_callback = safe_progress_callback(progress_callback)
+    postprocess_callback = safe_progress_callback(postprocess_callback)
     args.project = Path(args.project)
     cache_project = Path(getattr(args, "cache_project", args.project))
     verbose = bool(getattr(args, "verbose", False))
@@ -685,22 +694,59 @@ def run_generate_mot_results(
                 f"Unknown postprocessing step '{s}'. Valid options: {sorted(valid_steps)}"
             )
 
+    # Collect sequence names from result files for postprocessing progress
+    pp_seq_names = sorted(f.stem for f in exp_dir.glob("*.txt"))
+
     for step_idx, pp_step in enumerate(pp_steps, 1):
+        step_label = pp_step.upper()
+        if len(pp_steps) > 1:
+            step_label = f"{step_label} ({step_idx}/{len(pp_steps)})"
+
+        # Build a per-sequence progress callback that formats progress bars.
+        # The callback receives per-track progress: (seq_name, current_track, total_tracks).
+        def _make_seq_cb(label: str):
+            seq_progress: dict[str, tuple[int, int]] = {}
+            total_seqs = len(pp_seq_names)
+
+            def _emit() -> None:
+                done = sum(
+                    1 for c, t in seq_progress.values() if t > 0 and c >= t
+                )
+                header = f"{label}: {done}/{total_seqs} sequences done"
+                seq_display = _format_seq_progress(pp_seq_names, seq_progress)
+                message = "\n".join([header] + ([seq_display] if seq_display else []))
+                if postprocess_callback is not None:
+                    postprocess_callback(message)
+
+            # Send initial state with all sequences as pending
+            _emit()
+
+            def _cb(seq_name: str, current: int, total: int) -> None:
+                seq_progress[seq_name] = (current, total)
+                _emit()
+            return _cb
+
         if pp_step == "gsi":
             if verbose:
-                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GSI postprocessing (step {step_idx}/{len(pp_steps)})...")
+                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GSI postprocessing...")
             from boxmot.postprocessing.gsi import gsi
 
-            gsi(mot_results_folder=exp_dir)
+            gsi(
+                mot_results_folder=exp_dir,
+                progress_callback=_make_seq_cb(step_label) if postprocess_callback else None,
+            )
         elif pp_step == "gbrc":
             if verbose:
-                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GBRC postprocessing (step {step_idx}/{len(pp_steps)})...")
+                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GBRC postprocessing...")
             from boxmot.postprocessing.gbrc import gbrc
 
-            gbrc(mot_results_folder=exp_dir)
+            gbrc(
+                mot_results_folder=exp_dir,
+                progress_callback=_make_seq_cb(step_label) if postprocess_callback else None,
+            )
         elif pp_step == "gta":
             if verbose:
-                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GTA postprocessing (step {step_idx}/{len(pp_steps)})...")
+                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GTA postprocessing...")
             from boxmot.data.cache import legacy_reid_cache_keys, reid_cache_key
             from boxmot.postprocessing.gta import gta as gta_postprocess
             from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
@@ -737,9 +783,21 @@ def run_generate_mot_results(
                         f"GTA: Could not find embedding cache under {embs_root}. "
                         f"Tried keys: {candidates[:3]}"
                     )
+            else:
+                tracker_name = getattr(args, "tracker", "this tracker")
+                skip_msg = (
+                    f"GTA skipped: '{tracker_name}' has no ReID embeddings.\n"
+                    f"Use a ReID tracker (botsort, deepocsort) or remove --postprocessing gta."
+                )
+                if postprocess_callback is not None:
+                    postprocess_callback(skip_msg)
+                else:
+                    LOGGER.warning(skip_msg)
+                continue
 
             gta_postprocess(
                 mot_results_folder=exp_dir,
                 embs_dir=embs_dir,
                 dets_dir=dets_dir if dets_dir.exists() else None,
+                progress_callback=_make_seq_cb(step_label) if postprocess_callback else None,
             )

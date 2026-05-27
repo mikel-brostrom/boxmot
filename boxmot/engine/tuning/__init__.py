@@ -2,5 +2,6 @@
 
 __all__ = (
     "analysis",
+    "kf_tuning",
     "tuner",
 )

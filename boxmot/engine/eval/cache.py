@@ -38,6 +38,7 @@ from boxmot.configs.benchmark import (
     should_use_benchmark_detector,
     should_use_benchmark_reid,
 )
+from boxmot.utils.callbacks import safe_progress_callback
 from boxmot.utils.misc import prompt_overwrite, resolve_model_path
 from boxmot.utils.rich.generate_reporting import GenerateWorkflowReporter
 from boxmot.utils.rich.progress import RichTqdm as tqdm
@@ -408,6 +409,7 @@ def generate_dets_embs_batched(
     progress_callback: Callable[[str], None] | None = None,
 ) -> None:
     """Generate detections and embeddings in batches for evaluation caches."""
+    progress_callback = safe_progress_callback(progress_callback)
     WEIGHTS.mkdir(parents=True, exist_ok=True)
     verbose = bool(getattr(args, "verbose", False))
     show_progress = bool(getattr(args, "show_progress", True))
@@ -450,6 +452,7 @@ def generate_dets_embs_batched(
 
     seq_states = {}
     embed_only_states: dict[str, dict] = {}
+    cached_seq_names: list[str] = []
     det_writers: dict[str, AppendableNpyWriter] = {}
     mask_writers: dict[str, AppendableNpyWriter] = {}
     tracker_backend = getattr(args, "tracker_backend", None)
@@ -678,6 +681,7 @@ def generate_dets_embs_batched(
                 if verbose:
                     LOGGER.info(f"Skipping {seq_name} (resume: already complete).")
             initial_done += len(frames)
+            cached_seq_names.append(seq_name)
             continue
 
         if resume and 0 < processed < len(frames):
@@ -752,7 +756,14 @@ def generate_dets_embs_batched(
             )
             return
         if progress_callback is not None:
-            progress_callback("No sequences to process (all cached or no images).")
+            if cached_seq_names:
+                seq_progress = {name: (1, 1) for name in cached_seq_names}
+                bars = _format_generate_seq_progress(cached_seq_names, seq_progress)
+                progress_callback(
+                    f"All {len(cached_seq_names)} sequences loaded from cache\n{bars}"
+                )
+            else:
+                progress_callback("No sequences found.")
         if verbose:
             LOGGER.info("No sequences to process (all cached or no images).")
         return
@@ -1137,6 +1148,7 @@ def run_generate_dets_embs(
     progress_callback: Callable[[str], None] | None = None,
 ) -> None:
     """Generate detections and embeddings for all sequences."""
+    progress_callback = safe_progress_callback(progress_callback)
     _normalize_generate_args(args)
     verbose = bool(getattr(args, "verbose", False))
 
@@ -1189,6 +1201,7 @@ def run_generate(
     *,
     progress_callback: Callable[[str], None] | None = None,
 ) -> TimingStats:
+    progress_callback = safe_progress_callback(progress_callback)
     timing_stats = TimingStats()
     run_generate_dets_embs(
         args,

@@ -20,10 +20,13 @@ from boxmot.utils import NUM_THREADS, ROOT
 from boxmot.utils import logger as LOGGER
 from boxmot.configs.benchmark import load_benchmark_cfg
 
-_RESOURCE_TRACKER_STDERR_PATTERNS = (
+_TRACKEVAL_STDERR_NOISE_PATTERNS = (
     "resource_tracker",
     "multiprocessing/resource_tracker.py",
     "warnings.warn('resource_tracker:",
+    "missing the following timesteps",
+    "raw_gt_data = self._load_raw_file",
+    "raw_tracker_data = self._load_raw_file",
 )
 
 
@@ -36,10 +39,16 @@ def _should_use_parallel_trackeval() -> bool:
 
 def _trackeval_subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
-    warning_filter = "ignore:resource_tracker:UserWarning"
+    # Suppress noisy UserWarnings from trackeval (resource_tracker + missing timesteps)
+    warning_filters = [
+        "ignore:resource_tracker:UserWarning",
+        "ignore:.*missing the following timesteps.*:UserWarning",
+    ]
     existing = env.get("PYTHONWARNINGS", "")
-    if warning_filter not in existing.split(","):
-        env["PYTHONWARNINGS"] = ",".join(filter(None, [existing, warning_filter]))
+    for wf in warning_filters:
+        if wf not in existing.split(","):
+            existing = ",".join(filter(None, [existing, wf]))
+    env["PYTHONWARNINGS"] = existing
     return env
 
 
@@ -50,7 +59,7 @@ def _filter_trackeval_stderr(stderr: str) -> str:
     kept_lines = [
         line
         for line in stderr.splitlines()
-        if line and not any(pattern in line for pattern in _RESOURCE_TRACKER_STDERR_PATTERNS)
+        if line and not any(pattern in line for pattern in _TRACKEVAL_STDERR_NOISE_PATTERNS)
     ]
     return "\n".join(kept_lines).strip()
 
@@ -181,6 +190,7 @@ def trackeval(
 
     cmd_args = [
         sys.executable,
+        "-W", "ignore::UserWarning",
         ROOT / "boxmot" / "engine" / "eval" / "metrics" / "run_mot_challenge.py",
         "--GT_FOLDER",
         str(gt_folder),
@@ -359,6 +369,7 @@ def trackeval_obb(
 
     cmd_args = [
         sys.executable,
+        "-W", "ignore::UserWarning",
         "-m",
         "boxmot.engine.eval.metrics.run_mmot_rgb",
         "--GT_FOLDER",

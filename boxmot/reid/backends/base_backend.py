@@ -259,7 +259,11 @@ class BaseModelBackend:
         w.parent.mkdir(parents=True, exist_ok=True)
 
         model_url = ReIDModelRegistry.get_model_url(w)
-        lock = SoftFileLock(str(w) + ".lock", timeout=300)  # Wait up to 5 minutes
+        # Use a temp directory for lock files to avoid "no space left" errors
+        # when the local disk is full but the model already exists.
+        import tempfile
+        lock_path = Path(tempfile.gettempdir()) / (w.name + ".lock")
+        lock = SoftFileLock(str(lock_path), timeout=300)  # Wait up to 5 minutes
 
         with lock:
             if w.exists() or "openvino" in w.name:

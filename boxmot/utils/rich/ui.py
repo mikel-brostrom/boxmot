@@ -8,6 +8,7 @@ from typing import Literal, Sequence
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
@@ -424,7 +425,7 @@ def _build_setup_panel(
     extra_panels: Sequence[tuple[str, list[tuple[str, object]]]],
     *,
     compact: bool = False,
-) -> Panel | None:
+) -> Group | None:
     sections = [("Configuration", list(primary_fields)), *[(title, list(fields)) for title, fields in extra_panels]]
     sections = [(title, fields) for title, fields in sections if fields]
     if not sections:
@@ -469,15 +470,13 @@ def _build_setup_panel(
                 _build_setup_section_table(title, fields, compact=compact)
             )
 
-    return Panel(
-        Group(*section_tables),
-        title=Text("Setup", style=STYLE_TITLE),
-        border_style=STYLE_BORDER_OUTER,
-        padding=(0, 1),
+    return Group(
+        Rule(Text("Setup", style=STYLE_TITLE), style=STYLE_RULE),
+        *section_tables,
     )
 
 
-def _build_steps_panel(steps: Sequence[tuple[str, StepState]], *, compact: bool = False) -> Panel | None:
+def _build_steps_panel(steps: Sequence[tuple[str, StepState]], *, compact: bool = False) -> Group | None:
     if not steps:
         return None
     body: RenderableType
@@ -488,11 +487,10 @@ def _build_steps_panel(steps: Sequence[tuple[str, StepState]], *, compact: bool 
         body = _build_active_steps_summary(steps)
     else:
         body = build_checklist(steps)
-    return Panel(
+    title_style = STYLE_STATUS_FAILED if has_failure else STYLE_TITLE
+    return Group(
+        Rule(Text("Pipeline", style=title_style), style=STYLE_RULE),
         body,
-        title=Text("Pipeline", style=STYLE_TITLE),
-        border_style=STYLE_BORDER_FAILED if has_failure else STYLE_BORDER,
-        padding=(0, 1),
     )
 
 
@@ -502,18 +500,28 @@ def _build_detail_panel(
     detail_renderable: RenderableType | None,
     *,
     failed: bool = False,
-) -> Panel | None:
+    max_lines: int | None = None,
+) -> Group | None:
     if detail_renderable is None and not detail_text:
         return None
 
-    content: RenderableType = detail_renderable if detail_renderable is not None else _decode_ansi(detail_text or "")
+    if detail_renderable is not None:
+        content: RenderableType = detail_renderable
+    else:
+        text = detail_text or ""
+        lines = text.split("\n")
+        if max_lines and len(lines) > max_lines:
+            hidden = len(lines) - max_lines
+            lines = [f"  \u25b2 {hidden} more lines above"] + lines[-max_lines:]
+            text = "\n".join(lines)
+        content = _decode_ansi(text)
+
     title_style = STYLE_STATUS_FAILED if failed else STYLE_TITLE
     title = Text(detail_title or "Live Detail", style=title_style)
-    return Panel(
+    rule_style = STYLE_BORDER_FAILED if failed else STYLE_RULE
+    return Group(
+        Rule(title, style=rule_style),
         content,
-        title=title,
-        border_style=STYLE_BORDER_FAILED if failed else STYLE_BORDER_DETAIL,
-        padding=(0, 1),
     )
 
 
@@ -528,6 +536,7 @@ def build_workflow_intro(
     include_setup: bool = True,
     include_steps: bool = True,
     compact: bool = False,
+    max_detail_lines: int | None = None,
 ) -> Panel:
     renderables: list[RenderableType] = []
     if include_setup:
@@ -543,7 +552,8 @@ def build_workflow_intro(
 
     has_failure = any(step_state == "failed" for _, step_state in steps)
     detail_panel = _build_detail_panel(
-        detail_title, detail_text, detail_renderable, failed=has_failure
+        detail_title, detail_text, detail_renderable,
+        failed=has_failure, max_lines=max_detail_lines,
     )
     if detail_panel is not None:
         renderables.append(detail_panel)
@@ -570,6 +580,7 @@ class WorkflowProgress:
     prefer_compact_layout: bool = False
     _started: bool = field(default=False, init=False, repr=False)
     _live: Live | None = field(default=None, init=False, repr=False)
+    include_setup: bool = True
     _oversized: bool = field(default=False, init=False, repr=False)
     _uses_alt_screen: bool = field(default=False, init=False, repr=False)
     _compact_layout: bool = field(default=False, init=False, repr=False)
@@ -580,7 +591,7 @@ class WorkflowProgress:
         RenderableType | None,
     ] | None = field(default=None, init=False, repr=False)
 
-    def renderable(self, *, compact: bool = False) -> Panel:
+    def renderable(self, *, compact: bool = False, include_setup: bool = True) -> Panel:
         return build_workflow_intro(
             self.title,
             self.fields,
@@ -588,18 +599,46 @@ class WorkflowProgress:
             detail_title=self.detail_title,
             detail_text=self.detail_text,
             detail_renderable=self.detail_renderable,
+            include_setup=include_setup,
             compact=compact,
         )
 
+    def _max_detail_lines(self) -> int | None:
+        """Compute max lines for detail panel to fit within terminal height."""
+        console = get_console(stderr=self.stderr)
+        height = getattr(console.size, "height", 0) or 0
+        if height <= 0:
+            return None
+        # Overhead: outer panel border (2) + setup (~3 compact) + steps (1) +
+        # detail rule (1) + margin (2) = ~9 lines minimum for chrome
+        overhead = 9
+        available = height - overhead
+        return max(3, available)
+
     def _live_renderable(self) -> Panel:
-        full = self.renderable(compact=False)
+        setup = self.include_setup
+        max_lines = self._max_detail_lines()
+        full = self.renderable(compact=False, include_setup=setup)
         if self.prefer_compact_layout:
             self._compact_layout = True
-            return self.renderable(compact=True)
+            return self._renderable_with_limit(compact=True, include_setup=setup, max_lines=max_lines)
         if self._compact_layout or self._renderable_exceeds_console(full):
             self._compact_layout = True
-            return self.renderable(compact=True)
+            return self._renderable_with_limit(compact=True, include_setup=setup, max_lines=max_lines)
         return full
+
+    def _renderable_with_limit(self, *, compact: bool, include_setup: bool, max_lines: int | None) -> Panel:
+        return build_workflow_intro(
+            self.title,
+            self.fields,
+            steps=self.steps,
+            detail_title=self.detail_title,
+            detail_text=self.detail_text,
+            detail_renderable=self.detail_renderable,
+            include_setup=include_setup,
+            compact=compact,
+            max_detail_lines=max_lines,
+        )
 
     def _state_snapshot(
         self,
@@ -610,6 +649,14 @@ class WorkflowProgress:
         renderable = self._live_renderable()
         if self._live is not None:
             self._live.update(renderable, refresh=True)
+            # Rich LiveRender.position_cursor() only erases lines it moves UP
+            # through.  When the renderable shrinks (e.g. KF output → progress
+            # bar), stale lines remain below.  Emit "erase in display from
+            # cursor to end" to clear them.
+            if not self._uses_alt_screen:
+                console = get_console(stderr=self.stderr)
+                console.file.write("\x1b[J")
+                console.file.flush()
         else:
             print_renderable(renderable, stderr=self.stderr)
         self._last_rendered_state = self._state_snapshot()

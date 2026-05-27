@@ -53,6 +53,7 @@ from PIL import Image
 from scipy.spatial.distance import cdist
 
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.callbacks import safe_seq_progress_callback
 from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 # ---------------------------------------------------------------------------
@@ -1087,6 +1088,7 @@ def gta(
     merge_dist_thres: float = 0.4,
     spatial_factor: float = 1.0,
     batch_size: int = 50,
+    progress_callback: "Callable[[str, int, int], None] | None" = None,
 ) -> None:
     """Run GTA postprocessing on MOT result files using cached embeddings.
 
@@ -1121,13 +1123,18 @@ def gta(
         return
 
     if embs_dir is None:
-        LOGGER.warning("GTA: No embeddings directory provided, skipping postprocessing.")
+        LOGGER.warning(
+            "GTA: No embeddings directory provided, skipping postprocessing. "
+            "GTA requires appearance embeddings from a ReID model."
+        )
         return
 
     embs_dir = _Path(embs_dir)
     dets_dir = _Path(dets_dir) if dets_dir is not None else None
 
-    for result_file in result_files:
+    progress_callback = safe_seq_progress_callback(progress_callback)
+    total_files = len(result_files)
+    for file_idx, result_file in enumerate(result_files, 1):
         seq_name = result_file.stem
         LOGGER.info(f"GTA postprocessing: {seq_name}")
 
@@ -1182,6 +1189,8 @@ def gta(
 
         # Overwrite the MOT result file
         save_results(str(result_file), tracklets)
+        if progress_callback is not None:
+            progress_callback(seq_name, file_idx, total_files)
 
 
 def _build_tracklets_from_mot(

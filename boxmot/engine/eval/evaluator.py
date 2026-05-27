@@ -301,66 +301,13 @@ def log_eval_pipeline_intro(args: argparse.Namespace) -> ui.WorkflowProgress:
     return EvalWorkflowReporter(args).create()
 
 
-# Mapping from tracker name to KF parameterization type
-_TRACKER_KF_MAP: dict[str, str] = {
-    "botsort": "xywh",
-    "bytetrack": "xyah",
-    "strongsort": "xyah",
-    "deepocsort": "xysr",
-    "ocsort": "xysr",
-    "hybridsort": "xysr",
-    "boosttrack": "xyhr",
-    "occluboost": "xyhr",
-}
-
-
-def _tracker_kf_type(tracker_name: str) -> str | None:
-    """Return the KF parameterization for a tracker, or None if it has no KF."""
-    return _TRACKER_KF_MAP.get(tracker_name.lower())
-
-
-def _run_kf_tuning(args: argparse.Namespace, kf_type: str, verbose: bool = False) -> dict | None:
-    """Run KF noise estimation when both GT (args.source) and cached dets exist."""
-    from tools.analysis.mot_ds_kf_tuning import main as kf_tune_main
-
-    gt_root = args.source
-    if gt_root is None:
-        LOGGER.warning("KF tuning skipped: no GT source path available.")
-        return None
-
-    # Resolve dets folder: cache_project / dets_n_embs / [benchmark] / [split] / detector / dets
-    cache_project = Path(getattr(args, "cache_project", args.project))
-    dets_base = cache_project / "dets_n_embs"
-    benchmark = getattr(args, "benchmark", None)
-    split = getattr(args, "split", None)
-    if benchmark:
-        dets_base = dets_base / benchmark
-    if split:
-        dets_base = dets_base / split
-    detector_key = args.detector[0].stem if hasattr(args.detector[0], "stem") else str(args.detector[0])
-    dets_root = dets_base / detector_key / "dets"
-
-    if not dets_root.exists() or not any(dets_root.glob("*.npy")):
-        LOGGER.warning(f"KF tuning skipped: no cached detections at {dets_root}")
-        return None
-
-    LOGGER.info(f"[bold]KF Tuning[/bold] ({kf_type}): GT={gt_root}, dets={dets_root}")
-    try:
-        result = kf_tune_main(
-            train_root=gt_root,
-            kf_type=kf_type,
-            dets_root=dets_root,
-            use_temp_gt=bool(getattr(args, "use_temp_gt", False)),
-        )
-        LOGGER.info(
-            f"[bold]KF Tuning result:[/bold] "
-            f"_std_weight_position={result['std_weight_position']:.6f}, "
-            f"_std_weight_velocity={result['std_weight_velocity']:.6f}"
-        )
-        return result
-    except Exception as e:
-        LOGGER.warning(f"KF tuning failed: {e}")
-        return None
+# KF tuning helpers — delegated to boxmot.engine.tuning.kf_tuning
+from boxmot.engine.tuning.kf_tuning import (  # noqa: E402
+    _TRACKER_KF_MAP,
+    resolve_kf_train_root as _resolve_kf_train_root,
+    run_kf_tuning as _run_kf_tuning,
+    tracker_kf_type as _tracker_kf_type,
+)
 
 
 def run_eval(
@@ -390,6 +337,9 @@ def run_eval(
         eval_setup(args, pipeline=pipeline)
         if pipeline is not None:
             pipeline.refresh_fields(_build_eval_workflow_fields(args))
+            from boxmot.utils.rich.eval_reporting import build_setup_configs_renderable
+            configs_renderable = build_setup_configs_renderable(args)
+            pipeline.store_step_info(renderable=configs_renderable)
 
     # -- Generate detections & embeddings --
     if prepare_cache:
@@ -413,13 +363,22 @@ def run_eval(
             pipeline.advance("Tuning KF noise...")
         kf_type = _tracker_kf_type(str(getattr(args, "tracker", "")))
         if kf_type:
-            kf_result = _run_kf_tuning(args, kf_type=kf_type, verbose=verbose)
+            want_capture = pipeline is not None
+            kf_result, kf_log = _run_kf_tuning(
+                args, kf_type=kf_type, verbose=verbose, capture=want_capture,
+            )
             if kf_result:
                 args.kf_tuning = kf_result
+                if pipeline is not None:
+                    pipeline.store_step_info(
+                        text=kf_log or f"KF type: {kf_type}, tuned Q/R from GT tracks",
+                    )
         else:
             LOGGER.warning(
                 f"KF tuning skipped: tracker '{args.tracker}' does not use a supported KF."
             )
+            if pipeline is not None:
+                pipeline.store_step_info(text="Skipped: unsupported KF type")
 
     if pipeline is not None:
         pipeline.advance("Starting tracker...")
@@ -427,6 +386,21 @@ def run_eval(
     # -- Track + Postprocess --
     pp_raw = getattr(args, "postprocessing", "none")
     has_postprocess = pp_raw.strip().lower() not in ("none", "")
+
+    # Build a postprocess callback that advances the pipeline on first call
+    pp_callback = None
+    if has_postprocess and pipeline is not None:
+        _pp_advanced = False
+
+        def _pp_cb(msg: str) -> None:
+            nonlocal _pp_advanced
+            if not _pp_advanced:
+                pipeline.advance("Postprocessing tracks...")
+                _pp_advanced = True
+            pipeline.callback()(msg)
+
+        pp_callback = _pp_cb
+
     with suppress_boxmot_logs(suppress, level="WARNING"):
         run_generate_mot_results(
             args,
@@ -434,9 +408,8 @@ def run_eval(
             timing_stats=timing_stats,
             quiet=not bool(show_progress),
             progress_callback=pipeline.callback() if pipeline and show_progress else None,
+            postprocess_callback=pp_callback,
         )
-    if has_postprocess and pipeline is not None:
-        pipeline.advance("Postprocessing tracks...")
     if pipeline is not None:
         pipeline.advance("Computing metrics...")
 
@@ -455,10 +428,14 @@ def run_eval(
     )
     if pipeline is not None:
         include_timings = bool(getattr(args, "show_timing", False))
-        pipeline.complete_step()
-        pipeline.set_detail_renderable(
-            pipeline.current_step,
+        pipeline.store_step_info(
+            renderable=result.renderable(include_timings=include_timings),
+        )
+        pipeline.finish(
             result.renderable(include_timings=include_timings),
+            include_steps=True,
+            exp_dir=result.exp_dir,
+            interactive=bool(getattr(args, "interactive", False)),
         )
 
     return result
@@ -467,6 +444,7 @@ def run_eval(
 def main(args):
     _normalize_eval_models(args)
     pipeline = EvalWorkflowReporter(args).pipeline()
+    pipeline._workflow.include_setup = False
     with pipeline:
         result = run_eval(args, verbose=False, pipeline=pipeline)
 

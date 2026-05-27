@@ -1,18 +1,14 @@
 id: fasttracker-mot
 
-path: "boxmot/engine/eval/trackeval/data/FastTracker-Benchmark-MOT"
-split: "train"
-train: "train"
-val:
-test:
-
+root: "boxmot/engine/eval/trackeval/data/FastTracker-Benchmark-MOT"
 layout: mot
 box_type: aabb
 
-detector:
-reid:
+splits:
+  train: "train"
+default_split: train
 
-names:
+classes:
   1: person
   2: bus_small
   3: bus_big
@@ -27,9 +23,11 @@ names:
   13: heavy_equipment
   14: pm
   15: umbrella
+
 distractors:
   9: ignore_region
 
+# Maps fine-grained GT classes to coarser eval super-classes
 class_map:
   bus_small: Bus
   bus_big: Bus

@@ -283,7 +283,7 @@ def _build_detector(args, detector_spec: Any, classes: list[int] | None):
 def _build_tracker(args, tracker_spec: Any):
     spec = tracker_spec if tracker_spec is not None else getattr(args, "tracker", get_mode_default("track", "tracker"))
     reid_weights = reid_path_from_spec(_primary_model_ref(getattr(args, "reid", None)), required=False)
-    return build_tracker_from_spec(
+    tracker = build_tracker_from_spec(
         spec,
         device=getattr(args, "device", get_mode_default("track", "device")),
         half=bool(getattr(args, "half", get_mode_default("track", "half"))),
@@ -291,6 +291,9 @@ def _build_tracker(args, tracker_spec: Any):
         reid_weights=reid_weights,
         reid_preprocess=getattr(args, "reid_preprocess", None),
     )
+    if getattr(args, "adaptive_kf", False) and hasattr(tracker, "adaptive_kf"):
+        tracker.adaptive_kf = True
+    return tracker
 
 
 def _build_reid(args, tracker: Any, reid_spec: Any, tracker_spec: Any):
@@ -398,11 +401,15 @@ def run_track(
         _consume_run(result)
     if pipeline is not None:
         result.refresh()
-        pipeline.complete_step()
-        if int(result.summary.get("frames", 0)) > 0:
-            pipeline.set_detail_renderable("Summary", result.renderable())
-        else:
-            pipeline.update("No frames processed.")
+        pipeline.store_step_info(
+            renderable=result.renderable() if int(result.summary.get("frames", 0)) > 0 else None,
+            text="No frames processed." if int(result.summary.get("frames", 0)) == 0 else None,
+        )
+        pipeline.finish(
+            result.renderable() if int(result.summary.get("frames", 0)) > 0 else None,
+            title="Summary",
+            interactive=bool(getattr(args, "interactive", False)),
+        )
     return result
 
 

@@ -62,4 +62,34 @@ When `--tracker-backend cpp` is set, embedding generation for cached replay also
 - `new_track_thresh` is decoupled from `det_thresh` so weakly-confident detections can update existing tracks without spawning new ones.
 - Keep `max_age >= nr_classes` (default 120 vs 80 COCO classes) so per-class tracking survives the per-class predict loop.
 
+### Adaptive Kalman Filter (`adaptive_kf`)
+
+When `adaptive_kf: true` is set in the tracker config, the process noise covariance **Q** is estimated online from innovation statistics (Mehra 1970) rather than kept constant. A sliding window (30 frames, warmup 15) accumulates the outer products of the Kalman innovations, and once warmed up the estimated Q is blended (α = 0.7) with the default static Q.
+
+**When to use it:**
+
+- Deploying to a new domain where you have no ground truth to run `--tune-kf`.
+- Scenes where camera motion compensation (CMC) may fail intermittently (low-texture, rain, night).
+- Camera dynamics that vary significantly within a single sequence (e.g., drone footage alternating hover and fast sweep).
+
+**When NOT to use it:**
+
+- You already have a tuned static Q from `boxmot eval --tune-kf` on representative data — the static solution is cheaper and deterministic.
+- Very short tracks (< 15 frames) dominate; the estimator never exits warmup so it adds overhead with no benefit.
+
+Enable it from the CLI:
+
+```bash
+boxmot track --tracker occluboost --adaptive-kf
+boxmot eval  --tracker occluboost --adaptive-kf
+```
+
+Or in the tracker config YAML:
+
+```yaml
+adaptive_kf: true
+```
+
+The tuner will also explore it automatically since it's registered as a `choice` parameter in the search space.
+
 ::: boxmot.trackers.bbox.occluboost.occluboost.OccluBoost

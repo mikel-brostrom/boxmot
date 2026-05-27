@@ -1,6 +1,8 @@
-id: mot17
+id: mot17-seg
 
-dataset: mot17-ablation
+dataset: mot17
+split: ablation
+seq_pattern: "*-FRCNN"
 detector: yolo26x-seg
 reid: lmbn_n_duke
 

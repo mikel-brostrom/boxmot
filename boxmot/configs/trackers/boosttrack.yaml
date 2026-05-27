@@ -88,3 +88,8 @@ with_reid:
   default: True # True for BoostTrack+ and BoostTrack++
   options: [False, True]
 
+adaptive_kf:
+  type: choice
+  default: False
+  options: [False, True]
+

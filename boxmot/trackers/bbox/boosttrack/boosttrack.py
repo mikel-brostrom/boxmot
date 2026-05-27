@@ -81,6 +81,7 @@ class KalmanBoxTracker:
         max_obs,
         emb: Optional[np.ndarray] = None,
         is_obb: bool = False,
+        adaptive_kf: bool = False,
     ):
         KalmanBoxTracker.count += 1
 
@@ -89,15 +90,19 @@ class KalmanBoxTracker:
         self.id = KalmanBoxTracker.count
         if self.is_obb:
             # det = (cx, cy, w, h, angle, conf, cls, det_ind)
-            self.kf = KalmanFilterXYHR(convert_xywha_to_z(det[:5]))
             self.conf = det[5]
             self.cls = det[6]
             self.det_ind = det[7]
+            self.kf = KalmanFilterXYHR(
+                convert_xywha_to_z(det[:5]), adaptive_kf=adaptive_kf, cls_id=int(self.cls),
+            )
         else:
-            self.kf = KalmanFilterXYHR(convert_bbox_to_z(det[:4]))
             self.conf = det[4]
             self.cls = det[5]
             self.det_ind = det[6]
+            self.kf = KalmanFilterXYHR(
+                convert_bbox_to_z(det[:4]), adaptive_kf=adaptive_kf, cls_id=int(self.cls),
+            )
         self.emb = emb
         self.hit_streak = 0
         self.age = 0
@@ -252,6 +257,7 @@ class BoostTrack(BaseTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         with_reid: bool = False,
+        adaptive_kf: bool = False,
         **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
@@ -282,6 +288,7 @@ class BoostTrack(BaseTracker):
 
         self.with_reid = with_reid and reid_model is not None
         self.reid_model = reid_model if self.with_reid else None
+        self.adaptive_kf = bool(adaptive_kf)
 
         if self.use_ecc:
             self.cmc = get_cmc_method(cmc_method)()
@@ -382,7 +389,7 @@ class BoostTrack(BaseTracker):
         for i in unmatched_dets:
             if dets[i, 4] >= self.det_thresh:
                 self.trackers.append(
-                    KalmanBoxTracker(dets[i, :], max_obs=self.max_obs, emb=dets_embs[i])
+                    KalmanBoxTracker(dets[i, :], max_obs=self.max_obs, emb=dets_embs[i], adaptive_kf=self.adaptive_kf)
                 )
 
         outputs = []

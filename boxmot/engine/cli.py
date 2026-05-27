@@ -156,6 +156,12 @@ def core_options(func):
                      help='Override directory for cached segmentation masks (.npz files)'),
         click.option('--masks-model', type=click.Choice(['maskrcnn'], case_sensitive=False), default=None,
                      help='Mask model to use for generation (stored under cache tree automatically)'),
+        click.option('--adaptive-kf/--no-adaptive-kf', 'adaptive_kf', default=False,
+                     help='Enable online adaptive Kalman filter process noise (Mehra 1970). '
+                     'Useful when deploying to new domains without ground truth for --tune-kf.'),
+        click.option('--interactive/--no-interactive', 'interactive', default=False,
+                     help='Show an interactive pipeline step viewer after completion. '
+                     'Navigate with arrow keys, Enter to expand/collapse step details, q to quit.'),
     ]
     for opt in reversed(options):
         func = opt(func)
@@ -679,8 +685,11 @@ def eval(ctx, data, detector, reid, classes, split, detection_source, tune_kf, *
 @core_options
 @tune_options
 @plural_model_options
+@click.option('--tune-kf/--no-tune-kf', 'tune_kf', default=False,
+              help='Run KF noise tuning (Q/R estimation) before tracker hyperparameter tuning. '
+              'Applied once, then reused for all trials.')
 @click.pass_context
-def tune(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
+def tune(ctx, data, detector, reid, classes, split, detection_source, tune_kf, **kwargs):
     data = _require_benchmark_input(data, "tune")
     _dispatch_cli_workflow(
         ctx,
@@ -696,6 +705,7 @@ def tune(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
             "benchmark": "",
             "split": split or "",
             "detection_source": detection_source,
+            "tune_kf": tune_kf,
         },
     )
 

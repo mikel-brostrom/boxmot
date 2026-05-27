@@ -112,6 +112,8 @@ class OccluBoost(BoostTrack):
         gta_smooth_tau: float = 5.0,
         gta_interpolate: bool = True,
         gta_max_gap: int = 60,
+        # ---- Adaptive KF ----
+        adaptive_kf: bool = False,
         **kwargs: Any,
     ):
         super().__init__(reid_model=reid_model, **kwargs)
@@ -177,6 +179,8 @@ class OccluBoost(BoostTrack):
         self._gta_graveyard: dict[int, dict] = {}
         # Accumulated gap-fill rows (MOT format, 9 cols).
         self._gta_gap_entries: list[np.ndarray] = []
+        # ---- Adaptive KF ----
+        self.adaptive_kf = bool(adaptive_kf)
 
     def _update_impl(
         self,
@@ -409,6 +413,7 @@ class OccluBoost(BoostTrack):
                     dets[i, :],
                     max_obs=self.max_obs,
                     emb=det_emb,
+                    adaptive_kf=self.adaptive_kf,
                 )
                 # Tentative until confirmed; high-conf detections skip the
                 # confirmation period so first-frame appearances still emit.
@@ -1049,6 +1054,7 @@ class OccluBoost(BoostTrack):
                     max_obs=self.max_obs,
                     emb=det_emb,
                     is_obb=True,
+                    adaptive_kf=self.adaptive_kf,
                 )
                 new_trk.is_activated = bool(
                     dets[i, 5] >= self.instant_confirm_thresh

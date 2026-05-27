@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 import yaml
+
+from rich.console import Group, RenderableType
+from rich.text import Text
 
 import boxmot.utils.rich.ui as ui
 from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.trackers.tracker_zoo import get_tracker_config
 from boxmot.utils.rich.reporting import RichWorkflowReporter, format_param_label
 from boxmot.utils.rich.steps import (
-    EVAL_STEPS,
     eval_steps,
 )
 from boxmot.utils.rich.steps import (
@@ -163,6 +166,98 @@ def _build_eval_workflow_fields(args: argparse.Namespace) -> list[tuple[str, obj
     return fields
 
 
+def _read_yaml_text(path: Path) -> str | None:
+    """Read a YAML file and return its text, or None on failure."""
+    try:
+        return path.read_text(encoding="utf-8").rstrip()
+    except Exception:
+        return None
+
+
+def _config_link(label: str, path: Path) -> Text:
+    """Build a single-line ``Label  file://…`` link for a config file."""
+    uri = path.resolve().as_uri()
+    t = Text()
+    t.append(f"  {label:<10}", style=ui.STYLE_TEXT_STRONG)
+    t.append(f"{path.name}", style=f"link {uri}")
+    return t
+
+
+def build_setup_configs_renderable(args: argparse.Namespace) -> RenderableType | None:
+    """Build a renderable listing the config files used in this run.
+
+    Each entry is a ``file://`` link so the user can click to open it.
+    Returns ``None`` when no config files can be resolved.
+    """
+    from boxmot.configs.benchmark import (
+        resolve_benchmark_cfg_path,
+        resolve_detector_cfg_path,
+        resolve_reid_cfg_path,
+    )
+
+    lines: list[Text] = []
+    lines.append(Text("  Configs used in this pipeline:", style=ui.STYLE_TEXT_STRONG))
+
+    # Benchmark / dataset config
+    benchmark = (
+        getattr(args, "data", None)
+        or getattr(args, "benchmark", None)
+    )
+    if benchmark:
+        try:
+            path = resolve_benchmark_cfg_path(str(benchmark))
+            lines.append(_config_link("Benchmark", path))
+        except Exception:
+            pass
+
+    # Detector config
+    det_cfg_ref = getattr(args, "detector_config", None)
+    if det_cfg_ref is None:
+        try:
+            from boxmot.configs.benchmark import load_benchmark_only_cfg
+            bench = load_benchmark_only_cfg(str(benchmark)) if benchmark else {}
+            det_cfg_ref = bench.get("detector_config") or bench.get("detector")
+        except Exception:
+            pass
+    if det_cfg_ref:
+        try:
+            path = resolve_detector_cfg_path(str(det_cfg_ref))
+            lines.append(_config_link("Detector", path))
+        except Exception:
+            pass
+
+    # ReID config
+    reid_cfg_ref = getattr(args, "reid_config", None)
+    if reid_cfg_ref is None:
+        try:
+            from boxmot.configs.benchmark import load_benchmark_only_cfg
+            bench = load_benchmark_only_cfg(str(benchmark)) if benchmark else {}
+            reid_cfg_ref = bench.get("reid_config") or bench.get("reid")
+        except Exception:
+            pass
+    if reid_cfg_ref:
+        try:
+            path = resolve_reid_cfg_path(str(reid_cfg_ref))
+            lines.append(_config_link("ReID", path))
+        except Exception:
+            pass
+
+    # Tracker config
+    tracker = getattr(args, "tracker", None)
+    if tracker:
+        try:
+            tracker_name = parse_tracker_spec(tracker).name
+            path = get_tracker_config(tracker_name)
+            lines.append(_config_link("Tracker", path))
+        except Exception:
+            pass
+
+    if len(lines) <= 1:
+        return None
+
+    return Group(*lines)
+
+
 def _refresh_eval_pipeline_intro(
     workflow: ui.WorkflowProgress | None,
     args: argparse.Namespace,
@@ -186,8 +281,6 @@ class EvalWorkflowReporter(RichWorkflowReporter):
     GENERATE = 1
     TRACK = 2
     EVALUATE = 3
-    steps = EVAL_STEPS
-
     def __init__(self, args: Any) -> None:
         super().__init__(args)
         tune_kf = bool(getattr(args, "tune_kf", False))
@@ -212,6 +305,7 @@ __all__ = [
     "EVAL_TRACK_STEP",
     "EVAL_EVALUATE_STEP",
     "EvalWorkflowReporter",
+    "build_setup_configs_renderable",
     "log_eval_pipeline_intro",
     "_refresh_eval_pipeline_intro",
 ]

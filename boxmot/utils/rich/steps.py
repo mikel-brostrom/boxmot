@@ -47,11 +47,11 @@ def compose(*labels: str) -> tuple[tuple[str, StepState], ...]:
 
 TRACK_STEPS    = compose(SETUP, TRACK)
 GENERATE_STEPS = compose(SETUP, GENERATE)
-EVAL_STEPS     = compose(SETUP, GENERATE, TRACK, EVALUATE)
 EXPORT_STEPS   = compose(SETUP, EXPORT)
-TUNE_STEPS     = compose(SETUP, GENERATE, OPTIMIZE)
 RESEARCH_STEPS = compose(PREPARE, BASELINE, RESEARCH_OPTIMIZE, BEST_CANDIDATE)
 
+
+# ── Dynamic pipeline builders (canonical way to get mode-specific steps) ──
 
 def eval_steps(*, tune_kf: bool = False, postprocess: bool = False) -> tuple[tuple[str, StepState], ...]:
     """Build eval pipeline steps, including optional stages only when enabled."""
@@ -62,4 +62,13 @@ def eval_steps(*, tune_kf: bool = False, postprocess: bool = False) -> tuple[tup
     if postprocess:
         labels.append(POSTPROCESS)
     labels.append(EVALUATE)
+    return compose(*labels)
+
+
+def tune_steps(*, tune_kf: bool = False) -> tuple[tuple[str, StepState], ...]:
+    """Build tune pipeline steps, including optional KF tuning stage."""
+    labels = [SETUP, GENERATE]
+    if tune_kf:
+        labels.append(TUNE_KF)
+    labels.append(OPTIMIZE)
     return compose(*labels)
