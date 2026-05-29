@@ -57,4 +57,4 @@ See [CLI](../usage/index.md) for the high-level syntax. Each mode page below inc
 
 ## Python API path
 
-If you want the same tracking and benchmark modes from Python, start with the [Python API Overview](../python/index.md). The public facade is `boxmot.Boxmot`. The dedicated ReID `train` and `eval-reid` workflows are currently CLI-only.
+If you want the same tracking and benchmark modes from Python, start with the [Python API Overview](../python/index.md). The public facade is `boxmot.Boxmot`.

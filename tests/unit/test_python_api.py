@@ -14,7 +14,9 @@ import boxmot
 import boxmot.api as api_module
 from boxmot.engine.eval import cache as cache_module
 from boxmot.engine.eval import evaluator as evaluator_module
+from boxmot.engine.reid import evaluator as reid_evaluator_module
 from boxmot.engine.reid import export as export_module
+from boxmot.engine.reid import trainer as reid_trainer_module
 from boxmot.engine import research as research_engine_module
 from boxmot.engine.tracking import tracker as tracker_module
 from boxmot.engine.tuning import tuner as tuner_module
@@ -1595,6 +1597,90 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     assert export_results.files["onnx"] == tmp_path / "exported.onnx"
     assert export_args.include == ("onnx",)
     assert export_args.weights.name == "lmbn_n_duke.pt"
+
+
+def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
+    calls = {}
+
+    expected_train = api_module.TrainResult(
+        best_epoch=1,
+        best_mAP=0.75,
+        best_rank1=0.50,
+        weights_path=tmp_path / "runs" / "reid_train" / "exp" / "best.pt",
+    )
+
+    def fake_train_main(args):
+        calls["train"] = args
+        return expected_train
+
+    def fake_eval_reid_main(args):
+        calls["eval_reid"] = args
+        return {
+            "model": "mobilenetv2_x1_0",
+            "dataset": "market1501",
+            "mAP": 0.75,
+            "rank1": 0.5,
+            "rank5": 0.0,
+            "rank10": 0.0,
+        }
+
+    monkeypatch.setattr(reid_trainer_module, "main", fake_train_main)
+    monkeypatch.setattr(reid_evaluator_module, "main", fake_eval_reid_main)
+
+    model = api_module.Boxmot(project=tmp_path / "runs")
+
+    trained = model.train(
+        model="mobilenetv2_x1_0",
+        dataset="market1501",
+        data_dir=tmp_path / "assets" / "reid-mini",
+        device="cpu",
+        epochs=1,
+        warmup_epochs=0,
+        eval_interval=1,
+        batch_size=4,
+        p_ids=2,
+        k_instances=2,
+        num_workers=0,
+        project=tmp_path / "runs" / "reid_train",
+        name="exp",
+        pretrained=False,
+    )
+
+    assert trained is expected_train
+    train_args = calls["train"]
+    assert train_args.model == "mobilenetv2_x1_0"
+    assert train_args.dataset == "market1501"
+    assert train_args.data_dir == str(tmp_path / "assets" / "reid-mini")
+    assert train_args.epochs == 1
+    assert train_args.warmup_epochs == 0
+    assert train_args.eval_interval == 1
+    assert train_args.batch_size == 4
+    assert train_args.p_ids == 2
+    assert train_args.k_instances == 2
+    assert train_args.pretrained is False
+    assert train_args.project == tmp_path / "runs" / "reid_train"
+    assert train_args.name == "exp"
+
+    evaluated = model.eval_reid(
+        weights=tmp_path / "runs" / "reid_train" / "exp" / "best.pt",
+        model="mobilenetv2_x1_0",
+        dataset="market1501",
+        data_dir=tmp_path / "assets" / "reid-mini",
+        device="cpu",
+        batch_size=2,
+        num_workers=0,
+        output=tmp_path / "runs" / "reid_eval",
+    )
+
+    assert evaluated["mAP"] == 0.75
+    eval_args = calls["eval_reid"]
+    assert eval_args.weights == str(tmp_path / "runs" / "reid_train" / "exp" / "best.pt")
+    assert eval_args.model == "mobilenetv2_x1_0"
+    assert eval_args.dataset == "market1501"
+    assert eval_args.data_dir == str(tmp_path / "assets" / "reid-mini")
+    assert eval_args.batch_size == 2
+    assert eval_args.num_workers == 0
+    assert eval_args.output == str(tmp_path / "runs" / "reid_eval")
 
 
 def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp_path, capsys):

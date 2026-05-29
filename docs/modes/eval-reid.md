@@ -52,7 +52,7 @@ By default the JSON summary is written next to the checkpoint as `eval_<dataset>
 
 ## Scope
 
-`eval-reid` is currently a CLI workflow. The documented high-level `Boxmot` Python facade does not expose a matching `eval_reid(...)` method.
+`eval-reid` is available from both the CLI and Python facade via `Boxmot.eval_reid(...)`.
 
 ## Related pages
 

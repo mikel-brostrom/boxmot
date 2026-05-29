@@ -23,9 +23,32 @@ tuned = boxmot.tune(benchmark="mot17-mini", n_trials=2)
 print(tuned)
 ```
 
-The same facade also exposes `research(...)` for GEPA-backed benchmark optimization and `export(...)` for ReID conversion workflows.
+ReID lifecycle workflows are available from the same facade:
 
-Dedicated ReID model training and query/gallery evaluation are currently CLI workflows through `boxmot train` and `boxmot eval-reid`; they are not part of the documented high-level `Boxmot` facade.
+```python
+from boxmot import Boxmot
+
+api = Boxmot()
+train_result = api.train(
+    model="mobilenetv2_x1_0",
+    dataset="market1501",
+    data_dir="assets/reid-mini",
+    device="cpu",
+    epochs=5,
+    batch_size=16,
+)
+
+metrics = api.eval_reid(
+    weights=train_result.weights_path,
+    model="mobilenetv2_x1_0",
+    dataset="market1501",
+    data_dir="assets/reid-mini",
+    device="cpu",
+)
+print(metrics)
+```
+
+The same facade also exposes `research(...)` for GEPA-backed benchmark optimization, `train(...)` and `eval_reid(...)` for ReID model lifecycle workflows, and `export(...)` for ReID conversion workflows.
 
 Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` on returned results when you need structured data instead of the human-readable report.
 
