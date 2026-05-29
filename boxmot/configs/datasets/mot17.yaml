@@ -9,7 +9,7 @@ splits:
   val: "val"
   test: "test"
   ablation: "ablation"
-default_split: test
+default_split: ablation
 
 classes:
   1: pedestrian
