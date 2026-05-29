@@ -53,7 +53,7 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
 <div align="center" markdown="1">
 
 <!-- START TRACKER TABLE -->
-<table>
+<table style="font-size: 12px; line-height: 1.2;">
   <thead>
     <tr>
       <th rowspan="2" align="left">Tracker</th>
