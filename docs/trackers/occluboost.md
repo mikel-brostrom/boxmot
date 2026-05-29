@@ -18,7 +18,7 @@ On the MOT17 ablation split (`yolox_x_MOT17_ablation` + `lmbn_n_duke`), OccluBoo
 ## What BoxMOT Needs For OccluBoost
 
 - A detector and a ReID model (the recovery pass and second-pass appearance gate both rely on embeddings).
-- AABB or OBB detections. OBB inputs are routed through a dedicated OBB code path that uses oriented IoU for association and a 9-column output schema (`[cx, cy, w, h, angle, id, conf, cls, det_ind]`); AMS, DLO/DUO confidence boosting, and Mahalanobis association are skipped in OBB mode (they are tied to the AABB xyhr representation).
+- AABB or OBB detections. OBB inputs are routed through a dedicated OBB code path that uses oriented IoU for association and a 9-column output schema (`[cx, cy, w, h, angle, id, conf, cls, det_ind]`); the OBB association path replaces the AABB-specific confidence-boosting and Mahalanobis matching logic.
 - Best for crowded / partial-occlusion scenes where identity preservation matters.
 
 ## Native C++ Backend

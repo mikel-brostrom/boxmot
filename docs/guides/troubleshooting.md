@@ -86,6 +86,27 @@ Native backends are currently available for `botsort`, `bytetrack`, `ocsort`, `o
 
 `generate`, `eval`, `tune`, and `research` share a cache keyed by detector + ReID + dataset. If you change benchmark, dataset, detector, or ReID, the cache key changes and the run regenerates. Keep the same combination across modes to reuse cached detections and embeddings.
 
+### I only want to test a few benchmark sequences
+
+Use `--seq-limit` on `generate`, `eval`, `tune`, or `research` to cap the number of sequences processed during a run:
+
+```bash
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --seq-limit 2
+```
+
+### Replay is slow on trackers that use camera motion compensation
+
+Most replay runs skip image loading completely, but trackers that need live image data during replay still have to read frames. BoxMOT already enables a small background prefetch queue for those trackers.
+
+If replay is still disk-bound, enable the RAM-backed frame cache:
+
+```bash
+BOXMOT_RAM_CACHE_SEQUENCES=1 BOXMOT_RAM_CACHE_PEERS=4 \
+boxmot eval --benchmark mmot-obb --split test --tracker occluboost
+```
+
+Increase `BOXMOT_RAM_CACHE_PEERS` when multiple workers will cache frames at the same time so each worker budgets less RAM.
+
 ### Tuning doesn't explore parameters you expect
 
 Tuning ranges live in the per-tracker YAMLs under `boxmot/configs/trackers/`. Each tracker exposes only the parameters listed there to `boxmot tune`.

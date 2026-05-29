@@ -11,6 +11,8 @@ Each dataset YAML is a self-contained benchmark definition that includes:
 - default ReID profile
 - optional cache download URLs
 
+Built-in examples include `mot17`, `sportsmot`, and `mmot-obb`.
+
 ## Example
 
 ```yaml
@@ -38,7 +40,12 @@ boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
 
 # Override split
 boxmot eval --benchmark sportsmot --split test --tracker boosttrack
+
+# MMOT benchmark config (OBB-backed)
+boxmot eval --benchmark mmot-obb --split test --tracker botsort
 ```
 
 That benchmark name selects the corresponding YAML and all linked profiles.
 The `--split` flag overrides the default split defined in the config.
+
+Use `--seq-limit` with benchmark modes when you want to process only the first few sequences during quick experiments.

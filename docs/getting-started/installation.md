@@ -20,6 +20,7 @@ BoxMOT keeps heavier workflow dependencies optional. Install the extras that mat
 | Workflow | PyPI install | Source checkout with `uv` | Notes |
 | --- | --- | --- | --- |
 | `track`, `generate`, `eval` with common YOLO backends | `pip install "boxmot[yolo]"` | `uv sync --extra yolo` | Preinstalls Ultralytics and YOLOX. If you skip this, BoxMOT can install some detector packages on first use. |
+| `train` and `eval-reid` | `pip install boxmot` | `uv sync` | Uses the built-in ReID training and evaluation stack. You still need to place the chosen ReID dataset under your `--data-dir`. |
 | `tune` | `pip install "boxmot[evolve]"` | `uv sync --extra evolve` | Installs Ray Tune, Optuna, Plotly, and related tuning dependencies. |
 | `research` | `pip install "boxmot[research]"` | `uv sync --extra research` | Installs GEPA for the code-evolution loop. |
 | `export --include onnx` | `pip install "boxmot[onnx]"` | `uv sync --extra onnx` | The default export path uses ONNX. |
@@ -82,5 +83,5 @@ The generated build files are kept under `build/native/<tracker>/`.
 ## Next steps
 
 - Use [Quickstart](../index.md) for a minimal path.
-- Use [Modes Overview](../modes/index.md) to decide between `track`, `generate`, `eval`, `tune`, `research`, and `export`.
+- Use [Modes Overview](../modes/index.md) to decide between `track`, `generate`, `eval`, `tune`, `research`, `train`, `eval-reid`, and `export`.
 - Use the workflow table above to add the extras your workflow needs.

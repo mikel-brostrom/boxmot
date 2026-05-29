@@ -1,6 +1,6 @@
 # Modes Overview
 
-BoxMOT organizes its main workflows into six modes exposed through one CLI and one high-level Python facade.
+BoxMOT organizes its workflows into one CLI command group plus a high-level Python facade for the tracking and benchmark paths.
 
 | Mode | Use it when | Main command | Install notes | Start here |
 | --- | --- | --- | --- | --- |
@@ -9,6 +9,8 @@ BoxMOT organizes its main workflows into six modes exposed through one CLI and o
 | `eval` | You want TrackEval metrics on a benchmark | `boxmot eval` | Same as `generate`; reuses cached detections and embeddings. | [Evaluate](eval.md) |
 | `tune` | You want to optimize tracker hyperparameters | `boxmot tune` | Add the `evolve` extra. | [Tune](tune.md) |
 | `research` | You want GEPA to propose and score tracker code changes | `boxmot research` | Add the `research` extra. | [Research](research.md) |
+| `train` | You want to train a ReID backbone on a ReID dataset | `boxmot train` | Core install. | [Train ReID](train.md) |
+| `eval-reid` | You want `mAP` and CMC metrics for a trained ReID checkpoint | `boxmot eval-reid` | Core install. | [Evaluate ReID](eval-reid.md) |
 | `export` | You want to convert a ReID model to deployment formats | `boxmot export` | Add format-specific extras (`onnx`, `openvino`, `tflite`). | [Export](export.md) |
 
 See [Installation](../getting-started/installation.md#mode-specific-extras) for exact extras commands.
@@ -33,6 +35,16 @@ boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
 boxmot tune --benchmark mot17 --split ablation --tracker bytetrack
 ```
 
+### ReID model lifecycle
+
+Use `train`, `eval-reid`, and `export` when you are working on the appearance model itself rather than the full tracking loop.
+
+```bash
+boxmot train --model osnet_x0_25 --dataset market1501 --data-dir /data/reid
+boxmot eval-reid --weights runs/reid_train/exp/best.pt --dataset market1501 --data-dir /data/reid
+boxmot export --weights runs/reid_train/exp/best.pt --include onnx
+```
+
 ## Shared CLI shape
 
 All BoxMOT modes start from the same command group:
@@ -45,4 +57,4 @@ See [CLI](../usage/index.md) for the high-level syntax. Each mode page below inc
 
 ## Python API path
 
-If you want the same modes from Python, start with the [Python API Overview](../python/index.md). The public facade is `boxmot.Boxmot`.
+If you want the same tracking and benchmark modes from Python, start with the [Python API Overview](../python/index.md). The public facade is `boxmot.Boxmot`. The dedicated ReID `train` and `eval-reid` workflows are currently CLI-only.

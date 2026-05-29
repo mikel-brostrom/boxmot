@@ -2,6 +2,8 @@
 
 Use this guide when you need to interpret benchmark outputs from `boxmot eval`, `Boxmot.val(...)`, `tune`, or `research`.
 
+For cache reuse, quick subset runs with `--seq-limit`, and replay image-loading controls, see [Benchmark Workflows](benchmarks.md).
+
 ## Core metrics
 
 - `HOTA` for overall tracking quality

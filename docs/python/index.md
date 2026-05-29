@@ -25,6 +25,8 @@ print(tuned)
 
 The same facade also exposes `research(...)` for GEPA-backed benchmark optimization and `export(...)` for ReID conversion workflows.
 
+Dedicated ReID model training and query/gallery evaluation are currently CLI workflows through `boxmot train` and `boxmot eval-reid`; they are not part of the documented high-level `Boxmot` facade.
+
 Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` on returned results when you need structured data instead of the human-readable report.
 
 ## Native C++ backends

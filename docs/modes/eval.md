@@ -37,6 +37,12 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
 
         This lets `eval` reuse precomputed detections and embeddings.
 
+        For a quick subset run while iterating on a tracker or benchmark setup:
+
+        ```bash
+        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --seq-limit 2
+        ```
+
     === "Python"
 
         ```python
@@ -67,6 +73,8 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
 
 See [Evaluation and Postprocessing](../guides/evaluation.md).
 
+See [Benchmark Workflows](../guides/benchmarks.md) for cache reuse, MMOT benchmark ids, and replay image-loading behavior.
+
 ## Native C++ replay
 
 Use `--tracker-backend cpp` to run the cached replay stage through a native tracker implementation:
@@ -77,6 +85,8 @@ boxmot eval --benchmark mot17 --split ablation --tracker ocsort:cpp
 ```
 
 Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`. `--tracking-backend cpp` is still accepted as a compatibility alias, but `--tracker-backend cpp` is the canonical selector.
+
+When replay runs need real images, BoxMOT enables background prefetch automatically and can optionally cache sequence frames in RAM through `BOXMOT_RAM_CACHE_SEQUENCES=1`.
 
 ## Main outputs
 

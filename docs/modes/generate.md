@@ -42,6 +42,12 @@ Use `generate` to precompute detections and embeddings that can be reused by lat
 
 Cache generation removes repeated detector and ReID work from later benchmark runs. That makes evaluation and tuning faster and more reproducible.
 
+For quick smoke tests on large benchmarks, add `--seq-limit` to generate cache files for only the first few sequences:
+
+```bash
+boxmot generate --benchmark mot17 --split ablation --seq-limit 2
+```
+
 ## What gets written
 
 `generate` writes cached detector outputs and ReID embeddings under the configured project/name directory so later runs can reuse them.
@@ -51,6 +57,8 @@ Cache generation removes repeated detector and ReID work from later benchmark ru
 - before repeated `eval` runs on the same benchmark
 - before `tune`, which evaluates many tracker parameter sets
 - before `research`, which may evaluate many candidate code variants
+
+See [Benchmark Workflows](../guides/benchmarks.md) for cache reuse, MMOT benchmark ids, and replay image-loading notes.
 
 ## CLI Arguments
 
