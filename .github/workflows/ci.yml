@@ -258,6 +258,51 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
+  reid:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install requirements
+        shell: bash
+        run: |
+          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+      - name: Smoke-test ReID train and eval
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          boxmot train \
+            --model mobilenetv2_x1_0 \
+            --dataset market1501 \
+            --data-dir assets/reid-mini \
+            --device cpu \
+            --epochs 1 \
+            --warmup-epochs 0 \
+            --eval-interval 1 \
+            --batch-size 4 \
+            --p-ids 2 \
+            --k-instances 2 \
+            --num-workers 0 \
+            --project runs/reid_ci \
+            --name smoke \
+            --no-pretrained
+          boxmot eval-reid \
+            --weights runs/reid_ci/smoke/best.pt \
+            --model mobilenetv2_x1_0 \
+            --dataset market1501 \
+            --data-dir assets/reid-mini \
+            --device cpu \
+            --batch-size 2 \
+            --num-workers 0 \
+            --output runs/reid_ci/smoke_eval
+
   obb:
     runs-on: ubuntu-latest
     outputs:
@@ -560,6 +605,7 @@ jobs:
       - native_build
       - cpp_trackers
       - metrics
+      - reid
       - obb
       - tune
       - export
@@ -577,6 +623,7 @@ jobs:
             "native_build=${{ needs.native_build.result }}"
             "cpp_trackers=${{ needs.cpp_trackers.result }}"
             "metrics=${{ needs.metrics.result }}"
+            "reid=${{ needs.reid.result }}"
             "obb=${{ needs.obb.result }}"
             "tune=${{ needs.tune.result }}"
             "export=${{ needs.export.result }}"
