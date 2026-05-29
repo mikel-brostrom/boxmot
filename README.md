@@ -77,9 +77,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
   <tbody>
     <tr>
       <td align="left"><sub>occluboost</sub></td>
-      <td align="right"><sub><b>70.47</b>(70.48)</sub></td>
-      <td align="right"><sub><b>78.32</b>(78.31)</sub></td>
-      <td align="right"><sub><b>84.14</b>(84.14)</sub></td>
+      <td align="right"><sub><b>70.47</b><br>(70.48)</sub></td>
+      <td align="right"><sub><b>78.32</b><br>(78.31)</sub></td>
+      <td align="right"><sub><b>84.14</b><br>(84.14)</sub></td>
       <td align="right"><sub><b>83.17</b></sub></td>
       <td align="right"><sub>97.48</sub></td>
       <td align="right"><sub><b>89.36</b></sub></td>
@@ -90,9 +90,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2206.14651">botsort</a></sub></td>
-      <td align="right"><sub>69.44(69.43)</sub></td>
-      <td align="right"><sub>78.24(78.26)</sub></td>
-      <td align="right"><sub>81.94(82.00)</sub></td>
+      <td align="right"><sub>69.44<br>(69.43)</sub></td>
+      <td align="right"><sub>78.24<br>(78.26)</sub></td>
+      <td align="right"><sub>81.94<br>(82.00)</sub></td>
       <td align="right"><sub>76.93</sub></td>
       <td align="right"><sub><b>98.11</b></sub></td>
       <td align="right"><sub>78.30</sub></td>
@@ -103,9 +103,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2408.13003">boosttrack</a></sub></td>
-      <td align="right"><sub>69.25(—)</sub></td>
-      <td align="right"><sub>75.91(—)</sub></td>
-      <td align="right"><sub>83.20(—)</sub></td>
+      <td align="right"><sub>69.25<br>(—)</sub></td>
+      <td align="right"><sub>75.91<br>(—)</sub></td>
+      <td align="right"><sub>83.20<br>(—)</sub></td>
       <td align="right"><sub>76.32</sub></td>
       <td align="right"><sub>97.08</sub></td>
       <td align="right"><sub>77.82</sub></td>
@@ -116,9 +116,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2202.13514">strongsort</a></sub></td>
-      <td align="right"><sub>68.05(—)</sub></td>
-      <td align="right"><sub>76.19(—)</sub></td>
-      <td align="right"><sub>80.76(—)</sub></td>
+      <td align="right"><sub>68.05<br>(—)</sub></td>
+      <td align="right"><sub>76.19<br>(—)</sub></td>
+      <td align="right"><sub>80.76<br>(—)</sub></td>
       <td align="right"><sub>79.80</sub></td>
       <td align="right"><sub>97.31</sub></td>
       <td align="right"><sub>80.27</sub></td>
@@ -129,9 +129,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2302.11813">deepocsort</a></sub></td>
-      <td align="right"><sub>67.95(—)</sub></td>
-      <td align="right"><sub>75.83(—)</sub></td>
-      <td align="right"><sub>80.54(—)</sub></td>
+      <td align="right"><sub>67.95<br>(—)</sub></td>
+      <td align="right"><sub>75.83<br>(—)</sub></td>
+      <td align="right"><sub>80.54<br>(—)</sub></td>
       <td align="right"><sub>79.51</sub></td>
       <td align="right"><sub>97.94</sub></td>
       <td align="right"><sub>79.59</sub></td>
@@ -142,9 +142,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2110.06864">bytetrack</a></sub></td>
-      <td align="right"><sub>67.68(67.75)</sub></td>
-      <td align="right"><sub>78.04(78.03)</sub></td>
-      <td align="right"><sub>79.16(79.38)</sub></td>
+      <td align="right"><sub>67.68<br>(67.75)</sub></td>
+      <td align="right"><sub>78.04<br>(78.03)</sub></td>
+      <td align="right"><sub>79.16<br>(79.38)</sub></td>
       <td align="right"><sub>67.93</sub></td>
       <td align="right"><sub>97.25</sub></td>
       <td align="right"><sub>76.90</sub></td>
@@ -155,9 +155,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2308.00783">hybridsort</a></sub></td>
-      <td align="right"><sub>67.31(—)</sub></td>
-      <td align="right"><sub>74.09(—)</sub></td>
-      <td align="right"><sub>78.87(—)</sub></td>
+      <td align="right"><sub>67.31<br>(—)</sub></td>
+      <td align="right"><sub>74.09<br>(—)</sub></td>
+      <td align="right"><sub>78.87<br>(—)</sub></td>
       <td align="right"><sub>81.14</sub></td>
       <td align="right"><sub>98.07</sub></td>
       <td align="right"><sub>81.88</sub></td>
@@ -168,9 +168,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2203.14360">ocsort</a></sub></td>
-      <td align="right"><sub>66.44(66.44)</sub></td>
-      <td align="right"><sub>74.55(74.55)</sub></td>
-      <td align="right"><sub>77.90(77.90)</sub></td>
+      <td align="right"><sub>66.44<br>(66.44)</sub></td>
+      <td align="right"><sub>74.55<br>(74.55)</sub></td>
+      <td align="right"><sub>77.90<br>(77.90)</sub></td>
       <td align="right"><sub>76.34</sub></td>
       <td align="right"><sub>96.60</sub></td>
       <td align="right"><sub>75.64</sub></td>
@@ -181,9 +181,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/pdf/2404.07553">sfsort</a></sub></td>
-      <td align="right"><sub>62.65(62.66)</sub></td>
-      <td align="right"><sub>76.87(76.74)</sub></td>
-      <td align="right"><sub>69.18(69.18)</sub></td>
+      <td align="right"><sub>62.65<br>(62.66)</sub></td>
+      <td align="right"><sub>76.87<br>(76.74)</sub></td>
+      <td align="right"><sub>69.18<br>(69.18)</sub></td>
       <td align="right"><sub>75.73</sub></td>
       <td align="right"><sub>98.39</sub></td>
       <td align="right"><sub>72.99</sub></td>
