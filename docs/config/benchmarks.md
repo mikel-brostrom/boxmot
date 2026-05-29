@@ -47,5 +47,3 @@ boxmot eval --benchmark mmot-obb --split test --tracker botsort
 
 That benchmark name selects the corresponding YAML and all linked profiles.
 The `--split` flag overrides the default split defined in the config.
-
-Use `--seq-limit` with benchmark modes when you want to process only the first few sequences during quick experiments.

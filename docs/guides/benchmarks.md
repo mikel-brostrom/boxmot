@@ -20,18 +20,6 @@ boxmot tune --benchmark mot17 --split ablation --tracker bytetrack
 
 `mmot-obb` is still the CLI benchmark id even when the surrounding docs and result tables refer to the benchmark as MMOT.
 
-## Quick experimentation
-
-Use `--seq-limit` to cap how many sequences a benchmark run processes. This is useful for smoke tests, profiling, and tracker iteration before paying the cost of a full split.
-
-```bash
-boxmot generate --benchmark mot17 --split ablation --seq-limit 2
-boxmot eval --benchmark sportsmot --split val --tracker ocsort --seq-limit 3
-boxmot eval --benchmark mmot-obb --split test --tracker occluboost --seq-limit 1
-```
-
-`--seq-limit` applies to the benchmark modes that walk sequence folders from the dataset config. It does not change metrics semantics beyond evaluating a smaller subset.
-
 ## Cache reuse
 
 `generate`, `eval`, `tune`, and `research` share a cache key derived from the dataset, detector, and ReID configuration.
@@ -44,19 +32,7 @@ boxmot eval --benchmark mmot-obb --split test --tracker occluboost --seq-limit 1
 
 Most cached replay runs do not need to read images at all. BoxMOT skips image loading when the selected tracker can work from cached detections and embeddings alone.
 
-Trackers that need image data during replay, such as camera-motion-compensation paths, automatically switch to image loading with a small background prefetch queue.
-
-If those runs are still disk-bound, you can opt into a RAM-backed frame cache:
-
-```bash
-BOXMOT_RAM_CACHE_SEQUENCES=1 \
-BOXMOT_RAM_CACHE_PEERS=4 \
-boxmot eval --benchmark mmot-obb --split test --tracker occluboost
-```
-
-- `BOXMOT_RAM_CACHE_SEQUENCES=1` enables per-sequence frame caching during replay when images are required.
-- `BOXMOT_RAM_CACHE_PEERS` divides the RAM budget across concurrent cache instances. Increase it when you run multiple workers or parallel sequence jobs on the same machine.
-- The cache chooses the most aggressive tier that fits in RAM: pre-decoded arrays first, raw bytes second, then falls back to disk reads.
+Trackers that need image data during replay, such as camera-motion-compensation paths, still read frames from the dataset during replay.
 
 ## Outputs
 
