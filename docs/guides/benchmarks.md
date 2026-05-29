@@ -67,6 +67,17 @@ Benchmark workflows write reusable detection and embedding caches under the proj
 - `tune` writes trial outputs and the best parameter set.
 - `research` writes benchmark summaries for each evaluated code proposal.
 
+## README benchmark table notes
+
+The README benchmark table uses the following conventions and inputs:
+
+- MOT17 ablation runs evaluate on the second half of the MOT17 training set because the public validation split is not available and the ablation detector was trained on the first half.
+- MOT17 cells are shown as `Py (C++)`. The value in parentheses is the native replay path using `--tracker-backend cpp`.
+- `—` means that tracker does not currently have a native replay backend for that benchmark path.
+- MOT17 results use [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip) with each tracker configured from its default repository settings.
+- SportsMOT val results use the `yolox_x_sportsmot` detector and `lmbn_n_duke` ReID model.
+- MMOT test metrics are class-averaged across all 8 categories, following the <a href="https://arxiv.org/abs/2510.12565">MMOT paper</a> convention, and use the `yolo11l_3ch` detector with the `lmbn_n_duke` ReID model.
+
 ## Related pages
 
 - [Generate](../modes/generate.md)
